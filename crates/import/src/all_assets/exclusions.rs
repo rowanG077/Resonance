@@ -101,18 +101,21 @@ pub(super) fn validate_build_metadata(path: &Path) -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires both extracted discs and the physical cook; no media conversion"]
+#[ignore = "requires both extracted discs and current RESONANCE_TEST_ASSETS; no media conversion"]
 fn original_exclusions_identify_metadata_native_containers_and_deferred_battle() -> Result<()> {
     use std::collections::BTreeMap;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let cooked = std::env::var_os("RESONANCE_COOKED")
+    let cooked = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| root.join("all-assets"));
+        .context("set RESONANCE_TEST_ASSETS")?;
+    let reports = std::env::var_os("RESONANCE_TEST_IMPORT_REPORTS")
+        .map(std::path::PathBuf::from)
+        .context("set RESONANCE_TEST_IMPORT_REPORTS to the external reports directory")?;
     let coverage: serde_json::Value =
-        serde_json::from_slice(&fs::read(cooked.join("coverage.json"))?)?;
+        serde_json::from_slice(&fs::read(reports.join("coverage.json"))?)?;
     let excluded: BTreeMap<String, String> = serde_json::from_value(coverage["excluded"].clone())?;
     let sources: BTreeMap<String, Vec<String>> =
-        serde_json::from_slice(&fs::read(cooked.join("sources.json"))?)?;
+        serde_json::from_slice(&fs::read(reports.join("import-sources.json"))?)?;
     let deferred: Vec<serde_json::Value> = serde_json::from_value(coverage["deferred"].clone())?;
     let check_deferred = |source: &str, bytes: &[u8]| -> Result<()> {
         let entry = deferred
@@ -163,7 +166,10 @@ fn original_exclusions_identify_metadata_native_containers_and_deferred_battle()
                     check_deferred(source, &bytes)?;
                 }
                 for output in outputs {
-                    assert!(cooked.join(output).exists(), "{output}");
+                    let path = output
+                        .strip_prefix("reports/")
+                        .map_or_else(|| cooked.join(output), |path| reports.join(path));
+                    assert!(path.exists(), "{output}");
                 }
                 counts[2] += 1;
             }

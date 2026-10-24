@@ -85,12 +85,19 @@ mod tests {
             std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
         let mut cache = Default::default();
-        let files = Files::load(&root, &[], &mut cache, || false)?;
-        let mut scene: Scene = files.json(&resonance_content::battle_scene::path(252))?;
-        scene.validate()?;
-        let files = files.with_dependencies(&root, scene.files.clone(), &mut cache, || false)?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let (mut scene, source_bank) = resonance_content::battle_scene::document::capture(
+            &mut snapshot,
+            resonance_content::battle_scene::document::Kind::Technique,
+            252,
+            &diagnostics,
+            &|| false,
+        )?;
+        let files = Files::from_snapshot(snapshot, &mut cache, || false, diagnostics)?;
         let bank = EffectResource {
-            bank: Some(Arc::new(files.json(&scene.effects)?)),
+            bank: Some(Arc::new(source_bank)),
             resource: ResourceId(1),
             members: Vec::new(),
             models: scene

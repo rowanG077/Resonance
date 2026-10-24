@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2d98422a883649c0c60296f452124217722991358b622106678f64023f6da697
+// Source owner: MAP/hab_d06/HAB_D06.BIN/2
+pub const Node000_Li_03: string = "li_03";
+pub const Node001_Li_04: string = "li_04";

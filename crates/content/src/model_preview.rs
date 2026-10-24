@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPreview {
+    /// Captured authoring entry point; never serialized as part of the model.
+    #[serde(skip)]
+    pub document: Option<String>,
     pub scale: f32,
     pub elevation: f32,
     pub parts: Vec<PreviewPart>,
@@ -11,6 +14,8 @@ pub struct ModelPreview {
     pub hidden_geometry: Vec<String>,
     pub behavior: Option<crate::model_behavior::ModelBehaviorBinding>,
 }
+
+pub mod document;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreviewPart {
@@ -115,6 +120,7 @@ mod tests {
     #[test]
     fn preview_selects_resource_slots_without_pruning_shared_clips() {
         let mut model = ModelPreview {
+            document: None,
             scale: 1.,
             elevation: 0.,
             hidden_geometry: vec![],
@@ -135,7 +141,7 @@ mod tests {
                         .into_iter()
                         .enumerate()
                         .map(|(index, resource_slot)| crate::SceneClip {
-                            motion: "clips/test.motion".into(),
+                            motion: "clips/test.motion.json".into(),
                             resource_slot,
                             duration_seconds: (index + 1) as f32,
                             animation_resource: None,

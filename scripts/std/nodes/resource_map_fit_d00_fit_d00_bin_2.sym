@@ -1,0 +1,4 @@
+script library;
+// Skeleton: b80c683314c51e84eecd60d66c392173a59d2decb2c5137de274324d6f19ec8c
+// Source owner: MAP/fit_d00/FIT_D00.BIN/2
+pub const Node000_Sea_Base: string = "sea_base";

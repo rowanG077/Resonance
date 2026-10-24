@@ -36,6 +36,10 @@ fn recipes() -> Result<BTreeMap<u16, Recipe>> {
 }
 
 fn read(module: &Rel, recipe: Recipe) -> Result<(PatternSpell, [u8; 3], CameraBounds)> {
+    ensure!(
+        !recipe.provenance.trim().is_empty() && recipe.provenance.len() <= 4096,
+        "spell recipe source evidence is missing or unbounded"
+    );
     let schedule = recipe.contacts;
     ensure!(
         (1..=64).contains(&schedule.count) && schedule.period > 0,
@@ -67,7 +71,6 @@ fn read(module: &Rel, recipe: Recipe) -> Result<(PatternSpell, [u8; 3], CameraBo
         })
         .collect::<Result<Vec<_>>>()?;
     let pattern = PatternSpell {
-        provenance: recipe.provenance,
         lifetime: recipe.lifetime,
         origin: recipe.origin,
         heading_offset: crate::read::f32(module.at((4, recipe.heading_offset))?, 0)?,

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 0696f0e8fbb6631e446a631c2e4b250cf73011444e8b37be03c6b13e7b79ea8a
+// Source owner: MAP/faa_d04/FAA_D04.BIN/23/0
+pub const Node000_Faa04_07: string = "faa04_07";
+pub const Node001_Faa04_07_Box: string = "faa04_07_box";

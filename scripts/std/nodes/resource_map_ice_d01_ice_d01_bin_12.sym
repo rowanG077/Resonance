@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 5b868eaef39a37526ec5a97dc31077489a335a3b501535b3830dc09e25a41ec7
+// Source owner: MAP/ice_d01/ICE_D01.BIN/12
+pub const Node000_Turara_01: string = "turara_01";

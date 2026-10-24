@@ -1,23 +1,43 @@
 use super::*;
-use crate::figurines::tests::compare_scene_assets;
 use std::fs;
 
+fn current_book() -> Result<(std::path::PathBuf, MonsterBook)> {
+    use resonance_content::{diagnostics::Diagnostics, library::Library, preparation, prepared};
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .context("set RESONANCE_TEST_ASSETS")?;
+    let mut snapshot = Library::open(&root, &[])?.snapshot();
+    let diagnostics = Diagnostics::new(true);
+    preparation::menu_models(&mut snapshot, &diagnostics, &|| false)?;
+    let files = prepared::Files::from_snapshot(
+        snapshot,
+        &mut prepared::Cache::default(),
+        || false,
+        diagnostics,
+    )?;
+    let mut data = resonance_content::menu_data::MenuData::load(&files)?;
+    Ok((
+        root,
+        data.presentation
+            .monsters
+            .take()
+            .context("missing monster catalogue")?,
+    ))
+}
+
 #[test]
-#[ignore = "requires locally cooked monster assets"]
-fn catalogue_matches_oracle_statistics_and_uses_converted_assets() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked");
-    for id in 0..MONSTER_COUNT as u8 {
-        let monster: Monster =
-            serde_json::from_slice(&fs::read(root.join(format!("monsters/{id:03}.json"))).unwrap())
-                .unwrap();
-        monster.validate(528).unwrap();
-        assert_eq!(monster.id, id);
+#[ignore = "requires RESONANCE_TEST_ASSETS with the current named layout"]
+fn catalogue_matches_oracle_statistics_and_uses_converted_assets() -> Result<()> {
+    let (root, book) = current_book()?;
+    for monster in &book.records {
+        let id = monster.id;
+        monster.validate(528)?;
         for part in &monster.preview.parts {
             assert!(part.scene.mesh.ends_with(".glb"));
-            let model = fs::read(root.join(&part.scene.mesh)).unwrap();
+            let model = fs::read(root.join(&part.scene.mesh))?;
             assert_eq!(&model[..4], b"glTF");
             for texture in &part.scene.textures {
-                assert!(texture.ends_with(".ktx2"));
+                assert!(texture.ends_with(".png") || texture.ends_with(".ktx2"));
                 assert!(root.join(texture).is_file());
             }
         }
@@ -50,24 +70,21 @@ fn catalogue_matches_oracle_statistics_and_uses_converted_assets() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-#[ignore = "requires extracted discs and prepared assets; RESONANCE_COOKED selects the baseline"]
+#[ignore = "requires extracted discs and current RESONANCE_TEST_ASSETS"]
 fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let baseline = std::env::var_os("RESONANCE_COOKED")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| local.join("all-assets"));
-    let expected: resonance_content::menu_data::MenuData =
-        serde_json::from_slice(&fs::read(baseline.join("game/menu-data.json"))?)?;
+    let (baseline, expected) = current_book()?;
     for disc in [1, 2] {
         let output = tempfile::tempdir()?;
         let extracted = local.join(format!("extracted/disc{disc}"));
         let executable = fs::read(extracted.join("sys/main.dol"))?;
         let sources = crate::source_assets::Sources::read_with(&extracted, &executable)?;
         let usual = fs::read(extracted.join("files").join(&sources.usual))?;
-        crate::battle_effect::publish(&usual, output.path(), "battle")?;
+        let shared = crate::battle_effect::SharedPalettes::prepare(&usual, output.path())?;
         let actual = prepare(
             &extracted,
             output.path(),
@@ -75,17 +92,16 @@ fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> 
             &usual,
             &crate::all_assets::monster_catalogue::read(&executable)?,
             &inventory_ui::read(&executable)?,
+            &shared,
         )?;
-        ensure!(
-            serde_json::to_value(&actual)? == serde_json::to_value(expected.monsters()?)?,
-            "disc {disc} monsters metadata differs from the prepared baseline"
-        );
-        for monster in &actual.records {
-            for (index, part) in monster.preview.parts.iter().enumerate() {
-                compare_scene_assets(&part.scene, output.path(), &baseline)
-                    .with_context(|| format!("disc {disc} monster {} layer {index}", monster.id))?;
-            }
-        }
+        crate::named::equivalent_assets(
+            &actual.book,
+            &expected,
+            output.path(),
+            &baseline,
+            &mut BTreeMap::new(),
+        )
+        .with_context(|| format!("disc {disc} monster catalogue"))?;
         for legacy in ["assets", "data", "sources.json"] {
             ensure!(
                 !output.path().join(legacy).exists(),

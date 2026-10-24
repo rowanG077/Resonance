@@ -1,0 +1,4 @@
+script library;
+// Skeleton: f817b64c151b8b447dbfc126f45a128215080e43b4ca15027ecb2274f7c2dfd2
+// Source owner: MAP/elc_d16/ELC_D16.BIN/19/0
+pub const Node000_Loft08: string = "Loft08";

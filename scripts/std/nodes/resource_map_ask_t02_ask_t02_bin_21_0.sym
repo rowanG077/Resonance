@@ -1,0 +1,4 @@
+script library;
+// Skeleton: e55e0a2f32b0ad28df05c80ffc70060501f20e20bd83b3ffea2472025359ef2d
+// Source owner: MAP/ask_t02/ASK_T02.BIN/21/0
+pub const Node000_Jump1: string = "jump1";

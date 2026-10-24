@@ -95,7 +95,8 @@ fn angel_wing_meshes_bind_their_separate_battle_motions() -> Result<()> {
     let extracted = local.join("extracted/disc2");
     let sources = crate::source_assets::Sources::read(&extracted)?;
     let usual = std::fs::read(extracted.join("files").join(&sources.usual))?;
-    let mut shared = crate::battle_effect::SharedPalettes::read(&usual, &local.join("all-assets"))?;
+    let palette_output = tempfile::tempdir()?;
+    let mut shared = crate::battle_effect::SharedPalettes::prepare(&usual, palette_output.path())?;
     for (id, frames, tracks, slot, bone) in [
         (215, 27., 22, 60, 3),
         (235, 27., 22, 61, 3),
@@ -132,11 +133,8 @@ fn angel_wing_meshes_bind_their_separate_battle_motions() -> Result<()> {
         let members = crate::model_preview::PointerMembers::new(&bytes, 0x18..0x1e8)?;
         let body = rig(members.model(0x18)?.unwrap(), RigKind::Body)?;
         let stage = tempfile::tempdir()?;
-        enemy_resources::publish(&bytes, id as u8, &body.skeleton, &mut shared, stage.path())?;
-        let bank: resonance_content::battle_effect::SourceBank =
-            serde_json::from_slice(&std::fs::read(stage.path().join(
-                resonance_content::battle_model::enemy_effects_path(id as u8),
-            ))?)?;
+        let bank =
+            enemy_resources::prepare(&bytes, id as u8, &body.skeleton, &mut shared, stage.path())?;
         let art = bank.art.unwrap();
         let wings = &art.models[&0];
         let scene = &wings.layers[0].scene;
@@ -209,9 +207,8 @@ fn original_attached_models_cover_all_owners_and_selected_motion() -> Result<()>
         let extracted = local.join(format!("extracted/disc{disc}"));
         let sources = crate::source_assets::Sources::read(&extracted)?;
         let usual = std::fs::read(extracted.join("files").join(&sources.usual))?;
-        let mut shared =
-            crate::battle_effect::SharedPalettes::read(&usual, &local.join("all-assets"))?;
         let stage = tempfile::tempdir()?;
+        let mut shared = crate::battle_effect::SharedPalettes::prepare(&usual, stage.path())?;
         let mut owners = Vec::new();
         for id in 0..resonance_content::monster::MONSTER_COUNT {
             let bytes = crate::source_assets::enemy_package(
@@ -226,11 +223,13 @@ fn original_attached_models_cover_all_owners_and_selected_motion() -> Result<()>
             owners.push((id, bindings.len()));
             let members = crate::model_preview::PointerMembers::new(&bytes, 0x18..0x1e8)?;
             let body = rig(members.model(0x18)?.unwrap(), RigKind::Body)?;
-            enemy_resources::publish(&bytes, id as u8, &body.skeleton, &mut shared, stage.path())?;
-            let bank: resonance_content::battle_effect::SourceBank =
-                serde_json::from_slice(&std::fs::read(stage.path().join(
-                    resonance_content::battle_model::enemy_effects_path(id as u8),
-                ))?)?;
+            let bank = enemy_resources::prepare(
+                &bytes,
+                id as u8,
+                &body.skeleton,
+                &mut shared,
+                stage.path(),
+            )?;
             let art = bank.art.unwrap();
             for binding in &bindings {
                 if let AttachmentPlacement::Bone(bone) = binding.placement {

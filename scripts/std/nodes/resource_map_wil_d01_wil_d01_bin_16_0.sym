@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 8a759311c75331d4408d38ead8816428e0a7dd4fbcf5f90915ffab5e53c14d5a
+// Source owner: MAP/wil_d01/WIL_D01.BIN/16/0
+pub const Node000_Box60: string = "Box60";

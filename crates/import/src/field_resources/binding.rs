@@ -1,11 +1,7 @@
 //! Resolve original standalone files and bounded members of resource archives.
-#[cfg(test)]
-use crate::{all_assets::PhysicalDirectory, scene::binding::read};
 use crate::{resource::Catalogue, scene::decoded::Package};
 use anyhow::{Result, ensure};
 use std::io::{Cursor, Read, Seek, SeekFrom};
-#[cfg(test)]
-use std::path::Path;
 
 pub(crate) struct Resources<'a> {
     pub(crate) catalogue: &'a Catalogue,
@@ -62,43 +58,6 @@ pub(crate) fn read_member(mut file: impl Read + Seek, size: u64, id: u32) -> Res
     let mut bytes = vec![0; length as usize];
     file.read_exact(&mut bytes)?;
     crate::compression::payload(bytes)
-}
-
-#[cfg(test)]
-pub(crate) fn members(root: &Path, directory: &str) -> Result<Vec<Option<String>>> {
-    let members: PhysicalDirectory = read(root, &format!("{directory}/members.json"))?;
-    members.validate()?;
-    members
-        .members
-        .into_iter()
-        .map(|member| {
-            member
-                .map(|index| payload(root, format!("{directory}/{index}")))
-                .transpose()
-        })
-        .collect()
-}
-
-#[cfg(test)]
-pub(crate) fn payload(root: &Path, mut directory: String) -> Result<String> {
-    resonance_content::validate_asset_path(&directory)?;
-    for _ in 0..=16 {
-        ensure!(
-            root.join(&directory).is_dir(),
-            "missing cooked resource directory {directory}"
-        );
-        let path = format!("{directory}/cabinet.json");
-        if !root.join(&path).try_exists()? {
-            return Ok(directory);
-        }
-        let members: Vec<String> = read(root, &path)?;
-        let [member] = members.as_slice() else {
-            anyhow::bail!("script resource requires one cabinet payload");
-        };
-        resonance_content::validate_asset_path(member)?;
-        directory = format!("{directory}/{member}");
-    }
-    anyhow::bail!("cooked script resource nesting exceeds 16 levels")
 }
 
 #[cfg(test)]

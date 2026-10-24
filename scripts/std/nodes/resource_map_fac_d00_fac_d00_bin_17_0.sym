@@ -1,0 +1,4 @@
+script library;
+// Skeleton: d312ee98b58268c81c39c55813e905cae1a2bd990d52b492c91b718d236f33a1
+// Source owner: MAP/fac_d00/FAC_D00.BIN/17/0
+pub const Node000_Stone01: string = "stone01";

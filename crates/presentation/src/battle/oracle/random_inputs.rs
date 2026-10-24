@@ -7,11 +7,11 @@ use resonance_battle::{
         RecordedInputs, Scatter, Seal, Stun, TargetChoice, Velocity,
     },
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Pin {
     path: String,

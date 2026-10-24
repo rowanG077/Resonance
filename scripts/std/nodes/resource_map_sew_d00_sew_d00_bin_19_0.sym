@@ -1,0 +1,5 @@
+script library;
+// Skeleton: a28e7c650cd43006782bdf651ba815eca16e2941b051e3cd0425c8e017c99262
+// Source owner: MAP/sew_d00/SEW_D00.BIN/19/0
+pub const Node000_Kibako: string = "Kibako";
+pub const Node001_Zaseki: string = "Zaseki";

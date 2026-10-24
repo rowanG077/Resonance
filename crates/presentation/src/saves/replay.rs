@@ -2064,11 +2064,9 @@ mod tests {
         let package = new_game::FieldPackage::prepare(&root, 332, &mut cache, || false).unwrap();
         let saved = crate::test_support::field_checkpoint(&package.files).unwrap();
         let mut session = new_game::Session::load_prepared(
-            &root,
-            package.files,
+            std::sync::Arc::new(package),
             Some(saved.clone()),
             None,
-            &mut cache,
         )
         .unwrap();
         // Save the initialized field, including its camera bounds.

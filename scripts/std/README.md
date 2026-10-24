@@ -1,9 +1,10 @@
 # SymphoniaScript standard library
 
 These checked-in constants are the source of truth. The build embeds them; cooking
-copies the files unchanged. Edit these sources, rebuild and recook. Cooked resources
-are immutable; mod overlays are future work. Additional constants need no enum or
-native registration: use ordinary `pub const Name: string = "...";` or `i32`.
+copies the files unchanged. The cooked `scripts/` files can be edited directly or
+overridden at the same path in a mod directory, then loaded after restart. Edit
+these checked-in sources to change the defaults for future cooks. Additional
+constants need no enum or native registration: use ordinary `pub const Name: string = "...";` or `i32`.
 
 ## Catalogues
 
@@ -23,9 +24,12 @@ labelled. `std::characters::Lloyd` is canonical actor ID 1. `std::story` names
 Monsters and figurines share the model and animation machinery. Their catalogue IDs
 are distinct. These modules share node names for identical ordered skeleton names;
 that does not imply identical meshes, materials or animations. Models without a
-known catalogue name retain a `model_<hash>` module. The `Skeleton` comment links
-a module to its ordered bone-name interface for cooker documentation, not runtime
-resource validation. New models remain cookable without a standard-library entry.
+known catalogue name use `resource_<original_source_and_member>` modules. Where a
+source owner is unavailable, `nodes_<selector_names>_<count>` describes the actual
+node interface without inventing a game meaning. Stable variant suffixes distinguish
+otherwise ambiguous names. The `Source owner` comment explains the chosen name.
+The `Skeleton` signature is an internal cooker lookup; it is never an import path
+or a runtime content checksum. New models remain cookable without a standard-library entry.
 
 Use `model::node(sword_dancer_191::LeftWing)` after importing
 `std::nodes::sword_dancer_191`. Node constants are plain strings; custom constants

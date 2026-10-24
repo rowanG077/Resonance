@@ -3,7 +3,7 @@ use crate::battle_voice::Sound;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Host {
     pub source_sha256: String,
     pub placement: [[f32; 3]; 4],
@@ -30,26 +30,20 @@ impl Host {
     pub fn validate(&self) -> Result<()> {
         let prelude = &self.prelude;
         ensure!(
-            self.source_sha256.len() == 64
-                && self
-                    .source_sha256
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit())
-                && self
-                    .placement
-                    .iter()
-                    .flatten()
-                    .chain(&prelude.camera_eye)
-                    .chain(&prelude.camera_target)
-                    .chain([
-                        &self.minimum_distance,
-                        &self.short_weapon_penalty,
-                        &self.restore_height,
-                        &self.windup_rate,
-                        &prelude.first_x,
-                        &prelude.spacing,
-                    ])
-                    .all(|value| value.is_finite())
+            self.placement
+                .iter()
+                .flatten()
+                .chain(&prelude.camera_eye)
+                .chain(&prelude.camera_target)
+                .chain([
+                    &self.minimum_distance,
+                    &self.short_weapon_penalty,
+                    &self.restore_height,
+                    &self.windup_rate,
+                    &prelude.first_x,
+                    &prelude.spacing,
+                ])
+                .all(|value| value.is_finite())
                 && self.minimum_distance > 0.
                 && self.short_weapon_penalty >= 0.
                 && self.restore_height >= 0.

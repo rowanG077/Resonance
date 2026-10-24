@@ -500,18 +500,16 @@ mod tests {
     #[test]
     #[ignore = "requires original sound banks; silent in-memory synthesis"]
     fn original_layered_random_cues_share_music_clock_and_finish_after_release() -> Result<()> {
-        use anyhow::Context;
         use resonance_audio::{
             data::{Command, EventKind, Note, VoiceSource},
-            package::{Loaded, Package, SampleAsset, SampleCache},
+            package::Loaded,
             sequence::{LiveControls, shared::Synthesizer, stream::Stream},
         };
         use resonance_audio_cook::{bank::Page, decode};
         use sha2::{Digest, Sha256};
-        use std::{collections::BTreeMap, io::Cursor, sync::Arc};
+        use std::sync::Arc;
 
-        // Exercise the physical decoder, scene binder and runtime loader without
-        // writing a package, opening a device or depending on a previous cook.
+        // Compile the original bank directly into validated playback data.
         fn load(
             bank: &Bank<'_>,
             source: VoiceSource,
@@ -521,39 +519,6 @@ mod tests {
         ) -> Result<Arc<Loaded>> {
             let resources =
                 decode::programs(bank, notes.iter().map(|note| note.macro_id), sustains)?;
-            let mut files = BTreeMap::new();
-            let mut samples = BTreeMap::new();
-            for (id, sample) in resources.samples {
-                let mut bytes = Cursor::new(Vec::new());
-                let mut wave = hound::WavWriter::new(
-                    &mut bytes,
-                    hound::WavSpec {
-                        channels: 1,
-                        sample_rate: u32::from(sample.rate),
-                        bits_per_sample: 16,
-                        sample_format: hound::SampleFormat::Int,
-                    },
-                )?;
-                for &pcm in sample.pcm.iter().chain(&sample.loop_pcm) {
-                    wave.write_sample(pcm)?;
-                }
-                wave.finalize()?;
-                let bytes = bytes.into_inner();
-                let path = format!("sample-{id}.wav");
-                samples.insert(
-                    id,
-                    SampleAsset {
-                        path: path.clone(),
-                        sha256: crate::digest(&bytes),
-                        key: sample.key,
-                        rate: sample.rate,
-                        first_frames: sample.pcm.len() as u32,
-                        loop_start: sample.loop_start,
-                        loop_length: sample.loop_length,
-                    },
-                );
-                files.insert(path, bytes);
-            }
             let mut score = super::super::sound_score(0, Some(notes));
             score.origin = source.origin();
             let EventKind::Notes {
@@ -570,23 +535,11 @@ mod tests {
                 *length = u16::MAX;
                 score.end_tick = u32::from(*length);
             }
-            let package = Package {
-                version: resonance_audio::package::VERSION,
-                programs: resources.programs,
-                samples,
+            Ok(Arc::new(Loaded::new(
+                resources,
                 score,
                 tables,
-                reverbs: [[0., 0., 1., 0., 0.]; 2],
-            };
-            files.insert("cue.json".into(), serde_json::to_vec(&package)?);
-            Ok(Arc::new(Package::load_with(
-                "cue.json",
-                &mut |path, limit| {
-                    let bytes = files.get(path).context("missing in-memory cue asset")?;
-                    ensure!(bytes.len() <= limit, "in-memory cue exceeds loader budget");
-                    Ok(bytes.clone())
-                },
-                &mut SampleCache::default(),
+                [[0., 0., 1., 0., 0.]; 2],
             )?))
         }
 

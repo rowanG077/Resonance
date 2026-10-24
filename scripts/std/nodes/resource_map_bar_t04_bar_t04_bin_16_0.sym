@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 0e0148ba9691ffb2cd074da3971cf6e8b21877e6482b668667a58c5ec9f0310f
+// Source owner: MAP/bar_t04/BAR_T04.BIN/16/0
+pub const Node000_Rope_Saki00: string = "rope_saki00";
+pub const Node001_Rope_Saki01: string = "rope_saki01";

@@ -142,7 +142,7 @@ impl Source {
             .collect()
     }
 
-    pub(crate) fn publish(&self, extracted: &Path, output: &Path) -> Result<String> {
+    pub(crate) fn prepare(&self, extracted: &Path, output: &Path) -> Result<SkitCatalog> {
         let mut catalog = self.catalog.clone();
         for script in &self.scripts {
             script.publish(output)?;
@@ -167,26 +167,16 @@ impl Source {
         }
         catalog.media = media::bind(output, extracted, &self.voices, self.requested.clone())?;
         catalog.validate()?;
-        let path = "game/skits.json";
-        write_atomic(&output.join(path), &serde_json::to_vec_pretty(&catalog)?)?;
-        Ok(path.into())
+        Ok(catalog)
     }
 }
 
 #[test]
-#[cfg(unix)]
-#[ignore = "requires both original discs and RESONANCE_COOKED audio; writes private temporary output"]
+#[ignore = "requires both original discs; writes private temporary output"]
 fn original_skit_resources_prepare_from_both_discs() -> Result<()> {
-    let library = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_COOKED").context("set RESONANCE_COOKED")?,
-    )
-    .canonicalize()?;
     for disc in [1, 2] {
         let work = tempfile::tempdir()?;
         let output = work.path();
-        for name in ["audio", "sources.json"] {
-            std::os::unix::fs::symlink(library.join(name), output.join(name))?;
-        }
         let _publication = crate::publication::Session::start_if_needed(output)?;
         let extracted =
             Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../local/extracted/disc{disc}"));
@@ -197,9 +187,7 @@ fn original_skit_resources_prepare_from_both_discs() -> Result<()> {
         for skit in &definitions {
             expected.insert(skit.id, None);
         }
-        Source::read(&extracted, &executable)?.publish(&extracted, output)?;
-        let catalog: SkitCatalog =
-            serde_json::from_slice(&fs::read(output.join("game/skits.json"))?)?;
+        let catalog = Source::read(&extracted, &executable)?.prepare(&extracted, output)?;
         catalog.validate()?;
         assert_eq!(
             serde_json::to_value(&catalog.skits)?,

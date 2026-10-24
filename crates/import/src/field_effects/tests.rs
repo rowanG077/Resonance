@@ -72,8 +72,7 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
         )?;
         recipe.archive = "art/effects.bin".into();
         let prepared = prepare(&extracted, &output, recipe)?;
-        let effects: FieldEffects =
-            serde_json::from_slice(&fs::read(output.join(&prepared.path))?)?;
+        let effects = &prepared.effects;
         effects.validate()?;
         assert_eq!(effects.emote_texture, images[1].image(0)?.path);
         for (sprite, texture) in [(0, 0), (8, 2), (10, 2)] {

@@ -12,7 +12,6 @@ pub enum SpellRecipe {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PatternSpell {
-    pub provenance: String,
     /// Active callback ticks; transition, initialization and retirement stay native.
     pub lifetime: u16,
     pub origin: PatternOrigin,
@@ -58,10 +57,6 @@ impl SpellRecipe {
 
 impl PatternSpell {
     pub fn validate(&self) -> Result<()> {
-        ensure!(
-            !self.provenance.trim().is_empty() && self.provenance.len() <= 4096,
-            "spell recipe provenance is missing or unbounded"
-        );
         ensure!(
             (46..=3600).contains(&self.lifetime),
             "invalid pattern spell lifetime"
@@ -122,7 +117,6 @@ mod tests {
 
     fn pattern() -> PatternSpell {
         PatternSpell {
-            provenance: "test fixture".into(),
             lifetime: 100,
             origin: PatternOrigin::SceneGround { toward_caster: 1. },
             heading_offset: 20.,
@@ -156,22 +150,47 @@ mod tests {
     }
 
     #[test]
-    fn scene_recipe_rejects_old_format_and_missing_projectile_bindings() {
-        let mut value = serde_json::json!({
-            "version": super::super::VERSION,
-            "source_sha256": "a".repeat(64), "effects": "effects.json",
-            "textures": [], "models": {}, "files": {},
-            "spell_recipe": SpellRecipe::FixedPattern(pattern()),
+    fn current_scene_reader_rejects_missing_version_and_projectile_bindings() {
+        let mut entry = serde_json::json!({
+            "version": 1, "rules":"rules.json", "effects":"effects.json",
+            "cutin":null, "weapon":null,
         });
-        let scene: Scene = serde_json::from_value(value.clone()).unwrap();
-        assert!(
-            scene
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("projectile is missing")
-        );
-        value.as_object_mut().unwrap().remove("version");
-        assert!(serde_json::from_value::<Scene>(value).is_err());
+        let documents = [
+            (
+                "rules.json",
+                serde_json::json!({
+                    "version":1, "projectiles":[], "actions":{}, "actions_error":null,
+                    "duration":0, "stage_color":null, "camera":null, "strike_points":[],
+                    "recovery_radius":null, "spell_recipe":SpellRecipe::FixedPattern(pattern()),
+                }),
+            ),
+            (
+                "effects.json",
+                serde_json::json!({
+                    "version":1, "programs":"programs.json", "actors":"actors.json", "art":null,
+                }),
+            ),
+            ("programs.json", serde_json::json!([])),
+            ("actors.json", serde_json::json!([])),
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeMap<_, _>>();
+        let read = |entry: &serde_json::Value| {
+            super::super::document::read(
+                "scene.json",
+                &crate::diagnostics::Diagnostics::new(true),
+                |path| {
+                    let value = if path == "scene.json" {
+                        entry
+                    } else {
+                        documents.get(path).context("missing fixture document")?
+                    };
+                    Ok(serde_json::to_vec(value)?.into())
+                },
+            )
+        };
+        assert!(format!("{:#}", read(&entry).unwrap_err()).contains("projectile is missing"));
+        entry.as_object_mut().unwrap().remove("version");
+        assert!(read(&entry).is_err());
     }
 }

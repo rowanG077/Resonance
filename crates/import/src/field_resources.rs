@@ -1,13 +1,14 @@
 //! Resource declarations in every script branch, independent of story progress.
 pub(crate) mod binding;
-mod expressions;
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
-use symphonia_script::{NativeCall, Op, Program, scenario, semantics::NativeRegistry};
+use symphonia_script::scenario::calls as expressions;
+use symphonia_script::scenario::calls::analyzed_arguments as call_arguments;
+use symphonia_script::{NativeCall, Op, Program, scenario};
 
 #[derive(Debug)]
 pub(crate) struct Declarations {
@@ -127,40 +128,6 @@ pub(crate) fn literal_arguments(
     Ok(call_arguments(&program, &analysis, call, arguments)?
         .into_values()
         .collect())
-}
-
-fn call_arguments(
-    program: &Program,
-    analysis: &scenario::Analysis,
-    call: NativeCall,
-    arguments: usize,
-) -> Result<BTreeMap<u32, Vec<Option<i32>>>> {
-    ensure!(
-        (1..=16).contains(&arguments),
-        "invalid native argument count"
-    );
-    let registry = NativeRegistry::gqseaf();
-    ensure!(
-        registry.get(call as u8).unwrap().arguments.len() == arguments,
-        "incorrect {call:?} argument count"
-    );
-    let mut values = BTreeMap::new();
-    for block in analysis.basic_blocks() {
-        let mut expressions = expressions::Expressions::default();
-        for pc in block.instruction_pcs {
-            let op = program.instruction(pc).unwrap().0;
-            if op == Op::Native(call as u8) {
-                values.insert(
-                    pc,
-                    expressions.arguments(arguments).with_context(|| {
-                        format!("dynamic {call:?} arguments at PC {pc:#x} need a cooking recipe")
-                    })?,
-                );
-            }
-            expressions.step(op, &registry);
-        }
-    }
-    Ok(values)
 }
 
 #[cfg(test)]

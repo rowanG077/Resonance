@@ -5,21 +5,23 @@ use bevy::{
 };
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, RwLock},
 };
-pub(super) type Bytes = BTreeMap<String, Arc<[u8]>>;
+pub(super) struct Prepared {
+    pub model: Arc<resonance_content::model_preview::ModelPreview>,
+    pub files: Arc<resonance_content::prepared::Files>,
+    pub sources: BTreeMap<String, String>,
+}
 
 #[derive(Resource, Clone)]
 pub(super) struct Source {
-    root: PathBuf,
-    pub bytes: Arc<RwLock<Bytes>>,
+    pub files: Arc<RwLock<Option<Arc<resonance_content::prepared::Files>>>>,
 }
 
-pub fn register(app: &mut App, root: &Path) {
+pub fn register(app: &mut App) {
     let source = Source {
-        root: root.into(),
-        bytes: Default::default(),
+        files: Default::default(),
     };
     app.insert_resource(source.clone());
     app.register_asset_source(
@@ -31,41 +33,63 @@ impl Source {
     pub fn prepare(
         &self,
         record: &resonance_content::model_preview::ModelPreview,
+        library: resonance_content::library::Library,
     ) -> Result<super::Pending> {
-        let root = self.root.clone();
-        let paths: std::collections::BTreeSet<_> = record
-            .parts
-            .iter()
-            .flat_map(|p| {
-                std::iter::once(&p.scene.mesh)
-                    .chain(&p.scene.textures)
-                    .chain(p.scene.clips.iter().map(|clip| &clip.motion))
-            })
-            .cloned()
-            .collect();
+        let path = record
+            .document
+            .clone()
+            .context("preview needs a named model document")?;
         super::Pending::spawn(move |cancelled| {
-            let mut bytes = Bytes::new();
-            for path in paths {
-                anyhow::ensure!(
-                    !cancelled.load(std::sync::atomic::Ordering::Relaxed),
-                    "preview load cancelled"
-                );
-                resonance_content::validate_asset_path(&path)?;
-                let data = std::fs::read(root.join(&path)).with_context(|| {
-                    format!("missing preview asset {path}; recook its catalogue")
-                })?;
-                bytes.insert(path, data.into());
-            }
-            Ok(bytes)
+            capture(&library, &path, || {
+                cancelled.load(std::sync::atomic::Ordering::Relaxed)
+            })
         })
     }
 }
+
+fn capture(
+    library: &resonance_content::library::Library,
+    path: &str,
+    cancelled: impl Fn() -> bool,
+) -> Result<Prepared> {
+    use resonance_content::{model_preview::document, preparation};
+    anyhow::ensure!(!cancelled(), "preview load cancelled");
+    let mut snapshot = library.snapshot();
+    let mut model = document::read(path, |path| snapshot.read(path, preparation::JSON_LIMIT))?;
+    document::prepare(&mut model, |path| {
+        anyhow::ensure!(!cancelled(), "preview load cancelled");
+        snapshot.read(path, preparation::ASSET_LIMIT)
+    })
+    .with_context(|| format!("prepare model {path}"))?;
+    if model.parts.iter().any(|part| {
+        part.scene.outline_color.is_none() && part.scene.materials.iter().any(|m| m.color.is_some())
+    }) {
+        snapshot.read(document::TOON_RAMP, preparation::ASSET_LIMIT)?;
+    }
+    let sources = if model.behavior.is_some() {
+        preparation::scripts(&mut snapshot, &cancelled)?
+    } else {
+        BTreeMap::new()
+    };
+    let files = resonance_content::prepared::Files::from_snapshot(
+        snapshot,
+        &mut Default::default(),
+        cancelled,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    Ok(Prepared {
+        model: Arc::new(model),
+        files: Arc::new(files),
+        sources,
+    })
+}
 impl AssetReader for Source {
     async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
-        self.bytes
+        self.files
             .read()
             .unwrap()
-            .get(path.to_string_lossy().as_ref())
+            .as_ref()
+            .and_then(|files| files.read(path.to_string_lossy().as_ref()).ok())
             .map(|b| VecReader::new(b.to_vec()))
             .ok_or_else(|| AssetReaderError::NotFound(path.into()))
     }
@@ -86,6 +110,124 @@ impl AssetReader for Source {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_preview_captures_model_edits_mod_assets_and_current_motion_timing() -> Result<()> {
+        use resonance_content::{
+            animation::Motion,
+            library::{Library, Mod},
+        };
+        use std::fs;
+        let work = tempfile::tempdir()?;
+        let root = work.path().join("base");
+        let modification = work.path().join("mod");
+        let owner = "meshes/monsters/torent";
+        let descriptor = format!("{owner}/model.json");
+        let mesh = format!("{owner}/body.glb");
+        let texture = format!("{owner}/body.png");
+        let motion = format!("{owner}/idle.motion.json");
+        fs::create_dir_all(root.join(owner))?;
+        fs::create_dir_all(modification.join(owner))?;
+        fs::write(
+            root.join("content.json"),
+            br#"{"version":1,"game":"GQSEAF","revision":0}"#,
+        )?;
+        let mut definition = serde_json::json!({
+            "version": 1, "scale": 1, "elevation": 4, "hidden_geometry": [], "behavior": null,
+            "parts": [{"animation": 4, "attached_to": null, "additive": false,
+                "scene": {"resource": 0, "mesh": mesh, "textures": [texture],
+                    "materials": [], "translation": [0,0,0], "autoplay": false,
+                    "texture_animations": [], "bone_names": ["root"],
+                    "clips": [{"motion": motion, "resource_slot": 4, "duration_seconds": 99,
+                        "animation_resource": null, "secondary_pose_nodes": [0]}]}}
+            ]
+        });
+        fs::write(root.join(&descriptor), serde_json::to_vec(&definition)?)?;
+        fs::write(root.join(&mesh), b"opaque mesh bytes")?;
+        fs::write(root.join(&texture), b"original texture")?;
+        fs::write(
+            root.join(&motion),
+            Motion {
+                duration_frames: 30.,
+                tracks: vec![],
+            }
+            .encode()?,
+        )?;
+        let base = Library::open(&root, &[])?;
+        let first = capture(&base, &descriptor, || false)?;
+        assert_eq!(first.model.document.as_deref(), Some(descriptor.as_str()));
+        assert_eq!(first.model.parts[0].scene.clips[0].duration_seconds, 1.);
+        assert_eq!(
+            first.model.parts[0].scene.clips[0].secondary_pose_nodes,
+            [0]
+        );
+        assert_eq!(&*first.files.read(&texture)?, b"original texture");
+        assert!(first.sources.is_empty());
+
+        definition["scale"] = 2.into();
+        fs::write(
+            modification.join(&descriptor),
+            serde_json::to_vec(&definition)?,
+        )?;
+        fs::write(modification.join(&texture), b"mod texture")?;
+        fs::write(
+            modification.join(&motion),
+            Motion {
+                duration_frames: 90.,
+                tracks: vec![],
+            }
+            .encode()?,
+        )?;
+        let library = Library::open(
+            &root,
+            &[Mod {
+                name: "model".into(),
+                root: modification.clone(),
+            }],
+        )?;
+        let second = capture(&library, &descriptor, || false)?;
+        assert_eq!(second.model.scale, 2.);
+        assert_eq!(second.model.parts[0].scene.clips[0].duration_seconds, 3.);
+        assert_eq!(
+            &*second.files.read(&mesh)?,
+            b"opaque mesh bytes",
+            "unchanged geometry is inherited"
+        );
+        assert_eq!(&*second.files.read(&texture)?, b"mod texture");
+        assert!(
+            second
+                .files
+                .overrides()
+                .iter()
+                .any(|change| change.path == texture && change.replacement == "model")
+        );
+        assert_eq!(
+            &*first.files.read(&texture)?,
+            b"original texture",
+            "retained preview is immutable"
+        );
+        assert_eq!(capture(&base, &descriptor, || false)?.model.scale, 1.);
+        assert!(capture(&library, &descriptor, || true).is_err());
+        let reads = std::cell::Cell::new(0);
+        assert!(
+            capture(&library, &descriptor, || {
+                reads.set(reads.get() + 1);
+                reads.get() > 2
+            })
+            .is_err()
+        );
+
+        fs::write(modification.join(&motion), b"invalid edited motion")?;
+        let error = match capture(&library, &descriptor, || false) {
+            Ok(_) => anyhow::bail!("invalid motion reused old preview"),
+            Err(error) => format!("{error:#}"),
+        };
+        assert!(
+            error.contains(&motion) && error.contains(&descriptor),
+            "{error}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn script_snapshot_uses_only_prepared_utf8_sources() {

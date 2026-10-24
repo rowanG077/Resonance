@@ -1,13 +1,11 @@
 //! Offline media conversion. Rust owns parsing, validation, and conversion;
 //! pure Rust codecs run without opening an audio output device.
-mod cooked_music;
+pub(crate) mod adx;
 pub(crate) mod field_audio;
-pub(crate) mod voice_library;
-pub(crate) use field_audio::FieldAudioCooker;
-mod adx;
 pub(crate) mod library;
 mod movie;
 pub(crate) mod music;
+pub(crate) mod voice_library;
 /// Original inline metadata for bounded descriptor-only preparation.
 pub use music::music_reverbs;
 pub(crate) mod music_library;
@@ -16,28 +14,24 @@ mod music_voice;
 mod pitched_sample;
 mod sound_buses;
 pub(crate) mod sound_library;
-mod sounds;
+pub(crate) mod source;
 
-pub(crate) use field_audio::{VoiceFormat, decode_voice_to, music_path, sound_score};
+pub(crate) use field_audio::{VoiceFormat, music_path, sound_score};
 pub(crate) use music::song_reverb_change;
 pub(crate) use music_voice::tables as synthesis_tables;
 
-pub(crate) use cooked_music::prepare_title_audio;
-pub use cooked_music::render_cooked_title_audio;
-pub(crate) use movie::bind_all_movies;
+pub(crate) use movie::catalogue as movie_catalogue;
 pub(crate) use movie::cook_directory as cook_movie_directory;
 pub(crate) use movie::cook_movie_file;
+pub(crate) use movie::input_identity as movie_input_identity;
 pub(crate) use movie::is_movie;
 pub use music_score::inspect_title_audio;
 pub use music_voice::{MusicVoiceOptions, render_music_voice, render_title_audio_preview};
 pub use pitched_sample::{PitchedSampleOptions, render_pitched_sample};
 pub use sound_buses::{render_sound_buses, render_sound_sequence};
-pub(crate) use sounds::prepare_title_sounds;
 
 use crate::read::u32 as be_u32;
-use anyhow::{Context, Result, ensure};
-use resonance_asset_writer::wav::write_pcm16;
-use resonance_audio::package::SampleAsset;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -128,45 +122,6 @@ fn write_json(path: &Path, value: &Value) -> Result<()> {
     crate::write_atomic(path, &data)
 }
 
-/// All-asset cooks share identical PCM across sound, program and music packages.
-/// Each worker writes a private temporary. Only complete immutable WAVs become
-/// visible at the shared content address; no decoded samples are cached here.
-pub(crate) fn write_shared_sample(
-    output: &Path,
-    sample: &resonance_audio::sample::Sample,
-) -> Result<SampleAsset> {
-    ensure!(
-        sample.key < 128
-            && sample.rate > 0
-            && !sample.pcm.is_empty()
-            && sample.pcm.len().saturating_add(sample.loop_pcm.len()) <= 32_000_000,
-        "invalid standalone instrument sample"
-    );
-    resonance_audio::resample::SampleCursor::new(sample)?;
-    let directory = output.join("audio/samples");
-    fs::create_dir_all(&directory)?;
-    let temporary = crate::temporary_path(&directory.join("sample.wav"));
-    write_pcm16(
-        &temporary,
-        1,
-        u32::from(sample.rate),
-        sample.pcm.iter().chain(&sample.loop_pcm).copied(),
-    )?;
-    let sha256 = hash_file(&temporary)?;
-    let path = format!("audio/samples/{sha256}.wav");
-    let target = output.join(&path);
-    crate::publication::install(&temporary, &target, &sha256)?;
-    Ok(SampleAsset {
-        path,
-        sha256,
-        key: sample.key,
-        rate: sample.rate,
-        first_frames: u32::try_from(sample.pcm.len())?,
-        loop_start: sample.loop_start,
-        loop_length: sample.loop_length,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_samples_replace_previous_cook_outputs() -> Result<()> {
+    fn named_samples_preserve_existing_edits_and_publish_pcm() -> Result<()> {
         let output = tempfile::tempdir()?;
         let sample = resonance_audio::sample::Sample {
             key: 60,
@@ -214,22 +169,27 @@ mod tests {
             pcm: vec![7, 11, 13],
             loop_pcm: Vec::new(),
         };
-        let asset = {
-            let _publications = crate::publication::Session::start_if_needed(output.path())?;
-            write_shared_sample(output.path(), &sample)?
-        };
-        let path = output.path().join(&asset.path);
-        fs::write(&path, b"stale sample")?;
-        let _publications = crate::publication::Session::start_if_needed(output.path())?;
-        let fresh = write_shared_sample(output.path(), &sample)?;
-        assert_eq!(fresh.path, asset.path);
-        assert_eq!(hash_file(&path)?, fresh.sha256);
-        assert_eq!(
-            hound::WavReader::open(path)?
-                .samples::<i16>()
-                .collect::<Result<Vec<_>, _>>()?,
-            sample.pcm
-        );
+        let name = "audio/instruments/effects/example/sample-00001.wav";
+        {
+            let _session = crate::publication::Session::start(output.path())?;
+            let mut publisher = crate::named::Publisher::new(output.path(), output.path())?;
+            let asset = publisher.native_sample(&sample, name)?;
+            assert_eq!(asset.path, name);
+            assert_eq!(asset.key, sample.key);
+            assert_eq!(publisher.native_sample(&sample, name)?.path, name);
+            let mut wave = hound::WavReader::open(output.path().join(name))?;
+            assert_eq!(wave.spec().sample_rate, u32::from(sample.rate));
+            assert_eq!(
+                wave.samples::<i16>().collect::<Result<Vec<_>, _>>()?,
+                sample.pcm
+            );
+        }
+        let edited = b"user edited this sample";
+        fs::write(output.path().join(name), edited)?;
+        let _session = crate::publication::Session::start(output.path())?;
+        let mut publisher = crate::named::Publisher::new(output.path(), output.path())?;
+        assert!(publisher.native_sample(&sample, name).is_err());
+        assert_eq!(fs::read(output.path().join(name))?, edited);
         Ok(())
     }
 

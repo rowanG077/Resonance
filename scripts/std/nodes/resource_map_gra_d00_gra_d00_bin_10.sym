@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 833d0d46bad078e7980c0c10dd2e2fdd56b55687dbf877661b150d92a809e26e
+// Source owner: MAP/gra_d00/GRA_D00.BIN/10
+pub const Node000_Turibasi_Ita: string = "Turibasi_Ita";

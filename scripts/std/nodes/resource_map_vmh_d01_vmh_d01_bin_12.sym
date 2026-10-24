@@ -1,0 +1,6 @@
+script library;
+// Skeleton: f3e4502d84d663b07732dde4b52163376a263721271acee6b256afa08906c23a
+// Source owner: MAP/vmh_d01/VMH_D01.BIN/12
+pub const Node000_Ha_R: string = "ha_R";
+pub const Node001_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node002_Object21: string = "ｵﾌﾞｼﾞｪｸﾄ21";

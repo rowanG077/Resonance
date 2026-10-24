@@ -793,12 +793,22 @@ fn test_artwork_with(
 ) -> Result<(Artwork, Assets<Surface>, App)> {
     let root = fixtures::asset_root();
     let mut document: serde_json::Value = serde_json::from_slice(&std::fs::read(
-        root.join(resonance_content::battle_ui::PATH),
+        root.join(resonance_content::battle_ui::document::PATH),
     )?)?;
     edit(&mut document);
-    let mut files = resonance_content::prepared::Files::new(diagnostics.clone());
+    let mut files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        &mut resonance_content::prepared::Cache::default(),
+        || false,
+        diagnostics.clone(),
+    )?;
+    let font = document["font"]
+        .as_str()
+        .context("battle font reference is missing")?;
+    files.insert(font.into(), std::fs::read(root.join(font))?.into());
     files.insert(
-        resonance_content::battle_ui::PATH.into(),
+        resonance_content::battle_ui::document::PATH.into(),
         serde_json::to_vec(&document)?.into(),
     );
     for portrait in document["portraits"].as_array().into_iter().flatten() {
@@ -809,9 +819,7 @@ fn test_artwork_with(
         }
     }
     let art = Art::load(&files)?;
-    let menu_data: std::sync::Arc<resonance_content::menu_data::MenuData> = std::sync::Arc::new(
-        serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json"))?)?,
-    );
+    let menu_data = std::sync::Arc::new(resonance_content::menu_data::MenuData::load(&files)?);
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
@@ -829,13 +837,11 @@ fn test_artwork_with(
     let mut artwork = Artwork::load(
         art,
         menu_data,
-        std::sync::Arc::new(serde_json::from_slice(&std::fs::read(
-            root.join("game/session-data.json"),
-        )?)?),
+        std::sync::Arc::new(resonance_content::session::SessionData::load(&files)?),
         |path| {
             ensure!(
                 ![
-                    resonance_content::battle_ui::PATH,
+                    resonance_content::battle_ui::document::PATH,
                     "game/menu-data.json",
                     "game/session-data.json",
                 ]

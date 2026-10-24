@@ -124,6 +124,60 @@ struct Curve {
 }
 
 impl Animation {
+    /// Export decoded curves without baking them onto a guessed model skeleton.
+    pub(crate) fn editable(&self) -> Result<resonance_content::resource::Animation> {
+        use resonance_content::resource::{
+            Animation, AnimationDescriptor, AnimationTrack, VERSION,
+        };
+        let descriptors = self
+            .descriptors
+            .iter()
+            .map(|descriptor| {
+                let end = descriptor
+                    .first_track
+                    .checked_add(descriptor.track_count)
+                    .context("animation track range overflow")?;
+                let tracks = self
+                    .tracks
+                    .get(descriptor.first_track..end)
+                    .context("animation descriptor exceeds tracks")?
+                    .iter()
+                    .enumerate()
+                    .map(|(index, track)| {
+                        ensure!(
+                            track.kind == 1 && track.flags & !31 == 0,
+                            "unsupported animation track kind or flags"
+                        );
+                        ensure!(
+                            track.period_frames > 0.
+                                && track.period_frames <= 18000.
+                                && track.times.first() == Some(&0.)
+                                && track.times.iter().all(|time| time.is_finite()
+                                    && *time >= 0.
+                                    && *time <= track.period_frames)
+                                && track.times.windows(2).all(|times| times[0] <= times[1]),
+                            "invalid skeleton-independent animation timeline"
+                        );
+                        Ok(AnimationTrack {
+                            name: self.names.get(descriptor.first_track + index).cloned(),
+                            curve: track.pose(track.node)?,
+                        })
+                    })
+                    .collect::<Result<_>>()?;
+                Ok(AnimationDescriptor {
+                    name: descriptor.name.clone(),
+                    indexed: descriptor.force_index_binding,
+                    tracks,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(Animation {
+            version: VERSION,
+            duration_frames: self.duration_frames,
+            descriptors,
+        })
+    }
+
     pub(crate) fn duration_frames(&self) -> f32 {
         self.duration_frames
     }

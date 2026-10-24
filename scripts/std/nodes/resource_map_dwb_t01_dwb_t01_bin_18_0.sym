@@ -1,0 +1,4 @@
+script library;
+// Skeleton: b70243a5cb6250d306927e2184698cc810bc0803b3266033250c857eefc04514
+// Source owner: MAP/dwb_t01/DWB_T01.BIN/18/0
+pub const Node000_Renegade02: string = "renegade02";

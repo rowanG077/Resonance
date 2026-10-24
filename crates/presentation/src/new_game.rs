@@ -5,10 +5,11 @@ use super::{Events, PendingAudio, PendingInput, RunOptions, audio, movie};
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
 pub(super) use fields::{FieldPackage, available_fields};
-pub(super) use resonance_content::field::preload_path as manifest_path;
-use resonance_content::{MovieAsset, field::FieldAssets, prepared::Files};
+use resonance_content::{field::FieldAssets, prepared::Files};
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldSession};
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+#[cfg(test)]
+use std::collections::BTreeSet;
+use std::{path::Path, sync::Arc};
 
 #[derive(Resource)]
 pub(super) struct Request(pub Option<Vec<u8>>);
@@ -34,42 +35,39 @@ fn transition_failed(world: &mut World, error: anyhow::Error) {
 #[derive(Resource)]
 pub(super) struct InitialPreferences(pub resonance_content::menu_data::CustomizeSettings);
 
-/// Slot browsing needs three verified definitions, independently of any field.
+/// Slot browsing computes compatibility from current gameplay, without preparing
+/// artwork or audio. The session definitions come from that same snapshot.
 pub(super) fn save_context(
     root: &Path,
+    script_root: Option<&Path>,
     diagnostics: resonance_content::diagnostics::Diagnostics,
 ) -> Result<(
     resonance_persistence::Identity,
     Arc<resonance_content::session::SessionData>,
 )> {
-    use resonance_content::{
-        field_preload::{SHARED_PATH, Shared},
-        save_identity,
-    };
-    let shared: Shared<serde_json::Value> =
-        serde_json::from_slice(&std::fs::read(root.join(SHARED_PATH))?)?;
-    shared.validate_structure()?;
-    let inventory = [
-        save_identity::PATH,
-        "game/session-data.json",
-        "game/menu-data.json",
-    ]
-    .into_iter()
-    .map(|path| {
-        let value = shared
-            .files
-            .get(path)
-            .with_context(|| format!("missing save dependency {path}"))?;
-        Ok((path.to_owned(), serde_json::from_value(value.clone())?))
-    })
-    .collect::<Result<_>>()?;
-    let files = Files::new(diagnostics).with_dependencies(
-        root,
-        inventory,
-        &mut Default::default(),
-        || false,
-    )?;
-    let identity = resonance_persistence::Identity::load(&files)?;
+    save_context_in(
+        &resonance_content::library::Library::open(root, &[])?,
+        script_root,
+        diagnostics,
+    )
+}
+
+pub(super) fn save_context_in(
+    library: &resonance_content::library::Library,
+    script_root: Option<&Path>,
+    diagnostics: resonance_content::diagnostics::Diagnostics,
+) -> Result<(
+    resonance_persistence::Identity,
+    Arc<resonance_content::session::SessionData>,
+)> {
+    let mut snapshot = library.snapshot();
+    let mut identity = resonance_persistence::Identity::capture(&mut snapshot, &|| false)?;
+    if let Some(root) = script_root {
+        identity = resonance_game::authored::FieldProject::load(root)?.bind_identity(&identity)?;
+    }
+    resonance_content::preparation::menu_models(&mut snapshot, &diagnostics, &|| false)?;
+    let files = Files::from_snapshot(snapshot, &mut Default::default(), || false, diagnostics)?
+        .with_identity(identity.clone())?;
     let data = resonance_content::session::SessionData::load(&files)?;
     Ok((identity, Arc::new(data)))
 }
@@ -84,10 +82,11 @@ pub(super) struct Session {
     pub ready_for_field: bool,
     pub audio: Option<Arc<super::field_audio::Assets>>,
     pub identity: resonance_persistence::Identity,
-    story_movie: Option<MovieAsset>,
+    story_movie: Option<u32>,
     pub(super) prepared_movie: Option<movie::Prepared>,
-    pending_movie: Option<(u64, super::loading::Task<(MovieAsset, movie::Prepared)>)>,
+    pending_movie: Option<(u64, super::loading::Task<movie::Prepared>)>,
     movie_started: bool,
+    #[cfg(test)]
     available_fields: BTreeSet<u32>,
 }
 
@@ -114,37 +113,26 @@ impl Session {
 
     pub(super) fn load(root: &Path) -> Result<Self> {
         let mut cache = super::loading::Cache::default();
-        let files = Arc::new(Files::load(
-            root,
-            &[&manifest_path(5), &manifest_path(340)],
-            &mut cache.bytes,
-            || false,
-        )?);
-        Self::load_prepared(root, files, None, None, &mut cache)
+        let package = FieldPackage::prepare(root, 5, &mut cache, || false)?;
+        Self::load_prepared(Arc::new(package), None, None)
     }
 
     pub(super) fn load_prepared(
-        root: &Path,
-        files: Arc<Files>,
+        initial: Arc<FieldPackage>,
         saved: Option<FieldCheckpoint>,
         initial_preferences: Option<resonance_content::menu_data::CustomizeSettings>,
-        cache: &mut super::loading::Cache,
     ) -> Result<Self> {
         Self::load_start(
-            root,
-            files,
+            initial,
             saved.as_ref().map_or(Start::NewGame, Start::Saved),
             initial_preferences,
-            cache,
         )
     }
 
     pub(super) fn load_start(
-        root: &Path,
-        files: Arc<Files>,
+        initial: Arc<FieldPackage>,
         start: Start<'_>,
         initial_preferences: Option<resonance_content::menu_data::CustomizeSettings>,
-        cache: &mut super::loading::Cache,
     ) -> Result<Self> {
         ensure!(
             matches!(start, Start::NewGame) || initial_preferences.is_none(),
@@ -153,16 +141,19 @@ impl Session {
         if let Some(preferences) = &initial_preferences {
             preferences.validate()?;
         }
-        let identity = resonance_persistence::Identity::load(&files)?;
+        let identity = resonance_persistence::Identity::load(&initial.files)?;
         let map = match &start {
             Start::NewGame => 5,
             Start::Saved(checkpoint) => checkpoint.map_id,
             Start::Dungeon(destination) => destination.map,
         };
         let new_game = matches!(start, Start::NewGame);
-        let initial = Arc::new(FieldPackage::load(files.clone(), map, cache)?);
+        ensure!(
+            initial.assets.map_id == map,
+            "prepared field differs from session start"
+        );
         let data = &initial.data;
-        let available_fields = available_fields(root)?;
+        let available_fields = initial.fields.clone();
         let (field, restored_checkpoint) = if let Start::Saved(checkpoint) = &start {
             initial.restore(checkpoint, available_fields.clone())?
         } else {
@@ -190,22 +181,7 @@ impl Session {
             initial.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
             (field, None)
         };
-        let story_movie = if new_game {
-            files.diagnostics().attempt(
-                "New Game movie",
-                (|| {
-                    let movie: MovieAsset = files.json("movies/1.json")?;
-                    movie.validate()?;
-                    ensure!(
-                        !files.is_rejected(&movie.path) && root.join(&movie.path).is_file(),
-                        "New Game story movie is missing or failed verification"
-                    );
-                    Ok(movie)
-                })(),
-            )?
-        } else {
-            None
-        };
+        let story_movie = new_game.then_some(1);
         Ok(Self {
             allow_incomplete_scripts: field.allow_incomplete_scripts,
             scene: Scene::Field(Box::new(FieldScene {
@@ -221,6 +197,7 @@ impl Session {
             prepared_movie: None,
             pending_movie: None,
             movie_started: !new_game,
+            #[cfg(test)]
             available_fields,
         })
     }
@@ -311,21 +288,13 @@ impl Session {
     }
 
     pub(super) fn load_world_prepared(
-        root: &Path,
-        files: Arc<Files>,
+        package: Arc<super::overworld::Package>,
         saved: resonance_game::overworld::Checkpoint,
-        cache: &mut super::loading::Cache,
-        cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let available_fields = available_fields(root)?;
-        let identity = resonance_persistence::Identity::load(&files)?;
-        let world = Arc::new(resonance_game::overworld::Prepared::load(
-            root,
-            Arc::unwrap_or_clone(files),
-            &mut cache.bytes,
-            available_fields.clone(),
-            cancelled,
-        )?);
+        let world = package.world.clone();
+        #[cfg(test)]
+        let available_fields = world.resources.fields.clone();
+        let identity = resonance_persistence::Identity::load(&world.files)?;
         let data = world
             .resources
             .session_data
@@ -336,15 +305,12 @@ impl Session {
             world.assets(saved.state.world, &persistent)?,
             saved,
         )?;
-        let audio = cache.audio.load("worlds/audio.json", &world.files)?;
+        let audio = package.audio.clone();
         let scene = super::overworld::Scene::new(game, world.clone())?;
         Ok(Self {
             scene: Scene::World(Box::new(scene)),
             allow_incomplete_scripts: false,
-            world_package: Some(Arc::new(super::overworld::Package {
-                world,
-                audio: audio.clone(),
-            })),
+            world_package: Some(package),
             ready_for_field: false,
             audio: Some(audio.clone()),
             identity,
@@ -353,6 +319,7 @@ impl Session {
             prepared_movie: None,
             pending_movie: None,
             movie_started: true,
+            #[cfg(test)]
             available_fields,
         })
     }
@@ -368,6 +335,7 @@ impl Session {
         package: Arc<FieldPackage>,
         starting_story: bool,
     ) {
+        self.world_package = None;
         self.pending_movie = None;
         self.events_mut().cancel();
         self.restored_checkpoint = None;
@@ -404,6 +372,10 @@ impl Session {
     }
 
     fn change_world(&mut self, package: Arc<super::overworld::Package>) -> Result<()> {
+        ensure!(
+            resonance_persistence::Identity::load(&package.world.files)? == self.identity,
+            "gameplay content changed during this session; restart and load a compatible save or migrate it explicitly"
+        );
         let persistent = self.events().persistent_state()?;
         let session = if let Some(scene) = self.overworld()
             && let Some(destination) = scene.session.world_destination()
@@ -453,6 +425,10 @@ impl Session {
     }
 
     fn change_field(&mut self, package: Arc<FieldPackage>) -> Result<()> {
+        ensure!(
+            resonance_persistence::Identity::load(&package.files)? == self.identity,
+            "gameplay content changed during this session; restart and load a compatible save or migrate it explicitly"
+        );
         let request = self
             .events()
             .world
@@ -483,14 +459,10 @@ impl Session {
         Ok(())
     }
 
-    pub(super) fn prepare_movie(
-        &mut self,
-        root: &Path,
-        cancelled: impl Fn() -> bool,
-    ) -> Result<()> {
+    pub(super) fn prepare_movie(&mut self, cancelled: impl Fn() -> bool) -> Result<()> {
         ensure!(!cancelled(), "movie preparation cancelled");
         let diagnostics = self.files().diagnostics().clone();
-        let Some(movie) = self.story_movie.as_ref() else {
+        let Some(id) = self.story_movie else {
             diagnostics.report(
                 "New Game movie",
                 anyhow::anyhow!("session has no startup movie; skipping video"),
@@ -498,13 +470,23 @@ impl Session {
             return Ok(());
         };
         let stopped = std::cell::Cell::new(false);
-        let prepared = movie::Prepared::load(root, movie, || {
-            let stop = cancelled();
-            stopped.set(stopped.get() || stop);
-            stop
-        });
+        let prepared = (|| {
+            let files = self.files();
+            let mut snapshot = files
+                .library()
+                .context("movie requires a named content library")?
+                .snapshot();
+            movie::Prepared::capture(&mut snapshot, id, || {
+                let stop = cancelled();
+                stopped.set(stopped.get() || stop);
+                stop
+            })
+        })();
         ensure!(!stopped.get(), "movie preparation cancelled");
         self.prepared_movie = diagnostics.attempt("New Game movie preparation", prepared)?;
+        if self.prepared_movie.is_none() {
+            self.story_movie = None;
+        }
         Ok(())
     }
 }
@@ -816,18 +798,10 @@ pub(super) fn transition(world: &mut World) {
             world.remove_resource::<super::loading::FieldPending>();
             Arc::new(result?)
         } else {
-            let session = world.resource::<Session>();
-            let previous = match &session.scene {
-                Scene::Field(field) if field.package.assets.map_id == request.map => {
-                    Some(field.package.clone())
-                }
-                _ => None,
-            };
             let pending = super::loading::FieldPending::field(
                 world.resource::<RunOptions>().assets.clone(),
                 script_root.clone(),
                 request.map,
-                previous,
                 world.resource::<super::loading::Resident>(),
             )?;
             world.insert_resource(pending);
@@ -866,7 +840,6 @@ fn transition_world(world: &mut World) {
         } else {
             let pending = super::loading::WorldPending::overworld(
                 world.resource::<RunOptions>().assets.clone(),
-                world.resource::<Session>().available_fields.clone(),
                 world.resource::<super::loading::Resident>(),
             )?;
             world.insert_resource(pending);
@@ -893,7 +866,6 @@ fn transition_world(world: &mut World) {
 /// input stay in one update path, including the scene before the story movie.
 pub(super) fn advance(
     mut session: Option<ResMut<Session>>,
-    options: Res<RunOptions>,
     mut movie: ResMut<movie::Playback>,
     mut images: ResMut<Assets<Image>>,
     mut exit: MessageWriter<AppExit>,
@@ -917,13 +889,7 @@ pub(super) fn advance(
             .filter(|request| request.operation.is_pending())
         {
             let prepared = if request.resource == 1 && session.prepared_movie.is_some() {
-                Some((
-                    session
-                        .story_movie
-                        .clone()
-                        .context("startup movie is missing")?,
-                    session.prepared_movie.take().unwrap(),
-                ))
+                session.prepared_movie.take()
             } else {
                 if session
                     .pending_movie
@@ -939,28 +905,28 @@ pub(super) fn advance(
                     session.pending_movie = None;
                     Some(prepared?)
                 } else {
-                    let asset: MovieAsset = session
+                    let id = request.resource;
+                    let library = session
                         .files()
-                        .json(&format!("movies/{}.json", request.resource))?;
-                    asset.validate()?;
-                    let root = options.assets.clone();
+                        .library()
+                        .context("movie requires a named content library")?
+                        .clone();
                     let pending = super::loading::Task::spawn(move |stop| {
-                        let prepared = movie::Prepared::load(&root, &asset, || {
+                        let mut snapshot = library.snapshot();
+                        movie::Prepared::capture(&mut snapshot, id, || {
                             stop.load(std::sync::atomic::Ordering::Relaxed)
-                        })?;
-                        Ok((asset, prepared))
+                        })
                     })?;
                     session.pending_movie = Some((request.operation.id(), pending));
                     None
                 }
             };
-            let Some((asset, prepared)) = prepared else {
+            let Some(prepared) = prepared else {
                 return Ok(());
             };
             movie.start_script_movie(
                 request.resource,
                 prepared,
-                asset,
                 request.operation.clone(),
                 &mut images,
             )?;

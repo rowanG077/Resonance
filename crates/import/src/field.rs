@@ -184,6 +184,13 @@ pub fn inspect(source: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Field semantics stay typed until the named writer publishes their owners.
+pub(crate) struct Prepared {
+    pub assets: FieldAssets,
+    pub art: crate::named::FieldArt,
+    pub movies: std::collections::BTreeSet<u32>,
+}
+
 /// Bind one catalogue entry from decoded inputs. The same path handles ordinary
 /// fields, script-only scenes and New Game setup.
 pub(crate) fn prepare(
@@ -193,7 +200,7 @@ pub(crate) fn prepare(
     shared: &crate::shared::Prepared,
     recovered: &crate::scene::decoded::Package,
     declared: &crate::field_resources::Declarations,
-) -> Result<(FieldAssets, std::collections::BTreeSet<String>)> {
+) -> Result<Prepared> {
     let mut resources =
         crate::field_resources::binding::Resources::decoded(&shared.catalogue, recovered);
     let mut declared_assets = crate::character::Sources::read(&mut resources, &declared.resources)?;
@@ -202,8 +209,8 @@ pub(crate) fn prepare(
     let messages = physical.messages()?;
     crate::font::validate_messages(&shared.font, &messages)?;
     let [script_path, messages_path] = physical.publish_script()?;
-    let (overlays, overlay_files) =
-        crate::field_overlay::cook(&mut resources, physical, output, &declared_assets.textures)?;
+    let overlays =
+        crate::field_overlay::bind(&mut resources, physical, output, &declared_assets.textures)?;
     let characters = crate::character::cook_field(
         output,
         map_id,
@@ -216,7 +223,6 @@ pub(crate) fn prepare(
     let assets = FieldAssets {
         version: resonance_content::field::FIELD_VERSION,
         map_id,
-        source_sha256: physical.source_sha256.clone(),
         script: script_path.clone(),
         messages: messages_path.clone(),
         panorama: physical.panorama()?,
@@ -241,15 +247,15 @@ pub(crate) fn prepare(
             .cloned()
             .unwrap_or_default(),
         actors: characters.actors,
-        unbound_geometry: characters.unbound,
+        unbound_geometry: Vec::new(),
         resource_catalogue: (!declared.dynamic.is_empty())
             .then(|| shared.resource_catalogue.clone()),
         contact_shadow: shared.effects.shadow.clone(),
         toon_ramp: shared.toon_ramp.clone(),
-        effects: shared.effects.path.clone(),
+        effects: "effects/field/effects.json".into(),
         blink: shared.effects.blink.clone(),
         particles: shared.effects.particles.clone(),
-        overlays,
+        overlays: Default::default(),
         save_point_unlock: if declared.save_point {
             shared.save_point_unlock.clone()
         } else {
@@ -266,22 +272,34 @@ pub(crate) fn prepare(
             Vec::new()
         },
     };
-    let mut files: std::collections::BTreeSet<_> = [script_path, messages_path].into();
-    files.extend(assets.panorama.iter().cloned());
-    files.extend(assets.environment.textures().cloned());
-    files.extend(overlay_files);
-    files.extend(characters.files);
-    for part in assets
-        .parts
-        .iter()
-        .chain(assets.actors.iter().flat_map(|actor| &actor.parts))
-    {
-        files.insert(part.mesh.clone());
-        files.extend(part.textures.iter().cloned());
-        files.extend(part.clips.iter().map(|clip| clip.motion.clone()));
-    }
     assets.validate()?;
-    Ok((assets, files))
+    Ok(Prepared {
+        movies: movie_requirements(&fs::read(output.join(&assets.script))?)?,
+        assets,
+        art: crate::named::FieldArt {
+            effects: shared.effects.effects.clone(),
+            overlays,
+            unbound: characters.unbound,
+        },
+    })
+}
+
+pub(crate) fn movie_requirements(script: &[u8]) -> Result<std::collections::BTreeSet<u32>> {
+    let mut movies = std::collections::BTreeSet::new();
+    for args in crate::field_resources::literal_arguments(
+        script,
+        symphonia_script::NativeCall::PlayMovieBlocking,
+        1,
+    )? {
+        match args[0] {
+            Some(-1) => {}
+            Some(id) => {
+                movies.insert(u32::try_from(id).context("invalid movie ID")?);
+            }
+            None => anyhow::bail!("unresolved movie dependency in original field script"),
+        }
+    }
+    Ok(movies)
 }
 
 fn water(map: u32) -> Option<resonance_content::field::FieldWater> {
@@ -307,89 +325,6 @@ fn water(map: u32) -> Option<resonance_content::field::FieldWater> {
     })
 }
 
-pub(crate) fn publish(output: &Path, assets: &FieldAssets) -> Result<String> {
-    publish_field(
-        output,
-        &resonance_content::field::metadata_path(assets.map_id),
-        assets,
-    )
-}
-
-pub(crate) fn audio_path(map_id: u32) -> String {
-    resonance_content::field::audio_path(map_id)
-}
-
-fn publish_field(output: &Path, path: &str, field: &FieldAssets) -> Result<String> {
-    let bytes = serde_json::to_vec_pretty(field)?;
-    write_atomic(&output.join(path), &bytes)?;
-    Ok(digest(&bytes))
-}
-
-/// Validate existing field publications and rebuild their complete dependency
-/// inventories. This performs no asset conversion or resource substitution.
-pub fn finish(
-    output: &Path,
-    fields: &std::collections::BTreeMap<u32, std::collections::BTreeSet<String>>,
-    shared_paths: &std::collections::BTreeSet<String>,
-) -> Result<()> {
-    if fields.is_empty() {
-        return Ok(());
-    }
-    crate::save_identity::cook(output, fields, shared_paths)?;
-    let shared = crate::field_preload::cook_shared(output, shared_paths)?;
-    for (&id, paths) in fields {
-        let path = resonance_content::field::metadata_path(id);
-        let bytes = fs::read(output.join(&path))?;
-        let assets: FieldAssets =
-            serde_json::from_slice(&bytes).with_context(|| format!("invalid field {path}"))?;
-        let manifest = preload(output, path, &assets, &digest(&bytes), paths, &shared)?;
-        ensure!(
-            manifest.missing_inputs.is_empty(),
-            "field {} has missing inputs: {:?}",
-            assets.map_id,
-            manifest.missing_inputs
-        );
-    }
-    Ok(())
-}
-
-fn preload(
-    output: &Path,
-    path: String,
-    assets: &FieldAssets,
-    hash: &str,
-    paths: &std::collections::BTreeSet<String>,
-    shared: &resonance_content::field_preload::Shared,
-) -> Result<resonance_content::field_preload::Manifest> {
-    use symphonia_script::NativeCall;
-    let script = fs::read(output.join(&assets.script))?;
-    let mut movies = std::collections::BTreeSet::new();
-    for args in
-        crate::field_resources::literal_arguments(&script, NativeCall::PlayMovieBlocking, 1)?
-    {
-        match args[0] {
-            Some(-1) => {}
-            Some(id) => {
-                ensure!(id >= 0, "invalid movie ID {id}");
-                movies.insert(format!("movies/{id}.json"));
-            }
-            None => anyhow::bail!("unresolved movie dependency in {}", assets.script),
-        }
-    }
-    crate::field_preload::cook_field(
-        output,
-        resonance_content::field_preload::Inputs {
-            field: path,
-            audio: [audio_path(assets.map_id)].into(),
-            movies,
-        },
-        assets,
-        hash,
-        paths,
-        shared,
-    )
-}
-
 #[cfg(test)]
 pub(crate) fn collision(bytes: &[u8]) -> Result<Vec<resonance_content::field::CollisionGroup>> {
     Ok(collision_data::Mesh::read(bytes, collision_data::Format::Detect)?.groups)
@@ -398,26 +333,6 @@ pub(crate) fn collision(bytes: &[u8]) -> Result<Vec<resonance_content::field::Co
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn finalization_uses_current_field_ids() -> Result<()> {
-        let root = tempfile::tempdir()?;
-        fs::create_dir(root.path().join("fields"))?;
-        fs::write(
-            root.path().join("fields/map-42.json"),
-            b"stale invalid metadata",
-        )?;
-        finish(root.path(), &Default::default(), &Default::default())?;
-        assert!(
-            finish(
-                root.path(),
-                &[(42, Default::default())].into(),
-                &Default::default()
-            )
-            .is_err()
-        );
-        Ok(())
-    }
 
     #[test]
     fn archive_uses_its_payload_name_and_rejects_ambiguity() {

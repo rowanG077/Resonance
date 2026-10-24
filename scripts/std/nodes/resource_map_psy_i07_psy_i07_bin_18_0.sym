@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 948215e23506cd1f3afe240afd081f1cdb3fc414b2b1d7ae971d0a2ba79d02e1
+// Source owner: MAP/psy_i07/PSY_I07.BIN/18/0
+pub const Node000_Book: string = "book";

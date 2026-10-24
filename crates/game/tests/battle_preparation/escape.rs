@@ -11,10 +11,14 @@ use resonance_events::party::Party;
 fn all_party_escape_voices_are_prepared() -> Result<()> {
     let root = common::asset_root();
     let mut cache = Cache::default();
-    let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: MenuData = files.json("game/menu-data.json")?;
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        &mut cache,
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
     let mut data: SessionData = files.json("game/session-data.json")?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default())?;
@@ -27,8 +31,8 @@ fn all_party_escape_voices_are_prepared() -> Result<()> {
         .into_iter()
         .map(ModelSource::Party)
         .collect();
-    let files = battle::model::load_files(&root, files, &sources, &mut cache, || false)?;
-    let profiles: battle_profile::Table = files.json(battle_profile::PARTY_PATH)?;
+
+    let profiles: battle_profile::Table = resonance_content::battle_rules::party(&files)?;
     let prepared = resonance_battle::PreparedBattle::new(
         vec![(actor(), Default::default())],
         Default::default(),

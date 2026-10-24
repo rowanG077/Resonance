@@ -66,6 +66,7 @@ mod field_view;
 mod game_over;
 mod glow;
 mod materials;
+mod texture;
 pub use materials::{
     TitleOutput, TitleSurface, TitleText, install_output_materials, install_surface_material,
 };
@@ -77,10 +78,9 @@ mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
-    CheckpointRecordingOptions, CheckpointReplay, IdentityRepair, SaveOptions,
-    check_checkpoint_identity, prepare_checkpoint_fixture, prepare_overworld_test_fixture,
-    record_battle, record_checkpoint, record_checkpoint_window, record_new_game,
-    repair_checkpoint_identity, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
+    CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
+    prepare_overworld_test_fixture, record_battle, record_checkpoint, record_checkpoint_window,
+    record_new_game, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
     run_title_load_probe,
 };
 mod new_game_capture;
@@ -110,6 +110,8 @@ struct PendingAudio(Option<PlaybackAssets>);
 pub struct RunOptions {
     pub saves: SaveOptions,
     pub assets: PathBuf,
+    /// Enabled mod directories in ascending priority.
+    pub mods: Vec<PathBuf>,
     /// Optional editable source project containing explicit fields.json bindings.
     pub script_root: Option<PathBuf>,
     pub capture_at: Option<CaptureAt>,
@@ -259,25 +261,19 @@ fn build_app_with_display(
         || matches!(options.capture_at, Some(CaptureAt::TitleTick(_)));
     let assets = fs::canonicalize(&options.assets)
         .context("missing cooked assets; run resonance-import cook-all first")?;
-    let title_path = assets.join("title.json");
-    let manifest: TitleAssets = serde_json::from_slice(
-        &fs::read(&title_path).with_context(|| format!("missing cooked title at {}; rerun resonance-import cook-all", title_path.display()))?,
-    )
-    .with_context(|| {
-        format!(
-            "incompatible cooked title assets at {}; rerun resonance-import cook-all for this asset directory",
-            title_path.display()
-        )
-    })?;
-    manifest.validate()?;
-    for texture in &manifest.textures {
-        anyhow::ensure!(
-            assets.join(&texture.path).is_file(),
-            "missing cooked texture {}",
-            texture.path
-        );
-    }
-    let (scene, events) = title_field::load(&assets)?;
+    let library = resonance_content::library::Library::open_paths(&assets, &options.mods)?;
+    let title_field::Prepared {
+        scene,
+        events,
+        art: manifest,
+        audio,
+        boot,
+        files,
+    } = title_field::prepare(
+        &library,
+        !options.skip_intro && !matches!(options.capture_at, Some(CaptureAt::MovieFrame(_))),
+        diagnostics.clone(),
+    )?;
     let replay = options
         .replay
         .as_ref()
@@ -293,15 +289,15 @@ fn build_app_with_display(
         revealed: options.reveal,
         ..Default::default()
     };
-    let music =
-        Some(PlaybackAssets::load(&assets, diagnostics.clone())?).filter(|audio| !audio.is_empty());
-    let movie = movie::Playback::load(&assets, &options)?;
-    let boot = boot::Playback::load(&assets, &options)?;
+    let music = Some(audio).filter(|audio| !audio.is_empty());
+    let movie = movie::Playback::load(&library, &options)?;
+    let boot = boot::Playback::from_assets(boot);
     let initial_clock = PresentationClock::new(options.presentation_start.unwrap_or(0));
     let mut app = App::new();
     app.insert_resource(session_screen::Title {
         events: Some(events.fresh()?),
         audio: music.clone(),
+        files: Some(files.clone()),
     });
     app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(TitleActive);
@@ -311,6 +307,11 @@ fn build_app_with_display(
         !options.headless() && options.replay.is_none(),
     )?;
     loading::install(&mut app, &assets);
+    *app.world()
+        .resource::<loading::Resident>()
+        .files
+        .write()
+        .unwrap() = Some(files);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
     let capture_only = options.headless();

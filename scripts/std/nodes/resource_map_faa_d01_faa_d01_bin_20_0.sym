@@ -1,0 +1,4 @@
+script library;
+// Skeleton: b7df014f979d9bac760b700d5bb7f805af0f5f64b8765506aca4955fa5824294
+// Source owner: MAP/faa_d01/FAA_D01.BIN/20/0
+pub const Node000_Jump04: string = "jump04";

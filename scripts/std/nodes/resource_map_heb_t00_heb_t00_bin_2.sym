@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 59dfce7570fec768e458e3415017bb3831bb95e68e5b30ad5c83fdcbae1be4bc
+// Source owner: MAP/heb_t00/HEB_T00.BIN/2
+pub const Node000_Circle04: string = "Circle04";

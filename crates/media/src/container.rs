@@ -5,14 +5,13 @@ use ffv1::decoder::Decoder;
 use matroska_demuxer::{MatroskaFile, TrackEntry, TrackType};
 use std::{fs::File, io::BufReader, path::Path, time::Duration};
 
-pub(crate) type Input = MatroskaFile<BufReader<File>>;
+pub(crate) type Input = MatroskaFile<BufReader<crate::source::Source>>;
 pub(crate) fn open(path: &Path) -> Result<Input> {
-    let file = File::open(path)?;
-    ensure!(
-        file.metadata()?.is_file(),
-        "movie input must be a regular local file"
-    );
-    Ok(MatroskaFile::open(BufReader::new(file))?)
+    from_source(crate::source::Source::new(File::open(path)?)?)
+}
+
+pub(crate) fn from_source(source: crate::source::Source) -> Result<Input> {
+    Ok(MatroskaFile::open(BufReader::new(source))?)
 }
 
 pub(crate) fn track(input: &Input, kind: TrackType) -> Result<&TrackEntry> {
@@ -115,13 +114,19 @@ pub struct VideoReader {
     packet: matroska_demuxer::Frame,
     index: u32,
     previous: Option<Duration>,
+    frame_duration: Option<Duration>,
 }
 impl VideoReader {
     pub fn open(path: &Path) -> Result<Self> {
-        let input = open(path)?;
+        Self::from_input(open(path)?)
+    }
+    pub(crate) fn from_input(input: Input) -> Result<Self> {
         let video = track(&input, TrackType::Video)?;
         let decoder = RgbDecoder::new(video)?;
         let track = video.track_number().get();
+        let frame_duration = video
+            .default_duration()
+            .map(|value| Duration::from_nanos(value.get()));
         let scale = input.info().timestamp_scale().get();
         Ok(Self {
             input,
@@ -131,10 +136,14 @@ impl VideoReader {
             packet: Default::default(),
             index: 0,
             previous: None,
+            frame_duration,
         })
     }
     pub fn dimensions(&self) -> (u32, u32) {
         (self.decoder.width, self.decoder.height)
+    }
+    pub fn frame_duration(&self) -> Option<Duration> {
+        self.frame_duration
     }
     pub fn next_frame(&mut self) -> Result<Option<VideoFrame>> {
         while self.input.next_frame(&mut self.packet)? {

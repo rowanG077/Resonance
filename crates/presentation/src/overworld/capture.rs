@@ -62,6 +62,31 @@ pub struct Probe {
 fn camera_ticks() -> u16 {
     300
 }
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS and a graphics adapter; runs the headless production world renderer"]
+fn named_world_renderer_uses_only_captured_resources() -> Result<()> {
+    let work = crate::test_support::named_world_fixture()?;
+    let output = std::env::var_os("RESONANCE_WORLD_CAPTURE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| work.path().join("capture.png"));
+    let probe: Probe = serde_json::from_value(serde_json::json!({
+        "state": {
+            "world": "sylvarant", "position": [9770.0, 24160.0, 0.0],
+            "heading": 0.0, "camera_yaw": 0.0, "alternate_perspective": false,
+            "map_display": "small", "mount": "foot", "altitude": 0.0
+        },
+        "story": 14000000
+    }))?;
+    capture_overworld(work.path(), &output, &probe)?;
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.with_extension("json"))?)?;
+    assert_eq!(state["late_asset_reads"], 0);
+    assert!(state["instances"].as_u64().unwrap() > 100);
+    assert!(std::fs::metadata(&output)?.len() > 1024);
+    println!("Named world capture: {}", output.display());
+    Ok(())
+}
 #[derive(Resource)]
 pub(super) struct Scene(pub super::Scene);
 #[derive(Resource)]
@@ -77,13 +102,13 @@ struct Capture {
 pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()> {
     let mut clock = resonance_game::clock::PresentationClock::new(probe.presentation_start);
     let root = root.canonicalize()?;
-    let package = Arc::new(game::Prepared::load(
+    let prepared = super::Package::prepare(
         &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
         &mut Default::default(),
-        (0..547).collect(),
         || false,
-    )?);
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let package = prepared.world;
     let mut persistent = resonance_events::PersistentState {
         event_flags: probe.event_flags.clone(),
         party: Some(resonance_events::party::Party::new(

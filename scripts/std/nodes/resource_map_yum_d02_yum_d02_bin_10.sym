@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 255d76abe358a56d85e604c37af385aa1eee9a10dea4256cf9f9d9cc6e64b968
+// Source owner: MAP/yum_d02/YUM_D02.BIN/10
+pub const Node000_Hasu_Takara03: string = "hasu_takara03";
+pub const Node001_DM_Hasu02: string = "DM_hasu02";

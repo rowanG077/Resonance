@@ -8,14 +8,13 @@ use resonance_events::{
 use std::sync::Arc;
 
 pub fn load(files: &Files, scene: Arc<Scene>) -> Result<crate::battle::event::Prepared> {
-    #[derive(serde::Deserialize)]
-    struct EyeCycle {
-        blink: resonance_content::effect::BlinkCycle,
-    }
-    let cycle: EyeCycle = files.json("data/embedded/field-effects.json")?;
-    cycle.blink.validate()?;
+    let blink = scene
+        .blink
+        .clone()
+        .context("battle event has no captured blink cycle")?;
+    blink.validate()?;
     let mut resources = ResourceLibrary {
-        blink: Some(cycle.blink),
+        blink: Some(blink),
         messages: files.json(&scene.messages)?,
         actor_names: ResourceLibrary::character_names(),
         ..Default::default()

@@ -32,12 +32,12 @@ fn fixture() -> App {
                 version: resonance_content::CONTENT_VERSION,
                 game_id: "GQSEAF".into(),
                 revision: 0,
-                source_sha256: String::new(),
                 textures: Vec::new(),
             },
             images: Vec::new(),
         })
         .insert_resource(RunOptions {
+            mods: Vec::new(),
             script_root: None,
             saves: Default::default(),
             assets: PathBuf::new(),

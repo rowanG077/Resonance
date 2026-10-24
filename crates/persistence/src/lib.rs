@@ -33,8 +33,9 @@ pub struct Header {
 }
 impl Header {
     fn validate(&self) -> Result<()> {
+        self.identity.validate()?;
         ensure!(
-            self.identity.schema > 0 && self.label.len() <= 256 && self.location.len() <= 256,
+            self.label.len() <= 256 && self.location.len() <= 256,
             "invalid save metadata"
         );
         Ok(())
@@ -51,6 +52,8 @@ pub struct Save<T> {
 impl<T> Save<T> {
     /// Admit parsed state only after its content snapshot is available.
     pub fn admit(self, expected: &Identity) -> Result<(Header, T)> {
+        expected.validate()?;
+        self.header.validate()?;
         ensure!(
             &self.header.identity == expected,
             "incompatible save schema or content"

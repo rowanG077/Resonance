@@ -2,7 +2,7 @@
 use anyhow::{Context, Result, ensure};
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, btree_map::Entry},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     fs,
     io::Write,
     marker::PhantomData,
@@ -11,10 +11,25 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+/// File installation and the producer that emits it have separate claims.
+/// Producer claims exist only in memory for this cook and never become files.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Key {
+    path: PathBuf,
+    producer: bool,
+}
+impl Key {
+    fn display(&self) -> std::path::Display<'_> {
+        self.path.display()
+    }
+}
+
 type Reply = Sender<std::result::Result<bool, String>>;
 enum Event {
-    Claim(PathBuf, String, Reply),
-    Finished(PathBuf, std::result::Result<(), String>),
+    Claim(Key, String, Reply),
+    Finished(Key, std::result::Result<(), String>),
+    Export(PathBuf),
+    Exports(Sender<Vec<PathBuf>>),
     Stop,
 }
 enum Status {
@@ -54,6 +69,14 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    /// Terminal writers select the authoring files; converter scratch is never
+    /// exported merely because an encoder wrote it. This list is cook-local.
+    pub(crate) fn exports(&self) -> Result<Vec<PathBuf>> {
+        let (reply, result) = mpsc::channel();
+        self.events.send(Event::Exports(reply))?;
+        result.recv().context("publication coordinator stopped")
+    }
+
     pub(crate) fn start_if_needed(root: &Path) -> Result<Option<Self>> {
         if let Some(client) = current() {
             fs::create_dir_all(root)?;
@@ -97,7 +120,8 @@ impl Drop for Session {
 }
 
 fn coordinate(incoming: Receiver<Event>) {
-    let mut destinations = BTreeMap::<PathBuf, (String, Status)>::new();
+    let mut destinations = BTreeMap::<Key, (String, Status)>::new();
+    let mut exports = BTreeSet::new();
     while let Ok(event) = incoming.recv() {
         match event {
             Event::Claim(path, hash, reply) => match destinations.entry(path) {
@@ -134,13 +158,69 @@ fn coordinate(incoming: Receiver<Event>) {
                     *status = Status::Finished(result);
                 }
             }
+            Event::Export(path) => {
+                exports.insert(path);
+            }
+            Event::Exports(reply) => {
+                let _ = reply.send(exports.iter().cloned().collect());
+            }
             Event::Stop => break,
         }
     }
 }
 
+/// Mark an ordinary, already written authoring file for the complete generation.
+/// Standalone converters need no session; the full cooker owns the export list.
+pub(crate) fn export(path: &Path) -> Result<()> {
+    if let Some(client) = current() {
+        let metadata = fs::symlink_metadata(path)?;
+        ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "authoring output must be an ordinary file: {}",
+            path.display()
+        );
+        let path = path.canonicalize()?;
+        ensure!(
+            path.starts_with(&client.root),
+            "authoring output escapes cook: {}",
+            path.display()
+        );
+        client.events.send(Event::Export(path))?;
+    }
+    Ok(())
+}
+
+/// Explicit report and source-resource trees contain only terminal output.
+pub(crate) fn export_tree(root: &Path) -> Result<()> {
+    if !root.try_exists()? {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(root)?;
+    ensure!(
+        !metadata.file_type().is_symlink(),
+        "authoring tree contains a symlink: {}",
+        root.display()
+    );
+    if metadata.is_file() {
+        return export(root);
+    }
+    ensure!(
+        metadata.is_dir(),
+        "authoring output is not a file or directory: {}",
+        root.display()
+    );
+    let mut entries = fs::read_dir(root)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort();
+    for path in entries {
+        export_tree(&path)?;
+    }
+    Ok(())
+}
+
 struct Permit {
-    owner: Option<(Sender<Event>, PathBuf)>,
+    owner: Option<(Sender<Event>, Key)>,
 }
 
 impl Permit {
@@ -167,7 +247,7 @@ impl Drop for Permit {
 }
 
 impl Client {
-    fn claim(&self, path: &Path, hash: &str) -> Result<Option<Permit>> {
+    fn claim(&self, path: &Path, hash: &str, producer: bool) -> Result<Option<Permit>> {
         // Resolve existing parents, including aliases, before the final file exists.
         let path = path
             .parent()
@@ -188,6 +268,7 @@ impl Client {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
+        let path = Key { path, producer };
         let (reply, result) = mpsc::channel();
         self.events
             .send(Event::Claim(path.clone(), hash.into(), reply))?;
@@ -205,13 +286,33 @@ impl Client {
 /// acquire another destination or schedule dependent work inside `install`.
 pub(crate) fn publish(path: &Path, hash: &str, install: impl FnOnce() -> Result<()>) -> Result<()> {
     if let Some(client) = current() {
-        if let Some(permit) = client.claim(path, hash)? {
+        if let Some(permit) = client.claim(path, hash, false)? {
             let result = install();
             permit.finish(&result);
             result?;
         }
     } else {
         install()?;
+    }
+    Ok(())
+}
+
+/// Run one producer for a named owner and its complete native input identity.
+/// A producer may install files, but must not acquire another producer claim.
+/// A matching completed claim reuses its files without reading any descriptor.
+pub(crate) fn produce_once(
+    path: &Path,
+    identity: &str,
+    produce: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    if let Some(client) = current() {
+        if let Some(permit) = client.claim(path, identity, true)? {
+            let result = produce();
+            permit.finish(&result);
+            result?;
+        }
+    } else {
+        produce()?;
     }
     Ok(())
 }
@@ -296,6 +397,31 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
+    fn shared_producer_emits_files_once_without_an_installed_marker() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let _session = Session::start(root.path())?;
+        let entry = root.path().join("music.json");
+        let renders = AtomicUsize::new(0);
+        for _ in 0..2 {
+            produce_once(&entry, "native-score-and-instruments", || {
+                renders.fetch_add(1, Ordering::Relaxed);
+                File::write(&entry, b"current music document")?;
+                export(&entry)
+            })?;
+        }
+        assert_eq!(renders.load(Ordering::Relaxed), 1);
+        assert_eq!(fs::read_dir(root.path())?.count(), 1);
+        assert_eq!(fs::read(&entry)?, b"current music document");
+        assert!(
+            produce_once(&entry, "different-instruments", || {
+                panic!("different input cannot silently reuse an owner")
+            })
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn completed_files_share_atomic_destinations_without_reencoding() -> Result<()> {
         let root = tempfile::tempdir()?;
         let _session = Session::start(root.path())?;
@@ -367,11 +493,16 @@ mod tests {
         let session = Session::start(&root)?;
         let client = current().unwrap();
         let target = root.join("failed");
-        let owner = client.claim(&target, "hash")?.unwrap();
+        let owner = client.claim(&target, "hash", false)?.unwrap();
         let (reply, waiter) = mpsc::channel();
-        client
-            .events
-            .send(Event::Claim(target, "hash".into(), reply))?;
+        client.events.send(Event::Claim(
+            Key {
+                path: target,
+                producer: false,
+            },
+            "hash".into(),
+            reply,
+        ))?;
         drop(owner);
         assert!(
             waiter

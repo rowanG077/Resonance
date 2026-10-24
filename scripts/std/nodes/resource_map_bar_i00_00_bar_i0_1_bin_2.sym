@@ -1,0 +1,4 @@
+script library;
+// Skeleton: c6191b464437613b359840463aba27a39d55d1a3d52d29d3b5e4bbccf316cd6f
+// Source owner: MAP/bar_i00_00/BAR_I0~1.BIN/2
+pub const Node000_Model03: string = "model03";

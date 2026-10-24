@@ -774,6 +774,7 @@ fn load_live(
     let mut ui = match super::field_ui::Artwork::load_with(
         session.field_assets(),
         session.data().clone(),
+        session.field_package().skits.clone(),
         &server,
         &mut materials,
         &mut images,
@@ -786,13 +787,12 @@ fn load_live(
         }
     };
     ui.prepare(&mut commands, &mut meshes, &mut materials);
-    let effects = match super::field_effects::Artwork::load_with(
-        &std::path::PathBuf::new(),
+    let effects = match super::field_effects::Artwork::load(
         session.field_assets(),
         &server,
         &mut meshes,
         &mut surfaces,
-        Some(&files),
+        &files,
     ) {
         Ok(effects) => effects,
         Err(error) => {
@@ -2294,13 +2294,17 @@ fn capture_field_cached(
     let root = fs::canonicalize(root)?;
     let checkpoint = target.scene.checkpoint();
     let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
-    let (mut assets, mut session) = if setup_prompt {
+    let (mut assets, mut session, files) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
         {
             let super::new_game::Scene::Field(field) = entry.scene else {
                 unreachable!()
             };
-            (field.package.assets.clone(), field.session)
+            (
+                field.package.assets.clone(),
+                field.session,
+                field.package.files.clone(),
+            )
         }
     } else {
         let map = checkpoint.map_or(340, |c| c.map_id);
@@ -2367,7 +2371,7 @@ fn capture_field_cached(
                 .context("capture session data missing")?;
             super::new_game::initialize_checkpoint(&mut session, checkpoint, &data)?;
         }
-        (assets, session)
+        (assets, session, package.files.clone())
     };
     session.events.world.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
         package.audio.voice_durations()
@@ -2436,7 +2440,12 @@ fn capture_field_cached(
         .or_else(|| probe.and_then(|p| p.preferences.as_ref()));
     if let Some(preferences) = preferences {
         preferences.validate()?;
-        let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
+        let data = session
+            .events
+            .resources()
+            .session_data
+            .clone()
+            .context("capture session data missing")?;
         let party = session
             .events
             .world
@@ -2455,7 +2464,16 @@ fn capture_field_cached(
         assets.water = None;
     }
     let mut app = App::new();
-    super::model_preview::register(&mut app, &root);
+    super::loading::install(&mut app, &root);
+    *app.world()
+        .resource::<super::loading::Resident>()
+        .files
+        .write()
+        .unwrap() = Some(files.clone());
+    app.world()
+        .resource::<super::loading::Resident>()
+        .active
+        .store(true, std::sync::atomic::Ordering::Release);
     app.add_plugins(
         DefaultPlugins
             .set(bevy::pbr::PbrPlugin {
@@ -2488,7 +2506,7 @@ fn capture_field_cached(
     .init_resource::<super::scene::SampledImages>()
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
-    .insert_resource(Root { assets: root })
+    .insert_resource(Root { files })
     .insert_resource(super::display::OutputStage::Framebuffer)
     .insert_resource(super::display::Display(resolution))
     .insert_resource(Checkpoint {
@@ -2557,21 +2575,14 @@ fn setup(
         }
     };
     let effects = super::field_effects::Artwork::load(
-        &root.assets,
         &manifest.0,
         &server,
         &mut meshes,
         &mut surfaces,
+        &root.files,
     )
     .expect("validated cooked field effects");
     commands.insert_resource(effects);
-    let files = resonance_content::prepared::Files::load(
-        &root.assets,
-        &[&super::new_game::manifest_path(manifest.0.map_id)],
-        &mut Default::default(),
-        || false,
-    )
-    .expect("capture UI files");
     let data = session
         .0
         .events
@@ -2582,10 +2593,17 @@ fn setup(
     let mut ui = super::field_ui::Artwork::load_with(
         &manifest.0,
         data,
+        session
+            .0
+            .events
+            .resources()
+            .skits
+            .clone()
+            .expect("capture skit data"),
         &server,
         &mut ui_materials,
         &mut images,
-        &files,
+        &root.files,
     )
     .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
@@ -2778,5 +2796,5 @@ struct Checkpoint {
 struct Manifest(FieldAssets);
 #[derive(Resource)]
 struct Root {
-    assets: PathBuf,
+    files: std::sync::Arc<resonance_content::prepared::Files>,
 }

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6144f20d0d3616e4dc3ca3f7f3250e6dbdb9a48963805273573d9d6ddae0cf0c
+// Source owner: MAP/exz_i00/EXZ_I00.BIN/2
+pub const Node000_Window_Light: string = "window_light";

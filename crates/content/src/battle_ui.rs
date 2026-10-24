@@ -2,15 +2,14 @@
 use crate::font::{BitmapFont, UiTexture};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-
-pub const PATH: &str = "battle/ui.json";
+pub mod document;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Art {
+pub struct Art<Font = BitmapFont> {
     pub version: u32,
     /// Atlas sampling is linear with clamped edges.
-    pub font: BitmapFont,
+    pub font: Font,
     /// Character IDs 1–9; four vertically stacked 64×64 expressions each.
     /// Portrait sampling is linear with repeated edges.
     #[serde(default)]
@@ -200,54 +199,7 @@ impl Art {
 
     /// Decode required controls and independently admit optional feedback.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
-        let mut art = Self::decode(&files.read(PATH)?, files.diagnostics())?;
-        for portrait in &mut art.portraits {
-            if let Some(image) = portrait
-                && files
-                    .diagnostics()
-                    .attempt("battle portrait image", files.read(&image.path))?
-                    .is_none()
-            {
-                *portrait = None;
-            }
-        }
-        Ok(art)
-    }
-
-    pub fn decode(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {
-        #[derive(Deserialize)]
-        struct Source {
-            #[serde(flatten)]
-            art: Art,
-            #[serde(default)]
-            portraits: serde_json::Value,
-        }
-        let mut source: Source = serde_json::from_slice(bytes)?;
-        if let Some(values) = diagnostics
-            .attempt(
-                "battle portraits",
-                serde_json::from_value::<Option<[serde_json::Value; 9]>>(source.portraits)
-                    .map_err(anyhow::Error::from),
-            )?
-            .flatten()
-        {
-            for (portrait, value) in source.art.portraits.iter_mut().zip(values) {
-                *portrait = diagnostics
-                    .attempt(
-                        "battle portrait",
-                        (|| {
-                            let portrait: Option<UiTexture> = serde_json::from_value(value)?;
-                            if let Some(image) = &portrait {
-                                validate_portrait(image)?;
-                            }
-                            Ok(portrait)
-                        })(),
-                    )?
-                    .flatten();
-            }
-        }
-        source.art.validate_layout()?;
-        Ok(source.art)
+        document::read(&mut |path| files.read(path), files.diagnostics())
     }
 
     pub fn validate_required_dialogue(&self, font: &BitmapFont) -> Result<()> {
@@ -330,5 +282,66 @@ impl Art {
             );
         }
         Ok(())
+    }
+}
+
+impl<Font> Art<Font> {
+    pub fn with_font<Other>(self, font: Other) -> Art<Other> {
+        Art {
+            version: self.version,
+            font,
+            portraits: self.portraits,
+            meters: self.meters,
+            damage: self.damage,
+            recovery_colors: self.recovery_colors,
+            result_colors: self.result_colors,
+            targets: self.targets,
+            stun: self.stun,
+            notices: self.notices,
+            combo: self.combo,
+            stat_colors: self.stat_colors,
+            stat_backdrops: self.stat_backdrops,
+            stat_icons: self.stat_icons,
+            unison_buttons: self.unison_buttons,
+            commands: self.commands,
+            feedback: self.feedback,
+        }
+    }
+}
+
+impl Art<String> {
+    fn decode_fields(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {
+        #[derive(Deserialize)]
+        struct Source<Font> {
+            #[serde(flatten)]
+            art: Art<Font>,
+            #[serde(default)]
+            portraits: serde_json::Value,
+        }
+        let mut source: Source<String> = serde_json::from_slice(bytes)?;
+        if let Some(values) = diagnostics
+            .attempt(
+                "battle portraits",
+                serde_json::from_value::<Option<[serde_json::Value; 9]>>(source.portraits)
+                    .map_err(anyhow::Error::from),
+            )?
+            .flatten()
+        {
+            for (portrait, value) in source.art.portraits.iter_mut().zip(values) {
+                *portrait = diagnostics
+                    .attempt(
+                        "battle portrait",
+                        (|| {
+                            let portrait: Option<UiTexture> = serde_json::from_value(value)?;
+                            if let Some(image) = &portrait {
+                                validate_portrait(image)?;
+                            }
+                            Ok(portrait)
+                        })(),
+                    )?
+                    .flatten();
+            }
+        }
+        Ok(source.art)
     }
 }

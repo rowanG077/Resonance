@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 84c69f9ed3ca9ce5d4b6d490ce3655c6951775dd8a0a478341f50da0ce411974
+// Source owner: MAP/fir_d02/FIR_D02.BIN/7/3/0
+pub const Node000_Box152: string = "Box152";

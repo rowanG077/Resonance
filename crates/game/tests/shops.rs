@@ -12,7 +12,7 @@ use resonance_game::{
 use std::sync::Arc;
 
 fn resources() -> Arc<Resources> {
-    let data: MenuData = common::cooked("game/menu-data.json");
+    let data: MenuData = common::menu();
     let mut session: SessionData = common::cooked("game/session-data.json");
     session.rules = Some(Arc::new(data.clone()));
     Arc::new(Resources {

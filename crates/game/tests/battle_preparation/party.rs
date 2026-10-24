@@ -1,6 +1,6 @@
 use super::*;
 use battle::{
-    model::{ModelSetup, ModelSource},
+    model::ModelSetup,
     party::{Character, Setup},
 };
 use resonance_battle::{Affinity, Control, Element, Playback, PreparedBattle};
@@ -10,31 +10,19 @@ use resonance_events::party::Party;
 fn snapshot() -> Result<(Files, MenuData, Party)> {
     let root = common::asset_root();
     let mut cache = resonance_content::prepared::Cache::default();
-    let files = Files::load(&root, &["fields/map-340.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: MenuData = files.json("game/menu-data.json")?;
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        &mut cache,
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
     menus.validate()?;
     let mut session: SessionData = files.json("game/session-data.json")?;
     session.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&session, Default::default()).map_err(anyhow::Error::msg)?;
     party.formation = vec![1, 2, 3, 4, 9];
-    let sources: Vec<_> = [
-        battle::party::Character::Lloyd,
-        battle::party::Character::Colette,
-        battle::party::Character::Genis,
-        battle::party::Character::Raine,
-        battle::party::Character::Kratos,
-    ]
-    .into_iter()
-    .map(ModelSource::Party)
-    .chain(
-        [135, 143, 159, 175, 190, 228, 357]
-            .into_iter()
-            .map(ModelSource::Weapon),
-    )
-    .collect();
-    let files = battle::model::load_files(&root, files, &sources, &mut cache, || false)?;
     Ok((files, menus, party))
 }
 

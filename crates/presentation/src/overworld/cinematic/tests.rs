@@ -58,7 +58,6 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
         actors: [(1, vec![part.clone()]), (2, vec![part])].into(),
         dialogue: vec![],
         presentation: CinematicPresentation {
-            provenance: "synthetic renderer fixture".into(),
             fade: CinematicFade {
                 white: false,
                 end_rate: 8,

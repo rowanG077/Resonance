@@ -1,45 +1,19 @@
-//! Versioned cooked JSON and ordinary PCM WAVs, shared by the importer/player.
+//! Validated playback data, current editable programs and decoded sample sharing.
 use crate::{
     data::{Command, Resources, Score},
     music_voice::Tables,
     sample::Sample,
 };
-use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use anyhow::{Result, ensure};
 use std::{
     collections::BTreeMap,
-    fs::File,
-    io::{Cursor, Read},
     path::{Component, Path},
 };
 
-pub const VERSION: u32 = 4;
-const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
+pub mod editable;
 
 #[cfg(test)]
 pub(crate) mod tests;
-
-#[derive(Serialize, Deserialize)]
-pub struct SampleAsset {
-    pub path: String,
-    pub sha256: String,
-    pub key: u8,
-    pub rate: u16,
-    pub first_frames: u32,
-    pub loop_start: u32,
-    pub loop_length: u32,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Package {
-    pub version: u32,
-    pub programs: BTreeMap<u16, Vec<Command>>,
-    pub samples: BTreeMap<u16, SampleAsset>,
-    pub score: Score,
-    pub tables: Tables,
-    pub reverbs: [[f32; 5]; 2],
-}
 
 pub struct Loaded {
     resources: Resources,
@@ -118,16 +92,6 @@ impl SampleCache {
     }
 }
 
-pub(crate) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    File::open(path)
-        .with_context(|| format!("opening {}", path.display()))?
-        .take(limit as u64 + 1)
-        .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= limit, "music resource exceeds read budget");
-    Ok(bytes)
-}
-
 pub(crate) fn relative_path(path: &str) -> Result<()> {
     ensure!(
         !path.is_empty()
@@ -138,140 +102,6 @@ pub(crate) fn relative_path(path: &str) -> Result<()> {
         "invalid music asset path"
     );
     Ok(())
-}
-
-impl Package {
-    /// Load only cooked data. This path has no bank/executable or device access.
-    pub fn load(root: &Path, path: &str) -> Result<Loaded> {
-        Self::load_with(
-            path,
-            &mut |path, limit| read_bounded(&root.join(path), limit),
-            &mut SampleCache::default(),
-        )
-    }
-
-    pub fn load_verified(
-        root: &Path,
-        path: &str,
-        expected_sha256: &str,
-        cache: &mut SampleCache,
-    ) -> Result<Loaded> {
-        Self::load_with(
-            path,
-            &mut |requested, limit| {
-                let bytes = read_bounded(&root.join(requested), limit)?;
-                if requested == path {
-                    ensure!(
-                        format!("{:x}", Sha256::digest(&bytes)) == expected_sha256,
-                        "music package digest differs from metadata"
-                    );
-                }
-                Ok(bytes)
-            },
-            cache,
-        )
-    }
-
-    pub fn load_with(
-        path: &str,
-        read: &mut impl FnMut(&str, usize) -> Result<Vec<u8>>,
-        cache: &mut SampleCache,
-    ) -> Result<Loaded> {
-        relative_path(path)?;
-        let bytes = read(path, MAX_PACKAGE_BYTES)?;
-        ensure!(
-            bytes.len() <= MAX_PACKAGE_BYTES,
-            "music package exceeds read budget"
-        );
-        let package: Self = serde_json::from_slice(&bytes)?;
-        package.prepare(
-            &mut |asset, limit| {
-                let bytes = read(&asset.path, limit)?;
-                ensure!(
-                    bytes.len() <= limit && format!("{:x}", Sha256::digest(&bytes)) == asset.sha256,
-                    "instrument sample digest or size differs from manifest"
-                );
-                Ok(bytes.into())
-            },
-            cache,
-        )
-    }
-
-    /// Decode once from an already parsed package and verified immutable samples.
-    /// The reader validates each sample's digest and budget, including cache hits.
-    pub fn prepare(
-        self,
-        read: &mut impl FnMut(&SampleAsset, usize) -> Result<std::sync::Arc<[u8]>>,
-        cache: &mut SampleCache,
-    ) -> Result<Loaded> {
-        cache.prune();
-        let package = self;
-        ensure!(
-            package.version == VERSION,
-            "unsupported cooked music version; recook audio packages"
-        );
-        let mut samples = BTreeMap::new();
-        let mut total = 0usize;
-        for (id, asset) in package.samples {
-            relative_path(&asset.path)?;
-            let count = u64::from(asset.first_frames) + u64::from(asset.loop_length);
-            ensure!(
-                count <= 32_000_000,
-                "instrument sample exceeds frame budget"
-            );
-            total = total
-                .checked_add(count as usize)
-                .context("music sample count overflow")?;
-            ensure!(
-                total <= 32_000_000,
-                "music bank exceeds decoded frame budget"
-            );
-            // The same WAV can have different tuning/loop metadata.
-            let key = serde_json::to_string(&(
-                &asset.sha256,
-                asset.key,
-                asset.rate,
-                asset.first_frames,
-                asset.loop_start,
-                asset.loop_length,
-            ))?;
-            let bytes = read(&asset, count as usize * 2 + 1024 * 1024)?;
-            if let Some(sample) = cache.0.get(&key).and_then(std::sync::Weak::upgrade) {
-                samples.insert(id, sample);
-                continue;
-            }
-            let mut wave = hound::WavReader::new(Cursor::new(bytes))?;
-            let spec = wave.spec();
-            ensure!(
-                spec.channels == 1
-                    && spec.sample_format == hound::SampleFormat::Int
-                    && spec.bits_per_sample == 16
-                    && spec.sample_rate == u32::from(asset.rate)
-                    && u64::from(wave.duration()) == count,
-                "instrument WAV differs from manifest"
-            );
-            let mut pcm: Vec<_> = wave
-                .samples::<i16>()
-                .collect::<std::result::Result<_, _>>()?;
-            ensure!(pcm.len() == count as usize, "truncated instrument WAV");
-            let loop_pcm = pcm.split_off(asset.first_frames as usize);
-            let sample = std::sync::Arc::new(Sample {
-                key: asset.key,
-                rate: asset.rate,
-                loop_start: asset.loop_start,
-                loop_length: asset.loop_length,
-                pcm,
-                loop_pcm,
-            });
-            cache.0.insert(key, std::sync::Arc::downgrade(&sample));
-            samples.insert(id, sample);
-        }
-        let resources = Resources {
-            programs: package.programs,
-            samples,
-        };
-        Loaded::new(resources, package.score, package.tables, package.reverbs)
-    }
 }
 
 pub(crate) mod array {

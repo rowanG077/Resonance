@@ -499,10 +499,9 @@ mod tests {
         assert_eq!(remaining[FRAME].positions, paired[FRAME].positions);
         assert_eq!(remaining[FRAME].colors, paired[FRAME].colors);
 
-        let catalogue = serde_json::from_slice(&std::fs::read(
-            fixtures::asset_root().join(resonance_content::battle_unison::PATH),
-        )?)?;
-        hud.configure_unison_names(&catalogue)?;
+        let library = resonance_content::library::Library::open(&fixtures::asset_root(), &[])?;
+        let rules = resonance_content::battle_rules::capture(&mut library.snapshot(), &|| false)?;
+        hud.configure_unison_names(&rules.unison)?;
         let actor = resonance_battle::ActorId::from_index(0)?;
         frame.unison = Some(resonance_battle::UnisonFrame {
             generation: 1,

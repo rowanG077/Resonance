@@ -1,7 +1,6 @@
 """Prepare declared enemy-action prerequisites without forcing an action."""
-import json
-
 import battle_geometry
+from named_content import Snapshot
 
 SESSION_POINTER = 0x8035A768
 EVENT_FLAGS_OFFSET = 0xC9D
@@ -115,8 +114,8 @@ def plan(case, battle, identities, definitions):
 
 def prepare(state, battle, initialized, case, assets):
     identities = {actor["slot"]: actor["enemy"] for actor in initialized["identities"]}
-    definitions = {enemy: json.loads((assets / f"battle/enemies/{enemy:03}/definition.json").read_text())
-                   for enemy in set(identities.values())}
+    content = Snapshot(assets)
+    definitions = {enemy: content.enemy_rules(enemy) for enemy in set(identities.values())}
     inputs = plan(case, battle, identities, definitions)
     first_change = len(state.changes)
     actors = {actor["slot"]: actor for actor in battle["actors"]}
@@ -143,9 +142,9 @@ def prepare(state, battle, initialized, case, assets):
         host = actors[slot]
         recipient = actors[0]
         host_body = battle_geometry.read_initialized_body(
-            state, host, assets / f"battle/enemies/{identities[slot]:03}.json")
+            state, host, assets, enemy=identities[slot])
         recipient_body = battle_geometry.read_initialized_body(
-            state, recipient, assets / f"battle/party/{battle['party_order'][0]:02}.json")
+            state, recipient, assets, character=battle['party_order'][0])
         separation = battle_geometry.separation_for_gap(host_body, recipient_body, HOST_ATTACK_GAP)
         x, z = host["position"][0] - separation, host["position"][2]
         battle_geometry.place_actor(state, recipient, x, z)

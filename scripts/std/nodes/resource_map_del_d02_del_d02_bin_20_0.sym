@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 3818a2c0ef501d86d6bc0154a015e74492b03883d58f6918f01d509db10b141d
+// Source owner: MAP/del_d02/DEL_D02.BIN/20/0
+pub const Node000_Ma_Eff_Othr: string = "ma_eff_othr";
+pub const Node001_Tube01: string = "Tube01";

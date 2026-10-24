@@ -1,0 +1,4 @@
+script library;
+// Skeleton: ac16a469f4f1eb37512f28cc0f05985698f615b6cd8d016375d7f4932add360b
+// Source owner: d/2396/0
+pub const Node000_Mini_25_Mg12: string = "mini_25_mg12";

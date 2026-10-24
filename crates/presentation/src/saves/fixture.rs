@@ -1,6 +1,6 @@
 //! Prepare development saves through the same field initialization as loading.
 use super::*;
-use std::{fs, io::Write, path::Path};
+use std::{fs, io::Write, path::Path, sync::Arc};
 
 pub fn prepare_checkpoint_fixture(
     root: &Path,
@@ -10,8 +10,7 @@ pub fn prepare_checkpoint_fixture(
     ensure!(!output.exists(), "checkpoint fixture already exists");
     let mut cache = loading::Cache::default();
     let package = new_game::FieldPackage::prepare(root, checkpoint.map_id, &mut cache, || false)?;
-    let session =
-        new_game::Session::load_prepared(root, package.files, Some(checkpoint), None, &mut cache)?;
+    let session = new_game::Session::load_prepared(Arc::new(package), Some(checkpoint), None)?;
     let state = session.field().checkpoint()?;
     let header = Header {
         identity: session.identity,

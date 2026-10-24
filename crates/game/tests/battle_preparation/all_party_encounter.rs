@@ -10,7 +10,6 @@ use resonance_events::{battle::DefeatPolicy, party::Party};
 use resonance_game::battle::encounter::{Assets, PrepareOptions, Prepared};
 
 pub(super) struct ColdEncounter {
-    root: std::path::PathBuf,
     cache: Cache,
     files: Files,
     pub(super) menus: MenuData,
@@ -22,13 +21,16 @@ impl ColdEncounter {
     pub(super) fn load() -> Result<Self> {
         let root = common::asset_root();
         let mut cache = Cache::default();
-        let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-            false
-        })?;
+        let files = resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(&root, &[])?,
+            &[],
+            &mut cache,
+            || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
         let session = SessionData::load(&files)?;
         let menus = session.rules.as_ref().unwrap().as_ref().clone();
         Ok(Self {
-            root,
             cache,
             files,
             menus,
@@ -43,20 +45,35 @@ impl ColdEncounter {
 
     fn prepare_formation(&mut self, party: &Party, formation: u16) -> Result<(Assets, Prepared)> {
         party.validate(&self.session)?;
-        let (assets, prepared) = Assets::load(
-            &self.root,
-            &self.files,
-            &self.menus,
-            &self.session,
-            party,
-            opening_setup(formation, DefeatPolicy::GameOver),
-            PrepareOptions {
-                story: self.story,
-                ..opening_options(0x2345)
-            },
-            &mut self.cache,
-            || false,
-        )?;
+        let (assets, prepared) = {
+            let mut snapshot = (&self.files)
+                .library()
+                .context("named library is required")?
+                .snapshot();
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &(|| false),
+            )?;
+            let inputs = resonance_game::battle::encounter::Inputs::capture(
+                &mut snapshot,
+                &self.menus,
+                &self.session,
+                party,
+                opening_setup(formation, DefeatPolicy::GameOver),
+                &mut self.cache,
+                (&self.files).diagnostics().clone(),
+                &(|| false),
+            )?;
+            let (assets, prepared, _) = inputs.prepare_named(
+                &self.menus,
+                PrepareOptions {
+                    story: self.story,
+                    ..opening_options(0x2345)
+                },
+                &catalogue,
+            )?;
+            Ok::<_, anyhow::Error>((assets, prepared))
+        }?;
 
         Ok((assets, prepared))
     }
@@ -66,14 +83,25 @@ impl ColdEncounter {
 #[ignore = "requires cooked party costumes and victory motions; CPU only"]
 fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
     let mut fixture = ColdEncounter::load()?;
+    let mut snapshot = fixture
+        .files
+        .library()
+        .context("named library is required")?
+        .snapshot();
+    let mut available = std::collections::BTreeSet::new();
+    for character in 1..=9_u8 {
+        let mapping = snapshot.resolve(
+            resonance_content::battle_model::document::PARTY,
+            u32::from(character),
+            Some("mappings.json"),
+        )?;
+        for (costume, _) in snapshot.mappings(&mapping)?.iter() {
+            available.insert((character, u8::try_from(costume)?));
+        }
+    }
     for (character, titles) in fixture.menus.titles.iter().enumerate() {
         for costume in titles.iter().filter_map(|title| title.costume) {
-            assert!(fixture.files.contains_key(
-                &resonance_content::battle_model::party_costume_path(
-                    (character + 1) as u8,
-                    costume as u8,
-                )
-            ));
+            assert!(available.contains(&((character + 1) as u8, costume as u8)));
         }
     }
     for costume in 0..5 {
@@ -82,11 +110,7 @@ fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
             party.formation = formation
                 .iter()
                 .copied()
-                .filter(|&character| {
-                    fixture.files.contains_key(
-                        &resonance_content::battle_model::party_costume_path(character, costume),
-                    )
-                })
+                .filter(|&character| available.contains(&(character, costume)))
                 .collect();
             if party.formation.is_empty() {
                 continue;
@@ -107,12 +131,13 @@ fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
                 .prepare(&party)
                 .with_context(|| format!("party {formation:?}, costume {costume}"))?;
             for &character in &formation {
-                let body: resonance_content::battle_model::Party =
-                    assets
-                        .files
-                        .json(&resonance_content::battle_model::party_costume_path(
-                            character, costume,
-                        ))?;
+                let (_, body) = resonance_content::battle_model::document::capture_party(
+                    &mut snapshot,
+                    character,
+                    costume,
+                    &Diagnostics::new(true),
+                    &|| false,
+                )?;
                 assert!(prepared.models.iter().any(|model| {
                     model
                         .parts
@@ -315,10 +340,17 @@ fn mixed_parties_prepare_spells_and_audio() -> Result<()> {
                 assert!(traits.aid_revenge);
             }
         }
-        let audio = assets.audio.as_ref().context("missing battle audio")?;
+        let audio = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut assets
+                .files
+                .library()
+                .context("named library required")?
+                .snapshot(),
+            &|| false,
+        )?;
         assert!(
             audio
-                .assets
+                .resolved
                 .music
                 .contains_key(&i16::try_from(prepared.music)?)
         );
@@ -701,10 +733,10 @@ fn elemental_variants_execute_from_equipment_and_permanent_learning() -> Result<
 #[cfg(feature = "test-support")]
 #[ignore = "requires current combined arte publications; CPU only"]
 fn every_combined_unison_recipe_executes() -> Result<()> {
-    use resonance_content::battle_unison::{self, Catalogue};
+    use resonance_content::battle_unison::Catalogue;
     let mut fixture = ColdEncounter::load()?;
     fixture.story = 1_403_000;
-    let catalogue: Catalogue = fixture.files.json(battle_unison::PATH)?;
+    let catalogue: Catalogue = resonance_content::battle_rules::unison(&fixture.files)?;
     let mut failures = Vec::new();
     let mut cases = 0;
     let selected_row = std::env::var("RESONANCE_TEST_UNISON_ROW")
@@ -785,7 +817,8 @@ fn elemental_variants_keep_base_unison_recipes() -> Result<()> {
     use resonance_content::{arte::elemental, battle_unison};
     let mut fixture = ColdEncounter::load()?;
     fixture.story = 1_403_000;
-    let catalogue: battle_unison::Catalogue = fixture.files.json(battle_unison::PATH)?;
+    let catalogue: battle_unison::Catalogue =
+        resonance_content::battle_rules::unison(&fixture.files)?;
     for (name, participants) in [
         (
             "Pow Blade",
@@ -940,21 +973,36 @@ fn angels_and_colette_prepare_independent_animated_wings() -> Result<()> {
         } else {
             vec![1, 2, 3, 4]
         };
-        let (assets, prepared) = Assets::load(
-            &fixture.root,
-            &fixture.files,
-            &fixture.menus,
-            &fixture.session,
-            &party,
-            opening_setup(formation, DefeatPolicy::GameOver),
-            PrepareOptions {
-                colette_state: 1,
-                story: 23_001_000,
-                ..opening_options(0x2345)
-            },
-            &mut fixture.cache,
-            || false,
-        )?;
+        let (assets, prepared) = {
+            let mut snapshot = (&fixture.files)
+                .library()
+                .context("named library is required")?
+                .snapshot();
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &(|| false),
+            )?;
+            let inputs = resonance_game::battle::encounter::Inputs::capture(
+                &mut snapshot,
+                &fixture.menus,
+                &fixture.session,
+                &party,
+                opening_setup(formation, DefeatPolicy::GameOver),
+                &mut fixture.cache,
+                (&fixture.files).diagnostics().clone(),
+                &(|| false),
+            )?;
+            let (assets, prepared, _) = inputs.prepare_named(
+                &fixture.menus,
+                PrepareOptions {
+                    colette_state: 1,
+                    story: 23_001_000,
+                    ..opening_options(0x2345)
+                },
+                &catalogue,
+            )?;
+            Ok::<_, anyhow::Error>((assets, prepared))
+        }?;
         let colette_has_wings = formation != 74;
         assert_eq!(
             prepared.accessories.len(),

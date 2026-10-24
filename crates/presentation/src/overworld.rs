@@ -9,6 +9,7 @@ mod capture;
 mod cinematic;
 mod effects;
 mod particles;
+mod preparation;
 use anyhow::{Context, Result};
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 pub use capture::{Probe, capture_overworld};
@@ -494,6 +495,12 @@ fn instances(
     if art.ui.is_none() {
         match super::field_ui::WorldArtwork::load(
             &scene.package.files,
+            scene
+                .package
+                .resources
+                .skits
+                .clone()
+                .expect("prepared world skits"),
             &server,
             &mut commands,
             &mut meshes,

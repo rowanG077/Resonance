@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6ab7699a888afc12ae06accfad44ed8a89646c6864780e4c2a6be7d9144b1fcf
+// Source owner: MAP/aqu_d03/AQU_D03.BIN/10
+pub const Node000_Mizu: string = "mizu";

@@ -1,16 +1,16 @@
 //! Original dialogue declarations assembled from typed font and texture resources.
 use super::*;
 use resonance_content::font::{DialogueArt, SelectionArt, UiTexture};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub(super) struct Recipe {
     system: String,
     default_style: usize,
     styles: [Style; 3],
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct Style {
     cursor_bank: String,
     cursor_image: usize,
@@ -139,136 +139,121 @@ pub(crate) fn prepare(extracted: &Path, output: &Path) -> Result<PreparedDialogu
     } = Recipe::read(&executable)?.assemble(extracted, &executable)?;
     windows.write(output)?;
     cursor.write(output)?;
-    let font = font.publish(output)?;
-    write_atomic(
-        &output.join("ui/dialogue.json"),
-        &serde_json::to_vec_pretty(&art)?,
+    crate::texture::cook(
+        font.font.width,
+        font.font.height,
+        &font.pixels,
+        &output.join(&font.font.texture),
     )?;
-    Ok(PreparedDialogue { font, art })
+    Ok(PreparedDialogue {
+        font: font.font,
+        art,
+        subtitles: font.subtitles,
+    })
 }
 
 #[test]
 #[cfg(unix)]
-#[ignore = "requires original discs and frozen cooked baseline; no codecs or devices"]
-fn original_dialogue_reads_sources_into_fresh_output_and_matches_frozen_pixels() -> Result<()> {
-    use crate::cooked::Source;
+#[ignore = "requires original discs and current RESONANCE_TEST_ASSETS; no codecs or devices"]
+fn original_dialogue_reads_sources_into_fresh_output_and_matches_current_pixels() -> Result<()> {
     use std::os::unix::fs::symlink;
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let baseline = std::env::var_os("RESONANCE_TEST_BASELINE")
+    let baseline = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
-    let root = crate::temporary_path(&std::env::temp_dir().join("dialogue-sources"));
-    let result = (|| -> Result<()> {
-        for disc in [1, 2] {
-            let extracted = local.join(format!("extracted/disc{disc}"));
-            let output = root.join(format!("output-{disc}"));
-            let executable = fs::read(extracted.join("sys/main.dol"))?;
-            let source = Source::open(&baseline, disc, "sys/main.dol")?;
-            let prepared = prepare(&extracted, &output)?;
-            assert!(
-                ['“', '漢']
-                    .iter()
-                    .all(|c| prepared.font.glyphs.contains_key(c))
-            );
-            assert!(!output.join("sources.json").exists());
-            assert!(!output.join("data").exists());
-            assert_eq!(prepared.font.texture, "fonts/dialogue.ktx2");
-            let compare = |actual: &UiTexture, expected: &UiTexture| -> Result<()> {
-                assert_eq!(
-                    (actual.width, actual.height),
-                    (expected.width, expected.height)
-                );
-                assert_eq!(
-                    crate::texture::pixels(&output.join(&actual.path))?,
-                    crate::texture::pixels(&baseline.join(&expected.path))?
-                );
-                Ok(())
-            };
-            let font_paths: Vec<_> = source
-                .publications()
+        .context("set RESONANCE_TEST_ASSETS")?;
+    let library = resonance_content::library::Library::open(&baseline, &[])?;
+    let mut snapshot = library.snapshot();
+    let expected_art: DialogueArt = snapshot.json("ui/dialogue.json", 64 * 1024 * 1024)?;
+    let expected_font: BitmapFont = snapshot.json(&expected_art.font, 64 * 1024 * 1024)?;
+    let expected_subtitles: MovieSubtitles =
+        snapshot.json("ui/story-subtitles.json", 64 * 1024 * 1024)?;
+    for disc in [1, 2] {
+        let temporary = tempfile::tempdir()?;
+        let output = temporary.path();
+        let extracted = local.join(format!("extracted/disc{disc}"));
+        let executable = fs::read(extracted.join("sys/main.dol"))?;
+        let prepared = prepare(&extracted, output)?;
+        assert!(
+            ['“', '漢']
                 .iter()
-                .filter(|path| path.ends_with("/fonts"))
-                .collect();
-            ensure!(
-                font_paths.len() == 1,
-                "expected one frozen font publication"
-            );
-            let directory = font_paths[0];
-            let mut expected_font: BitmapFont =
-                serde_json::from_slice(&fs::read(baseline.join(directory).join("dialogue.json"))?)?;
-            expected_font.validate()?;
-            expected_font.texture = format!(
-                "{directory}/{}",
-                expected_font
-                    .texture
-                    .strip_prefix("fonts/")
-                    .context("frozen font path")?
-            );
+                .all(|c| prepared.font.glyphs.contains_key(c))
+        );
+        assert!(!prepared.font.glyphs.contains_key(&'🙂'));
+        assert!(!output.join("sources.json").exists());
+        assert!(!output.join("data").exists());
+        crate::named::equivalent_assets(
+            &prepared.font,
+            &expected_font,
+            output,
+            &baseline,
+            &mut BTreeMap::new(),
+        )?;
+        // The font document is published separately; compare the rest of the UI
+        // with the same reference, then compare every resolved texture's pixels.
+        let mut native_art = prepared.art.clone();
+        native_art.font = expected_art.font.clone();
+        crate::named::equivalent_assets(
+            &native_art,
+            &expected_art,
+            output,
+            &baseline,
+            &mut BTreeMap::new(),
+        )?;
+        assert_eq!(
+            serde_json::to_value(&prepared.subtitles)?,
+            serde_json::to_value(&expected_subtitles)?
+        );
+        assert_eq!(
+            system_texture(&extracted, output)?.path,
+            prepared.art.textures[0].path
+        );
+
+        let mut recipe = Recipe::read(&executable)?;
+        for (mode, (address, length, image)) in [
+            (0x80249500, 0x280, 0),
+            (0x80249280, 0x280, 0),
+            (0x80236e80, 0x2500, 13),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            recipe.default_style = mode;
+            let layout = recipe.assemble(&extracted, &executable)?;
+            layout.cursor.write(output)?;
+            let native = crate::texture::decode_source(dol::slice(&executable, address, length)?)?;
+            let ([width, height], pixels) = native
+                .base_images()
+                .nth(image)
+                .context("missing native cursor")??;
+            let expected = image::RgbaImage::from_raw(width, height, pixels.to_vec())
+                .context("invalid cursor pixels")?;
             assert_eq!(
-                crate::texture::pixels(&output.join(&prepared.font.texture))?,
-                crate::texture::pixels(&baseline.join(&expected_font.texture))?
+                crate::texture::pixels(&output.join(&layout.art.cursor.path))?,
+                expected
             );
-            expected_font.texture = prepared.font.texture.clone();
+            assert_eq!(layout.art.selection.mode, mode as u8);
             assert_eq!(
-                serde_json::to_value(&prepared.font)?,
-                serde_json::to_value(&expected_font)?
+                layout.art.selection.color,
+                dol::slice(&executable, 0x8019ad10 + mode as u32 * 28 + 24, 4)?
             );
-            let expected_subtitles: MovieSubtitles = source.document("ui/story-subtitles.json")?;
-            assert_eq!(
-                fs::read(output.join("ui/story-subtitles.json"))?,
-                serde_json::to_vec_pretty(&expected_subtitles)?
-            );
-            let mut recipe = Recipe::read(&executable)?;
-            let published: Recipe = source.document("embedded/dialogue.json")?;
-            assert_eq!(
-                serde_json::to_value(&recipe)?,
-                serde_json::to_value(&published)?
-            );
-            let system =
-                crate::all_assets::roles::declared_path(&extracted.join("files"), &recipe.system)?;
-            let windows = Source::open(&baseline, disc, &system)?.standalone_textures()?;
-            assert_eq!(prepared.art.textures.len(), windows.len());
-            for (actual, expected) in prepared.art.textures.iter().zip(&windows) {
-                compare(actual, &expected.image(0)?)?;
-            }
-            assert_eq!(
-                system_texture(&extracted, &output)?.path,
-                prepared.art.textures[0].path
-            );
-            for mode in 0..recipe.styles.len() {
-                recipe.default_style = mode;
-                let layout = recipe.assemble(&extracted, &executable)?;
-                layout.cursor.write(&output)?;
-                let style = &recipe.styles[mode];
-                let expected = source.published_textures(&style.cursor_bank)?;
-                compare(&layout.art.cursor, &expected[style.cursor_image].image(0)?)?;
-                assert_eq!(layout.art.selection.mode, mode as u8);
-                assert_eq!(
-                    layout.art.selection.color,
-                    dol::slice(&executable, 0x8019ad10 + mode as u32 * 28 + 24, 4)?
-                );
-            }
-            let renamed = root.join(format!("renamed-{disc}"));
-            fs::create_dir_all(renamed.join("files/Art"))?;
-            symlink(
-                extracted.join("files").join(&system),
-                renamed.join("files/Art/window.bin"),
-            )?;
-            recipe.system = "art/window.bin".into();
-            let renamed_art = recipe.assemble(&renamed, &executable)?.art;
-            assert_eq!(renamed_art.source_sha256, prepared.art.source_sha256);
-            assert_eq!(
-                serde_json::to_value(&renamed_art.textures)?,
-                serde_json::to_value(&prepared.art.textures)?
-            );
-            fs::remove_file(renamed.join("files/Art/window.bin"))?;
-            assert!(recipe.assemble(&renamed, &executable).is_err());
-            assert!(!prepared.font.glyphs.contains_key(&'🙂'));
         }
-        Ok(())
-    })();
-    if root.exists() {
-        fs::remove_dir_all(root)?;
+        let system =
+            crate::all_assets::roles::declared_path(&extracted.join("files"), &recipe.system)?;
+        let renamed = output.join("renamed");
+        fs::create_dir_all(renamed.join("files/Art"))?;
+        symlink(
+            extracted.join("files").join(&system),
+            renamed.join("files/Art/window.bin"),
+        )?;
+        recipe.system = "art/window.bin".into();
+        let renamed_art = recipe.assemble(&renamed, &executable)?.art;
+        assert_eq!(renamed_art.source_sha256, prepared.art.source_sha256);
+        assert_eq!(
+            serde_json::to_value(&renamed_art.textures)?,
+            serde_json::to_value(&prepared.art.textures)?
+        );
+        fs::remove_file(renamed.join("files/Art/window.bin"))?;
+        assert!(recipe.assemble(&renamed, &executable).is_err());
     }
-    result
+    Ok(())
 }

@@ -668,7 +668,7 @@ fn validate_choices(source: &Trace, native: &Trace, result: &mut [Rotations; 2])
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RelativeTemplate {
-    metadata: super::random_inputs::Pin,
+    metadata: super::content_evidence::Evidence,
     member: u64,
     program: u64,
 }
@@ -677,10 +677,10 @@ fn validate_relative(source: &Trace, native: &Trace, result: &mut [Rotations; 2]
     let templates: Vec<RelativeTemplate> =
         super::optional_field(&source.setup, "effect_relative_rotations")?.unwrap_or_default();
     for template in templates {
-        let metadata: Value = serde_json::from_slice(&template.metadata.read_bytes()?)?;
-        let bank = metadata["source_sha256"]
-            .as_str()
-            .context("missing relative rotation bank")?;
+        let metadata = super::content_evidence::effect_value(
+            template.metadata.registered_effect(&source.setup)?,
+        )?;
+        let bank = template.metadata.source_digest()?;
         ensure!(digest(bank), "invalid relative rotation bank");
         let declaration = &metadata["actors"][template.member as usize];
         let slot = declaration["binding"]["slot"]

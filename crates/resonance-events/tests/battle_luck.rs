@@ -1,21 +1,25 @@
 //! Equipment and EX stat domains shared by menus and battle; no devices.
+mod common;
 use resonance_content::{
     menu_data::{ExStat, MenuData},
     session::SessionData,
 };
 use resonance_events::party::{Member, Party};
 
-fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
-    let root = std::env::var_os("RESONANCE_COOKED")
+fn asset_root() -> std::path::PathBuf {
+    std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
-        });
-    serde_json::from_slice(&std::fs::read(root.join("game").join(name)).unwrap()).unwrap()
+        })
+}
+
+fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
+    serde_json::from_slice(&std::fs::read(asset_root().join("game").join(name)).unwrap()).unwrap()
 }
 
 fn fixture(character: usize) -> (MenuData, Member) {
-    let menus = cooked("menu-data.json");
+    let menus = common::menu(&asset_root());
     let session: SessionData = cooked("session-data.json");
     let mut party = Party::new(&session, Default::default()).unwrap();
     let mut member = party.members.remove(character);

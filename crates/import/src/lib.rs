@@ -2,11 +2,11 @@
 // Asset readers collect byte spans, including single ranges, rather than integers.
 #![allow(clippy::single_range_in_vec_init)]
 
+mod afs;
 pub mod all_assets;
 mod animation;
 pub mod arte;
 mod battle_action;
-pub mod battle_audio;
 mod battle_defense_system;
 pub mod battle_effect;
 pub mod battle_enemy;
@@ -18,19 +18,16 @@ mod battle_normal;
 pub mod battle_profile;
 pub mod battle_projectile;
 pub mod battle_recoil;
+pub mod battle_rules;
 pub mod battle_scene;
 pub mod battle_stage;
 pub mod battle_ui;
 pub mod battle_unison;
 pub mod battle_victory;
 pub mod battle_voice;
-mod boot;
 mod character;
 mod character_data;
 mod compression;
-mod cooked;
-pub(crate) use boot::cook as cook_boot;
-mod afs;
 mod dol;
 mod embedded;
 mod event_bank_directory;
@@ -40,7 +37,6 @@ mod field_doors;
 mod field_effects;
 mod field_lighting;
 mod field_overlay;
-mod field_preload;
 mod field_resources;
 mod field_script;
 mod field_shadow;
@@ -57,11 +53,12 @@ mod model_behavior;
 mod model_preview;
 pub mod monsters;
 mod music_directory;
+pub mod named;
+pub mod naming;
 mod publication;
 mod read;
 mod rel;
 mod resource;
-pub mod save_identity;
 mod scene;
 mod secondary_motion;
 mod session;
@@ -81,7 +78,6 @@ use nod::{
     common::PartitionKind,
     read::{DiscOptions, DiscReader, PartitionOptions},
 };
-use resonance_content::{CONTENT_VERSION, TitleAssets, TitleTexture};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -187,43 +183,5 @@ pub fn extract(disc_path: &Path, output: &Path) -> Result<()> {
         inventory.len(),
         output.display()
     );
-    Ok(())
-}
-
-/// Publish title menu artwork; backgrounds use the ordinary field packages.
-pub(crate) fn cook_title_art(extracted: &Path, output: &Path) -> Result<()> {
-    let _publications = publication::Session::start_if_needed(output)?;
-    disc_number(extracted)?;
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let recipe = scene::title::Recipe::read(extracted, &executable)?;
-    let images = recipe.images.textures(extracted)?;
-    let textures: Vec<TitleTexture> = images
-        .catalogue
-        .textures
-        .iter()
-        .enumerate()
-        .map(|(index, texture)| {
-            let image = texture.as_ref().context("invalid title image")?.image(0)?;
-            Ok(TitleTexture {
-                index,
-                path: image.path,
-                width: image.width,
-                height: image.height,
-            })
-        })
-        .collect::<Result<_>>()?;
-    images.write(output)?;
-    let manifest = TitleAssets {
-        version: CONTENT_VERSION,
-        game_id: recipe.game_id,
-        revision: recipe.revision,
-        source_sha256: recipe.images.sha256,
-        textures,
-    };
-    manifest.validate()?;
-    write_atomic(
-        &output.join("title.json"),
-        &serde_json::to_vec_pretty(&manifest)?,
-    )?;
     Ok(())
 }

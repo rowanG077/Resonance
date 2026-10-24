@@ -86,10 +86,6 @@ fn pools(bytes: &[u8]) -> Result<Vec<Vec<WeightedFormation>>> {
         .collect()
 }
 
-pub fn publish(usual: &[u8], path: &std::path::Path) -> Result<()> {
-    crate::write_atomic(path, &serde_json::to_vec(&read(usual)?)?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

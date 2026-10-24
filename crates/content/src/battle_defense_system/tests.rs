@@ -85,8 +85,8 @@ fn composition_rejects_ambiguous_members_and_invalid_bindings() -> Result<()> {
         change(&mut invalid);
         assert!(invalid.validate().is_err(), "accepted {invalid:?}");
     }
-    let mut old = serde_json::to_value(&valid)?;
-    old.as_object_mut().unwrap().remove("deployment");
-    assert!(serde_json::from_value::<Definition>(old).is_err());
+    let mut incomplete = serde_json::to_value(crate::battle_rules::DefenseSystem::from(valid))?;
+    incomplete.as_object_mut().unwrap().remove("deployment");
+    assert!(serde_json::from_value::<crate::battle_rules::DefenseSystem>(incomplete).is_err());
     Ok(())
 }

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 235523b6db39b0d849bd15fe597542f09494a015366d2bff2e6ef92686516a58
+// Source owner: MAP/bri_d01/BRI_D01.BIN/10
+pub const Node000_S_Sea_D01: string = "s_sea_d01";

@@ -20,7 +20,7 @@ use resonance_content::{
     field::{AmbientEmission, FieldAssets, HeatHaze},
 };
 use resonance_events::effect::{Blend, RotationOrder, SpriteOrientation};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::collections::BTreeMap;
 
 const EMOTES: usize = 0;
 const STATUS: usize = 1;
@@ -84,27 +84,13 @@ impl Artwork {
         self.spec.mouth_cycle[age as usize % self.spec.mouth_cycle.len()]
     }
     pub fn load(
-        root: &Path,
         field: &FieldAssets,
         server: &AssetServer,
         meshes: &mut Assets<Mesh>,
         surfaces: &mut Assets<TitleSurface>,
+        files: &resonance_content::prepared::Files,
     ) -> Result<Self> {
-        Self::load_with(root, field, server, meshes, surfaces, None)
-    }
-    pub fn load_with(
-        root: &Path,
-        field: &FieldAssets,
-        server: &AssetServer,
-        meshes: &mut Assets<Mesh>,
-        surfaces: &mut Assets<TitleSurface>,
-        files: Option<&resonance_content::prepared::Files>,
-    ) -> Result<Self> {
-        let mut spec: FieldEffects = if let Some(files) = files {
-            files.json(&field.effects)?
-        } else {
-            serde_json::from_slice(&fs::read(root.join(&field.effects))?)?
-        };
+        let mut spec: FieldEffects = files.json(&field.effects)?;
         spec.validate()?;
         for (&kind, leaf) in &field.particles {
             spec.sprites.insert(
@@ -166,11 +152,7 @@ impl Artwork {
             .collect();
         let mut overlay_materials = BTreeMap::new();
         for (&resource, path) in &field.overlays {
-            let overlay: resonance_content::effect::OverlayArt = if let Some(files) = files {
-                files.json(path)?
-            } else {
-                serde_json::from_slice(&fs::read(root.join(path))?)?
-            };
+            let overlay: resonance_content::effect::OverlayArt = files.json(path)?;
             overlay_materials.insert(
                 resource as u32,
                 overlay

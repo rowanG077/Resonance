@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 826f4322759897c9c03954c8ff5418bc9bb6b4b2be5daab953510d1417a1a65f
+// Source owner: npc_all/369/0
+pub const Node000_Default: string = "default";
+pub const Node001_Default01: string = "default01";

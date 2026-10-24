@@ -1,0 +1,4 @@
+script library;
+// Skeleton: fdcd12bea74be60372ed389d04e51c849e36da5ae1e309cd768d8da8bdd13717
+// Source owner: MAP/bri_d00/BRI_D00.BIN/28/0
+pub const Node000_Presea: string = "Presea";

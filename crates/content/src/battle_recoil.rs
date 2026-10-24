@@ -1,9 +1,9 @@
 //! Actor weight and guard recovery parameters.
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 pub const PATH: &str = "battle/recoil.json";
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Table {
     pub source_sha256: String,
     pub impulses: Vec<[f32; 2]>,

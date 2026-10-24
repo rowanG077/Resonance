@@ -63,6 +63,7 @@ pub struct Motion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Track {
     pub bone: u16,
     /// Presence of channels in the model's rest pose, including authored identity values.
@@ -105,6 +106,7 @@ pub enum VectorInterpolation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VectorCurve {
     pub interpolation: VectorInterpolation,
     pub values: Vec<[f32; 3]>,
@@ -127,6 +129,7 @@ pub enum QuaternionInterpolation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuaternionCurve {
     pub interpolation: QuaternionInterpolation,
     pub values: Vec<[f32; 4]>,

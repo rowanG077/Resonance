@@ -5,7 +5,9 @@ use resonance_content::battle_defense_system::{
     Definition, Deployment, FixedMember, Messages, RepairCycle, VERSION,
 };
 use serde::Deserialize;
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
+#[cfg(test)]
+use std::path::Path;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,7 +36,7 @@ struct Recipe {
     camera_yaw_limits: [f32; 2],
 }
 
-fn read(module: &Rel) -> Result<Definition> {
+pub(crate) fn read(module: &Rel) -> Result<Definition> {
     let bytes = include_bytes!("battle_defense_system.json");
     let recipe: Recipe = serde_json::from_slice(bytes)?;
     ensure!(
@@ -96,13 +98,6 @@ fn read(module: &Rel) -> Result<Definition> {
     };
     definition.validate()?;
     Ok(definition)
-}
-
-pub(crate) fn publish(file: &Path, output: &Path, prefix: &str) -> Result<String> {
-    let definition = read(&Rel::read(file)?)?;
-    let path = format!("{prefix}/defense-system.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&definition)?)?;
-    Ok(path)
 }
 
 #[test]

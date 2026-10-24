@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 5952ee2abeb81093d43d11fea2923ce4fe323ec8a663fe053a3695379cb833cc
+// Source owner: FIELD/enemy/ModelData.dat/11
+pub const Node000_Shi000_Skin: string = "shi000_skin";

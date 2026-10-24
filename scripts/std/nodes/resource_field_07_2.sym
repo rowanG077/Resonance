@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2ef113863a0691872c2a20bdf39007a7859a5baf7ce483cde708efa804e9277b
+// Source owner: FIELD/07/2
+pub const Node000_Fsea_01: string = "fsea_01";
+pub const Node001_Wave_02_Tairiku: string = "wave_02_tairiku";

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2a8c1ee86cc672b99d7fa10f2905a61b708985849d3ad5183502f7a1a8b19937
+// Source owner: MAP/iga_t00/IGA_T00.BIN/10
+pub const Node000_Water: string = "water";
+pub const Node001_River: string = "River";

@@ -7,29 +7,31 @@ use resonance_battle::{ActorAvailability, BattleResult, Playback};
 fn every_character_can_play_a_prepared_celebration() -> Result<()> {
     let root = common::asset_root();
     let mut cache = resonance_content::prepared::Cache::default();
-    let field = Files::load(&root, &["fields/map-340.preload.json"], &mut cache, || {
-        false
-    })?;
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
     let characters = Character::ALL;
-    let sources: Vec<_> = characters
-        .iter()
-        .map(|&character| battle::model::ModelSource::Party(character))
-        .collect();
-    let files = battle::model::load_files(&root, field, &sources, &mut cache, || false)?;
-    let bodies = characters
-        .iter()
-        .map(|&character| {
-            let body: resonance_content::battle_model::Party = files.json(
-                &resonance_content::battle_model::party_path(character as u8),
-            )?;
-            Ok((character, body.body_sha256))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let selected: Vec<_> = bodies
-        .iter()
-        .map(|(character, hash)| (*character as u8, hash.as_str()))
-        .collect();
-    let (files, source) = battle::victory::load(&root, files, &selected, &mut cache, || false)?;
+    let mut owners = Vec::new();
+    for character in characters {
+        let (definition, _) = resonance_content::battle_model::document::capture_party(
+            &mut snapshot,
+            character as u8,
+            0,
+            &diagnostics,
+            &|| false,
+        )?;
+        owners.push((character as u8, definition.victory));
+    }
+    let source = resonance_content::battle_victory::document::capture(
+        &mut snapshot,
+        owners
+            .iter()
+            .map(|(character, path)| (*character, 0, path.as_str())),
+        &diagnostics,
+        &|| false,
+    )?;
+    let files = Files::from_snapshot(snapshot, &mut cache, || false, diagnostics)?;
     for character in characters {
         let member = single_party_fixture(
             &files,
@@ -50,14 +52,11 @@ fn every_character_can_play_a_prepared_celebration() -> Result<()> {
                 }),
             },
         )?;
-        let body = files.json(&resonance_content::battle_model::party_path(
-            character as u8,
-        ))?;
         let (model, performances) = battle::victory::prepare(
             &files,
             &source,
-            &body,
             character,
+            0,
             member.model.as_deref().unwrap(),
         )?;
         let posture = battle::victory::prepare_posture(&files, character, Some(&model))?;

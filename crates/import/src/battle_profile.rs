@@ -5,7 +5,6 @@ use resonance_content::battle_conditions::{Condition, ConditionSet};
 use resonance_content::battle_profile::{
     Blink, Profile, ProfileTraits, Table, VoicePolicy, VoiceSequence, WeaponStyle,
 };
-use std::path::Path;
 
 pub(crate) const BYTES: usize = 496;
 
@@ -245,9 +244,8 @@ pub(crate) fn element_contact_sounds(module: &Rel) -> Result<[u8; 9]> {
         .unwrap())
 }
 
-pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> Result<String> {
+pub(crate) fn read_party(module: &Rel, usual: &[u8]) -> Result<Table> {
     let voices = crate::battle_voice::read(usual)?;
-    let module = Rel::read(file)?;
     let bytes = module
         .at((5, 0x3d30))?
         .get(..11 * BYTES)
@@ -330,9 +328,7 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
             .collect::<Result<_>>()?,
     };
     table.validate()?;
-    let path = format!("{prefix}/party-profiles.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&table)?)?;
-    Ok(path)
+    Ok(table)
 }
 
 fn cast_poses(bytes: &[u8]) -> Result<resonance_content::battle_profile::CastPoses> {

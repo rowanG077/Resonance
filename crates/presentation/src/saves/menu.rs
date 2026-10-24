@@ -107,10 +107,14 @@ fn start(world: &mut World, command: Command) -> Result<()> {
                 .get_resource::<new_game::Session>()
                 .map(|session| (session.identity.clone(), session.data().clone()));
             let root = world.resource::<crate::RunOptions>().assets.clone();
+            let library = world.resource::<loading::Resident>().library(&root)?;
+            let script_root = world.resource::<crate::RunOptions>().script_root.clone();
             let diagnostics = crate::diagnostics::policy(world);
             world.insert_resource(Pending(loading::Task::spawn(move |_| {
-                let (identity, data) =
-                    context.map_or_else(|| new_game::save_context(&root, diagnostics), Ok)?;
+                let (identity, data) = context.map_or_else(
+                    || new_game::save_context_in(&library, script_root.as_deref(), diagnostics),
+                    Ok,
+                )?;
                 read_slots(&store, &identity, &data).map(Completion::Slots)
             })?));
         }
@@ -235,14 +239,9 @@ mod tests {
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             PathBuf::from,
         );
-        let mut files = resonance_content::prepared::Files::default();
-        for path in [
-            "game/session-data.json",
-            "game/menu-data.json",
-            resonance_content::save_identity::PATH,
-        ] {
-            files.insert(path.into(), std::fs::read(root.join(path))?.into());
-        }
+        let package =
+            new_game::FieldPackage::prepare(&root, 332, &mut Default::default(), || false)?;
+        let files = package.files;
         let data = resonance_content::session::SessionData::load(&files)?;
         let mut checkpoint = field_checkpoint(&files)?;
         let rules = &data

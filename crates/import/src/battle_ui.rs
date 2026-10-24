@@ -8,22 +8,17 @@ use resonance_content::{
     },
     font::{BitmapFont, Glyph, UiTexture},
 };
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{fs, path::Path};
 
 /// All source discovery and conversion finishes before the descriptor is published.
-pub fn publish(extracted: &Path, output: &Path) -> Result<Vec<String>> {
+pub fn prepare(extracted: &Path, output: &Path) -> Result<Art> {
     let sources = crate::source_assets::Sources::read(extracted)?;
     let usual = fs::read(extracted.join("files").join(sources.usual))?;
     let module = Rel::read(&extracted.join("files").join(sources.module))?;
-    publish_source(&usual, &module, output, "battle")
+    prepare_source(&usual, &module, output)
 }
 
-pub(crate) fn publish_source(
-    usual: &[u8],
-    module: &Rel,
-    output: &Path,
-    prefix: &str,
-) -> Result<Vec<String>> {
+pub(crate) fn prepare_source(usual: &[u8], module: &Rel, output: &Path) -> Result<Art> {
     let images = section(usual, 4)?;
     let portraits = crate::texture::decode_source(section(images, 2)?)?
         .write(output)?
@@ -50,13 +45,7 @@ pub(crate) fn publish_source(
     let mut art = read(usual, module, atlas, portraits)?;
     art.commands.texture = publish_commands(section(images, 3)?, &mut art.commands, output)?;
     art.validate()?;
-    let path = format!("{prefix}/ui.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&art)?)?;
-    Ok(std::iter::once(path)
-        .chain(art.files().map(str::to_owned))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect())
+    Ok(art)
 }
 
 fn sampler(texture: &Texture, repeat: bool) -> Result<()> {

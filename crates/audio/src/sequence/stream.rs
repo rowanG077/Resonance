@@ -39,6 +39,13 @@ impl Stream {
             .take_preview(&self.output)
             .unwrap()
     }
+    pub(super) fn loop_position(&self) -> (u64, Option<u64>) {
+        self.clock
+            .as_ref()
+            .unwrap()
+            .loop_position(&self.output)
+            .unwrap_or_default()
+    }
     pub fn in_synthesizer(
         loaded: Arc<Loaded>,
         looping: bool,
@@ -106,7 +113,7 @@ impl Stream {
     }
 }
 
-pub(super) fn validate_controls(controls: [LiveControls; CONTROLS_PER_BLOCK]) -> Result<()> {
+pub(crate) fn validate_controls(controls: [LiveControls; CONTROLS_PER_BLOCK]) -> Result<()> {
     ensure!(
         controls.iter().all(|c| c.volume.is_finite()
             && (0.0..=1.0).contains(&c.volume)

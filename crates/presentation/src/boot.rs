@@ -2,7 +2,6 @@
 use super::*;
 use resonance_content::BootAssets;
 use resonance_game::boot::Logos;
-use std::path::Path;
 
 #[derive(Resource, Default)]
 pub(super) struct Playback {
@@ -12,20 +11,12 @@ pub(super) struct Playback {
 }
 
 impl Playback {
-    pub fn load(root: &Path, options: &RunOptions) -> Result<Self> {
-        if options.skip_intro || matches!(options.capture_at, Some(CaptureAt::MovieFrame(_))) {
-            return Ok(Self::default());
-        }
-        let asset: BootAssets =
-            serde_json::from_slice(&fs::read(root.join("boot.json")).context(
-                "missing startup logos; run resonance-import cook-all or use --skip-intro",
-            )?)?;
-        asset.validate()?;
-        Ok(Self {
-            logos: Some(Logos::default()),
-            asset: Some(asset),
+    pub fn from_assets(asset: Option<BootAssets>) -> Self {
+        Self {
+            logos: asset.as_ref().map(|_| Logos::default()),
+            asset,
             images: Vec::new(),
-        })
+        }
     }
 
     pub fn active(&self) -> bool {

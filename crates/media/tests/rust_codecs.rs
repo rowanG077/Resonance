@@ -1,4 +1,3 @@
-use resonance_content::MovieAsset;
 use resonance_media::{
     MovieDecoder, MovieEvent, MovieStream, VideoReader,
     encode::{AUDIO_BLOCK, MovieWriter},
@@ -55,7 +54,14 @@ fn reads_independent_rgb_fixture_including_non_keyframes() {
     assert!(reader.next_frame().unwrap().is_none());
 }
 
-fn fixture(frames: u32) -> (Temporary, MovieAsset, Vec<i16>) {
+struct Expected {
+    frames: u32,
+    audio_frames: u64,
+    sample_rate: u32,
+    audio_track: u16,
+}
+
+fn fixture(frames: u32) -> (Temporary, Expected, Vec<i16>) {
     let path = Temporary::new();
     let audio_frames = u64::from(frames) * 33366 * 32028 / 1_000_000;
     let pcm: Vec<i16> = (0..audio_frames * 2)
@@ -82,17 +88,10 @@ fn fixture(frames: u32) -> (Temporary, MovieAsset, Vec<i16>) {
         }
     }
     writer.finish().unwrap();
-    let asset = MovieAsset {
-        version: 2,
-        path: "movies/test.mkv".into(),
-        sha256: "0".repeat(64),
-        width: 16,
-        height: 16,
+    let asset = Expected {
         frames,
-        frame_micros: 33366,
-        sample_rate: 32028,
-        channels: 2,
         audio_frames,
+        sample_rate: 32028,
         audio_track: 0,
     };
     (path, asset, pcm)
@@ -102,7 +101,7 @@ fn fixture(frames: u32) -> (Temporary, MovieAsset, Vec<i16>) {
 fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
     let (path, asset, pcm) = fixture(40);
     let frames = asset.frames;
-    let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
+    let decoder = MovieDecoder::open(&path.0, asset.audio_track).unwrap();
     let start = Instant::now();
     let (mut count, mut actual) = (0, Vec::new());
     loop {
@@ -133,16 +132,21 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
     assert_eq!(count, frames);
     assert_eq!(actual, pcm);
     drop(decoder);
-    let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
+    let decoder = MovieDecoder::open(&path.0, asset.audio_track).unwrap();
     thread::sleep(Duration::from_millis(100));
     let start = Instant::now();
     drop(decoder);
     assert!(start.elapsed() < Duration::from_secs(2));
-    // A valid container that ends before its declared manifest must report an
-    // error, never successful completion.
-    let mut wrong = asset;
-    wrong.frames += 1;
-    let decoder = MovieDecoder::open(&path.0, wrong).unwrap();
+    // A stream that ends before its own FLAC header's declared length must
+    // fail. This is current media validation, independent of cooked metadata.
+    let mut bytes = fs::read(&path.0).unwrap();
+    let private = bytes.windows(4).position(|bytes| bytes == b"fLaC").unwrap();
+    let at = private + 8 + 10;
+    let packed = u64::from_be_bytes(bytes[at..at + 8].try_into().unwrap());
+    let packed = (packed & !((1 << 36) - 1)) | (asset.audio_frames + 1);
+    bytes[at..at + 8].copy_from_slice(&packed.to_be_bytes());
+    fs::write(&path.0, bytes).unwrap();
+    let decoder = MovieDecoder::open(&path.0, asset.audio_track).unwrap();
     let start = Instant::now();
     loop {
         assert!(start.elapsed() < Duration::from_secs(10));
@@ -158,7 +162,7 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
 #[test]
 fn full_video_queues_do_not_block_audio_or_discard_future_frames() {
     let (path, asset, expected) = fixture(96);
-    let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
+    let decoder = MovieDecoder::open(&path.0, asset.audio_track).unwrap();
     let stream = MovieStream::start(decoder, VecDeque::new(), asset.sample_rate).unwrap();
     let pcm = stream.audio();
     let mut source = pcm.source(false, 1.);
@@ -225,20 +229,15 @@ fn multiple_audio_tracks_select_independent_pcm_and_video_only_movies_survive() 
         assert!(video.next_frame().unwrap().is_some());
         assert!(video.next_frame().unwrap().is_none());
         for selected in 0..=tracks {
-            let asset = MovieAsset {
-                version: 2,
-                path: "movies/test.mkv".into(),
-                sha256: "0".repeat(64),
-                width: 16,
-                height: 16,
-                frames: 1,
-                frame_micros: 40_000,
-                sample_rate: 32_000,
-                channels: 2,
-                audio_frames: 32,
-                audio_track: selected as u16,
-            };
-            let decoder = MovieDecoder::open(&path.0, asset).unwrap();
+            let decoder = MovieDecoder::open(&path.0, selected as u16);
+            if selected == tracks {
+                let error = decoder
+                    .err()
+                    .expect("missing audio track must fail admission");
+                assert!(error.to_string().contains("movie has no audio track"));
+                continue;
+            }
+            let decoder = decoder.unwrap();
             let started = Instant::now();
             let mut audio = Vec::new();
             loop {

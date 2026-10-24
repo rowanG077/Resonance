@@ -63,6 +63,22 @@ impl Default for Resident {
         }
     }
 }
+impl Resident {
+    /// Preparation takes fresh bytes through the same enabled layers as the
+    /// current scene. Reopening only the base would silently disable mods.
+    pub fn library(&self, root: &Path) -> Result<resonance_content::library::Library> {
+        match self
+            .files
+            .read()
+            .unwrap()
+            .as_ref()
+            .and_then(|files| files.library())
+        {
+            Some(library) => Ok(library.clone()),
+            None => resonance_content::library::Library::open(root, &[]),
+        }
+    }
+}
 #[derive(Default)]
 pub(super) struct Cache {
     pub bytes: resonance_content::prepared::Cache,
@@ -146,7 +162,7 @@ fn asset_error(error: anyhow::Error) -> AssetReaderError {
 }
 
 pub(super) fn install(app: &mut App, root: &Path) {
-    super::model_preview::register(app, root);
+    super::model_preview::register(app);
     let resident = Resident {
         diagnostics: app
             .world()
@@ -185,22 +201,23 @@ impl Pending {
         destination: super::dungeons::Destination,
         resident: &Resident,
     ) -> Result<Self> {
+        let library = resident.library(&root)?;
         let cache = resident.cache.clone();
+        let diagnostics = resident.diagnostics.clone();
         Self::spawn(move |stop| {
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
-            let files = Arc::new(Files::load(
-                &root,
-                &[&super::new_game::manifest_path(destination.map)],
-                &mut cache.bytes,
+            let package = super::new_game::FieldPackage::capture(
+                &library,
+                destination.map,
+                &mut cache,
                 || stop.load(Ordering::Relaxed),
-            )?);
+                diagnostics,
+            )?;
             super::new_game::Session::load_start(
-                &root,
-                files,
+                Arc::new(package),
                 super::new_game::Start::Dungeon(destination),
                 None,
-                &mut cache,
             )
         })
     }
@@ -212,69 +229,62 @@ impl Pending {
         initial_preferences: Option<resonance_content::menu_data::CustomizeSettings>,
         resident: &Resident,
     ) -> Result<Self> {
+        let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
         Self::spawn(move |stop| {
             let checkpoint = checkpoint
                 .map(|bytes| resonance_persistence::decode::<super::saves::SceneCheckpoint>(&bytes))
                 .transpose()?;
-            let paths = match checkpoint.as_ref().map(|save| &save.state) {
-                None => vec![
-                    super::new_game::manifest_path(5),
-                    super::new_game::manifest_path(340),
-                ],
-                Some(super::saves::SceneCheckpoint::Field(saved)) => {
-                    let mut paths = vec![super::new_game::manifest_path(saved.map_id)];
-                    if saved.map_id == 5 {
-                        paths.push(super::new_game::manifest_path(340));
-                    }
-                    paths
-                }
-                Some(super::saves::SceneCheckpoint::World(_)) => Vec::new(),
-            };
             let new_game = checkpoint.is_none();
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
-            let files = Arc::new(Files::load_with_diagnostics(
-                &root,
-                &paths.iter().map(String::as_str).collect::<Vec<_>>(),
-                &mut cache.bytes,
+            if matches!(
+                checkpoint.as_ref().map(|save| &save.state),
+                Some(super::saves::SceneCheckpoint::World(_))
+            ) {
+                let package = Arc::new(super::overworld::Package::capture(
+                    &library,
+                    &mut cache,
+                    || stop.load(Ordering::Relaxed),
+                    diagnostics,
+                )?);
+                let identity = resonance_persistence::Identity::load(&package.world.files)?;
+                let (_, super::saves::SceneCheckpoint::World(saved)) =
+                    checkpoint.unwrap().admit(&identity)?
+                else {
+                    unreachable!("world checkpoint was selected");
+                };
+                return super::new_game::Session::load_world_prepared(package, saved);
+            }
+            let map = match checkpoint.as_ref().map(|save| &save.state) {
+                Some(super::saves::SceneCheckpoint::Field(saved)) => saved.map_id,
+                None => 5,
+                Some(super::saves::SceneCheckpoint::World(_)) => {
+                    unreachable!("world handled above")
+                }
+            };
+            let package = Arc::new(super::new_game::FieldPackage::capture(
+                &library,
+                map,
+                &mut cache,
                 || stop.load(Ordering::Relaxed),
                 diagnostics,
             )?);
-            let identity = resonance_persistence::Identity::load(&files)?;
+            let identity = resonance_persistence::Identity::load(&package.files)?;
             let checkpoint = checkpoint
-                .map(|save| save.admit(&identity).map(|(_, state)| state))
+                .map(|save| {
+                    let (_, state) = save.admit(&identity)?;
+                    let super::saves::SceneCheckpoint::Field(saved) = state else {
+                        unreachable!("world handled above");
+                    };
+                    Ok::<_, anyhow::Error>(saved)
+                })
                 .transpose()?;
-            let mut session = match checkpoint {
-                Some(super::saves::SceneCheckpoint::World(checkpoint)) => {
-                    super::new_game::Session::load_world_prepared(
-                        &root,
-                        files,
-                        checkpoint,
-                        &mut cache,
-                        || stop.load(Ordering::Relaxed),
-                    )?
-                }
-                Some(super::saves::SceneCheckpoint::Field(checkpoint)) => {
-                    super::new_game::Session::load_prepared(
-                        &root,
-                        files,
-                        Some(checkpoint),
-                        initial_preferences,
-                        &mut cache,
-                    )?
-                }
-                None => super::new_game::Session::load_prepared(
-                    &root,
-                    files,
-                    None,
-                    initial_preferences,
-                    &mut cache,
-                )?,
-            };
+            let mut session =
+                super::new_game::Session::load_prepared(package, checkpoint, initial_preferences)?;
             if new_game {
-                session.prepare_movie(&root, || stop.load(Ordering::Relaxed))?;
+                session.prepare_movie(|| stop.load(Ordering::Relaxed))?;
             }
             Ok(session)
         })
@@ -285,64 +295,48 @@ impl FieldPending {
         root: PathBuf,
         script_root: Option<PathBuf>,
         map: u32,
-        previous: Option<Arc<super::new_game::FieldPackage>>,
         resident: &Resident,
     ) -> Result<Self> {
+        let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
         Self::spawn(move |stop| {
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
-            if let Some(previous) = previous {
-                previous.refresh_scripts(&mut cache)
-            } else {
-                super::new_game::FieldPackage::prepare_with_diagnostics(
-                    &root,
-                    map,
-                    &mut cache,
-                    || stop.load(Ordering::Relaxed),
-                    diagnostics,
-                )
-            }
+            super::new_game::FieldPackage::capture(
+                &library,
+                map,
+                &mut cache,
+                || stop.load(Ordering::Relaxed),
+                diagnostics,
+            )
         })
     }
 }
 pub(super) type WorldPending = Task<super::overworld::Package>;
 impl WorldPending {
-    pub fn overworld(
-        root: PathBuf,
-        fields: std::collections::BTreeSet<u32>,
-        resident: &Resident,
-    ) -> Result<Self> {
+    pub fn overworld(root: PathBuf, resident: &Resident) -> Result<Self> {
+        let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
         Self::spawn(move |stop| {
             let mut cache = cache.lock().unwrap();
-            let shared = Files::load_with_diagnostics(
-                &root,
-                &[],
-                &mut cache.bytes,
+            super::overworld::Package::capture(
+                &library,
+                &mut cache,
                 || stop.load(Ordering::Relaxed),
                 diagnostics,
-            )?;
-            let world = Arc::new(resonance_game::overworld::Prepared::load(
-                &root,
-                shared,
-                &mut cache.bytes,
-                fields,
-                || stop.load(Ordering::Relaxed),
-            )?);
-            let audio = cache.audio.load("worlds/audio.json", &world.files)?;
-            Ok(super::overworld::Package { world, audio })
+            )
         })
     }
 }
 impl BattlePending {
-    pub fn battle(root: PathBuf, entry: super::battle::Entry, resident: &Resident) -> Result<Self> {
+    pub fn battle(entry: super::battle::Entry, resident: &Resident) -> Result<Self> {
         let cache = resident.cache.clone();
+        let diagnostics = resident.diagnostics.clone();
         Self::spawn(move |stop| {
             let super::battle::Entry {
-                files: retained,
+                mut snapshot,
                 party,
                 setup,
                 options,
@@ -352,22 +346,33 @@ impl BattlePending {
             } = entry;
             let mut cache = cache.lock().unwrap();
             let entry_seed = options.random_seed;
-            let (assets, prepared) = resonance_game::battle::encounter::Assets::load(
-                &root,
-                &retained,
+            let cancelled = || stop.load(Ordering::Relaxed);
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &cancelled,
+            )?;
+            let inputs = resonance_game::battle::encounter::Inputs::capture(
+                &mut snapshot,
                 &menus,
                 &data,
                 &party,
                 setup,
-                options,
                 &mut cache.bytes,
-                || stop.load(Ordering::Relaxed),
+                diagnostics.clone(),
+                &cancelled,
             )?;
-            let audio = super::battle_audio::Assets::load(
-                &assets.files,
-                assets.audio.as_ref(),
+            let (mut assets, prepared, selected) =
+                inputs.prepare_named(&menus, options, &catalogue)?;
+            let audio = super::battle_audio::Assets::capture_named(
+                &catalogue,
+                &selected,
+                &mut snapshot,
+                diagnostics.clone(),
                 &mut cache.audio,
+                &cancelled,
             )?;
+            assets.inputs.files =
+                Files::from_snapshot(snapshot, &mut cache.bytes, cancelled, diagnostics)?;
             let catalogue = assets.catalogue.clone();
             // View retains its diagnostic and skip policy for an invalid stage.
             let scenery_models = if assets.stage.validate().is_ok() {
@@ -459,12 +464,8 @@ pub(super) fn black_hold(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_content::{
-        diagnostics::Diagnostics,
-        field_preload::{File, Role, SHARED_PATH, Shared, VERSION},
-    };
-    use sha2::{Digest, Sha256};
-    use std::{collections::BTreeMap, fs};
+    use resonance_content::diagnostics::Diagnostics;
+    use std::fs;
 
     struct Fixture(PathBuf);
     impl Fixture {
@@ -479,14 +480,8 @@ mod tests {
             ));
             fs::create_dir(&root).unwrap();
             fs::write(
-                root.join(resonance_content::field_preload::SHARED_PATH),
-                serde_json::to_vec(&resonance_content::field_preload::Shared::<
-                    resonance_content::field_preload::File,
-                > {
-                    version: resonance_content::field_preload::VERSION,
-                    files: BTreeMap::new(),
-                })
-                .unwrap(),
+                root.join(resonance_content::library::DESCRIPTOR),
+                br#"{"version":1,"game":"GQSEAF","revision":0}"#,
             )
             .unwrap();
             Self(root)
@@ -542,56 +537,6 @@ mod tests {
                 bevy::tasks::block_on(AssetReader::read(&reader, Path::new("../extra.bin")))
                     .is_err()
             );
-        }
-    }
-
-    #[test]
-    fn diagnostic_reader_omits_payloads_after_file_or_inventory_failure() {
-        let fixture = Fixture::new();
-        fs::write(fixture.0.join("bad.bin"), b"broken").unwrap();
-        for failure in ["payload", "inventory_json", "inventory_version"] {
-            let shared = Shared {
-                version: if failure == "inventory_version" {
-                    VERSION + 1
-                } else {
-                    VERSION
-                },
-                files: BTreeMap::from([(
-                    "bad.bin".into(),
-                    File {
-                        sha256: format!("{:x}", Sha256::digest(b"sample")),
-                        bytes: 6,
-                        roles: [Role::Data].into(),
-                    },
-                )]),
-            };
-            let inventory = if failure == "inventory_json" {
-                b"invalid JSON".to_vec()
-            } else {
-                serde_json::to_vec(&shared).unwrap()
-            };
-            fs::write(fixture.0.join(SHARED_PATH), inventory).unwrap();
-            let diagnostics = Diagnostics::default();
-            let files = Files::load_with_diagnostics(
-                &fixture.0,
-                &[],
-                &mut Default::default(),
-                || false,
-                diagnostics.clone(),
-            )
-            .unwrap();
-            assert!(files.read("bad.bin").is_err());
-            assert_eq!(diagnostics.entries().len(), 1);
-            let resident = Resident {
-                diagnostics: diagnostics.clone(),
-                ..Default::default()
-            };
-            *resident.files.write().unwrap() = Some(Arc::new(files));
-            let reader = fixture.reader(resident);
-            assert!(
-                bevy::tasks::block_on(AssetReader::read(&reader, Path::new("bad.bin"))).is_err()
-            );
-            assert_eq!(diagnostics.entries().len(), 2);
         }
     }
 }

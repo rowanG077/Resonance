@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 53b62a3a9084e24c0a98f734d2f01acd9d33a1156e721e8cd6a8cbb2dbcb0c7a
+// Source owner: MAP/elc_d05/ELC_D05.BIN/2
+pub const Node000_Kadolight: string = "kadolight";

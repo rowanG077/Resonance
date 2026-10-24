@@ -25,7 +25,6 @@ fn fixture() -> Cinematic {
             text: "fixture".into(),
         }],
         presentation: CinematicPresentation {
-            provenance: "synthetic changed-parameter fixture".into(),
             fade: CinematicFade {
                 white: true,
                 end_rate: 128,

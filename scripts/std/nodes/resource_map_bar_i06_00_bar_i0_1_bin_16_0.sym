@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 74bea53b2d8054c79a0dc8db94b50c161dc1c92a6f38c0569db81361837ee009
+// Source owner: MAP/bar_i06_00/BAR_I0~1.BIN/16/0
+pub const Node000_No_Cook_12: string = "no_cook_12";

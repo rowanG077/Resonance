@@ -1,0 +1,4 @@
+script library;
+// Skeleton: aad0bf90793981bbf042e1c5fbabca995177cc2efca9d7719ee969c46d377f27
+// Source owner: FIELD/s1/s1.dat/1
+pub const Node000_DykeS_House: string = "dyke\\'s_house";

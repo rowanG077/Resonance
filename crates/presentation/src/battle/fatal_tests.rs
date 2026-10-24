@@ -73,14 +73,22 @@ impl Fixture {
 
     fn with_package(label: &str, configure: impl FnOnce(&mut Package)) -> Result<Self> {
         let root = root();
-        let files = Files::load(
-            &root,
-            &["fields/map-332.preload.json"],
+        let mods = std::env::var_os("RESONANCE_NAMED_TITLE_FIELDS")
+            .map(PathBuf::from)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let library = resonance_content::library::Library::open_paths(&root, &mods)?;
+        let field = new_game::FieldPackage::capture(
+            &library,
+            332,
             &mut Default::default(),
             || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
         )?;
+        let files = field.files;
         let saved = field_checkpoint(&files)?;
         let resident = loading::Resident::default();
+        *resident.files.write().unwrap() = Some(files.clone());
         let identity = resonance_persistence::Identity::load(&files)?;
         let bytes = resonance_persistence::encode(
             &Header {
@@ -125,21 +133,17 @@ impl Fixture {
         let field_tick = session.field().events.tick();
         let party = serde_json::to_value(&session.field().events.world.party)?;
         let entry = Entry::capture(&session, &request)?;
-        let mut package = finish(loading::BattlePending::battle(
-            root.clone(),
-            entry,
-            &resident,
-        )?)?;
+        let mut package = finish(loading::BattlePending::battle(entry, &resident)?)?;
         configure(&mut package);
         let directory = tempfile::Builder::new()
             .prefix(&format!("resonance-host-{label}-"))
             .tempdir()?;
         let store = Store::new(directory.path());
         store.write(Kind::Save, &SlotId::new("a-001")?, &bytes)?;
-        let manifest: resonance_content::TitleAssets =
-            serde_json::from_slice(&std::fs::read(root.join("title.json"))?)?;
-        manifest.validate()?;
-        let (title_scene, title_events) = crate::title_field::load(&root)?;
+        let title = crate::title_field::prepare(&library, false, resident.diagnostics.clone())?;
+        let manifest = title.art;
+        let title_scene = title.scene;
+        let title_events = title.events;
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -166,6 +170,7 @@ impl Fixture {
         .insert_resource(crate::session_screen::Title {
             events: Some(title_events),
             audio: None,
+            files: Some(title.files),
         })
         .init_resource::<crate::field_view::Controls>()
         .init_resource::<input::Controls>()
@@ -192,6 +197,7 @@ impl Fixture {
         })
         .insert_resource(crate::RunOptions {
             assets: root.clone(),
+            mods,
             script_root: None,
             saves: Default::default(),
             capture: None,

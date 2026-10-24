@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 84473c63c324e3932fadeab2b890bd9623d8522060734a5c159cdf1ccac8d623
+// Source owner: MAP/ask_t00/ASK_T00.BIN/2
+pub const Node000_Mado: string = "Mado";

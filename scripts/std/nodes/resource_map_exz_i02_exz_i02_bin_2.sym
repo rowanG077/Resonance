@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 61fd103d26c252c1e2d645c778dd75e3d272470df065c3d61f58ec0ed5a89a38
+// Source owner: MAP/exz_i02/EXZ_I02.BIN/2
+pub const Node000_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node001_Glow: string = "Glow";

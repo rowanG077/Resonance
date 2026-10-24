@@ -11,7 +11,6 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_scene::Texture,
     battle_stage::{Fog, SceneryFade, Stage, TextureAnimation, TextureMotion},
-    field_preload::{File, Role},
 };
 use std::{collections::BTreeMap, ops::Range, path::Path};
 
@@ -19,24 +18,15 @@ const SCENERY_FRAMES_PER_UPDATE: f32 = 0.5;
 const LAYER_ADDITIVE: u8 = 0b10;
 const LAYER_FLAGS: u8 = 0b11;
 
-/// Publish a selected arena using the ordinary shared model conversion.
-pub fn publish(extracted: &Path, arena: u16, output: &Path) -> Result<String> {
-    publish_source(
-        extracted,
-        &Sources::read(extracted)?,
-        arena,
-        output,
-        "battle",
-    )
+#[derive(Clone)]
+pub struct Prepared {
+    pub stage: Stage,
+    pub effects: Option<resonance_content::battle_effect::SourceBank>,
 }
 
-pub(crate) fn publish_source(
-    extracted: &Path,
-    sources: &Sources,
-    arena: u16,
-    output: &Path,
-    prefix: &str,
-) -> Result<String> {
+/// Prepare a selected native arena using the shared model conversion.
+pub fn prepare(extracted: &Path, arena: u16, output: &Path) -> Result<Prepared> {
+    let sources = Sources::read(extracted)?;
     let module = Rel::read(&extracted.join("files").join(&sources.module))?;
     let table = module
         .at((5, 0x3b90))?
@@ -46,15 +36,7 @@ pub(crate) fn publish_source(
         &extracted.join("files").join(&sources.stages),
         range(table, arena)?,
     )?;
-    let archive = MapArchive::decode(&bytes)?;
-    let path = format!("{prefix}/stages/{arena:03}.json");
-    let stage = read(
-        &archive,
-        &format!("{prefix}/stages/{arena:03}.effects.json"),
-        output,
-    )?;
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&stage)?)?;
-    Ok(path)
+    read(&MapArchive::decode(&bytes)?, output)
 }
 
 fn range(table: &[u8], arena: u16) -> Result<Range<usize>> {
@@ -77,28 +59,22 @@ fn range(table: &[u8], arena: u16) -> Result<Range<usize>> {
     Ok(start..start.checked_add(size).context("stage range overflow")?)
 }
 
-/// Publish every physical arena. Unsupported presentation remains explicit in
-/// its descriptor and the returned pending map; malformed packages still fail.
-pub fn publish_all(
-    extracted: &Path,
-    output: &Path,
-) -> Result<(Vec<String>, BTreeMap<u16, String>)> {
-    publish_all_source(extracted, &Sources::read(extracted)?, output, "battle")
+/// Every physical arena remains an owner, including unused and unsupported ones.
+pub fn prepare_all(extracted: &Path, output: &Path) -> Result<BTreeMap<u16, Prepared>> {
+    prepare_all_source(extracted, &Sources::read(extracted)?, output)
 }
 
-pub(crate) fn publish_all_source(
+pub(crate) fn prepare_all_source(
     extracted: &Path,
     sources: &Sources,
     output: &Path,
-    prefix: &str,
-) -> Result<(Vec<String>, BTreeMap<u16, String>)> {
+) -> Result<BTreeMap<u16, Prepared>> {
     let module = Rel::read(&extracted.join("files").join(&sources.module))?;
     let table = module
         .at((5, 0x3b90))?
         .get(..0x188)
         .context("truncated stage directory")?;
-    let mut paths = Vec::new();
-    let mut pending = BTreeMap::new();
+    let mut stages = BTreeMap::new();
     for arena in 0..table.len() / 4 - 1 {
         if arena != 0 && word(table, arena * 4)? == 0 {
             continue;
@@ -108,23 +84,12 @@ pub(crate) fn publish_all_source(
             &extracted.join("files").join(&sources.stages),
             range(table, arena)?,
         )?;
-        let archive = MapArchive::decode(&bytes)?;
-        let path = format!("{prefix}/stages/{arena:03}.json");
-        let stage = read(
-            &archive,
-            &format!("{prefix}/stages/{arena:03}.effects.json"),
-            output,
-        )?;
-        if let Some(reason) = &stage.unsupported_reason {
-            pending.insert(arena, reason.clone());
-        }
-        crate::write_atomic(&output.join(&path), &serde_json::to_vec(&stage)?)?;
-        paths.push(path);
+        stages.insert(arena, read(&MapArchive::decode(&bytes)?, output)?);
     }
-    Ok((paths, pending))
+    Ok(stages)
 }
 
-fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage> {
+fn read(archive: &MapArchive, output: &Path) -> Result<Prepared> {
     ensure!(archive.sections.len() >= 11, "invalid stage section count");
     let data = archive.section(0)?;
     ensure!(data.len() >= 0x318, "truncated stage metadata");
@@ -250,29 +215,12 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
         }
         layers.insert(slot_key, layer);
     }
-    let mut files = crate::battle_model::files(layers.values().map(|p| &p.scene), output)?;
     let mut effect_textures = archive
         .optional_section(10)
         .map(|bytes| crate::battle_effect::art::textures_from_source(bytes, output))
         .transpose()?
         .map(|textures| BTreeMap::from([(9, textures)]))
         .unwrap_or_default();
-    let mut effect_files = BTreeMap::new();
-    for image in effect_textures
-        .values()
-        .flatten()
-        .flat_map(|t| &t.effect.images)
-    {
-        effect_files.insert(
-            image.path.clone(),
-            File {
-                sha256: crate::media::hash_file(&output.join(&image.path))?,
-                bytes: std::fs::metadata(output.join(&image.path))?.len(),
-                roles: [Role::Texture].into(),
-            },
-        );
-    }
-    files.extend(effect_files.clone());
     let effects = archive
         .optional_section(9)
         .map(|bytes| -> Result<_> {
@@ -306,19 +254,8 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
                     })
                     .collect(),
                 models: BTreeMap::new(),
-                files: effect_files,
             });
-            let bytes = serde_json::to_vec(&bank)?;
-            crate::write_atomic(&output.join(effects_path), &bytes)?;
-            files.insert(
-                effects_path.into(),
-                File {
-                    sha256: crate::digest(&bytes),
-                    bytes: bytes.len() as u64,
-                    roles: [Role::Data].into(),
-                },
-            );
-            Ok(effects_path.to_owned())
+            Ok(bank)
         })
         .transpose()?;
     let textures = effect_textures
@@ -356,13 +293,12 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
         animation_rates,
         texture_animations,
         fog: (fog.end != 0.).then_some(fog),
-        effects,
+        effects: effects.as_ref().map(|_| "effects.json".into()),
         recurring_interval: (recurring_interval != 0).then_some(recurring_interval),
         textures,
-        files,
     };
     stage.validate()?;
-    Ok(stage)
+    Ok(Prepared { stage, effects })
 }
 
 fn texture_animation(bytes: &[u8]) -> Result<TextureAnimation> {
@@ -422,9 +358,9 @@ mod tests {
         let mut previous = None;
         for disc in [1, 2] {
             let output = tempfile::tempdir()?;
-            let path = publish(&local.join(format!("disc{disc}")), 13, output.path())?;
-            let bytes = std::fs::read(output.path().join(path))?;
-            let stage: Stage = serde_json::from_slice(&bytes)?;
+            let prepared = prepare(&local.join(format!("disc{disc}")), 13, output.path())?;
+            let stage = prepared.stage;
+            let bytes = serde_json::to_vec(&(&stage, &prepared.effects))?;
             stage.validate()?;
             assert_eq!(
                 stage.source_sha256,
@@ -448,11 +384,15 @@ mod tests {
             );
             assert!(stage.effects.is_some());
             assert!(!stage.textures.is_empty());
-            for (path, file) in &stage.files {
-                let bytes = std::fs::read(output.path().join(path))?;
-                assert_eq!(file.sha256, crate::digest(&bytes));
-                assert_eq!(file.bytes, bytes.len() as u64);
+            for layer in stage.layers.values() {
+                assert!(output.path().join(&layer.scene.mesh).is_file());
+                for clip in &layer.scene.clips {
+                    resonance_content::animation::Motion::decode(&std::fs::read(
+                        output.path().join(&clip.motion),
+                    )?)?;
+                }
             }
+            assert!(prepared.effects.is_some());
             if let Some(previous) = &previous {
                 assert_eq!(&bytes, previous);
             }

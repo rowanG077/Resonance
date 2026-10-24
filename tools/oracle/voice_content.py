@@ -6,16 +6,18 @@ Correlation identifies content, not a bit-exact or perceptual acceptance gate.
 """
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path
 import wave
 
 import numpy as np
 from scipy.signal import correlate
+from named_content import Snapshot
 
 
 def read_channels(path):
-    with wave.open(str(path)) as source:
+    with wave.open(io.BytesIO(path) if isinstance(path, bytes) else str(path)) as source:
         if source.getsampwidth() != 2:
             raise ValueError("expected PCM16 recording")
         pcm = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2")
@@ -84,23 +86,34 @@ def main():
     parser.add_argument("--full-profile", action="store_true",
                         help="Also measure each quarter-second of the full line at a fixed alignment")
     args = parser.parse_args()
-    manifest = args.assets / "fields/map-340-audio.json"
-    spec = json.loads(manifest.read_text())
+    snapshot = Snapshot(args.assets)
+    field_path = snapshot.resolve("fields/mappings.json", 340, "field.json")
+    field = snapshot.json(field_path)
+    spec = snapshot.json(field["audio"])
+    if field["version"] != 1 or spec["version"] != 1:
+        raise ValueError("unsupported field or audio definition")
+    available = {}
+    for archive in spec["speech"]:
+        mapping = snapshot.resolve("audio/speech/mappings.json", archive["archive"], "mappings.json")
+        for member, playback in archive["members"].items():
+            voice = archive["archive"] | int(member)
+            if voice in available:
+                raise ValueError(f"duplicate speech ID: {voice}")
+            available[voice] = (snapshot.resolve(mapping, int(member)), playback.get("sample_rate"))
     templates = {}
-    for voice in (map(int, spec["voices"]) if args.all else args.voice):
-        asset = spec["voices"][str(voice)]
-        path = args.assets / asset["path"]
-        if hashlib.sha256(path.read_bytes()).hexdigest() != asset["sha256"]:
-            raise ValueError("voice asset hash mismatch")
-        pcm, rate = read(path)
+    for voice in (available if args.all else args.voice):
+        path, clock = available[voice]
+        data = snapshot.read(path)
+        pcm, rate = read(data)
+        rate = clock or rate
         # Use a short prefix that remains present even when dialogue is advanced.
         count = min(len(pcm), rate * 3 // 10)
         if not np.any(pcm[:count]):
             raise ValueError("silent voice prefix")
-        templates[voice] = (pcm, count, rate, asset["sha256"])
+        templates[voice] = (pcm, count, rate, hashlib.sha256(data).hexdigest())
     result = {"method": "PCM16 mono projection; normalized FFT registration at the original sample rate",
               "audio_device": False, "assets_modified": False,
-              "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(), "recordings": []}
+              "content": {path: pin for path, (_, pin) in snapshot.files.items()}, "recordings": []}
     for path in args.recording:
         channels, rate = read_channels(path)
         pcm = channels.mean(axis=1)

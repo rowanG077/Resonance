@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 18fe48a2e28517727eb8edb59047cfbf319015ef4f4d7f63b0f24e266b00a1dd
+// Source owner: MAP/for_d00/FOR_D00.BIN/2
+pub const Node000_Kawa_Haya: string = "kawa_haya";
+pub const Node001_Kawa_Oso: string = "kawa_oso";

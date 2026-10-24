@@ -1,16 +1,16 @@
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
-use resonance_audio::{
-    BLOCK_FRAMES,
-    package::{Loaded, Package},
-    sequence,
-};
-use resonance_content::{TitleAudio, diagnostics::Diagnostics};
+use resonance_audio::BLOCK_FRAMES;
+#[cfg(test)]
+use resonance_audio::{package::Loaded, sequence};
+use resonance_content::diagnostics::Diagnostics;
 use resonance_playback::Decodable;
 use std::{fs, path::Path, sync::Arc};
 
 mod playback;
+mod recording;
 pub(super) use playback::{GameAudio, PlaybackAssets};
+pub(crate) use recording::Recording;
 
 #[derive(Resource, Default)]
 pub(super) struct MenuSounds {
@@ -49,11 +49,10 @@ pub(super) fn validate_startup(app: &App, silent: bool, capture: bool) -> Result
     Ok(())
 }
 
-/// Immutable cooked instruments and score, shared with each synthesis worker.
-/// Bevy owns output; this source reads prepared audio and does not loop PCM.
+/// The selected shared recording and this entry's startup fade.
 #[derive(Clone)]
 pub(super) struct TitleMusic {
-    music: Arc<Loaded>,
+    music: Arc<Recording>,
     master_lead_ms: u16,
 }
 
@@ -62,27 +61,10 @@ impl TitleMusic {
         self.master_lead_ms = if full_intro { 1200 } else { 1185 };
         self
     }
-    pub fn load(root: &Path) -> Result<Self> {
-        let path = root.join("title-audio.json");
-        let info: TitleAudio = serde_json::from_slice(
-            &fs::read(&path).with_context(|| format!("reading {}", path.display()))?,
-        )?;
-        info.validate()?;
-        Ok(Self {
-            master_lead_ms: 1185,
-            music: Arc::new(Package::load_verified(
-                root,
-                &info.path,
-                &info.sha256,
-                &mut Default::default(),
-            )?),
-        })
-    }
 }
 
 pub(super) struct MusicFrames {
-    stream: sequence::stream::Stream,
-    studio: resonance_audio::reverb::Studio,
+    source: resonance_audio::recording::Player,
     fade: resonance_audio::volume::Startup,
     frame: u64,
     pcm: [i16; 320],
@@ -94,8 +76,7 @@ pub(super) struct MusicFrames {
 impl MusicFrames {
     fn start(music: &TitleMusic) -> Result<Self> {
         Ok(Self {
-            stream: sequence::stream::Stream::new(music.music.clone(), true)?,
-            studio: resonance_audio::reverb::Studio::new(music.music.reverbs())?,
+            source: music.music.start(false)?,
             fade: resonance_audio::volume::Startup::new(2000, 100, music.master_lead_ms)?,
             frame: 0,
             pcm: [0; 320],
@@ -114,25 +95,19 @@ impl MusicFrames {
         Ok(frame)
     }
     fn render(&mut self) -> Result<()> {
-        let controls = std::array::from_fn(|i| sequence::LiveControls {
-            volume: self
-                .fade
+        let gains: [f32; resonance_audio::CONTROLS_PER_BLOCK] = std::array::from_fn(|i| {
+            self.fade
                 .value_at(self.frame + i as u64 * resonance_audio::CONTROL_FRAMES as u64)
-                * self.level,
-            mono: self.mono,
-            ..Default::default()
+                * self.level
         });
-        let mut buses = [[[0; 2]; 3]; BLOCK_FRAMES];
-        ensure!(
-            self.stream.render_block(controls, &mut buses)? == BLOCK_FRAMES,
-            "title score ended"
-        );
-        for (output, buses) in self.pcm.chunks_exact_mut(2).zip(buses) {
+        for (index, output) in self.pcm.chunks_exact_mut(2).enumerate() {
+            let mut pcm = self.source.next_frame()?.unwrap_or([0.; 2]);
+            if self.mono {
+                pcm = [(pcm[0] + pcm[1]) * 0.5; 2];
+            }
+            let gain = gains[index / resonance_audio::CONTROL_FRAMES];
             output.copy_from_slice(
-                &self
-                    .studio
-                    .process(buses)
-                    .map(|s| s.clamp(i16::MIN as i32, i16::MAX as i32) as i16),
+                &pcm.map(|v| (v * gain).clamp(i16::MIN as f32, i16::MAX as f32) as i16),
             );
         }
         self.frame += BLOCK_FRAMES as u64;
@@ -165,6 +140,7 @@ impl std::str::FromStr for CueEvent {
 /// constructed, so recording never opens a window or speaker device.
 pub fn record_title_music(
     root: &Path,
+    mods: &[std::path::PathBuf],
     output: &Path,
     frames: u32,
     full_intro: bool,
@@ -180,7 +156,8 @@ pub fn record_title_music(
             && events.iter().all(|event| event.frame < frames),
         "invalid cue recording schedule"
     );
-    let assets = PlaybackAssets::load(root, Diagnostics::new(true))?;
+    let library = resonance_content::library::Library::open_paths(root, mods)?;
+    let assets = PlaybackAssets::load_in(&library, Diagnostics::new(true))?;
     let (audio, control) = assets.session(full_intro);
     let mut decoder = audio.decoder();
     control.check()?;
@@ -250,10 +227,15 @@ mod tests {
             sequence::{LiveControls, stream::Stream},
         };
         let root = assets();
-        let metadata: resonance_content::TitleAudio =
-            serde_json::from_slice(&fs::read(root.join("title-sounds.json"))?)?;
-        let manifest: resonance_audio::cue::package::Manifest =
-            serde_json::from_slice(&fs::read(root.join(metadata.path))?)?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        let startup: resonance_content::startup::Definition = snapshot.json(
+            resonance_content::startup::PATH,
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        let manifest: resonance_content::startup::Cues =
+            snapshot.json(&startup.cues, resonance_content::preparation::JSON_LIMIT)?;
+        let mut samples = Default::default();
         for name in ["back", "confirm", "error", "navigate"] {
             assert!(
                 manifest.cues.contains_key(name),
@@ -261,7 +243,15 @@ mod tests {
             );
         }
         for (name, cue) in manifest.cues {
-            let loaded = Arc::new(Package::load(&root, &cue.program.path)?);
+            let program = snapshot
+                .json::<resonance_audio::effect::Definition>(
+                    &cue,
+                    resonance_content::preparation::JSON_LIMIT,
+                )?
+                .into_program()?;
+            let loaded = program
+                .prepare_editable(&mut |path, limit| snapshot.read(path, limit), &mut samples)?;
+            let loaded = Arc::new(loaded);
             let render = |volume, pan| -> Result<Vec<sequence::BusFrame>> {
                 let mut stream = Stream::new(loaded.clone(), false)?;
                 let control = LiveControls {
@@ -296,7 +286,7 @@ mod tests {
                         return Ok(output);
                     }
                     assert!(
-                        output.len() <= 60 * manifest.sample_rate as usize,
+                        output.len() <= 60 * resonance_audio::SOURCE_RATE as usize,
                         "{name} exceeded the test’s 60-second completion watchdog"
                     );
                 }
@@ -350,13 +340,30 @@ mod tests {
     #[ignore = "requires cooked menu program samples; never opens a device"]
     fn every_menu_sample_preserves_complete_decoded_pcm() -> Result<()> {
         let root = assets();
-        let metadata: resonance_content::TitleAudio =
-            serde_json::from_slice(&fs::read(root.join("title-sounds.json"))?)?;
-        let manifest: resonance_audio::cue::package::Manifest =
-            serde_json::from_slice(&fs::read(root.join(metadata.path))?)?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        let startup: resonance_content::startup::Definition = snapshot.json(
+            resonance_content::startup::PATH,
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        let manifest: resonance_content::startup::Cues =
+            snapshot.json(&startup.cues, resonance_content::preparation::JSON_LIMIT)?;
+        let mut samples = Default::default();
         for (name, cue) in manifest.cues {
-            let loaded = Package::load(&root, &cue.program.path)?;
-            let package: Package = serde_json::from_slice(&fs::read(root.join(cue.program.path))?)?;
+            let program = snapshot
+                .json::<resonance_audio::effect::Definition>(
+                    &cue,
+                    resonance_content::preparation::JSON_LIMIT,
+                )?
+                .into_program()?;
+            let loaded = program
+                .prepare_editable(&mut |path, limit| snapshot.read(path, limit), &mut samples)?;
+            let package = snapshot
+                .json::<resonance_audio::effect::Definition>(
+                    &cue,
+                    resonance_content::preparation::JSON_LIMIT,
+                )?
+                .into_program()?;
             for (id, asset) in package.samples {
                 let mut wav = hound::WavReader::open(root.join(asset.path))?;
                 assert_eq!(wav.spec().channels, 1);
@@ -377,10 +384,9 @@ mod tests {
             data::{Command, EventKind, ScoreOrigin, VoiceSource},
         };
         let reverbs = [[0., 0., 1., 0., 0.]; 2];
-        let (resources, score, tables) = crate::field_audio::test_score_data(ScoreOrigin::Sequence);
         let music = TitleMusic {
             master_lead_ms: 1185,
-            music: Arc::new(Loaded::new(resources, score, tables, reverbs)?),
+            music: Recording::test(&[[12000; 2]; 160], Some(0..160))?.0,
         };
         let cue = |amplitude, length, id| -> Result<_> {
             let (mut resources, mut score, tables) =
@@ -403,12 +409,17 @@ mod tests {
             .zip([(2000, 1600), (-1400, 3600), (3000, 4800)])
             .enumerate()
             .map(|(id, (name, (amplitude, length)))| {
-                Ok((name.to_owned(), cue(amplitude, length, id as u16)?))
+                Ok((
+                    name.to_owned(),
+                    Arc::new(resonance_audio::effect::Prepared::from(cue(
+                        amplitude, length, id as u16,
+                    )?)),
+                ))
             })
             .collect::<Result<_>>()?;
         let assets = playback::test_assets(
             music,
-            cue::package::Loaded {
+            cue::Bank {
                 sample_rate: resonance_audio::SOURCE_RATE,
                 reverbs,
                 cues,
@@ -478,18 +489,25 @@ mod tests {
     #[test]
     #[ignore = "requires cooked title music; never opens a device"]
     fn title_music_preserves_playback_across_the_first_score_loop() -> Result<()> {
-        let title = TitleMusic::load(&assets())?;
-        let package = &title.music;
-        // A bounded musical window, with loop boundaries reported by the score
-        // renderer rather than pinned to an external loading/fade timeline.
-        let preview = sequence::render_preview(
-            package.clone(),
-            package.reverbs(),
-            40 * resonance_audio::SOURCE_RATE,
+        let library = resonance_content::library::Library::open(&assets(), &[])?;
+        let mut snapshot = library.snapshot();
+        let startup: resonance_content::startup::Definition = snapshot.json(
+            resonance_content::startup::PATH,
+            resonance_content::preparation::JSON_LIMIT,
         )?;
-        let first_loop = *preview.loop_starts.first().context("title did not loop")? as usize;
+        let song = resonance_content::music::capture(&mut snapshot, &startup.music, &|| false)?;
+        let first_loop = usize::try_from(
+            song.definition
+                .repeat
+                .context("title did not loop")?
+                .end_frame,
+        )?;
         let second = resonance_audio::SOURCE_RATE as usize;
-        assert!(first_loop >= second && first_loop + second <= preview.pcm.len() / 2);
+        let title = TitleMusic {
+            music: Recording::capture(&mut snapshot, &startup.music, &|| false)?,
+            master_lead_ms: 1185,
+        };
+        assert!(first_loop >= second);
         let mut music = MusicFrames::start(&title)?;
         let mut audible = [false; 2];
         for frame in 0..first_loop + second {

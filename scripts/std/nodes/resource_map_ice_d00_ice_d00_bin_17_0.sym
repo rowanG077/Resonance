@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 5adad7262c3fc4f660d2f30cb64af0cedaff13c84932992027f176a6b2262937
+// Source owner: MAP/ice_d00/ICE_D00.BIN/17/0
+pub const Node000_Suiteki: string = "suiteki";

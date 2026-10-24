@@ -1,5 +1,6 @@
 //! Admit authored materials to the runtime's supported shader combinations.
 use crate::all_assets::physical_scene::{Scene, Texture};
+use crate::geometry::MaterialRecipeExt;
 use anyhow::{Context, Result, ensure};
 use resonance_content::{SceneMaterial, ScenePart, TextureBinding, texture::Filter};
 use serde_json::Value;

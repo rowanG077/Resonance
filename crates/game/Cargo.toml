@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [features]
-test-support = ["resonance-battle/test-support"]
+test-support = ["resonance-battle/test-support", "resonance-content/test-support"]
 
 [dependencies]
 resonance-battle.workspace = true
@@ -21,3 +21,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 resonance-content = { workspace = true, features = ["test-support"] }
+tempfile = "3"

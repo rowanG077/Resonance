@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 40f0d8e05b73e47b30b826f746d5eb80331033e10e9571bba5c4dffe11495bfb
+// Source owner: MAP/tri_i00_01/TRI_I0~1.BIN/18/0
+pub const Node000_Sword2b: string = "sword2b";
+pub const Node001_Sword2a: string = "sword2a";

@@ -202,9 +202,11 @@ impl Technique {
         action
             .events
             .retain(|(at, event)| *at != action.end_at || !matches!(event, AttackEvent::Pose(_)));
-        let scene: resonance_content::battle_scene::Scene = resources
-            .files
-            .json(&resonance_content::battle_scene::skill_path(self.catalogue))?;
+        let scene = resonance_content::battle_scene::document::load(
+            resources.files,
+            resonance_content::battle_scene::document::Kind::Skill,
+            self.catalogue,
+        )?;
         let bank = resources
             .skill_scenes
             .get(&self.catalogue)

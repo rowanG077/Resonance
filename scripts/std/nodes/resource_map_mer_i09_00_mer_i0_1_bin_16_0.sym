@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 20bc51e95636b91aa1cdcba1ea14a7cc7bca906f60a9cdbbe3cd655f952aabde
+// Source owner: MAP/mer_i09_00/MER_I0~1.BIN/16/0
+pub const Node000_No_Cook_05: string = "no_cook_05";

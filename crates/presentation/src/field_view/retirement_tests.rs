@@ -8,7 +8,9 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
         PathBuf::from,
     );
-    let manifest: FieldAssets = serde_json::from_slice(&fs::read(root.join("fields/map-7.json"))?)?;
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let (_, manifest) =
+        resonance_content::field::document::capture_scene(&mut library.snapshot(), 7, || false)?;
     let mut field = FieldSession::new(&fs::read(root.join(&manifest.script))?, vec![], &manifest)?;
     field.events.world.actors.clear();
     for id in [1, 2] {

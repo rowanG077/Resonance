@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 6f3f23f10da1b3f8bb2250733c631457a1b2f38e4247ad23ee22f61733e4c43a
+// Source owner: MAP/izr_i03/IZR_I03.BIN/16/0
+pub const Node000_Bird_01a: string = "bird_01a";
+pub const Node001_Bird_01b: string = "bird_01b";

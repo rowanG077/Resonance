@@ -15,10 +15,7 @@ use resonance_battle::{
     BattleFrame, BattleInput, ButtonInput,
     item::{Provider, Release},
 };
-use resonance_content::{
-    diagnostics::Diagnostics,
-    prepared::{Cache, Files},
-};
+use resonance_content::{diagnostics::Diagnostics, prepared::Cache};
 use resonance_events::{
     battle::{DefeatPolicy, Setup as Encounter},
     party::MonsterKnowledge,
@@ -202,13 +199,14 @@ pub(crate) fn prepared_fixture_with_story(
         encounter,
         techniques,
         Diagnostics::default(),
-        |party, session, menus, _| configure(party, session, menus),
+        |party, session, menus, _, _| configure(party, session, menus),
     )?
     .prepare(story, |sound| Ok(Some(sound)))
 }
 
 pub(crate) struct LoadedFixture {
     pub inputs: Inputs,
+    modification: tempfile::TempDir,
     party: Party,
     session: Arc<SessionData>,
     menus: Arc<MenuData>,
@@ -220,7 +218,13 @@ pub(crate) fn load_fixture(
     encounter: u16,
     techniques: &[(u8, u16)],
     diagnostics: Diagnostics,
-    configure: impl FnOnce(&mut Party, &SessionData, &MenuData, &mut Files) -> Result<()>,
+    configure: impl FnOnce(
+        &mut Party,
+        &SessionData,
+        &MenuData,
+        &mut resonance_content::library::Snapshot,
+        &std::path::Path,
+    ) -> Result<()>,
 ) -> Result<LoadedFixture> {
     let root = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
@@ -228,14 +232,14 @@ pub(crate) fn load_fixture(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
         });
     let mut cache = Cache::default();
-    let mut retained = Files::load_with_diagnostics(
-        &root,
-        &["fields/map-332.preload.json"],
+    let retained = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
         &mut cache,
         || false,
         diagnostics,
     )?;
-    let menus: Arc<MenuData> = Arc::new(retained.json("game/menu-data.json")?);
+    let menus: Arc<MenuData> = Arc::new(resonance_content::menu_data::MenuData::load(&retained)?);
     let mut session: SessionData = retained.json("game/session-data.json")?;
     session.rules = Some(menus.clone());
     let session = Arc::new(session);
@@ -267,11 +271,27 @@ pub(crate) fn load_fixture(
         let member = &mut party.members[usize::from(character - 1)];
         member.techniques.insert(technique);
     }
-    configure(&mut party, &session, &menus, &mut retained)?;
+    let modification = tempfile::tempdir()?;
+    configure(
+        &mut party,
+        &session,
+        &menus,
+        &mut retained
+            .library()
+            .context("named library is required")?
+            .snapshot(),
+        modification.path(),
+    )?;
     party.validate(&session)?;
-    let inputs = Inputs::load(
+    let library = resonance_content::library::Library::open(
         &root,
-        &retained,
+        &[resonance_content::library::Mod {
+            name: "battle fixture edits".into(),
+            root: modification.path().into(),
+        }],
+    )?;
+    let inputs = Inputs::capture(
+        &mut library.snapshot(),
         &menus,
         &session,
         &party,
@@ -283,11 +303,13 @@ pub(crate) fn load_fixture(
             music: None,
         },
         &mut cache,
-        || false,
+        (&retained).diagnostics().clone(),
+        &(|| false),
     )?;
     let catalogue = inputs.catalogue.clone();
     Ok(LoadedFixture {
         inputs,
+        modification,
         party,
         session,
         menus,
@@ -303,6 +325,7 @@ impl LoadedFixture {
     ) -> Result<PreparedFixture> {
         let Self {
             inputs,
+            modification: _modification,
             party,
             session,
             menus,

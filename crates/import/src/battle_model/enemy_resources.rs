@@ -2,8 +2,7 @@
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_effect::{Art, SourceBank},
-    battle_model::{ModelPart, enemy_effects_path},
-    field_preload::{File, Role},
+    battle_model::ModelPart,
 };
 use std::{collections::BTreeMap, path::Path};
 
@@ -137,16 +136,8 @@ pub(super) fn carried_motions(
                 );
                 motion.validate(&part.rig.skeleton)?;
                 let encoded = motion.encode()?;
-                let path = format!("clips/{}.motion", crate::digest(&encoded));
+                let path = format!("clips/{}.motion.json", crate::digest(&encoded));
                 crate::write_atomic(&output.join(&path), &encoded)?;
-                source.files.insert(
-                    path.clone(),
-                    File {
-                        sha256: crate::digest(&encoded),
-                        bytes: encoded.len() as u64,
-                        roles: [Role::Data].into(),
-                    },
-                );
                 let layer = part
                     .layers
                     .first_mut()
@@ -193,16 +184,15 @@ pub(super) fn carried_motions(
     Ok(paths)
 }
 
-pub(super) fn publish(
+pub(super) fn prepare(
     bytes: &[u8],
     id: u8,
     body: &resonance_content::animation::Skeleton,
     shared: &mut crate::battle_effect::SharedPalettes,
     output: &Path,
-) -> Result<BTreeMap<String, File>> {
+) -> Result<SourceBank> {
     let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)
         .with_context(|| format!("enemy {id} resource pointer table"))?;
-    let mut files = BTreeMap::new();
     let bank = members
         .model(0x1cc)
         .with_context(|| format!("enemy {id} effect member 0x1cc"))?;
@@ -213,6 +203,7 @@ pub(super) fn publish(
         // the existing descriptor retain those resources without inventing events.
         None => (
             SourceBank {
+                document: None,
                 source_sha256: crate::digest(bytes),
                 programs: Vec::new(),
                 actors: Vec::new(),
@@ -321,56 +312,14 @@ pub(super) fn publish(
         );
     }
     if bank.is_none() && models.is_empty() && textures.values().all(Vec::is_empty) {
-        return Ok(files);
+        return Ok(source);
     }
-    let mut art_files = super::files(
-        models
-            .values()
-            .flat_map(|part| part.layers.iter().map(|layer| &layer.scene)),
-        output,
-    )?;
-    for image in textures
-        .values()
-        .flatten()
-        .flat_map(|texture| &texture.images)
-    {
-        art_files.insert(
-            image.path.clone(),
-            File {
-                sha256: crate::media::hash_file(&output.join(&image.path))?,
-                bytes: std::fs::metadata(output.join(&image.path))?.len(),
-                roles: [Role::Texture].into(),
-            },
-        );
-    }
-    files.extend(art_files.clone());
     source.art = Some(Art {
         source_sha256: crate::digest(bytes),
         textures,
         models,
-        files: art_files,
     });
-    write(&mut files, output, enemy_effects_path(id), &source)?;
-    Ok(files)
-}
-
-fn write(
-    files: &mut BTreeMap<String, File>,
-    output: &Path,
-    path: String,
-    value: &impl serde::Serialize,
-) -> Result<()> {
-    let bytes = serde_json::to_vec(value)?;
-    crate::write_atomic(&output.join(&path), &bytes)?;
-    files.insert(
-        path,
-        File {
-            sha256: crate::digest(&bytes),
-            bytes: bytes.len() as u64,
-            roles: [Role::Data].into(),
-        },
-    );
-    Ok(())
+    Ok(source)
 }
 
 /// Reuse the published carried geometry. Rig metadata is read from the same

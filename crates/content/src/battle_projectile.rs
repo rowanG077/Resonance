@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 pub const PATH: &str = "battle/projectiles.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Table {
     pub source_sha256: String,
     pub records: Vec<Projectile>,

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{all_assets::physical_scene, cooked::Source};
+use crate::all_assets::physical_scene;
 use anyhow::{Context, Result, ensure};
 
 #[test]
@@ -30,23 +30,39 @@ fn mana_flame_nodes_retain_native_camera_facing_flags() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires both original discs and frozen cook-all scenes; no texture or audio conversion"]
-fn original_physical_scenes_match_frozen_meshes_and_materials() -> Result<()> {
+#[ignore = "requires both original discs and current RESONANCE_TEST_ASSETS; no texture or audio conversion"]
+fn original_physical_scenes_match_current_meshes_and_materials() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let baseline = std::env::var_os("RESONANCE_COOKED")
+    let baseline = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| local.join("all-assets"));
+        .context("set RESONANCE_TEST_ASSETS")?;
+    let library = resonance_content::library::Library::open(&baseline, &[])?;
+    // Diagnostic provenance identifies the physical owner when equal native files
+    // on two discs share a conversion. All payloads use the current schema.
+    let reports = std::env::var_os("RESONANCE_TEST_IMPORT_REPORTS")
+        .map(std::path::PathBuf::from)
+        .context("set RESONANCE_TEST_IMPORT_REPORTS to the external reports directory")?;
+    let sources: std::collections::BTreeMap<String, Vec<String>> =
+        serde_json::from_slice(&fs::read(reports.join("import-sources.json"))?)?;
     let output = tempfile::tempdir()?;
     // Repeated instances, a two-UV skin, vertex alpha, two textures, caller
     // textures, field instances, and authored meshes without runtime instances.
     let cases: &[(&str, &str, &[usize])] = &[
-        ("lloyd000.bin", "0", &[0]),
-        ("shihna003.bin", "0", &[0]),
-        ("MAP/tri_i01.bin", "TRI_I01.BIN/2", &[2]),
-        ("MAP/dar_d00.bin", "DAR_D00.BIN/2", &[2]),
-        ("MAP/dar_d00.bin", "DAR_D00.BIN/16/0", &[16, 0]),
-        ("MAP/yum_d00.bin", "YUM_D00.BIN/0", &[0]),
-        ("MAP/yum_d00.bin", "YUM_D00.BIN/28/0", &[28, 0]),
+        ("lloyd000.bin", "member-00000", &[0]),
+        ("shihna003.bin", "member-00000", &[0]),
+        ("MAP/tri_i01.bin", "TRI_I01.BIN/member-00002", &[2]),
+        ("MAP/dar_d00.bin", "DAR_D00.BIN/member-00002", &[2]),
+        (
+            "MAP/dar_d00.bin",
+            "DAR_D00.BIN/member-00016/member-00000",
+            &[16, 0],
+        ),
+        ("MAP/yum_d00.bin", "YUM_D00.BIN/member-00000", &[0]),
+        (
+            "MAP/yum_d00.bin",
+            "YUM_D00.BIN/member-00028/member-00000",
+            &[28, 0],
+        ),
     ];
     for disc in [1, 2] {
         for &(file, leaf, sections) in cases {
@@ -66,10 +82,24 @@ fn original_physical_scenes_match_frozen_meshes_and_materials() -> Result<()> {
                     model = &model[range];
                 }
                 let normalized = crate::character::texture_palette(model, model)?;
-                let source = Source::open(&baseline, disc, file)?;
-                let (directory, expected) = source.resolve(&format!("{leaf}/scene.json"))?;
-                let expected: serde_json::Value = serde_json::from_slice(&expected)?;
-                let name = format!("{directory}/{leaf}");
+                let outputs = sources
+                    .get(&format!("disc{disc}/{file}"))
+                    .context("missing current source provenance")?;
+                let suffix = format!("/{leaf}/scene.json");
+                let paths = outputs
+                    .iter()
+                    .filter(|path| {
+                        path.starts_with("resources/physical/") && path.ends_with(&suffix)
+                    })
+                    .collect::<Vec<_>>();
+                ensure!(
+                    paths.len() == 1,
+                    "expected one physical scene for {file}/{leaf}"
+                );
+                let mut snapshot = library.snapshot();
+                let expected: resonance_content::physical_scene::Scene =
+                    snapshot.json(paths[0], 64 * 1024 * 1024)?;
+                expected.validate()?;
                 let palette = crate::read::u32(&normalized, 0)? as usize;
                 let textures = if crate::read::u32(model, 0)? == 0
                     && crate::read::u32(&normalized, palette + 4)? == 0
@@ -77,16 +107,20 @@ fn original_physical_scenes_match_frozen_meshes_and_materials() -> Result<()> {
                     physical_scene::TextureSource::Caller
                 } else {
                     physical_scene::TextureSource::Local {
-                        catalogue: format!("{name}/palettes/textures.json"),
+                        catalogue: match &expected.textures {
+                            physical_scene::TextureSource::Local { catalogue } => catalogue.clone(),
+                            _ => anyhow::bail!("original local palette became a caller binding"),
+                        },
                     }
                 };
                 let actual = physical_scene::cook(&normalized, output.path(), textures)?;
-                let expected_mesh = expected["mesh"].as_str().context("missing frozen mesh")?;
+                let expected_mesh = &expected.mesh;
+                let expected = serde_json::to_value(&expected)?;
                 let mut metadata = serde_json::to_value(&actual)?;
                 metadata["mesh"] = expected["mesh"].clone();
                 ensure!(metadata == expected, "physical scene metadata differs");
                 let mesh = crate::scene::glb::Glb::read(&output.path().join(&actual.mesh))?;
-                let frozen = crate::scene::glb::Glb::read(&baseline.join(expected_mesh))?;
+                let published = crate::scene::glb::Glb::read(&baseline.join(expected_mesh))?;
                 for (bone, node) in mesh.json["nodes"]
                     .as_array()
                     .context("model nodes")?
@@ -97,8 +131,8 @@ fn original_physical_scenes_match_frozen_meshes_and_materials() -> Result<()> {
                     ensure!(node["extras"]["resonance_bone"] == bone, "bone binding");
                 }
                 ensure!(
-                    mesh.json == frozen.json && mesh.binary == frozen.binary,
-                    "geometry differs from frozen publication"
+                    mesh.json == published.json && mesh.binary == published.binary,
+                    "geometry differs from current publication"
                 );
                 Ok(())
             };

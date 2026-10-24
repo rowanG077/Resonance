@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 925434e0d41cc9725eb590d8e4c4664c4217c69c781d6ed4b11e305c6178ca6c
+// Source owner: MAP/fab_d03/FAB_D03.BIN/19/0
+pub const Node000_Bridge02: string = "bridge02";

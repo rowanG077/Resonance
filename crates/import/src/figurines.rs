@@ -2,7 +2,6 @@
 use crate::{
     all_assets::figurine_catalogue::{Catalogue, Record, Resource},
     scene::source::Models,
-    write_atomic,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
@@ -62,10 +61,6 @@ pub(crate) fn prepare(
         record
             .validate()
             .with_context(|| format!("figurine {id}"))?;
-        write_atomic(
-            &output.join(format!("figurines/{id:03}.json")),
-            &serde_json::to_vec_pretty(&record)?,
-        )?;
         records.push(record);
     }
     behaviors.finish(crate::model_behavior::Catalogue::Figurines)?;
@@ -131,6 +126,7 @@ fn preview(
         }
     }
     let mut preview = ModelPreview {
+        document: None,
         scale: 1.,
         elevation: catalogue.preview.default_elevation,
         behavior: None,

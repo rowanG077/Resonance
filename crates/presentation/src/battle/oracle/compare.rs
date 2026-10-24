@@ -1454,8 +1454,7 @@ fn optional_seal_conditions(
     );
     // Strike-route seals are guaranteed. A registration cannot turn them into
     // optional outcomes, even if a malformed fixture supplies one.
-    let pin: super::random_inputs::Pin = serde_json::from_value(source.setup["catalogue"].clone())?;
-    let catalogue: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let catalogue = super::content_evidence::action_catalogue(source)?;
     let index: usize = source.case.rsplit(':').next().unwrap().parse()?;
     let definition = &catalogue["definitions"][index];
     if definition["learning"]["route"] == "strike" || definition["capabilities"]["spell"] != false {
@@ -1871,8 +1870,7 @@ fn optional_enemy_conditions(trace: &Trace, events: &mut Vec<Value>) -> Result<(
         return Ok(());
     }
     let row: usize = trace.case.rsplit(':').next().unwrap().parse()?;
-    let pin: super::random_inputs::Pin = serde_json::from_value(trace.setup["catalogue"].clone())?;
-    let catalogue: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let catalogue = super::content_evidence::action_catalogue(trace)?;
     let Some(authored) =
         catalogue["actions"]["rows"][row]["execution"]["attack"]["events"].as_array()
     else {
@@ -4054,12 +4052,12 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     let flight = |shifted: bool| {
         let mut trace = make();
         trace.setup["projectile_launches"] = json!([{
-            "projectile":1,"template":{"path":"projectiles.json","sha256":bank,"index":0},
+            "projectile":1,"template":{"kind":"projectiles","content":projectile_random::test_evidence("battle/projectiles.json", &bank),"index":0},
             "origin":[0.,3.,0.],"heading":0.,"velocity":[0.,-2.,1.],"acceleration":[0.,0.,0.],
             "motion":{"face_velocity":true,"velocity_jitter":[1.,1.,1.],
                 "response":{"bounce":false,"ricochet":true,"ground_ricochet":true,"restitution":0.75}},
             "clamp_ground":false,"lifetime":2,"survives_contact":true,
-            "model":{"bank":bank,"member":2,"template":{"path":"effects.json","sha256":bank,"index":2}}
+            "model":{"bank":bank,"member":2,"template":{"kind":"effects","content":projectile_random::test_evidence("effects.json", &bank),"index":2}}
         }]);
         trace.events[1]["bank"] = json!(bank);
         trace.events[2]["bank"] = json!(bank);

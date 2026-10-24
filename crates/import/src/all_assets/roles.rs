@@ -245,53 +245,29 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
-    #[ignore = "requires both extracted discs and cook-all; no texture conversion"]
+    #[ignore = "requires both extracted discs; native declaration and payload comparison"]
     fn status_portraits_follow_renamed_source_declarations() -> Result<()> {
-        use std::os::unix::fs::symlink;
-        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let cooked = local.join("all-assets");
-        let root = crate::temporary_path(&std::env::temp_dir().join("portrait-declaration"));
-        let result = (|| -> Result<()> {
-            fs::create_dir_all(root.join("files/Art"))?;
-            fs::create_dir_all(root.join("cooked"))?;
-            symlink(cooked.join("assets"), root.join("cooked/assets"))?;
-            for disc in [1, 2] {
-                let extracted = local.join(format!("extracted/disc{disc}"));
-                let mut executable = fs::read(extracted.join("sys/main.dol"))?;
-                assert_eq!(dol::text(&executable, STATUS_PORTRAITS)?, "/field/s.z");
-                let path = status_portraits_path(&extracted, &executable)?;
-                let source = crate::cooked::Source::open(&cooked, disc, &path)?;
-                let expected = source.resolve("cabinet.json")?;
-                symlink(
-                    extracted.join("files").join(path),
-                    root.join("files/Art/P.dat"),
-                )?;
-                fs::write(
-                    root.join("cooked/sources.json"),
-                    serde_json::to_vec(&BTreeMap::from([(
-                        format!("disc{disc}/Art/P.dat"),
-                        source.publications(),
-                    )]))?,
-                )?;
-                let bytes = dol::slice(&executable, STATUS_PORTRAITS, 11)?;
-                let offset = bytes.as_ptr() as usize - executable.as_ptr() as usize;
-                executable[offset..offset + 11].copy_from_slice(b"/art/p.dat\0");
-                assert_eq!(status_portraits_declaration(&executable)?, "art/p.dat");
-                let renamed = status_portraits_path(&root, &executable)?;
-                assert_eq!(renamed, "Art/P.dat");
-                let output = root.join("cooked");
-                let source = crate::cooked::Source::open(&output, disc, &renamed)?;
-                assert_eq!(source.resolve("cabinet.json")?, expected);
-                fs::remove_file(root.join("files/Art/P.dat"))?;
-                assert!(status_portraits_path(&root, &executable).is_err());
-            }
-            Ok(())
-        })();
-        if root.exists() {
-            fs::remove_dir_all(root)?;
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+        let root = tempfile::tempdir()?;
+        fs::create_dir_all(root.path().join("files/Art"))?;
+        for disc in [1, 2] {
+            let extracted = local.join(format!("disc{disc}"));
+            let mut executable = fs::read(extracted.join("sys/main.dol"))?;
+            assert_eq!(dol::text(&executable, STATUS_PORTRAITS)?, "/field/s.z");
+            let path = status_portraits_path(&extracted, &executable)?;
+            let original = fs::read(extracted.join("files").join(path))?;
+            fs::write(root.path().join("files/Art/P.dat"), &original)?;
+            let bytes = dol::slice(&executable, STATUS_PORTRAITS, 11)?;
+            let offset = bytes.as_ptr() as usize - executable.as_ptr() as usize;
+            executable[offset..offset + 11].copy_from_slice(b"/art/p.dat\0");
+            assert_eq!(status_portraits_declaration(&executable)?, "art/p.dat");
+            let renamed = status_portraits_path(root.path(), &executable)?;
+            assert_eq!(renamed, "Art/P.dat");
+            assert_eq!(fs::read(root.path().join("files").join(renamed))?, original);
+            fs::remove_file(root.path().join("files/Art/P.dat"))?;
+            assert!(status_portraits_path(root.path(), &executable).is_err());
         }
-        result
+        Ok(())
     }
 
     #[test]

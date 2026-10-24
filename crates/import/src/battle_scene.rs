@@ -1,6 +1,6 @@
 //! Stored spell and skill models, artwork and animation packages.
 use crate::{
-    battle_model::{RigKind, files, rig},
+    battle_model::{RigKind, rig},
     character::Clip,
     model_preview::{Layer, PointerMembers, layers_with_clips},
     read::Field,
@@ -12,102 +12,18 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_model::ModelPart,
     battle_scene::{Scene, SceneProjectile, Texture},
-    field_preload::{File, Role},
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
 mod catalogue;
 mod spell_recipe;
-pub use catalogue::{Publication, publish_all};
-pub(crate) use catalogue::{catalogue_paths, publish_all_source};
+pub(crate) use catalogue::prepare_all_source;
+pub use catalogue::{PreparedCatalogue, Publication, prepare_all};
 
-/// Publish the selected scene through the same path used by full cooking.
-pub fn publish(extracted: &Path, technique: u16, output: &Path) -> Result<String> {
-    publish_source(
-        extracted,
-        &Sources::read(extracted)?,
-        technique,
-        output,
-        "battle",
-    )
-}
-
-/// Publish one catalogue-selected skill scene without cooking unrelated resources.
-pub fn publish_skill(extracted: &Path, catalogue: u16, output: &Path) -> Result<String> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let imported = crate::arte::read(&executable)?;
-    let package = *imported
-        .skill_packages
-        .get(&catalogue)
-        .context("arte has no stored skill package")?;
-    publish_skill_source(
-        extracted,
-        &Sources::read_with(extracted, &executable)?,
-        catalogue,
-        package,
-        output,
-    )
-}
-
-pub(crate) fn publish_skill_source(
-    extracted: &Path,
-    sources: &Sources,
-    catalogue: u16,
-    package: u16,
-    output: &Path,
-) -> Result<String> {
-    let usual = fs::read(extracted.join("files").join(&sources.usual))?;
-    let mut shared = crate::battle_effect::SharedPalettes::read(&usual, output)?;
-    let module = Rel::read(&extracted.join("files").join(&sources.module))?;
-    let archive = extracted.join("files").join(&sources.skill);
-    let range = skill_ranges(&module, &archive)?
-        .into_iter()
-        .find_map(|(slot, range)| (slot == package).then_some(range))
-        .context("skill package selector has no physical range")?;
-    let bytes = read_range(&archive, range)?;
-    let path = resonance_content::battle_scene::skill_path(catalogue);
-    let scene = read(
-        &bytes,
-        &format!("battle/scenes/skills/{catalogue:03}.effects.json"),
-        output,
-        None,
-        &crate::battle_profile::element_contact_sounds(&module)?,
-        &mut shared,
-    )?;
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&scene)?)?;
-    Ok(path)
-}
-
-pub(crate) fn publish_source(
-    extracted: &Path,
-    sources: &Sources,
-    technique: u16,
-    output: &Path,
-    prefix: &str,
-) -> Result<String> {
-    let usual = fs::read(extracted.join("files").join(&sources.usual))?;
-    let mut shared = crate::battle_effect::SharedPalettes::read(&usual, output)?;
-    let module = Rel::read(&extracted.join("files").join(&sources.module))?;
-    let archive = extracted.join("files").join(&sources.magic);
-    let range = magic_ranges(&module, &archive)?
-        .into_iter()
-        .find_map(|(id, range)| (id == technique).then_some(range))
-        .context("spell has no physical package")?;
-    let bytes = read_range(&archive, range)?;
-    let path = format!("{prefix}/scenes/{technique:03}.json");
-    let element_sounds = crate::battle_profile::element_contact_sounds(&module)?;
-    let mut scene = read(
-        &bytes,
-        &format!("{prefix}/scenes/{technique:03}.effects.json"),
-        output,
-        Some(technique),
-        &element_sounds,
-        &mut shared,
-    )?;
-    scene_settings(&module, technique, &mut scene)?;
-    scene_actions(&bytes, technique, &element_sounds, &mut scene)?;
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&scene)?)?;
-    Ok(path)
+#[derive(Clone)]
+pub struct Prepared {
+    pub scene: Scene,
+    pub effects: resonance_content::battle_effect::SourceBank,
 }
 
 fn magic_ranges(module: &Rel, archive: &Path) -> Result<Vec<(u16, std::ops::Range<usize>)>> {
@@ -265,90 +181,6 @@ fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
     Ok(())
 }
 
-/// Reuse scene artwork and complete palette windows required by refreshed effects.
-fn scene_effect_metadata(
-    bytes: &[u8],
-    output: &Path,
-    scene: &mut Scene,
-    shared: &mut crate::battle_effect::SharedPalettes,
-) -> Result<()> {
-    let members = PointerMembers::new(bytes, 4..0x114)?;
-    let path = output.join(&scene.effects);
-    let cached: resonance_content::battle_effect::SourceBank =
-        serde_json::from_slice(&fs::read(&path)?)?;
-    let (mut bank, strides) = crate::battle_effect::read_with_palettes(
-        members.model(4)?.context("missing scene effects")?,
-    )?;
-    ensure!(
-        bank.source_sha256 == cached.source_sha256 && bank.actors.len() == cached.actors.len(),
-        "cached scene effect declarations differ from source"
-    );
-    let mut art = cached
-        .art
-        .context("cached scene effect artwork is missing")?;
-    ensure!(
-        scene.source_sha256 == crate::digest(bytes) && art.source_sha256 == scene.source_sha256,
-        "cached scene effect artwork differs from source"
-    );
-    let mut textures = BTreeMap::from([(
-        6,
-        members
-            .model(8)?
-            .map(|bytes| {
-                crate::battle_effect::art::cached_bank_textures(
-                    bytes,
-                    &bank,
-                    &strides,
-                    6,
-                    art.textures
-                        .get(&6)
-                        .context("cached scene texture slot is missing")?,
-                    output,
-                )
-            })
-            .transpose()?
-            .unwrap_or_default(),
-    )]);
-    crate::battle_effect::art::bind_palettes(&mut bank, &strides, &mut textures)?;
-    shared.bind(&mut bank, &strides)?;
-    let textures: Vec<_> = textures
-        .remove(&6)
-        .unwrap()
-        .into_iter()
-        .map(|texture| texture.effect)
-        .collect();
-    for image in textures.iter().flat_map(|texture| &texture.images) {
-        if !art.files.contains_key(&image.path) {
-            art.files.insert(
-                image.path.clone(),
-                File {
-                    sha256: crate::media::hash_file(&output.join(&image.path))?,
-                    bytes: fs::metadata(output.join(&image.path))?.len(),
-                    roles: [Role::Texture].into(),
-                },
-            );
-        }
-    }
-    scene.textures = textures
-        .iter()
-        .map(|texture| Texture {
-            images: texture.images.clone(),
-            sampler: texture.sampler.clone(),
-        })
-        .collect();
-    scene.files.extend(art.files.clone());
-    art.textures.insert(6, textures);
-    bank.art = Some(art);
-    let encoded = serde_json::to_vec(&bank)?;
-    let file = scene
-        .files
-        .get_mut(&scene.effects)
-        .context("missing scene effect identity")?;
-    file.sha256 = crate::digest(&encoded);
-    file.bytes = encoded.len() as u64;
-    crate::write_atomic(&path, &encoded)
-}
-
 /// Refresh small participant tracks without converting the scene's artwork again.
 fn scene_actions(bytes: &[u8], spell: u16, sounds: &[u8; 9], scene: &mut Scene) -> Result<()> {
     if !(301..=318).contains(&spell) {
@@ -380,12 +212,11 @@ fn scene_actions(bytes: &[u8], spell: u16, sounds: &[u8; 9], scene: &mut Scene) 
 
 fn read(
     bytes: &[u8],
-    effects_path: &str,
     output: &Path,
     spell: Option<u16>,
     element_sounds: &[u8; 9],
     shared: &mut crate::battle_effect::SharedPalettes,
-) -> Result<Scene> {
+) -> Result<Prepared> {
     let members = PointerMembers::new(bytes, 4..0x114)?;
     // These optional members have no consumer in the current stored scene.
     for field in [0x10c, 0x110] {
@@ -514,76 +345,36 @@ fn read(
             )
         })
         .transpose()?;
-    let mut files = files(
-        models
-            .values()
-            .flat_map(|model| model.layers.iter().map(|layer| &layer.scene)),
-        output,
-    )?;
-    for image in textures.iter().flat_map(|texture| &texture.images) {
-        files.insert(
-            image.path.clone(),
-            File {
-                sha256: crate::media::hash_file(&output.join(&image.path))?,
-                bytes: std::fs::metadata(output.join(&image.path))?.len(),
-                roles: [Role::Texture].into(),
-            },
-        );
-    }
     effects.art = Some(resonance_content::battle_effect::Art {
         source_sha256: crate::digest(bytes),
         textures: effect_textures,
         models: models.clone(),
-        files: files.clone(),
     });
-    let effect_bytes = serde_json::to_vec(&effects)?;
-    crate::write_atomic(&output.join(effects_path), &effect_bytes)?;
-    files.insert(
-        effects_path.into(),
-        File {
-            sha256: crate::digest(&effect_bytes),
-            bytes: effect_bytes.len() as u64,
-            roles: [Role::Data].into(),
-        },
-    );
-    if let Some(cutin) = &cutin {
-        for image in &cutin.images {
-            files.insert(
-                image.path.clone(),
-                File {
-                    sha256: crate::media::hash_file(&output.join(&image.path))?,
-                    bytes: fs::metadata(output.join(&image.path))?.len(),
-                    roles: [Role::Texture].into(),
-                },
-            );
-        }
-    }
-    if let Some(weapon) = &weapon {
-        files.extend(weapon.files.clone());
-    }
     let parameters = members.model(0x100)?;
     let projectiles = projectiles(bytes, spell, element_sounds)?;
-    Ok(Scene {
-        version: resonance_content::battle_scene::VERSION,
-        source_sha256: crate::digest(bytes),
-        effects: effects_path.into(),
-        textures,
-        models,
-        cutin,
-        weapon,
-        projectiles,
-        actions: BTreeMap::new(),
-        actions_error: None,
-        stage_color: None,
-        camera: None,
-        strike_points: Vec::new(),
-        recovery_radius: None,
-        spell_recipe: None,
-        duration: parameters
-            .map(|bytes| crate::read::u16(bytes, 16))
-            .transpose()?
-            .unwrap_or(0),
-        files,
+    Ok(Prepared {
+        scene: Scene {
+            version: resonance_content::battle_scene::VERSION,
+            source_sha256: crate::digest(bytes),
+            effects: "effects.json".into(),
+            textures,
+            models,
+            cutin,
+            weapon,
+            projectiles,
+            actions: BTreeMap::new(),
+            actions_error: None,
+            stage_color: None,
+            camera: None,
+            strike_points: Vec::new(),
+            recovery_radius: None,
+            spell_recipe: None,
+            duration: parameters
+                .map(|bytes| crate::read::u16(bytes, 16))
+                .transpose()?
+                .unwrap_or(0),
+        },
+        effects,
     })
 }
 

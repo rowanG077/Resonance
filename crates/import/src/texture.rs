@@ -3,39 +3,16 @@
 use anyhow::ensure;
 use anyhow::{Context, Result};
 use resonance_asset_writer::ktx2::encode_rgba8;
-use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::fs;
 #[cfg(test)]
 use std::io::Read;
 use std::path::Path;
 
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Texture {
-    pub(crate) dimensions: [u16; 2],
-    pub(crate) format: crate::tpl::Format,
-    pub(crate) sampler: crate::tpl::Sampler,
-    pub(crate) palette: Option<crate::tpl::Palette>,
-    pub(crate) images: Vec<String>,
-}
-impl Texture {
-    pub(crate) fn image(&self, palette: usize) -> Result<resonance_content::font::UiTexture> {
-        Ok(resonance_content::font::UiTexture {
-            path: self
-                .images
-                .get(palette)
-                .context("missing cooked texture palette")?
-                .clone(),
-            width: u32::from(self.dimensions[0]),
-            height: u32::from(self.dimensions[1]),
-        })
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Catalogue {
-    pub(crate) textures: Vec<Option<Texture>>,
-}
+use crate::tpl::FormatDecode;
+pub(crate) use resonance_content::physical_scene::{
+    TextureCatalogue as Catalogue, TextureImage as Texture,
+};
 
 /// Decoded pixels remain typed inputs until a terminal writer encodes them.
 pub(crate) struct Decoded {
@@ -241,6 +218,41 @@ pub(crate) fn palette_page_step(capacity: usize, authored: u16) -> usize {
 }
 
 impl Decoded {
+    /// Select original pixels and all authored mip levels for a terminal writer.
+    pub(crate) fn image_levels(
+        &self,
+        index: usize,
+        page: usize,
+    ) -> Result<Vec<resonance_asset_writer::texture::Pixels>> {
+        let path = self
+            .catalogue
+            .textures
+            .get(index)
+            .and_then(Option::as_ref)
+            .context("missing decoded texture")?
+            .images
+            .get(page)
+            .context("missing decoded palette page")?;
+        let image = self
+            .images
+            .iter()
+            .find(|image| path == &format!("{}.ktx2", image.name))
+            .context("missing decoded image")?;
+        let levels = image
+            .levels
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+        Ok(levels
+            .iter()
+            .enumerate()
+            .map(|(index, rgba)| resonance_asset_writer::texture::Pixels {
+                width: (image.size[0] >> index).max(1),
+                height: (image.size[1] >> index).max(1),
+                rgba: rgba.clone(),
+            })
+            .collect())
+    }
+
     pub(crate) fn base_images(&self) -> impl Iterator<Item = Result<([u32; 2], &[u8])>> {
         let mut images = self.images.iter();
         self.catalogue.textures.iter().map(move |texture| {
@@ -267,57 +279,6 @@ impl Decoded {
         self.base_images()
             .map(|image| Ok(image?.1.chunks_exact(4).any(|pixel| pixel[3] != 255)))
             .collect()
-    }
-
-    fn catalogue_as(&self, name: &str) -> Result<Catalogue> {
-        let mut catalogue = self.catalogue.clone();
-        for texture in catalogue.textures.iter_mut().flatten() {
-            for path in &mut texture.images {
-                *path = format!(
-                    "{name}/{}",
-                    path.rsplit('/').next().context("texture has no filename")?
-                );
-            }
-        }
-        Ok(catalogue)
-    }
-
-    /// Record the first completed publications before sharing immutable pixels.
-    pub(crate) fn publish_as(
-        &mut self,
-        output: &Path,
-        name: &str,
-        mut report: impl FnMut(&str, Result<()>),
-    ) -> Result<Catalogue> {
-        let catalogue = self.catalogue_as(name)?;
-        for image in &mut self.images {
-            let name = image.alias(name);
-            let result = image.publish_at(&output.join(format!("{name}.ktx2")));
-            if let Ok(published) = &result {
-                image.published = Some(published.clone());
-            }
-            report(&name, result.map(|_| ()));
-        }
-        Ok(catalogue)
-    }
-
-    pub(crate) fn publish_alias(
-        &self,
-        output: &Path,
-        name: &str,
-        mut report: impl FnMut(&str, Result<()>),
-    ) -> Result<Catalogue> {
-        let catalogue = self.catalogue_as(name)?;
-        for image in &self.images {
-            let name = image.alias(name);
-            report(
-                &name,
-                image
-                    .publish_at(&output.join(format!("{name}.ktx2")))
-                    .map(|_| ()),
-            );
-        }
-        Ok(catalogue)
     }
 
     /// Terminal publication; downstream computations should use the typed catalogue.
@@ -347,10 +308,6 @@ impl Decoded {
 }
 
 impl Image {
-    fn alias(&self, directory: &str) -> String {
-        format!("{directory}/{}", self.name.rsplit('/').next().unwrap())
-    }
-
     fn publish(&self, output: &Path) -> Result<()> {
         self.publish_at(&output.join(format!("{}.ktx2", self.name)))
             .map(|_| ())
@@ -375,15 +332,14 @@ impl Image {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn read(path: &Path) -> Result<Catalogue> {
-    serde_json::from_slice(&fs::read(path)?)
-        .with_context(|| format!("invalid texture catalogue {}", path.display()))
-}
-
 /// Read the base image of our lossless cooking profile without re-decoding its source.
 #[cfg(test)]
 pub(crate) fn pixels(path: &Path) -> Result<image::RgbaImage> {
+    if path.extension().is_some_and(|extension| extension == "png") {
+        let pixels = resonance_asset_writer::texture::png(&fs::read(path)?)?;
+        return image::RgbaImage::from_raw(pixels.width, pixels.height, pixels.rgba)
+            .context("invalid PNG dimensions");
+    }
     decode_pixels(
         &fs::read(path).with_context(|| format!("reading cooked image {}", path.display()))?,
     )
@@ -391,7 +347,7 @@ pub(crate) fn pixels(path: &Path) -> Result<image::RgbaImage> {
 }
 
 #[cfg(test)]
-fn decode_pixels(bytes: &[u8]) -> Result<image::RgbaImage> {
+pub(crate) fn decode_pixels(bytes: &[u8]) -> Result<image::RgbaImage> {
     use ktx2::{Format, SupercompressionScheme, dfd};
     let reader = ktx2::Reader::new(bytes)?;
     let header = reader.header();
@@ -463,66 +419,59 @@ fn decode_pixels(bytes: &[u8]) -> Result<image::RgbaImage> {
         .context("invalid cooked image dimensions")
 }
 
-/// Physical images already use root-relative paths; bind every authored palette page.
-#[cfg(test)]
-pub(crate) fn bind(root: &Path, directory: &str) -> Result<Vec<Texture>> {
-    resonance_content::validate_asset_path(directory)?;
-    let catalogue = read(&root.join(directory).join("textures.json"))?;
-    ensure!(
-        !catalogue.textures.is_empty(),
-        "empty cooked texture catalogue"
-    );
-    catalogue
-        .textures
-        .into_iter()
-        .enumerate()
-        .map(|(index, texture)| {
-            let texture = texture
-                .with_context(|| format!("incomplete cooked texture {directory}/{index}"))?;
-            texture.sampler.validate()?;
-            let stride = match texture.format {
-                crate::tpl::Format::Ci4 => Some(16),
-                crate::tpl::Format::Ci8 => Some(256),
-                crate::tpl::Format::Ci14 => Some(16384),
-                _ => None,
-            };
-            let pages = if let Some(stride) = stride {
-                let palette = texture
-                    .palette
-                    .as_ref()
-                    .context("missing cooked texture palette")?;
-                ensure!(!palette.colors.is_empty(), "empty cooked texture palette");
-                palette.colors.len().div_ceil(stride)
-            } else {
-                1
-            };
-            ensure!(
-                texture.dimensions.iter().all(|&size| size != 0) && texture.images.len() == pages,
-                "incomplete cooked texture images at {directory}/{index}"
-            );
-            for image in &texture.images {
-                resonance_content::validate_asset_path(image)?;
-                ensure!(
-                    image.starts_with(&format!("{directory}/")) && root.join(image).is_file(),
-                    "missing or incorrectly owned cooked texture {image}"
-                );
-            }
-            Ok(texture)
-        })
-        .collect()
-}
-
 pub(crate) fn cook(width: u32, height: u32, pixels: &[u8], output: &Path) -> Result<()> {
     let bytes = encode_rgba8(width, height, pixels)
         .with_context(|| format!("encode texture {}", output.display()))?;
     crate::write_atomic(output, &bytes)
 }
 
-/// Frozen libktx files differ in compressor framing and encoder provenance only.
 #[cfg(test)]
-pub(crate) fn compare_images(actual: &Path, expected: &Path) -> Result<()> {
-    compare_encoded(&fs::read(actual)?, &fs::read(expected)?)
-        .with_context(|| format!("{} differs from {}", actual.display(), expected.display()))
+pub(crate) fn image_levels(
+    root: &Path,
+    path: &str,
+) -> Result<(
+    resonance_content::texture::ColorSpace,
+    Vec<resonance_asset_writer::texture::Pixels>,
+)> {
+    use resonance_asset_writer::texture;
+    use resonance_content::texture::{ColorSpace, Definition};
+    let bytes = fs::read(root.join(path))?;
+    if path.ends_with(".texture.json") {
+        let definition: Definition = serde_json::from_slice(&bytes)?;
+        return Ok((
+            definition.color_space,
+            definition.decode(|image| Ok(fs::read(root.join(image))?))?,
+        ));
+    }
+    let levels = if path.ends_with(".png") {
+        vec![texture::png(&bytes)?]
+    } else {
+        ensure!(path.ends_with(".ktx2"), "unsupported image fixture {path}");
+        texture::ktx2(&bytes)?
+    };
+    Ok((ColorSpace::Linear, levels))
+}
+
+#[cfg(test)]
+pub(crate) fn image_pixels(root: &Path, path: &str) -> Result<image::RgbaImage> {
+    let (_, mut levels) = image_levels(root, path)?;
+    let base = levels.remove(0);
+    image::RgbaImage::from_raw(base.width, base.height, base.rgba)
+        .context("invalid image dimensions")
+}
+
+#[cfg(test)]
+pub(crate) fn compare_images(
+    actual_root: &Path,
+    actual: &str,
+    expected_root: &Path,
+    expected: &str,
+) -> Result<()> {
+    ensure!(
+        image_levels(actual_root, actual)? == image_levels(expected_root, expected)?,
+        "texture color space, dimensions, mip count or pixels changed: {actual} / {expected}"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -708,33 +657,54 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires extracted discs and cook-all; recooks only title and toon textures"]
+    #[ignore = "requires extracted discs and current RESONANCE_TEST_ASSETS; title and toon pixels"]
     fn original_cooked_pixels_match_source_tpls() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let root = std::env::var_os("RESONANCE_COOKED")
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| local.join("all-assets"));
+            .context("set RESONANCE_TEST_ASSETS")?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let reports = std::env::var_os("RESONANCE_TEST_IMPORT_REPORTS")
+            .map(std::path::PathBuf::from)
+            .context("set RESONANCE_TEST_IMPORT_REPORTS to the external reports directory")?;
+        let sources: std::collections::BTreeMap<String, Vec<String>> =
+            serde_json::from_slice(&fs::read(reports.join("import-sources.json"))?)?;
         let output = tempfile::tempdir()?;
         let mut count = 0;
         for disc in [1, 2] {
             for path in ["title.tpl", "toon.tpl"] {
                 let source = fs::read(local.join(format!("extracted/disc{disc}/files/{path}")))?;
                 let original = crate::tpl::parse_tpl(&source)?;
-                let cooked =
-                    crate::cooked::Source::open(&root, disc, path)?.standalone_textures()?;
-                use crate::all_assets::geometry::{Input, cook};
-                assert!(cook(
-                    &source,
-                    "recooked",
-                    output.path(),
-                    None,
-                    Input::File,
-                    &mut crate::scene::decoded::Package::default(),
-                    &mut |_, result| {
-                        result.unwrap();
-                    }
-                ));
-                let fresh = bind(output.path(), "recooked")?;
+                let outputs = sources
+                    .get(&format!("disc{disc}/{path}"))
+                    .context("missing current texture provenance")?;
+                let paths = outputs
+                    .iter()
+                    .filter(|path| {
+                        path.starts_with("resources/physical/") && path.ends_with("/textures.json")
+                    })
+                    .collect::<Vec<_>>();
+                ensure!(
+                    paths.len() == 1,
+                    "expected one physical texture bank for {path}"
+                );
+                let mut snapshot = library.snapshot();
+                let catalogue: Catalogue = snapshot.json(paths[0], 64 * 1024 * 1024)?;
+                catalogue.validate()?;
+                let cooked = catalogue
+                    .textures
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, texture)| {
+                        texture.with_context(|| format!("missing original texture {index}"))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let fresh = decode_source(&source)?
+                    .write(output.path())?
+                    .textures
+                    .into_iter()
+                    .map(|texture| texture.context("native texture was not decoded"))
+                    .collect::<Result<Vec<_>>>()?;
                 assert_eq!(original.len(), cooked.len());
                 assert_eq!(fresh.len(), cooked.len());
                 for ((texture, cooked), fresh) in original.iter().zip(cooked).zip(fresh) {
@@ -746,10 +716,7 @@ mod tests {
                         _ => 0,
                     };
                     for (page, image) in cooked.images.iter().enumerate() {
-                        compare_images(
-                            &output.path().join(&fresh.images[page]),
-                            &root.join(image),
-                        )?;
+                        compare_images(output.path(), &fresh.images[page], &root, image)?;
                         let mut texture = texture.clone();
                         if stride != 0 {
                             texture.palette_offset =
@@ -759,7 +726,7 @@ mod tests {
                                 .saturating_sub(page * stride)
                                 .min(stride);
                         }
-                        let pixels = pixels(&root.join(image))?;
+                        let pixels = image_pixels(&root, image)?;
                         assert_eq!(
                             pixels.dimensions(),
                             (u32::from(texture.width), u32::from(texture.height))
@@ -780,9 +747,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires complete cook-all records; read-only catalogue schema check"]
+    #[ignore = "requires complete current RESONANCE_TEST_ASSETS; physical texture schema check"]
     fn original_texture_catalogues_roundtrip_without_schema_changes() -> Result<()> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets/assets");
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(std::path::PathBuf::from)
+            .context("set RESONANCE_TEST_ASSETS")?;
+        let _library = resonance_content::library::Library::open(&root, &[])?;
+        let root = root.join("resources/physical");
         let mut pending = vec![root];
         let mut count = 0;
         while let Some(directory) = pending.pop() {
@@ -792,9 +763,11 @@ mod tests {
                     pending.push(entry.path());
                 } else if entry.file_name() == "textures.json" {
                     let bytes = fs::read(entry.path())?;
-                    let parsed = read(&entry.path())?;
+                    let parsed: Catalogue = serde_json::from_slice(&bytes)?;
+                    parsed.validate()?;
                     ensure!(
-                        serde_json::to_vec(&parsed)? == bytes,
+                        serde_json::to_value(&parsed)?
+                            == serde_json::from_slice::<serde_json::Value>(&bytes)?,
                         "texture schema changed at {}",
                         entry.path().display()
                     );
@@ -803,7 +776,7 @@ mod tests {
             }
         }
         ensure!(count > 1000, "incomplete original texture corpus");
-        eprintln!("{count} physical texture catalogues roundtrip byte-for-byte");
+        eprintln!("{count} physical texture catalogues retain every current schema field");
         Ok(())
     }
 }

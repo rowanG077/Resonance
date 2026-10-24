@@ -1,0 +1,4 @@
+script library;
+// Skeleton: ed02c535f5fabf40f21bb0529ff1fe62c63fc53a0239ebd2798843ad53801f8b
+// Source owner: MAP/art_i00_06/ART_I0~1.BIN/16/0
+pub const Node000_Kabotya: string = "kabotya";

@@ -555,13 +555,7 @@ pub(crate) fn read_package_member(bytes: &[u8], start: usize) -> Result<Table> {
     Ok(table)
 }
 
-pub fn publish(
-    usual: &[u8],
-    module: &std::path::Path,
-    output: &std::path::Path,
-    prefix: &str,
-) -> Result<String> {
-    let module = crate::rel::Rel::read(module)?;
+pub(crate) fn read_resident(usual: &[u8], module: &crate::rel::Rel) -> Result<Table> {
     let reset_scale = f32::read(module.at((4, 0xce8))?, 0)?;
     let mut table = read_with_scale(crate::source_assets::section(usual, 7)?, Some(reset_scale))?;
     let parameters = crate::source_assets::section(usual, 9)?;
@@ -584,9 +578,7 @@ pub fn publish(
         table.support_durations.insert(spell, duration);
     }
     table.source_sha256 = crate::digest(usual);
-    let path = format!("{prefix}/projectiles.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&table)?)?;
-    Ok(path)
+    Ok(table)
 }
 
 fn resident_spells(bytes: &[u8]) -> Result<std::collections::BTreeMap<u16, ResidentSpell>> {

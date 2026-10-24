@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 28e2d8d4011809a79c578ad3e5dcd22ddb6124d33f5607c852eb9d7c81cc4141
+// Source owner: MAP/ela_d05/ELA_D05.BIN/21/0
+pub const Node000_In: string = "in";
+pub const Node001_Out: string = "out";

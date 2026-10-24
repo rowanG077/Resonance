@@ -4348,7 +4348,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hound",
+ "image",
  "ktx2",
+ "ruzstd",
  "serde_json",
  "structured-zstd",
  "thiserror 2.0.20",
@@ -4360,6 +4362,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hound",
+ "resonance-content",
  "self_cell",
  "serde",
  "serde_json",
@@ -4403,9 +4406,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "glam",
+ "hound",
+ "resonance-asset-writer",
  "serde",
  "serde_json",
  "sha2",
+ "symphonia-script-compiler",
 ]
 
 [[package]]
@@ -4436,6 +4442,7 @@ dependencies = [
  "symphonia-script-compiler",
  "symphonia-script-tools",
  "symphonia-script-vm",
+ "tempfile",
 ]
 
 [[package]]
@@ -4556,12 +4563,14 @@ dependencies = [
  "anyhow",
  "bevy",
  "hound",
+ "resonance-asset-writer",
  "resonance-audio",
  "resonance-audio-device",
  "resonance-battle",
  "resonance-content",
  "resonance-events",
  "resonance-game",
+ "resonance-import",
  "resonance-media",
  "resonance-model-behavior",
  "resonance-persistence",
@@ -5044,6 +5053,7 @@ version = "0.1.0"
 dependencies = [
  "symphonia-script",
  "symphonia-script-compiler",
+ "tempfile",
  "thiserror 2.0.20",
 ]
 

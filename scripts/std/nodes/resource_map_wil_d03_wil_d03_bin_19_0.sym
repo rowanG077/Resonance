@@ -1,0 +1,4 @@
+script library;
+// Skeleton: cee278fbb894925ffc9a642f991be936de596726249f0a2141eec4bb1ef56143
+// Source owner: MAP/wil_d03/WIL_D03.BIN/19/0
+pub const Node000_Brokenmirror: string = "brokenmirror";

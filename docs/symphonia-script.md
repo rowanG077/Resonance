@@ -342,12 +342,12 @@ model behaviors still load from the cooked `scripts/` directory.
 ## Model behavior
 
 Maintained model scripts are embedded into the cooker with `include_str!` and
-published verbatim under `<assets>/scripts`. The manifest selects named resources
-and entry functions; it supplies no function arguments. Preparation resolves named
-nodes and validates entry signatures without executing behavior. Sources are immutable cooked assets: field preparation
-verifies their hashes and retains their bytes. The renderer compiles that verified
-snapshot before activating a preview and reuses immutable programs through the
-existing preparation cache.
+published verbatim under `<assets>/scripts`. Model documents select named resources
+and entry functions; they supply no function arguments. Preparation resolves named
+nodes and validates entry signatures without executing behavior. It captures the
+current script bytes, including mod overrides, and the renderer compiles that
+snapshot before activating a preview. Replace a file at its existing path and
+restart to load the edit; no manifest or author-maintained checksum is required.
 
 The entire `std::` library is checked in under [scripts/std](../scripts/std/README.md).
 The build embeds it alongside the model scripts; cooking copies it unchanged.
@@ -469,6 +469,49 @@ per resume and 32,768 per update. Instances share script memory, while coordinat
 registers and VM stacks remain local to each instance. Resource/event handles are
 Rust IDs. Scene readiness gates script execution while dependencies are prepared.
 
+## Editing original scenarios
+
+The `scenario` authoring commands expose the existing lossless assembler and
+disassembler:
+
+```sh
+cargo run -p symphonia-script-tools -- scenario disassemble scenario.ssb scenario.ssasm
+cargo run -p symphonia-script-tools -- scenario assemble scenario.ssasm edited.ssb
+```
+
+The output assembly uses `.scenario`, `.code_base`, labels, instruction mnemonics,
+and `.word`/`.byte` directives. Semicolon comments show original offsets, encoded
+words, and event registry entries. Known instructions include `push.s8`,
+`push.s16`, `push.s32`, `load.s32`, `arg`, `proc`, `calc`, `jump`, `call`,
+`branch_false`, `ret` and `end`. Integer operands accept the shown hexadecimal or
+decimal notation. `proc` addresses the original native procedure table; it does
+not call an authored `.sym` function.
+
+Disassembly checks that reassembly preserves every input byte before writing the
+listing. Unknown or noncanonical words and unused data remain explicit raw
+directives. Diagnostics accompany the output; disassembly is also useful for
+inspecting data that is not an executable VM program. Assembly checks the result
+using the runtime `Program` admission rules before replacing the destination.
+Malformed assembly or invalid reachable instructions leave an existing output
+untouched. Writes use a temporary file in the destination directory and an atomic
+replacement. Inputs are bounded to 4 MiB of bytecode or 64 MiB of assembly.
+
+Branch labels are absolute word PCs relative to `code_base`. They adjust when
+instructions move. The serialized header and registry overlay remain raw words:
+their entry PCs, counts, code base and auxiliary offset do not automatically
+follow labels. Auxiliary tables may also contain layout-dependent values. Keep
+those values consistent when adding or removing instructions. This preserves
+overlapping native layouts instead of inventing a high-level reconstruction.
+The assembly is a lossless editing tool, not a promise that every layout change
+preserves game behavior.
+
+Keep working `.ssasm` files outside the cooked library. The scenario path selected
+by the current resource document is the authoritative installed `.ssb`; the game
+does not select between source and binary versions. Publish an edited binary at
+that path in a mod directory and restart Resonance. Dialogue remains editable in
+the owning `messages.json`. Neither editing path requires cooker hashes or a new
+dependency inventory. Gameplay changes participate in save identity.
+
 ## Verification
 
 ```sh
@@ -481,4 +524,7 @@ another cooked directory. These tests open no audio or graphics devices. Tests
 cover enum/catalog agreement, registered signatures, duplicate registration,
 borrowed host state, nested arguments, immediate/deferred results, unsupported
 calls, stack/memory limits and the original classroom/setup events. Bytecode
-`.ssb` files retain their original encoding and are hash-checked before execution.
+`.ssb` files retain the original VM instruction encoding. Preparation reads the
+current selected bytes and checks the program structure; there is no comparison
+against a mandatory cooker-recorded hash. Derived identities track gameplay for
+save admission and internal cache reuse.

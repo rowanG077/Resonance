@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[test]
 #[ignore = "requires locally cooked EX skill definitions; no devices"]
 fn gems_stats_compounds_and_save_restore() {
-    let menu: MenuData = cooked("game/menu-data.json");
+    let menu: MenuData = common::menu();
     let mut data: SessionData = cooked("game/session-data.json");
     data.rules = Some(Arc::new(menu.clone()));
     let mut party = Party::new(&data, Default::default()).unwrap();

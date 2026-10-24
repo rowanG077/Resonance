@@ -10,7 +10,7 @@ pub struct Parameters {
 impl Parameters {
     pub fn load(files: &Files) -> Result<Self> {
         Ok(Self {
-            source: files.json(battle_recoil::PATH)?,
+            source: resonance_content::battle_rules::recoil(files)?,
         })
     }
 

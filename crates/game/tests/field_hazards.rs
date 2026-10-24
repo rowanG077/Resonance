@@ -9,7 +9,7 @@ use std::{fs, sync::Arc};
 
 fn room(map: u32, position: [f32; 3]) -> FieldSession {
     let root = asset_root();
-    let assets: FieldAssets = cooked(format!("fields/map-{map}.json"));
+    let assets: FieldAssets = common::field(map);
     assert!(
         resonance_game::field::navigation::WalkMesh::new(&assets.ground)
             .unwrap()
@@ -18,7 +18,7 @@ fn room(map: u32, position: [f32; 3]) -> FieldSession {
         "field {map}: fixture must start on walkable ground"
     );
     let mut data: SessionData = cooked("game/session-data.json");
-    data.rules = Some(Arc::new(cooked("game/menu-data.json")));
+    data.rules = Some(Arc::new(common::menu()));
     let data = Arc::new(data);
     let mut entry = FieldEntry {
         data: Some(data.clone()),

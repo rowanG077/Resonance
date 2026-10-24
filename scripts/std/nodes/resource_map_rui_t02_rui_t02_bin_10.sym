@@ -1,0 +1,4 @@
+script library;
+// Skeleton: cd2ddba21cec6d8bfc4614e2ff3aa676e43a945b101c530b7ec707be7db51f02
+// Source owner: MAP/rui_t02/RUI_T02.BIN/10
+pub const Node000_TS_Sea: string = "TS_Sea";

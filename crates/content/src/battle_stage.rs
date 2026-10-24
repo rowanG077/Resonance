@@ -1,18 +1,12 @@
 //! Cooked battle scenery and its presentation dependencies.
-use crate::{
-    battle_scene::Texture,
-    field_preload::{File, Role},
-    model_preview::PreviewPart,
-};
+use crate::{battle_scene::Texture, model_preview::PreviewPart};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub fn path(arena: u16) -> String {
-    format!("battle/stages/{arena:03}.json")
-}
+pub mod document;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Stage {
     pub source_sha256: String,
     /// The structural assets are cooked even when their presentation is not implemented.
@@ -50,7 +44,6 @@ pub struct Stage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recurring_interval: Option<u16>,
     pub textures: Vec<Texture>,
-    pub files: BTreeMap<String, File>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,12 +90,12 @@ impl TextureAnimation {
 impl Stage {
     /// Validate the resource structure independently of runtime presentation support.
     pub fn validate(&self) -> Result<()> {
-        ensure!(
-            self.source_sha256.len() == 64
-                && self.source_sha256.bytes().all(|b| b.is_ascii_hexdigit())
-                && !self.layers.is_empty(),
-            "invalid battle stage"
-        );
+        self.validate_content(|path| crate::validate_asset_path(path))
+    }
+
+    /// Named preparation validates current references without a cook-time inventory.
+    pub fn validate_content(&self, mut require: impl FnMut(&str) -> Result<()>) -> Result<()> {
+        ensure!(!self.layers.is_empty(), "empty battle stage");
         ensure!(
             self.light_position
                 .iter()
@@ -167,27 +160,6 @@ impl Stage {
                 );
             }
         }
-        for (path, file) in &self.files {
-            crate::validate_asset_path(path)?;
-            ensure!(
-                file.sha256.len() == 64
-                    && file.sha256.bytes().all(|b| b.is_ascii_hexdigit())
-                    && !file.roles.is_empty()
-                    && !file.roles.contains(&Role::Movie),
-                "invalid stage dependency {path}"
-            );
-        }
-        let require = |path: &str, role| -> Result<()> {
-            let file = self
-                .files
-                .get(path)
-                .with_context(|| format!("undeclared stage dependency {path}"))?;
-            ensure!(
-                file.roles.contains(&role),
-                "invalid stage dependency role {path}"
-            );
-            Ok(())
-        };
         for (&slot, layer) in &self.layers {
             let scene = &layer.scene;
             ensure!(
@@ -214,15 +186,15 @@ impl Stage {
                 "unexpected stage animation clips"
             );
             for clip in &scene.clips {
-                require(&clip.motion, Role::Data)?;
+                require(&clip.motion)?;
             }
-            require(&scene.mesh, Role::Mesh)?;
+            require(&scene.mesh)?;
             for texture in &scene.textures {
-                require(texture, Role::Texture)?;
+                require(texture)?;
             }
         }
         if let Some(effects) = &self.effects {
-            require(effects, Role::Data)?;
+            require(effects)?;
         }
         ensure!(
             self.recurring_interval
@@ -234,7 +206,7 @@ impl Stage {
             ensure!(!texture.images.is_empty(), "empty stage texture");
             for image in &texture.images {
                 image.validate()?;
-                require(&image.path, Role::Texture)?;
+                require(&image.path)?;
             }
         }
         Ok(())

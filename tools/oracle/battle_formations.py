@@ -19,6 +19,7 @@ from battle_identity import EnemyCatalogue
 from battle_fixture import BattleFixture, neutral_movie, prepare_entry
 from battle_state import watch_locations
 from state import State, digest, inspect
+from named_content import Snapshot
 
 REPO = Path(__file__).resolve().parents[2]
 BATTLE_MODE = 9
@@ -38,7 +39,8 @@ def pinned(record):
 
 
 def selection(args, profile):
-    formations = json.loads((args.assets / 'battle/formations.json').read_text())
+    content = Snapshot(args.assets)
+    formations = content.document('battle/formations.json', ('records', 'pools'))
     records = formations['records']
     ids = args.ids if args.ids is not None else list(range(args.range[0], args.range[1] + 1))
     if not ids or len(ids) != len(set(ids)) or any(i < 0 or i >= len(records) for i in ids):
@@ -53,7 +55,7 @@ def selection(args, profile):
         for identity in call['formations']:
             arenas.setdefault(identity, (call['arena'],
                 f"field {call['map_id']}, {call['command']} at scenario word {call['command_word']}"))
-    worlds = json.loads((args.assets / 'worlds/world.json').read_text())['encounters']['worlds']
+    worlds = content.world_encounters()[1]['worlds']
     for world_index, world in enumerate(worlds):
         terrain_arenas = worlds[min(world_index, 1)]['arena_by_terrain']
         for area_index, area in enumerate(world['areas']):
@@ -76,8 +78,10 @@ def selection(args, profile):
             arena, basis = prior[0]['arena'], 'retained entry arena'
         if args.arena is not None:
             arena, basis = args.arena, 'explicit component arena'
-        if not (args.assets / f'battle/stages/{arena:03}.json').exists():
+        arena_path = content.arena_path(arena)
+        if arena_path is None:
             raise ValueError(f'arena {arena} is not cooked')
+        content.arena(arena_path)
         actors = [dict(actor, enemy=record['resources'][actor['resource']]['enemy'])
                   for actor in record['actors']]
         cases.append(dict(formation=identity, arena=arena, arena_basis=basis,

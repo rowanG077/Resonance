@@ -2,9 +2,9 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-pub const PATH: &str = "game/credits.json";
+pub mod document;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Manifest {
     pub program: Credits,
     pub pictures: Vec<crate::font::UiTexture>,
@@ -13,6 +13,15 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    pub fn load(files: &crate::prepared::Files) -> Result<Self> {
+        let definition: document::Definition = files.json(document::PATH)?;
+        definition.prepare(|path| files.read(path))
+    }
+
+    pub fn captured(files: &crate::prepared::Files) -> bool {
+        files.contains_key(document::PATH)
+    }
+
     pub fn validate(&self) -> Result<()> {
         let p = &self.program;
         ensure!(

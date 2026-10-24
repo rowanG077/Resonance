@@ -926,6 +926,7 @@ mod tests {
         RenderEffect {
             resource: ResourceId(7),
             source: std::sync::Arc::new(resonance_content::battle_effect::SourceBank {
+                document: None,
                 source_sha256: "fixture".into(),
                 programs: vec![],
                 actors: vec![bad_geometry, bad_blend, healthy, missing_texture],
@@ -983,6 +984,7 @@ mod tests {
     #[test]
     fn palette_and_blend_overrides_have_prepared_materials() {
         let source = resonance_content::battle_effect::SourceBank {
+            document: None,
             source_sha256: String::new(),
             programs: vec![],
             actors: vec![

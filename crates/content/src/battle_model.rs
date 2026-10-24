@@ -3,10 +3,10 @@ use crate::animation::Skeleton;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const WEAPONS_PATH: &str = "battle/weapons.json";
+pub mod document;
 
 /// Cooked attachment descriptors, keyed by equipment item or carried-prop identity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Weapons {
     pub source_sha256: String,
     pub table_sha256: String,
@@ -14,7 +14,7 @@ pub struct Weapons {
     pub records: BTreeMap<u16, Attachment>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Attachment {
     Weapon(Weapon),
@@ -22,14 +22,13 @@ pub enum Attachment {
     Nonvisual,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Weapon {
     pub source_sha256: String,
     pub parts: BTreeMap<u8, ModelPart>,
     pub trails: BTreeMap<u8, TrailMaterial>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub uv_animation: BTreeMap<u8, AttachmentAnimation>,
-    pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
 /// Per-part texture channels and periodic effects.
@@ -88,29 +87,9 @@ pub struct ModelPart {
     pub layers: Vec<crate::model_preview::PreviewPart>,
 }
 
-pub fn enemy_path(id: u8) -> String {
-    format!("battle/enemies/{id:03}.json")
-}
-
-pub fn enemy_effects_path(id: u8) -> String {
-    format!("battle/enemies/{id:03}/effects.json")
-}
-
-pub fn party_path(character: u8) -> String {
-    party_costume_path(character, 0)
-}
-
-pub fn party_costume_path(character: u8, costume: u8) -> String {
-    if costume == 0 {
-        format!("battle/party/{character:02}.json")
-    } else {
-        format!("battle/party/{character:02}-{costume}.json")
-    }
-}
-
 /// A costume's body and independent battle motion bank. Party
 /// statistics and actor templates have their existing session/table owners.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Party {
     pub body_sha256: String,
     pub motion_sha256: String,
@@ -121,11 +100,10 @@ pub struct Party {
     pub parts: Vec<crate::ScenePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wings: Option<crate::ScenePart>,
-    pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
 /// Optional body and carried artwork. Enemy gameplay has its own definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Enemy {
     pub source_sha256: String,
     /// A separately animated body component, sharing the actor's action clock.
@@ -145,8 +123,6 @@ pub struct Enemy {
     pub weapon_variants: BTreeMap<u8, WeaponVariant>,
     pub trails: BTreeMap<u8, TrailMaterial>,
     pub body: Rig,
-    /// Shared meshes, textures and sparse clips, loaded only for selected enemies.
-    pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,14 +144,14 @@ pub enum AttachmentPlacement {
     Independent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SecondaryBody {
     pub model_slot: u8,
     pub motion_offset: u16,
     pub model: ModelPart,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WeaponVariant {
     pub model: ModelPart,
     pub trail: TrailMaterial,

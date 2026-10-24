@@ -239,8 +239,7 @@ pub(crate) struct Sources {
 #[derive(Default)]
 pub(crate) struct Prepared {
     pub actors: Vec<ActorAssets>,
-    pub unbound: Vec<resonance_content::field::UnboundGeometry>,
-    pub files: BTreeSet<String>,
+    pub unbound: BTreeMap<u32, Vec<crate::named::PhysicalScene>>,
 }
 
 impl Prepared {
@@ -253,10 +252,8 @@ impl Prepared {
         animation: &[u8],
         extra: &[Clip<'_>],
     ) -> Result<()> {
-        if let Some(geometry) =
-            source::unbound(binder.output, id, model, binder.decoded, &mut self.files)?
-        {
-            self.unbound.push(geometry);
+        if let Some(geometry) = source::unbound(binder.output, model, binder.decoded)? {
+            self.unbound.insert(id, geometry);
         } else {
             self.actors
                 .push(binder.cook(id, name, model, animation, extra)?);
@@ -411,8 +408,7 @@ pub(crate) fn cook_field(
     };
     for (&id, bytes) in &sources.packages {
         ensure!(
-            !assets.actors.iter().any(|a| a.resource == id)
-                && !assets.unbound.iter().any(|a| a.resource == id),
+            !assets.actors.iter().any(|a| a.resource == id) && !assets.unbound.contains_key(&id),
             "resource {id:#x} conflicts with an actor binding"
         );
         let index = id & 0xffff;
@@ -503,7 +499,7 @@ pub(crate) fn cook_field(
                         .filter_map(|clip| clip.animation_resource),
                 )
             })
-            .chain(assets.unbound.iter().map(|geometry| geometry.resource)),
+            .chain(assets.unbound.keys().copied()),
     )?;
     Ok(assets)
 }
@@ -615,55 +611,6 @@ impl Binder<'_> {
             parts,
         })
     }
-}
-
-/// Bind published model layers and authored clips; no source conversion occurs here.
-#[cfg(test)]
-pub(crate) fn cook_parts(
-    root: &Path,
-    name: &str,
-    package_directory: &str,
-    clips: &[Clip<'_>],
-) -> Result<Vec<resonance_content::ScenePart>> {
-    #[derive(serde::Deserialize)]
-    struct Selectors {
-        texture_indices_by_slot: [Option<usize>; 14],
-    }
-    let layers = crate::field_resources::binding::members(root, package_directory)?;
-    ensure!(
-        layers.first().is_some_and(Option::is_some),
-        "missing character primary layer"
-    );
-    let mut parts = Vec::new();
-    for (index, directory) in layers.iter().take(2).enumerate() {
-        let Some(directory) = directory else { continue };
-        let (mut part, mut glb) = binding::model(root, directory)
-            .with_context(|| format!("{name} reference layer {index}"))?;
-        part.resource = index.try_into()?;
-        crate::model_preview::style(&mut part, index != 0, false);
-        if !clips.is_empty() {
-            let model = binding::bindings(root, directory, &part)?;
-            crate::model_preview::bind_clips(&mut part, &mut glb, &model, None, clips)?;
-        }
-        part.secondary_motion = binding::secondary_motion(root, directory, &glb, &part)?;
-        part.mesh = binding::write_mesh(root, &glb)?;
-        parts.push(part);
-    }
-    for (index, (part, directory)) in parts
-        .iter_mut()
-        .zip(layers.into_iter().flatten())
-        .enumerate()
-    {
-        let selectors = format!("{directory}/texture-selectors.json");
-        let channels = if root.join(&selectors).try_exists()? {
-            binding::read::<Selectors>(root, &selectors)?.texture_indices_by_slot
-        } else {
-            [None; 14]
-        };
-        let textures = crate::texture::read(&root.join(&directory).join("palettes/textures.json"))?;
-        part.appearance = Some(appearance(index, channels, &textures)?);
-    }
-    Ok(parts)
 }
 
 fn appearance(

@@ -1,8 +1,7 @@
 //! Combination records stored in the initialized technique catalogue.
-use crate::{dol, read, rel::Rel, source_assets::Sources};
-use anyhow::{Context, Result, ensure};
-use resonance_content::battle_unison::{COMBINATION_COUNT, Catalogue, Combination, PATH};
-use std::{fs, path::Path};
+use crate::{dol, read, rel::Rel};
+use anyhow::{Result, ensure};
+use resonance_content::battle_unison::{COMBINATION_COUNT, Catalogue, Combination};
 
 mod host;
 mod opener;
@@ -12,7 +11,7 @@ const ROW_BYTES: usize = 64;
 const RECIPE_BYTES: usize = 8;
 const RECIPE_COUNT: usize = 6;
 
-fn read(executable: &[u8], module: &Rel) -> Result<Catalogue> {
+pub(crate) fn read(executable: &[u8], module: &Rel) -> Result<Catalogue> {
     let combinations = dol::slice(executable, ADDRESS, COMBINATION_COUNT * ROW_BYTES)?
         .chunks_exact(ROW_BYTES)
         .enumerate()
@@ -61,16 +60,6 @@ fn read(executable: &[u8], module: &Rel) -> Result<Catalogue> {
     };
     catalogue.validate()?;
     Ok(catalogue)
-}
-
-pub fn publish(extracted: &Path, output: &Path) -> Result<String> {
-    let executable =
-        fs::read(extracted.join("sys/main.dol")).context("read Unison catalogue input")?;
-    let sources = Sources::read_with(extracted, &executable)?;
-    let module = Rel::read(&extracted.join("files").join(sources.module))?;
-    let catalogue = read(&executable, &module)?;
-    crate::write_atomic(&output.join(PATH), &serde_json::to_vec(&catalogue)?)?;
-    Ok(PATH.into())
 }
 
 #[cfg(test)]

@@ -208,12 +208,12 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
 }
 
 #[test]
-#[ignore = "requires both extracted discs and frozen prepared menu atlas; private output"]
+#[ignore = "requires both extracted discs and current RESONANCE_TEST_ASSETS"]
 fn menu_sprite_atlas_preserves_existing_sprite_pixels() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let baseline = std::env::var_os("RESONANCE_COOKED")
+    let baseline = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
+        .context("set RESONANCE_TEST_ASSETS")?;
     let expected: resonance_content::menu::MenuArt =
         serde_json::from_slice(&fs::read(baseline.join("ui/menu.json"))?)?;
     for disc in [1, 2] {
@@ -222,18 +222,28 @@ fn menu_sprite_atlas_preserves_existing_sprite_pixels() -> Result<()> {
         let temporary = tempfile::tempdir()?;
         let output = temporary.path();
         let tables = super::data::read(&executable)?;
-        super::cook_art(
+        let actual = super::prepare_art(
             &extracted,
             output,
             &executable,
             tables.artwork,
             tables.data.items.len(),
         )?;
-        let actual: resonance_content::menu::MenuArt =
-            serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
         actual.validate(tables.data.items.len())?;
-        let old = crate::texture::pixels(&baseline.join("ui/menu/party.ktx2"))?;
-        let new = crate::texture::pixels(&output.join("ui/menu/party.ktx2"))?;
+        let old = crate::texture::pixels(
+            &baseline.join(
+                &expected
+                    .texture(resonance_content::menu::MenuArt::ATLAS_TEXTURE)?
+                    .path,
+            ),
+        )?;
+        let new = crate::texture::pixels(
+            &output.join(
+                &actual
+                    .texture(resonance_content::menu::MenuArt::ATLAS_TEXTURE)?
+                    .path,
+            ),
+        )?;
         for (&group, rects) in &expected.sprites.rects {
             let prepared = actual.sprites.group(group)?;
             assert_eq!(rects.len(), prepared.len());

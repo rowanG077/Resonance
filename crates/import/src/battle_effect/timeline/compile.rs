@@ -1317,7 +1317,7 @@ mod tests {
             "../../../../content/tests/fixtures/projectile-model-follow.json"
         ))?;
         let mut declaration: Declaration =
-            serde_json::from_value(fixture["bank"]["actors"][0].clone())?;
+            serde_json::from_value(fixture["files"]["effects/throw/actors.json"][0].clone())?;
         let birth = Compiler::default().birth(
             edits(&[2, 0x7ffc, 3, 0, 12, 0xd4, 0x7ffc, 0, u16::MAX])?,
             Some(&declaration),

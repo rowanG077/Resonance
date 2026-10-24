@@ -265,6 +265,7 @@ impl MenuPresentation {
     pub(super) fn decode(
         value: serde_json::Value,
         diagnostics: &crate::diagnostics::Diagnostics,
+        named: Option<&crate::prepared::Files>,
     ) -> Result<Self> {
         #[derive(Deserialize, Default)]
         #[serde(default)]
@@ -329,7 +330,12 @@ impl MenuPresentation {
             )?,
             monsters: diagnostics.attempt(
                 "monster directory",
-                serde_json::from_value(source.monsters).map_err(anyhow::Error::from),
+                match named {
+                    Some(files) => {
+                        crate::monster::MonsterBook::decode_named(source.monsters, files)
+                    }
+                    None => serde_json::from_value(source.monsters).map_err(anyhow::Error::from),
+                },
             )?,
         })
     }
@@ -1022,7 +1028,8 @@ mod tests {
         assert_eq!(
             serde_json::to_value(MenuPresentation::decode(
                 healthy.clone(),
-                &Diagnostics::new(true)
+                &Diagnostics::new(true),
+                None
             )?)?,
             healthy
         );
@@ -1042,14 +1049,17 @@ mod tests {
             let mut malformed = healthy.clone();
             *malformed.pointer_mut(pointer).unwrap() = false.into();
             let diagnostics = Diagnostics::new(false);
-            let admitted =
-                serde_json::to_value(MenuPresentation::decode(malformed.clone(), &diagnostics)?)?;
+            let admitted = serde_json::to_value(MenuPresentation::decode(
+                malformed.clone(),
+                &diagnostics,
+                None,
+            )?)?;
             let mut expected = healthy.clone();
             *expected.pointer_mut(section).unwrap() = serde_json::Value::Null;
             assert_eq!(admitted, expected, "{section}");
             assert_eq!(diagnostics.entries().len(), 1, "{section}");
             assert!(
-                MenuPresentation::decode(malformed, &Diagnostics::new(true)).is_err(),
+                MenuPresentation::decode(malformed, &Diagnostics::new(true), None).is_err(),
                 "{section}"
             );
         }
@@ -1078,12 +1088,13 @@ mod tests {
                 let admitted = serde_json::to_value(MenuPresentation::decode(
                     document.clone(),
                     &Diagnostics::new(false),
+                    None,
                 )?)?;
                 let mut expected = healthy.clone();
                 *expected.pointer_mut(pointer).unwrap() = serde_json::Value::Null;
                 assert_eq!(admitted, expected, "{pointer}");
                 assert!(
-                    MenuPresentation::decode(document, &Diagnostics::new(true)).is_err(),
+                    MenuPresentation::decode(document, &Diagnostics::new(true), None).is_err(),
                     "{pointer}"
                 );
             }

@@ -18,6 +18,7 @@ pub mod battle_normal;
 pub mod battle_profile;
 pub mod battle_projectile;
 pub mod battle_recoil;
+pub mod battle_rules;
 pub mod battle_scene;
 pub mod battle_stage;
 pub mod battle_ui;
@@ -28,25 +29,30 @@ pub mod credits;
 pub mod effect;
 pub mod field;
 pub mod field_audio;
-pub mod field_preload;
 pub mod figurine;
 pub mod font;
 pub mod game_over;
 pub mod grade;
+pub mod library;
 pub mod menu;
 pub mod menu_data;
 pub mod model_behavior;
 pub mod model_preview;
 pub mod monster;
 pub mod movie;
+pub mod music;
 pub mod overworld;
+pub mod physical_scene;
+pub mod preparation;
 pub mod prepared;
 pub mod random;
+pub mod resource;
 pub mod save_identity;
 pub mod secondary_motion;
 pub mod session;
 pub mod skit;
 pub mod source;
+pub mod startup;
 pub mod texture;
 
 pub const CONTENT_VERSION: u32 = 6;
@@ -66,9 +72,9 @@ pub struct BootTexture {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootAssets {
     pub version: u32,
-    pub source_sha256: String,
     pub textures: Vec<BootTexture>,
 }
 
@@ -85,73 +91,6 @@ impl BootAssets {
                 "invalid startup texture dimensions"
             );
         }
-        Ok(())
-    }
-}
-
-/// Playable stereo movie with timing retained from the original source.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MovieAsset {
-    pub version: u32,
-    pub path: String,
-    pub sha256: String,
-    pub width: u32,
-    pub height: u32,
-    pub frames: u32,
-    pub frame_micros: u32,
-    /// Zero-based audio stream within the shared movie container.
-    pub audio_track: u16,
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub audio_frames: u64,
-}
-
-impl MovieAsset {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        validate_asset_path(&self.path)?;
-        anyhow::ensure!(
-            self.version == 2
-                && (1..=1920).contains(&self.width)
-                && (1..=1080).contains(&self.height)
-                && (1..=100_000).contains(&self.frames)
-                && (10_000..=100_000).contains(&self.frame_micros)
-                && self.audio_track < 256
-                && self.sha256.len() == 64
-                && self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
-            "invalid cooked movie manifest"
-        );
-        anyhow::ensure!(
-            (8_000..=96_000).contains(&self.sample_rate)
-                && self.channels == 2
-                && (1..=u64::from(self.sample_rate) * 3600).contains(&self.audio_frames),
-            "movie playback requires stereo audio with valid timing"
-        );
-        let video_micros = u64::from(self.frames) * u64::from(self.frame_micros);
-        let audio_micros = self.audio_frames * 1_000_000 / u64::from(self.sample_rate);
-        anyhow::ensure!(
-            video_micros.abs_diff(audio_micros) < 100_000,
-            "cooked movie audio and video durations disagree"
-        );
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TitleAudio {
-    pub version: u32,
-    pub path: String,
-    pub sha256: String,
-}
-
-impl TitleAudio {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        validate_asset_path(&self.path)?;
-        anyhow::ensure!(
-            self.version == 3
-                && self.sha256.len() == 64
-                && self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
-            "unsupported title audio manifest; recook title audio"
-        );
         Ok(())
     }
 }
@@ -178,12 +117,11 @@ pub struct TitleTexture {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct TitleAssets {
     pub version: u32,
     pub game_id: String,
     pub revision: u8,
-    pub source_sha256: String,
     pub textures: Vec<TitleTexture>,
 }
 
@@ -277,6 +215,8 @@ pub struct SceneClip {
     /// Shared authored curves, independent of the geometry and scene instance.
     pub motion: String,
     pub resource_slot: u16,
+    /// Prepared from the current motion file. Editable bindings omit this value.
+    #[serde(default, skip_serializing_if = "SceneClip::duration_is_derived")]
     pub duration_seconds: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation_resource: Option<u32>,
@@ -285,6 +225,10 @@ pub struct SceneClip {
     pub secondary_pose_nodes: Vec<u16>,
 }
 impl SceneClip {
+    fn duration_is_derived(duration: &f32) -> bool {
+        *duration == 0.
+    }
+
     pub fn duration_ticks(&self) -> u32 {
         (self.duration_seconds * ANIMATION_HZ).round() as u32
     }

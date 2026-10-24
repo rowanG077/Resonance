@@ -1,4 +1,4 @@
-//! Terminal session screens reuse the title artwork and shared save browser.
+//! Terminal session screens use captured artwork and the shared save browser.
 use super::*;
 use crate::materials::TitleOutput;
 use crate::{Events, Menu, PendingAudio, PendingInput, audio, new_game, saves};
@@ -8,12 +8,14 @@ use resonance_events::session_screen::Target;
 pub(crate) struct Title {
     pub events: Option<resonance_events::EventRuntime>,
     pub audio: Option<audio::PlaybackAssets>,
+    pub files: Option<std::sync::Arc<resonance_content::prepared::Files>>,
 }
 
 #[derive(Resource)]
 pub(crate) struct GameOver {
     selected: usize,
     font: BitmapFont,
+    art: resonance_content::game_over::Art,
     mesh: Handle<Mesh>,
     entities: [Entity; 2],
 }
@@ -105,7 +107,13 @@ fn return_to_title(world: &mut World, load: bool) -> Result<()> {
         .map(resonance_events::EventRuntime::fresh)
         .transpose()?;
     let audio = title.audio.clone();
+    let files = title.files.clone();
     retire_session(world);
+    *world
+        .resource::<crate::loading::Resident>()
+        .files
+        .write()
+        .unwrap() = files;
     retire(world);
     world.insert_resource(Menu(resonance_game::TitleState {
         revealed: true,
@@ -139,9 +147,13 @@ fn return_to_title(world: &mut World, load: bool) -> Result<()> {
     Ok(())
 }
 
-fn game_over_text(font: &BitmapFont, selected: usize) -> Result<Mesh> {
+fn game_over_text(
+    font: &BitmapFont,
+    art: &resonance_content::game_over::Art,
+    selected: usize,
+) -> Result<Mesh> {
     let mut batch = Batch::default();
-    for (i, text) in ["Load data", "Quit game"].iter().enumerate() {
+    for (i, text) in art.choices.iter().enumerate() {
         skit::centered(
             &mut batch,
             font,
@@ -152,34 +164,30 @@ fn game_over_text(font: &BitmapFont, selected: usize) -> Result<Mesh> {
             false,
         )?;
     }
-    skit::centered(
-        &mut batch,
-        font,
-        "No one ever heard from them again.",
-        416.,
-        20.,
-        1.,
-        false,
-    )?;
+    skit::centered(&mut batch, font, &art.caption, 416., 20., 1., false)?;
     Ok(batch.mesh([font.width, font.height]))
 }
 
 fn show_game_over(world: &mut World) -> Result<()> {
-    let font: BitmapFont = world
+    let files = world
         .resource::<crate::loading::Resident>()
         .files
         .read()
         .unwrap()
         .as_ref()
-        .context("scene font inventory is missing")?
-        .json("fonts/dialogue.json")?;
+        .context("game-over needs prepared scene resources")?
+        .as_ref()
+        .clone();
+    let data = resonance_game::game_over::Assets::from_prepared(files)?;
+    let font = data.font;
+    let art = data.art;
     let image = world
         .resource::<AssetServer>()
         .get_handle::<Image>(&font.texture)
         .context("scene font is not resident")?;
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
-        .add(game_over_text(&font, 0)?);
+        .add(game_over_text(&font, &art, 0)?);
     let material = world.resource_mut::<Assets<Surface>>().add(Surface {
         source: image.clone(),
         sampling: image.clone(),
@@ -190,7 +198,28 @@ fn show_game_over(world: &mut World) -> Result<()> {
         additive: false,
         texture_effect: Default::default(),
     });
-    let background = world.resource::<crate::Art>().images[14].clone();
+    let background = if data.files.contains_key(&art.background.path) {
+        world
+            .resource::<AssetServer>()
+            .get_handle::<Image>(&art.background.path)
+            .context("game-over background was not prepared")?
+    } else {
+        // The optional-art diagnostic was recorded during capture. A black
+        // surface preserves the screen's text and choices without stale artwork.
+        use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+        world.resource_mut::<Assets<Image>>().add(Image::new_fill(
+            Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[0, 0, 0, 255],
+            TextureFormat::Rgba8Unorm,
+            bevy::asset::RenderAssetUsages::MAIN_WORLD
+                | bevy::asset::RenderAssetUsages::RENDER_WORLD,
+        ))
+    };
     let quad = world.resource_mut::<Assets<Mesh>>().add(Rectangle::new(
         resonance_content::WIDTH as f32,
         resonance_content::HEIGHT as f32,
@@ -219,6 +248,7 @@ fn show_game_over(world: &mut World) -> Result<()> {
     world.insert_resource(GameOver {
         selected: 0,
         font,
+        art,
         mesh,
         entities: [background, text],
     });
@@ -237,7 +267,7 @@ fn advance(world: &mut World) {
     if input.up || input.down {
         let mut game_over = world.resource_mut::<GameOver>();
         game_over.selected ^= 1;
-        match game_over_text(&game_over.font, game_over.selected) {
+        match game_over_text(&game_over.font, &game_over.art, game_over.selected) {
             Ok(mesh) => {
                 let handle = game_over.mesh.clone();
                 *world
@@ -263,14 +293,29 @@ fn advance(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
-    #[ignore = "requires cooked field/title assets; no window or audio device"]
+    #[ignore = "requires RESONANCE_TEST_ASSETS and extracted discs; publishes a named library and uses no window or audio device"]
     fn game_over_load_and_quit_restore_the_title_and_release_the_field() -> Result<()> {
-        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
-            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
-            std::path::PathBuf::from,
-        );
+        use resonance_content::{diagnostics::Diagnostics, game_over::document};
+        let work = crate::test_support::named_opening_fixture()?;
+        let root = work.path();
+        let path = root.join(document::PATH);
+        let mut edited: document::Definition = serde_json::from_slice(&fs::read(&path)?)?;
+        edited.caption = "Try again?".into();
+        edited.choices = ["Load a save".into(), "Back to title".into()];
+        fs::write(path, serde_json::to_vec_pretty(&edited)?)?;
+        let mut snapshot = resonance_content::library::Library::open(root, &[])?.snapshot();
+        let (_, title_art, _) =
+            resonance_content::startup::capture(&mut snapshot, false, &|| false)?;
+        resonance_content::preparation::ui(&mut snapshot, &Diagnostics::new(true), &|| false)?;
+        let title_files = Arc::new(resonance_content::prepared::Files::from_snapshot(
+            snapshot,
+            &mut Default::default(),
+            || false,
+            Diagnostics::new(true),
+        )?);
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -294,9 +339,10 @@ mod tests {
         .insert_resource(Title {
             events: None,
             audio: None,
+            files: Some(title_files.clone()),
         })
         .insert_resource(crate::Art {
-            manifest: serde_json::from_slice(&fs::read(root.join("title.json"))?)?,
+            manifest: title_art,
             images: vec![Handle::default(); 17],
         });
         let world = app.world_mut();
@@ -315,9 +361,17 @@ mod tests {
             ))
             .id();
         for selected in [0, 1] {
-            let session = new_game::Session::load(&root)?;
-            let font: BitmapFont = session.files().json("fonts/dialogue.json")?;
-            let _font = world.resource::<AssetServer>().load::<Image>(font.texture);
+            let session = new_game::Session::load(root)?;
+            let data =
+                resonance_game::game_over::Assets::from_prepared(session.files().as_ref().clone())?;
+            let _prepared = (
+                world
+                    .resource::<AssetServer>()
+                    .load::<Image>(data.font.texture),
+                world
+                    .resource::<AssetServer>()
+                    .load::<Image>(data.art.background.path),
+            );
             new_game::activate(world, session);
             world
                 .resource_mut::<Assets<TitleOutput>>()
@@ -326,6 +380,8 @@ mod tests {
                 .brightness = Vec4::Y;
             assert_eq!(*world.get::<Visibility>(title).unwrap(), Visibility::Hidden);
             show_game_over(world)?;
+            assert_eq!(world.resource::<GameOver>().art.caption, edited.caption);
+            assert_eq!(world.resource::<GameOver>().art.choices, edited.choices);
             assert_eq!(
                 world
                     .resource::<Assets<TitleOutput>>()
@@ -361,6 +417,16 @@ mod tests {
                 Vec4::X
             );
             assert!(!world.contains_resource::<GameOver>());
+            assert!(Arc::ptr_eq(
+                world
+                    .resource::<crate::loading::Resident>()
+                    .files
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap(),
+                &title_files,
+            ));
             assert!(
                 entities
                     .iter()

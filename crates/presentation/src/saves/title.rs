@@ -44,14 +44,23 @@ fn prepare(world: &mut World) {
         return;
     }
     let server = world.resource::<AssetServer>().clone();
-    let root = world.resource::<crate::RunOptions>().assets.clone();
+    let files = world
+        .resource::<crate::loading::Resident>()
+        .files
+        .read()
+        .unwrap()
+        .clone();
     let diagnostics = crate::diagnostics::policy(world);
-    match MenuOverlay::load(
-        &root,
-        &server,
-        &mut world.resource_mut::<Assets<Surface>>(),
-        &diagnostics,
-    ) {
+    let result = (|| {
+        let files = files.context("title menu needs prepared UI resources")?;
+        MenuOverlay::load_with(
+            |path| Ok(files.read(path)?.to_vec()),
+            &server,
+            &mut world.resource_mut::<Assets<Surface>>(),
+            &diagnostics,
+        )
+    })();
+    match result {
         Ok(overlay) => {
             world.insert_resource(overlay);
         }

@@ -31,10 +31,13 @@ fn main() -> Result<()> {
             )?)
         })
         .transpose()?;
-    let assets: resonance_content::field::FieldAssets =
-        serde_json::from_slice(&fs::read(root.join(
-            resonance_content::field::metadata_path(checkpoint.as_ref().map_or(340, |c| c.map_id)),
-        ))?)?;
+    let library = resonance_content::library::Library::open(root, &[])?;
+    let mut snapshot = library.snapshot();
+    let (_, assets) = resonance_content::field::document::capture_scene(
+        &mut snapshot,
+        checkpoint.as_ref().map_or(340, |c| c.map_id),
+        || false,
+    )?;
     let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
     let data: std::sync::Arc<resonance_content::session::SessionData> = std::sync::Arc::new(
         serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?,
@@ -240,9 +243,11 @@ fn main() -> Result<()> {
                 follow,
                 "transition requested; use --follow to enter the next field"
             );
-            let assets: resonance_content::field::FieldAssets = serde_json::from_slice(&fs::read(
-                root.join(resonance_content::field::metadata_path(transition.map)),
-            )?)?;
+            let (_, assets) = resonance_content::field::document::capture_scene(
+                &mut snapshot,
+                transition.map,
+                || false,
+            )?;
             let next = FieldSession::enter(
                 &fs::read(root.join(&assets.script))?,
                 serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?,

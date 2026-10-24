@@ -8,19 +8,15 @@ use resonance_events::party::Party;
 fn equipped_rescue_traits_arm_angel_tear() -> Result<()> {
     let root = common::asset_root();
     let mut cache = Cache::default();
-    let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let files = battle::model::load_files(
-        &root,
-        files,
-        &[battle::model::ModelSource::Party(
-            battle::party::Character::Colette,
-        )],
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
         &mut cache,
         || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
     )?;
-    let menus: MenuData = files.json("game/menu-data.json")?;
+
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
     let mut data: SessionData = files.json("game/session-data.json")?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default())?;

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 322c291fe461a053ad5c0d73547b2f86ccf3d2db722ad9d61fabb45db4c89dd9
+// Source owner: MAP/faa_d02/FAA_D02.BIN/16/0
+pub const Node000_Obj_Faa_Sensor_Box: string = "obj_faa_sensor_box";
+pub const Node001_Obj_Faa_Sensor: string = "obj_faa_sensor";

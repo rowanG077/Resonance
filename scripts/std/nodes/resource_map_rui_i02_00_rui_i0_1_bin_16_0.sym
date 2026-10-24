@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 4c7fc45ec6f28b72f96f3707ce92dcf9d03c3007863d25cb7df3645e013b5e4e
+// Source owner: MAP/rui_i02_00/RUI_I0~1.BIN/16/0
+pub const Node000_Buta: string = "buta";

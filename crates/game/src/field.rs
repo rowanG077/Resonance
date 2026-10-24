@@ -1513,7 +1513,14 @@ fn start_with_entry(
             party.bind_rules(data);
         }
     }
+    let resource_limitations = assets
+        .resource_catalogue
+        .as_ref()
+        .map(|path| resonance_content::resource::binding_limitations(&entry.menu_files, path))
+        .transpose()?
+        .unwrap_or_default();
     let mut resources = ResourceLibrary {
+        resource_limitations,
         rising_light_destination: entry.rising_light_destination,
         station_script: entry
             .services
@@ -1637,14 +1644,14 @@ mod tests {
     fn scenery_and_actors_share_external_clips_without_replacing_autoplay() {
         let mut resources = ResourceLibrary::default();
         let own = resonance_content::SceneClip {
-            motion: "clips/test.motion".into(),
+            motion: "clips/test.motion.json".into(),
             resource_slot: 0,
             duration_seconds: 1.,
             animation_resource: None,
             secondary_pose_nodes: Vec::new(),
         };
         let mut shared = resonance_content::SceneClip {
-            motion: "clips/test.motion".into(),
+            motion: "clips/test.motion.json".into(),
             resource_slot: 12,
             duration_seconds: 2.,
             animation_resource: Some(0x10004),

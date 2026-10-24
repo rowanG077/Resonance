@@ -25,7 +25,11 @@ impl Skeleton {
                 .get(bone as usize)
                 .context("missing mesh bone")?;
             for child in node["children"].as_array().into_iter().flatten() {
-                let child = &nodes[child.as_u64().context("invalid mesh node")? as usize];
+                let child = nodes
+                    .get(usize::try_from(
+                        child.as_u64().context("invalid mesh node")?,
+                    )?)
+                    .context("missing mesh node")?;
                 let Some(mesh) = child["mesh"].as_u64().filter(|_| child["skin"].is_null()) else {
                     continue;
                 };
@@ -40,6 +44,12 @@ impl Skeleton {
                     let accessor = &json["accessors"][index];
                     let low: [f32; 3] = serde_json::from_value(accessor["min"].clone())?;
                     let high: [f32; 3] = serde_json::from_value(accessor["max"].clone())?;
+                    ensure!(
+                        (0..3).all(|axis| low[axis].is_finite()
+                            && high[axis].is_finite()
+                            && low[axis] <= high[axis]),
+                        "invalid rigid mesh bounds"
+                    );
                     for corner in 0..8 {
                         let point = transform_point(
                             matrix,

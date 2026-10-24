@@ -72,6 +72,42 @@ pub(crate) struct Catalogue {
 }
 
 impl Catalogue {
+    /// The unified library has one binding for every game resource ID. Ignore
+    /// unused native table storage while comparing the actual lookup targets.
+    pub(crate) fn ensure_shared_bindings(&self, other: &Self) -> Result<()> {
+        fn bindings(value: &Catalogue) -> Result<Vec<u8>> {
+            Ok(serde_json::to_vec(&(
+                &value.standalone,
+                value
+                    .groups
+                    .iter()
+                    .map(|group| &group.path)
+                    .collect::<Vec<_>>(),
+                &value.party_bodies,
+                &value.party_battle_motions,
+                value
+                    .party_field_motions
+                    .iter()
+                    .map(|row| &row.name)
+                    .collect::<Vec<_>>(),
+                value
+                    .field_services
+                    .iter()
+                    .map(|row| &row.name)
+                    .collect::<Vec<_>>(),
+                &value.save_point,
+                &value.colette_wings,
+                &value.treasures,
+            ))?
+            .to_ascii_lowercase())
+        }
+        ensure!(
+            bindings(self)? == bindings(other)?,
+            "conflicting game resource ID bindings across original inputs"
+        );
+        Ok(())
+    }
+
     pub(crate) fn party(&self, kind: PartyResource, character: u8, costume: u8) -> Result<&str> {
         let rows = match kind {
             PartyResource::Body => &self.party_bodies,

@@ -1,7 +1,7 @@
 //! Run the original final-scene script with a read-only copy of late-game progress.
 mod common;
 use anyhow::{Context, Result, ensure};
-use resonance_content::{field::FieldAssets, prepared::Files, session::SessionData};
+use resonance_content::{field::FieldAssets, session::SessionData};
 use resonance_events::{
     Face, SavedProgress,
     input::{Button, Buttons},
@@ -17,13 +17,14 @@ fn final_scene_visible_mithos_duplicates_receive_mouth_animation() -> Result<()>
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(save)?)?;
     let progress: SavedProgress =
         serde_json::from_value(saved["state"]["field"]["progress"].clone())?;
-    let files = Arc::new(Files::load(
-        &root,
-        &["fields/map-136.preload.json"],
+    let files = Arc::new(resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[136],
         &mut Default::default(),
         || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
     )?);
-    let assets: FieldAssets = files.json("fields/map-136.json")?;
+    let assets: FieldAssets = files.field(136)?;
     let data = Arc::new(SessionData::load(&files)?);
     // This prepares a scene fixture from progress. It does not bypass or test the
     // production full-save admission path, and never rewrites the source save.
@@ -45,7 +46,7 @@ fn final_scene_visible_mithos_duplicates_receive_mouth_animation() -> Result<()>
         &assets,
         entry,
     )?;
-    let effects: resonance_content::effect::FieldEffects = files.json("effects/field.json")?;
+    let effects: resonance_content::effect::FieldEffects = files.json(&assets.effects)?;
     ensure!(
         !effects.mouth_cycle.is_empty(),
         "missing authored mouth cycle"

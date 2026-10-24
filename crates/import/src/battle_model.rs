@@ -8,7 +8,7 @@ use anyhow::{Context, Result, ensure};
 pub use fixture::bind_party_motion;
 use resonance_content::{
     animation::{Bone, Skeleton, Transform, TransformChannels},
-    battle_model::{Enemy, Rig, enemy_path},
+    battle_model::{Enemy, Rig},
 };
 use std::path::Path;
 
@@ -85,7 +85,7 @@ pub(crate) fn rig(resource: &[u8], kind: RigKind) -> Result<Rig> {
     clippy::too_many_arguments,
     reason = "Keep source identity, prepared resources and publication paths explicit at this boundary."
 )]
-pub(crate) fn publish_enemy(
+pub(crate) fn prepare_enemy(
     bytes: &[u8],
     usual: &[u8],
     voices: &crate::battle_voice::Source,
@@ -93,9 +93,8 @@ pub(crate) fn publish_enemy(
     id: u8,
     preview: &resonance_content::model_preview::ModelPreview,
     shared: &mut crate::battle_effect::SharedPalettes,
-    library: &Path,
     output: &Path,
-) -> Result<[String; 2]> {
+) -> Result<PreparedEnemy> {
     let definition = crate::battle_enemy::read(bytes, usual, id, voices, default_guard_bonus)?;
     let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)?;
     let mut source = Enemy {
@@ -111,70 +110,27 @@ pub(crate) fn publish_enemy(
             members.model(0x18)?.context("missing enemy body")?,
             RigKind::Body,
         )?,
-        files: Default::default(),
     };
-    source.files = files(preview.parts.iter().map(|part| &part.scene), library)?;
-    source.files.extend(enemy_resources::publish(
-        bytes,
-        id,
-        &source.body.skeleton,
-        shared,
-        output,
-    )?);
+    let effects = enemy_resources::prepare(bytes, id, &source.body.skeleton, shared, output)?;
     (source.attachments, source.trails) = enemy_resources::attachments(bytes, preview)?;
     publish_enemy_carried_motions(bytes, &definition.actions, &mut source, output)?;
     publish_enemy_weapon_variants(bytes, &mut source, output)?;
-    refresh_enemy_attachment_animation(bytes, &mut source)?;
-    let path = enemy_path(id);
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&source)?)?;
-    let definition_path = resonance_content::battle_enemy::path(id);
-    crate::write_atomic(
-        &output.join(&definition_path),
-        &serde_json::to_vec(&definition)?,
-    )?;
-    Ok([definition_path, path])
+    bind_enemy_attachment_animation(bytes, &mut source)?;
+    Ok(PreparedEnemy {
+        preview: preview.clone(),
+        artwork: source,
+        rules: definition,
+        effects,
+    })
 }
 
-/// Refresh the authored attached-model records without converting their artwork.
-pub fn refresh_enemy_attached_models(bytes: &[u8], source: &mut Enemy) -> Result<()> {
-    ensure!(
-        source.source_sha256 == crate::digest(bytes),
-        "attached-model source differs"
-    );
-    source.attached_models = enemy_resources::attached_models(bytes)?;
-    Ok(())
-}
-
-/// Rebuild effect artwork with its declared attachment motion bindings.
-pub(crate) fn publish_enemy_effects(
-    bytes: &[u8],
-    id: u8,
-    source: &mut Enemy,
-    shared: &mut crate::battle_effect::SharedPalettes,
-    output: &Path,
-) -> Result<()> {
-    source.files.extend(enemy_resources::publish(
-        bytes,
-        id,
-        &source.body.skeleton,
-        shared,
-        output,
-    )?);
-    Ok(())
-}
-
-/// Refresh extra-body bindings without converting geometry or motion data.
-pub fn refresh_enemy_secondary_body(
-    bytes: &[u8],
-    preview: &resonance_content::model_preview::ModelPreview,
-    source: &mut Enemy,
-) -> Result<()> {
-    ensure!(
-        source.source_sha256 == crate::digest(bytes),
-        "secondary body source differs"
-    );
-    source.secondary_body = secondary_body(bytes, preview)?;
-    Ok(())
+/// Native enemy data handed directly to its named resource writer.
+#[derive(Clone)]
+pub struct PreparedEnemy {
+    pub preview: resonance_content::model_preview::ModelPreview,
+    pub artwork: Enemy,
+    pub rules: resonance_content::battle_enemy::Definition,
+    pub effects: resonance_content::battle_effect::SourceBank,
 }
 
 fn secondary_body(
@@ -261,7 +217,7 @@ pub fn publish_enemy_carried_motions(
 }
 
 /// Refresh carried texture/effect settings while retaining all prepared artwork.
-pub fn refresh_enemy_attachment_animation(bytes: &[u8], source: &mut Enemy) -> Result<()> {
+pub fn bind_enemy_attachment_animation(bytes: &[u8], source: &mut Enemy) -> Result<()> {
     ensure!(
         source.source_sha256 == crate::digest(bytes),
         "enemy attachment source differs"
@@ -296,80 +252,7 @@ pub fn publish_enemy_weapon_variants(
         "enemy weapon source differs"
     );
     source.weapon_variants = enemy_resources::weapon_variants(bytes, output)?;
-    source.files.extend(files(
-        source
-            .weapon_variants
-            .values()
-            .flat_map(|variant| variant.model.layers.iter().map(|layer| &layer.scene)),
-        output,
-    )?);
     Ok(())
-}
-
-pub(crate) fn files<'a>(
-    parts: impl IntoIterator<Item = &'a resonance_content::ScenePart>,
-    library: &Path,
-) -> Result<std::collections::BTreeMap<String, resonance_content::field_preload::File>> {
-    use resonance_content::field_preload::{File, Role};
-    let mut files = std::collections::BTreeMap::<String, File>::new();
-    for part in parts {
-        for (path, role) in std::iter::once((&part.mesh, Role::Mesh))
-            .chain(part.textures.iter().map(|path| (path, Role::Texture)))
-            .chain(part.clips.iter().map(|clip| (&clip.motion, Role::Data)))
-        {
-            resonance_content::validate_asset_path(path)?;
-            if let Some(file) = files.get_mut(path) {
-                file.roles.insert(role);
-            } else {
-                let asset = library.join(path);
-                files.insert(
-                    path.clone(),
-                    File {
-                        sha256: crate::media::hash_file(&asset)?,
-                        bytes: std::fs::metadata(asset)?.len(),
-                        roles: [role].into(),
-                    },
-                );
-            }
-        }
-    }
-    Ok(files)
-}
-
-/// Selected development cooking uses the same publisher as Monster Book preparation.
-pub fn publish_enemies(
-    extracted: &Path,
-    monsters: &[resonance_content::monster::Monster],
-    library: &Path,
-    output: &Path,
-) -> Result<Vec<String>> {
-    ensure!(
-        monsters.len() == resonance_content::monster::MONSTER_COUNT,
-        "incomplete enemy metadata"
-    );
-    let sources = crate::source_assets::Sources::read(extracted)?;
-    let usual = std::fs::read(extracted.join("files").join(sources.usual))?;
-    let archive = extracted.join("files").join(sources.enemy);
-    let voices = crate::battle_voice::read(&usual)?;
-    let mut shared = crate::battle_effect::SharedPalettes::read(&usual, output)?;
-    let guard_bonus = crate::battle_recoil::guard_defaults(&crate::rel::Rel::read(
-        &extracted.join("files").join(&sources.module),
-    )?)?[0];
-    let mut paths = Vec::new();
-    for (id, monster) in monsters.iter().enumerate() {
-        paths.extend(publish_enemy(
-            &crate::source_assets::enemy_package(&archive, &usual, id as u16)?,
-            &usual,
-            &voices,
-            guard_bonus,
-            id as u8,
-            &monster.preview,
-            &mut shared,
-            library,
-            output,
-        )?);
-    }
-    Ok(paths)
 }
 
 #[cfg(test)]

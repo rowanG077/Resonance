@@ -1,6 +1,5 @@
 //! GameCube TPL textures decoded into ordinary RGBA images.
 pub(crate) use resonance_content::texture::{Filter, Sampler, TextureLod};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum TextureError {
@@ -171,23 +170,17 @@ pub(crate) fn parse_tpl(data: &[u8]) -> Result<Vec<TplTexture>, TextureError> {
     Ok(out)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Format {
-    I4,
-    I8,
-    Ia4,
-    Ia8,
-    Rgb565,
-    Rgb5a3,
-    Rgba8,
-    Ci4,
-    Ci8,
-    Ci14,
-    Cmpr,
+pub(crate) use resonance_content::physical_scene::{
+    Palette, PaletteFormat, TextureFormat as Format,
+};
+
+pub(crate) trait FormatDecode: Sized {
+    fn from_code(code: u32) -> Result<Self, TextureError>;
+    fn block(self) -> (usize, usize, usize, &'static str);
+    fn palette_limit(self) -> Option<usize>;
 }
-impl Format {
-    pub(crate) fn from_code(code: u32) -> Result<Self, TextureError> {
+impl FormatDecode for Format {
+    fn from_code(code: u32) -> Result<Self, TextureError> {
         Ok(match code {
             0 => Self::I4,
             1 => Self::I8,
@@ -230,20 +223,6 @@ impl Format {
             _ => None,
         }
     }
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum PaletteFormat {
-    Ia8,
-    Rgb565,
-    Rgb5a3,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Palette {
-    pub format: PaletteFormat,
-    pub colors: Vec<[u8; 4]>,
 }
 
 /// Preserve the complete palette, including colors unused by visible texels.

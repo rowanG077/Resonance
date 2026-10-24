@@ -9,7 +9,7 @@ pub const PATH: &str = "battle/unison.json";
 pub const COMBINATION_COUNT: usize = 19;
 pub const PLACEMENT_COUNT: usize = 253;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Catalogue {
     pub source_sha256: String,
     pub host: Host,
@@ -58,15 +58,10 @@ pub struct Combination {
 impl Catalogue {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.source_sha256.len() == 64
-                && self
-                    .source_sha256
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit())
-                && self.combinations.len() == COMBINATION_COUNT
+            self.combinations.len() == COMBINATION_COUNT
                 && self.placements.len() == PLACEMENT_COUNT
                 && self.openers.len() == 9,
-            "invalid Unison catalogue identity or count"
+            "invalid Unison catalogue count"
         );
         self.host.validate()?;
         for opener in &self.openers {

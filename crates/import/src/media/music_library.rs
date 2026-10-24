@@ -1,19 +1,21 @@
 //! Prepare mixer scores directly from original arrangements and instruments.
-use super::{Workspace, music::ReverbChange, sound_library};
+use super::music::ReverbChange;
 use anyhow::{Context, Result};
-use resonance_audio::package::Package;
+use resonance_audio::package::Loaded;
 use resonance_audio_cook::{compile, song::Song};
-use std::fs;
+use std::{fs, path::Path};
 
-pub(crate) fn package(
-    workspace: &Workspace,
+/// Compile the original arrangement and its instrument closure in memory.
+/// No cooked package, sample WAV or output workspace is involved.
+pub(crate) fn prepare(
+    extracted: &Path,
     executable: &[u8],
     pools: &crate::media::library::Pools,
     id: u16,
     current_reverbs: Option<[[f32; 5]; 2]>,
-) -> Result<Package> {
+) -> Result<Loaded> {
     let source = super::music_path(executable, id)?;
-    let files = workspace.extracted.join("files");
+    let files = extracted.join("files");
     let path = crate::field_resources::resolve_path(&files, &source)?;
     let song = Song::parse(&fs::read(files.join(path))?)?;
     let bank = pools.instruments()?;
@@ -26,9 +28,8 @@ pub(crate) fn package(
             current_reverbs.context("music needs the current reverb environment")?
         }
     };
-    sound_library::package(
-        &workspace.output,
-        &resources,
+    Loaded::new(
+        resources,
         score,
         super::synthesis_tables(executable)?,
         reverbs,
@@ -44,16 +45,14 @@ mod tests {
 
     #[test]
     #[ignore = "requires both extracted discs; CPU package and PCM validation"]
-    fn music_packages_close_instrument_dependencies_and_preserve_sample_data() -> Result<()> {
+    fn native_music_closes_instrument_dependencies_and_preserves_sample_data() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         let mut count = 0;
         for disc in [1, 2] {
             let extracted = local.join(format!("extracted/disc{disc}"));
             let executable = fs::read(extracted.join("sys/main.dol"))?;
-            let output = tempfile::tempdir()?;
             let pools = crate::media::library::Pools::read(&extracted)?;
             let bank = pools.instruments()?;
-            let workspace = Workspace::open(&extracted, output.path())?;
             let directory = crate::music_directory::Directory::read(&executable)?;
             let ids: BTreeSet<_> = directory.active().map(|entry| entry.id as u16).collect();
             ensure!(!ids.is_empty(), "disc{disc} has no declared music setups");
@@ -63,33 +62,22 @@ mod tests {
                 let song = Song::parse(&fs::read(files.join(source))?)?;
                 let current = super::super::music::title_reverbs(&executable)?;
                 let reverb = super::super::song_reverb_change(&executable, id)?;
-                let package = package(&workspace, &executable, &pools, id, Some(current))?;
-                let loaded = Package::load_with(
-                    "music.json",
-                    &mut |path, _| {
-                        if path == "music.json" {
-                            Ok(serde_json::to_vec(&package)?)
-                        } else {
-                            Ok(fs::read(output.path().join(path))?)
-                        }
-                    },
-                    &mut Default::default(),
-                )?;
-                assert_eq!(package.score.initial_bpm_1024, song.initial_bpm_1024);
+                let loaded = prepare(&extracted, &executable, &pools, id, Some(current))?;
+                assert_eq!(loaded.score().initial_bpm_1024, song.initial_bpm_1024);
                 assert_eq!(
-                    (package.score.loop_start_tick, package.score.end_tick),
+                    (loaded.score().loop_start_tick, loaded.score().end_tick),
                     song.playback_interval()?
                 );
                 match reverb {
-                    ReverbChange::Set { parameters } => assert_eq!(package.reverbs, parameters),
+                    ReverbChange::Set { parameters } => assert_eq!(loaded.reverbs(), parameters),
                     ReverbChange::Keep => {
-                        assert_eq!(package.reverbs, current);
-                        assert!(super::package(&workspace, &executable, &pools, id, None).is_err());
+                        assert_eq!(loaded.reverbs(), current);
+                        assert!(super::prepare(&extracted, &executable, &pools, id, None).is_err());
                         let mut changed = current;
                         changed[0][1] = 0.25;
                         assert_eq!(
-                            super::package(&workspace, &executable, &pools, id, Some(changed))?
-                                .reverbs,
+                            super::prepare(&extracted, &executable, &pools, id, Some(changed))?
+                                .reverbs(),
                             changed
                         );
                     }

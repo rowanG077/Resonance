@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 4bc51a8fa54048d858cf9687310c0f0216481370101ba5c1a2dc8640919e1cb9
+// Source owner: MAP/hra_i00_03/HRA_I0~1.BIN/0
+pub const Node000_Hra_I00_030: string = "hra_i00_03-0";
+pub const Node001_DOOR_AUTO_PUSH_W175e000: string = "DOOR_AUTO_PUSH_W175e000";
+pub const Node002_Hra_I00_0301: string = "hra_i00_03-0-1";

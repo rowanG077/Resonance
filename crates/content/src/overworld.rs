@@ -15,11 +15,11 @@ pub use landmarks::{
     ShipCameraClearance,
 };
 mod cinematic;
+pub mod document;
 mod package;
 pub use cinematic::*;
 pub use package::{
-    Cinematic, CinematicDialogue, PACKAGE_PATH, PACKAGE_VERSION, Package, TerrainTile,
-    TileResources, Visuals,
+    Cinematic, CinematicDialogue, PACKAGE_VERSION, Package, TerrainTile, TileResources, Visuals,
 };
 
 pub const TILE_COLUMNS: usize = 12;
@@ -203,73 +203,6 @@ impl EncounterTables {
                     && order.iter().collect::<BTreeSet<_>>().len() == 9,
                 "invalid world tile loading priorities"
             );
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TileCatalogue {
-    pub axis_labels: String,
-    pub worlds: [TileWorld; 2],
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TileWorld {
-    pub kind: WorldKind,
-    /// Source provenance; gameplay uses the explicit tile bindings.
-    pub templates: [String; 2],
-    pub tiles: Vec<Tile>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tile {
-    pub column: u8,
-    pub row: u8,
-    pub base: TileAsset,
-    /// Presence does not select it; story state selects the variant.
-    pub alternate: Option<TileAsset>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TileAsset {
-    pub source: String,
-    pub package: String,
-}
-impl TileCatalogue {
-    pub fn validate(&self) -> Result<()> {
-        ensure!(
-            self.axis_labels.len() >= TILE_COLUMNS
-                && self.axis_labels.bytes().all(|b| b.is_ascii_alphanumeric())
-                && self.axis_labels.bytes().collect::<BTreeSet<_>>().len()
-                    == self.axis_labels.len(),
-            "invalid world tile axis labels"
-        );
-        for (world, kind) in self
-            .worlds
-            .iter()
-            .zip([WorldKind::Sylvarant, WorldKind::TetheAlla])
-        {
-            ensure!(
-                world.kind == kind && world.tiles.len() == TILE_COLUMNS * TILE_ROWS,
-                "invalid world terrain tile count or world binding"
-            );
-            for (index, tile) in world.tiles.iter().enumerate() {
-                ensure!(
-                    usize::from(tile.row) == index / TILE_COLUMNS
-                        && usize::from(tile.column) == index % TILE_COLUMNS,
-                    "world tiles must occur once in row-major order"
-                );
-                for asset in std::iter::once(&tile.base).chain(&tile.alternate) {
-                    crate::validate_asset_path(&asset.source)?;
-                    crate::validate_asset_path(&asset.package)?;
-                    ensure!(
-                        asset
-                            .package
-                            .strip_prefix("assets/")
-                            .is_some_and(|hash| hash.len() == 64
-                                && hash.bytes().all(|b| b.is_ascii_hexdigit())),
-                        "invalid world tile package binding"
-                    );
-                }
-            }
         }
         Ok(())
     }

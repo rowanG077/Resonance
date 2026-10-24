@@ -1,5 +1,5 @@
 //! Two-bit bitmap font atlas and proportional glyph metrics.
-use crate::{digest, dol, write_atomic};
+use crate::{digest, dol};
 use anyhow::{Context, Result, ensure};
 use resonance_content::font::{BitmapFont, DialogueArt, Glyph, MovieSubtitles};
 mod layout;
@@ -78,48 +78,15 @@ mod system_text_tests {
 pub(crate) struct PreparedDialogue {
     pub font: BitmapFont,
     pub art: DialogueArt,
+    pub subtitles: MovieSubtitles,
 }
 
 pub(crate) use layout::prepare;
-
-/// Dialogue repertoire, subtitles, windows and selection layout, without field preparation.
-pub(crate) fn cook_embedded(extracted: &Path, output: &Path) -> Result<()> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    read_font(extracted, &executable)?.publish(output)?;
-    write_atomic(
-        &output.join("embedded/dialogue.json"),
-        &serde_json::to_vec_pretty(&layout::Recipe::read(&executable)?)?,
-    )
-}
 
 struct DecodedFont {
     font: BitmapFont,
     pixels: Vec<u8>,
     subtitles: MovieSubtitles,
-}
-
-impl DecodedFont {
-    fn publish(self, output: &Path) -> Result<BitmapFont> {
-        crate::texture::cook(
-            self.font.width,
-            self.font.height,
-            &self.pixels,
-            &output.join(&self.font.texture),
-        )?;
-        for (path, bytes) in [
-            (
-                "fonts/dialogue.json",
-                serde_json::to_vec_pretty(&self.font)?,
-            ),
-            (
-                "ui/story-subtitles.json",
-                serde_json::to_vec_pretty(&self.subtitles)?,
-            ),
-        ] {
-            write_atomic(&output.join(path), &bytes)?;
-        }
-        Ok(self.font)
-    }
 }
 
 fn read_font(extracted: &Path, executable: &[u8]) -> Result<DecodedFont> {

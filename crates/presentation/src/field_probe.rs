@@ -37,6 +37,7 @@ impl FieldCapture {
         let (mut app, _) = crate::build_app_with_display(
             RunOptions {
                 assets: root.into(),
+                mods: Vec::new(),
                 script_root: None,
                 capture: Some(output.into()),
                 presentation_start: None,

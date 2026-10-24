@@ -2,14 +2,12 @@
 mod fixture;
 mod menu;
 mod menu_probe;
-mod migration;
 mod overworld_test;
 mod probe;
 mod replay;
 #[cfg(test)]
 use crate::test_support::field_checkpoint;
 pub use fixture::prepare_checkpoint_fixture;
-pub use migration::{IdentityRepair, check_checkpoint_identity, repair_checkpoint_identity};
 pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_probe};
 #[cfg(test)]
 pub(crate) use replay::assert_checkpoint;
@@ -370,7 +368,7 @@ mod tests {
         let package = new_game::FieldPackage::prepare(&root, 332, &mut cache, || false).unwrap();
         let saved = field_checkpoint(&package.files).unwrap();
         let mut session =
-            new_game::Session::load_prepared(&root, package.files, Some(saved), None, &mut cache)
+            new_game::Session::load_prepared(std::sync::Arc::new(package), Some(saved), None)
                 .unwrap();
         session.audio = None;
         let mut app = App::new();

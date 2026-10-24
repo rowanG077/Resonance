@@ -9,6 +9,7 @@ pub struct SessionData {
     #[serde(skip)]
     pub rules: Option<std::sync::Arc<crate::menu_data::MenuData>>,
     pub version: u32,
+    #[serde(skip)]
     pub executable_sha256: String,
     pub items: Vec<ItemDefinition>,
     pub characters: Vec<CharacterDefinition>,
@@ -128,14 +129,6 @@ impl SessionData {
             (2..=256).contains(&self.experience.len())
                 && self.experience.windows(2).all(|p| p[0] <= p[1]),
             "invalid experience curve"
-        );
-        ensure!(
-            self.executable_sha256.len() == 64
-                && self
-                    .executable_sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_hexdigit()),
-            "invalid session source digest"
         );
         for item in &self.items {
             ensure!(

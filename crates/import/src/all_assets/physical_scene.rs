@@ -1,7 +1,7 @@
 //! Authored meshes and material recipes, independent of renderer capabilities.
-use crate::{geometry, geometry::MaterialRecipe};
+use crate::geometry;
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+pub(crate) use resonance_content::physical_scene::{Draw, Scene, Texture, TextureSource};
 use std::path::Path;
 
 /// Publish maintained symbols when available; unknown skeletons remain cookable.
@@ -20,49 +20,6 @@ pub(crate) fn publish_nodes(output: &Path, bones: &[String]) -> Result<Option<St
     let path = format!("scripts/{relative}");
     crate::write_atomic(&output.join(&path), source.as_bytes())?;
     Ok(Some(path))
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Scene {
-    pub(crate) mesh: String,
-    pub(crate) bone_names: Vec<String>,
-    pub(crate) textures: TextureSource,
-    pub(crate) draws: Vec<Draw>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum TextureSource {
-    Local { catalogue: String },
-    Caller,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Draw {
-    pub(crate) source_index: usize,
-    /// Empty authored draws retain their metadata and hierarchy without a mesh.
-    pub(crate) mesh: Option<usize>,
-    pub(crate) model_node: Option<usize>,
-    pub(crate) draw_order: u32,
-    pub(crate) name: String,
-    pub(crate) index_count: usize,
-    pub(crate) color: [f32; 4],
-    /// Exporter alpha classification, not an authored blend-state command.
-    /// Runtime binding must recalculate alpha when caller textures become known.
-    pub(crate) preview_blend: bool,
-    pub(crate) recipe: MaterialRecipe,
-    pub(crate) textures: Vec<Texture>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Texture {
-    pub(crate) stage: u8,
-    /// Authored table label, never a filesystem path.
-    pub(crate) table: Option<String>,
-    pub(crate) image: u16,
-    pub(crate) wrap: [resonance_content::TextureWrap; 2],
-    pub(crate) min_filter: crate::tpl::Filter,
-    pub(crate) mag_filter: crate::tpl::Filter,
 }
 
 #[cfg(test)]

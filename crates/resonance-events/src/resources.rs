@@ -25,6 +25,7 @@ pub struct ResourceLibrary {
     pub menu_data: Option<std::sync::Arc<resonance_content::menu_data::MenuData>>,
     pub skits: Option<std::sync::Arc<resonance_content::skit::SkitCatalog>>,
     pub bindings: BTreeMap<i32, (ResourceKind, u32)>,
+    pub resource_limitations: BTreeMap<u32, String>,
     pub models: BTreeMap<u32, ModelResource>,
     pub animations: BTreeMap<u32, BTreeMap<u16, AnimationClip>>,
     pub particles: BTreeMap<i32, ParticleKind>,
@@ -81,6 +82,21 @@ impl ResourceLibrary {
             .map(|(_, id)| *id)
             .ok_or_else(|| format!("unmapped {kind:?} resource {script_id}"))
     }
+    pub fn request(&self, script_id: i32) -> Result<(ResourceKind, u32), String> {
+        self.binding(script_id).ok_or_else(|| {
+            let id = script_id as u32;
+            self.resource_limitations
+                .get(&id)
+                .or_else(|| {
+                    (id >> 16 != 0)
+                        .then(|| self.resource_limitations.get(&(id & 0xffff0000)))
+                        .flatten()
+                })
+                .cloned()
+                .unwrap_or_else(|| format!("unmapped script resource {id:#x}"))
+        })
+    }
+
     pub fn binding(&self, script_id: i32) -> Option<(ResourceKind, u32)> {
         self.animations
             .contains_key(&(script_id as u32))

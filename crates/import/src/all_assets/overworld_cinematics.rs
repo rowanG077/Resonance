@@ -149,6 +149,10 @@ pub(super) struct Definition {
 pub(super) fn read(rel: &Rel) -> Result<(BTreeMap<u16, Definition>, Vec<i16>)> {
     let recipes: Catalogue = serde_json::from_str(include_str!("overworld_cinematics.json"))?;
     ensure!(
+        !recipes.provenance.trim().is_empty() && recipes.provenance.len() <= 2048,
+        "cinematic source evidence is missing or unbounded"
+    );
+    ensure!(
         recipes.scenes.len() == 14 && recipes.scenes.keys().copied().eq(513..=526),
         "incomplete cinematic recipes"
     );
@@ -242,7 +246,6 @@ pub(super) fn read(rel: &Rel) -> Result<(BTreeMap<u16, Definition>, Vec<i16>)> {
                 })
                 .collect::<Result<_>>()?;
             let presentation = CinematicPresentation {
-                provenance: recipes.provenance.clone(),
                 fade: recipe.fade,
                 initial_audio: recipe.initial_audio,
                 audio,

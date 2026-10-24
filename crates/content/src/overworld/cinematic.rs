@@ -1,5 +1,5 @@
 //! Prepared presentation tracks use the world scene's 60 Hz clock.
-use crate::{ScenePart, TextureAnimation, field_audio::FieldAudio};
+use crate::{ScenePart, TextureAnimation};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CinematicPresentation {
-    pub provenance: String,
     pub fade: CinematicFade,
     pub initial_audio: Vec<CinematicAudio>,
     /// Stable source order is retained for simultaneous events, including duplicates.
@@ -217,10 +216,6 @@ impl CinematicPresentation {
     }
 
     pub fn validate(&self, actors: &BTreeMap<u8, Vec<ScenePart>>) -> Result<()> {
-        ensure!(
-            !self.provenance.trim().is_empty() && self.provenance.len() <= 2048,
-            "cinematic presentation requires bounded provenance"
-        );
         self.fade.validate()?;
         ensure!(
             actors.keys().eq(self.actors.keys()),
@@ -272,12 +267,9 @@ impl CinematicPresentation {
         Ok(())
     }
 
-    pub fn validate_audio(&self, audio: &FieldAudio) -> Result<()> {
+    pub fn validate_sound_selection(&self, contains: impl Fn(i16) -> bool) -> Result<()> {
         for id in self.actions().filter_map(CinematicAudio::sound) {
-            ensure!(
-                audio.sounds.contains_key(&id),
-                "cinematic sound {id} is not prepared"
-            );
+            ensure!(contains(id), "cinematic sound {id} is not prepared");
         }
         Ok(())
     }
@@ -380,7 +372,6 @@ mod tests {
             },
         };
         let mut presentation = CinematicPresentation {
-            provenance: "synthetic audio fixture".into(),
             fade: CinematicFade {
                 white: false,
                 end_rate: 8,

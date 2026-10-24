@@ -1,0 +1,4 @@
+script library;
+// Skeleton: c6f54566285b176c1869e4f741d998f188eb67f7a85f7666530d7d3d9c4160de
+// Source owner: MAP/hol_d01/HOL_D01.BIN/2
+pub const Node000_Plane01: string = "Plane01";

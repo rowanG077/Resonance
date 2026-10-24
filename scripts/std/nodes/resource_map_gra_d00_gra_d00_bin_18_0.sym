@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 42a63f5171311d5dca01b68b409ec02c03cb3b9e09e0e29a7b36bd795d8eb813
+// Source owner: MAP/gra_d00/GRA_D00.BIN/18/0
+pub const Node000_Futa: string = "Futa";
+pub const Node001_Takarabako: string = "Takarabako";

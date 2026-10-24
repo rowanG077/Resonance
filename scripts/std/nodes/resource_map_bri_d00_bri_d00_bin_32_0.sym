@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 3b988a97a26b17dcffcf33ffb27f33eddcfb826c22721e640d3a3ab667425b2f
+// Source owner: MAP/bri_d00/BRI_D00.BIN/32/0
+pub const Node000_Zeros01: string = "Zeros01";

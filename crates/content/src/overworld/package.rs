@@ -1,13 +1,11 @@
-//! Runtime world inventory. Original archives and relocations stay in the importer.
+//! Assembled world resources. Original archives and relocations stay in the importer.
 use super::*;
-use crate::{ScenePart, ScriptAsset, field::CollisionGroup, field_preload::File};
+use crate::{ScenePart, ScriptAsset, field::CollisionGroup};
 use std::collections::BTreeMap;
 
-pub const PACKAGE_PATH: &str = "worlds/world.json";
 pub const PACKAGE_VERSION: u32 = 4;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Package {
     pub version: u32,
     pub script: ScriptAsset,
@@ -20,7 +18,6 @@ pub struct Package {
     /// Row-major terrain, both variants prepared even before their story trigger.
     pub worlds: [Vec<TerrainTile>; 2],
     pub visuals: Visuals,
-    pub files: BTreeMap<String, File>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -115,8 +112,7 @@ impl Cinematic {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TerrainTile {
     pub column: u8,
     pub row: u8,
@@ -124,17 +120,23 @@ pub struct TerrainTile {
     pub alternate: Option<TileResources>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TileResources {
-    pub source_sha256: String,
     pub ground: Vec<CollisionGroup>,
     /// Local world plane; the renderer supplies wrapped tile placement.
     pub parts: Vec<ScenePart>,
 }
 
 impl Package {
-    pub fn validate(&self) -> Result<()> {
+    /// Validate gameplay and presentation semantics against the current prepared
+    /// resources. Named documents have no cooker inventory or provenance gate.
+    pub fn validate_content(&self, contains: impl Fn(&str) -> bool + Copy) -> Result<()> {
+        crate::library::validate_path(&self.script.path)?;
+        crate::library::validate_path(&self.messages)?;
+        ensure!(
+            contains(&self.script.path) && contains(&self.messages),
+            "world event dependencies are incomplete"
+        );
         ensure!(self.version == PACKAGE_VERSION, "unsupported world package");
         self.movement.validate()?;
         self.collision.validate()?;
@@ -144,38 +146,6 @@ impl Package {
         for post in &self.guideposts {
             post.validate(&self.landmarks)?;
             ensure!(posts.insert(post.location), "duplicate world guidepost");
-        }
-        for (path, file) in &self.files {
-            crate::validate_asset_path(path)?;
-            ensure!(
-                path != PACKAGE_PATH
-                    && file.sha256.len() == 64
-                    && file.sha256.bytes().all(|c| c.is_ascii_hexdigit())
-                    && !file.roles.is_empty(),
-                "invalid world dependency"
-            );
-        }
-        ensure!(
-            self.files
-                .get(&self.script.path)
-                .is_some_and(|file| file.sha256 == self.script.sha256)
-                && self.files.contains_key(&self.messages),
-            "world event dependencies are incomplete"
-        );
-        for path in [
-            "game/session-data.json",
-            "game/text.json",
-            "game/skits.json",
-            "game/menu-data.json",
-            "fonts/dialogue.json",
-            "ui/dialogue.json",
-            "ui/menu.json",
-            "worlds/audio.json",
-        ] {
-            ensure!(
-                self.files.contains_key(path),
-                "world dependency {path} is missing"
-            );
         }
         for world in &self.worlds {
             ensure!(
@@ -189,11 +159,6 @@ impl Package {
                 );
                 for variant in std::iter::once(&tile.base).chain(&tile.alternate) {
                     ensure!(
-                        variant.source_sha256.len() == 64
-                            && variant.source_sha256.bytes().all(|c| c.is_ascii_hexdigit()),
-                        "invalid terrain source digest"
-                    );
-                    ensure!(
                         !variant.ground.is_empty() && !variant.parts.is_empty(),
                         "empty world terrain"
                     );
@@ -202,7 +167,7 @@ impl Package {
                         ensure!(group.surface < 16, "invalid terrain surface");
                     }
                     for part in &variant.parts {
-                        part.validate(|path| self.files.contains_key(path))?;
+                        part.validate(contains)?;
                     }
                 }
             }
@@ -222,10 +187,7 @@ impl Package {
         );
         for path in &self.visuals.dust {
             crate::validate_asset_path(path)?;
-            ensure!(
-                self.files.contains_key(path),
-                "world dust texture is missing"
-            );
+            ensure!(contains(path), "world dust texture is missing");
         }
         for part in self
             .visuals
@@ -235,20 +197,16 @@ impl Package {
             .flatten()
             .chain(self.visuals.skies.iter().flatten())
         {
-            part.validate(|path| self.files.contains_key(path))?;
+            part.validate(contains)?;
         }
         ensure!(
             self.visuals.cinematics.len() == 14
                 && (513..=526).all(|id| self.visuals.cinematics.contains_key(&id)),
             "incomplete world cinematics"
         );
-        ensure!(
-            self.visuals.cinematics[&517].dialogue.len() == 9,
-            "missing world cinematic dialogue"
-        );
         for (&id, scene) in &self.visuals.cinematics {
             ensure!((513..=526).contains(&id), "invalid world cinematic ID");
-            scene.validate(|path| self.files.contains_key(path))?;
+            scene.validate(contains)?;
         }
         Ok(())
     }

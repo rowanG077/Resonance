@@ -1,10 +1,9 @@
 mod binding;
-pub(crate) use binding::{bind_all_movies, cook_directory};
+pub(crate) use binding::{catalogue, cook_directory};
 
-use super::{Workspace, be_u32, hash_file, write_json};
+use super::{be_u32, hash_file, write_json};
 use crate::dol::slice as dol_slice;
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     fs,
@@ -143,7 +142,7 @@ impl Colors {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct MovieAudioTrack {
     /// One-based source stream index; audio streams retain this order in the mux.
     pub stream: u16,
@@ -153,13 +152,9 @@ pub struct MovieAudioTrack {
 }
 
 /// A physical movie can contain multiple audio tracks, or no audio at all.
-/// Runtime playback metadata is produced separately for a selected track.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CookedMovie {
-    pub version: u32,
-    pub source: String,
-    pub source_sha256: String,
-    pub path: String,
+/// This typed result is private to cooking; container facts are never serialized.
+#[derive(Debug)]
+pub(crate) struct Conversion {
     pub sha256: String,
     pub width: u32,
     pub height: u32,
@@ -168,14 +163,45 @@ pub struct CookedMovie {
     pub audio_tracks: Vec<MovieAudioTrack>,
 }
 
+/// Cook-local identity for the complete movie and its native color conversion.
+/// Original disc headers and executable addresses do not become resource names.
+pub(crate) fn input_identity(extracted: &Path, source: &str) -> Result<String> {
+    resonance_content::validate_asset_path(source)?;
+    let files = extracted.join("files").canonicalize()?;
+    let movie = files.join(source).canonicalize()?;
+    ensure!(
+        movie.starts_with(&files),
+        "movie source escapes extracted files"
+    );
+    let colors = Colors::from_dol(&fs::read(extracted.join("sys/main.dol"))?)?;
+    Ok(crate::digest(&serde_json::to_vec(&(
+        hash_file(&movie)?,
+        colors
+            .components
+            .iter()
+            .map(|channel| channel.as_slice())
+            .collect::<Vec<_>>(),
+        colors.table,
+        colors.clamp_offset,
+    ))?))
+}
+
 /// Cook any physical movie, preserving video and all source audio tracks.
 /// Runtime metadata binds one audio track separately without copying this file.
-pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result<CookedMovie> {
-    let workspace = Workspace::open(extracted, output)?;
+pub(crate) fn cook_movie_file(
+    extracted: &Path,
+    source: &Path,
+    destination: &Path,
+) -> Result<Conversion> {
+    crate::disc_number(extracted)?;
+    let output = destination
+        .parent()
+        .context("movie has no output directory")?;
+    fs::create_dir_all(output)?;
     let _publications = crate::publication::Session::start_if_needed(output)?;
     let source = source.to_str().context("movie source path is not UTF-8")?;
     resonance_content::validate_asset_path(source)?;
-    let files = workspace.extracted.join("files").canonicalize()?;
+    let files = extracted.join("files").canonicalize()?;
     let movie = files.join(source).canonicalize()?;
     ensure!(
         movie.starts_with(&files),
@@ -184,17 +210,14 @@ pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result
     let mut bytes = [0; 68];
     fs::File::open(&movie)?.read_exact(&mut bytes)?;
     let header = Header::parse(&bytes)?;
-    let dol = workspace.extracted.join("sys/main.dol");
+    let dol = extracted.join("sys/main.dol");
     let colors = Colors::from_dol(&fs::read(&dol)?)?;
-    let source_sha256 = hash_file(&movie)?;
-    let metadata = workspace.output.join("movie.json");
-    let directory = workspace.output.join("intermediate/movie");
-    fs::create_dir_all(&directory)?;
+    let scratch = tempfile::tempdir_in(output)?;
+    let directory = scratch.path();
     let yuv = directory.join("video.yuv");
     decode_video(&movie, &yuv, &header)?;
     let (audio_tracks, audio_paths) = cook_audio(&movie, &directory, &header)?;
-    let destination = workspace.output.join("movie.mkv");
-    let temporary = crate::temporary_path(&destination);
+    let temporary = directory.join("video.mkv");
     let formats: Vec<_> = audio_tracks
         .iter()
         .map(|track| (track.channels, track.sample_rate, u64::from(track.frames)))
@@ -259,11 +282,7 @@ pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result
         }
     }
     encoder.finish()?.into_inner()?.sync_all()?;
-    let cooked = CookedMovie {
-        version: 1,
-        source: source.into(),
-        source_sha256,
-        path: "movie.mkv".into(),
+    let cooked = Conversion {
         sha256: hash_file(&temporary)?,
         width: header.width as u32,
         height: header.height as u32,
@@ -273,10 +292,9 @@ pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result
     };
     verify_mux(&temporary, &cooked)?;
     crate::publication::install(&temporary, &destination, &cooked.sha256)?;
-    write_json(&metadata, &json!(cooked))?;
     drop(waves);
     drop(video);
-    fs::remove_dir_all(directory)?;
+    scratch.close()?;
     println!(
         "Cooked {source}: {} video frames, {} audio tracks",
         cooked.frames,
@@ -383,7 +401,7 @@ fn cook_audio(
     Ok((tracks, paths))
 }
 
-fn verify_mux(path: &Path, movie: &CookedMovie) -> Result<()> {
+fn verify_mux(path: &Path, movie: &Conversion) -> Result<()> {
     use matroska_demuxer::{MatroskaFile, TrackType};
     let mut input = MatroskaFile::open(BufReader::new(fs::File::open(path)?))?;
     let tracks = input.tracks();
@@ -494,11 +512,7 @@ mod tests {
                 writer.video(&[41; 16 * 16 * 3], Duration::from_micros(index * 40_000))?;
             }
             writer.finish()?;
-            let mut movie = CookedMovie {
-                version: 1,
-                source: "example.h4m".into(),
-                source_sha256: String::new(),
-                path: "movie.mkv".into(),
+            let mut movie = Conversion {
                 sha256: String::new(),
                 width: 16,
                 height: 16,

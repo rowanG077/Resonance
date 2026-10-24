@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 32eedf05707889bcebc8157ef8ca47cfb39152101b9a2815124b93d3e30d8e7f
+// Source owner: MAP/moa_d01/MOA_D01.BIN/22/0
+pub const Node000_Bacu02: string = "bacu02";

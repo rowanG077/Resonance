@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 10317d2e495063bda89a52c7f3691570dec8a22bced1a4f20bc35f681ff4724d
+// Source owner: MAP/thu_d00/THU_D00.BIN/20/0
+pub const Node000_Box03: string = "box03";
+pub const Node001_Box04: string = "box04";

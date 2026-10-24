@@ -1,5 +1,5 @@
 //! Check each rain drop and its floor callback before comparing stochastic splashes.
-use super::{Trace, compare::equal, random_inputs::Pin};
+use super::{Trace, compare::equal};
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,17 +36,8 @@ pub(super) fn retain_gameplay(
             .is_some_and(|entries| entries.contains(registration)),
         "rain registration differs"
     );
-    let scene: Value = serde_json::from_slice(
-        &serde_json::from_value::<Pin>(registration["scene"].clone())?.read_bytes()?,
-    )?;
-    let effects_pin: Pin = serde_json::from_value(registration["effects"].clone())?;
-    let effect_path = scene["effects"].as_str().context("missing rain effects")?;
-    ensure!(
-        scene["source_sha256"] == registration["package_sha256"]
-            && scene["files"][effect_path]["sha256"] == effects_pin.sha256,
-        "rain effects do not belong to the registered scene"
-    );
-    let metadata: Value = serde_json::from_slice(&effects_pin.read_bytes()?)?;
+    let (_, bank) = super::content_evidence::registered_scene(registration)?;
+    let metadata = super::content_evidence::effect_value(bank)?;
     let contract = Contract::read(&metadata)?;
     let owner = integer(&source.setup, "owner")?;
     ensure!(native.setup["owner"] == owner, "rain owner differs");
@@ -75,7 +66,6 @@ struct Contract {
 
 impl Contract {
     fn read(metadata: &Value) -> Result<Self> {
-        ensure!(metadata["source_sha256"] == RAIN_BANK, "wrong rain bank");
         let actors = &metadata["actors"];
         let drop = &actors[DROP as usize]["template"];
         let splash = &actors[SPLASH as usize]["template"];

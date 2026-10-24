@@ -3,7 +3,10 @@ use crate::{dls, mix, modulation, music_voice::Controls, resample};
 use std::{
     fs,
     path::PathBuf,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
 };
 
 pub(crate) struct Fixture(pub(crate) PathBuf);
@@ -91,35 +94,39 @@ pub(crate) fn fixture() -> (Fixture, serde_json::Value) {
         wave.write_sample(value).unwrap();
     }
     wave.finalize().unwrap();
-    let package = Package {
-        version: VERSION,
+    let package = editable::Program {
+        version: editable::VERSION,
         programs: loaded.resources.programs,
         samples: BTreeMap::from([(
             2,
-            SampleAsset {
+            editable::Sample {
                 path: "sample.wav".into(),
-                sha256: format!("{:x}", Sha256::digest(fs::read(&path).unwrap())),
                 key: sample.key,
-                rate: sample.rate,
-                first_frames: sample.pcm.len() as u32,
                 loop_start: sample.loop_start,
                 loop_length: sample.loop_length,
             },
         )]),
         score: loaded.score,
         tables: loaded.tables,
-        reverbs: loaded.reverbs,
+        reverbs: Some(loaded.reverbs),
     };
     (root, serde_json::to_value(package).unwrap())
 }
 
 fn load(root: &Fixture, value: &serde_json::Value) -> Result<Loaded> {
-    fs::write(
-        root.0.join("music.json"),
-        serde_json::to_vec(value).unwrap(),
+    load_cached(root, value, &mut SampleCache::default())
+}
+
+fn load_cached(
+    root: &Fixture,
+    value: &serde_json::Value,
+    cache: &mut SampleCache,
+) -> Result<Loaded> {
+    let program: editable::Program = serde_json::from_value(value.clone())?;
+    program.prepare_editable(
+        &mut |path, _| Ok(fs::read(root.0.join(path))?.into()),
+        cache,
     )
-    .unwrap();
-    Package::load(&root.0, "music.json")
 }
 
 fn control_deadline(milliseconds: u64) -> usize {
@@ -127,6 +134,48 @@ fn control_deadline(milliseconds: u64) -> usize {
         .unwrap()
         .div_ceil(32) as usize
         * 32
+}
+
+#[test]
+fn editable_program_has_one_authoritative_playback_environment() {
+    let (root, value) = fixture();
+    let program = || serde_json::from_value::<editable::Program>(value.clone()).unwrap();
+    let environment = [[0.3, 0.4, 1.5, 0.2, 0.]; 2];
+    let mut cache = SampleCache::default();
+    let mut read = |path: &str, _: usize| Ok(Arc::from(fs::read(root.0.join(path))?));
+    let standalone = program().prepare_editable(&mut read, &mut cache).unwrap();
+    assert_eq!(standalone.reverbs, [[0., 0., 1., 0., 0.]; 2]);
+    let mut inherited = program();
+    inherited.reverbs = None;
+    let inherited = inherited
+        .prepare_in(Some(environment), &mut read, &mut cache)
+        .unwrap();
+    assert_eq!(inherited.reverbs, environment);
+    assert!(Arc::ptr_eq(
+        &standalone.resources.samples[&2],
+        &inherited.resources.samples[&2]
+    ));
+
+    // Ambiguous or absent ownership fails before reading any instrument payload.
+    let mut unread = |_: &str, _: usize| -> Result<Arc<[u8]>> { panic!("unexpected sample read") };
+    let conflict = program().prepare_in(Some(environment), &mut unread, &mut cache);
+    assert!(
+        conflict
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("remove inline reverbs")
+    );
+    let mut missing = program();
+    missing.reverbs = None;
+    let missing = missing.prepare_editable(&mut unread, &mut cache);
+    assert!(
+        missing
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("requires a playback environment")
+    );
 }
 
 #[test]
@@ -1927,68 +1976,49 @@ fn spatial_instruments_require_their_tables_during_preparation() {
 #[test]
 fn banks_share_samples_only_when_tuning_and_loop_metadata_match() {
     let (root, value) = fixture();
-    fs::write(
-        root.0.join("bank.json"),
-        serde_json::to_vec(&value).unwrap(),
-    )
-    .unwrap();
     let mut cache = SampleCache::default();
-    let mut read = |path: &str, _: usize| Ok(fs::read(root.0.join(path))?);
-    let a = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
-    let b = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
-    assert!(std::sync::Arc::ptr_eq(
+    let a = load_cached(&root, &value, &mut cache).unwrap();
+    let b = load_cached(&root, &value, &mut cache).unwrap();
+    assert!(Arc::ptr_eq(
         &a.resources.samples[&2],
         &b.resources.samples[&2]
     ));
-    let mut changed = value;
+    let mut changed = value.clone();
     changed["samples"]["2"]["key"] = 61.into();
-    fs::write(
-        root.0.join("bank.json"),
-        serde_json::to_vec(&changed).unwrap(),
-    )
-    .unwrap();
-    let c = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
-    assert!(!std::sync::Arc::ptr_eq(
+    let c = load_cached(&root, &changed, &mut cache).unwrap();
+    assert!(!Arc::ptr_eq(
         &a.resources.samples[&2],
         &c.resources.samples[&2]
     ));
     assert_eq!(a.resources.samples[&2].pcm, c.resources.samples[&2].pcm);
+    changed["samples"]["2"]["loop_length"] = 1.into();
+    let d = load_cached(&root, &changed, &mut cache).unwrap();
+    assert!(!Arc::ptr_eq(
+        &c.resources.samples[&2],
+        &d.resources.samples[&2]
+    ));
+    assert_eq!(d.resources.samples[&2].pcm, [10, 20, 30, 40, 50]);
+    assert_eq!(d.resources.samples[&2].loop_pcm, [60]);
 
-    let oversized = Package::load_with(
-        "bank.json",
-        &mut |path, limit| {
-            if path == "sample.wav" {
-                Ok(vec![0; limit + 1])
-            } else {
-                Ok(fs::read(root.0.join(path))?)
-            }
-        },
-        &mut cache,
+    let program: editable::Program = serde_json::from_value(value.clone()).unwrap();
+    assert!(
+        program
+            .prepare_editable(&mut |_, limit| Ok(vec![0; limit + 1].into()), &mut cache)
+            .is_err()
     );
-    assert!(oversized.is_err());
-
     let sample_path = root.0.join("sample.wav");
-    let mut corrupt = fs::read(&sample_path).unwrap();
-    *corrupt.last_mut().unwrap() ^= 1;
-    fs::write(&sample_path, corrupt).unwrap();
-    assert!(Package::load_with("bank.json", &mut read, &mut cache).is_err());
+    fs::write(&sample_path, b"invalid WAV").unwrap();
+    assert!(load_cached(&root, &value, &mut cache).is_err());
     fs::remove_file(sample_path).unwrap();
-    assert!(Package::load_with("bank.json", &mut read, &mut cache).is_err());
+    assert!(load_cached(&root, &value, &mut cache).is_err());
 }
 
 #[test]
 fn sample_cache_releases_pcm_after_live_owners_drop_and_reprepares() {
-    use std::sync::Arc;
     let (root, value) = fixture();
-    fs::write(
-        root.0.join("bank.json"),
-        serde_json::to_vec(&value).unwrap(),
-    )
-    .unwrap();
     let mut cache = SampleCache::default();
-    let mut read = |path: &str, limit| read_bounded(&root.0.join(path), limit);
-    let first = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
-    let second = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
+    let first = load_cached(&root, &value, &mut cache).unwrap();
+    let second = load_cached(&root, &value, &mut cache).unwrap();
     let sample = Arc::downgrade(&first.resources.samples[&2]);
     let live_sample = first.resources.samples[&2].clone();
     drop((first, second));
@@ -1998,12 +2028,7 @@ fn sample_cache_releases_pcm_after_live_owners_drop_and_reprepares() {
 
     let mut replacement = value;
     replacement["samples"]["2"]["key"] = 61.into();
-    fs::write(
-        root.0.join("bank.json"),
-        serde_json::to_vec(&replacement).unwrap(),
-    )
-    .unwrap();
-    let loaded = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
+    let loaded = load_cached(&root, &replacement, &mut cache).unwrap();
     assert_eq!(loaded.resources.samples[&2].pcm, [10, 20, 30, 40]);
     assert_eq!(loaded.resources.samples[&2].key, 61);
     assert_eq!(
@@ -2014,16 +2039,44 @@ fn sample_cache_releases_pcm_after_live_owners_drop_and_reprepares() {
 }
 
 #[test]
-fn package_preserves_independent_loop_pcm_and_rejects_corruption() {
+fn sample_cache_tracks_current_wav_bytes() -> Result<()> {
+    let (root, value) = fixture();
+    let original: std::sync::Arc<[u8]> = fs::read(root.0.join("sample.wav"))?.into();
+    let mut edited = original.to_vec();
+    let end = edited.len();
+    edited[end - 2..].copy_from_slice(&1234i16.to_le_bytes());
+    let edited: std::sync::Arc<[u8]> = edited.into();
+    let mut cache = SampleCache::default();
+    let mut prepare = |bytes: &std::sync::Arc<[u8]>| -> Result<Loaded> {
+        let program: editable::Program = serde_json::from_value(value.clone())?;
+        program.prepare_editable(&mut |_, _| Ok(bytes.clone()), &mut cache)
+    };
+    let first = prepare(&original)?;
+    let same = prepare(&original)?;
+    assert!(std::sync::Arc::ptr_eq(
+        &first.resources.samples[&2],
+        &same.resources.samples[&2]
+    ));
+    let changed = prepare(&edited)?;
+    assert!(!std::sync::Arc::ptr_eq(
+        &first.resources.samples[&2],
+        &changed.resources.samples[&2]
+    ));
+    assert_eq!(first.resources.samples[&2].loop_pcm.last(), Some(&60));
+    assert_eq!(changed.resources.samples[&2].loop_pcm.last(), Some(&1234));
+    Ok(())
+}
+
+#[test]
+fn editable_program_preserves_loop_pcm_and_rejects_invalid_content() {
     let (root, value) = fixture();
     let loaded = load(&root, &value).unwrap();
     let sample = &loaded.resources.samples[&2];
     assert_eq!(sample.pcm, [10, 20, 30, 40]);
     assert_eq!(sample.loop_pcm, [50, 60]);
     let cases = [
-        ("/version", serde_json::json!(1)),
-        ("/samples/2/sha256", serde_json::json!("incorrect")),
-        ("/samples/2/first_frames", serde_json::json!(5)),
+        ("/version", serde_json::json!(0)),
+        ("/samples/2/loop_length", serde_json::json!(7)),
         ("/samples/2/loop_start", serde_json::json!(4)),
         ("/samples/2/path", serde_json::json!("../sample.wav")),
         ("/programs/1/0/sample", serde_json::json!(3)),
@@ -2036,7 +2089,9 @@ fn package_preserves_independent_loop_pcm_and_rejects_corruption() {
         *invalid.pointer_mut(pointer).unwrap() = replacement;
         assert!(load(&root, &invalid).is_err(), "accepted invalid {pointer}");
     }
-    assert!(Package::load(&root.0, "../music.json").is_err());
+    let mut obsolete = value.clone();
+    obsolete["samples"]["2"]["sha256"] = "stale".into();
+    assert!(load(&root, &obsolete).is_err());
 }
 
 #[test]

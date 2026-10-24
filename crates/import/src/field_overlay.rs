@@ -1,5 +1,5 @@
 //! Bind all texture banks independently of the scripts that display them.
-use crate::{all_assets::MemberKind, field_resources, texture, write_atomic};
+use crate::{all_assets::MemberKind, field_resources, texture};
 use anyhow::{Context, Result};
 use resonance_content::{
     effect::{OverlayArt, OverlayTexture},
@@ -7,33 +7,7 @@ use resonance_content::{
 };
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
-pub(crate) fn cook(
-    resources: &mut field_resources::binding::Resources<'_>,
-    physical: &crate::scene::binding::Map<'_>,
-    output: &Path,
-    textures: &BTreeMap<u32, Arc<texture::Decoded>>,
-) -> Result<(BTreeMap<i32, String>, Vec<String>)> {
-    let banks = bind(resources, physical, output, textures)?;
-    let mut overlays = BTreeMap::new();
-    let mut files = Vec::new();
-    for (resource, bank) in banks {
-        files.extend(
-            bank.textures
-                .iter()
-                .flat_map(|texture| texture.images.iter().map(|image| image.path.clone())),
-        );
-        let bytes = serde_json::to_vec(&bank)?;
-        let path = format!("fields/overlays/{}.json", crate::digest(&bytes));
-        write_atomic(&output.join(&path), &bytes)?;
-        files.push(path.clone());
-        overlays.insert(resource, path);
-    }
-    files.sort();
-    files.dedup();
-    Ok((overlays, files))
-}
-
-fn bind(
+pub(crate) fn bind(
     resources: &mut field_resources::binding::Resources<'_>,
     physical: &crate::scene::binding::Map<'_>,
     output: &Path,

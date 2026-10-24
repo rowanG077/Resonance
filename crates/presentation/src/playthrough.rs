@@ -17,8 +17,11 @@ pub(super) fn capture(app: App, at: CaptureAt, path: &std::path::Path) -> Result
         CaptureAt::MovieFrame(frame) => {
             let movie = app.world().resource::<movie::Playback>();
             let updates = if let Some(asset) = &movie.asset {
-                anyhow::ensure!(frame < asset.frames, "movie frame exceeds duration");
-                let seconds = f64::from(frame + 1) * f64::from(asset.frame_micros) / 1_000_000.;
+                let times = movie.video_timestamps()?;
+                let time = times
+                    .get(frame as usize)
+                    .context("movie frame exceeds duration")?;
+                let seconds = (*time + asset.frame_duration).as_secs_f64();
                 (seconds * resonance_game::clock::UPDATE_HZ).ceil() as u32 + 120
             } else {
                 // Startup already reported missing media. The shared runner
@@ -52,24 +55,33 @@ pub(super) fn record(app: App, output: PathBuf) -> Result<()> {
         }
     }
     let mut title_wait = 600;
-    if let Some(movie) = &app.world().resource::<movie::Playback>().asset {
-        let updates_for = |frames: u32| {
-            let seconds = f64::from(frames) * f64::from(movie.frame_micros) / 1_000_000.;
+    let playback = app.world().resource::<movie::Playback>();
+    if let Some(movie) = &playback.asset {
+        let times = playback.video_timestamps()?;
+        let updates_for = |time: std::time::Duration| {
+            let seconds = time.as_secs_f64();
             (seconds * resonance_game::clock::UPDATE_HZ).ceil() as u32
         };
-        let mut previous = 0;
+        let mut previous = std::time::Duration::ZERO;
         // Sample while the movie still owns presentation. Its final decoded
         // frame can retire in the same update as natural audio completion.
-        for frame in [0, movie.frames / 2, movie.frames / 4 * 3]
+        for frame in [0, times.len() / 2, times.len() / 4 * 3]
             .into_iter()
             .collect::<std::collections::BTreeSet<_>>()
         {
-            let max_updates = updates_for(frame - previous) + 120;
-            steps.push(Step::wait(Event::Movie { resource: 0, frame }, max_updates));
+            let max_updates = updates_for(times[frame] - previous) + 120;
+            steps.push(Step::wait(
+                Event::Movie {
+                    resource: 0,
+                    frame: frame as u32,
+                },
+                max_updates,
+            ));
             steps.push(Step::capture(format!("movie-{frame}")));
-            previous = frame;
+            previous = times[frame];
         }
-        title_wait += updates_for(movie.frames - previous);
+        title_wait +=
+            updates_for(times.last().unwrap().saturating_sub(previous) + movie.frame_duration);
     }
     for tick in [0, ticks] {
         steps.push(Step::wait(Event::TitleTick { tick }, tick + title_wait));

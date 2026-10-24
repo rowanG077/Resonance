@@ -2,12 +2,14 @@
 //! world; native signatures are supplied by the same declarations used by hosts.
 mod compile;
 mod format;
+mod identity;
 mod syntax;
 
 use std::collections::BTreeMap;
 use symphonia_script::{Program, authored::NativeDeclaration};
 
 pub use format::format;
+pub use identity::canonical_source;
 
 /// A source module's execution host, declared before its imports and definitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

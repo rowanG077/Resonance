@@ -1,0 +1,4 @@
+script library;
+// Skeleton: d9f8dd8472b1803fafbcc61ba313aaef9db94a67c306723f824dc1461d27f3ad
+// Source owner: MAP/del_d02/DEL_D02.BIN/30/0
+pub const Node000_Mitos_Key: string = "mitos_key";

@@ -1,13 +1,12 @@
 //! Effect recipes and timeline inputs prepared for battle loading.
 pub mod declaration;
+pub mod document;
 pub mod timeline;
 pub mod visual;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 pub use timeline::*;
 
-pub const COMMON_PATH: &str = "battle/effects/common.json";
-pub const TECHNIQUES_PATH: &str = "battle/effects/techniques.json";
 pub const TINTS_PATH: &str = "battle/effects/tints.json";
 
 /// Effect palettes, element colors and actor tint requests. Effect
@@ -58,26 +57,30 @@ impl Tints {
     }
 }
 
-/// Cooked recipes and schedules. Unsupported members remain cold until an
-/// encounter requests them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Prepared recipes and schedules. Only `document` reads cooked effect banks;
+/// this in-memory aggregate has no serialized-input reader. Unsupported members
+/// remain cold until an encounter requests them.
+#[derive(Debug, Clone, Serialize)]
 pub struct SourceBank {
+    /// Runtime ownership for diagnostics and oracle binding, derived from the
+    /// current entry path. This is never serialized into an editable program.
+    #[serde(skip)]
+    pub document: Option<String>,
     pub source_sha256: String,
     pub programs: Vec<Vec<ScheduledEvent>>,
     pub actors: Vec<declaration::Declaration>,
     /// Shared presentation dependencies; unused members stay cold.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub art: Option<Art>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Art {
     pub source_sha256: String,
     /// Native texture bank slot, then native texture index, then palette page.
     pub textures: BTreeMap<u8, Vec<EffectTexture>>,
     /// Effect model slots retained from the asset catalogue.
     pub models: BTreeMap<u8, crate::battle_model::ModelPart>,
-    pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,24 +2,22 @@
 use super::super::loading::Cache;
 use super::*;
 use resonance_content::prepared::Files;
+use std::collections::BTreeSet;
+#[cfg(test)]
+mod tests;
 
 pub(crate) fn available_fields(root: &Path) -> Result<std::collections::BTreeSet<u32>> {
-    let mut fields = std::collections::BTreeSet::new();
-    for entry in std::fs::read_dir(root.join("fields"))? {
-        let name = entry?.file_name();
-        if let Some(map) = name
-            .to_str()
-            .and_then(|name| name.strip_prefix("map-"))
-            .and_then(|name| name.strip_suffix(".preload.json"))
-            .and_then(|id| id.parse().ok())
-        {
-            fields.insert(map);
-        }
-    }
-    if root
-        .join(resonance_content::overworld::PACKAGE_PATH)
-        .is_file()
-    {
+    let mut snapshot = resonance_content::library::Library::open(root, &[])?.snapshot();
+    capture_fields(&mut snapshot)
+}
+
+fn capture_fields(snapshot: &mut resonance_content::library::Snapshot) -> Result<BTreeSet<u32>> {
+    let mut fields: BTreeSet<_> = snapshot
+        .mappings(resonance_content::library::FIELDS)?
+        .iter()
+        .map(|(id, _)| id)
+        .collect();
+    if resonance_content::overworld::document::present(snapshot)? {
         fields.insert(3000);
     }
     Ok(fields)
@@ -28,11 +26,12 @@ pub(crate) fn available_fields(root: &Path) -> Result<std::collections::BTreeSet
 #[derive(Clone)]
 pub(crate) struct FieldPackage {
     pub assets: FieldAssets,
+    pub fields: BTreeSet<u32>,
     pub data: Arc<resonance_content::session::SessionData>,
     pub script: Arc<[u8]>,
     messages: Arc<[u8]>,
     text: Arc<resonance_content::session::GameText>,
-    skits: Arc<resonance_content::skit::SkitCatalog>,
+    pub skits: Arc<resonance_content::skit::SkitCatalog>,
     effects: resonance_content::effect::FieldEffects,
     pub audio: Arc<super::super::field_audio::Assets>,
     pub files: Arc<Files>,
@@ -41,59 +40,13 @@ pub(crate) struct FieldPackage {
     attachments: resonance_game::field::attachments::Attachments,
     movies: BTreeSet<u32>,
 }
-impl FieldPackage {
-    pub fn load(files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
-        let manifest = files
-            .manifests
-            .get(&map)
-            .context("field inventory is missing")?;
-        let assets = files.field(map)?;
-        ensure!(
-            manifest.inputs.audio.len() == 1,
-            "field needs one combined audio bank"
-        );
-        let audio = cache
-            .audio
-            .load(manifest.inputs.audio.first().unwrap(), &files)?;
-        let (authored, services) = Self::prepare_scripts(map, &files, cache)?;
-        let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
-        let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
-        skits.validate()?;
-        let effects: resonance_content::effect::FieldEffects = files.json(&assets.effects)?;
-        effects.validate()?;
-        let attachments =
-            resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
-        let movies = manifest
-            .inputs
-            .movies
-            .iter()
-            .map(|path| {
-                let id = path
-                    .strip_prefix("movies/")
-                    .and_then(|name| name.strip_suffix(".json"))
-                    .and_then(|id| id.parse().ok())
-                    .with_context(|| format!("invalid field movie binding {path}"))?;
-                files.json::<MovieAsset>(path)?.validate()?;
-                Ok(id)
-            })
-            .collect::<Result<_>>()?;
-        Ok(Self {
-            data,
-            text: Arc::new(files.json("game/text.json")?),
-            skits: Arc::new(skits),
-            effects,
-            script: files.read(&assets.script)?,
-            messages: files.read(&assets.messages)?,
-            assets,
-            audio,
-            files,
-            authored,
-            services,
-            attachments,
-            movies,
-        })
-    }
 
+struct PreparedScripts {
+    authored: Option<resonance_game::authored::FieldEvent>,
+    services: Arc<resonance_game::authored::FieldServices>,
+    project: Option<resonance_game::authored::FieldProject>,
+}
+impl FieldPackage {
     pub fn prepare(
         root: &Path,
         map: u32,
@@ -116,50 +69,124 @@ impl FieldPackage {
         cancelled: impl Fn() -> bool,
         diagnostics: resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
-        let files = Arc::new(
-            Files::load_with_diagnostics(
-                root,
-                &[&manifest_path(map)],
-                &mut cache.bytes,
-                cancelled,
-                diagnostics,
-            )
-            .with_context(|| format!("prepare field {map}"))?,
-        );
-        Self::load(files, map, cache)
+        let library = resonance_content::library::Library::open(root, &[])?;
+        Self::capture(&library, map, cache, cancelled, diagnostics)
+            .with_context(|| format!("prepare field {map}"))
     }
 
-    /// Revisit shared cooked bytes while refreshing only editable source inputs.
-    pub fn refresh_scripts(&self, cache: &mut Cache) -> Result<Self> {
-        let mut package = self.clone();
-        (package.authored, package.services) =
-            Self::prepare_scripts(self.assets.map_id, &self.files, cache)?;
-        Ok(package)
-    }
-
-    fn prepare_scripts(
+    /// Follow the effective named documents once. Compilation may discover
+    /// additional declared resources; all are captured before installing Files.
+    pub fn capture(
+        library: &resonance_content::library::Library,
         map: u32,
-        files: &Files,
         cache: &mut Cache,
-    ) -> Result<(
-        Option<resonance_game::authored::FieldEvent>,
-        Arc<resonance_game::authored::FieldServices>,
-    )> {
-        let sources = files.script_sources()?;
+        cancelled: impl Fn() -> bool,
+        diagnostics: resonance_content::diagnostics::Diagnostics,
+    ) -> Result<Self> {
+        use resonance_content::{field::document, preparation, skit};
+        let mut snapshot = library.snapshot();
+        let (definition, assets) = document::capture_scene(&mut snapshot, map, &cancelled)?;
+        let sources = preparation::gameplay(&mut snapshot, &diagnostics, &cancelled)?;
+        preparation::ui(&mut snapshot, &diagnostics, &cancelled)?;
+        let skits = Arc::new(skit::document::capture(&mut snapshot, &cancelled)?);
+        resonance_game::screen_resources::capture(
+            &mut snapshot,
+            std::iter::once(assets.script.as_str())
+                .chain(skits.resources.values().map(|skit| skit.script.as_str())),
+            &diagnostics,
+            &cancelled,
+        )?;
+        let mut audio = cache.audio.capture_named(
+            &definition.audio,
+            &mut snapshot,
+            diagnostics.clone(),
+            &cancelled,
+        )?;
+        cache
+            .audio
+            .capture_skits(&mut audio, &skits, &mut snapshot, &cancelled)?;
+        for &id in &definition.movies {
+            ensure!(!cancelled(), "field preparation cancelled");
+            // Keep payloads streamable. Actual playback takes its own captured
+            // handle and probes the current container before decoding begins.
+            diagnostics.attempt(
+                "field movie",
+                resonance_content::movie::capture(&mut snapshot, id),
+            )?;
+        }
+        let PreparedScripts {
+            authored,
+            services,
+            project,
+        } = Self::prepare_from_sources(map, &sources, cache, |path| {
+            ensure!(!cancelled(), "field script preparation cancelled");
+            snapshot.read(path, preparation::ASSET_LIMIT)
+        })?;
+        let mut identity =
+            resonance_content::save_identity::Identity::capture(&mut snapshot, &cancelled)?;
+        if let Some(project) = project {
+            identity = project.bind_identity(&identity)?;
+        }
+        let fields = capture_fields(&mut snapshot)?;
+        let files = Arc::new(
+            Files::from_snapshot(snapshot, &mut cache.bytes, &cancelled, diagnostics)?
+                .with_identity(identity)?,
+        );
+        let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
+        let effects: resonance_content::effect::FieldEffects = files.json(&assets.effects)?;
+        effects.validate()?;
+        let attachments =
+            resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
+        ensure!(!cancelled(), "field preparation cancelled");
+        Ok(Self {
+            fields,
+            text: Arc::new(files.json("game/text.json")?),
+            script: files.read(&assets.script)?,
+            messages: files.read(&assets.messages)?,
+            assets,
+            data,
+            skits,
+            effects,
+            audio,
+            files,
+            authored,
+            services,
+            attachments,
+            movies: definition.movies,
+        })
+    }
+
+    fn prepare_from_sources(
+        map: u32,
+        sources: &std::collections::BTreeMap<String, String>,
+        cache: &mut Cache,
+        read: impl FnMut(&str) -> Result<Arc<[u8]>>,
+    ) -> Result<PreparedScripts> {
+        let mut resources = ScriptResources { read, font: None };
         let services = Arc::new(resonance_game::authored::FieldServices::prepare(
             &mut cache.service_scripts,
-            &sources,
-            &mut ScriptResources { files, font: None },
+            sources,
+            &mut resources,
         )?);
+        let project = cache
+            .scripts
+            .as_ref()
+            .map(|scripts| scripts.capture())
+            .transpose()?;
         let authored = cache
             .scripts
             .as_mut()
-            .map(|scripts| {
-                scripts.prepare(map, &sources, &mut ScriptResources { files, font: None })
+            .zip(project.as_ref())
+            .map(|(scripts, project)| {
+                scripts.prepare_captured(map, project, sources, &mut resources)
             })
             .transpose()?
             .flatten();
-        Ok((authored, services))
+        Ok(PreparedScripts {
+            authored,
+            services,
+            project,
+        })
     }
 
     pub fn queue_entry(&self, field: &mut FieldSession, kind: resonance_game::field::EntryKind) {
@@ -243,24 +270,30 @@ impl FieldPackage {
     }
 }
 
-struct ScriptResources<'a> {
-    files: &'a Files,
+struct ScriptResources<R> {
+    read: R,
     font: Option<resonance_content::font::BitmapFont>,
 }
-impl resonance_game::authored::Resources for ScriptResources<'_> {
+impl<R: FnMut(&str) -> Result<Arc<[u8]>>> ScriptResources<R> {
+    fn json<T: serde::de::DeserializeOwned>(&mut self, path: &str) -> Result<T> {
+        serde_json::from_slice(&(self.read)(path)?).with_context(|| format!("decode {path}"))
+    }
+}
+impl<R: FnMut(&str) -> Result<Arc<[u8]>>> resonance_game::authored::Resources
+    for ScriptResources<R>
+{
     fn asset(&mut self, reference: &resonance_game::authored::AssetReference) -> Result<()> {
         resonance_content::validate_asset_path(&reference.path)?;
-        self.files.read(&reference.path)?;
+        (self.read)(&reference.path)?;
         Ok(())
     }
     fn message(&mut self, text: &str) -> Result<()> {
         if self.font.is_none() {
-            let dialogue: resonance_content::font::DialogueArt =
-                self.files.json("ui/dialogue.json")?;
+            let dialogue: resonance_content::font::DialogueArt = self.json("ui/dialogue.json")?;
             dialogue.validate()?;
-            let font: resonance_content::font::BitmapFont = self.files.json(&dialogue.font)?;
+            let font: resonance_content::font::BitmapFont = self.json(&dialogue.font)?;
             font.validate()?;
-            self.files.read(&font.texture)?;
+            (self.read)(&font.texture)?;
             self.font = Some(font);
         }
         let font = self.font.as_ref().unwrap();
@@ -277,7 +310,7 @@ impl resonance_game::authored::Resources for ScriptResources<'_> {
         if ty == Type::I32 {
             return self.message("0123456789-");
         }
-        let text: resonance_content::session::GameText = self.files.json("game/text.json")?;
+        let text: resonance_content::session::GameText = self.json("game/text.json")?;
         match ty {
             Type::TextReference {
                 kind: TextReferenceKind::Character,

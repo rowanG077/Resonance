@@ -1,10 +1,8 @@
 """Read count-bounded authored bone labels and initialized body geometry."""
-import hashlib
-import json
 import math
-from pathlib import Path
 import re
 import struct
+from named_content import Snapshot
 
 
 def place_actor(state, actor, x, z):
@@ -73,10 +71,22 @@ def read_names(state, address, expected):
                 comparison="exact ordered Rust escape_ascii labels; no trimming or normalization")
 
 
-def read_initialized_body(state, actor, descriptor):
-    descriptor = Path(descriptor)
-    descriptor_bytes = descriptor.read_bytes()
-    bones = json.loads(descriptor_bytes)["body"]["skeleton"]["bones"]
+def read_initialized_body(state, actor, assets, *, enemy=None, character=None, costume=0):
+    content = Snapshot(assets)
+    if (enemy is None) == (character is None):
+        raise ValueError("initialized geometry requires one enemy or party identity")
+    if enemy is not None:
+        definition = content.enemy_artwork(enemy)
+    else:
+        costumes = content.resolve("battle/party/mappings.json", character, "mappings.json")
+        if costumes is None:
+            raise ValueError(f"unmapped party character: {character}")
+        path = content.resolve(costumes, costume, "party.json")
+        if path is None:
+            raise ValueError(f"unmapped party costume: {character}/{costume}")
+        definition = content.document(path, ("rig", "model", "null_motions", "wings", "victory"))
+    rig_path = definition["rig"]
+    bones = content.json(rig_path)["skeleton"]["bones"]
     if not all(math.isfinite(value) for value in [*actor["position"], *actor["center"], actor["heading"]]):
         raise ValueError("nonfinite initialized actor placement")
 
@@ -169,7 +179,7 @@ def read_initialized_body(state, actor, descriptor):
         effect_center=actor["center"], profile_address=hex(profile), model_scale=scale,
         model_address=hex(model), skeleton_address=hex(skeleton), displayed_matrices_address=hex(matrices),
         published_transform=published, current_transform=current,
-        descriptor=dict(path=str(descriptor), sha256=hashlib.sha256(descriptor_bytes).hexdigest()),
+        rig=dict(entry=rig_path, files={path: pin for path, (_, pin) in content.files.items()}),
         all_authored_names_verified=count, names=names, spheres=spheres)
 
 

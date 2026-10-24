@@ -1,0 +1,4 @@
+script library;
+// Skeleton: f919323c115e382303244e7fc5385aa4a8447465c8be86c95c55421023500189
+// Source owner: MAP/isb_t00/ISB_T00.BIN/16/0
+pub const Node000_EXS: string = "EXS";

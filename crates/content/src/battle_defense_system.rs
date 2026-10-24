@@ -9,7 +9,7 @@ pub const VERSION: u32 = 2;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
     pub version: u32,

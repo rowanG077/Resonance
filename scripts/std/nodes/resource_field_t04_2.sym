@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 65ecb5a696fc30e7c7211870cc47867ed91500b884d72496ee22626886aa452d
+// Source owner: FIELD/t04/2
+pub const Node000_Ocean_03: string = "!!!ocean_03";
+pub const Node001_Wave_02: string = "!!!wave_02";

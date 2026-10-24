@@ -1,185 +1,167 @@
-//! Bind archive IDs to shared native-rate PCM; callers choose the playback clock.
+//! Native speech archives and terminal WAV publication. No cooked archive or
+//! voice descriptor is read; source identity stays inside the importer.
 use super::hash_file;
 use anyhow::{Context, Result, ensure};
-use resonance_content::field_audio::{
-    Asset, Voice,
-    archive::{Member, MemberKind, VoiceArchive},
-};
+use resonance_content::field_audio::{Asset, Voice};
 use std::{
     fs,
-    io::{ErrorKind, Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom},
     path::Path,
 };
 
-/// Import provenance stays in library metadata, outside playable descriptors.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub(crate) struct LibraryVoice {
+pub(crate) struct PreparedVoice {
     pub voice: Voice,
+    #[cfg(test)]
     pub source_name: String,
+    #[cfg(test)]
     pub source_sha256: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Member {
+    pub name: String,
+    pub empty: bool,
+}
+
 pub(crate) struct Archive<'a> {
-    root: &'a Path,
+    output: &'a Path,
     pub source: Asset,
-    pub index: VoiceArchive,
+    pub members: Vec<Member>,
     file: fs::File,
     entries: Vec<crate::afs::Entry>,
 }
 
 impl<'a> Archive<'a> {
-    /// Only a missing source permits another disc; corrupt indexes never do.
+    /// Only an absent original source permits another disc. Corruption never does.
+    #[cfg(test)]
     pub fn source(
-        root: &'a Path,
+        output: &'a Path,
         extracted: &Path,
         additional: Option<&Path>,
         source: &str,
     ) -> Result<Self> {
-        resonance_content::validate_asset_path(source)?;
-        let path = extracted.join("files").join(source);
-        let owner = match fs::metadata(&path) {
-            Ok(_) => extracted,
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                let additional = additional.with_context(|| {
-                    format!(
-                        "voice archive {} is missing; supply the other extracted disc",
-                        path.display()
-                    )
-                })?;
-                ensure!(
-                    crate::disc_number(additional)? != crate::disc_number(extracted)?,
-                    "additional voice source must be the other disc"
-                );
-                additional
-            }
-            Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+        let files = extracted.join("files");
+        let owner = if crate::field_resources::find_path(&files, source)?.is_some() {
+            extracted
+        } else {
+            let additional = additional.with_context(|| {
+                format!("voice archive {source} is missing; supply the other extracted disc")
+            })?;
+            ensure!(
+                crate::disc_number(additional)? != crate::disc_number(extracted)?,
+                "additional voice source must be the other disc"
+            );
+            additional
         };
-        Self::open(root, owner, source)
+        Self::open(output, owner, source)
     }
 
-    pub fn open(root: &'a Path, extracted: &Path, source: &str) -> Result<Self> {
+    pub fn open(output: &'a Path, extracted: &Path, source: &str) -> Result<Self> {
         crate::disc_number(extracted)?;
         let files = extracted.join("files");
-        let path = crate::field_resources::resolve_path(&files, source)?;
-        let path = files.join(path);
+        let path = files.join(crate::field_resources::resolve_path(&files, source)?);
         let source = Asset {
             path: source.into(),
             sha256: hash_file(&path)?,
         };
         let mut file = fs::File::open(path)?;
-        let (index, entries) = directory(&mut file, &source.sha256)?;
+        let (members, entries) = directory(&mut file)?;
         Ok(Self {
-            root,
+            output,
             source,
-            index,
+            members,
             file,
             entries,
         })
     }
 
-    pub fn voice(&mut self, id: usize) -> Result<LibraryVoice> {
+    pub fn voice(&mut self, id: usize) -> Result<PreparedVoice> {
         let member = self
-            .index
             .members
             .get(id)
             .with_context(|| format!("voice {id} is absent from {}", self.source.path))?;
-        ensure!(
-            member.kind == MemberKind::Stream,
-            "voice {id} is an authored empty stream"
-        );
+        ensure!(!member.empty, "voice {id} is an authored empty stream");
         let entry = &self.entries[id];
         ensure!(
             entry.size <= 128 * 1024 * 1024,
             "voice member exceeds encoded read budget"
         );
         self.file.seek(SeekFrom::Start(entry.offset))?;
-        ensure!(entry.size >= 16, "truncated original voice header");
-        let mut bytes = [0; 16];
+        let mut bytes = vec![0; entry.size];
         self.file.read_exact(&mut bytes)?;
-        ensure!(
-            crate::media::library::is_stream(&bytes),
-            "invalid original voice header"
+        let path = format!(
+            "audio/speech/{}/{}",
+            crate::named::source_name(&self.source.path)?,
+            line_name(&member.name, id)?
         );
-        let sample_rate = crate::read::u32(&bytes, 8)?;
-        let frames = crate::read::u32(&bytes, 12)?;
-        let channels = u16::from(bytes[7]);
-        self.file.seek(SeekFrom::Start(entry.offset))?;
-        let source_hash = super::hash_reader((&mut self.file).take(entry.size as u64))?;
-        let metadata = &member.metadata;
-        let metadata: LibraryVoice = serde_json::from_slice(
-            &fs::read(self.root.join(metadata))
-                .with_context(|| format!("missing cooked voice {metadata}; rerun cook-all"))?,
-        )?;
-        let voice = &metadata.voice;
-        voice.validate()?;
-        ensure!(
-            metadata.source_name == member.name
-                && metadata.source_sha256 == source_hash
-                && voice.sample_rate == sample_rate
-                && voice.source_sample_rate == sample_rate
-                && voice.frames == frames
-                && voice.channels == channels,
-            "voice {id} final descriptor differs from its original stream"
-        );
-        ensure!(
-            voice.asset.path == format!("audio/streams/{source_hash}.wav"),
-            "voice {id} is not from the shared PCM library"
-        );
-        let path = self.root.join(&voice.asset.path);
-        ensure!(
-            hash_file(&path)? == voice.asset.sha256,
-            "cooked voice {id} digest mismatch"
-        );
-        let wave = hound::WavReader::open(path)?;
-        let spec = wave.spec();
-        ensure!(
-            wave.duration() == voice.frames
-                && spec.sample_rate == voice.source_sample_rate
-                && spec.channels == voice.channels
-                && spec.bits_per_sample == 16
-                && spec.sample_format == hound::SampleFormat::Int,
-            "cooked voice {id} PCM format differs from metadata"
-        );
-        Ok(metadata)
+        publish(self.output, &path, &member.name, &bytes)
     }
 }
 
-pub(crate) fn directory(
-    file: &mut fs::File,
-    source_hash: &str,
-) -> Result<(VoiceArchive, Vec<crate::afs::Entry>)> {
+pub(crate) fn line_name(name: &str, id: usize) -> Result<String> {
+    Ok(format!("{}-{id:05}.wav", crate::named::source_name(name)?))
+}
+
+pub(crate) fn directory(file: &mut fs::File) -> Result<(Vec<Member>, Vec<crate::afs::Entry>)> {
     let entries = crate::afs::index(file)?;
     let members = entries
         .iter()
-        .enumerate()
-        .map(|(id, entry)| {
+        .map(|entry| {
             let mut header = [0; 16];
             file.seek(SeekFrom::Start(entry.offset))?;
             file.read_exact(&mut header[..entry.size.min(16)])?;
-            let empty = entry.size >= 16
-                && crate::media::library::is_stream(&header)
-                && crate::read::u32(&header, 12)? == 0;
             Ok(Member {
                 name: entry.name.clone(),
-                metadata: format!("audio/archives/{source_hash}/{id}.json"),
-                kind: if empty {
-                    MemberKind::Empty
-                } else {
-                    MemberKind::Stream
-                },
+                empty: entry.size >= 16
+                    && super::library::is_stream(&header)
+                    && crate::read::u32(&header, 12)? == 0,
             })
         })
         .collect::<Result<_>>()?;
-    let index = VoiceArchive {
-        version: VoiceArchive::VERSION,
-        source_sha256: source_hash.into(),
-        members,
-    };
-    index.validate()?;
-    Ok((index, entries))
+    Ok((members, entries))
 }
 
-/// A nonempty silent stream still supplies the authored subtitle clock.
+pub(crate) fn publish(
+    output: &Path,
+    path: &str,
+    _name: &str,
+    bytes: &[u8],
+) -> Result<PreparedVoice> {
+    resonance_content::library::validate_path(path)?;
+    let format = super::library::stream_format(bytes)
+        .context("invalid signature or unsupported CRI voice encoding")?;
+    let target = output.join(path);
+    let parent = target.parent().context("voice target has no owner")?;
+    fs::create_dir_all(parent)?;
+    let temporary = tempfile::NamedTempFile::new_in(parent)?;
+    let (channels, rate, frames) =
+        super::field_audio::decode_voice_wave(temporary.path(), bytes, format)?;
+    ensure!(
+        frames == crate::read::u32(bytes, 12)?,
+        "decoded voice length differs from source"
+    );
+    let sha256 = hash_file(temporary.path())?;
+    crate::publication::install(temporary.path(), &target, &sha256)?;
+    crate::publication::export(&target)?;
+    Ok(PreparedVoice {
+        voice: Voice {
+            asset: Asset {
+                path: path.into(),
+                sha256,
+            },
+            frames,
+            sample_rate: rate,
+            source_sample_rate: rate,
+            channels,
+        },
+        #[cfg(test)]
+        source_name: _name.into(),
+        #[cfg(test)]
+        source_sha256: crate::digest(bytes),
+    })
+}
+
+/// Nonempty silence still supplies the authored subtitle clock.
 pub(crate) fn silent(root: &Path, voice: &Voice) -> Result<bool> {
     let mut wave = hound::WavReader::open(root.join(&voice.asset.path))?;
     for sample in wave.samples::<i16>() {
@@ -200,22 +182,23 @@ pub(crate) fn fixture(
     rate: u32,
     pcm: &[i16],
 ) -> Result<Voice> {
-    let mut encoded = vec![0; 16];
-    encoded[..8].copy_from_slice(&[
-        0x80,
-        0,
-        0,
-        12,
-        if name.ends_with(".adx") { 3 } else { 0x10 },
-        18,
-        4,
-        1,
-    ]);
+    // Real fixed-predictor ADX, so fixtures exercise the native decoder as well
+    // as source selection. The second member is an authored zero-frame stream.
+    let mut encoded = vec![0; 26 + pcm.len().div_ceil(32) * 18];
+    encoded[..8].copy_from_slice(&[0x80, 0, 0, 22, 2, 18, 4, 1]);
     encoded[8..12].copy_from_slice(&rate.to_be_bytes());
     encoded[12..16].copy_from_slice(&(pcm.len() as u32).to_be_bytes());
-    encoded.extend(pcm.iter().flat_map(|sample| sample.to_le_bytes()));
-    let source_sha256 = crate::digest(&encoded);
-    let mut empty = encoded[..16].to_vec();
+    encoded[18..20].copy_from_slice(&0x0300u16.to_be_bytes());
+    encoded[20..26].copy_from_slice(b"(c)CRI");
+    for (index, &sample) in pcm.iter().enumerate() {
+        ensure!(
+            (-8..=7).contains(&sample),
+            "fixture sample exceeds predictor-zero nibble"
+        );
+        let at = 26 + index / 32 * 18 + 2 + index % 32 / 2;
+        encoded[at] |= (sample as u8 & 15) << (4 * (1 - index % 2));
+    }
+    let mut empty = encoded[..26].to_vec();
     empty[12..16].fill(0);
     let names = 32 + encoded.len() + empty.len();
     let mut afs = vec![0; names + 96];
@@ -241,29 +224,7 @@ pub(crate) fn fixture(
         &[b'G', b'Q', b'S', b'E', b'A', b'F', disc - 1, 0],
     )?;
     crate::write_atomic(&extracted.join("files").join(source), &afs)?;
-    let path = format!("audio/streams/{source_sha256}.wav");
-    fs::create_dir_all(root.join("audio/streams"))?;
-    resonance_asset_writer::wav::write_pcm16(&root.join(&path), 1, rate, pcm.iter().copied())?;
-    let voice = Voice {
-        asset: Asset {
-            sha256: hash_file(&root.join(&path))?,
-            path,
-        },
-        frames: pcm.len() as u32,
-        sample_rate: rate,
-        source_sample_rate: rate,
-        channels: 1,
-    };
-    let metadata = LibraryVoice {
-        voice: voice.clone(),
-        source_name: name.into(),
-        source_sha256,
-    };
-    crate::write_atomic(
-        &root.join(format!("audio/archives/{}/0.json", crate::digest(&afs))),
-        &serde_json::to_vec(&metadata)?,
-    )?;
-    Ok(voice)
+    Ok(Archive::open(root, extracted, source)?.voice(0)?.voice)
 }
 
 #[cfg(test)]
@@ -277,155 +238,145 @@ mod tests {
         let source = "EV/test.afs";
         let primary = root.join("disc1");
         let additional = root.join("disc2");
-        let expected = fixture(root, &primary, 1, source, "test.ahx", 32000, &[0; 4])?;
-        fixture(root, &additional, 2, source, "test.ahx", 32000, &[0; 8])?;
-        let mut archive = Archive::source(root, &primary, Some(&additional), source)?;
-        let mut secondary = Archive::source(root, &additional, None, source)?;
+        let first = root.join("first");
+        let second = root.join("second");
+        let fallback = root.join("fallback");
+        let expected = fixture(&first, &primary, 1, source, "test.adx", 32000, &[0; 4])?;
+        fixture(&second, &additional, 2, source, "test.adx", 32000, &[0; 8])?;
+        let mut archive = Archive::source(&first, &primary, Some(&additional), source)?;
+        let mut secondary = Archive::source(&second, &additional, None, source)?;
         assert_eq!(secondary.voice(0)?.voice.frames, 8);
         let reverse = "EV/first-disc-only.afs";
-        fixture(root, &primary, 1, reverse, "first.ahx", 32000, &[0; 4])?;
-        assert_eq!(
-            Archive::source(root, &additional, Some(&primary), reverse)?
-                .voice(0)?
-                .source_name,
-            "first.ahx"
-        );
+        fixture(
+            &first,
+            &primary,
+            1,
+            reverse,
+            "first.adx",
+            32000,
+            &[1, -1, 0, 0],
+        )?;
+        let voice = Archive::source(&fallback, &additional, Some(&primary), reverse)?.voice(0)?;
+        assert_eq!(voice.source_name, "first.adx");
+        assert!(!silent(&fallback, &voice.voice)?);
         assert_ne!(archive.source.sha256, secondary.source.sha256);
         let original = primary.join("files").join(source);
         let alias = "EV/alias.afs";
         crate::write_atomic(&additional.join("files").join(alias), &fs::read(&original)?)?;
-        let mut aliased = Archive::source(root, &additional, None, alias)?;
+        let mut aliased = Archive::source(&first, &additional, None, alias)?;
         assert_eq!(aliased.source.path, alias);
-        assert_eq!(
-            serde_json::to_value(&aliased.index)?,
-            serde_json::to_value(&archive.index)?
-        );
-        assert!(!root.join("sources.json").exists());
+        assert_eq!(aliased.members, archive.members);
         let bound = archive.voice(0)?.voice;
         assert_eq!(
             serde_json::to_value(&bound)?,
             serde_json::to_value(&expected)?
         );
-        assert!(silent(root, &bound)?);
-        assert!(archive.voice(1).is_err()); // Original zero-frame member.
+        assert_eq!(bound.asset.path, "audio/speech/ev-test/test-00000.wav");
+        assert!(silent(&first, &bound)?);
+        assert_ne!(aliased.voice(0)?.voice.asset.path, bound.asset.path);
+        assert!(archive.voice(1).is_err());
         assert!(archive.voice(2).is_err());
-        // A final descriptor failure cannot switch to the other disc.
-        let metadata = root.join(&archive.index.members[0].metadata);
-        let saved = fs::read(&metadata)?;
-        fs::remove_file(&metadata)?;
-        assert!(
-            Archive::source(root, &primary, Some(&additional), source)?
-                .voice(0)
-                .is_err()
-        );
-        let mut changed: LibraryVoice = serde_json::from_slice(&saved)?;
-        changed.voice.frames += 1;
-        fs::write(&metadata, serde_json::to_vec(&changed)?)?;
-        assert!(archive.voice(0).is_err());
-        changed = serde_json::from_slice(&saved)?;
-        changed.source_sha256 = "0".repeat(64);
-        fs::write(&metadata, serde_json::to_vec(&changed)?)?;
-        assert!(archive.voice(0).is_err());
-        fs::write(&metadata, &saved)?;
+        // The next cook reads the original source again, never an old descriptor.
+        fs::remove_file(first.join(&bound.asset.path))?;
+        assert_eq!(archive.voice(0)?.voice.frames, 4);
         fs::write(&original, b"changed")?;
-        assert!(Archive::source(root, &primary, Some(&additional), source).is_err());
+        assert!(Archive::source(&first, &primary, Some(&additional), source).is_err());
         fs::remove_file(&original)?;
         assert_eq!(
-            Archive::source(root, &primary, Some(&additional), source)?
-                .source
-                .sha256,
-            secondary.source.sha256
+            Archive::source(&fallback, &primary, Some(&additional), source)?
+                .voice(0)?
+                .voice
+                .frames,
+            8
         );
-        assert!(Archive::source(root, &primary, None, source).is_err());
+        assert!(Archive::source(&fallback, &primary, None, source).is_err());
         fs::create_dir(&original)?;
-        assert!(Archive::source(root, &primary, Some(&additional), source).is_err());
+        assert!(Archive::source(&fallback, &primary, Some(&additional), source).is_err());
         fs::remove_dir(&original)?;
         for boot in [b"GQSEAF\0\0", b"GQSEAF\x01\x01", b"GQSPAF\x01\0"] {
             fs::write(additional.join("sys/boot.bin"), boot)?;
-            assert!(Archive::source(root, &primary, Some(&additional), source).is_err());
+            assert!(Archive::source(&fallback, &primary, Some(&additional), source).is_err());
         }
-        fs::write(root.join(&bound.asset.path), b"changed PCM")?;
-        assert!(aliased.voice(0).is_err());
         Ok(())
     }
+}
 
-    #[test]
-    #[ignore = "requires both extracted discs and cooked voice indexes; no codecs or playback"]
-    fn original_voice_indexes_preserve_all_member_order_and_share_source_aliases() -> Result<()> {
-        use std::{
-            collections::BTreeSet,
-            io::{Read, Seek, SeekFrom},
-        };
-        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let root = std::env::var_os("RESONANCE_COOKED")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| local.join("all-assets"));
-        let sources = super::super::sound_library::source_index(&root)?;
-        let mut indexes = BTreeSet::new();
-        let mut count = 0;
-        for (label, outputs) in sources {
-            if !outputs
-                .iter()
-                .any(|path| path.starts_with("audio/archives/") && path.ends_with("/archive.json"))
-            {
-                continue;
-            }
-            let (disc, source) = label.split_once('/').context("invalid source label")?;
-            ensure!(matches!(disc, "disc1" | "disc2"), "invalid source disc");
-            let extracted = local.join("extracted").join(disc);
-            let archive = Archive::open(&root, &extracted, source)?;
-            let fresh = indexes.insert(VoiceArchive::path(&archive.index.source_sha256)?);
-            let mut file = fs::File::open(
-                local
-                    .join("extracted")
-                    .join(disc)
-                    .join("files")
-                    .join(source),
-            )?;
-            let entries = crate::afs::index(&mut file)?;
-            assert_eq!(archive.index.members.len(), entries.len(), "{label}");
-            for (member, entry) in archive.index.members.iter().zip(entries) {
-                assert_eq!(member.name, entry.name, "{label}");
-                let mut header = [0; 16];
-                file.seek(SeekFrom::Start(entry.offset))?;
-                file.read_exact(&mut header[..entry.size.min(16)])?;
-                let empty = entry.size >= 16
-                    && crate::media::library::is_stream(&header)
-                    && crate::read::u32(&header, 12)? == 0;
-                assert_eq!(
-                    member.kind == MemberKind::Empty,
-                    empty,
-                    "{label}/{}",
-                    member.name
-                );
-                if fresh {
-                    let metadata = fs::read(root.join(&member.metadata))?;
-                    if empty {
-                        let value: serde_json::Value = serde_json::from_slice(&metadata)?;
-                        assert_eq!(value["frames"], 0);
-                        assert_eq!(value["silence"], true);
-                    } else {
-                        let metadata: LibraryVoice = serde_json::from_slice(&metadata)?;
-                        let voice = metadata.voice;
-                        voice.validate()?;
-                        assert_eq!(metadata.source_name, member.name);
-                        assert_eq!(voice.frames, crate::read::u32(&header, 12)?);
-                        assert_eq!(voice.source_sample_rate, crate::read::u32(&header, 8)?);
-                        assert_eq!(voice.channels, u16::from(header[7]));
-                        let wave = hound::WavReader::open(root.join(&voice.asset.path))?;
-                        assert_eq!(wave.duration(), voice.frames);
-                        assert_eq!(wave.spec().sample_rate, voice.source_sample_rate);
-                        assert_eq!(wave.spec().channels, voice.channels);
+#[test]
+#[ignore = "requires both original discs; decodes every native speech archive to current WAV owners"]
+fn original_voice_archives_preserve_member_order_empty_slots_and_pcm_dimensions() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+    let output = tempfile::tempdir()?;
+    let mut count = 0;
+    let mut owners = std::collections::BTreeMap::new();
+    for disc in [1, 2] {
+        let extracted = local.join(format!("disc{disc}"));
+        let files = extracted.join("files");
+        let mut pending = vec![files.clone()];
+        while let Some(directory) = pending.pop() {
+            for entry in fs::read_dir(directory)? {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    pending.push(entry.path());
+                    continue;
+                }
+                if !entry.file_type()?.is_file() {
+                    continue;
+                }
+                let mut file = fs::File::open(entry.path())?;
+                let mut magic = [0; 4];
+                if file.read(&mut magic)? != 4 || &magic != b"AFS\0" {
+                    continue;
+                }
+                let source = crate::relative_source_path(&files, &entry.path())?;
+                let owner = output.path().join(format!("disc-{disc}"));
+                let mut archive = Archive::open(&owner, &extracted, &source)?;
+                file.seek(SeekFrom::Start(0))?;
+                let entries = crate::afs::index(&mut file)?;
+                assert_eq!(archive.members.len(), entries.len(), "{source}");
+                for (id, entry) in entries.iter().enumerate() {
+                    assert_eq!(archive.members[id].name, entry.name, "{source}/{id}");
+                    file.seek(SeekFrom::Start(entry.offset))?;
+                    let mut header = [0; 16];
+                    file.read_exact(&mut header)?;
+                    let frames = crate::read::u32(&header, 12)?;
+                    assert_eq!(archive.members[id].empty, frames == 0);
+                    if frames == 0 {
+                        assert!(archive.voice(id).is_err());
+                        continue;
+                    }
+                    let decoded = archive.voice(id)?;
+                    let expected_path = format!(
+                        "audio/speech/{}/{}",
+                        crate::named::source_name(&source)?,
+                        line_name(&entry.name, id)?
+                    );
+                    assert_eq!(decoded.voice.asset.path, expected_path);
+                    let wave = hound::WavReader::open(owner.join(&expected_path))?;
+                    assert_eq!(
+                        (
+                            wave.duration(),
+                            wave.spec().sample_rate,
+                            wave.spec().channels
+                        ),
+                        (frames, crate::read::u32(&header, 8)?, u16::from(header[7]))
+                    );
+                    let key = (source.to_ascii_lowercase(), id);
+                    if let Some(previous) = owners.insert(
+                        key,
+                        (
+                            decoded.source_sha256.clone(),
+                            decoded.voice.asset.sha256.clone(),
+                        ),
+                    ) {
+                        if previous.0 == decoded.source_sha256 {
+                            assert_eq!(previous.1, decoded.voice.asset.sha256);
+                        }
                     }
                 }
+                count += 1;
             }
-            count += 1;
         }
-        assert_eq!(count, 21);
-        assert!(
-            indexes.len() < count,
-            "identical source archives should share an index"
-        );
-        Ok(())
     }
+    assert_eq!(count, 21);
+    Ok(())
 }

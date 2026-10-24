@@ -1,11 +1,10 @@
 //! Preparation resolves source bank identities and rejects invalid gameplay data.
 use super::*;
-use resonance_content::battle_projectile::Table;
 
 #[test]
 fn preparation_binds_gameplay_and_distinct_effect_banks() -> Result<()> {
     let files = files();
-    let mut table: Table = files.json("test-projectiles.json")?;
+    let mut table = resonance_content::battle_rules::projectiles(&files)?;
     let row = &mut table.records[0];
     row.birth_effect.bank = 2;
     row.contact.clashes = true;
@@ -48,7 +47,7 @@ fn preparation_binds_gameplay_and_distinct_effect_banks() -> Result<()> {
 #[test]
 fn preparation_rejects_unsupported_gameplay() -> Result<()> {
     let files = files();
-    let table: Table = files.json("test-projectiles.json")?;
+    let table = resonance_content::battle_rules::projectiles(&files)?;
     let hit = fixture_hit();
     let bank = fixture_effect(&files, vec![])?;
     for edit in [

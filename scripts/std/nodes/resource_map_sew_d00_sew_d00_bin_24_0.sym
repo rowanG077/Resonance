@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 881d69af53ba3ace4a64c5e6d44921eaeafc4df38317ce2ae254a39634d7f5bc
+// Source owner: MAP/sew_d00/SEW_D00.BIN/24/0
+pub const Node000_Kibako_Path: string = "Kibako_Path";

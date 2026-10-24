@@ -1,0 +1,4 @@
+script library;
+// Skeleton: aa4ba403ec64a6d050346d7da04ebb3a89bad28b6c0260f77fcfb30e0ddf671a
+// Source owner: MAP/hea_i02/HEA_I02.BIN/2
+pub const Node000_Glass: string = "glass";

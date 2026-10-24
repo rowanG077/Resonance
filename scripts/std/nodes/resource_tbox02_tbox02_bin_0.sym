@@ -1,0 +1,5 @@
+script library;
+// Skeleton: e8e2b41153c3cf6f25023300bd1d1e950b1b899bd093a092c138ffa6c8accd8c
+// Source owner: tbox02/TBOX02.BIN/0
+pub const Node000_Box: string = "box";
+pub const Node001_Futa: string = "futa";

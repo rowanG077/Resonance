@@ -9,13 +9,11 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use resonance_content::{HEIGHT, MovieAsset, WIDTH};
-use resonance_media::{MovieDecoder, MovieEvent, MovieStream, VideoFrame};
+use resonance_content::{HEIGHT, WIDTH};
+use resonance_media::{Format, MovieDecoder, MovieEvent, MovieStream, VideoFrame};
 use resonance_playback::Decodable;
 use std::{
     collections::VecDeque,
-    fs,
-    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -45,7 +43,8 @@ pub(super) struct Playback {
     pub active: bool,
     pub completed_naturally: bool,
     pub resource: Option<u32>,
-    pub asset: Option<MovieAsset>,
+    pub asset: Option<Format>,
+    pub final_frame: Option<u32>,
     pub presented_frame: Option<u32>,
     pub presented_timestamp: Option<Duration>,
     decoder: Option<MovieDecoder>,
@@ -72,16 +71,21 @@ pub(super) struct Prepared {
     events: VecDeque<MovieEvent>,
 }
 impl Prepared {
-    pub(super) fn load(
-        root: &Path,
-        asset: &MovieAsset,
+    pub(super) fn capture(
+        snapshot: &mut resonance_content::library::Snapshot,
+        id: u32,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let decoder = MovieDecoder::open(&root.join(&asset.path), asset.clone())?;
+        ensure!(!cancelled(), "movie preparation cancelled");
+        Self::prepare(MovieDecoder::load(snapshot, id)?, cancelled)
+    }
+
+    fn prepare(decoder: MovieDecoder, cancelled: impl Fn() -> bool) -> Result<Self> {
+        let format = decoder.format();
         let mut events = VecDeque::new();
         let (mut video, mut audio, mut chunks) = (0, 0, 0);
-        let video_target = (asset.frames as usize).min(resonance_media::VIDEO_LOOKAHEAD);
-        let audio_target = asset.audio_frames.min(u64::from(asset.sample_rate) / 2) as usize * 2;
+        let video_target = resonance_media::VIDEO_LOOKAHEAD;
+        let audio_target = u64::from(format.sample_rate) as usize;
         let started = Instant::now();
         loop {
             ensure!(!cancelled(), "movie preparation cancelled");
@@ -102,13 +106,11 @@ impl Prepared {
                 chunks += 1;
                 events.push_back(MovieEvent::Audio(chunk));
             }
-            if video >= video_target && audio >= audio_target {
+            if (video >= video_target || decoder.video_complete())
+                && (audio >= audio_target || decoder.audio_complete())
+            {
                 break;
             }
-            ensure!(
-                !decoder.video_complete() && !decoder.audio_complete(),
-                "movie ended during preparation"
-            );
             ensure!(chunks < 64, "movie exceeds startup buffer limits");
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -117,18 +119,24 @@ impl Prepared {
 }
 
 impl Playback {
+    pub(super) fn video_timestamps(&self) -> Result<Vec<Duration>> {
+        self.decoder
+            .as_ref()
+            .context("movie is no longer available for capture planning")?
+            .video_timestamps()
+    }
+
     /// Reuse the movie surface for a field-script request. The decoder and
     /// audio queues belong to this playback; the token belongs to the scene.
     pub(super) fn start_script_movie(
         &mut self,
         resource: u32,
         prepared: Prepared,
-        asset: MovieAsset,
         completion: resonance_events::Operation,
         images: &mut Assets<Image>,
     ) -> Result<()> {
         ensure!(!self.active, "another movie is still playing");
-        asset.validate()?;
+        let asset = prepared.decoder.format();
         // The preceding movie's final image must not flash while this one
         // prebuffers. Its surface remains black until the first decoded frame.
         // A resized Image gets a new GPU texture, but an existing material can
@@ -148,7 +156,10 @@ impl Playback {
         };
         Ok(())
     }
-    pub fn load(root: &Path, options: &RunOptions) -> Result<Self> {
+    pub fn load(
+        library: &resonance_content::library::Library,
+        options: &RunOptions,
+    ) -> Result<Self> {
         if options.skip_intro
             || matches!(options.capture_at, Some(crate::CaptureAt::TitleTick(_)))
             || options.replay.is_some()
@@ -156,18 +167,14 @@ impl Playback {
         {
             return Ok(Self::default());
         }
-        let asset: MovieAsset =
-            serde_json::from_slice(&fs::read(root.join("movies/0.json")).context(
-                "missing opening movie; run resonance-import cook-all or use --skip-intro",
-            )?)?;
-        asset.validate()?;
-        let path = root.join(&asset.path);
-        let decoder = Some(MovieDecoder::open(&path, asset.clone())?);
+        let mut snapshot = library.snapshot();
+        let decoder = MovieDecoder::load(&mut snapshot, 0).context("prepare opening movie")?;
+        let asset = decoder.format();
         Ok(Self {
             active: true,
             resource: Some(0),
             asset: Some(asset),
-            decoder,
+            decoder: Some(decoder),
             ..Default::default()
         })
     }
@@ -396,7 +403,7 @@ fn advance(
     let asset = movie
         .asset
         .as_ref()
-        .context("active movie has no manifest")?;
+        .context("active movie has no prepared format")?;
     if movie.stream.is_none() {
         let decoder = movie.decoder.take().context("movie decoder missing")?;
         let stream = MovieStream::start(
@@ -442,11 +449,19 @@ fn advance(
         };
         movie.frames.push_back(frame);
     }
+    if stream.video_complete() {
+        movie.final_frame = movie
+            .frames
+            .back()
+            .map(|frame| frame.index)
+            .or_else(|| latest.as_ref().map(|frame| frame.index))
+            .or(movie.presented_frame);
+    }
     movie.ended = stream.complete();
     if movie.audio_entity.is_none() {
         let buffered = movie.buffer.buffered();
-        if movie.frames.len() >= (asset.frames as usize).min(resonance_media::VIDEO_LOOKAHEAD)
-            && buffered >= asset.audio_frames.min(u64::from(asset.sample_rate) / 2)
+        if (movie.frames.len() >= resonance_media::VIDEO_LOOKAHEAD || stream.video_complete())
+            && (buffered >= u64::from(asset.sample_rate) / 2 || movie.buffer.finished())
         {
             let audio = MovieAudio {
                 buffer: movie.buffer.clone(),
@@ -534,8 +549,8 @@ impl Playback {
         }
         match (position, self.asset.as_ref()) {
             (Some(position), Some(asset)) => Some(
-                (position.as_micros() / u128::from(asset.frame_micros))
-                    .min(u128::from(asset.frames - 1)) as u32,
+                (position.as_nanos() / asset.frame_duration.as_nanos())
+                    .min(u128::from(self.final_frame.unwrap_or(u32::MAX))) as u32,
             ),
             _ => self.presented_frame,
         }

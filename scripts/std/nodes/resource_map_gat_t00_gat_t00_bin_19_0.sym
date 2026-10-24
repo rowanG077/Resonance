@@ -1,0 +1,4 @@
+script library;
+// Skeleton: f8087693028634e62e12a7e6e911cdd6721941d02aa5471b1fb0aa35a6541538
+// Source owner: MAP/gat_t00/GAT_T00.BIN/19/0
+pub const Node000_Shining01: string = "shining01";

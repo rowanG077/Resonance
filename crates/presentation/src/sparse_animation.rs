@@ -29,7 +29,7 @@ impl AssetLoader for Loader {
         Ok(Clip(Arc::new(motion)))
     }
     fn extensions(&self) -> &[&str] {
-        &["motion"]
+        &["motion.json"]
     }
 }
 

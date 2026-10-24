@@ -19,35 +19,34 @@ fn session_data() -> Arc<SessionData> {
 
 fn menu_files() -> Arc<resonance_content::prepared::Files> {
     Arc::new(
-        resonance_content::prepared::Files::load(
-            &asset_root(),
-            &["fields/map-340.preload.json"],
+        resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(&asset_root(), &[]).unwrap(),
+            &[340],
             &mut Default::default(),
             || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
         )
         .unwrap(),
     )
 }
 
 fn classroom(mut entry: FieldEntry) -> FieldSession {
-    let root = asset_root();
     // This device-free fixture acknowledges playback in skip_movie(). It must
     // still bind the opening movie just like a prepared field package does.
-    cooked::<resonance_content::MovieAsset>("movies/1.json")
-        .validate()
-        .unwrap();
-    entry.available_movies.insert(1);
     entry.menu_files = menu_files();
+    let mut snapshot = entry.menu_files.library().unwrap().snapshot();
+    resonance_content::movie::capture(&mut snapshot, 1).unwrap();
+    entry.available_movies.insert(1);
     entry.menu_data = Some(Arc::new(MenuData::load(&entry.menu_files).unwrap()));
     entry.text = Arc::new(cooked("game/text.json"));
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = entry.menu_files.field(340).unwrap();
     entry.attachments = resonance_game::field::attachments::prepare(&assets, |path| {
-        Ok(fs::read(root.join(path))?.into())
+        Ok(entry.menu_files.read(path)?)
     })
     .unwrap();
     FieldSession::enter(
-        &fs::read(root.join(&assets.script)).unwrap(),
-        cooked(&assets.messages),
+        &entry.menu_files.read(&assets.script).unwrap(),
+        entry.menu_files.json(&assets.messages).unwrap(),
         &assets,
         entry,
     )
@@ -170,8 +169,8 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     use resonance_game::menu::{Menu, Page};
     let root = asset_root();
     let data = session_data();
-    let menus: Arc<MenuData> = Arc::new(cooked("game/menu-data.json"));
-    let assets: FieldAssets = cooked("fields/map-332.json");
+    let menus: Arc<MenuData> = Arc::new(common::menu());
+    let assets: FieldAssets = common::field(332);
     let enter = |mut entry: FieldEntry| {
         entry.menu_data = Some(menus.clone());
         FieldSession::enter(
@@ -641,7 +640,7 @@ fn customization_drafts_commit_and_confirm_destructive_changes() {
 #[ignore = "requires locally cooked GQSEAF recipes; no devices"]
 fn rested_luck_survives_save_and_improves_cooking_odds() {
     let data: SessionData = cooked("game/session-data.json");
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     let mut hungry = Party::new(&data, Default::default()).unwrap();
     let luck = |party: &Party| {
         party
@@ -699,7 +698,7 @@ fn cooking_consumption_recovery_training_and_recipe_scripts() {
     use resonance_events::{EventRuntime, GameWorld, ResourceLibrary, party::CookingError};
     use symphonia_script::{NativeCall, Program, Width};
     let data = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
@@ -1108,7 +1107,7 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
         (record.level, record.recorded_at, record.tick),
         (Some(level), Some(1_700_000_000), 101)
     );
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let restored = classroom(saved.entry(&assets, data, [340].into()).unwrap());
     assert_eq!(
         restored.events.world.event_records[&4].recorded_at,
@@ -1121,7 +1120,7 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
 fn strategy_edit_pauses_the_field_and_survives_reload() {
     use resonance_game::menu::Page;
     let data: Arc<SessionData> = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.set_strategy(&menus.strategy, 0, 0, 1, None).unwrap();
     let mut session = classroom(classroom_entry(&data, party, 2000));
@@ -1162,7 +1161,7 @@ fn strategy_edit_pauses_the_field_and_survives_reload() {
     }
     assert!(session.player_has_control());
     let saved = roundtrip::<FieldCheckpoint>(&session.checkpoint().unwrap());
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
@@ -1175,7 +1174,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     use resonance_events::party::TechniqueShortcut;
     use resonance_game::menu::{Menu, Page, Resources, techniques::Focus};
     let data = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3, 4];
@@ -1257,7 +1256,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert!(session.player_has_control());
     let saved = session.checkpoint().unwrap();
     let saved = roundtrip::<FieldCheckpoint>(&saved);
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
@@ -1433,7 +1432,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
 fn equipment_preview_optimization_and_menu_transfers_survive_reload() {
     use resonance_game::menu::{Page, equipment::Focus};
     let data: Arc<SessionData> = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
     for id in [155, 156, 275, 454] {
@@ -1540,7 +1539,7 @@ fn equipment_preview_optimization_and_menu_transfers_survive_reload() {
     assert!(session.player_has_control());
     let saved = session.checkpoint().unwrap();
     let saved = roundtrip::<FieldCheckpoint>(&saved);
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
@@ -1554,7 +1553,7 @@ fn equipment_preview_optimization_and_menu_transfers_survive_reload() {
 fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     use resonance_game::menu::{Page, items::Focus};
     let data: Arc<SessionData> = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3, 4, 5];
@@ -1717,7 +1716,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     settle_menu_motion(&mut session);
     assert!(session.player_has_control());
     let checkpoint: FieldCheckpoint = roundtrip(&session.checkpoint().unwrap());
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let loaded = classroom(
         checkpoint
             .clone()
@@ -2166,7 +2165,7 @@ fn rename_gem_preserves_names_through_cancel_save_and_dialogue() {
 fn key_item_menu(item: u16) -> resonance_game::menu::Menu {
     use resonance_game::menu::{Menu, Page, Resources};
     let data = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     menus.validate().unwrap();
     let mut session = classroom(classroom_entry(
         &data,
@@ -2506,7 +2505,7 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     use resonance_content::menu_data::Element;
     use resonance_game::menu::Page;
     let data: Arc<SessionData> = session_data();
-    let menus: MenuData = cooked("game/menu-data.json");
+    let menus: MenuData = common::menu();
     menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
     let item = |name| {
@@ -2640,7 +2639,7 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     settle_menu_motion(&mut session);
     assert!(session.player_has_control());
     let saved: FieldCheckpoint = roundtrip(&session.checkpoint().unwrap());
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let loaded = classroom(
         saved
             .clone()
@@ -2762,7 +2761,7 @@ fn advance_to(
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn skit_playback_suspends_field_and_persists_viewed_state() {
-    let skits: Arc<resonance_content::skit::SkitCatalog> = Arc::new(cooked("game/skits.json"));
+    let skits = Arc::new(common::skits());
     let data: Arc<SessionData> = session_data();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
@@ -2822,7 +2821,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
         "required party member is absent"
     );
 
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let mut entry = checkpoint
         .entry(&assets, data.clone(), [340].into())
         .unwrap();
@@ -2847,11 +2846,12 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
         restored.skit_prompt().is_some(),
         "a failed start must retain the notification"
     );
-    let files = resonance_content::prepared::Files::load(
-        &asset_root(),
-        &["fields/map-340.preload.json"],
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&asset_root(), &[]).unwrap(),
+        &[340],
         &mut Default::default(),
         || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
     )
     .unwrap();
     restored.prepare_skits(&files).unwrap();
@@ -3058,7 +3058,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
         );
         assert_eq!(session.events.world.party.as_ref().unwrap().items[&37], 1);
         let checkpoint = session.checkpoint().unwrap();
-        let assets: FieldAssets = cooked("fields/map-340.json");
+        let assets: FieldAssets = common::field(340);
         let mut restored = classroom(
             checkpoint
                 .entry(&assets, data.clone(), [340].into())
@@ -3091,7 +3091,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
 fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
     use resonance_events::{EventRuntime, GameWorld, ResourceLibrary};
     let root = asset_root();
-    let catalog: Arc<resonance_content::skit::SkitCatalog> = Arc::new(cooked("game/skits.json"));
+    let catalog = Arc::new(common::skits());
     let text: Arc<resonance_content::session::GameText> = Arc::new(cooked("game/text.json"));
     let mut failures = Vec::new();
     let data: Arc<SessionData> = session_data();
@@ -3541,7 +3541,7 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
-    let assets: FieldAssets = cooked("fields/map-340.json");
+    let assets: FieldAssets = common::field(340);
     let data: Arc<SessionData> = session_data();
     for stay in [false, true] {
         let mut session = classroom(FieldEntry {
@@ -3721,13 +3721,27 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets"]
 fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
-    let audio: resonance_content::field_audio::FieldAudio = cooked("fields/map-340-audio.json");
+    let library = resonance_content::library::Library::open(&asset_root(), &[]).unwrap();
+    let mut snapshot = library.snapshot();
+    let path = snapshot.field(340).unwrap();
+    let field: resonance_content::field::document::Definition =
+        snapshot.json(&path, 1024 * 1024).unwrap();
+    let audio: resonance_content::field_audio::document::Definition =
+        snapshot.json(&field.audio, 16 * 1024 * 1024).unwrap();
+    let resolved = audio.resolve(&mut snapshot).unwrap();
     let mut session = classroom(Default::default());
     session.events.world.voice_durations = Arc::new(
-        audio
+        resolved
             .voices
             .iter()
             .map(|(&id, v)| {
+                let bytes = snapshot.read(&v.path, 129 * 1024 * 1024).unwrap();
+                let v = resonance_content::field_audio::Voice::from_wave(
+                    &v.path,
+                    v.sample_rate,
+                    &bytes,
+                )
+                .unwrap();
                 (
                     id,
                     (f64::from(v.frames) / f64::from(v.sample_rate)
@@ -3956,7 +3970,7 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
 fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
     let root = asset_root();
     let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
-    let assets: FieldAssets = cooked("fields/map-211.json");
+    let assets: FieldAssets = common::field(211);
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 9, 4, 3, 5];
     party.travel.saved_formation = party.formation.clone();
@@ -3987,7 +4001,7 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
         &assets,
         FieldEntry {
             data: Some(data),
-            menu_data: Some(Arc::new(cooked("game/menu-data.json"))),
+            menu_data: Some(Arc::new(common::menu())),
             text: Arc::new(cooked("game/text.json")),
             persistent,
             position: [0., -1500., -100.],

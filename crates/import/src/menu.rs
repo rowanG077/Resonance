@@ -1,5 +1,4 @@
 //! Prepare player menus from original tables and shared model readers.
-use crate::write_atomic;
 use anyhow::{Context, Result, ensure};
 use recipe::Bank;
 use resonance_content::menu::{MenuArt, MenuSprites, MenuTexture, Sprite, WindowArt};
@@ -20,67 +19,33 @@ mod recipe;
 mod shops;
 pub use shops::{ShopInventoryCheck, ShopInventoryValidation, ShopItemCheck, validate_shops};
 
-/// Republish menu artwork, rules and labels while reusing converted monster previews.
-/// Every gameplay record is rebuilt from the source tables; no old rule schema is read.
-pub fn publish_metadata(
-    extracted: &Path,
-    prepared: &Path,
-    output: &Path,
-) -> Result<(resonance_content::menu_data::MenuData, Vec<String>)> {
-    let executable = std::fs::read(extracted.join("sys/main.dol"))?;
-    let catalogues = crate::all_assets::Catalogues::read(&executable)?;
-    let mut tables = catalogues.menu()?;
-    tables.data.presentation.monsters = Some(crate::monsters::publish_metadata(
-        extracted, prepared, output,
-    )?);
-    tables.data.validate()?;
-    let path = "game/menu-data.json";
-    write_atomic(
-        &output.join(path),
-        &serde_json::to_vec_pretty(&tables.data)?,
-    )?;
-    let mut paths = vec![
-        path.into(),
-        crate::session::cook(&executable, &catalogues.menu, output)?,
-        crate::session::cook_text(&executable, &catalogues.menu, output)?,
-        crate::arte::publish(&catalogues.menu.arte, output)?,
-    ];
-    let crate::font::PreparedDialogue { font, art } = crate::font::prepare(extracted, output)?;
-    paths.extend([
-        "ui/dialogue.json".into(),
-        "ui/story-subtitles.json".into(),
-        art.font,
-        art.cursor.path,
-        font.texture,
-    ]);
-    paths.extend(art.textures.into_iter().map(|texture| texture.path));
-    paths.extend(cook_art(
-        extracted,
-        output,
-        &executable,
-        tables.artwork,
-        tables.data.items.len(),
-    )?);
-    Ok((tables.data, paths))
+pub(crate) struct Publication {
+    pub paths: Vec<String>,
+    pub enemies: Vec<String>,
 }
 
-pub(crate) fn cook(
+pub(crate) fn publish(
     extracted: &Path,
     output: &Path,
     executable: &[u8],
     catalogues: &crate::all_assets::Catalogues,
     battle_sources: &crate::source_assets::Sources,
     usual: &[u8],
-) -> Result<()> {
+    shared_effects: &crate::battle_effect::SharedPalettes,
+) -> Result<Publication> {
     let mut tables = catalogues.menu()?;
-    tables.data.presentation.monsters = Some(crate::monsters::prepare(
+    let monsters = crate::monsters::prepare(
         extracted,
         output,
         battle_sources,
         usual,
         &catalogues.monsters,
         &catalogues.menu.inventory,
-    )?);
+        shared_effects,
+    )?;
+    let enemy_paths =
+        crate::named::Publisher::new(output, output)?.battle_enemies(monsters.enemies)?;
+    tables.data.presentation.monsters = Some(monsters.book);
     tables.figurines = crate::figurines::prepare(extracted, output, &catalogues.figurines)?;
     tables.data.validate()?;
     tables.manual.validate()?;
@@ -111,51 +76,29 @@ pub(crate) fn cook(
         }
     }
     crate::model_behavior::publish(output)?;
-    write_atomic(
-        &output.join("game/menu-data.json"),
-        &serde_json::to_vec_pretty(&tables.data)?,
-    )?;
-    for (path, payload) in [
-        (
-            resonance_content::menu_data::MANUAL_PATH,
-            serde_json::to_vec_pretty(&tables.manual)?,
-        ),
-        (
-            resonance_content::menu_data::FIGURINES_PATH,
-            serde_json::to_vec_pretty(&tables.figurines)?,
-        ),
-        (
-            resonance_content::menu_data::SYNOPSIS_PATH,
-            serde_json::to_vec_pretty(&tables.synopsis)?,
-        ),
-        (
-            resonance_content::menu_data::CUSTOMIZE_PATH,
-            serde_json::to_vec_pretty(&tables.customize)?,
-        ),
-        (
-            resonance_content::menu_data::RENAME_PATH,
-            serde_json::to_vec_pretty(&tables.rename)?,
-        ),
-    ] {
-        write_atomic(&output.join(path), &payload)?;
-    }
-    cook_art(
+    let mut publisher = crate::named::Publisher::new(output, output)?;
+    let mut paths = publisher.menu_tables(&tables)?;
+    let art = prepare_art(
         extracted,
         output,
         executable,
         tables.artwork,
         tables.data.items.len(),
     )?;
-    Ok(())
+    paths.push(publisher.menu_art(art)?);
+    Ok(Publication {
+        paths,
+        enemies: enemy_paths,
+    })
 }
 
-fn cook_art(
+fn prepare_art(
     extracted: &Path,
     output: &Path,
     executable: &[u8],
     recipe: recipe::Recipe,
     item_count: usize,
-) -> Result<Vec<String>> {
+) -> Result<MenuArt> {
     let library = artwork::Library::open(extracted, output, executable, recipe)?;
     let mut textures = library.bank(Bank::Frames, 1)?;
     let symbols = library.decode(Bank::Symbols)?;
@@ -193,13 +136,7 @@ fn cook_art(
         labels: library.recipe.labels,
     };
     art.validate(item_count)?;
-    write_atomic(
-        &output.join("ui/menu.json"),
-        &serde_json::to_vec_pretty(&art)?,
-    )?;
-    Ok(std::iter::once("ui/menu.json".to_owned())
-        .chain(art.textures.values().map(|texture| texture.path.clone()))
-        .collect())
+    Ok(art)
 }
 
 fn cook_windows(

@@ -3,15 +3,25 @@ use super::*;
 use resonance_content::overworld::{MapDisplay, Mount, Position, TravelState, World};
 use std::{fs, io::Write, path::Path, sync::Arc};
 
-pub fn prepare_overworld_test_fixture(root: &Path, output: &Path) -> Result<()> {
+pub fn prepare_overworld_test_fixture(
+    root: &Path,
+    mods: &[std::path::PathBuf],
+    script_root: Option<&Path>,
+    output: &Path,
+) -> Result<()> {
     ensure!(!output.exists(), "overworld test fixture already exists");
-    let package = Arc::new(resonance_game::overworld::Prepared::load(
-        root,
-        resonance_content::prepared::Files::load(root, &[], &mut Default::default(), || false)?,
-        &mut Default::default(),
-        new_game::available_fields(root)?,
+    let library = resonance_content::library::Library::open_paths(root, mods)?;
+    let mut cache = crate::loading::Cache {
+        scripts: script_root.map(|root| resonance_game::authored::FieldScripts::new(root.into())),
+        ..Default::default()
+    };
+    let package = crate::overworld::Package::capture(
+        &library,
+        &mut cache,
         || false,
-    )?);
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?
+    .world;
     let data = package
         .resources
         .session_data
@@ -52,11 +62,7 @@ pub fn prepare_overworld_test_fixture(root: &Path, output: &Path) -> Result<()> 
     )?;
     let checkpoint = SceneCheckpoint::World(session.checkpoint()?);
     let header = Header {
-        identity: new_game::save_context(
-            root,
-            resonance_content::diagnostics::Diagnostics::new(true),
-        )?
-        .0,
+        identity: resonance_persistence::Identity::load(&package.files)?,
         label: "Rheaird playground".into(),
         location: "Sylvarant".into(),
         played_ticks: 0,
@@ -75,18 +81,91 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires RESONANCE_WORLD_ASSETS; original test fixture and skit catalogue"]
-    fn original_playground_uses_early_sylvarant_events_with_flight_and_gald() -> Result<()> {
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    #[ignore = "requires RESONANCE_TEST_ASSETS and both discs; validates world save creation/admission with mod layers and an external project"]
+    fn named_world_mod_and_project_match_save_creation_browsing_and_restore() -> Result<()> {
+        use resonance_content::{diagnostics::Diagnostics, library::Library, prepared::Files};
+        let fixture = crate::test_support::named_world_fixture()?;
+        let root = fixture.path();
+        let work = tempfile::tempdir()?;
+        let project = work.path().join("project");
+        fs::create_dir(&project)?;
+        fs::write(
+            project.join("fields.json"),
+            br#"{"330":{"module":"entry","task":"run"}}"#,
+        )?;
+        let source = "script field; use game::story; pub task run() { story::set_flag(41, true); }";
+        fs::write(project.join("entry.sym"), source)?;
+        let modification = work.path().join("mod");
+        fs::create_dir_all(modification.join("fields/renamed-entrance"))?;
+        fs::write(
+            modification.join("fields/mappings.json"),
+            br#"{"330":"renamed-entrance"}"#,
+        )?;
+        let mut base = Library::open(root, &[])?.snapshot();
+        let field = base.field(330)?;
+        fs::write(
+            modification.join("fields/renamed-entrance/field.json"),
+            &*base.read(&field, 1024 * 1024)?,
+        )?;
+        let mods = [modification];
+        let library = Library::open_paths(root, &mods)?;
+        let output = work.path().join("world.json");
+        prepare_overworld_test_fixture(root, &mods, Some(&project), &output)?;
+        let (identity, _) =
+            new_game::save_context_in(&library, Some(&project), Diagnostics::new(true))?;
+        let bytes = fs::read(output)?;
+        resonance_persistence::decode::<SceneCheckpoint>(&bytes)?.admit(&identity)?;
+        let resident = crate::loading::Resident::default();
+        *resident.files.write().unwrap() = Some(Arc::new(Files::from_snapshot(
+            library.snapshot(),
+            &mut Default::default(),
+            || false,
+            resident.diagnostics.clone(),
+        )?));
+        let load = |scripts| -> Result<new_game::Session> {
+            let task = crate::loading::Pending::start(
+                root.into(),
+                scripts,
+                Some(bytes.clone()),
+                None,
+                &resident,
+            )?;
+            crate::test_support::await_preparation(&task)
+        };
+        let restored = load(Some(project.clone()))?;
+        assert!(restored.overworld().is_some());
+        assert_eq!(restored.identity, identity);
+        assert_eq!(
+            restored.files().library().unwrap().snapshot().field(330)?,
+            "fields/renamed-entrance/field.json"
         );
+        fs::write(project.join("entry.sym"), source.replace("41", "42"))?;
+        for scripts in [Some(project), None] {
+            let error = load(scripts)
+                .err()
+                .context("world save admitted an incompatible external project")?;
+            ensure!(
+                format!("{error:#}").contains("incompatible save"),
+                "unexpected world admission failure: {error:#}"
+            );
+        }
+        assert_eq!(restored.identity, identity);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; named test-save creation, world restore and original skit timing"]
+    fn named_world_playground_uses_early_sylvarant_events_with_flight_and_gald() -> Result<()> {
+        let work = crate::test_support::named_world_fixture()?;
+        let root = work.path().to_path_buf();
         let output = tempfile::tempdir()?;
         let file = output.path().join("world.json");
-        prepare_overworld_test_fixture(&root, &file)?;
+        prepare_overworld_test_fixture(&root, &[], None, &file)?;
         let (_, checkpoint): (_, SceneCheckpoint) =
             resonance_persistence::decode(&fs::read(file)?)?.admit(
                 &new_game::save_context(
                     &root,
+                    None,
                     resonance_content::diagnostics::Diagnostics::new(true),
                 )?
                 .0,
@@ -99,15 +178,13 @@ mod tests {
         assert_eq!(party.formation, [1, 2, 3, 4, 9]);
         assert_eq!(party.items.get(&58), Some(&1));
         assert_eq!(checkpoint.state.mount, Mount::Rheairds);
-        let package = resonance_game::overworld::Prepared::load(
+        let package = crate::overworld::Package::prepare(
             &root,
-            resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || {
-                false
-            })?,
             &mut Default::default(),
-            new_game::available_fields(&root)?,
             || false,
-        )?;
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?
+        .world;
         let persistent = checkpoint
             .progress
             .clone()
@@ -165,7 +242,7 @@ pub fn run_overworld_field_probe(
 ) -> Result<()> {
     let temporary = tempfile::tempdir()?;
     let checkpoint = temporary.path().join("world.json");
-    prepare_overworld_test_fixture(root, &checkpoint)?;
+    prepare_overworld_test_fixture(root, &[], None, &checkpoint)?;
     let mut app = super::probe::app(root, &checkpoint, output, crate::Resolution::default())?;
     app.world_mut()
         .resource_mut::<crate::RunOptions>()

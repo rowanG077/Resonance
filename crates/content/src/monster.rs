@@ -11,6 +11,19 @@ pub struct MonsterBook {
     pub labels: std::collections::BTreeMap<String, String>,
 }
 impl MonsterBook {
+    pub(crate) fn decode_named(
+        value: serde_json::Value,
+        files: &crate::prepared::Files,
+    ) -> anyhow::Result<Self> {
+        let (value, paths) =
+            crate::model_preview::document::expand_catalogue(value, |path| files.read(path))?;
+        let mut book: Self = serde_json::from_value(value)?;
+        for (record, path) in book.records.iter_mut().zip(paths) {
+            record.preview.document = Some(path);
+        }
+        Ok(book)
+    }
+
     pub fn validate(&self, item_count: usize) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.records.len() == MONSTER_COUNT,

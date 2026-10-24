@@ -4,7 +4,7 @@ mod body_tests;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{Actor, ModelDefinition, Playback, ReactionMotions, Side};
 use resonance_content::{animation::Motion, battle_model, prepared::Files};
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSource {
@@ -14,78 +14,6 @@ pub enum ModelSource {
     Weapon(u16),
     /// Independent models and textures owned by a stored spell scene.
     Scene(u16),
-}
-
-/// Load selected model resources into an owned candidate. The descriptors
-/// themselves must already belong to the verified snapshot.
-pub fn load_files(
-    root: &Path,
-    files: Files,
-    models: &[ModelSource],
-    cache: &mut resonance_content::prepared::Cache,
-    cancelled: impl Fn() -> bool,
-) -> Result<Files> {
-    let mut inventory = BTreeMap::new();
-    for &source in models {
-        let dependencies = match source {
-            ModelSource::Party(character) => {
-                files
-                    .json::<battle_model::Party>(&battle_model::party_path(character as u8))?
-                    .files
-            }
-            ModelSource::Enemy(id) => {
-                files
-                    .json::<battle_model::Enemy>(&battle_model::enemy_path(id))?
-                    .files
-            }
-            ModelSource::Weapon(item) => weapon(&files, item)?.files,
-            ModelSource::Scene(technique) => {
-                files
-                    .json::<resonance_content::battle_scene::Scene>(
-                        &resonance_content::battle_scene::path(technique),
-                    )?
-                    .files
-            }
-        };
-        merge_dependencies(&mut inventory, dependencies)?;
-    }
-    files.with_dependencies(root, inventory, cache, cancelled)
-}
-
-/// Models that share a path must agree on its bytes and retain all its uses.
-pub(crate) fn merge_dependencies(
-    inventory: &mut BTreeMap<String, resonance_content::field_preload::File>,
-    dependencies: impl IntoIterator<Item = (String, resonance_content::field_preload::File)>,
-) -> Result<()> {
-    for (path, file) in dependencies {
-        if let Some(previous) = inventory.get_mut(&path) {
-            ensure!(
-                previous.sha256 == file.sha256 && previous.bytes == file.bytes,
-                "inconsistent model dependency {path}"
-            );
-            previous.roles.extend(file.roles);
-        } else {
-            inventory.insert(path, file);
-        }
-    }
-    Ok(())
-}
-
-/// Resolve the weapon resource before loading its dependencies.
-pub fn weapon(files: &Files, item: u16) -> Result<battle_model::Weapon> {
-    let mut bank: battle_model::Weapons = files.json(battle_model::WEAPONS_PATH)?;
-    match bank
-        .records
-        .remove(&item)
-        .with_context(|| format!("missing weapon resource {item}"))?
-    {
-        battle_model::Attachment::Weapon(source) | battle_model::Attachment::Shield(source) => {
-            Ok(source)
-        }
-        battle_model::Attachment::Nonvisual => {
-            anyhow::bail!("equipment {item} has no attachment model")
-        }
-    }
 }
 
 /// Prepared presentation ID, entry playback and controller root-axis policy.

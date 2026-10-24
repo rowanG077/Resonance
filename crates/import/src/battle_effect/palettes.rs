@@ -3,35 +3,24 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::battle_effect::{
     SourceBank, declaration::Declaration, visual::ParticleTexture,
 };
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, path::Path};
 
+#[derive(Clone)]
 pub(crate) struct SharedPalettes {
     banks: Vec<SourceBank>,
     bindings: BTreeMap<(u8, u8), u8>,
 }
 
 impl SharedPalettes {
-    pub(crate) fn read(usual: &[u8], output: &Path) -> Result<Self> {
+    pub(crate) fn prepare(usual: &[u8], output: &Path) -> Result<Self> {
+        Self::from_banks(usual, &super::prepare(usual, output)?)
+    }
+
+    pub(crate) fn from_banks(usual: &[u8], prepared: &[SourceBank; 2]) -> Result<Self> {
         let identity = crate::digest(usual);
-        let primary = output.join("battle/effects/common.json");
-        let common: SourceBank = serde_json::from_slice(
-            &fs::read(&primary)
-                .context("prepare resident effect artwork before dependent effects")?,
-        )?;
-        let prefix = if common
-            .art
-            .as_ref()
-            .is_some_and(|art| art.source_sha256 == identity)
-        {
-            "battle".to_owned()
-        } else {
-            format!("battle/variants/{identity}")
-        };
         let mut banks = Vec::new();
         let mut bindings = BTreeMap::new();
-        for (member, name) in [(2, "common"), (3, "techniques")] {
-            let path = output.join(format!("{prefix}/effects/{name}.json"));
-            let bank: SourceBank = serde_json::from_slice(&fs::read(&path)?)?;
+        for (member, bank) in [2, 3].into_iter().zip(prepared) {
             let (source, strides) =
                 super::read_with_palettes(crate::source_assets::section(usual, member)?)?;
             ensure!(
@@ -73,7 +62,7 @@ impl SharedPalettes {
                     "conflicting resident palette bindings"
                 );
             }
-            banks.push(bank);
+            banks.push(bank.clone());
         }
         ensure!(
             serde_json::to_value(&banks[0].art)? == serde_json::to_value(&banks[1].art)?,

@@ -225,7 +225,8 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                     };
                     self.decoded
                         .decode_animation(bytes, decode)
-                        .and_then(|motion| self.json(name, "animation", motion.as_ref()))
+                        .and_then(|motion| motion.editable())
+                        .and_then(|motion| self.json(name, "animation", &motion))
                 } else {
                     self.skeleton(bytes, name)
                 };
@@ -259,7 +260,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                 if directory.members[index] == Some(index) {
                     self.member(
                         &bytes[range.clone()],
-                        &format!("{name}/{index}"),
+                        &format!("{name}/member-{index:05}"),
                         None,
                         depth + 1,
                         Input::Member,
@@ -267,7 +268,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                 }
             }
             let result = self
-                .json(name, "archive", &directory)
+                .mappings(name, &directory)
                 .and_then(|_| super::archive::padding(bytes, 4 + entries.len() * 8, &entries));
             (self.report)(name, result);
             return true;
@@ -316,7 +317,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                     if (actor && crate::character::collision_slot(index, &bytes[range.clone()]))
                         || (terrain && index == 4)
                     {
-                        let child = format!("{name}/{index}");
+                        let child = format!("{name}/member-{index:05}");
                         let format = if actor {
                             crate::field::collision_data::Format::Short
                         } else {
@@ -327,7 +328,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                         continue;
                     }
                     if index == 0 && attachment {
-                        let child = format!("{name}/{index}");
+                        let child = format!("{name}/member-{index:05}");
                         let result = super::attachment::decode(&bytes[range.clone()])
                             .and_then(|recipe| self.json(&child, "attachment", &recipe));
                         (self.report)(&child, result);
@@ -335,7 +336,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                     }
                     self.member(
                         &bytes[range.clone()],
-                        &format!("{name}/{index}"),
+                        &format!("{name}/member-{index:05}"),
                         palette,
                         depth + 1,
                         Input::Member,
@@ -382,7 +383,6 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
         for member in &members {
             resonance_content::validate_asset_path(member)?;
         }
-        self.json(name, "cabinet", &members)?;
         for entry in names {
             let child = format!("{name}/{}", entry.replace('\\', "/"));
             let result = (|| -> Result<Vec<u8>> {
@@ -425,7 +425,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
         for (index, range) in ranges.iter().enumerate() {
             let Some(range) = range else { continue };
             let part = &bytes[range.clone()];
-            let child = format!("{name}/{index}");
+            let child = format!("{name}/member-{index:05}");
             let result = match index {
                 4 | 5 => self.collision(part, &child, crate::field::collision_data::Format::Detect),
                 6 => super::cook_script(part, &child, self.output).and_then(|recognized| {
@@ -433,7 +433,24 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                     Ok(())
                 }),
                 7 => super::field::models(part).and_then(|models| {
-                    self.json(&child, "models", &models)?;
+                    let mut mappings = std::collections::BTreeMap::new();
+                    for model in &models {
+                        ensure!(
+                            mappings
+                                .insert(
+                                    u32::from(model.script_resource),
+                                    format!("model-{:05}", model.script_resource)
+                                )
+                                .is_none(),
+                            "duplicate field model resource {}",
+                            model.script_resource
+                        );
+                    }
+                    self.json(
+                        &child,
+                        "mappings",
+                        &resonance_content::library::Mappings::new(mappings)?,
+                    )?;
                     let ids = (word(part, 4)? & !3) as usize;
                     let mut consumed: Vec<_> = models
                         .iter()
@@ -445,7 +462,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                     for model in &models {
                         self.member(
                             &part[model.range.clone()],
-                            &format!("{child}/{}", model.archive_entry),
+                            &format!("{child}/model-{:05}", model.script_resource),
                             None,
                             depth + 1,
                             Input::Member,
@@ -461,7 +478,7 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
             (self.report)(&child, result);
         }
         let result = self
-            .json(name, "members", &super::FieldDirectory::new(bytes, &ranges))
+            .mappings(name, &super::archive::Directory::new(&ranges))
             .and_then(|_| super::archive::padding(bytes, 4 + ranges.len() * 4, &ranges));
         (self.report)(name, result);
         Ok(())
@@ -478,13 +495,33 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
         self.json(name, "collision-metadata", &mesh.metadata)
     }
 
+    fn mappings(&self, name: &str, directory: &super::archive::Directory) -> Result<()> {
+        let mut entries = std::collections::BTreeMap::new();
+        for (index, canonical) in directory.members.iter().enumerate() {
+            let member = format!("member-{:05}", canonical.unwrap_or(index));
+            if canonical.is_none() {
+                self.json(
+                    &format!("{name}/{member}"),
+                    "empty",
+                    &serde_json::json!({"empty": true}),
+                )?;
+            }
+            entries.insert(u32::try_from(index)?, member);
+        }
+        self.json(
+            name,
+            "mappings",
+            &resonance_content::library::Mappings::new(entries)?,
+        )
+    }
+
     fn directory(
         &self,
         bytes: &[u8],
         name: &str,
         ranges: &[Option<std::ops::Range<usize>>],
     ) -> Result<()> {
-        self.json(name, "members", &super::archive::Directory::new(ranges))?;
+        self.mappings(name, &super::archive::Directory::new(ranges))?;
         super::archive::padding(bytes, 4 + ranges.len() * 4, ranges)
     }
 
@@ -515,13 +552,8 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
         let model = self
             .decoded
             .decode_model(bytes, palette.unwrap_or(bytes), self.output)?;
-        let mut scene = model.geometry.scene.clone();
-        model.mesh.share(&self.output.join(&scene.mesh))?;
-        if let super::physical_scene::TextureSource::Local { catalogue } = &mut scene.textures {
-            *catalogue = format!("{name}/palettes/textures.json");
-        }
-        super::physical_scene::publish_nodes(self.output, &scene.bone_names)?;
-        self.json(name, "scene", &scene)?;
+        crate::named::Publisher::new(self.output, self.output)?
+            .physical_scene(model.prepare_scene(self.output)?, name)?;
         if let Some((recipe, _)) = &skin {
             self.json(name, "skin", recipe)?;
         } else if let Some(selectors) = selectors.filter(|slots| slots.iter().any(Option::is_some))
@@ -573,11 +605,16 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
 
     fn textures(&mut self, bytes: &[u8], name: &str) -> Result<()> {
         let decoded = self.decoded.decode_textures(bytes)?;
-        let catalogue = match std::sync::Arc::get_mut(decoded) {
-            Some(decoded) => decoded.publish_as(self.output, name, &mut self.report)?,
-            None => decoded.publish_alias(self.output, name, &mut self.report)?,
-        };
-        self.json(name, "textures", &catalogue)?;
+        decoded.validate()?;
+        let mut publication = Ok(());
+        decoded.publish(self.output, |_, result| {
+            if publication.is_ok() {
+                publication = result;
+            }
+        });
+        publication?;
+        crate::named::Publisher::new(self.output, self.output)?
+            .physical_textures(decoded.catalogue.clone(), name)?;
         (self.report)(&format!("{name}/textures"), Ok(()));
         Ok(())
     }
@@ -649,10 +686,14 @@ mod tests {
             let bytes = cabinet(&[("renamed.data", &source), ("other.payload", &[0; 8])])?;
             let errors = run(&bytes, "arbitrary", Input::File);
             assert!(errors.is_empty(), "{errors:?}");
-            assert!(output.join("arbitrary/renamed.data/6/script.ssb").is_file());
             assert!(
                 output
-                    .join("arbitrary/renamed.data/7/models.json")
+                    .join("arbitrary/renamed.data/member-00006/script.ssb")
+                    .is_file()
+            );
+            assert!(
+                output
+                    .join("arbitrary/renamed.data/member-00007/mappings.json")
                     .is_file()
             );
             assert!(output.join("arbitrary/other.payload/empty.json").is_file());
@@ -665,7 +706,7 @@ mod tests {
             assert!(errors.is_empty(), "{errors:?}");
             assert!(
                 output
-                    .join("declared/scriptless.data/7/models.json")
+                    .join("declared/scriptless.data/member-00007/mappings.json")
                     .is_file()
             );
 
@@ -678,8 +719,16 @@ mod tests {
                 1,
                 "damaged script must fail without blocking its siblings"
             );
-            assert!(!output.join("damaged/broken.data/6/script.ssb").exists());
-            assert!(output.join("damaged/broken.data/7/models.json").is_file());
+            assert!(
+                !output
+                    .join("damaged/broken.data/member-00006/script.ssb")
+                    .exists()
+            );
+            assert!(
+                output
+                    .join("damaged/broken.data/member-00007/mappings.json")
+                    .is_file()
+            );
 
             let errors = run(&[0; 8], "invalid", Input::Field);
             assert_eq!(
@@ -868,8 +917,9 @@ mod tests {
             clip[at..at + 2].copy_from_slice(&1_u16.to_be_bytes());
         }
         clip[49] = 1;
+        clip[51] = 1;
         clip[64..].copy_from_slice(&[1, 2, 3]);
-        let expected = crate::animation::unbound_indexed(&clip)?;
+        let expected = serde_json::to_value(crate::animation::read_member(&clip)?.editable()?)?;
         let output = crate::temporary_path(&std::env::temp_dir().join("indexed-animation"));
         let mut errors = Vec::new();
         assert!(cook(
@@ -908,11 +958,14 @@ mod tests {
         ));
         assert_eq!(reports, 2, "aliased slots share one cooked member");
         let actual: serde_json::Value =
-            serde_json::from_slice(&fs::read(output.join("bank/0/animation.json"))?)?;
+            serde_json::from_slice(&fs::read(output.join("bank/member-00000/animation.json"))?)?;
         assert_eq!(actual, expected);
-        let directory: super::super::archive::Directory =
-            serde_json::from_slice(&fs::read(output.join("bank/archive.json"))?)?;
-        assert_eq!(directory.members, [Some(0), None, Some(0)]);
+        let directory: resonance_content::library::Mappings =
+            serde_json::from_slice(&fs::read(output.join("bank/mappings.json"))?)?;
+        assert_eq!(directory.target(0)?, "member-00000");
+        assert_eq!(directory.target(1)?, "member-00001");
+        assert_eq!(directory.target(2)?, "member-00000");
+        assert!(output.join("bank/member-00001/empty.json").is_file());
 
         bank[32 + 56..32 + 60].copy_from_slice(&67_u32.to_be_bytes());
         errors.clear();
@@ -934,7 +987,7 @@ mod tests {
             1,
             "indexed members still require bounded channel data"
         );
-        assert!(!output.join("broken/0/animation.json").exists());
+        assert!(!output.join("broken/member-00000/animation.json").exists());
         fs::remove_dir_all(output)?;
         Ok(())
     }
@@ -970,11 +1023,14 @@ mod tests {
                     }
                     .member(source, &name, None, 1, Input::Member);
                     result.with_context(|| name.clone())?;
-                    let cooked: crate::animation::AuthoredAnimation = serde_json::from_slice(
+                    let cooked: resonance_content::resource::Animation = serde_json::from_slice(
                         &fs::read(output.join(&name).join("animation.json"))?,
                     )?;
                     ensure!(
-                        serde_json::to_value(cooked)? == crate::animation::unbound_indexed(source)?,
+                        serde_json::to_value(cooked)?
+                            == serde_json::to_value(
+                                crate::animation::read_member(source)?.editable()?
+                            )?,
                         "{name}: cooked animation differs from source"
                     );
                     members += 1;

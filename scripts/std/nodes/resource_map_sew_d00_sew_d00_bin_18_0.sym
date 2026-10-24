@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 3d4bef44ce7975f0543d0b071c4ba9453211f5dc200e62a70e55df4114fe0d4f
+// Source owner: MAP/sew_d00/SEW_D00.BIN/18/0
+pub const Node000_Koware02: string = "Koware02";

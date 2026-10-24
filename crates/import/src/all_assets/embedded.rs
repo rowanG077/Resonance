@@ -328,15 +328,6 @@ fn cook_dol(
         Ok(paths) => dol_outputs.extend(paths),
         Err(error) => report("sys/main.dol/save-artwork", Err(error)),
     }
-    let result = crate::font::cook_embedded(extracted, output);
-    if result.is_ok() {
-        dol_outputs.extend([
-            "fonts".into(),
-            "ui/story-subtitles.json".into(),
-            "embedded/dialogue.json".into(),
-        ]);
-    }
-    report("sys/main.dol/dialogue-font-subtitles-and-layout", result);
     sources.insert("sys/main.dol".into(), dol_outputs);
     Ok(sources)
 }

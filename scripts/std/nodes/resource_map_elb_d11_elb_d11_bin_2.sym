@@ -1,0 +1,7 @@
+script library;
+// Skeleton: c49f0d23841be6f035210b4a8a21d48a6ffa066b659fb0449bbe787af5a8e974
+// Source owner: MAP/elb_d11/ELB_D11.BIN/2
+pub const Node000_Glass: string = "glass";
+pub const Node001_Plane01: string = "Plane01";
+pub const Node002_Glass02: string = "glass02";
+pub const Node003_Tama: string = "tama";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6b00177d1b1c528c486dc01d7f047e4b5e5c864e27b3a721db92b184b7817ab9
+// Source owner: FIELD/enemy/ModelData.dat/10
+pub const Node000_Ref000_Skin: string = "ref000_skin";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 8b5436e5f0a9211c095599fffa02d528cda94100969412bcdc45974a453ab0b8
+// Source owner: MAP/elc_d15/ELC_D15.BIN/18/0
+pub const Node000_Kabe: string = "kabe";

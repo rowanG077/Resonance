@@ -1,0 +1,5 @@
+script library;
+// Skeleton: d9e4c3c0b5d698554181922f5e19a487910ebe79f4717ac7b3e15a913edc5d4c
+// Source owner: MAP/wil_d00/WIL_D00.BIN/12
+pub const Node000_Gjb: string = "gjb";
+pub const Node001_Gjb01: string = "gjb01";

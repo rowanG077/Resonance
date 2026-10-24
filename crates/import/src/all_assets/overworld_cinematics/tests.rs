@@ -18,19 +18,19 @@ fn original_cinematic_tracks_bind_prepared_models_and_audio() -> Result<()> {
     let original = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../local/extracted/disc1/files/US_r_Top2field.rel");
     let (scenes, _) = read(&Rel::read(&original)?)?;
-    // This read-only preflight uses only unchanged model records. Full acceptance
-    // separately decodes the complete current schema after cook-all.
-    let package: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(output.join(PACKAGE_PATH))?)?;
-    let mut audio: resonance_content::field_audio::FieldAudio =
-        serde_json::from_slice(&std::fs::read(output.join("worlds/audio.json"))?)?;
-    audio.validate()?;
+    let library = resonance_content::library::Library::open(&output, &[])?;
+    let mut snapshot = library.snapshot();
+    let (definition, package) =
+        resonance_content::overworld::document::capture(&mut snapshot, &|| false)?;
+    let audio: resonance_content::field_audio::document::Definition =
+        snapshot.json(&definition.audio, 1024 * 1024)?;
+    let mut audio = audio.resolve(&mut snapshot)?;
     for (id, scene) in &scenes {
-        let actors: BTreeMap<u8, Vec<resonance_content::ScenePart>> = serde_json::from_value(
-            package["visuals"]["cinematics"][id.to_string()]["actors"].clone(),
-        )?;
-        scene.presentation.validate(&actors)?;
-        scene.presentation.validate_audio(&audio)?;
+        let actors = &package.visuals.cinematics[id].actors;
+        scene.presentation.validate(actors)?;
+        scene
+            .presentation
+            .validate_sound_selection(|id| audio.effects.contains_key(&id))?;
         for line in &scene.dialogue {
             assert!(audio.voices.contains_key(&line.voice));
         }
@@ -46,9 +46,15 @@ fn original_cinematic_tracks_bind_prepared_models_and_audio() -> Result<()> {
             for (index, range) in entries.iter().enumerate() {
                 let encoded = &archive[range.clone().context("missing source voice")?];
                 let id = voices.first_resource + u32::try_from(index)?;
+                let expected = tempfile::NamedTempFile::new()?;
+                crate::media::field_audio::decode_voice_wave(
+                    expected.path(),
+                    encoded,
+                    crate::media::VoiceFormat::Ahx,
+                )?;
                 assert_eq!(
-                    audio.voices[&id].asset.path,
-                    format!("audio/voices/{}.wav", crate::digest(encoded))
+                    &*snapshot.read(&audio.voices[&id].path, 128 * 1024 * 1024)?,
+                    std::fs::read(expected.path())?
                 );
             }
             assert!(
@@ -59,12 +65,17 @@ fn original_cinematic_tracks_bind_prepared_models_and_audio() -> Result<()> {
                         && line.voice < voices.first_resource + entries.len() as u32)
             );
         }
-        let mut missing = actors.clone();
+        let mut missing = (*actors).clone();
         missing.remove(&1);
         assert!(scene.presentation.validate(&missing).is_err());
     }
-    audio.sounds.remove(&24);
-    assert!(scenes[&516].presentation.validate_audio(&audio).is_err());
+    audio.effects.remove(&24);
+    assert!(
+        scenes[&516]
+            .presentation
+            .validate_sound_selection(|id| audio.effects.contains_key(&id))
+            .is_err()
+    );
     Ok(())
 }
 

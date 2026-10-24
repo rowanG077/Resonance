@@ -29,11 +29,9 @@ fn layers(package: &[u8]) -> Result<Vec<&[u8]>> {
 
 pub(super) fn unbound(
     output: &Path,
-    resource: u32,
     package: &[u8],
     decoded: &crate::scene::decoded::Package,
-    files: &mut std::collections::BTreeSet<String>,
-) -> Result<Option<resonance_content::field::UnboundGeometry>> {
+) -> Result<Option<Vec<crate::named::PhysicalScene>>> {
     let layers = layers(package)?;
     let models = layers
         .iter()
@@ -47,13 +45,12 @@ pub(super) fn unbound(
     if !models.iter().any(|model| model.requires_palette()) {
         return Ok(None);
     }
-    Ok(Some(resonance_content::field::UnboundGeometry {
-        resource,
-        scenes: models
+    Ok(Some(
+        models
             .into_iter()
-            .map(|model| model.publish_scene(output, files))
+            .map(|model| model.prepare_scene(output))
             .collect::<Result<_>>()?,
-    }))
+    ))
 }
 
 pub(crate) fn cook_parts(
@@ -101,7 +98,7 @@ pub(crate) fn cook_parts(
 }
 
 #[test]
-#[ignore = "requires original disc 1; compares source DAG with physical publication binding"]
+#[ignore = "requires original disc 1; compares native preparation with current named model files"]
 fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()> {
     use crate::{all_assets::geometry, field::sections, resource::PartyResource};
     use std::fs;
@@ -152,49 +149,52 @@ fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()
             resource: None,
             animation: &authored,
         }];
-        let expected_root = tempfile::tempdir()?;
+        // Native binding must work after all physical metadata is removed.
+        // Mesh/texture payloads remain converter scratch owned by the decode DAG.
+        fs::remove_dir_all(actual_root.path().join("body"))?;
+        fs::remove_dir_all(actual_root.path().join("motion"))?;
         let actual = cook_parts(actual_root.path(), "party", &bytes, &clips, &decoded)?;
-        assert!(!actual_root.path().join("assets").exists());
-        let mut failures = Vec::new();
-        assert!(geometry::cook(
-            &bytes,
-            "physical",
-            expected_root.path(),
-            None,
-            geometry::Input::File,
-            &mut crate::scene::decoded::Package::default(),
-            &mut |path, result| {
-                if let Err(error) = result {
-                    failures.push(format!("{path}: {error:#}"));
-                }
+        let output = tempfile::tempdir()?;
+        let mut publisher = crate::named::Publisher::new(actual_root.path(), output.path())?;
+        let model_path = publisher.model(
+            "models/party",
+            resonance_content::field::document::Model {
+                version: resonance_content::field::document::VERSION,
+                parts: actual.clone(),
+                collision: super::collision(&bytes)?,
+            },
+        )?;
+        publisher.descriptor("GQSEAF", 0)?;
+        let mut snapshot =
+            resonance_content::library::Library::open(output.path(), &[])?.snapshot();
+        let mut current: resonance_content::field::document::Model =
+            snapshot.json(&model_path, 64 * 1024 * 1024)?;
+        current.validate()?;
+        for part in &mut current.parts {
+            snapshot.read(&part.mesh, 128 * 1024 * 1024)?;
+            for texture in &part.textures {
+                snapshot.read(texture, 64 * 1024 * 1024)?;
             }
-        ));
-        assert!(failures.is_empty(), "{}", failures.join("\n"));
-        let expected = super::cook_parts(expected_root.path(), "party", "physical", &clips)?;
-        assert_eq!(actual.len(), expected.len());
-        for (actual, mut expected) in actual.into_iter().zip(expected) {
-            assert_eq!(
-                fs::read(actual_root.path().join(&actual.mesh))?,
-                fs::read(expected_root.path().join(&expected.mesh))?
-            );
-            for (actual, expected) in actual.textures.iter().zip(&expected.textures) {
-                assert_eq!(
-                    fs::read(actual_root.path().join(actual))?,
-                    fs::read(expected_root.path().join(expected))?
-                );
+            for clip in &mut part.clips {
+                let motion = resonance_content::animation::Motion::decode(
+                    &snapshot.read(&clip.motion, 64 * 1024 * 1024)?,
+                )?;
+                motion.validate_bones(part.bone_names.len())?;
+                clip.duration_seconds =
+                    motion.duration_frames / resonance_content::animation::FRAME_HZ;
             }
-            for (actual, expected) in actual.clips.iter().zip(&expected.clips) {
-                assert_eq!(
-                    fs::read(actual_root.path().join(&actual.motion))?,
-                    fs::read(expected_root.path().join(&expected.motion))?
-                );
-            }
-            expected.textures.clone_from(&actual.textures);
-            assert_eq!(
-                serde_json::to_value(actual)?,
-                serde_json::to_value(expected)?
-            );
         }
+        crate::named::equivalent_assets(
+            &actual,
+            &current.parts,
+            actual_root.path(),
+            output.path(),
+            &mut Default::default(),
+        )?;
+        assert_eq!(
+            serde_json::to_value(&current.collision)?,
+            serde_json::to_value(super::collision(&bytes)?)?
+        );
     }
     Ok(())
 }
@@ -202,11 +202,7 @@ fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()
 #[test]
 #[ignore = "requires original disc 1; checks resources whose palette is supplied by native callers"]
 fn original_caller_palettes_remain_explicit_without_discarding_geometry() -> Result<()> {
-    use crate::all_assets::{
-        geometry,
-        physical_scene::{Scene, TextureSource},
-    };
-    use std::{collections::BTreeSet, fs};
+    use crate::all_assets::{geometry, physical_scene::TextureSource};
     let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
     let output = tempfile::tempdir()?;
     for id in [125, 492, 493, 494, 495, 496, 498, 499, 516, 518] {
@@ -229,12 +225,10 @@ fn original_caller_palettes_remain_explicit_without_discarding_geometry() -> Res
             }
         ));
         assert!(failures.is_empty(), "{}", failures.join("\n"));
-        let mut files = BTreeSet::new();
-        let geometry = unbound(output.path(), 0xffee0000, package, &decoded, &mut files)?
+        let geometry = unbound(output.path(), package, &decoded)?
             .context("caller palette requirement was lost")?;
-        assert_eq!(geometry.scenes.len(), 1);
-        let scene: Scene =
-            serde_json::from_slice(&fs::read(output.path().join(&geometry.scenes[0]))?)?;
+        assert_eq!(geometry.len(), 1);
+        let scene = &geometry[0].scene;
         assert!(matches!(scene.textures, TextureSource::Caller));
         assert!(
             scene
@@ -242,9 +236,8 @@ fn original_caller_palettes_remain_explicit_without_discarding_geometry() -> Res
                 .iter()
                 .any(|draw| draw.mesh.is_some() && draw.recipe.textures().next().is_some())
         );
-        assert!(files.contains(&scene.mesh));
-        assert!(files.contains(&geometry.scenes[0]));
-        assert!(files.iter().all(|path| output.path().join(path).is_file()));
+        assert!(output.path().join(&scene.mesh).is_file());
+        assert!(geometry[0].textures.is_none());
     }
     Ok(())
 }

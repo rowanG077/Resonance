@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 214ff126029a54ed5fdb35f9b1eeb90d9c10d500e9bdf8034216570d17722f4c
+// Source owner: MAP/moa_d00/MOA_D00.BIN/16/0
+pub const Node000_Bakudan: string = "bakudan";
+pub const Node001_Hi00: string = "hi00";

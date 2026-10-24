@@ -5,8 +5,11 @@ use std::{fs, path::Path};
 
 pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Result<()> {
     let bytes = Store::new(directory).read(Kind::Save, &SlotId::new("a-001")?)?;
-    let (identity, _) =
-        new_game::save_context(root, resonance_content::diagnostics::Diagnostics::new(true))?;
+    let (identity, _) = new_game::save_context(
+        root,
+        None,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
     let (_, SceneCheckpoint::Field(expected)) =
         resonance_persistence::decode(&bytes)?.admit(&identity)?
     else {

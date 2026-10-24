@@ -1,17 +1,18 @@
 //! Extract fresh-game definitions from the executable into ordinary JSON.
-use crate::{digest, dol, write_atomic};
+use crate::{digest, dol};
 use anyhow::{Context, Result, ensure};
 use resonance_content::session::{CharacterDefinition, ItemDefinition, SessionData, StatGrowth};
+use std::collections::BTreeMap;
 #[cfg(test)]
 use std::fs;
-use std::{collections::BTreeMap, path::Path};
+#[cfg(test)]
+use std::path::Path;
 
 /// Localized display text stays separate from save-compatible item statistics.
-pub(crate) fn cook_text(
+pub(crate) fn read_text(
     executable: &[u8],
     menu: &crate::menu::Inputs,
-    output: &Path,
-) -> Result<String> {
+) -> Result<resonance_content::session::GameText> {
     let defaults = &menu.characters;
     let characters = (1..=10)
         .map(|id| {
@@ -65,9 +66,7 @@ pub(crate) fn cook_text(
             .map(|(id, arte)| (id as u16, arte.text.name.clone()))
             .collect(),
     };
-    let path = "game/text.json";
-    write_atomic(&output.join(path), &serde_json::to_vec_pretty(&text)?)?;
-    Ok(path.into())
+    Ok(text)
 }
 
 /// Expand the shared swordsman bit and apply character-exclusive equipment rules.
@@ -92,7 +91,7 @@ fn expand_equipment_owners(raw: u8, kratos_only: bool) -> u16 {
     if kratos_only { mask & !0x20 } else { mask }
 }
 
-pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path) -> Result<String> {
+pub(crate) fn read(executable: &[u8], menu: &crate::menu::Inputs) -> Result<SessionData> {
     let arte_catalogue = &menu.arte;
     let defaults = &menu.characters;
     let items = &menu.items;
@@ -193,9 +192,7 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
         experience: defaults.experience.clone(),
     };
     data.validate()?;
-    let path = "game/session-data.json";
-    write_atomic(&output.join(path), &serde_json::to_vec_pretty(&data)?)?;
-    Ok(path.into())
+    Ok(data)
 }
 
 #[cfg(test)]
@@ -203,25 +200,30 @@ mod owner_tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires both extracted discs and frozen session/text publications"]
+    #[ignore = "requires both extracted discs and current RESONANCE_TEST_ASSETS"]
     fn shared_title_reader_preserves_complete_session_and_text_on_both_discs() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let frozen = std::env::var_os("RESONANCE_COOKED")
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
-        let output = tempfile::tempdir()?;
+            .context("set RESONANCE_TEST_ASSETS")?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
         for disc in [1, 2] {
             let extracted = local.join(format!("extracted/disc{disc}"));
-            let source = crate::cooked::Source::open(&frozen, disc, "sys/main.dol")?;
             let executable = fs::read(extracted.join("sys/main.dol"))?;
             let menu = crate::menu::Inputs::read(&executable)?;
-            for path in [
-                cook(&executable, &menu, output.path())?,
-                cook_text(&executable, &menu, output.path())?,
+            let mut snapshot = library.snapshot();
+            for (path, actual) in [
+                (
+                    "game/session-data.json",
+                    serde_json::to_value(read(&executable, &menu)?)?,
+                ),
+                (
+                    "game/text.json",
+                    serde_json::to_value(read_text(&executable, &menu)?)?,
+                ),
             ] {
-                let actual: serde_json::Value =
-                    serde_json::from_slice(&fs::read(output.path().join(&path))?)?;
-                let expected: serde_json::Value = source.document(&path)?;
+                let expected: serde_json::Value =
+                    snapshot.json(path, resonance_content::preparation::JSON_LIMIT)?;
                 assert_eq!(actual, expected, "disc {disc}: {path}");
             }
         }
@@ -238,8 +240,7 @@ mod owner_tests {
                 let source = extracted.join(format!("disc{disc}"));
                 let executable = fs::read(source.join("sys/main.dol"))?;
                 let menu = crate::menu::Inputs::read(&executable)?;
-                let path = cook(&executable, &menu, &output)?;
-                let data: SessionData = serde_json::from_slice(&fs::read(output.join(path))?)?;
+                let data = read(&executable, &menu)?;
                 assert_eq!(data.characters.len(), 9);
                 for (index, character) in data.characters.iter().enumerate() {
                     let row = dol::slice(&executable, 0x80202dc8 + index as u32 * 41, 41)?;

@@ -11,12 +11,10 @@ use anyhow::{Context, Result, ensure};
 use resonance_audio::data::Score;
 use resonance_audio_cook::{
     bank::{Bank, MissingObject, ObjectKind, Sound},
-    compile,
     decode::{self, Resources},
     pool,
     song::Song,
 };
-use resonance_content::field_audio::archive::VoiceArchive;
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -140,7 +138,7 @@ fn song_setups(
     Ok(setups)
 }
 
-fn stream_format(bytes: &[u8]) -> Option<VoiceFormat> {
+pub(crate) fn stream_format(bytes: &[u8]) -> Option<VoiceFormat> {
     if !bytes.starts_with(&[0x80, 0]) {
         return None;
     }
@@ -152,13 +150,8 @@ fn stream_format(bytes: &[u8]) -> Option<VoiceFormat> {
 }
 
 fn resource_key(environment: &str, source: &str, setups: &[u16]) -> String {
-    crate::digest(
-        format!(
-            "{}:{environment}:{source}:{setups:?}",
-            media::sound_library::VERSION
-        )
-        .as_bytes(),
-    )
+    // This key lives only for one cook; no on-disk package version is involved.
+    crate::digest(format!("{environment}:{source}:{setups:?}").as_bytes())
 }
 
 pub(crate) struct ArchiveMember {
@@ -170,6 +163,7 @@ pub(crate) struct ArchiveMember {
 }
 
 pub(crate) struct Cooker {
+    disc: u8,
     workspace: Workspace,
     executable: Vec<u8>,
     song_setups: BTreeMap<String, Vec<u16>>,
@@ -211,6 +205,7 @@ impl Cooker {
             });
         }
         Ok(Self {
+            disc: crate::disc_number(extracted)?,
             workspace: session.workspace(extracted)?,
             executable,
             song_setups,
@@ -220,10 +215,14 @@ impl Cooker {
     }
 
     pub(crate) fn resource_key(&self, hash: &str) -> String {
-        resource_key(
-            &self.environment,
-            hash,
-            self.song_setups.get(hash).map(Vec::as_slice).unwrap_or(&[]),
+        format!(
+            "disc-{}-{}",
+            self.disc,
+            resource_key(
+                &self.environment,
+                hash,
+                self.song_setups.get(hash).map(Vec::as_slice).unwrap_or(&[]),
+            )
         )
     }
 
@@ -236,20 +235,44 @@ impl Cooker {
     /// A physical bank has no intrinsic field/battle reverb environment.
     pub(crate) fn cook_bank(&self, source: &str) -> Result<MemberResults> {
         let bytes = fs::read(self.source(source)?)?;
-        let directory = format!("audio/banks/{}", self.resource_key(&crate::digest(&bytes)));
+        let mut bank = Bank::parse(&bytes)?;
+        let group = bank.group()?;
+        let owner = self
+            .pools
+            .names
+            .get(&group)
+            .context("sound bank has no source owner")?;
+        let external = if group >= 19 && !bank.sample_ids()?.is_empty() {
+            let (mut archive, offsets) = bank_archive(
+                &self.workspace.extracted,
+                &roles::voice_bank_path(&self.workspace.extracted)?,
+                &self.pools.sources()?.usual,
+            )?;
+            let index = usize::from(group - 19);
+            let range = offsets
+                .get(index..index + 2)
+                .context("missing native sample payload")?;
+            Some(payload(&mut archive, range[0], range[1])?)
+        } else {
+            None
+        };
+        if let Some(bytes) = &external {
+            bank = bank.with_sample_payload(bytes);
+        }
         cook_bank_data(
             &self.workspace.output,
-            &directory,
-            Bank::parse(&bytes)?,
+            owner,
+            bank,
             &self.pools,
+            &self.executable,
         )
     }
 
     pub(crate) fn cook_bank_archive(&self, source: &str) -> Result<MemberResults> {
-        let path = self.source(source)?;
         let namespace = format!(
-            "audio/bank-archives/{}",
-            self.resource_key(&media::hash_file(&path)?)
+            "reports/audio-bank-archives/disc-{}/{}",
+            self.disc,
+            crate::named::source_name(source)?
         );
         let (mut archive, directory) = bank_archive(
             &self.workspace.extracted,
@@ -288,9 +311,13 @@ impl Cooker {
                 let bank = Bank::parse(&self.pools.others[index])?.with_sample_payload(&payload);
                 cook_bank_data(
                     &self.workspace.output,
-                    &format!("{namespace}/{group}"),
+                    self.pools
+                        .names
+                        .get(&group)
+                        .context("sample group has no source owner")?,
                     bank,
                     &self.pools,
+                    &self.executable,
                 )
             })();
             match result {
@@ -307,50 +334,56 @@ impl Cooker {
 
     pub(crate) fn cook_song(&self, source: &str) -> Result<MemberResults> {
         let bytes = fs::read(self.source(source)?)?;
-        let hash = crate::digest(&bytes);
-        let directory = format!("audio/songs/{}", self.resource_key(&hash));
         let song = Song::parse(&bytes)?;
-        let mut results = vec![(
-            "arrangement".into(),
-            self.json(&format!("{directory}/arrangement.json"), &song)
-                .map(|path| vec![path]),
-        )];
         let ids = self
             .song_setups
-            .get(&hash)
+            .get(&crate::digest(&bytes))
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let bank = self.pools.instruments();
-        let mut playback = Vec::new();
+        let mut results = Vec::new();
+        let mut prepared = BTreeMap::new();
+        let owner = format!(
+            "reports/music-sources/disc-{}/{}",
+            self.disc,
+            crate::named::source_name(source)?
+        );
         for &id in ids {
-            let path = format!("{directory}/setup-{id}.json");
-            let result = (|| -> Result<Vec<String>> {
-                let bank = bank
-                    .as_ref()
-                    .map_err(|error| anyhow::anyhow!("{error:#}"))?;
-                let setup = bank.music_setup(0, id)?;
-                let (resources, score) = compile::music(bank, &song, &setup, &self.pools.sustains)?;
-                let samples = samples(&self.workspace.output, &resources)?;
-                let mut files: Vec<_> =
-                    samples.values().map(|sample| sample.path.clone()).collect();
-                self.json(&path, &json!({"version":media::sound_library::VERSION, "score":score, "programs":resources.programs,
-                "samples":samples, "tables":media::synthesis_tables(&self.executable)?,
-                "reverb":media::song_reverb_change(&self.executable, id)?}))?;
-                files.push(path.clone());
-                files.sort();
-                files.dedup();
-                Ok(files)
+            let result = (|| {
+                let source_path = media::music_path(&self.executable, id)?;
+                let field_reverbs = media::music::song_reverbs(&self.executable, 1)?;
+                let loaded = media::music_library::prepare(
+                    &self.workspace.extracted,
+                    &self.executable,
+                    &self.pools,
+                    id,
+                    Some(field_reverbs),
+                )?;
+                // Preserve per-setup native compilation/error coverage. The
+                // central named publisher renders each shared song once after
+                // both original catalogues are available.
+                let path = self.json(
+                    &format!("{owner}/setup-{id:03}.json"),
+                    &json!({
+                        "song": id, "source": source_path,
+                        "programs": loaded.resources().programs.len(),
+                        "samples": loaded.resources().samples.len(),
+                    }),
+                )?;
+                prepared.insert(id, path.clone());
+                Ok(vec![path])
             })();
-            if result.is_ok() {
-                playback.push(path);
-            }
             results.push((format!("setup-{id}"), result));
         }
-        // Unbound arrangements are still converted; no guessed instruments or reverb.
+        // Unbound arrangements have no guessed instruments. Preserve the native
+        // arrangement in a report; playable music is always an ordinary WAV.
         results.push((
-            "playback".into(),
-            self.json(&format!("{directory}/playback.json"), &playback)
-                .map(|path| vec![path]),
+            "arrangement".into(),
+            self.json(
+                &format!("{owner}/arrangement.json"),
+                &json!({"source":source, "arrangement":song,
+                "declared_setups":ids, "prepared_setups":prepared, "unbound":ids.is_empty()}),
+            )
+            .map(|path| vec![path]),
         ));
         Ok(results)
     }
@@ -358,13 +391,36 @@ impl Cooker {
     pub(crate) fn archive_members(
         &self,
         source: &str,
-        sha256: &str,
-    ) -> Result<(String, Vec<ArchiveMember>)> {
+    ) -> Result<(Vec<String>, Vec<ArchiveMember>)> {
         let path = Arc::new(self.source(source)?);
-        let directory = Arc::new(format!("audio/archives/{sha256}"));
+        let name = crate::named::source_name(source)?;
+        let directory = Arc::new(format!("audio/speech/{name}"));
         let mut file = fs::File::open(&*path)?;
-        let (index, entries) = media::voice_library::directory(&mut file, sha256)?;
-        let index_path = self.json(&VoiceArchive::path(sha256)?, &index)?;
+        let (native, entries) = media::voice_library::directory(&mut file)?;
+        let mut mappings = BTreeMap::new();
+        let mut empty = Vec::new();
+        for (id, member) in native.into_iter().enumerate() {
+            if member.empty {
+                empty.push(id);
+            } else {
+                mappings.insert(
+                    u32::try_from(id)?,
+                    media::voice_library::line_name(&member.name, id)?,
+                );
+            }
+        }
+        let paths = vec![
+            self.json(
+                &format!("{directory}/mappings.json"),
+                &resonance_content::library::Mappings::new(mappings)?,
+            )?,
+            self.json(
+                &format!("reports/speech-archives/{name}.json"),
+                &json!({
+                    "source": source, "members": entries.len(), "empty_members": empty,
+                }),
+            )?,
+        ];
         let members = entries
             .into_iter()
             .enumerate()
@@ -376,7 +432,7 @@ impl Cooker {
                 entry,
             })
             .collect();
-        Ok((index_path, members))
+        Ok((paths, members))
     }
 
     pub(crate) fn cook_member(&self, member: &ArchiveMember) -> Result<Vec<String>> {
@@ -389,7 +445,11 @@ impl Cooker {
         let mut bytes = vec![0; member.entry.size];
         file.read_exact(&mut bytes)?;
         self.voice(
-            &format!("{}/{}.json", member.directory, member.id),
+            &format!(
+                "{}/{}",
+                member.directory,
+                media::voice_library::line_name(&member.entry.name, member.id)?
+            ),
             &crate::afs::Member {
                 name: &member.entry.name,
                 data: &bytes,
@@ -409,48 +469,51 @@ impl Cooker {
             .and_then(|name| name.to_str())
             .context("invalid voice filename")?;
         self.voice(
-            &format!("audio/streams/{}.json", crate::digest(&bytes)),
+            &format!(
+                "audio/speech/streams/{}.wav",
+                crate::named::source_name(source)?
+            ),
             &crate::afs::Member { name, data: &bytes },
         )
     }
 
-    /// Nested containers do not always supply filenames. Keep each source label
-    /// in its own metadata record while sharing byte-identical decoded PCM.
+    /// Embedded speech stays beside a readable source/member scope. Equal
+    /// payload bytes never choose the identity of an editable recording.
     pub(crate) fn cook_embedded_stream(&self, bytes: &[u8], name: &str) -> Result<Vec<String>> {
         ensure!(
             bytes.len() <= 128 * 1024 * 1024,
             "embedded voice exceeds encoded read budget"
         );
         self.voice(
-            &format!(
-                "audio/embedded-streams/{}/{}.json",
-                crate::digest(bytes),
-                crate::digest(name.as_bytes())
-            ),
+            &format!("audio/speech/embedded/{name}/voice.wav"),
             &crate::afs::Member { name, data: bytes },
         )
         .with_context(|| format!("decode embedded voice {name}"))
     }
 
-    fn voice(&self, metadata: &str, member: &crate::afs::Member<'_>) -> Result<Vec<String>> {
-        let format = stream_format(member.data)
-            .context("invalid signature or unsupported CRI voice encoding")?;
-        let frames = crate::read::u32(member.data, 12)?;
-        if frames == 0 {
+    fn voice(&self, path: &str, member: &crate::afs::Member<'_>) -> Result<Vec<String>> {
+        ensure!(
+            stream_format(member.data).is_some(),
+            "invalid signature or unsupported CRI voice encoding"
+        );
+        if crate::read::u32(member.data, 12)? == 0 {
+            // An authored empty slot has no playable WAV. Its absence remains
+            // explicit in the source report and outside the playback mappings.
+            let owner = path
+                .strip_prefix("audio/")
+                .context("voice has no audio owner")?;
             return Ok(vec![self.json(
-                metadata,
-                &json!({"version":1, "silence":true, "frames":0,
-                    "source_name":member.name, "sample_rate":crate::read::u32(member.data, 8)?,
+                &format!(
+                    "reports/empty-audio/{}.json",
+                    owner.trim_end_matches(".wav")
+                ),
+                &json!({"source_name":member.name, "frames":0,
+                    "sample_rate":crate::read::u32(member.data, 8)?,
                     "channels":member.data.get(7).context("truncated voice header")?}),
             )?]);
         }
-        let path = format!("audio/streams/{}.wav", crate::digest(member.data));
-        let voice = media::decode_voice_to(&self.workspace, &path, member, format)?;
-        ensure!(
-            voice.voice.frames == frames,
-            "decoded voice length differs from source"
-        );
-        Ok(vec![path, self.json(metadata, &voice)?])
+        media::voice_library::publish(&self.workspace.output, path, member.name, member.data)?;
+        Ok(vec![path.into()])
     }
 
     fn json(&self, path: &str, data: &impl Serialize) -> Result<String> {
@@ -460,6 +523,7 @@ impl Cooker {
 
 pub(crate) struct Pools {
     extracted: PathBuf,
+    names: BTreeMap<u16, String>,
     common: Vec<u8>,
     instruments: Vec<u8>,
     others: Vec<Vec<u8>>,
@@ -498,6 +562,14 @@ impl Pools {
             Bank::parse(&bytes).with_context(|| format!("sound bank {source}"))?;
             Ok(bytes)
         };
+        let common_bytes = read(common)?;
+        let instrument_bytes = read(instruments)?;
+        let mut names = BTreeMap::new();
+        for (source, bytes) in [(common, &common_bytes), (instruments, &instrument_bytes)] {
+            names
+                .entry(Bank::parse(bytes)?.group()?)
+                .or_insert(crate::named::source_name(source)?);
+        }
         let mut others = Vec::new();
         let mut local = Vec::new();
         for source in sources
@@ -509,12 +581,17 @@ impl Pools {
             } else {
                 &mut others
             };
-            target.push(read(source)?);
+            let bytes = read(source)?;
+            names
+                .entry(Bank::parse(&bytes)?.group()?)
+                .or_insert(crate::named::source_name(source)?);
+            target.push(bytes);
         }
         Ok(Self {
             extracted: extracted.into(),
-            common: read(common)?,
-            instruments: read(instruments)?,
+            names,
+            common: common_bytes,
+            instruments: instrument_bytes,
             others,
             isolated: local,
             sources: OnceLock::new(),
@@ -573,7 +650,7 @@ impl Pools {
         Ok(())
     }
 
-    fn absent(&self, dependency: &MissingObject) -> Result<bool> {
+    pub(super) fn absent(&self, dependency: &MissingObject) -> Result<bool> {
         let available = self
             .available
             .get_or_init(|| available_objects(self).map_err(|error| format!("{error:#}")))
@@ -596,10 +673,13 @@ enum SoundDeclaration {
 
 fn cook_bank_data<'a>(
     output: &Path,
-    directory: &str,
+    owner: &str,
     mut bank: Bank<'a>,
     pools: &'a Pools,
+    executable: &[u8],
 ) -> Result<MemberResults> {
+    let directory = format!("audio/instruments/effects/{owner}");
+    let report = format!("reports/audio-banks/{owner}");
     let sample_ids = bank.sample_ids()?;
     let programs: Vec<_> = bank.object_ids(ObjectKind::Macro).collect();
     let mappings: Vec<_> = [ObjectKind::Keymap, ObjectKind::Layer, ObjectKind::Table]
@@ -607,18 +687,16 @@ fn cook_bank_data<'a>(
         .flat_map(|kind| bank.object_ids(kind).map(move |id| (kind, id)))
         .collect();
     let sounds: Vec<_> = bank.sound_ids().collect();
-    let definitions = (|| {
-        let sounds = sounds
-            .iter()
-            .map(|&id| Ok((id, bank.sound(id)?)))
-            .collect::<Result<BTreeMap<_, _>>>()?;
-        json_file(
-            output,
-            &format!("{directory}/definitions.json"),
-            &json!({"group":bank.group()?, "sounds":sounds, "music_setups":bank.music_setups()?}),
-        )
-        .map(|path| vec![path])
-    })();
+    let definitions =
+        (|| {
+            let sounds = sounds
+                .iter()
+                .map(|&id| Ok((id, bank.sound(id)?)))
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            json_file(output, &format!("{report}/definitions.json"),
+            &json!({"group":bank.group()?, "sounds":sounds, "music_setups":bank.music_setups()?}))
+            .map(|path| vec![path])
+        })();
     pools.inherit(&mut bank)?;
     let mut results = vec![("definitions".into(), definitions)];
     let table_uses = pool::table_uses(&bank);
@@ -629,7 +707,7 @@ fn cook_bank_data<'a>(
             ObjectKind::Table => "table",
             ObjectKind::Macro => unreachable!(),
         };
-        let path = format!("{directory}/{name}-{id}.json");
+        let path = format!("{report}/{name}-{id}.json");
         let result = (|| {
             let path = match kind {
                 ObjectKind::Keymap => json_file(output, &path, &pool::keymap(&bank, id)?)?,
@@ -646,33 +724,54 @@ fn cook_bank_data<'a>(
         })();
         results.push((format!("{name}/{id}"), result));
     }
+    let mut publisher = crate::named::Publisher::new(output, output)?;
+    let mut sample_mappings = BTreeMap::new();
     for id in sample_ids {
-        results.push((
-            format!("sample/{id}"),
-            (|| {
-                let asset = media::write_shared_sample(output, &bank.sample(id)?)?;
-                let path = json_file(output, &format!("{directory}/sample-{id}.json"), &asset)?;
-                Ok(vec![asset.path, path])
-            })(),
-        ));
+        let result = (|| {
+            let sample = publisher.native_sample(
+                &bank.sample(id)?,
+                &format!("{directory}/sample-{id:05}.wav"),
+            )?;
+            let path = json_file(output, &format!("{directory}/sample-{id:05}.json"), &sample)?;
+            sample_mappings.insert(u32::from(id), format!("sample-{id:05}.json"));
+            Ok(vec![sample.path, path])
+        })();
+        results.push((format!("sample/{id}"), result));
     }
+    let mut program_mappings = BTreeMap::new();
     for id in programs {
         let result = decode::programs(&bank, [id], &pools.sustains).and_then(|resources| {
             resource_file(
                 output,
-                &format!("{directory}/program-{id}.json"),
+                &format!("{directory}/programs/macro-{id:05}"),
+                &directory,
                 resources,
                 None,
+                executable,
             )
         });
+        if result.is_ok() {
+            program_mappings.insert(u32::from(id), format!("macro-{id:05}/sound.json"));
+        }
         results.push((format!("program/{id}"), result));
     }
+    let mut sound_mappings = BTreeMap::new();
     for id in sounds {
-        let path = format!("{directory}/sound-{id}.json");
+        let cue = crate::naming::sound(u32::from(id));
         let result = (|| {
             let (resources, score) = media::sound_library::sound(&bank, id, &pools.sustains)?;
-            resource_file(output, &path, resources, Some(score))
+            resource_file(
+                output,
+                &format!("audio/effects/{owner}/{cue}"),
+                &directory,
+                resources,
+                Some(score),
+                executable,
+            )
         })();
+        if result.is_ok() {
+            sound_mappings.insert(u32::from(id), format!("{cue}/sound.json"));
+        }
         let result = result.or_else(|error| {
             if let Some(&dependency) = error.downcast_ref::<MissingObject>()
                 && pools.absent(&dependency)?
@@ -681,50 +780,66 @@ fn cook_bank_data<'a>(
                     source: bank.sound(id)?,
                     dependency,
                 };
-                json_file(output, &path, &declaration).map(|path| vec![path])
+                json_file(
+                    output,
+                    &format!("{report}/unavailable-sound-{id:05}.json"),
+                    &declaration,
+                )
+                .map(|path| vec![path])
             } else {
                 Err(error)
             }
         });
         results.push((format!("sound/{id}"), result));
     }
+    for (path, mappings) in [
+        (format!("{directory}/mappings.json"), sample_mappings),
+        (
+            format!("{directory}/programs/mappings.json"),
+            program_mappings,
+        ),
+        (
+            format!("audio/effects/{owner}/mappings.json"),
+            sound_mappings,
+        ),
+    ] {
+        let result = json_file(
+            output,
+            &path,
+            &resonance_content::library::Mappings::new(mappings)?,
+        )
+        .map(|path| vec![path]);
+        results.push((path, result));
+    }
     Ok(results)
-}
-
-fn samples(
-    output: &Path,
-    resources: &Resources,
-) -> Result<BTreeMap<u16, resonance_audio::package::SampleAsset>> {
-    resources
-        .samples
-        .iter()
-        .map(|(&id, sample)| Ok((id, media::write_shared_sample(output, sample)?)))
-        .collect()
 }
 
 fn resource_file(
     output: &Path,
-    path: &str,
+    owner: &str,
+    instruments: &str,
     resources: Resources,
     score: Option<Score>,
+    executable: &[u8],
 ) -> Result<Vec<String>> {
-    let samples = samples(output, &resources)?;
-    let mut files: Vec<_> = samples.values().map(|sample| sample.path.clone()).collect();
-    files.push(json_file(
-        output,
-        path,
-        &media::sound_library::Resources {
-            version: media::sound_library::VERSION,
-            programs: resources.programs,
-            samples,
-            score,
-        },
-    )?);
-    Ok(files)
+    let loaded = resonance_audio::package::Loaded::new(
+        resources,
+        score.unwrap_or_else(|| media::sound_score(0, None)),
+        media::synthesis_tables(executable)?,
+        media::music::title_reverbs(executable)?,
+    )?;
+    crate::named::Publisher::new(output, output)?.native_program(
+        &loaded,
+        owner,
+        instruments,
+        true,
+    )?;
+    Ok(vec![format!("{owner}/sound.json")])
 }
 
 fn json_file(output: &Path, path: &str, data: &impl Serialize) -> Result<String> {
     crate::write_atomic(&output.join(path), &serde_json::to_vec_pretty(data)?)?;
+    crate::publication::export(&output.join(path))?;
     Ok(path.into())
 }
 
@@ -981,6 +1096,7 @@ mod tests {
             assert_eq!(pools.isolated.len(), 1);
             let output = root.join("cooked");
             let cooker = Cooker {
+                disc: 1,
                 workspace: Workspace::open(&root, &output)?,
                 executable: vec![],
                 song_setups: BTreeMap::new(),
@@ -997,12 +1113,12 @@ mod tests {
                     }
                 }
             }
-            let playback: Vec<String> = serde_json::from_slice(&fs::read(output.join(format!(
-                "audio/songs/{}/playback.json",
-                cooker.resource_key(&crate::digest(&song))
-            )))?)?;
+            let source: serde_json::Value = serde_json::from_slice(&fs::read(
+                output.join("reports/music-sources/disc-1/music/arrangement.json"),
+            )?)?;
+            assert_eq!(source["unbound"], true);
             assert!(
-                playback.is_empty(),
+                source["prepared_setups"].as_object().unwrap().is_empty(),
                 "unused songs must not invent an instrument setup"
             );
             fs::write(root.join("files/Common.payload"), [0; 40])?;
@@ -1248,7 +1364,7 @@ mod tests {
                     Err(_) => failures.push(member),
                 }
             }
-            assert_eq!(accepted.len(), 11); // Arrangement, nine setups and their index.
+            assert_eq!(accepted.len(), 10); // Nine native setup compilations and the arrangement report.
             assert_eq!(failures, ["setup-65535"]);
         }
         drop(session);

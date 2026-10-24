@@ -15,12 +15,11 @@ pub(super) struct Sources {
     dust: Vec<u8>,
     cinematics: Vec<String>,
     cinematic_rules: BTreeMap<u16, super::overworld_cinematics::Definition>,
-    cinematic_sounds: Vec<i16>,
 }
 impl Sources {
     pub(super) fn read(extracted: &Path, rel: &Rel, executable: &[u8]) -> Result<Self> {
         let files = extracted.join("files");
-        let (cinematic_rules, cinematic_sounds) = super::overworld_cinematics::read(rel)?;
+        let (cinematic_rules, _) = super::overworld_cinematics::read(rel)?;
         let resolve =
             |path: &str| crate::field_resources::resolve_path(&files, path.trim_start_matches('/'));
         let common = resolve(&rel.text((5, 0x930))?)?;
@@ -66,7 +65,6 @@ impl Sources {
             party,
             cinematics,
             cinematic_rules,
-            cinematic_sounds,
             animation_members,
             dust: rel.at((6, 0x2f100))?.to_vec(),
             skies: [
@@ -74,16 +72,6 @@ impl Sources {
                 crate::compression::payload(rel.at(rel.pointer(6, 0x2a570)?)?.to_vec())?,
             ],
         })
-    }
-    pub(super) fn cinematic_sounds(&self) -> &[i16] {
-        &self.cinematic_sounds
-    }
-    pub(super) fn cinematic_voices(
-        &self,
-    ) -> impl Iterator<Item = &crate::media::field_audio::WorldVoiceArchive> {
-        self.cinematic_rules
-            .values()
-            .filter_map(|scene| scene.voices.as_ref())
     }
     pub(super) fn prepare(&self, output: &Path, decoded: &Package) -> Result<Visuals> {
         let read = |path: &str| crate::compression::payload(decoded.source(path)?.as_ref().clone());

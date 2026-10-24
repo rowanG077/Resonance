@@ -3,6 +3,8 @@ use crate::tpl;
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
+pub(crate) const SCRATCH_RAMP: &str = "effects/toon-ramp.ktx2";
+
 pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let source = crate::all_assets::roles::toon_path(extracted, &executable)?;
@@ -31,7 +33,7 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
         );
     }
     let rgba = tpl::decode_texture(&source, &texture)?;
-    let path = "effects/toon-ramp.ktx2";
+    let path = SCRATCH_RAMP;
     crate::texture::cook(256, 32, &rgba, &output.join(path))?;
     Ok(path.into())
 }

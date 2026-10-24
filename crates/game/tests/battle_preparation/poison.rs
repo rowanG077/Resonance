@@ -7,34 +7,49 @@ use resonance_events::{
     battle::DefeatPolicy,
     party::{Party, Poison},
 };
-use resonance_game::battle::encounter::Assets;
 
 #[test]
 #[ignore = "requires current opening encounter and poison effect publications; no devices"]
 fn saved_poison_emits_scene_feedback_that_expires() -> Result<()> {
     let root = common::asset_root();
     let mut cache = Cache::default();
-    let retained = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: MenuData = retained.json("game/menu-data.json")?;
+    let retained = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        &mut cache,
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&retained)?;
     let mut data: SessionData = retained.json("game/session-data.json")?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default())?;
     party.formation = vec![1, 2, 3];
     party.members[0].ailments.poison = Poison::Mild;
     party.settings.battle_controls = [0; 4];
-    let (_, prepared) = Assets::load(
-        &root,
-        &retained,
-        &menus,
-        &data,
-        &party,
-        opening_setup(1, DefeatPolicy::GameOver),
-        opening_options(17),
-        &mut cache,
-        || false,
-    )?;
+    let (_, prepared) = {
+        let mut snapshot = (&retained)
+            .library()
+            .context("named library is required")?
+            .snapshot();
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut snapshot,
+            &(|| false),
+        )?;
+        let inputs = resonance_game::battle::encounter::Inputs::capture(
+            &mut snapshot,
+            &menus,
+            &data,
+            &party,
+            opening_setup(1, DefeatPolicy::GameOver),
+            &mut cache,
+            (&retained).diagnostics().clone(),
+            &(|| false),
+        )?;
+        let (assets, prepared, _) =
+            inputs.prepare_named(&menus, opening_options(17), &catalogue)?;
+        Ok::<_, anyhow::Error>((assets, prepared))
+    }?;
 
     let diagnostics = Diagnostics::new(true);
     let mut effects = Effects::new(

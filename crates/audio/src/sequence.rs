@@ -8,6 +8,7 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::sync::Arc;
 mod kernel;
+pub mod recording;
 pub mod shared;
 pub mod stream;
 

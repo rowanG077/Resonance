@@ -5,9 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-pub fn path(id: u8) -> String {
-    format!("battle/enemies/{id:03}/definition.json")
-}
+pub mod document;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,7 +16,7 @@ pub enum EntryRow {
     Back,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Definition {
     pub source_sha256: String,
     /// Empty visual slots in the authored body motion table.

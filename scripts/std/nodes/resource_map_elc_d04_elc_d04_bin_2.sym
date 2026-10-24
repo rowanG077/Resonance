@@ -1,0 +1,4 @@
+script library;
+// Skeleton: abfdba83a9cd6cf34dde1a75da0c4e488987a34816daaa8e003451631e794df2
+// Source owner: MAP/elc_d04/ELC_D04.BIN/2
+pub const Node000_Glass_Ball: string = "glass_ball";

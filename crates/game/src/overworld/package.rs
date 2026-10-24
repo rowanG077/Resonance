@@ -5,11 +5,11 @@ use super::{
 };
 use anyhow::{Context, Result};
 use resonance_content::{
-    overworld::{PACKAGE_PATH, Package, TileResources},
-    prepared::{Cache, Files},
+    overworld::{Package, TileResources},
+    prepared::Files,
 };
 use resonance_events::{PersistentState, ResourceLibrary};
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 use symphonia_script::Program;
 
 pub struct Prepared {
@@ -22,37 +22,21 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn load(
-        root: &Path,
-        shared: Files,
-        cache: &mut Cache,
+    pub fn from_prepared(
+        definition: Package,
+        files: Arc<Files>,
+        skits: Arc<resonance_content::skit::SkitCatalog>,
         mut available_fields: BTreeSet<u32>,
-        cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let definition: Package = serde_json::from_slice(&std::fs::read(root.join(PACKAGE_PATH))?)?;
-        definition.validate()?;
-        let files =
-            Arc::new(shared.with_dependencies(root, definition.files.clone(), cache, cancelled)?);
-        let audio: resonance_content::field_audio::FieldAudio = files.json("worlds/audio.json")?;
-        audio.validate()?;
-        for scene in definition.visuals.cinematics.values() {
-            scene.presentation.validate_audio(&audio)?;
-            for line in &scene.dialogue {
-                anyhow::ensure!(
-                    audio.voices.contains_key(&line.voice),
-                    "cinematic voice is not prepared"
-                );
-            }
-        }
+        definition.validate_content(|path| files.contains_key(path))?;
         let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
-        let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
         skits.validate()?;
         available_fields.insert(3000);
         let resources = Arc::new(ResourceLibrary {
             menu_data: data.rules.clone(),
             session_data: Some(data),
             text: Arc::new(files.json("game/text.json")?),
-            skits: Some(Arc::new(skits)),
+            skits: Some(skits),
             messages: files.json(&definition.messages)?,
             actor_names: ResourceLibrary::character_names(),
             fields: available_fields,

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: bde3f1370baa09b597d1aaa97577dd265ae2bebbd0c4e25b218cb5157d875e74
+// Source owner: MAP/mer_i02/MER_I02.BIN/0
+pub const Node000_Soto01: string = "soto01";
+pub const Node001_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";

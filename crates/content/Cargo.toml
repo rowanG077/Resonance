@@ -9,6 +9,9 @@ serde_json.workspace = true
 anyhow.workspace = true
 sha2.workspace = true
 glam.workspace = true
+hound = "3.5"
+symphonia-script-compiler.workspace = true
+resonance-asset-writer.workspace = true
 
 [features]
 test-support = []

@@ -59,7 +59,8 @@ pub fn prepare(
     sound: &mut impl FnMut(voice::Sound) -> Result<Option<Sound>>,
 ) -> Result<PreparedSpell> {
     let scene_id = scene(catalogue).context("unknown summon")?;
-    let scene: battle_scene::Scene = files.json(&battle_scene::path(scene_id))?;
+    let scene =
+        battle_scene::document::load(files, battle_scene::document::Kind::Technique, scene_id)?;
     let healing = EffectAppearance {
         resource: techniques.resource,
         member: HEALING_EFFECT,

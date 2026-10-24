@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn finish_consumes_queued_long_voice_and_retires_looping_scores() -> Result<()> {
+    fn finish_consumes_queued_long_voice_and_retires_music_and_effects() -> Result<()> {
         let mut assets = Assets::silent(Diagnostics::new(true));
         assets.voice_gains.fill(1.);
         let length = RATE as usize * 12;
@@ -181,23 +181,14 @@ mod tests {
             7,
             Arc::new(super::super::test_clip(vec![12000; length], RATE, 1)),
         );
-        let (resources, mut score, tables) =
-            super::super::test_score_data(resonance_audio::data::ScoreOrigin::Sequence);
-        score.loop_events = score.first_events.clone();
-        let score = Arc::new(resonance_audio::package::Loaded::new(
-            resources,
-            score,
-            tables,
-            assets.reverbs,
-        )?);
-        assets.music.insert(0, score);
+        assets.recordings.insert(0, super::super::test_music());
         assets.sounds.insert(1, super::super::test_score());
         assets.music_reverbs = Some(MusicReverbs {
             presets: assets.reverbs,
             selectors: vec![0],
         });
         let mut playback = playback(assets);
-        // Admit at a non-block boundary: queued scores must reach their worker.
+        // Admit at a non-block boundary: queued playback must reach the mixer.
         playback.frame()?;
         let complete = Arc::new(AtomicBool::new(false));
         playback

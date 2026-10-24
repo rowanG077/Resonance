@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 9db15d7d2f2a9e4f8274b074b432a79409b456d90d9cee8c5c048893c94d9800
+// Source owner: MAP/bar_t01/BAR_T01.BIN/10
+pub const Node000_S_Sea: string = "S_Sea";

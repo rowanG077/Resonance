@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2caff986199b1208fbc3ae1cbcff0f29e912bdad8ff8f3c2370d322dbe424656
+// Source owner: MAP/iwa_d05/IWA_D05.BIN/0
+pub const Node000_Wall01: string = "壁01";
+pub const Node001_Darkness: string = "暗闇";

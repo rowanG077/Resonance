@@ -1,0 +1,4 @@
+script library;
+// Skeleton: d7d38e70728420d42330179d831c15cf6f4dc957dd503ee032a8f6726418ef85
+// Source owner: MAP/yum_d02/YUM_D02.BIN/12
+pub const Node000_Zimen: string = "zimen";

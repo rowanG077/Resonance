@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 0fac737b7155d621166f47e3560690449fa8ffbf37827a5e519d2ec0cdfcea3f
+// Source owner: MAP/yum_d00/YUM_D00.BIN/28/0
+pub const Node000_Jamp01: string = "jamp01";

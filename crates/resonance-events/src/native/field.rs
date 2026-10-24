@@ -1785,10 +1785,7 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::ResolveScriptResource => {
-                let binding = self
-                    .resources
-                    .binding(a[0])
-                    .ok_or("requested resource is not cooked")?;
+                let binding = self.resources.request(a[0])?;
                 let handle = (0..128)
                     .map(|i| (0xffff0000u32 | i) as i32)
                     .find(|h| !self.world.loaded_resources.contains_key(h))

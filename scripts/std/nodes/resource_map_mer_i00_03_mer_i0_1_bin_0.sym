@@ -1,0 +1,6 @@
+script library;
+// Skeleton: e4b872bc9d19e35939e196253713be4819cb29f3611ad749d037719f72da1810
+// Source owner: MAP/mer_i00_03/MER_I0~1.BIN/0
+pub const Node000_Box03: string = "Box03";
+pub const Node001_Item: string = "item";
+pub const Node002_DOOR01_AUTO_S_PUSH_W126e113: string = "DOOR01_AUTO_S_PUSH_W126e113";

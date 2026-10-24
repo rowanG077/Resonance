@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 6f823f2488ed0a84381ca3966cd209404f47c63ba837e536ff1af90eb551d15b
+// Source owner: MAP/hol_d02/HOL_D02.BIN/19/0
+pub const Node000_Loft01: string = "Loft01";
+pub const Node001_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

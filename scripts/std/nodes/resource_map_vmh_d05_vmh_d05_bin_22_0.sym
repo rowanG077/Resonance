@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 301ed0d9f36f4668ca11b9260bb0739a4788043b97bc88c558d28ca06e19dac2
+// Source owner: MAP/vmh_d05/VMH_D05.BIN/22/0
+pub const Node000_River00: string = "river00";
+pub const Node001_River00_Waki: string = "river00_waki";

@@ -240,44 +240,55 @@ fn missing_required_actor_resources_abort_preparation() -> Result<()> {
                 0,
                 &[],
                 diagnostics.clone(),
-                |party, session, _, files| {
+                |party, session, _, snapshot, modification| {
+                    use resonance_content::battle_model::document as models;
+                    let write = |path: &str, value: &serde_json::Value| -> Result<()> {
+                        let path = modification.join(path);
+                        std::fs::create_dir_all(path.parent().unwrap())?;
+                        std::fs::write(path, serde_json::to_vec(value)?)?;
+                        Ok(())
+                    };
                     party.settings.battle_controls[0] = 1;
                     party.members[0].equipment[0] = 135;
                     party.members[8].equipment[5] = 356;
                     party.items.insert(136, 1);
                     let Some(broken) = broken else {
                         for character in [1, 9] {
-                            files.remove(&resonance_content::battle_model::party_path(character));
+                            let path = models::party_path(snapshot, character, 0)?;
+                            let mut definition: models::PartyDefinition =
+                                snapshot.json(&path, 16 * 1024 * 1024)?;
+                            definition.rig = "battle/party/missing-actor.json".into();
+                            write(&path, &serde_json::to_value(definition)?)?;
                         }
                         return Ok(());
                     };
-                    let mut bank: resonance_content::battle_model::Weapons =
-                        files.json(resonance_content::battle_model::WEAPONS_PATH)?;
+                    let mut mappings: std::collections::BTreeMap<String, String> =
+                        snapshot.json(models::EQUIPMENT, 16 * 1024 * 1024)?;
                     // Unusable reserve equipment does not request artwork for this roster.
                     let irrelevant = party.members[2].equipment[0];
                     assert_eq!(
                         session.items[usize::from(irrelevant)].allowed_characters & 0x101,
                         0
                     );
-                    bank.records.remove(&irrelevant);
+                    mappings.remove(&irrelevant.to_string());
                     if broken == 136 {
-                        let resonance_content::battle_model::Attachment::Weapon(weapon) = bank
-                            .records
-                            .get_mut(&broken)
-                            .context("missing spare weapon")?
+                        let path =
+                            snapshot.resolve(models::EQUIPMENT, broken, Some("equipment.json"))?;
+                        let equipment: models::Equipment =
+                            snapshot.json(&path, 16 * 1024 * 1024)?;
+                        let models::AttachmentDefinition::Weapon(weapon) = equipment.attachment
                         else {
                             anyhow::bail!("spare item is not a weapon");
                         };
-                        for part in weapon.parts.values_mut() {
-                            part.layers.clear();
+                        for path in weapon.parts.values() {
+                            let mut model: models::Model = snapshot.json(path, 16 * 1024 * 1024)?;
+                            model.model.layers.clear();
+                            write(path, &serde_json::to_value(model)?)?;
                         }
                     } else {
-                        bank.records.remove(&broken);
+                        mappings.remove(&broken.to_string());
                     }
-                    files.insert(
-                        resonance_content::battle_model::WEAPONS_PATH.into(),
-                        serde_json::to_vec(&bank)?.into(),
-                    );
+                    write(models::EQUIPMENT, &serde_json::to_value(mappings)?)?;
                     Ok(())
                 },
             )
@@ -285,8 +296,16 @@ fn missing_required_actor_resources_abort_preparation() -> Result<()> {
             let error = loaded
                 .err()
                 .context("preparation accepted missing required actor resources")?;
-            let expected =
-                broken.map_or_else(|| "battle/party/01.json".into(), |item| item.to_string());
+            let expected = broken.map_or_else(
+                || "missing-actor.json".into(),
+                |item| {
+                    if item == 136 {
+                        "empty battle model".into()
+                    } else {
+                        item.to_string()
+                    }
+                },
+            );
             assert!(format!("{error:#}").contains(&expected), "{error:#}");
         }
     }

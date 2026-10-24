@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 91a7c42b9d3f7c130486bcbbd360254f47aaced9813d63e528c58403b1baff9d
+// Source owner: MAP/hab_d14/HAB_D14.BIN/19/0
+pub const Node000_Bin: string = "bin";
+pub const Node001_Futa: string = "futa";
+pub const Node002_Kuchi: string = "kuchi";

@@ -25,6 +25,23 @@ mod synopsis;
 pub(super) mod text;
 pub(super) mod world_map;
 
+fn title_awards() -> Result<resonance_content::menu_data::TitleAwardRules> {
+    let mut recipe: serde_json::Value =
+        serde_json::from_str(include_str!("data/title_awards.json"))?;
+    let evidence = recipe
+        .as_object_mut()
+        .context("title award recipe must be an object")?
+        .remove("provenance")
+        .context("title award recipe lacks source evidence")?;
+    ensure!(
+        evidence
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty() && value.len() <= 1024),
+        "invalid title award source evidence"
+    );
+    Ok(serde_json::from_value(recipe)?)
+}
+
 #[cfg(test)]
 pub(super) fn read(executable: &[u8]) -> Result<Tables> {
     assemble(&Source::read(executable)?, &Inputs::read(executable)?)
@@ -191,13 +208,13 @@ impl Inputs {
 
 /// Tables stay typed until publication; preview books are attached during preparation.
 pub(crate) struct Tables {
-    pub(super) data: MenuData,
+    pub(crate) data: MenuData,
     pub(super) artwork: super::recipe::Recipe,
-    pub(super) manual: resonance_content::menu_data::TrainingManual,
-    pub(super) figurines: resonance_content::figurine::FigurineBook,
-    pub(super) synopsis: resonance_content::menu_data::SynopsisData,
-    pub(super) customize: resonance_content::menu_data::CustomizeData,
-    pub(super) rename: resonance_content::menu_data::RenameData,
+    pub(crate) manual: resonance_content::menu_data::TrainingManual,
+    pub(crate) figurines: resonance_content::figurine::FigurineBook,
+    pub(crate) synopsis: resonance_content::menu_data::SynopsisData,
+    pub(crate) customize: resonance_content::menu_data::CustomizeData,
+    pub(crate) rename: resonance_content::menu_data::RenameData,
 }
 
 pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
@@ -484,7 +501,7 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
             crafting: inputs.crafting.prepare()?,
             items,
             titles,
-            title_awards: serde_json::from_str(include_str!("data/title_awards.json"))?,
+            title_awards: title_awards()?,
             techniques,
             ex_skills,
             world_map,
@@ -554,12 +571,12 @@ fn translated_title_awards_bind_original_catalogues_and_require_current_format()
 }
 
 #[test]
-#[ignore = "requires extracted executables and prepared assets; RESONANCE_COOKED selects the baseline"]
+#[ignore = "requires extracted executables and current RESONANCE_TEST_ASSETS"]
 fn cooked_catalogues_preserve_prepared_menu() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let output = std::env::var_os("RESONANCE_COOKED")
+    let output = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| local.join("all-assets"));
+        .context("set RESONANCE_TEST_ASSETS")?;
     let mut expected: serde_json::Value =
         serde_json::from_slice(&fs::read(output.join("game/menu-data.json"))?)?;
     // Preview bindings have their own source/animation regressions. Compare every
@@ -573,20 +590,7 @@ fn cooked_catalogues_preserve_prepared_menu() -> Result<()> {
         let staging = temporary.path();
         let file = local.join(format!("extracted/disc{disc}/sys/main.dol"));
         let executable = fs::read(&file)?;
-        let mut failures = Vec::new();
         let catalogues = crate::all_assets::Catalogues::read(&executable)?;
-        crate::all_assets::cook_tables(
-            &file,
-            &executable,
-            &catalogues,
-            staging,
-            &mut |label, result| {
-                if let Err(error) = result {
-                    failures.push(format!("{label}: {error:#}"));
-                }
-            },
-        )?;
-        ensure!(failures.is_empty(), "{failures:#?}");
         let tables = catalogues.menu()?;
         for (path, actual) in [
             (
@@ -610,32 +614,26 @@ fn cooked_catalogues_preserve_prepared_menu() -> Result<()> {
                 serde_json::from_slice(&fs::read(output.join(path))?)?;
             assert_eq!(actual, expected, "disc {disc}: {path}");
         }
-        super::cook_art(
+        let art = super::prepare_art(
             &local.join(format!("extracted/disc{disc}")),
             staging,
             &executable,
             tables.artwork,
             tables.data.items.len(),
         )?;
-        let fresh = fs::read(staging.join("ui/menu.json"))?;
-        let art = resonance_content::menu::MenuArt::decode(
-            &fresh,
+        art.validate(tables.data.items.len())?;
+        let expected_art = resonance_content::menu::MenuArt::decode(
+            &fs::read(output.join("ui/menu.json"))?,
             &resonance_content::diagnostics::Diagnostics::new(true),
         )?;
-        art.validate(tables.data.items.len())?;
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&fresh)?,
-            serde_json::from_slice::<serde_json::Value>(&fs::read(output.join("ui/menu.json"))?)?,
-            "disc {disc}: menu artwork"
-        );
-        for texture in art.textures.values() {
-            assert_eq!(
-                fs::read(staging.join(&texture.path))?,
-                fs::read(output.join(&texture.path))?,
-                "disc {disc}: {}",
-                texture.path
-            );
-        }
+        crate::named::equivalent_assets(
+            &art,
+            &expected_art,
+            staging,
+            &output,
+            &mut Default::default(),
+        )
+        .with_context(|| format!("disc {disc}: menu artwork"))?;
         let mut actual = serde_json::to_value(tables.data)?;
         actual["presentation"]
             .as_object_mut()

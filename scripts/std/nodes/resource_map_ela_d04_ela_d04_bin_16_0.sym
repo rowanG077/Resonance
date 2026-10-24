@@ -1,0 +1,4 @@
+script library;
+// Skeleton: e8533d70d4f7181e04d9a67e225483d805d8e87d2205ca357f657e05fb931a34
+// Source owner: MAP/ela_d04/ELA_D04.BIN/16/0
+pub const Node000_Gp: string = "gp";

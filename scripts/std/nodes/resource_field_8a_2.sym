@@ -1,0 +1,5 @@
+script library;
+// Skeleton: b3509b1ba56164b551e05f95d18f5f60645f79d81ce7658e8183558b60d3d6ce
+// Source owner: FIELD/8a/2
+pub const Node000_Fsea_01: string = "fsea_01";
+pub const Node001_Wave_Soda: string = "wave_soda";

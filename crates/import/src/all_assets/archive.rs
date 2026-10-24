@@ -2,14 +2,13 @@ use crate::read::u32 as word;
 use anyhow::{Result, ensure};
 use std::ops::Range;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
 pub(crate) struct Directory {
     pub count: usize,
     pub members: Vec<Option<usize>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemberKind {
     Actor,
     Model,
@@ -17,11 +16,10 @@ pub(crate) enum MemberKind {
     Other,
 }
 
-/// Section tags let field preparation bind cooked actors and texture banks.
-#[derive(serde::Serialize, serde::Deserialize)]
+/// Native section tags let field preparation bind actors and texture banks.
+#[derive(Debug)]
 pub(crate) struct FieldDirectory {
     pub kinds: Vec<MemberKind>,
-    #[serde(flatten)]
     pub directory: Directory,
 }
 
@@ -51,13 +49,13 @@ impl FieldDirectory {
         self.directory.validate()?;
         ensure!(
             self.kinds.len() == self.directory.count,
-            "incomplete cooked section kinds"
+            "incomplete native section kinds"
         );
         for (index, canonical) in self.directory.members.iter().enumerate() {
             if let Some(canonical) = canonical {
                 ensure!(
                     self.kinds[index] == self.kinds[*canonical],
-                    "conflicting cooked section alias kinds"
+                    "conflicting native section alias kinds"
                 );
             }
         }
@@ -175,11 +173,10 @@ mod tests {
             .into_iter()
             .flat_map(u32::to_be_bytes)
             .collect::<Vec<_>>();
-        let source = FieldDirectory::new(
+        let mut restored = FieldDirectory::new(
             &bytes,
             &[Some(0..4), None, Some(0..4), Some(4..8), Some(8..12)],
         );
-        let mut restored: FieldDirectory = serde_json::from_slice(&serde_json::to_vec(&source)?)?;
         restored.validate()?;
         assert_eq!(
             restored.directory.members,

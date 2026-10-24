@@ -1,0 +1,5 @@
+script library;
+// Skeleton: e15447d61a80eaf857bcb01ea9df58d8428e259d3418cb15b9783e554b3383c4
+// Source owner: MAP/elb_d00/ELB_D00.BIN/16/0
+pub const Node000_Tbox: string = "Tbox";
+pub const Node001_Futa: string = "futa";

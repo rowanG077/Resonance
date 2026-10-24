@@ -106,6 +106,13 @@ pub struct OverlayTexture {
 }
 
 impl OverlayArt {
+    pub fn references(&self) -> impl Iterator<Item = &str> {
+        self.textures
+            .iter()
+            .flat_map(|texture| &texture.images)
+            .map(|image| image.path.as_str())
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(!self.textures.is_empty(), "empty overlay texture bank");
         for texture in &self.textures {
@@ -263,6 +270,17 @@ fn opaque() -> u8 {
     255
 }
 impl<Image: AsRef<str>> FieldEffects<Image> {
+    pub fn references(&self) -> impl Iterator<Item = &str> {
+        [self.emote_texture.as_ref(), self.status_texture.as_ref()]
+            .into_iter()
+            .chain(
+                self.sprites
+                    .values()
+                    .chain([&self.refraction.sprite, &self.air_refraction])
+                    .map(|sprite| sprite.texture.as_ref()),
+            )
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.version == FIELD_EFFECTS_VERSION

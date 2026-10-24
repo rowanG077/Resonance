@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6ce937db44727d02f5b31c275241e3747337d762ac9ff56b9db3df564a850aac
+// Source owner: MAP/las_t02/LAS_T02.BIN/28/0
+pub const Node000_Dammy_Loi: string = "dammy_loi";

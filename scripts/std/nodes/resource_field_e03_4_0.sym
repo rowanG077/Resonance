@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 5648aab22df1eaa42c03ca36315eb592c0a5623bcaa651ce8bb8536a1f059fa3
+// Source owner: FIELD/e03/4/0
+pub const Node000_Default04: string = "default04";
+pub const Node001_Col000_Skin: string = "col000_skin";

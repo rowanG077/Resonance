@@ -246,6 +246,7 @@ pub(crate) struct Message {
     pub public: bool,
     pub parameters: Vec<(String, TypeRef)>,
     pub text: String,
+    pub text_at: Location,
     pub at: Location,
 }
 #[derive(Clone, Debug)]
@@ -419,6 +420,7 @@ impl Parser {
                             .at
                             .error("message template requires a text literal"));
                     };
+                    let text_at = self.token().at.clone();
                     self.index += 1;
                     self.expect(";")?;
                     module.messages.push(Message {
@@ -426,6 +428,7 @@ impl Parser {
                         public,
                         parameters,
                         text,
+                        text_at,
                         at,
                     });
                     continue;

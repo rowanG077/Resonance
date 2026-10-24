@@ -187,12 +187,24 @@ impl MenuData {
     pub const VERSION: u32 = 37;
     /// Admit optional labels independently while keeping gameplay records typed.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
-        let mut data = Self::decode(&files.read("game/menu-data.json")?, files.diagnostics())?;
+        let mut data = Self::decode_with(
+            &files.read("game/menu-data.json")?,
+            files.diagnostics(),
+            Some(files),
+        )?;
         crate::arte::elemental::extend_menu(&mut data)?;
         Ok(data)
     }
 
     pub fn decode(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {
+        Self::decode_with(bytes, diagnostics, None)
+    }
+
+    fn decode_with(
+        bytes: &[u8],
+        diagnostics: &crate::diagnostics::Diagnostics,
+        named: Option<&crate::prepared::Files>,
+    ) -> Result<Self> {
         let mut source: serde_json::Value = serde_json::from_slice(bytes)?;
         let presentation = source
             .as_object_mut()
@@ -200,7 +212,7 @@ impl MenuData {
             .remove("presentation")
             .unwrap_or_default();
         let mut data: Self = serde_json::from_value(source)?;
-        data.presentation = MenuPresentation::decode(presentation, diagnostics)?;
+        data.presentation = MenuPresentation::decode(presentation, diagnostics, named)?;
         Ok(data)
     }
 

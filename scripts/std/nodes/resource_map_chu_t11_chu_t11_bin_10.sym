@@ -1,0 +1,4 @@
+script library;
+// Skeleton: ba5873bdfa63934cdce7b77df860b106d44343de97212658cd48c5c7bd208b6e
+// Source owner: MAP/chu_t11/CHU_T11.BIN/10
+pub const Node000_Sea: string = "sea";

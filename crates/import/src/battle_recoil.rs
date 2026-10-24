@@ -2,9 +2,8 @@
 use crate::{read::Field, rel::Rel};
 use anyhow::{Context, Result};
 use resonance_content::battle_recoil::{Table, strategy_guard_recovery};
-use std::path::Path;
 
-fn read(module: &Rel) -> Result<Table> {
+pub(crate) fn read(module: &Rel) -> Result<Table> {
     let constants = module.at((4, 0x3a58))?;
     Ok(Table {
         source_sha256: crate::digest(&module.bytes),
@@ -31,13 +30,6 @@ pub(crate) fn guard_defaults(module: &Rel) -> Result<Vec<u8>> {
         .iter()
         .map(|&position| strategy_guard_recovery(position))
         .collect())
-}
-
-pub fn publish(file: &Path, output: &Path, prefix: &str) -> Result<String> {
-    let table = read(&Rel::read(file)?)?;
-    let path = format!("{prefix}/recoil.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&table)?)?;
-    Ok(path)
 }
 
 #[cfg(test)]

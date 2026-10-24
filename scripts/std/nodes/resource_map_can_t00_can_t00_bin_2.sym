@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 07ffbd8998db1d7ca04978ac0449299d065ffda4c23400ad3240af9de92f3b42
+// Source owner: MAP/can_t00/CAN_T00.BIN/2
+pub const Node000_Tyunyu: string = "Tyunyu";

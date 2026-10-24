@@ -6,21 +6,44 @@ use std::collections::BTreeMap;
 pub const TILE_SIZE: u32 = 8;
 pub const MAX_PORTRAITS: usize = 32;
 pub const VERSION: u32 = 3;
+pub mod document;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkitCatalog {
+#[serde(bound(deserialize = "M: Deserialize<'de>"))]
+pub struct SkitCatalog<M = SkitMedia> {
     pub version: u32,
     pub skits: Vec<SkitDefinition>,
     /// Catalogue order for the Katz' Village replay service.
     pub preview_order: Vec<u16>,
     /// Cooked VM scenario and message resources keyed by skit ID.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resources: BTreeMap<u16, SkitResourcePaths>,
     #[serde(default)]
     pub portraits: BTreeMap<u32, PortraitAsset>,
     pub portrait_recipes: Vec<PortraitRecipe>,
     #[serde(default)]
-    pub media: BTreeMap<u32, SkitMedia>,
+    pub media: BTreeMap<u32, M>,
+}
+
+impl<M> SkitCatalog<M> {
+    pub fn map_media<N>(
+        self,
+        mut convert: impl FnMut(u32, M) -> Result<N>,
+    ) -> Result<SkitCatalog<N>> {
+        Ok(SkitCatalog {
+            version: self.version,
+            skits: self.skits,
+            preview_order: self.preview_order,
+            resources: self.resources,
+            portraits: self.portraits,
+            portrait_recipes: self.portrait_recipes,
+            media: self
+                .media
+                .into_iter()
+                .map(|(id, media)| Ok((id, convert(id, media)?)))
+                .collect::<Result<_>>()?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,13 +84,12 @@ pub struct PortraitTile {
     pub image: u16,
     pub block: u32,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SkitMedia {
     /// Silent timing tracks need no audio payload. Cooking verifies their PCM.
     pub voice: Option<crate::field_audio::Voice>,
     pub frames: u32,
     pub sample_rate: u32,
-    pub source_sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

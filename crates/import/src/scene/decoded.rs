@@ -23,21 +23,17 @@ impl Model {
     }
 
     /// Retain the physical recipe without inventing the caller's material bindings.
-    pub(crate) fn publish_scene(
+    pub(crate) fn prepare_scene(
         &self,
         output: &std::path::Path,
-        files: &mut std::collections::BTreeSet<String>,
-    ) -> anyhow::Result<String> {
-        let mut scene = self.geometry.scene.clone();
+    ) -> anyhow::Result<crate::named::PhysicalScene> {
+        let scene = self.geometry.scene.clone();
         self.mesh.share(&output.join(&scene.mesh))?;
-        files.insert(scene.mesh.clone());
-        files.extend(crate::all_assets::physical_scene::publish_nodes(
-            output,
-            &scene.bone_names,
-        )?);
-        if let crate::all_assets::physical_scene::TextureSource::Local { catalogue } =
-            &mut scene.textures
-        {
+        crate::all_assets::physical_scene::publish_nodes(output, &scene.bone_names)?;
+        let textures = if matches!(
+            scene.textures,
+            crate::all_assets::physical_scene::TextureSource::Local { .. }
+        ) {
             self.textures.validate()?;
             let mut result = Ok(());
             self.textures.publish(output, |_, published| {
@@ -46,26 +42,11 @@ impl Model {
                 }
             });
             result?;
-            *catalogue = format!("textures/{}/textures.json", self.textures.source_sha256);
-            crate::write_atomic(
-                &output.join(&*catalogue),
-                &serde_json::to_vec(&self.textures.catalogue)?,
-            )?;
-            files.insert(catalogue.clone());
-            files.extend(
-                self.textures
-                    .catalogue
-                    .textures
-                    .iter()
-                    .flatten()
-                    .flat_map(|texture| texture.images.iter().cloned()),
-            );
-        }
-        let bytes = serde_json::to_vec(&scene)?;
-        let path = format!("geometry/{}.json", crate::digest(&bytes));
-        crate::write_atomic(&output.join(&path), &bytes)?;
-        files.insert(path.clone());
-        Ok(path)
+            Some(self.textures.catalogue.clone())
+        } else {
+            None
+        };
+        Ok(crate::named::PhysicalScene { scene, textures })
     }
 }
 

@@ -1,3 +1,4 @@
+mod common;
 use resonance_events::*;
 use std::sync::Arc;
 use symphonia_script::{
@@ -906,7 +907,7 @@ fn costume_change_selects_a_body_and_survives_save() {
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn script_collection_and_character_changes_survive_save_without_stale_shortcuts() {
     let mut data: resonance_content::session::SessionData = cooked("session-data.json");
-    data.rules = Some(Arc::new(cooked("menu-data.json")));
+    data.rules = Some(Arc::new(common::menu(&asset_root())));
     let data = Arc::new(data);
     let mut party = party::Party::new(&data, Default::default()).unwrap();
     party.members[4].techniques.insert(139);
@@ -957,8 +958,10 @@ fn script_collection_and_character_changes_survive_save_without_stale_shortcuts(
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn collection_services_track_discovery_and_preserve_awarded_completion() {
     let data = Arc::new(cooked("session-data.json"));
-    let menu: resonance_content::menu_data::MenuData = cooked("menu-data.json");
-    let skits: resonance_content::skit::SkitCatalog = cooked("skits.json");
+    let menu: resonance_content::menu_data::MenuData = common::menu(&asset_root());
+    let library = resonance_content::library::Library::open(&asset_root(), &[]).unwrap();
+    let skits =
+        resonance_content::skit::document::capture(&mut library.snapshot(), &|| false).unwrap();
     skits.validate().unwrap();
     let group = i32::from(menu.monsters().unwrap().records[29].unseen_count_group);
     let mut party = party::Party::new(&data, Default::default()).unwrap();
@@ -3096,13 +3099,15 @@ fn program_record(main: &[u16], child: &[u16], kind: u16, key: u32) -> Arc<Progr
 fn runtime(program: Arc<Program>, resources: ResourceLibrary, world: GameWorld) -> EventRuntime {
     EventRuntime::with_state(program, Arc::new(resources), world, Default::default()).unwrap()
 }
-fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+fn asset_root() -> std::path::PathBuf {
+    std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
-        });
-    serde_json::from_slice(&std::fs::read(root.join("game").join(name)).unwrap()).unwrap()
+        })
+}
+fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
+    serde_json::from_slice(&std::fs::read(asset_root().join("game").join(name)).unwrap()).unwrap()
 }
 fn party_runtime(main: &[u16], child: &[u16]) -> EventRuntime {
     let data = Arc::new(cooked("session-data.json"));
@@ -5607,7 +5612,7 @@ fn movement_speed_property_changes_an_active_move_and_survives_arrival() {
 #[ignore = "requires locally cooked party and equipment definitions; no devices"]
 fn actor_luck_commands_reroll_once_and_read_equipment_bonuses_without_a_field_actor() {
     let session = Arc::new(cooked("session-data.json"));
-    let data = Arc::new(cooked("menu-data.json"));
+    let data = Arc::new(common::menu(&asset_root()));
     let mut party = party::Party::new(&session, Default::default()).unwrap();
     party.members[0].luck = 14;
     party.members[0].equipment = [0; 6];
@@ -6058,7 +6063,7 @@ fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
 #[ignore = "requires cooked party and EX skill definitions; no devices"]
 fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
     let mut data: resonance_content::session::SessionData = cooked("session-data.json");
-    data.rules = Some(Arc::new(cooked("menu-data.json")));
+    data.rules = Some(Arc::new(common::menu(&asset_root())));
     let mut world = controlled_world();
     world.controlled_actor = 1;
     world.insert_actor(1, Actor::new(1, [0.; 3]));

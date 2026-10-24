@@ -3,8 +3,9 @@ use anyhow::Result;
 use std::{fs, path::Path};
 fn main() -> Result<()> {
     let root = Path::new("local/cooked");
-    let field: resonance_content::field::FieldAssets =
-        serde_json::from_slice(&fs::read(root.join("fields/map-340.json"))?)?;
+    let library = resonance_content::library::Library::open(root, &[])?;
+    let (_, field) =
+        resonance_content::field::document::capture_scene(&mut library.snapshot(), 340, || false)?;
     let messages = serde_json::from_slice(&fs::read(root.join(&field.messages))?)?;
     if let Some(pc) = std::env::args().nth(1).filter(|a| !a.starts_with("--")) {
         let start = u32::from_str_radix(pc.trim_start_matches("0x"), 16)?;

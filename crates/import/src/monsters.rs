@@ -1,10 +1,7 @@
 //! Prepare the Monster Book from shared enemy records and visual resources.
-use crate::{
-    all_assets::{
-        inventory_ui,
-        monster_catalogue::{Catalogue, TextKind},
-    },
-    write_atomic,
+use crate::all_assets::{
+    inventory_ui,
+    monster_catalogue::{Catalogue, TextKind},
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
@@ -109,41 +106,9 @@ fn metadata(
     Ok(monster)
 }
 
-/// Refresh semantic enemy records from original source while retaining already
-/// converted visual previews. Used for targeted development publications; no
-/// model conversion or runtime compatibility path is involved.
-pub(crate) fn publish_metadata(
-    extracted: &Path,
-    prepared: &Path,
-    output: &Path,
-) -> Result<MonsterBook> {
-    let executable = std::fs::read(extracted.join("sys/main.dol"))?;
-    let sources = crate::source_assets::Sources::read_with(extracted, &executable)?;
-    let usual = std::fs::read(extracted.join("files").join(&sources.usual))?;
-    let archive = extracted.join("files").join(&sources.enemy);
-    let catalogue = crate::all_assets::monster_catalogue::read(&executable)?;
-    let ui = inventory_ui::read(&executable)?;
-    ensure!(
-        catalogue.records.len() == MONSTER_COUNT,
-        "incomplete monster catalogue"
-    );
-    let mut records = Vec::new();
-    for id in 0..MONSTER_COUNT as u8 {
-        let path = format!("monsters/{id:03}.json");
-        let previous: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(prepared.join(&path))?)?;
-        let mut preview: resonance_content::model_preview::ModelPreview =
-            serde_json::from_value(previous["preview"].clone())?;
-        let bytes = crate::source_assets::enemy_package(&archive, &usual, u16::from(id))?;
-        let record = source::read(&bytes)?;
-        preview::animate_body(&mut preview.parts, record.metadata)?;
-        let monster = metadata(id, record, preview, &catalogue, &ui)?;
-        write_atomic(&output.join(&path), &serde_json::to_vec_pretty(&monster)?)?;
-        records.push(monster);
-    }
-    let book = book(&catalogue, &ui, records)?;
-    book.validate(528)?;
-    Ok(book)
+pub(crate) struct Prepared {
+    pub book: MonsterBook,
+    pub enemies: BTreeMap<u8, crate::battle_model::PreparedEnemy>,
 }
 
 pub(crate) fn prepare(
@@ -153,9 +118,10 @@ pub(crate) fn prepare(
     usual: &[u8],
     catalogue: &Catalogue,
     ui: &inventory_ui::Catalogue,
-) -> Result<MonsterBook> {
+    shared_effects: &crate::battle_effect::SharedPalettes,
+) -> Result<Prepared> {
     let voices = crate::battle_voice::read(usual)?;
-    let mut shared = crate::battle_effect::SharedPalettes::read(usual, output)?;
+    let mut shared = shared_effects.clone();
     let files = extracted.join("files");
     let guard_bonus = crate::battle_recoil::guard_defaults(&crate::rel::Rel::read(
         &files.join(&sources.module),
@@ -166,6 +132,7 @@ pub(crate) fn prepare(
         "incomplete monster catalogue"
     );
     let mut records = Vec::new();
+    let mut enemies = BTreeMap::new();
     let mut behaviors = crate::model_behavior::Bindings::new()?;
     for index in 0..catalogue.records.len() {
         let id = u8::try_from(index)?;
@@ -178,7 +145,7 @@ pub(crate) fn prepare(
         )?;
         preview.behavior = behaviors.bind(crate::model_behavior::Subject::Monster(id));
         let monster = self::metadata(id, record, preview, catalogue, ui)?;
-        crate::battle_model::publish_enemy(
+        let enemy = crate::battle_model::prepare_enemy(
             &bytes,
             usual,
             &voices,
@@ -187,17 +154,43 @@ pub(crate) fn prepare(
             &monster.preview,
             &mut shared,
             output,
-            output,
         )?;
-        write_atomic(
-            &output.join(format!("monsters/{id:03}.json")),
-            &serde_json::to_vec_pretty(&monster)?,
-        )?;
+        enemies.insert(id, enemy);
         println!("Prepared monster {id}: {}", monster.name);
         records.push(monster);
     }
     behaviors.finish(crate::model_behavior::Catalogue::Monsters)?;
-    book(catalogue, ui, records)
+    Ok(Prepared {
+        book: book(catalogue, ui, records)?,
+        enemies,
+    })
+}
+
+/// Event actors use the same authored body layers and clips as the catalogue.
+pub(crate) fn event_model(
+    bytes: &[u8],
+    id: u8,
+    output: &Path,
+) -> Result<resonance_content::battle_event::Model> {
+    let record = source::read(bytes)?;
+    let preview = preview::menu(
+        preview::from_package(bytes, record.metadata, id, &source::clips(bytes)?, output)?,
+        record.metadata,
+    )?;
+    let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)?;
+    let rig = crate::battle_model::rig(
+        members.model(0x18)?.context("missing event enemy body")?,
+        crate::battle_model::RigKind::Body,
+    )?;
+    Ok(resonance_content::battle_event::Model {
+        skeleton: rig.skeleton,
+        parts: preview
+            .parts
+            .into_iter()
+            .filter(|part| part.attached_to.is_none())
+            .map(|part| part.scene)
+            .collect(),
+    })
 }
 
 #[cfg(test)]

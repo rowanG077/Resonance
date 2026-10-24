@@ -1,28 +1,29 @@
 //! Victory motion packages and regional group-voice descriptors.
 //! Selection and native playback are owned by the game and battle runtimes.
-use crate::field_preload::File;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-pub const PATH: &str = "battle/victory.json";
+pub mod document;
+
 pub const GROUP_COUNT: u8 = 54;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Performances<O = Vec<Ordinary>, G = Vec<Group>, F = BTreeMap<String, File>> {
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Performances<O = Vec<Ordinary>, G = Vec<Group>> {
     pub module_sha256: String,
     pub archive_sha256: String,
     #[serde(default)]
     pub ordinary: O,
     #[serde(default)]
     pub groups: G,
-    #[serde(default)]
-    pub files: F,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Ordinary {
     pub character: u8,
+    /// Named preparation supplies costume identity from the lookup scope.
+    /// The editable performance document does not repeat its owner's identity.
+    #[serde(skip)]
+    pub costume: Option<u8>,
     pub selector: u8,
     pub source_sha256: String,
     pub body_sha256: String,

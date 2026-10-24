@@ -964,12 +964,29 @@ fn restored_play_time_unlocks_overworld_skits_as_exploration_continues() -> Resu
         .reject_displacement(crate::overworld::Position::from_map([4000., 4000., 0.])?);
     let mut checkpoint = session.checkpoint()?;
     checkpoint.played_ticks = (REQUIRED_SECONDS - 1) * 60;
-    let catalog = Arc::new(serde_json::from_value(serde_json::json!({
-        "version": resonance_content::skit::VERSION, "preview_order": [], "portrait_recipes": [],
-        "skits": [{"id": 788, "title": "Time to talk", "party_mask": 0,
-            "location": "anywhere", "story": null,
-            "condition": {"range": {"value": "played_seconds", "min": REQUIRED_SECONDS}}}]
-    }))?);
+    use resonance_content::skit::{
+        SkitCatalog, SkitCondition, SkitDefinition, SkitLocation, SkitValue,
+    };
+    let catalog = Arc::new(SkitCatalog {
+        version: resonance_content::skit::VERSION,
+        preview_order: vec![],
+        portrait_recipes: vec![],
+        resources: Default::default(),
+        portraits: Default::default(),
+        media: Default::default(),
+        skits: vec![SkitDefinition {
+            id: 788,
+            title: "Time to talk".into(),
+            party_mask: 0,
+            location: SkitLocation::Anywhere,
+            story: None,
+            condition: SkitCondition::Range {
+                value: SkitValue::PlayedSeconds,
+                min: Some(REQUIRED_SECONDS as i64),
+                max: None,
+            },
+        }],
+    });
     let mut assets = (*session.assets).clone();
     assets.resources = Arc::new(ResourceLibrary {
         session_data: assets.resources.session_data.clone(),
@@ -1105,7 +1122,6 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
         let definition = Arc::new(resonance_content::overworld::Cinematic {
             world: source.assets.world,
             presentation: resonance_content::overworld::CinematicPresentation {
-                provenance: "synthetic continuation fixture".into(),
                 fade: resonance_content::overworld::CinematicFade {
                     white: false,
                     end_rate: 8,

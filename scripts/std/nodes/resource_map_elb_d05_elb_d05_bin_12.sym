@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 7df297f4eaa9a2153197cf483a6a8594e7eb5245b46654fe58ad7d2fecf1eee0
+// Source owner: MAP/elb_d05/ELB_D05.BIN/12
+pub const Node000_Number04: string = "04";
+pub const Node001_Number05: string = "05";

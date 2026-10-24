@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 8057410bca58e1de551419fa2b5839602f67bef0cff369be665299cedd2a9ddd
+// Source owner: MAP/woa_d01/WOA_D01.BIN/2
+pub const Node000_Tree01: string = "tree01";
+pub const Node001_L01: string = "l01";

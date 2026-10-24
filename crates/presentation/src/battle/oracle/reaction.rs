@@ -86,8 +86,7 @@ fn authored_rule(source: &Trace, native: &Trace) -> Result<Option<Rule>> {
         .next()
         .context("missing action row")?
         .parse()?;
-    let pin: super::random_inputs::Pin = serde_json::from_value(source.setup["catalogue"].clone())?;
-    let catalogue: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let catalogue = super::content_evidence::action_catalogue(source)?;
     let party_spell = source.case.starts_with("party:")
         && catalogue["definitions"][row]["capabilities"]["spell"] == true
         && source.setup["input"]["selection_arte"].as_u64() == Some(row as u64);
@@ -115,12 +114,10 @@ fn authored_rule(source: &Trace, native: &Trace) -> Result<Option<Rule>> {
         if !registered_owner(source, registration) {
             return Ok(None);
         }
-        let pin: super::random_inputs::Pin = serde_json::from_value(registration["scene"].clone())?;
-        let scene: Value = serde_json::from_slice(&pin.read_bytes()?)?;
-        ensure!(
-            scene["source_sha256"] == registration["package_sha256"],
-            "reaction scene package differs"
-        );
+        let (scene, _) = super::content_evidence::registered_scene(registration)?;
+        let scene = serde_json::to_value(resonance_content::battle_scene::document::Rules::from(
+            scene,
+        ))?;
         vertical = vertical_rule(source, native, &scene)?;
         if let Some(projectiles) = scene["projectiles"].as_array() {
             rules.extend(
@@ -231,7 +228,13 @@ fn recipient_rule(
         let pin: super::random_inputs::Pin = serde_json::from_value(value.clone())?;
         Ok(serde_json::from_slice(&pin.read_bytes()?)?)
     };
-    let formations = read(&proof["formations"])?;
+    let formations: resonance_content::battle_rules::Formations =
+        serde_json::from_value(read(&proof["formations"])?)?;
+    ensure!(
+        formations.version == resonance_content::battle_rules::VERSION,
+        "unsupported reaction formations"
+    );
+    let formations = serde_json::to_value(formations)?;
     let formation = source.setup["formation"]
         .as_u64()
         .context("missing reaction formation")? as usize;
@@ -263,19 +266,22 @@ fn recipient_rule(
                 == binding["enemy"],
         "reaction recipient differs from observed formation"
     );
-    let definition = read(&binding["definition"])?;
-    let model = read(&binding["model"])?;
-    let monster = read(&binding["monster"])?;
+    let evidence = super::content_evidence::Evidence::parse(&binding["content"])?;
+    let enemy = binding["enemy"]
+        .as_u64()
+        .and_then(|id| u8::try_from(id).ok())
+        .context("invalid reaction enemy ID")?;
+    let (definition, preview) = evidence.enemy(enemy)?;
+    let package_digest = evidence.source_digest()?;
     ensure!(
-        monster["id"] == binding["enemy"]
-            && model["source_sha256"] == definition["source_sha256"]
-            && source.setup["detached_contacts"]["enemy_packages"]
-                .as_array()
-                .is_some_and(|packages| packages.iter().any(|package| {
-                    package["package"]["sha256"] == definition["source_sha256"]
-                })),
+        source.setup["detached_contacts"]["enemy_packages"]
+            .as_array()
+            .is_some_and(|packages| packages.iter().any(|package| {
+                package["enemy"] == enemy && package["package"]["sha256"] == package_digest
+            })),
         "reaction recipient package differs"
     );
+    let definition = serde_json::to_value(definition)?;
     let profile = &definition["profile"];
     if !["immunities", "intrinsic_conditions"]
         .iter()
@@ -292,18 +298,12 @@ fn recipient_rule(
     {
         return Ok(None);
     }
-    let Some(clips) = monster["preview"]["parts"][0]["scene"]["clips"].as_array() else {
-        return Ok(None);
-    };
+    let clips = &preview.parts[0].scene.clips;
     let has_clip = |id: u64| {
-        clips.iter().any(|clip| {
-            clip["resource_slot"] == id
-                && clip["motion"]
-                    .as_str()
-                    .is_some_and(|path| model["files"][path]["sha256"].as_str().is_some())
-        }) && definition["null_motions"]
-            .as_array()
-            .is_some_and(|nulls| !nulls.iter().any(|clip| clip == id))
+        clips.iter().any(|clip| u64::from(clip.resource_slot) == id)
+            && definition["null_motions"]
+                .as_array()
+                .is_some_and(|nulls| !nulls.iter().any(|clip| clip == id))
     };
     if !has_clip(STUN_CLIP) || !has_clip(3) {
         return Ok(None);
@@ -322,10 +322,10 @@ fn vertical_rule(source: &Trace, native: &Trace, scene: &Value) -> Result<Option
         native.setup.get("reaction_recoil") == Some(pin),
         "reaction recoil pin differs"
     );
-    let pin: super::random_inputs::Pin = serde_json::from_value(pin.clone())?;
-    let recoil: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let evidence = super::content_evidence::Evidence::parse(pin)?;
+    let recoil = evidence.recoil()?;
     ensure!(
-        recoil["source_sha256"] == source.setup["stored_scenes"]["module"]["sha256"],
+        source.setup["stored_scenes"]["module"]["sha256"] == evidence.source_digest()?,
         "reaction recoil module differs"
     );
     let hits = contacts(source);

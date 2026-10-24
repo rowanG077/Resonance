@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 21f9f7237d37973c800e436a2766240054f2c75158522a4675f6965ccd5997f5
+// Source owner: MAP/elc_d15/ELC_D15.BIN/16/0
+pub const Node000_Bow: string = "bow";

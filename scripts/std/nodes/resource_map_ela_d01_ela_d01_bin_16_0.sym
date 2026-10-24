@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 20c04c304db04083a9cc903f832498d9ac71bc12c9c32c237ee8c918f2c2898a
+// Source owner: MAP/ela_d01/ELA_D01.BIN/16/0
+pub const Node000_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";

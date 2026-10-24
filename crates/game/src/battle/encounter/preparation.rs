@@ -792,7 +792,7 @@ impl Inputs {
         let current = &self.party.members[character.index()];
         let performances = if let (Some(victory), Some(model)) = (victory, &body) {
             let (prepared, performances) =
-                battle::victory::prepare(&self.files, victory, source, character, model)?;
+                battle::victory::prepare(&self.files, victory, character, current.costume, model)?;
             body = Some(prepared);
             performances
         } else {
@@ -1063,9 +1063,11 @@ impl Inputs {
             .keys()
             .filter(|id| matches!(id, 301 | 312 | 314))
         {
-            let scene: resonance_content::battle_scene::Scene = self
-                .files
-                .json(&resonance_content::battle_scene::path(native))?;
+            let scene = resonance_content::battle_scene::document::load(
+                &self.files,
+                resonance_content::battle_scene::document::Kind::Technique,
+                native,
+            )?;
             let mut weapon = scene.weapon.context("missing combination weapon")?;
             if native == 301 {
                 // Pow Blade equips the same hammer in both of Lloyd's hands.
@@ -1109,9 +1111,11 @@ impl Inputs {
         }
         let mut skill_weapons = BTreeMap::new();
         for &catalogue in self.skill_scenes.keys() {
-            let scene: resonance_content::battle_scene::Scene = self
-                .files
-                .json(&resonance_content::battle_scene::skill_path(catalogue))?;
+            let scene = resonance_content::battle_scene::document::load(
+                &self.files,
+                resonance_content::battle_scene::document::Kind::Skill,
+                catalogue,
+            )?;
             let Some(weapon) = scene.weapon else { continue };
             for (slot, input) in self.party_actors.iter().enumerate() {
                 if !super::resources::party_techniques(&self.catalogue, input.character)?
@@ -1455,9 +1459,7 @@ impl Inputs {
                 .iter()
                 .map(|actor| (actor.character, &actor.source.null_motions))
                 .collect(),
-            projectiles: self
-                .files
-                .json(resonance_content::battle_projectile::PATH)?,
+            projectiles: resonance_content::battle_rules::projectiles(&self.files)?,
             tints: tints.as_ref(),
             voices: &voices,
             common: EffectResource {

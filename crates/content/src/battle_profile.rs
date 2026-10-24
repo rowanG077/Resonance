@@ -12,7 +12,7 @@ pub const PARTY_VERSION: u32 = 1;
 #[serde(transparent)]
 pub struct Species(pub u16);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Table {
     pub version: u32,

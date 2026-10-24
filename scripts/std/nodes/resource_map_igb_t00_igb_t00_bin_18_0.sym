@@ -1,0 +1,4 @@
+script library;
+// Skeleton: da8b3a1d554f2cbe8834989efde7dadd91e81fb7ac6a65b7e92d4a810b5a236e
+// Source owner: MAP/igb_t00/IGB_T00.BIN/18/0
+pub const Node000_Kai: string = "kai";

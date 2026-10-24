@@ -8,7 +8,7 @@ use std::{
 };
 use symphonia_script::{NativeCall, Op, Program, message, scenario};
 
-pub(super) struct Resources {
+pub(crate) struct Resources {
     pub music: BTreeSet<u16>,
     pub voices: BTreeSet<u32>,
     pub banks: Vec<(String, Vec<u16>)>,
@@ -21,14 +21,9 @@ impl Resources {
     }
 }
 
-pub(super) struct Catalogue {
+pub(crate) struct Catalogue {
     music: BTreeSet<u16>,
-    banks: BTreeMap<String, SoundBank>,
-}
-
-struct SoundBank {
-    bytes: Vec<u8>,
-    ids: BTreeSet<u16>,
+    banks: BTreeMap<String, BTreeSet<u16>>,
 }
 
 impl Catalogue {
@@ -44,9 +39,10 @@ impl Catalogue {
         let banks = sources
             .into_iter()
             .map(|source| {
-                let bytes = super::read_file(&extracted.join("files").join(&source))?;
+                let bytes = std::fs::read(extracted.join("files").join(&source))
+                    .with_context(|| format!("read native sound bank {source}"))?;
                 let ids = Bank::parse(&bytes)?.sound_ids().collect();
-                Ok((source, SoundBank { bytes, ids }))
+                Ok((source, ids))
             })
             .collect::<Result<_>>()?;
         let music = crate::music_directory::Directory::read(executable)?
@@ -54,10 +50,6 @@ impl Catalogue {
             .map(|entry| u16::try_from(entry.id))
             .collect::<Result<_, _>>()?;
         Ok(Self { music, banks })
-    }
-
-    pub fn bank(&self, source: &str) -> &[u8] {
-        &self.banks[source].bytes
     }
 
     pub fn resources(&self, script: &[u8]) -> Result<Resources> {
@@ -111,12 +103,12 @@ impl Catalogue {
         // Bank selection persists across fields. Resolve sound ownership from
         // the shared catalogue instead of requiring a local bank-load call.
         if dynamic_sounds {
-            sounds.extend(self.banks.values().flat_map(|bank| &bank.ids));
+            sounds.extend(self.banks.values().flatten());
         }
         let mut owned = BTreeSet::new();
         let mut banks = Vec::new();
         for (source, bank) in &self.banks {
-            let ids: Vec<_> = bank.ids.intersection(&sounds).copied().collect();
+            let ids: Vec<_> = bank.intersection(&sounds).copied().collect();
             for &id in &ids {
                 ensure!(owned.insert(id), "ambiguous field sound {id}");
             }
@@ -234,15 +226,6 @@ mod tests {
                 ("event".into(), [447].into()),
             ]
             .into_iter()
-            .map(|(source, ids)| {
-                (
-                    source,
-                    SoundBank {
-                        bytes: Vec::new(),
-                        ids,
-                    },
-                )
-            })
             .collect(),
         };
         let source = ".scenario\n.code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n\
@@ -386,14 +369,11 @@ mod tests {
             music: BTreeSet::new(),
             banks: [(
                 "ambient.snd".into(),
-                SoundBank {
-                    bytes: Vec::new(),
-                    ids: ServiceCue::ALL
-                        .iter()
-                        .map(|cue| *cue as u16)
-                        .chain([286, 300])
-                        .collect(),
-                },
+                ServiceCue::ALL
+                    .iter()
+                    .map(|cue| *cue as u16)
+                    .chain([286, 300])
+                    .collect(),
             )]
             .into(),
         };
@@ -411,55 +391,35 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "audits every RESONANCE_WORLD_ASSETS field against original script sound dependencies"]
+    #[ignore = "audits every current named field at RESONANCE_TEST_ASSETS against native script sound dependencies"]
     fn original_prepared_fields_include_every_scripted_sound() -> Result<()> {
-        use resonance_content::{
-            field::FieldAssets, field_audio::FieldAudio, field_preload::Manifest,
-        };
+        use resonance_content::{field, field_audio::document, library::Library};
         use std::{fs, path::PathBuf};
         let root = PathBuf::from(
-            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
         let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
         let catalogue = Catalogue::read(&extracted, &fs::read(extracted.join("sys/main.dol"))?)?;
+        let mut snapshot = Library::open(&root, &[])?.snapshot();
+        let ids = snapshot
+            .mappings(resonance_content::library::FIELDS)?
+            .iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>();
         let mut missing = Vec::new();
-        let mut fields = 0;
-        for entry in fs::read_dir(root.join("fields"))? {
-            let path = entry?.path();
-            if !path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("map-")
-                || !path.to_string_lossy().ends_with(".preload.json")
-            {
-                continue;
-            }
-            let manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
-            let field: FieldAssets =
-                serde_json::from_slice(&fs::read(root.join(&manifest.inputs.field))?)?;
-            let required = catalogue.resources(&fs::read(root.join(&field.script))?)?;
-            let mut available = BTreeSet::new();
-            for audio in &manifest.inputs.audio {
-                let bank: FieldAudio = serde_json::from_slice(&fs::read(root.join(audio))?)?;
-                for (id, asset) in bank.sounds {
-                    ensure!(
-                        manifest
-                            .files
-                            .get(&asset.path)
-                            .is_some_and(|f| f.sha256 == asset.sha256),
-                        "field {} sound {id} is absent from its preload inventory",
-                        manifest.map_id
-                    );
-                    available.insert(id as u16);
+        let fields = ids.len();
+        for id in ids {
+            let path = snapshot.field(id)?;
+            let definition: field::document::Definition = snapshot.json(&path, 1024 * 1024)?;
+            let script = snapshot.read(&definition.script, 64 * 1024 * 1024)?;
+            let required = catalogue.resources(&script)?;
+            let audio: document::Definition = snapshot.json(&definition.audio, 1024 * 1024)?;
+            let available = audio.resolve(&mut snapshot)?;
+            for sound in required.banks.into_iter().flat_map(|(_, ids)| ids) {
+                if !available.effects.contains_key(&i16::try_from(sound)?) {
+                    missing.push((id, sound));
                 }
             }
-            for id in required.banks.into_iter().flat_map(|(_, ids)| ids) {
-                if !available.contains(&id) {
-                    missing.push((manifest.map_id, id));
-                }
-            }
-            fields += 1;
         }
         missing.sort_unstable();
         ensure!(

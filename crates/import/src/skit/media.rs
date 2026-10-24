@@ -40,7 +40,6 @@ pub(super) fn bind(
             let media = SkitMedia {
                 frames: voice.frames,
                 sample_rate: voice.sample_rate,
-                source_sha256: metadata.source_sha256,
                 // US skits use silent streams as subtitle clocks. Check the actual
                 // PCM; filenames and region do not establish silence.
                 voice: if silent(output, &voice)? {
@@ -121,12 +120,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires both original discs and cook-all PCM; no codecs or audio device"]
+    #[ignore = "requires both original discs; decodes native speech without a cooked baseline"]
     fn original_skit_clocks_bind_shared_silent_pcm_on_both_discs() -> Result<()> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let output = std::env::var_os("RESONANCE_COOKED")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| root.join("local/all-assets"));
+        let temporary = tempfile::tempdir()?;
+        let output = temporary.path();
         let mut previous = None;
         for disc in [1, 2] {
             let extracted = root.join(format!("local/extracted/disc{disc}"));

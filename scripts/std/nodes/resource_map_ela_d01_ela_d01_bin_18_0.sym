@@ -1,0 +1,4 @@
+script library;
+// Skeleton: c408a4df2812c9fd671f1c334494af6b270f6da3a350d84880e807df3c8a0b80
+// Source owner: MAP/ela_d01/ELA_D01.BIN/18/0
+pub const Node000_Step: string = "step";

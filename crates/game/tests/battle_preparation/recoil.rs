@@ -3,19 +3,19 @@ use resonance_battle::{Character, VerticalRecoil};
 use resonance_content::{battle_profile::ProfileTraits, battle_recoil};
 use resonance_game::battle::recoil::Parameters;
 
-pub(super) fn source() -> battle_recoil::Table {
-    battle_recoil::Table {
+pub(super) fn source() -> resonance_content::battle_rules::Recoil {
+    resonance_content::battle_rules::Recoil {
+        version: resonance_content::battle_rules::VERSION,
         impulses: vec![[0.; 2]; 19],
         suppression_distance: 0.,
         guard_speed: 3.,
-        source_sha256: "a".repeat(64),
         light_vertical_scale: 1.15,
         heavy_vertical_scale: 0.75,
         default_guard_recovery_bonuses: vec![10, 0, 5, 25, 10],
     }
 }
 
-fn snapshot(source: &battle_recoil::Table) -> Files {
+fn snapshot(source: &resonance_content::battle_rules::Recoil) -> Files {
     let mut files = files();
     files.insert(
         battle_recoil::PATH.into(),

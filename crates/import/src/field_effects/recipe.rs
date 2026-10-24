@@ -39,7 +39,7 @@ impl Recipe {
     }
 }
 
-fn blink(executable: &[u8]) -> Result<resonance_content::effect::BlinkCycle> {
+pub(crate) fn blink(executable: &[u8]) -> Result<resonance_content::effect::BlinkCycle> {
     let mut frames = Vec::new();
     let table = dol::slice(executable, 0x801E3840, 20)?;
     ensure!(

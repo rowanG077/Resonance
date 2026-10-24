@@ -20,7 +20,9 @@ use bevy::{
     prelude::*,
 };
 use resonance_battle::{ActorId, Battle, BattleFrame, Character, Side};
-use resonance_content::{menu_data::MenuData, prepared::Files, session::SessionData};
+#[cfg(test)]
+use resonance_content::prepared::Files;
+use resonance_content::{menu_data::MenuData, session::SessionData};
 use resonance_events::{battle::Request, party::Party};
 use resonance_game::battle::{encounter, lifecycle, results};
 use std::{
@@ -35,7 +37,7 @@ fn audio_camera(frame: &BattleFrame) -> Result<resonance_battle::CameraPose> {
 
 /// Field-owned inputs captured together before the preparation worker starts.
 pub(super) struct Entry {
-    pub files: Arc<Files>,
+    pub snapshot: resonance_content::library::Snapshot,
     pub party: Party,
     pub setup: resonance_events::battle::Setup,
     pub options: encounter::PrepareOptions,
@@ -53,6 +55,11 @@ impl Entry {
         let events = session.events();
         let party = events.world.party.clone().context("battle has no party")?;
         let mut gameplay_random = events.world.gameplay_random;
+        let mut snapshot = session
+            .files()
+            .library()
+            .context("battle requires a named content library")?
+            .snapshot();
         use resonance_events::battle::Encounter;
         let mut setup = request.setup.clone();
         let mut selected = Vec::new();
@@ -60,13 +67,9 @@ impl Entry {
             .chain(&request.additional_encounters)
             .any(|e| matches!(e, Encounter::Pool(_)))
         {
-            Some(
-                session
-                    .files()
-                    .json::<resonance_content::battle_formation::Formations>(
-                        resonance_content::battle_formation::PATH,
-                    )?,
-            )
+            Some(resonance_content::battle_rules::capture_formations(
+                &mut snapshot,
+            )?)
         } else {
             None
         };
@@ -103,7 +106,7 @@ impl Entry {
                 .contains(&resonance_content::grade::Benefit::IncreasedTension),
         };
         Ok(Self {
-            files: session.files(),
+            snapshot,
             party,
             setup,
             options,
@@ -354,7 +357,6 @@ fn manage(world: &mut World) {
             request.setup = entry.setup.clone();
             let seed = entry.options.random_seed;
             let pending = super::loading::BattlePending::battle(
-                world.resource::<super::RunOptions>().assets.clone(),
                 entry,
                 world.resource::<super::loading::Resident>(),
             )?;
@@ -674,7 +676,7 @@ fn scene(world: &mut World, package: Package) -> Result<Scene> {
             settings.is_srgb = false;
             settings.sampler = bevy::image::ImageSampler::linear();
         })
-        .load(resonance_content::texture::TOON_RAMP_PATH);
+        .load(resonance_content::model_preview::document::TOON_RAMP);
     let target = world
         .query_filtered::<&RenderTarget, With<super::FieldCamera>>()
         .single(world)?
@@ -769,17 +771,19 @@ fn construct_scene(
                     .map(|&catalogue| {
                         (
                             catalogue,
-                            resonance_content::battle_scene::skill_path(catalogue),
+                            resonance_content::battle_scene::document::Kind::Skill,
+                            catalogue,
                         )
                     })
                     .chain(assets.catalogue.definitions.iter().enumerate().filter_map(
                         |(catalogue, _)| {
                             let catalogue = catalogue as u16;
                             let scene = resonance_game::battle::stored_spells::scene(catalogue)?;
-                            assets
-                                .spell_scenes
-                                .contains_key(&scene)
-                                .then(|| (catalogue, resonance_content::battle_scene::path(scene)))
+                            assets.spell_scenes.contains_key(&scene).then_some((
+                                catalogue,
+                                resonance_content::battle_scene::document::Kind::Technique,
+                                scene,
+                            ))
                         },
                     )),
                 &mut materials,
@@ -1830,6 +1834,9 @@ fn commit(world: &mut World, request: &Request, completed: results::Completed) -
 mod fatal_tests;
 
 #[cfg(test)]
+mod named_tests;
+
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
@@ -1839,10 +1846,14 @@ pub(crate) mod tests {
             Into::into,
         );
         let mut cache = Default::default();
-        let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-            false
-        })?;
-        let menus: MenuData = files.json("game/menu-data.json")?;
+        let files = resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(&root, &[])?,
+            &[],
+            &mut cache,
+            || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
+        let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
         let mut data: SessionData = files.json("game/session-data.json")?;
         data.rules = Some(Arc::new(menus.clone()));
         let mut party = Party::new(&data, Default::default())?;
@@ -1856,39 +1867,59 @@ pub(crate) mod tests {
         member.assist_shortcuts = [None; 2];
         member.technique_uses.remove(&201);
         party.validate(&data)?;
-        let (assets, prepared) = encounter::Assets::load(
-            &root,
-            &files,
-            &menus,
-            &data,
-            &party,
-            resonance_events::battle::Setup {
-                route: [0; 5],
-                encounter: resonance_events::battle::Encounter::Formation(2),
-                arena: 13,
-                defeat: resonance_events::battle::DefeatPolicy::GameOver,
-                music: None,
-            },
-            encounter::PrepareOptions {
-                hunting_symbol: None,
-                event_flags: Default::default(),
-                devils_arms_unlocked: false,
-                victory_story_flags: [false; 2],
-                random_seed: 1,
-                map: 332,
-                world_music: 0,
-                story: 2500,
-                colette_state: 0,
-                overlimit_boost: false,
-            },
-            &mut cache,
-            || false,
-        )?;
-        let audio = crate::battle_audio::Assets::load(
-            &assets.files,
-            assets.audio.as_ref(),
-            &mut Default::default(),
-        )?;
+        let (assets, prepared, audio) = {
+            let mut snapshot = (&files)
+                .library()
+                .context("named library is required")?
+                .snapshot();
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &(|| false),
+            )?;
+            let inputs = resonance_game::battle::encounter::Inputs::capture(
+                &mut snapshot,
+                &menus,
+                &data,
+                &party,
+                resonance_events::battle::Setup {
+                    route: [0; 5],
+                    encounter: resonance_events::battle::Encounter::Formation(2),
+                    arena: 13,
+                    defeat: resonance_events::battle::DefeatPolicy::GameOver,
+                    music: None,
+                },
+                &mut cache,
+                (&files).diagnostics().clone(),
+                &(|| false),
+            )?;
+            let (mut assets, prepared, selected) = inputs.prepare_named(
+                &menus,
+                encounter::PrepareOptions {
+                    hunting_symbol: None,
+                    event_flags: Default::default(),
+                    devils_arms_unlocked: false,
+                    victory_story_flags: [false; 2],
+                    random_seed: 1,
+                    map: 332,
+                    world_music: 0,
+                    story: 2500,
+                    colette_state: 0,
+                    overlimit_boost: false,
+                },
+                &catalogue,
+            )?;
+            let audio = crate::battle_audio::Assets::capture_named(
+                &catalogue,
+                &selected,
+                &mut snapshot,
+                files.diagnostics().clone(),
+                &mut Default::default(),
+                &|| false,
+            )?;
+            assets.inputs.files =
+                Files::from_snapshot(snapshot, &mut cache, || false, files.diagnostics().clone())?;
+            Ok::<_, anyhow::Error>((assets, prepared, audio))
+        }?;
         let catalogue = assets.catalogue.clone();
         // View retains its diagnostic and skip policy for an invalid stage.
         let scenery_models = if assets.stage.validate().is_ok() {

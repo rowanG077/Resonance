@@ -62,12 +62,13 @@ fn camera_facing_preserves_affine_pose_translation_and_attachment_offsets() {
 fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<()> {
     use resonance_content::{
         animation::{Motion, Skeleton},
-        field::FieldAssets,
+        field::document,
+        library::Library,
     };
     use std::{path::PathBuf, sync::Arc};
     let assets = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
-    let manifest: FieldAssets =
-        serde_json::from_slice(&std::fs::read(assets.join("fields/map-362.json"))?)?;
+    let library = Library::open(&assets, &[])?;
+    let (_, manifest) = document::capture_scene(&mut library.snapshot(), 362, || false)?;
     let part = manifest.parts.iter().find(|p| p.resource == 2).unwrap();
     let bytes = std::fs::read(assets.join(&part.mesh))?;
     let skeleton = Skeleton::from_glb(&bytes)?;

@@ -38,6 +38,7 @@ impl MaterialSlot {
 }
 
 pub(super) fn install(app: &mut App) {
+    crate::texture::install(app);
     use bevy::gltf::extensions::{
         ErasedGltfExtensionHandler, GltfExtensionHandler, GltfExtensionHandlers,
     };

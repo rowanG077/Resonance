@@ -1,15 +1,15 @@
 //! Decode credits text controls and bind their shared artwork and music.
 use anyhow::{Context, Result, ensure};
-use resonance_content::credits::{Credits, Manifest, Operation, Scroll, Style};
+use resonance_content::credits::{Credits, Operation, Scroll, Style};
 use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Resources {
     pub text: String,
-    pictures: String,
+    pub pictures: String,
     backgrounds: String,
-    music: String,
+    pub music: String,
 }
 
 impl Resources {
@@ -39,69 +39,6 @@ pub(crate) fn cook_resources(file: &Path, executable: &[u8], output: &Path) -> R
         "credits-resources",
         &Resources::read(executable)?,
     )
-}
-
-/// Bind already converted publications; this never cooks textures or audio.
-pub(crate) fn prepare(
-    output: &Path,
-    executable: &[u8],
-    sources: &std::collections::BTreeMap<String, String>,
-) -> Result<()> {
-    let manifest = bind(output, executable, sources)?;
-    crate::write_atomic(
-        &output.join(resonance_content::credits::PATH),
-        &serde_json::to_vec(&manifest)?,
-    )
-}
-
-fn bind(
-    output: &Path,
-    executable: &[u8],
-    sources: &std::collections::BTreeMap<String, String>,
-) -> Result<Manifest> {
-    let resources = Resources::read(executable)?;
-    let hash = |name: &str| -> Result<&str> {
-        let mut matches = sources
-            .iter()
-            .filter(|(path, _)| {
-                path.split_once('/')
-                    .is_some_and(|(_, path)| path.eq_ignore_ascii_case(name))
-            })
-            .map(|(_, hash)| hash.as_str());
-        let first = matches
-            .next()
-            .with_context(|| format!("missing credits source {name}"))?;
-        ensure!(
-            matches.all(|hash| hash == first),
-            "conflicting credits source {name}"
-        );
-        Ok(first)
-    };
-    let read = |path: String| std::fs::read(output.join(path));
-    let program = serde_json::from_slice(&read(format!(
-        "assets/{}/credits.json",
-        hash(&resources.text)?
-    ))?)?;
-    let textures: crate::texture::Catalogue = serde_json::from_slice(&read(format!(
-        "assets/{}/textures.json",
-        hash(&resources.pictures)?
-    ))?)?;
-    let pictures = textures
-        .textures
-        .into_iter()
-        .map(|texture| texture.context("missing credits texture")?.image(0))
-        .collect::<Result<_>>()?;
-    let music: crate::media::voice_library::LibraryVoice = serde_json::from_slice(&read(
-        format!("audio/streams/{}.json", hash(&resources.music)?),
-    )?)?;
-    let manifest = Manifest {
-        program,
-        pictures,
-        music: music.voice,
-        final_hold_ticks: 180,
-    };
-    manifest.validate()?;
-    Ok(manifest)
 }
 
 /// Undeclared text needs a layout command to distinguish it from ordinary text.
@@ -297,35 +234,58 @@ mod tests {
     use std::fs;
 
     #[test]
-    #[ignore = "requires extracted discs and cooked credits; verifies metadata without recooking"]
-    fn credits_bindings_resolve_text_pictures_and_music_on_both_discs() -> Result<()> {
-        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let output = std::env::var_os("RESONANCE_TEST_ASSETS")
-            .map_or_else(|| local.join("all-assets"), std::path::PathBuf::from);
+    #[ignore = "requires both extracted discs; publishes current screens and compares native text, pixels and PCM"]
+    fn credits_publish_directly_from_native_resources_on_both_discs() -> Result<()> {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         for disc in [1, 2] {
-            let extracted = local.join(format!("extracted/disc{disc}"));
+            let extracted = local.join(format!("disc{disc}"));
+            let output = tempfile::tempdir()?;
+            let mut publisher = crate::named::Publisher::new(&extracted, output.path())?;
+            publisher.screens(&extracted)?;
             let executable = fs::read(extracted.join("sys/main.dol"))?;
             let resources = Resources::read(&executable)?;
-            let sources = [resources.text, resources.pictures, resources.music]
-                .into_iter()
-                .map(|path| {
-                    Ok((
-                        format!("disc{disc}/{path}"),
-                        crate::media::hash_file(&extracted.join("files").join(path))?,
-                    ))
-                })
-                .collect::<Result<_>>()?;
-            let credits = bind(&output, &executable, &sources)?;
-            for picture in &credits.pictures {
-                ensure!(
-                    output.join(&picture.path).is_file(),
-                    "credits picture is not published"
+            let native = |name: &str| -> Result<Vec<u8>> {
+                let files = extracted.join("files");
+                Ok(fs::read(files.join(crate::field_resources::resolve_path(
+                    &files, name,
+                )?))?)
+            };
+            let definition: resonance_content::credits::document::Definition =
+                serde_json::from_slice(&fs::read(
+                    output
+                        .path()
+                        .join(resonance_content::credits::document::PATH),
+                )?)?;
+            assert_eq!(
+                serde_json::to_value(&definition.program)?,
+                serde_json::to_value(decode(&native(&resources.text)?)?)?
+            );
+            assert_eq!(definition.final_hold_ticks, 180);
+            let images = crate::texture::decode_source(&native(&resources.pictures)?)?;
+            assert_eq!(images.catalogue.textures.len(), definition.pictures.len());
+            for (picture, original) in definition.pictures.iter().zip(images.base_images()) {
+                let (size, pixels) = original?;
+                assert_eq!(size, [picture.width, picture.height]);
+                assert_eq!(
+                    crate::texture::image_pixels(output.path(), &picture.path)?.as_raw(),
+                    pixels
                 );
             }
-            assert_eq!(
-                crate::media::hash_file(&output.join(&credits.music.asset.path))?,
-                credits.music.asset.sha256
-            );
+            let encoded = native(&resources.music)?;
+            let mut original = crate::media::adx::Decoder::new(&encoded)?;
+            let mut wave = hound::WavReader::open(output.path().join(&definition.music.path))?;
+            assert_eq!(wave.spec().channels, original.channels);
+            assert_eq!(wave.spec().sample_rate, original.sample_rate);
+            assert_eq!(wave.duration(), original.frames);
+            assert_eq!(definition.music.sample_rate, None);
+            let mut samples = wave.samples::<i16>();
+            while let Some(block) = original.next_block()? {
+                for sample in block {
+                    assert_eq!(samples.next().context("missing PCM")??, *sample);
+                }
+            }
+            assert!(samples.next().is_none());
+            assert!(!output.path().join("sources.json").exists());
         }
         Ok(())
     }

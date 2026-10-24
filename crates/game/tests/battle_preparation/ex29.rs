@@ -2,12 +2,8 @@ use super::{opening_options, opening_setup};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::Cue;
 use resonance_battle::TechniqueId;
-use resonance_content::{
-    menu_data::MenuData,
-    prepared::{Cache, Files},
-};
+use resonance_content::{menu_data::MenuData, prepared::Cache};
 use resonance_events::{battle::DefeatPolicy, party::Party};
-use resonance_game::battle::encounter::Assets;
 use std::sync::Arc;
 
 /// A saved EX29 gem/skill row must retain Fire Ball's spell-charge definition
@@ -29,10 +25,14 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
 
     let root = super::common::asset_root();
     let mut cache = Cache::default();
-    let retained = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: MenuData = retained.json("game/menu-data.json")?;
+    let retained = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        &mut cache,
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&retained)?;
     let mut data: resonance_content::session::SessionData =
         retained.json("game/session-data.json")?;
     data.rules = Some(Arc::new(menus.clone()));
@@ -55,17 +55,29 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
     member.shortcuts = [0; 4];
     party.validate(&data)?;
 
-    let (assets, prepared) = Assets::load(
-        &root,
-        &retained,
-        &menus,
-        &data,
-        &party,
-        opening_setup(1, DefeatPolicy::GameOver),
-        opening_options(0x2345),
-        &mut cache,
-        || false,
-    )?;
+    let (assets, prepared) = {
+        let mut snapshot = (&retained)
+            .library()
+            .context("named library is required")?
+            .snapshot();
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut snapshot,
+            &(|| false),
+        )?;
+        let inputs = resonance_game::battle::encounter::Inputs::capture(
+            &mut snapshot,
+            &menus,
+            &data,
+            &party,
+            opening_setup(1, DefeatPolicy::GameOver),
+            &mut cache,
+            (&retained).diagnostics().clone(),
+            &(|| false),
+        )?;
+        let (assets, prepared, _) =
+            inputs.prepare_named(&menus, opening_options(0x2345), &catalogue)?;
+        Ok::<_, anyhow::Error>((assets, prepared))
+    }?;
     let element = usize::from(assets.catalogue.definition(usize::from(catalogue))?.element);
     assert_eq!(element, 3);
 
@@ -84,7 +96,8 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
         .effects
         .iter()
         .find(|effect| {
-            effect.source.source_sha256 == assets.common_effects.as_ref().unwrap().source_sha256
+            effect.source.document.as_deref()
+                == Some(resonance_content::battle_effect::document::COMMON)
         })
         .context("prepared common effect bank")?;
     let common50 = common.source.program(50)?;

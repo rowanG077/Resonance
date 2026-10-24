@@ -338,46 +338,35 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires both original discs and their shared source index; camera records only"]
+    #[ignore = "requires both original discs and current RESONANCE_TEST_ASSETS; camera records only"]
     fn original_camera_records_preserve_every_word_and_target_extent() -> Result<()> {
+        use anyhow::Context;
         use std::{collections::BTreeMap, fs, path::Path};
 
-        fn camera_count(path: &Path) -> Result<usize> {
-            if fs::metadata(path)?.is_file() {
-                return Ok(usize::from(
-                    path.file_name().is_some_and(|name| name == "camera.json"),
-                ));
-            }
-            let mut count = 0;
-            for entry in fs::read_dir(path)? {
-                let entry = entry?;
-                count += if entry.file_type()?.is_dir() {
-                    camera_count(&entry.path())?
-                } else {
-                    usize::from(entry.file_name() == "camera.json")
-                };
-            }
-            Ok(count)
-        }
-
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let library = root.join("all-assets");
+        let library = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(std::path::PathBuf::from)
+            .context("set RESONANCE_TEST_ASSETS")?;
+        let _library = resonance_content::library::Library::open(&library, &[])?;
+        let reports = std::env::var_os("RESONANCE_TEST_IMPORT_REPORTS")
+            .map(std::path::PathBuf::from)
+            .context("set RESONANCE_TEST_IMPORT_REPORTS to the external reports directory")?;
         let sources: BTreeMap<String, Vec<String>> =
-            serde_json::from_slice(&fs::read(library.join("sources.json"))?)?;
-        let mut publications = BTreeMap::new();
-        for path in sources
-            .values()
-            .flatten()
-            .filter(|path| path.starts_with("assets/"))
-        {
-            if !publications.contains_key(path) {
-                publications.insert(path.clone(), camera_count(&library.join(path))?);
-            }
-        }
+            serde_json::from_slice(&fs::read(reports.join("import-sources.json"))?)?;
         let mut checked = 0;
         for (source, paths) in sources {
-            let expected: usize = paths.iter().filter_map(|path| publications.get(path)).sum();
-            if expected == 0 {
+            let mut expected = paths
+                .iter()
+                .filter(|path| {
+                    path.starts_with("resources/physical/") && path.ends_with("/camera.json")
+                })
+                .map(|path| {
+                    Ok(serde_json::from_slice::<serde_json::Value>(&fs::read(
+                        library.join(path),
+                    )?)?)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if expected.is_empty() {
                 continue;
             }
             let (disc, file) = source.split_once('/').unwrap();
@@ -406,21 +395,29 @@ mod tests {
                         .collect()
                 };
                 for range in ranges {
-                    let source = &bytes[range];
-                    if !source.starts_with(b"CAMM") {
+                    let native = &bytes[range];
+                    if !native.starts_with(b"CAMM") {
                         continue;
                     }
-                    let track = camera_roundtrip(source)?;
-                    assert_eq!(track.transforms.len(), word(source, 8)? as usize);
+                    let track = camera_roundtrip(native)?;
+                    assert_eq!(track.transforms.len(), word(native, 8)? as usize);
                     if track.target_offset != 0 {
                         assert_eq!(track.targets.len(), track.transforms.len());
                     }
+                    let value = serde_json::to_value(&track)?;
+                    let published = expected
+                        .iter()
+                        .position(|camera| camera == &value)
+                        .with_context(|| {
+                            format!("native camera differs from current publication: {source}")
+                        })?;
+                    expected.remove(published);
                     found += 1;
                 }
             }
-            assert_eq!(
-                found, expected,
-                "camera publication count differs for {source}"
+            assert!(
+                expected.is_empty(),
+                "extra current camera publications for {source}"
             );
             checked += found;
         }

@@ -6,137 +6,11 @@ pub(crate) use palettes::SharedPalettes;
 mod source;
 mod timeline;
 use anyhow::{Context, Result, ensure};
-pub use source::{publish, read};
+pub use source::{prepare, read};
 pub(crate) use source::{read_enemy_with_palettes, read_with_palettes};
 use timeline::Record;
 
-/// Recompile schedules without converting or replacing cached artwork or actors.
-pub fn refresh_programs(
-    bytes: &[u8],
-    bank: &mut resonance_content::battle_effect::SourceBank,
-    owner: Option<&resonance_content::animation::Skeleton>,
-) -> Result<()> {
-    ensure!(
-        crate::digest(bytes) == bank.source_sha256,
-        "cached effect programs differ from source"
-    );
-    let (fresh, _) = match owner {
-        Some(owner) => read_enemy_with_palettes(bytes, owner)?,
-        None => read_with_palettes(bytes)?,
-    };
-    ensure!(
-        fresh.actors.len() == bank.actors.len() && fresh.programs.len() == bank.programs.len(),
-        "cached effect catalogue differs from source"
-    );
-    bank.programs = fresh.programs;
-    Ok(())
-}
-
-/// Recompile metadata while retaining the unchanged package's prepared artwork.
-pub(crate) fn refresh_cached(
-    bytes: &[u8],
-    bank: &mut resonance_content::battle_effect::SourceBank,
-    mut shared: Option<&mut SharedPalettes>,
-) -> Result<()> {
-    use resonance_content::battle_effect::{declaration::Declaration, visual::ParticleTexture};
-    let (mut fresh, strides) = read_with_palettes(bytes)?;
-    ensure!(
-        fresh.source_sha256 == bank.source_sha256 && fresh.actors.len() == bank.actors.len(),
-        "cached effect declarations differ from source"
-    );
-    for (index, (declaration, prepared)) in fresh.actors.iter_mut().zip(&bank.actors).enumerate() {
-        if let Declaration::Particle { visual, .. } = declaration
-            && let ParticleTexture::Atlas {
-                slot,
-                dual,
-                palette_set,
-            } = &mut visual.texture
-        {
-            if *slot != 6
-                && let Some(shared) = shared.as_deref_mut()
-            {
-                *palette_set = shared.set(*slot, strides[index])?;
-                continue;
-            }
-            let texture = if matches!(prepared, Declaration::Unsupported { .. }) {
-                // A newly supported particle can share an already prepared palette
-                // table only when its authored slot and selector stride agree.
-                let mut binding = None;
-                for (other, &stride) in bank.actors.iter().zip(&strides) {
-                    if stride == strides[index]
-                        && let Declaration::Particle { visual, .. } = other
-                        && visual.texture.slot() == Some(*slot)
-                        && visual.texture.dual() == *dual
-                    {
-                        let texture = visual.texture;
-                        ensure!(
-                            binding.is_none_or(|previous| previous == texture),
-                            "conflicting cached effect palette bindings"
-                        );
-                        binding = Some(texture);
-                    }
-                }
-                let texture = binding.with_context(|| {
-                    format!("effect particle {index} has no prepared palette binding")
-                })?;
-                let textures = bank
-                    .art
-                    .as_ref()
-                    .and_then(|art| art.textures.get(slot))
-                    .context("cached effect texture slot is not prepared")?;
-                ensure!(
-                    !textures.is_empty()
-                        && textures.iter().all(|prepared| {
-                            prepared
-                                .palette_sets
-                                .get(usize::from(texture.palette_set()))
-                                .is_some()
-                        }),
-                    "cached effect palette set is not prepared"
-                );
-                texture
-            } else {
-                prepared.particle_visual()?.texture
-            };
-            ensure!(
-                texture.slot() == Some(*slot) && texture.dual() == *dual,
-                "cached effect texture binding differs from source"
-            );
-            *palette_set = texture.palette_set();
-        }
-    }
-    fresh.art = bank.art.clone();
-    *bank = fresh;
-    Ok(())
-}
-
-/// Refresh the resident banks against an existing library, without publishing art.
-pub fn publish_cached(
-    usual: &[u8],
-    library: &std::path::Path,
-    output: &std::path::Path,
-) -> Result<Vec<String>> {
-    use resonance_content::battle_effect::{COMMON_PATH, TECHNIQUES_PATH};
-    [(2, COMMON_PATH), (3, TECHNIQUES_PATH)]
-        .into_iter()
-        .map(|(member, path)| {
-            let mut bank = serde_json::from_slice(&std::fs::read(library.join(path))?)?;
-            refresh_cached(
-                crate::source_assets::section(usual, member)?,
-                &mut bank,
-                None,
-            )?;
-            crate::write_atomic(&output.join(path), &serde_json::to_vec(&bank)?)?;
-            Ok(path.to_owned())
-        })
-        .collect()
-}
-
-pub fn publish_tints(
-    file: &std::path::Path,
-    output: &std::path::Path,
-    prefix: &str,
-) -> Result<String> {
+pub fn read_tints(file: &std::path::Path) -> Result<resonance_content::battle_effect::Tints> {
     use resonance_content::battle_effect::{ActorColors, AdmissionColors, Tints};
     let module = crate::rel::Rel::read(file)?;
     let actors: [[u8; 4]; 12] = crate::read::Field::read(module.at((4, 0x1564))?, 0)?;
@@ -162,9 +36,7 @@ pub fn publish_tints(
             arcane: admission[2],
         },
     };
-    let path = format!("{prefix}/effects/tints.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&tints)?)?;
-    Ok(path)
+    Ok(tints)
 }
 
 pub fn modifier(bytes: &[u8], at: usize) -> Result<Vec<u16>> {

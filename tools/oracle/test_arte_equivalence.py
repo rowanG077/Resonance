@@ -694,7 +694,7 @@ class ArteTraceTests(unittest.TestCase):
                          attachment=dict(kind="actor", actor=actor)) for actor in (0,1)]
         frames = [dict(combat_tick=tick, presentation_tick=tick, programs=programs) for tick in (1,2)]
         events = [dict(kind="started", owner=0), dict(kind="payment", owner=0, amount=25)]
-        banks = {1:dict(source_sha256="seals", path="/techniques.json")}
+        banks = {1:dict(source_sha256="seals", entry="battle/effects/techniques/effects.json")}
         branch, changes = bridge.support_outcomes.seal_branches(
             dict(native=77), [row, after], setup, frames, events, banks)
         self.assertEqual(branch, [])
@@ -882,9 +882,11 @@ class ArteTraceTests(unittest.TestCase):
         for first, expected in (([0,0,254,0,0,0], [0]),
                                 ([0,1,254,0,0,0], []), ([0,0,0,0,0,0], [])):
             raw[22:28] = bytes(first)
-            metadata = dict(source_sha256=bridge.hashlib.sha256(raw).hexdigest(), programs=[[]])
-            with patch.object(bridge, "read", return_value=metadata):
-                authored = bridge.effect_bank(raw, "bank.json")
+            metadata = dict(programs=[[]], actors=[], art=None)
+            with patch.object(bridge, "ContentSnapshot") as content:
+                content.return_value.effects.return_value = metadata
+                content.return_value.evidence.return_value = {}
+                authored = bridge.effect_bank(raw, "bank.json", ".", "proof")
             self.assertEqual(authored["immediate_end_programs"], expected)
         for attachment, origin, generations in ((0, 0, 1), (0, 0x3f800000, 2),
                                                  (0x81000000, 0x3f800000, 1),

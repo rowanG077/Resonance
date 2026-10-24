@@ -1,6 +1,10 @@
 //! Load the title background using the host's local time.
 use super::camera;
 use bevy::prelude::{PerspectiveProjection, Projection, Resource};
+use resonance_content::{diagnostics::Diagnostics, library::Library, prepared::Files};
+use std::sync::Arc;
+#[cfg(test)]
+mod tests;
 
 pub(super) fn projection(aspect_ratio: f32) -> Projection {
     Projection::custom(camera::TitleProjection(PerspectiveProjection {
@@ -18,37 +22,72 @@ pub(super) struct Scene {
     pub glow: resonance_content::effect::SpriteRecipe,
 }
 
-pub(super) fn load(
-    root: &std::path::Path,
-) -> anyhow::Result<(Scene, resonance_events::EventRuntime)> {
+pub(super) struct Prepared {
+    pub scene: Scene,
+    pub events: resonance_events::EventRuntime,
+    pub art: resonance_content::TitleAssets,
+    pub audio: super::audio::PlaybackAssets,
+    pub boot: Option<resonance_content::BootAssets>,
+    pub files: Arc<Files>,
+}
+
+pub(super) fn prepare(
+    library: &Library,
+    boot: bool,
+    diagnostics: Diagnostics,
+) -> anyhow::Result<Prepared> {
+    let hour = match time::OffsetDateTime::now_local() {
+        Ok(now) => now.hour(),
+        Err(error) => {
+            eprintln!("Cannot read the host's local time ({error}); using the day title field");
+            12
+        }
+    };
+    capture(library, boot, hour, diagnostics, || false)
+}
+
+fn capture(
+    library: &Library,
+    boot: bool,
+    hour: u8,
+    diagnostics: Diagnostics,
+    cancelled: impl Fn() -> bool,
+) -> anyhow::Result<Prepared> {
     use anyhow::{Context, ensure};
     use resonance_content::{
         effect::{FieldEffects, sprite::ORB_SPRITE},
-        prepared::{Cache, Files},
+        field::document,
+        preparation,
     };
-    let map = match time::OffsetDateTime::now_local() {
-        Ok(now) if (7..19).contains(&now.hour()) => 474, // Day: 07:00–19:00.
-        Ok(_) => 531,                                    // Night.
-        Err(error) => {
-            eprintln!("Cannot read the host's local time ({error}); using the day title field");
-            474
-        }
+    let mut snapshot = library.snapshot();
+    let (definition, art, boot) =
+        resonance_content::startup::capture(&mut snapshot, boot, &cancelled)?;
+    let map = if (7..19).contains(&hour) {
+        definition.day_field
+    } else {
+        definition.night_field
     };
-    let files = Files::load(
-        root,
-        &[&resonance_content::field::preload_path(map)],
-        &mut Cache::default(),
-        || false,
-    )
-    .context("prepare title field; rerun resonance-import cook-all if assets are outdated")?;
-    let mut assets = files.field(map)?;
+    let (_, mut assets) = document::capture_scene(&mut snapshot, map, &cancelled)?;
+    preparation::ui(&mut snapshot, &diagnostics, &cancelled)?;
+    let audio = super::audio::PlaybackAssets::capture(
+        &mut snapshot,
+        &definition,
+        diagnostics.clone(),
+        &cancelled,
+    )?;
+    let files = Arc::new(Files::from_snapshot(
+        snapshot,
+        &mut Default::default(),
+        &cancelled,
+        diagnostics,
+    )?);
     // The title has no playable party. Its script creates the embedded field actors.
     assets
         .actors
         .retain(|actor| resonance_content::field::LOCAL_MODEL_RESOURCES.contains(&actor.resource));
     ensure!(
         !assets.texture_animations.is_empty(),
-        "title field is missing native UV controllers; rerun resonance-import cook-all"
+        "title field {map} is missing native UV controllers"
     );
     let effects: FieldEffects = files.json(&assets.effects)?;
     effects.validate()?;
@@ -61,5 +100,13 @@ pub(super) fn load(
         resonance_game::title_events::start(&files.read(&assets.script)?, &assets, |path| {
             files.read(path)
         })?;
-    Ok((Scene { assets, glow }, events))
+    ensure!(!cancelled(), "title preparation cancelled");
+    Ok(Prepared {
+        scene: Scene { assets, glow },
+        events,
+        art,
+        audio,
+        boot,
+        files,
+    })
 }

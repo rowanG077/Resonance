@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 59dc92ab9204351dd671e085ee4aabc6b453fab2e180684f075ec26629c821da
+// Source owner: MAP/elb_d08/ELB_D08.BIN/2
+pub const Node000_Effect: string = "effect";
+pub const Node001_Glass: string = "glass";
+pub const Node002_Plane01: string = "Plane01";
+pub const Node003_Tama: string = "tama";

@@ -4,21 +4,14 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod document;
 mod spell;
 pub use spell::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
 
 /// Version 1 makes the migrated spell recipe part of the scene publication.
 pub const VERSION: u32 = 1;
 
-pub fn path(technique: u16) -> String {
-    format!("battle/scenes/{technique:03}.json")
-}
-
-pub fn skill_path(catalogue: u16) -> String {
-    format!("battle/scenes/skills/{catalogue:03}.json")
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Scene {
     pub version: u32,
     pub source_sha256: String,
@@ -54,7 +47,6 @@ pub struct Scene {
     pub recovery_radius: Option<f32>,
     /// Native strategies consume these parameters after resolving all dependencies.
     pub spell_recipe: Option<SpellRecipe>,
-    pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
 impl Scene {

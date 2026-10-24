@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6ea3b30e399edf54b2980b146291bccc03531cd41d626c9f0ecdf9ceeb4546ae
+// Source owner: MAP/sew_d02/SEW_D02.BIN/10
+pub const Node000_D01_S: string = "D01_s";

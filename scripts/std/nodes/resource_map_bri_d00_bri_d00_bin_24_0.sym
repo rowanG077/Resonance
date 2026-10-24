@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 82da2dabccc1c2fde57afcbcc2f77fc0e028ff21790cec13ae1689cce5e87397
+// Source owner: MAP/bri_d00/BRI_D00.BIN/24/0
+pub const Node000_LLoyde: string = "LLoyde";

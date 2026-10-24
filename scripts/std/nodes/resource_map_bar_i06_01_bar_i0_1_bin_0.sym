@@ -1,0 +1,5 @@
+script library;
+// Skeleton: c53c87b0661d46a9c8eb6cda9e80f887b64ee72127f5737836cdb41b3c234d19
+// Source owner: MAP/bar_i06_01/BAR_I0~1.BIN/0
+pub const Node000_Obj02: string = "obj02";
+pub const Node001_Obj01: string = "obj01";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6e653f586fb61a3f114999dd9e0e661385eb75f9f89bd8a81c208492207ad37b
+// Source owner: MAP/moa_d00/MOA_D00.BIN/19/0
+pub const Node000_Moa_D00_Ring00: string = "moa_d00_ring00";

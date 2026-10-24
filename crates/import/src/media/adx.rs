@@ -2,7 +2,7 @@
 use crate::read::{u16 as be_u16, u32 as be_u32};
 use anyhow::{Context, Result, ensure};
 
-pub(super) struct Decoder<'a> {
+pub(crate) struct Decoder<'a> {
     data: &'a [u8],
     pub channels: u16,
     pub sample_rate: u32,

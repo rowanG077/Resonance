@@ -228,14 +228,28 @@ mod tests {
         let mut files = Files::default();
         files.insert("wait.ssb".into(), bytes.into());
         files.insert("messages.json".into(), b"[]".to_vec().into());
-        let mut catalog: SkitCatalog = serde_json::from_value(serde_json::json!({
-            "version": resonance_content::skit::VERSION,
-            "skits": [], "preview_order": [], "portrait_recipes": [],
-            "resources": {
-                "472": {"script":"wait.ssb", "messages":"messages.json", "allow_skip":true},
-                "450": {"script":"wait.ssb", "messages":"messages.json", "allow_skip":false}
-            }
-        }))?;
+        let mut catalog = SkitCatalog {
+            version: resonance_content::skit::VERSION,
+            skits: vec![],
+            preview_order: vec![],
+            portrait_recipes: vec![],
+            portraits: Default::default(),
+            media: Default::default(),
+            resources: [(472, true), (450, false)]
+                .into_iter()
+                .map(|(id, allow_skip)| {
+                    (
+                        id,
+                        resonance_content::skit::SkitResourcePaths {
+                            script: "wait.ssb".into(),
+                            messages: "messages.json".into(),
+                            allow_skip,
+                            title: None,
+                        },
+                    )
+                })
+                .collect(),
+        };
         let mut parent = EventRuntime::new(program, Arc::default())?;
         let prepared = Prepared::load(Arc::new(catalog.clone()), &files, parent.resources())?;
         for (id, caller_permission, expected) in [

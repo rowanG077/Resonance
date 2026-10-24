@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a52578f8564ab090ef12001fe27c88aec59bb9032bd3be92cad0acad0436dd1d
+// Source owner: MAP/oza_i04/OZA_I04.BIN/16/0
+pub const Node000_No_Cook_18: string = "no_cook_18";

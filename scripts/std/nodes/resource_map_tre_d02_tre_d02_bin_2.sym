@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 33ec06cf6b69c553e444f81146f859aaba8a39019c22a8408e309777bd9d1e54
+// Source owner: MAP/tre_d02/TRE_D02.BIN/2
+pub const Node000_D02_Suimen: string = "d02_suimen";

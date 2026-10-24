@@ -9,6 +9,7 @@ import struct
 import subprocess
 
 import arte_equivalence as capture
+from named_content import Snapshot as ContentSnapshot, same_evidence
 from projectile_launches import require, recorded_fields
 
 
@@ -24,7 +25,7 @@ def derive(reference, assets, usual):
     state = capture.State(setup["ready_state"]["path"])
     require(recorded_fields(capture.inspect(state, battle=True)["battle"], setup["initial_battle"])
             == setup["initial_battle"], "ready state differs")
-    banks = capture.effect_banks(state, assets, None, [], usual)
+    banks = capture.effect_banks(state, assets, None, [], usual, reference.parent / "content-evidence")
     archive = list(capture.sections(usual.read_bytes()))
     raw_banks = {hashlib.sha256(archive[index]).hexdigest(): archive[index] for index in (2, 3)}
     rows = {(row["battle_combat_tick_word"], row["battle_presentation_tick_word"]): index
@@ -131,7 +132,7 @@ def derive(reference, assets, usual):
             witnesses.append(dict(frame=frame_index, node=node, age=age, angles=angles,
                 bank_address=address, bank_sha256=model["bank"], modifier_offset=offset,
                 modifier_sha256=hashlib.sha256(raw[offset:offset + 10]).hexdigest(),
-                metadata=capture.pin(bank["path"])))
+                metadata=bank["evidence"]))
     if descriptors:
         setup["effect_random_pitch"] = descriptors
     proof = dict(native_outputs_used=False, source=capture.pin(reference),
@@ -270,7 +271,7 @@ def derive_yaw(reference, assets, usual):
     require(recorded_fields(capture.inspect(state, battle=True)["battle"], setup["initial_battle"])
             == setup["initial_battle"], "ready state differs")
     rows = raw_rows
-    banks = capture.effect_banks(state, assets, None, [], usual)
+    banks = capture.effect_banks(state, assets, None, [], usual, reference.parent / "content-evidence")
     archive = list(capture.sections(usual.read_bytes()))
     raw_banks = {hashlib.sha256(archive[index]).hexdigest(): (archive[index], usual)
                  for index in (2, 3)}
@@ -284,7 +285,7 @@ def derive_yaw(reference, assets, usual):
         require(len(natives) == 1, "stored scene has ambiguous physical identity")
         verified_setup = copy.deepcopy(setup)
         banks.update(capture.stored_effect_banks(dict(native=next(iter(natives))), rows,
-            verified_setup, stored["terminal"]["path"], assets, usual))
+            verified_setup, stored["terminal"]["path"], assets, usual, reference.parent / "content-evidence"))
         verified_stored = verified_setup["stored_scenes"]
         # Metadata may have been decoded again since capture. Rebind it to the
         # same original package and retained RAM; never alter the source setup.
@@ -437,7 +438,7 @@ def derive_yaw(reference, assets, usual):
                 modifier_sha256=hashlib.sha256(raw[modifier_offset:modifier_offset + 10]).hexdigest(),
                 declaration_sha256=hashlib.sha256(declaration_bytes).hexdigest(),
                 bank_address=address, bank_sha256=model["bank"], angles=angles, scale=scale,
-                template=template, metadata=capture.pin(bank["path"])))
+                template=template, metadata=bank["evidence"]))
     if descriptors:
         families = {tuple(descriptor[key] for key in ("owner", "bank", "member"))
                     for descriptor in descriptors}
@@ -465,11 +466,13 @@ def derive_yaw(reference, assets, usual):
     return trace, proof
 
 
-def retained_banks(setup, assets, usual, packages=None):
+def retained_banks(setup, assets, usual, evidence_directory, packages=None):
     """Read pinned original banks without requiring discarded emulator states."""
     banks, pins = {}, {}
     def add(raw, metadata, archive):
-        bank = capture.effect_bank(raw, metadata)
+        bank = capture.effect_bank(raw, metadata, assets, evidence_directory)
+        require(same_evidence(bank["evidence"], setup["effect_inputs"][bank["entry"]]),
+                "current effect evidence differs from the observed capture")
         archive = Path(archive)
         if archive not in pins:
             pins[archive] = capture.pin(archive)
@@ -477,15 +480,17 @@ def retained_banks(setup, assets, usual, packages=None):
         banks[bank["source_sha256"]] = bank
     archive = list(capture.sections(usual.read_bytes()))
     for index, name in ((2, "common"), (3, "techniques")):
-        add(archive[index], assets / f"battle/effects/{name}.json", usual)
-    if packages is not None and setup.get("catalogue", {}).get("path"):
-        catalogue = Path(setup["catalogue"]["path"])
-        metadata = catalogue.with_name("effects.json")
-        package_path = packages / (catalogue.parent.name + ".bin")
-        if metadata.exists() and package_path.exists():
+        add(archive[index], assets / f"battle/effects/{name}/effects.json", usual)
+    content = ContentSnapshot(assets, evidence_directory)
+    for proof in setup.get("detached_contacts", {}).get("enemy_packages", []):
+        package_path = Path(proof["package"]["path"])
+        require(capture.digest(package_path) == proof["package"]["sha256"], "observed enemy package changed")
+        path = content.resolve("battle/enemies/mappings.json", proof["enemy"], "enemy.json")
+        require(path is not None, "observed enemy is not mapped")
+        entry = content.document(path, ("rules", "artwork", "effects"))
+        if entry.get("effects"):
+            metadata = assets / entry["effects"]
             package = package_path.read_bytes()
-            require(hashlib.sha256(package).hexdigest() == capture.read(catalogue)["source_sha256"],
-                    "enemy package differs from its authored catalogue")
             pointers = struct.unpack_from(">116I", package, 0x18)
             start = struct.unpack_from(">I", package, 0x1cc)[0]
             if start:
@@ -506,7 +511,7 @@ def retained_banks(setup, assets, usual, packages=None):
             start = pointers[0]
             raw = package[start:min([value for value in pointers if value > start] + [len(package)])]
             require(hashlib.sha256(raw).hexdigest() == entry["bank_sha256"], "stored bank changed")
-            add(raw, Path(entry["effects"]["path"]), path)
+            add(raw, assets / entry["effects"]["entry"], path)
     return banks
 
 
@@ -817,9 +822,9 @@ def retained_lifetime_contracts(trace, banks, excluded=()):
         if len(candidates) != 1:
             continue
         kind, program = candidates[0]
-        pin = capture.pin(bank["path"])
+        pin = bank["evidence"]
         if kind == "ballistic_particles":
-            require(pin == registered[signature], "ballistic metadata differs from registered scene")
+            require(same_evidence(pin, registered[signature]), "ballistic metadata differs from registered scene")
         result.setdefault("effect_" + kind, []).append(dict(metadata=pin, member=member, program=program))
         witnesses.append(dict(kind=kind, bank=signature, member=member, program=program,
             instances=len({m["ordinal"] for m in models}), model_samples=len(models), metadata=pin,
@@ -836,7 +841,7 @@ def derive_retained(reference, assets, usual, packages=None):
     require(not any(setup.get(key) for key in ("effect_random_births", "effect_random_yaw",
                 "effect_relative_rotations", "effect_ballistic_particles")),
             "retained birth/yaw descriptors are already registered")
-    banks = retained_banks(setup, assets, usual, packages)
+    banks = retained_banks(setup, assets, usual, reference.parent / "content-evidence", packages)
     epochs = retained_program_clocks(trace, banks, reference)
     schedules, declarations = {}, {}
     for event in trace["events"]:
@@ -976,7 +981,7 @@ def derive_retained(reference, assets, usual, packages=None):
                 equivalent_commands=sorted({candidate[2]["command"] for candidate in matches}),
                 emission_age=emission["age"], repeat=emission["repeat"],
                 declaration_sha256=hashlib.sha256(bank["declarations"][model["member"]]).hexdigest(),
-                metadata=capture.pin(bank["path"])))
+                metadata=bank["evidence"]))
     admitted = set()
     for family, identities in families.items():
         if not identities <= candidates.keys():

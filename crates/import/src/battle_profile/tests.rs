@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 
 fn read(bytes: &[u8]) -> Result<Profile> {
     let mut usual = vec![0; 59];
@@ -137,13 +138,10 @@ fn profiles_decode_named_conditions_and_immunities() -> Result<()> {
 fn imports_party_profiles_and_battle_entry_settings() -> Result<()> {
     let file = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../local/extracted/disc1/files/US_r_Top2Btl.rel");
-    let output = tempfile::tempdir()?;
     let extracted = file.parent().unwrap().parent().unwrap();
     let sources = crate::source_assets::Sources::read(extracted)?;
     let usual = std::fs::read(extracted.join("files").join(sources.usual))?;
-    let path = publish_party(&file, &usual, output.path(), "battle")?;
-    assert_eq!(path, resonance_content::battle_profile::PARTY_PATH);
-    let table: Table = serde_json::from_slice(&std::fs::read(output.path().join(path))?)?;
+    let table = read_party(&Rel::read(&file)?, &usual)?;
     table.validate()?;
     assert_eq!(
         table.body_colliders.map(|body| (body.radius, body.height)),

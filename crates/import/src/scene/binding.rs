@@ -1,7 +1,5 @@
 //! Assemble source-backed layers and publish their final shared assets.
 use super::glb::Glb;
-#[cfg(test)]
-use crate::all_assets::physical_scene::{Scene, TextureSource};
 use crate::{
     all_assets::{FieldDirectory, MemberKind},
     animation::{AuthoredAnimation, ModelBindings},
@@ -9,8 +7,6 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use resonance_content::field::{DrawStage, MODEL_DRAW_SPAN};
 use resonance_content::{SceneClip, ScenePart};
-#[cfg(test)]
-use serde::de::DeserializeOwned;
 #[cfg(test)]
 use std::fs;
 use std::{borrow::Cow, path::Path, sync::Arc};
@@ -24,74 +20,6 @@ pub(crate) struct Map<'a> {
     sections: FieldDirectory,
     archive: Arc<crate::field::MapArchive>,
     pub(crate) decoded: Cow<'a, super::decoded::Package>,
-    pub(crate) source_sha256: String,
-}
-
-#[cfg(test)]
-pub(crate) fn read<T: DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
-    resonance_content::validate_asset_path(path)?;
-    serde_json::from_slice(&fs::read(root.join(path)).with_context(|| {
-        format!(
-            "missing cooked {path}; run cook-all --output {} first",
-            root.display()
-        )
-    })?)
-    .with_context(|| format!("invalid cooked {path}"))
-}
-
-/// Project supported materials without changing the source-owned publication.
-#[cfg(test)]
-pub(crate) fn model(root: &Path, directory: &str) -> Result<(ScenePart, Glb)> {
-    let scene: Scene = read(root, &format!("{directory}/scene.json"))?;
-    let owned = |path: &str| -> Result<()> {
-        resonance_content::validate_asset_path(path)?;
-        ensure!(
-            path.starts_with(&format!("{directory}/")) && root.join(path).is_file(),
-            "missing or incorrectly owned cooked model resource {path}"
-        );
-        Ok(())
-    };
-    resonance_content::validate_asset_path(&scene.mesh)?;
-    ensure!(
-        scene.mesh.starts_with("meshes/") && root.join(&scene.mesh).is_file(),
-        "missing canonical mesh {}",
-        scene.mesh
-    );
-    let textures = match &scene.textures {
-        TextureSource::Local { catalogue } => {
-            owned(catalogue)?;
-            let textures = crate::texture::read(&root.join(catalogue))?;
-            if textures.textures.is_empty() {
-                Vec::new()
-            } else {
-                let directory = catalogue
-                    .strip_suffix("/textures.json")
-                    .context("texture catalogue path")?;
-                crate::texture::bind(root, directory)?
-                    .into_iter()
-                    .map(|texture| texture.image(0).map(|image| image.path))
-                    .collect::<Result<_>>()?
-            }
-        }
-        TextureSource::Caller => {
-            ensure!(
-                scene
-                    .draws
-                    .iter()
-                    .filter(|draw| draw.mesh.is_some())
-                    .all(|draw| draw.recipe.textures().next().is_none()),
-                "model requires caller-supplied textures"
-            );
-            Vec::new()
-        }
-    };
-    let glb = Glb::read(&root.join(&scene.mesh))?;
-    ensure!(
-        glb.json["animations"].as_array().is_none_or(Vec::is_empty),
-        "physical mesh already has animations"
-    );
-    let part = super::projection::project(&scene, &glb.json, textures)?;
-    Ok((part, glb))
 }
 
 /// Project a decoded model directly; only terminal publication needs a path.
@@ -148,50 +76,6 @@ pub(crate) fn write_mesh(root: &Path, glb: &Glb) -> Result<String> {
     let path = format!("meshes/{}.glb", crate::digest(&bytes));
     crate::write_atomic(&root.join(&path), &bytes)?;
     Ok(path)
-}
-
-#[cfg(test)]
-pub(crate) fn secondary_motion(
-    root: &Path,
-    directory: &str,
-    glb: &Glb,
-    part: &ScenePart,
-) -> Result<resonance_content::secondary_motion::Definition> {
-    #[derive(serde::Deserialize)]
-    struct Model {
-        name: Option<String>,
-    }
-    let model = if part
-        .bone_names
-        .iter()
-        .any(|name| name.starts_with("AB_ROOT"))
-    {
-        let model: Model = read(root, &format!("{directory}/model.json"))?;
-        model.name.context("missing secondary-motion model name")?
-    } else {
-        String::new()
-    };
-    crate::secondary_motion::bind(&model, &glb.json, &part.bone_names)
-}
-
-#[cfg(test)]
-pub(crate) fn bindings(root: &Path, directory: &str, part: &ScenePart) -> Result<ModelBindings> {
-    let model: ModelBindings = read(root, &format!("{directory}/motion-bindings.json"))?;
-    ensure!(
-        model.node_ids.len() == part.bone_names.len(),
-        "cooked motion bindings differ from mesh"
-    );
-    if let Some(names) = &model.names {
-        ensure!(
-            names.len() == part.bone_names.len()
-                && names
-                    .iter()
-                    .zip(&part.bone_names)
-                    .all(|(source, mesh)| source.is_empty() || source == mesh),
-            "cooked model name bindings differ from mesh"
-        );
-    }
-    Ok(model)
 }
 
 impl<'a> Map<'a> {
@@ -255,7 +139,6 @@ impl<'a> Map<'a> {
         Ok(Self {
             root,
             directory: format!("assets/{}/{}", archive.source_sha256, archive.member),
-            source_sha256: archive.source_sha256.clone(),
             sections,
             archive,
             decoded,
@@ -510,10 +393,11 @@ mod tests {
                 map.archive.section(6)?
             );
             assert_eq!(
-                serde_json::to_value(read::<Vec<symphonia_script::message::Message>>(
-                    output.path(),
-                    &messages
-                )?)?,
+                serde_json::to_value(serde_json::from_slice::<
+                    Vec<symphonia_script::message::Message>,
+                >(&fs::read(
+                    output.path().join(&messages)
+                )?)?)?,
                 serde_json::to_value(map.messages()?)?
             );
         }
@@ -521,26 +405,11 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(unix)]
-    fn fixture() -> Result<tempfile::TempDir> {
-        let library = std::env::var_os("RESONANCE_COOKED")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"))
-            .canonicalize()?;
-        let stage = tempfile::tempdir()?;
-        fs::copy(
-            library.join("sources.json"),
-            stage.path().join("sources.json"),
-        )?;
-        Ok(stage)
-    }
-
-    #[cfg(unix)]
     #[test]
-    #[ignore = "requires original fields and cooked library; no codecs or renderer"]
+    #[ignore = "requires original fields; no prior cooked library or renderer"]
     fn original_line_primitives_bind_to_runtime_field_layers() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let stage = fixture()?;
+        let stage = tempfile::tempdir()?;
         let cooked = stage.path();
         for (source, section, expected) in [
             ("MAP/cot_i00.bin", 0, vec![12, 13]),
@@ -573,12 +442,11 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(unix)]
     #[test]
-    #[ignore = "requires original fields and cook-all records; writes derived meshes without codecs"]
+    #[ignore = "requires original fields; binds native scenery and animation records directly"]
     fn original_declared_animations_bind_to_scenery_on_both_discs() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let stage = fixture()?;
+        let stage = tempfile::tempdir()?;
         let cooked = stage.path();
         let mut bindings = 0;
         let mut coverage = BTreeMap::new();
@@ -699,69 +567,61 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires original MAP archives on both discs and read-only RESONANCE_COOKED assets"]
+    #[ignore = "requires both original discs and current RESONANCE_TEST_ASSETS"]
     fn original_prepared_map_layers_match_source_motion_on_both_discs() -> Result<()> {
-        use resonance_content::field::FieldAssets;
         use std::collections::BTreeSet;
 
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         let cooked = std::path::PathBuf::from(
-            std::env::var_os("RESONANCE_COOKED").context("set RESONANCE_COOKED")?,
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
-        let sources: BTreeMap<String, Vec<String>> = read(&cooked, "sources.json")?;
-        // Keep only identities in memory; load one complete field at a time.
-        #[derive(serde::Deserialize)]
-        struct Identity {
-            source_sha256: String,
-        }
-        let mut prepared = BTreeMap::new();
-        for entry in fs::read_dir(cooked.join("fields"))? {
-            let path = entry?.path();
-            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-                continue;
-            };
-            if name
-                .strip_prefix("map-")
-                .and_then(|name| name.strip_suffix(".json"))
-                .and_then(|id| id.parse::<u32>().ok())
-                .is_none()
-            {
-                continue;
-            }
-            let identity: Identity = serde_json::from_slice(&fs::read(&path)?)?;
-            ensure!(
-                prepared.insert(identity.source_sha256, path).is_none(),
-                "duplicate prepared MAP source"
-            );
-        }
+        let library = resonance_content::library::Library::open(&cooked, &[])?;
+        let prepared: BTreeSet<_> = library
+            .snapshot()
+            .mappings(resonance_content::library::FIELDS)?
+            .iter()
+            .map(|(id, _)| id)
+            .collect();
         let mut compared = BTreeSet::new();
         let mut archives = [0; 2];
         let mut layers = 0;
         let mut motions = 0;
         for disc in [1, 2] {
-            let prefix = format!("disc{disc}/");
-            for source in sources
-                .keys()
-                .filter_map(|source| source.strip_prefix(&prefix))
-                .filter(|source| source.starts_with("MAP/"))
-            {
-                let bytes = fs::read(
-                    local
-                        .join(format!("extracted/disc{disc}/files"))
-                        .join(source),
-                )?;
-                let hash = crate::digest(&bytes);
-                let path = prepared
-                    .get(&hash)
-                    .with_context(|| format!("no prepared field for {source}"))?;
+            let extracted = local.join(format!("extracted/disc{disc}"));
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            for phase in crate::field_catalogue::read(&executable)?.records {
+                let Some(name) = phase.resource else { continue };
+                let Some(source) = crate::field_resources::find_path(
+                    &extracted.join("files"),
+                    &format!("MAP/{name}"),
+                )?
+                else {
+                    continue;
+                };
+                let id = u32::try_from(phase.id)?;
+                let bytes = fs::read(extracted.join("files").join(&source))?;
+                let map = crate::field::MapArchive::decode(&bytes)?;
+                let Some(script) = map.optional_section(6) else {
+                    continue;
+                };
+                ensure!(
+                    prepared.contains(&id),
+                    "original field {id} ({source}) is missing from current mappings"
+                );
                 archives[disc - 1] += 1;
-                // Both discs retain their own source identity check. Identical
-                // archives share one runtime layer/motion comparison.
-                if !compared.insert(hash) {
+                // Compare each game identity, even when several IDs deliberately
+                // refer to the same native bytes. Disc variants remain distinct.
+                if !compared.insert((id, crate::digest(&bytes))) {
                     continue;
                 }
-                let map = crate::field::MapArchive::decode(&bytes)?;
-                let field: FieldAssets = serde_json::from_slice(&fs::read(path)?)?;
+                let mut snapshot = library.snapshot();
+                let (_, field) =
+                    resonance_content::field::document::capture_scene(&mut snapshot, id, || false)?;
+                assert_eq!(
+                    &*snapshot.read(&field.script, 64 * 1024 * 1024)?,
+                    crate::field_script::prepare(script).as_ref(),
+                    "{source} scenario"
+                );
                 assert_eq!(
                     field
                         .parts
@@ -830,7 +690,10 @@ mod tests {
             }
         }
         assert!(archives.iter().all(|&count| count > 0));
-        assert_eq!(compared, prepared.into_keys().collect::<BTreeSet<_>>());
+        assert_eq!(
+            compared.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>(),
+            prepared
+        );
         assert!(
             layers > 0 && motions > 0,
             "MAP comparison omitted geometry or autoplay"

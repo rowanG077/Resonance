@@ -5,9 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TitleAwardRules {
-    /// Original revision and native function from which these rules were translated.
-    pub provenance: String,
     /// Source order is also the order of award notices.
     pub levels: Vec<LevelTitleAward>,
     /// Evaluated from the completed battle ledger, after level awards.
@@ -60,15 +59,6 @@ impl EquipmentTitleAward {
 
 impl TitleAwardRules {
     pub fn validate(&self, titles: &[Vec<Title>], item_count: usize) -> Result<()> {
-        ensure!(
-            self.levels.is_empty() && self.combos.is_empty() && self.equipment.is_empty()
-                || !self.provenance.trim().is_empty(),
-            "title award rules require provenance"
-        );
-        ensure!(
-            self.provenance.len() <= 1024,
-            "title award provenance is too long"
-        );
         let mut awarded = BTreeSet::new();
         for (character, title) in self
             .levels
@@ -138,7 +128,6 @@ mod tests {
             9
         ];
         let mut rules = TitleAwardRules {
-            provenance: "synthetic equipment fixture".into(),
             equipment: vec![EquipmentTitleAward {
                 character: 5,
                 title: 1,
@@ -187,7 +176,6 @@ mod tests {
             9
         ];
         let mut rules = TitleAwardRules {
-            provenance: "synthetic boundary fixture".into(),
             levels: vec![LevelTitleAward {
                 character: 1,
                 title: 1,
@@ -244,8 +232,7 @@ mod tests {
         rules.combos[0].minimum = 0;
         assert!(rules.validate(&titles, 10).is_err());
         rules.combos[0].minimum = 1;
-        rules.provenance.clear();
-        assert!(rules.validate(&titles, 10).is_err());
+        rules.validate(&titles, 10)?;
         Ok(())
     }
 }

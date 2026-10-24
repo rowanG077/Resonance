@@ -3,7 +3,6 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_effect::{Art, EffectTexture, SourceBank},
     battle_model::ModelPart,
-    field_preload::{File, Role},
 };
 use std::{collections::BTreeMap, path::Path};
 
@@ -130,31 +129,10 @@ pub(super) fn publish(
             },
         );
     }
-    let mut files = crate::battle_model::files(
-        models
-            .values()
-            .flat_map(|part| part.layers.iter().map(|layer| &layer.scene)),
-        output,
-    )?;
-    for image in textures
-        .values()
-        .flatten()
-        .flat_map(|texture: &EffectTexture| &texture.images)
-    {
-        files.insert(
-            image.path.clone(),
-            File {
-                sha256: crate::media::hash_file(&output.join(&image.path))?,
-                bytes: std::fs::metadata(output.join(&image.path))?.len(),
-                roles: [Role::Texture].into(),
-            },
-        );
-    }
     Ok(Art {
         source_sha256: crate::digest(usual),
         textures,
         models,
-        files,
     })
 }
 
@@ -258,75 +236,6 @@ pub(crate) fn bank_textures(
 ) -> Result<Vec<PublishedTexture>> {
     let bytes = crate::compression::payload(bytes.to_vec())?;
     let mut textures = textures_from_source(&bytes, output)?;
-    complete_palettes(&bytes, bank, strides, slot, &mut textures, output)?;
-    Ok(textures)
-}
-
-/// Retain prepared images and publish only newly required palette windows.
-pub(crate) fn cached_bank_textures(
-    bytes: &[u8],
-    bank: &SourceBank,
-    strides: &[u8],
-    slot: u8,
-    cached: &[EffectTexture],
-    output: &Path,
-) -> Result<Vec<PublishedTexture>> {
-    let bytes = crate::compression::payload(bytes.to_vec())?;
-    let descriptors = crate::tpl::parse_tpl(&bytes)?;
-    ensure!(
-        descriptors.len() == cached.len(),
-        "cached effect texture count differs from source"
-    );
-    let identity = crate::digest(&bytes);
-    let mut textures = descriptors
-        .iter()
-        .zip(cached)
-        .enumerate()
-        .map(|(index, (descriptor, effect))| {
-            let capacity = match descriptor.format {
-                8 => 16,
-                9 => 256,
-                10 => 16384,
-                _ => 0,
-            };
-            let prefix = format!("textures/{identity}/texture-{index}");
-            let mut palettes = BTreeMap::new();
-            for (image, prepared) in effect.images.iter().enumerate() {
-                ensure!(
-                    prepared.width == u32::from(descriptor.width)
-                        && prepared.height == u32::from(descriptor.height),
-                    "cached effect texture dimensions differ from source"
-                );
-                let suffix = prepared
-                    .path
-                    .strip_prefix(&prefix)
-                    .and_then(|path| path.strip_suffix(".ktx2"))
-                    .context("cached effect texture identity differs from source")?;
-                let offset = if capacity == 0 && suffix.is_empty() {
-                    0
-                } else if let Some(offset) = suffix.strip_prefix("-palette-offset-") {
-                    offset.parse::<usize>()?
-                } else {
-                    suffix
-                        .strip_prefix("-palette-")
-                        .context("unrecognized cached effect palette image")?
-                        .parse::<usize>()?
-                        .checked_mul(usize::from(capacity))
-                        .context("cached palette offset overflow")?
-                };
-                ensure!(
-                    palettes.insert(offset, image).is_none(),
-                    "duplicate cached effect palette window"
-                );
-            }
-            ensure!(!palettes.is_empty(), "cached effect texture has no images");
-            Ok(PublishedTexture {
-                effect: effect.clone(),
-                capacity,
-                palettes,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
     complete_palettes(&bytes, bank, strides, slot, &mut textures, output)?;
     Ok(textures)
 }
@@ -548,6 +457,7 @@ mod tests {
             };
         }
         let mut bank = SourceBank {
+            document: None,
             source_sha256: String::new(),
             art: None,
             programs: vec![],
@@ -618,27 +528,6 @@ mod tests {
         let pixels = crate::texture::pixels(&output.path().join(&texture.images[image].path))?;
         assert_eq!(pixels.as_raw(), &[255, 0, 0, 255, 0, 255, 0, 255]);
 
-        // A metadata refresh retains the ordinary pages and fills only the
-        // missing overlapping windows, including the explicit tail selector.
-        let cached = textures_from_source(&tpl, output.path())?
-            .into_iter()
-            .map(|texture| texture.effect)
-            .collect::<Vec<_>>();
-        let supplement = tempfile::tempdir()?;
-        let refreshed = cached_bank_textures(&tpl, &bank, &[32], 6, &cached, supplement.path())?;
-        assert_eq!(refreshed[0].effect.images.len(), 10);
-        for (before, after) in cached[0].images.iter().zip(&refreshed[0].effect.images) {
-            assert_eq!(before.path, after.path);
-            assert!(!supplement.path().join(&before.path).exists());
-        }
-        let index = refreshed[0].selectors(32)[11].unwrap();
-        let pixels = crate::texture::pixels(
-            &supplement
-                .path()
-                .join(&refreshed[0].effect.images[index].path),
-        )?;
-        assert_eq!(pixels.as_raw(), &[255, 0, 0, 255, 0, 255, 0, 255]);
-
         // For CI4, explicit stride16 is already the ordinary default layout.
         tpl[24..28].copy_from_slice(&8_u32.to_be_bytes());
         let cached = textures_from_source(&tpl, output.path())?
@@ -646,9 +535,15 @@ mod tests {
             .map(|texture| texture.effect)
             .collect::<Vec<_>>();
         let supplement = tempfile::tempdir()?;
-        let refreshed = cached_bank_textures(&tpl, &bank, &[16], 6, &cached, supplement.path())?;
-        assert_eq!(refreshed[0].selectors(16), cached[0].palette_sets[0]);
-        assert_eq!(std::fs::read_dir(supplement.path())?.count(), 0);
+        let prepared = bank_textures(&tpl, &bank, &[16], 6, supplement.path())?;
+        assert_eq!(prepared[0].selectors(16), cached[0].palette_sets[0]);
+        assert!(
+            prepared[0]
+                .effect
+                .images
+                .iter()
+                .all(|image| supplement.path().join(&image.path).is_file())
+        );
         Ok(())
     }
 

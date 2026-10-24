@@ -190,7 +190,7 @@ impl Scene {
         package: &new_game::FieldPackage,
         mut entry: resonance_game::field::FieldEntry,
     ) -> Result<Self> {
-        entry.skits = Some(Arc::new(package.files.json("game/skits.json")?));
+        entry.skits = Some(package.skits.clone());
         let kind = entry.kind;
         let mut field = package.enter(entry)?;
         package.queue_entry(&mut field, kind);

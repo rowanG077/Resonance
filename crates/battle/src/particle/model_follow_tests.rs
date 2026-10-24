@@ -4,7 +4,7 @@ use crate::{
 };
 use resonance_content::{
     animation::{Bone, Skeleton, Transform, TransformChannels},
-    battle_effect::{SourceBank, declaration::Declaration},
+    battle_effect::declaration::Declaration,
 };
 
 fn definition() -> ParticleDefinition {
@@ -12,10 +12,11 @@ fn definition() -> ParticleDefinition {
         "../../../content/tests/fixtures/projectile-model-follow.json"
     ))
     .unwrap();
-    let mut source: SourceBank = serde_json::from_value(fixture["bank"].clone()).unwrap();
+    let mut actors: Vec<Declaration> =
+        serde_json::from_value(fixture["files"]["effects/throw/actors.json"].clone()).unwrap();
     let Declaration::ModelParticle {
         template, binding, ..
-    } = source.actors.remove(1)
+    } = actors.remove(1)
     else {
         panic!("fixture needs model particle")
     };

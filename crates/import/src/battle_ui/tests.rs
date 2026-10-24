@@ -7,16 +7,20 @@ fn publishes_complete_hud_on_both_discs() -> Result<()> {
     for disc in [1, 2] {
         let extracted = local.join(format!("disc{disc}"));
         let output = tempfile::tempdir()?;
-        let paths = publish(&extracted, output.path())?;
-        let art: Art = serde_json::from_slice(&fs::read(
-            output.path().join(resonance_content::battle_ui::PATH),
-        )?)?;
+        let native = tempfile::tempdir()?;
+        let art = prepare(&extracted, native.path())?;
+        let mut publisher = crate::named::Publisher::new(native.path(), output.path())?;
+        publisher.battle_ui(art)?;
+        publisher.descriptor("GQSEAF", 0)?;
+        let mut snapshot =
+            resonance_content::library::Library::open(output.path(), &[])?.snapshot();
+        let art = resonance_content::battle_ui::document::capture(
+            &mut snapshot,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            &|| false,
+        )?;
         art.validate()?;
-        assert!(
-            art.files()
-                .all(|path| paths.iter().any(|published| published == path))
-        );
-        assert!(paths.iter().all(|path| output.path().join(path).is_file()));
+        assert!(art.files().all(|path| output.path().join(path).is_file()));
 
         let sources = crate::source_assets::Sources::read(&extracted)?;
         let usual = fs::read(extracted.join("files").join(sources.usual))?;

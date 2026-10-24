@@ -135,17 +135,6 @@ enum Action {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Record only cooked music data through the shared renderer; no playback.
-    RenderCookedTitleAudio {
-        #[arg(long, default_value = "local/all-assets")]
-        assets: PathBuf,
-        #[arg(long)]
-        output: PathBuf,
-        #[arg(long, default_value_t = 1280000)]
-        frames: u32,
-        #[arg(long, default_value_t = 1185)]
-        master_fade_lead_ms: u16,
-    },
     /// Diagnose Rust voice buses and their studio mix; writes WAVs without playback.
     RenderSoundBuses {
         #[arg(long, default_value = "local/extracted/disc1")]
@@ -307,17 +296,7 @@ fn main() -> anyhow::Result<()> {
             resonance_import::media::inspect_title_audio(&extracted, &output)
         }
         Action::Extract { disc, output } => resonance_import::extract(&disc, &output),
-        Action::RenderCookedTitleAudio {
-            assets,
-            output,
-            frames,
-            master_fade_lead_ms,
-        } => resonance_import::media::render_cooked_title_audio(
-            &assets,
-            &output,
-            frames,
-            master_fade_lead_ms,
-        ),
+
         Action::RenderSoundBuses {
             extracted,
             bank,

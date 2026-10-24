@@ -1,19 +1,19 @@
 //! Authored battle scenes and the model poses they own while combat is suspended.
-use crate::{ScenePart, animation::Skeleton, field_preload::File};
+use crate::{ScenePart, animation::Skeleton};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub fn path(id: u16) -> String {
-    format!("battle/events/{id:03}.json")
-}
+pub mod document;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Scene {
+    /// Captured authored blink cycle for this event.
+    #[serde(skip)]
+    pub blink: Option<crate::effect::BlinkCycle>,
     pub script: String,
     pub messages: String,
     pub audio: crate::battle_audio::Selection,
     pub actors: BTreeMap<u32, Model>,
-    pub files: BTreeMap<String, File>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

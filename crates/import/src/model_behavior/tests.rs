@@ -20,6 +20,7 @@ fn part(names: &[String], attached: bool) -> PreviewPart {
 
 fn make_preview(parts: Vec<PreviewPart>) -> ModelPreview {
     ModelPreview {
+        document: None,
         scale: 1.,
         elevation: 0.,
         parts,

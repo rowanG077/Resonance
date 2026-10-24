@@ -1,15 +1,12 @@
 //! Bind world terrain and VM data from the same decoded packages as physical cooking.
+use super::overworld_encounters::tiles::{TileAsset, TileCatalogue};
 use super::{overworld_collision, overworld_encounters, overworld_landmarks, overworld_movement};
 use crate::{
     scene::{decoded, source::Models},
     write_atomic,
 };
 use anyhow::{Context, Result, ensure};
-use resonance_content::{
-    ScriptAsset,
-    field_preload::{File, Role},
-    overworld::*,
-};
+use resonance_content::{ScriptAsset, overworld::*};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -157,7 +154,6 @@ pub(super) fn tile(
         )?;
     }
     Ok(TileResources {
-        source_sha256: archive.source_sha256.clone(),
         ground: crate::field::collision_data::Mesh::read(
             archive.section(4)?,
             crate::field::collision_data::Format::Detect,
@@ -234,7 +230,7 @@ pub(super) fn prepare(
             });
         }
     }
-    let mut package = Package {
+    let package = Package {
         version: PACKAGE_VERSION,
         script: ScriptAsset {
             path: script_path,
@@ -248,138 +244,8 @@ pub(super) fn prepare(
         guideposts: plan.guideposts.clone(),
         worlds,
         visuals,
-        files: BTreeMap::new(),
     };
-    let mut paths: BTreeSet<String> = [
-        package.script.path.clone(),
-        package.messages.clone(),
-        "game/session-data.json".into(),
-        "game/menu-data.json".into(),
-        "game/text.json".into(),
-        "game/skits.json".into(),
-    ]
-    .into();
-    paths.extend(
-        resonance_script_content::FILES
-            .iter()
-            .filter(|(path, _)| path.ends_with(".sym"))
-            .map(|(path, _)| format!("scripts/{path}")),
-    );
-    paths.extend(package.visuals.dust.iter().cloned());
-    for part in package
-        .worlds
-        .iter()
-        .flatten()
-        .flat_map(|tile| std::iter::once(&tile.base).chain(&tile.alternate))
-        .flat_map(|tile| &tile.parts)
-        .chain(
-            package
-                .visuals
-                .actors
-                .values()
-                .chain(
-                    package
-                        .visuals
-                        .markers
-                        .iter()
-                        .flat_map(|world| world.values()),
-                )
-                .flatten()
-                .chain(package.visuals.skies.iter().flatten()),
-        )
-        .chain(
-            package
-                .visuals
-                .cinematics
-                .values()
-                .flat_map(|scene| scene.actors.values())
-                .flatten(),
-        )
-    {
-        paths.insert(part.mesh.clone());
-        paths.extend(part.textures.iter().cloned());
-        paths.extend(part.clips.iter().map(|clip| clip.motion.clone()));
-    }
-    let audio: resonance_content::field_audio::FieldAudio =
-        serde_json::from_slice(&fs::read(output.join("worlds/audio.json"))?)?;
-    audio.validate()?;
-    for scene in package.visuals.cinematics.values() {
-        scene.presentation.validate_audio(&audio)?;
-        for line in &scene.dialogue {
-            ensure!(
-                audio.voices.contains_key(&line.voice),
-                "cinematic voice is not prepared"
-            );
-        }
-    }
-    paths.insert("worlds/audio.json".into());
-    for reference in audio.music.values().chain(audio.sounds.values()) {
-        paths.insert(reference.path.clone());
-        let program: resonance_audio::package::Package =
-            serde_json::from_slice(&fs::read(output.join(&reference.path))?)?;
-        paths.extend(program.samples.values().map(|sample| sample.path.clone()));
-    }
-    paths.extend(audio.voices.values().map(|voice| voice.asset.path.clone()));
-    let font: resonance_content::font::BitmapFont =
-        serde_json::from_slice(&fs::read(output.join("fonts/dialogue.json"))?)?;
-    font.validate()?;
-    paths.extend(["fonts/dialogue.json".into(), font.texture]);
-    let dialogue: resonance_content::font::DialogueArt =
-        serde_json::from_slice(&fs::read(output.join("ui/dialogue.json"))?)?;
-    dialogue.validate()?;
-    let menu: resonance_content::menu::MenuArt =
-        serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
-    let data: resonance_content::menu_data::MenuData =
-        serde_json::from_slice(&fs::read(output.join("game/menu-data.json"))?)?;
-    menu.validate(data.items.len())?;
-    paths.extend(["ui/dialogue.json".into(), "ui/menu.json".into()]);
-    paths.extend(
-        dialogue
-            .textures
-            .iter()
-            .chain([&dialogue.cursor])
-            .map(|texture| texture.path.clone()),
-    );
-    paths.extend(menu.textures.into_values().map(|texture| texture.path));
-    let skits: resonance_content::skit::SkitCatalog =
-        serde_json::from_slice(&fs::read(output.join("game/skits.json"))?)?;
-    skits.validate()?;
-    for resource in skits.resources.values() {
-        paths.extend([resource.script.clone(), resource.messages.clone()]);
-    }
-    paths.extend(
-        skits
-            .portraits
-            .values()
-            .flat_map(|portrait| &portrait.images)
-            .map(|image| image.texture.clone()),
-    );
-    paths.extend(
-        skits
-            .media
-            .values()
-            .filter_map(|media| media.voice.as_ref())
-            .map(|voice| voice.asset.path.clone()),
-    );
-    for path in paths {
-        let file = output.join(&path);
-        let role = match file.extension().and_then(|extension| extension.to_str()) {
-            Some("glb") => Role::Mesh,
-            Some("ssb") => Role::Script,
-            Some("png" | "ktx2") => Role::Texture,
-            _ => Role::Data,
-        };
-        package.files.insert(
-            path,
-            File {
-                sha256: crate::media::hash_file(&file)?,
-                bytes: fs::metadata(file)?.len(),
-                roles: [role].into(),
-            },
-        );
-    }
-    package.validate()?;
-    write_atomic(&output.join(PACKAGE_PATH), &serde_json::to_vec(&package)?)?;
+    package.validate_content(|path| output.join(path).is_file())?;
     Ok(package)
 }
 
@@ -389,37 +255,40 @@ fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Resu
     let output = std::path::PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    ensure!(
-        output.join("sources.json").is_file(),
-        "complete cook required"
-    );
-    let package: Package = serde_json::from_slice(&fs::read(output.join(PACKAGE_PATH))?)?;
-    package.validate()?;
+    let library = resonance_content::library::Library::open(&output, &[])?;
+    let mut snapshot = library.snapshot();
+    let (definition, world) =
+        resonance_content::overworld::document::capture(&mut snapshot, &|| false)?;
     let original = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../local/extracted/disc1/files/US_r_Top2field.rel");
     let (expected, _) = super::overworld_cinematics::read(&crate::rel::Rel::read(&original)?)?;
-    assert_eq!(package.visuals.cinematics.len(), 14);
-    let files = resonance_content::prepared::Files::from_inventory(
-        &output,
-        package.files,
-        &mut Default::default(),
-        || false,
+    assert_eq!(world.visuals.cinematics.len(), 14);
+    let audio: resonance_content::field_audio::document::Definition = snapshot.json(
+        &definition.audio,
+        resonance_content::preparation::JSON_LIMIT,
     )?;
-    let audio: resonance_content::field_audio::FieldAudio = files.json("worlds/audio.json")?;
-    audio.validate()?;
-    assert_eq!(package.visuals.cinematics[&517].dialogue.len(), 9);
-    for line in &package.visuals.cinematics[&517].dialogue {
+    let audio = audio.resolve(&mut snapshot)?;
+    assert_eq!(world.visuals.cinematics[&517].dialogue.len(), 9);
+    for line in &world.visuals.cinematics[&517].dialogue {
         let voice = &audio.voices[&line.voice];
-        voice.validate()?;
-        assert!(!files.read(&voice.asset.path)?.is_empty());
+        assert!(
+            !snapshot
+                .read(&voice.path, resonance_content::preparation::ASSET_LIMIT)?
+                .is_empty()
+        );
     }
     for id in [
         24, 25, 26, 133, 160, 177, 182, 183, 193, 217, 282, 437, 438, 443, 445,
     ] {
-        assert!(audio.sounds.contains_key(&id));
+        assert!(audio.effects.contains_key(&id));
     }
-    for (&id, scene) in &package.visuals.cinematics {
-        scene.presentation.validate_audio(&audio)?;
+    let files = resonance_content::prepared::Files::from_snapshot(
+        snapshot,
+        &mut Default::default(),
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    for (&id, scene) in &world.visuals.cinematics {
         assert_eq!(
             serde_json::to_value(&scene.presentation)?,
             serde_json::to_value(&expected[&id].presentation)?,
@@ -479,7 +348,6 @@ fn original_world_terrain_shapes_bind_source_geometry() -> Result<()> {
         let collision = sections[4]
             .as_ref()
             .context("missing source terrain collision")?;
-        assert_eq!(prepared.source_sha256, crate::digest(&bytes));
         assert!(!prepared.ground.is_empty(), "{name} has no collision");
         assert_eq!(
             serde_json::to_value(&prepared.ground)?,

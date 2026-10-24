@@ -1,9 +1,8 @@
 //! Cooked music, cue, and spoken-line references for a field route.
-pub mod archive;
-use crate::diagnostics::Diagnostics;
+pub mod document;
+mod wave;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 pub const MAX_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 
@@ -87,7 +86,7 @@ impl ServiceCue {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Asset {
     pub path: String,
     pub sha256: String,
@@ -102,7 +101,7 @@ impl Asset {
         Ok(())
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Voice {
     #[serde(flatten)]
     pub asset: Asset,
@@ -175,119 +174,18 @@ impl MusicReverbs {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FieldAudio<Scores = BTreeMap<i16, Asset>, Voices = BTreeMap<u32, Voice>> {
-    pub version: u32,
-    pub music_reverbs: MusicReverbs,
-    pub music: Scores,
-    pub sounds: Scores,
-    pub voices: Voices,
-    /// Linear PCM gain for each saved dialogue-volume setting (0..=127).
-    #[serde(default)]
-    pub voice_gains: Vec<f32>,
-}
-impl FieldAudio {
-    pub const VERSION: u32 = 4;
-
-    pub fn validate(&self) -> Result<()> {
-        self.validate_header()?;
-        self.music_reverbs.validate()?;
-        self.validated_voice_gains()?;
-        for asset in self.music.values().chain(self.sounds.values()) {
-            asset.validate()?;
-        }
-        for voice in self.voices.values() {
-            voice.validate()?;
-        }
-        Ok(())
-    }
-}
-impl<Scores, Voices> FieldAudio<Scores, Voices> {
-    /// Bank-wide format; individual resources are validated independently.
-    pub fn validate_header(&self) -> Result<()> {
-        ensure!(
-            self.version == FieldAudio::VERSION,
-            "invalid field audio manifest; recook field audio"
-        );
-        Ok(())
-    }
-
-    pub fn validated_voice_gains(&self) -> Result<[f32; 128]> {
-        ensure!(
-            self.voice_gains.len() == 128
-                && self.voice_gains[0] == 0.
-                && self.voice_gains[127] == 1.
-                && self
-                    .voice_gains
-                    .iter()
-                    .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-                && self.voice_gains.windows(2).all(|v| v[0] <= v[1]),
-            "invalid dialogue volume curve; recook field audio"
-        );
-        Ok(self.voice_gains.as_slice().try_into().unwrap())
-    }
-}
-
-/// Keep schema failures with the cached snapshot so every admission applies its policy.
-#[derive(Debug, Clone)]
-pub struct DecodedBank {
-    contents: FieldAudio,
-    errors: Vec<String>,
-}
-impl<'de> serde::Deserialize<'de> for DecodedBank {
-    fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> std::result::Result<Self, D::Error> {
-        type Rows = BTreeMap<String, serde_json::Value>;
-        let raw = <FieldAudio<Rows, Rows> as serde::Deserialize>::deserialize(decoder)?;
-        let mut errors = Vec::new();
-        Ok(Self {
-            contents: FieldAudio {
-                version: raw.version,
-                music_reverbs: raw.music_reverbs,
-                music: decode_entries(raw.music, "music", &mut errors),
-                sounds: decode_entries(raw.sounds, "sound", &mut errors),
-                voices: decode_entries(raw.voices, "voice", &mut errors),
-                voice_gains: raw.voice_gains,
-            },
-            errors,
-        })
-    }
-}
-impl DecodedBank {
-    pub fn checked(&self, diagnostics: &Diagnostics) -> Result<&FieldAudio> {
-        for error in &self.errors {
-            diagnostics.report("field audio entry", anyhow::anyhow!("{error}"))?;
-        }
-        Ok(&self.contents)
-    }
-}
-fn decode_entries<K, V>(
-    rows: BTreeMap<String, serde_json::Value>,
-    kind: &str,
-    errors: &mut Vec<String>,
-) -> BTreeMap<K, V>
-where
-    K: Ord + std::str::FromStr + std::fmt::Display,
-    K::Err: std::fmt::Display,
-    V: serde::de::DeserializeOwned,
-{
-    rows.into_iter()
-        .filter_map(|(key, value)| {
-            let decoded = (|| -> Result<_> {
-                let id = key
-                    .parse::<K>()
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
-                ensure!(key == id.to_string(), "noncanonical audio ID {key}");
-                Ok((id, serde_json::from_value::<V>(value)?))
-            })();
-            match decoded {
-                Ok(entry) => Some(entry),
-                Err(error) => {
-                    errors.push(format!("{kind} {key}: {error}"));
-                    None
-                }
-            }
-        })
-        .collect()
+fn validate_voice_gains(gains: &[f32]) -> Result<[f32; 128]> {
+    ensure!(
+        gains.len() == 128
+            && gains[0] == 0.
+            && gains[127] == 1.
+            && gains
+                .iter()
+                .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+            && gains.windows(2).all(|v| v[0] <= v[1]),
+        "invalid dialogue volume curve"
+    );
+    Ok(gains.try_into().unwrap())
 }
 
 #[cfg(test)]

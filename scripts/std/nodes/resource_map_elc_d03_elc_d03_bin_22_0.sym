@@ -1,0 +1,4 @@
+script library;
+// Skeleton: d8554759b3b30445abc7961ef5acc20ba091110c8691e7c161a721ae55f0b080
+// Source owner: MAP/elc_d03/ELC_D03.BIN/22/0
+pub const Node000_Anm05: string = "anm05";

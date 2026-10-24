@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 118cbc5a30a11b555139d9f504647307c59825305e73caffd0c1570fd80cf4ad
+// Source owner: MAP/ela_d03/ELA_D03.BIN/21/0
+pub const Node000_Shuft: string = "shuft";

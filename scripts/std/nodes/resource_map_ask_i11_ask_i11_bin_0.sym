@@ -1,0 +1,4 @@
+script library;
+// Skeleton: d2a4b37cac0a57e42b1fe002a68c2449a7e41646eec1a92a0f0acd39fae589ce
+// Source owner: MAP/ask_i11/ASK_I11.BIN/0
+pub const Node000_A: string = "A";

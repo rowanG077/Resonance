@@ -31,8 +31,8 @@ fn prepare_body(
     variant: usize,
     setup: ModelSetup,
 ) -> Result<(Actor, Arc<ModelDefinition>)> {
-    let definition: resonance_content::battle_enemy::Definition =
-        files.json(&resonance_content::battle_enemy::path(monster.id))?;
+    let definition: resonance_content::battle_enemy::document::Rules =
+        files.json(&"battle/enemies/test-enemy/rules.json".to_owned())?;
     let statistics = monster
         .statistics
         .get(variant)
@@ -199,11 +199,11 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
     let mut files = Files::default();
     files.insert(
         resonance_content::battle_recoil::PATH.into(),
-        serde_json::to_vec(&resonance_content::battle_recoil::Table {
+        serde_json::to_vec(&resonance_content::battle_rules::Recoil {
             impulses: vec![[0.; 2]; 19],
             suppression_distance: 0.,
             guard_speed: 3.,
-            source_sha256: "a".repeat(64),
+            version: resonance_content::battle_rules::VERSION,
             light_vertical_scale: 1.15,
             heavy_vertical_scale: 0.75,
             default_guard_recovery_bonuses: vec![10, 0, 5, 25, 10],
@@ -215,7 +215,7 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
         tracks: vec![],
     };
     for slot in [0, 2, 3, 4, 7, 9, 21] {
-        let path = format!("motion/{slot}.motion");
+        let path = format!("motion/{slot}.motion.json");
         files.insert(path.clone(), motion.encode()?.into());
         monster.preview.parts[0]
             .scene
@@ -231,10 +231,10 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
     let mut profile = profile();
     profile.traits = Default::default();
     files.insert(
-        resonance_content::battle_enemy::path(monster.id),
-        serde_json::to_vec(&resonance_content::battle_enemy::Definition {
+        "battle/enemies/test-enemy/rules.json".to_owned(),
+        serde_json::to_vec(&resonance_content::battle_enemy::document::Rules {
             null_motions: Default::default(),
-            source_sha256: "a".repeat(64),
+            version: resonance_content::battle_enemy::document::VERSION,
             profile,
             weapon_visibility: Default::default(),
             projectiles: Vec::new(),
@@ -255,7 +255,7 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
         trails: Default::default(),
         weapon_variants: Default::default(),
         source_sha256: "a".repeat(64),
-        files: Default::default(),
+
         body: Rig {
             skeleton: Skeleton {
                 bones: vec![
@@ -306,8 +306,8 @@ fn body_spacing_uses_scaled_body_markers_without_hurt_only_bones() -> Result<()>
 #[test]
 fn body_motion_disabled_preserves_controller_pose_when_returning_to_idle() -> Result<()> {
     let (mut files, monster, enemy) = snapshot()?;
-    let path = resonance_content::battle_enemy::path(monster.id);
-    let mut source: resonance_content::battle_enemy::Definition = files.json(&path)?;
+    let path = "battle/enemies/test-enemy/rules.json".to_owned();
+    let mut source: resonance_content::battle_enemy::document::Rules = files.json(&path)?;
     for disabled in [false, true] {
         source.profile.traits.body_motion_disabled = disabled;
         files.insert(path.clone(), serde_json::to_vec(&source)?.into());
@@ -367,7 +367,7 @@ fn optional_motion_failures_are_local_until_the_initial_clip_is_used() -> Result
     let mut scene = monster.preview.parts[0].scene.clone();
     let mut clip = scene.clips[0].clone();
     clip.resource_slot = 66;
-    clip.motion = "motion/broken.motion".into();
+    clip.motion = "motion/broken.motion.json".into();
     scene.clips.push(clip);
     let mut later = scene.clips[0].clone();
     later.resource_slot = 71;
@@ -377,7 +377,7 @@ fn optional_motion_failures_are_local_until_the_initial_clip_is_used() -> Result
         for (path, bytes) in snapshot.iter() {
             files.insert(path.clone(), bytes.clone());
         }
-        files.insert("motion/broken.motion".into(), vec![0].into());
+        files.insert("motion/broken.motion.json".into(), vec![0].into());
         let result = motions(&files, &scene, &enemy.body.skeleton);
         if paranoid {
             assert!(format!("{:#}", result.unwrap_err()).contains("clip 66"));
@@ -444,8 +444,8 @@ fn load(files: &Files, monster: &Monster, source: &Enemy, variant: usize) -> Res
 #[test]
 fn enemy_actor_preparation_is_independent_of_body_art() -> Result<()> {
     let (files, mut monster, _) = snapshot()?;
-    let mut source: resonance_content::battle_enemy::Definition =
-        files.json(&resonance_content::battle_enemy::path(monster.id))?;
+    let mut source: resonance_content::battle_enemy::document::Rules =
+        files.json(&"battle/enemies/test-enemy/rules.json".to_owned())?;
     let recoil = battle::recoil::Parameters::load(&files)?;
     source.profile.initial_overlimit = 999;
     source.guard_recovery_bonus = 25;
@@ -494,15 +494,15 @@ fn enemy_art_validates_its_skeleton_and_omits_bad_blink_feedback() -> Result<()>
         for (path, bytes) in files.iter() {
             candidate.insert(path.clone(), bytes.clone());
         }
-        let mut definition: resonance_content::battle_enemy::Definition =
-            candidate.json(&resonance_content::battle_enemy::path(monster.id))?;
+        let mut definition: resonance_content::battle_enemy::document::Rules =
+            candidate.json(&"battle/enemies/test-enemy/rules.json".to_owned())?;
         definition.profile.blink = Some(battle_profile::Blink {
             channel: 0,
             frames: [1, 2],
             excluded_expressions: vec![],
         });
         candidate.insert(
-            resonance_content::battle_enemy::path(monster.id),
+            "battle/enemies/test-enemy/rules.json".to_owned(),
             serde_json::to_vec(&definition)?.into(),
         );
         let prepared = prepare_body(&candidate, &monster, &source, 0, setup(7));
@@ -564,17 +564,31 @@ fn effect_pose_sharing_uses_indices_without_ignoring_transform_differences() {
 }
 
 #[test]
-#[ignore = "requires cooked enemy 134 effect model"]
+#[ignore = "requires current RESONANCE_TEST_ASSETS with enemy 134 effect model"]
 fn differently_named_effect_outline_uses_the_verified_indexed_pose() -> Result<()> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets");
-    let bank: resonance_content::battle_effect::SourceBank = serde_json::from_slice(
-        &std::fs::read(root.join(battle_model::enemy_effects_path(134)))?,
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .context("set RESONANCE_TEST_ASSETS")?;
+    let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    let captured = resonance_content::battle_enemy::document::capture(
+        &mut snapshot,
+        134,
+        &diagnostics,
+        &|| false,
     )?;
-    let art = bank.art.context("missing effect art")?;
-    let mut files = Files::default();
-    for path in art.files.keys() {
-        files.insert(path.clone(), std::fs::read(root.join(path))?.into());
-    }
+    let art = captured
+        .effects
+        .context("missing effect bank")?
+        .1
+        .art
+        .context("missing effect art")?;
+    let files = Files::from_snapshot(
+        snapshot,
+        &mut resonance_content::prepared::Cache::default(),
+        || false,
+        diagnostics,
+    )?;
     for part in art.models.values() {
         effect(&files, part, ResourceId(0), false)?;
         let mut invalid = part.clone();

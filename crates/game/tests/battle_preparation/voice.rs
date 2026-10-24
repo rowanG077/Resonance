@@ -213,7 +213,7 @@ fn contact_inventory_prepares_without_audio_packages() -> Result<()> {
             resolve(sound)
         },
     )?;
-    assert!(!files.contains_key(resonance_content::battle_audio::PATH));
+    assert!(!files.contains_key(resonance_content::battle_audio::document::PATH));
     assert_eq!(audio.actors[0].neutral, Some(Sound::Cue(46)));
     assert_eq!(audio.actors[0].voices.defeat, Some(Sound::Cue(618)));
     assert_eq!(audio.actors[1].voices.hurt, [None; 2]);

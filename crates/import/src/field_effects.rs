@@ -5,8 +5,8 @@ mod sprites;
 mod tests;
 use crate::{dol, write_atomic};
 use anyhow::{Context, Result, ensure};
-pub(crate) use recipe::Atlas;
 use recipe::Recipe;
+pub(crate) use recipe::{Atlas, blink};
 use resonance_content::effect::{
     BlinkCycle, FieldEffects, FlutterRecipe, RefractionRecipe, SpriteRecipe,
 };
@@ -44,7 +44,7 @@ pub(crate) fn textures(
 }
 
 pub(crate) struct Prepared {
-    pub path: String,
+    pub effects: std::sync::Arc<FieldEffects>,
     pub environment: crate::field::environment::Textures,
     pub files: Vec<String>,
     pub blink: BlinkCycle,
@@ -133,8 +133,6 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         image(Atlas::Effect(0))?,
         image(Atlas::Effect(6))?,
     )?;
-    let path = "effects/field.json";
-    write_atomic(&output.join(path), &serde_json::to_vec_pretty(&effects)?)?;
     let files = [
         &effects.emote_texture,
         &effects.status_texture,
@@ -151,7 +149,7 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
     .into_iter()
     .collect();
     Ok(Prepared {
-        path: path.into(),
+        effects: std::sync::Arc::new(effects),
         environment,
         files,
         blink: recipe.blink,

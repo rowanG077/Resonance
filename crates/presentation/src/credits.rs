@@ -10,6 +10,9 @@ use std::sync::Arc;
 const UI_DEPTH: f32 = 500.;
 
 #[cfg(test)]
+#[path = "credits_named_tests.rs"]
+mod named_tests;
+#[cfg(test)]
 #[path = "credits_tests.rs"]
 mod tests;
 
@@ -35,8 +38,7 @@ impl Artwork {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
     ) -> Result<Self> {
-        let manifest: Manifest = files.json(resonance_content::credits::PATH)?;
-        manifest.validate()?;
+        let manifest = Manifest::load(files)?;
         let audio = Audio {
             clip: Arc::new(crate::field_audio::Clip::prepare(
                 files.read(&manifest.music.asset.path)?,

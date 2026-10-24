@@ -4,11 +4,10 @@ use anyhow::{Context, Result, ensure};
 use resonance_battle::{ActorAvailability, ActorId, Battle, Cue, ModelDefinition, MotionBinding};
 use resonance_content::{
     animation::Motion,
-    battle_model,
-    battle_victory::{Event, PATH, Performances},
-    prepared::{Cache, Files},
+    battle_victory::{Event, Performances},
+    prepared::Files,
 };
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 const FIRST_VICTORY_CLIP: u16 = 0x100;
 const WEAK_HP_PERCENT: u8 = 25;
@@ -191,129 +190,33 @@ pub fn construct_result_actors(
     Ok(cues)
 }
 
-pub fn load(
-    root: &Path,
-    files: Files,
-    bodies: &[(u8, &str)],
-    cache: &mut Cache,
-    cancelled: impl Fn() -> bool,
-) -> Result<(Files, Performances)> {
-    use serde_json::Value;
-    if bodies.is_empty() {
-        return Ok((files, Performances::default()));
-    }
-    let diagnostics = files.diagnostics();
-    let Some(raw) = diagnostics.attempt(
-        "victory descriptor",
-        files.json::<Performances<Value, Value, Value>>(PATH),
-    )?
-    else {
-        return Ok((files, Performances::default()));
-    };
-    let rows = |scope, value| -> Result<Vec<Value>> {
-        Ok(diagnostics
-            .attempt(
-                scope,
-                serde_json::from_value(value).context("decode victory rows"),
-            )?
-            .unwrap_or_default())
-    };
-    let mut ordinary = Vec::new();
-    for row in rows("victory performances", raw.ordinary)? {
-        if let Some(row) = diagnostics.attempt(
-            "victory performance",
-            serde_json::from_value(row).context("decode victory performance"),
-        )? {
-            ordinary.push(row);
-        }
-    }
-    let mut groups = Vec::new();
-    for row in rows("victory groups", raw.groups)? {
-        if let Some(row) = diagnostics.attempt(
-            "victory group",
-            serde_json::from_value(row).context("decode victory group"),
-        )? {
-            groups.push(row);
-        }
-    }
-    let mut dependencies = std::collections::BTreeMap::new();
-    let dependency_rows: std::collections::BTreeMap<String, Value> = diagnostics
-        .attempt(
-            "victory dependencies",
-            serde_json::from_value(raw.files).context("decode victory dependencies"),
-        )?
-        .unwrap_or_default();
-    for (path, row) in dependency_rows {
-        if let Some(row) = diagnostics.attempt(
-            "victory dependency",
-            serde_json::from_value(row)
-                .with_context(|| format!("decode victory dependency {path}")),
-        )? {
-            dependencies.insert(path, row);
-        }
-    }
-    let performances: Performances = Performances {
-        module_sha256: raw.module_sha256,
-        archive_sha256: raw.archive_sha256,
-        ordinary,
-        groups,
-        files: dependencies,
-    };
-    let selected = performances
-        .files
-        .iter()
-        .filter(|(path, _)| {
-            performances.ordinary.iter().any(|row| {
-                bodies.contains(&(row.character, row.body_sha256.as_str())) && row.motion == **path
-            })
-        })
-        .map(|(path, row)| (path.clone(), row.clone()))
-        .collect();
-    let files = files.with_dependencies(root, selected, cache, cancelled)?;
-    Ok((files, performances))
-}
-
 pub fn prepare(
     files: &Files,
     source: &Performances,
-    body: &battle_model::Party,
     character: Character,
+    costume: u8,
     model: &ModelDefinition,
 ) -> Result<(Arc<ModelDefinition>, Vec<Performance>)> {
     let mut candidate = model.clone();
     let mut result = Vec::new();
-    for row in source
-        .ordinary
-        .iter()
-        .filter(|row| row.character == character as u8 && row.body_sha256 == body.body_sha256)
-    {
+    let matches = |row: &&resonance_content::battle_victory::Ordinary| {
+        row.character == character as u8 && row.costume == Some(costume)
+    };
+    for row in source.ordinary.iter().filter(matches) {
         let prepared = (|| {
             ensure!(row.selector < 5, "unknown victory selector");
             ensure!(
                 source
                     .ordinary
                     .iter()
-                    .filter(|other| other.character == character as u8
-                        && other.body_sha256 == body.body_sha256
-                        && other.selector == row.selector)
+                    .filter(matches)
+                    .filter(|other| other.selector == row.selector)
                     .count()
                     == 1,
                 "duplicate victory selector"
             );
-            let dependency = source
-                .files
-                .get(&row.motion)
-                .context("victory motion is absent from dependency inventory")?;
-            let motion = Motion::decode(
-                &files.read_verified(
-                    &row.motion,
-                    &dependency.sha256,
-                    dependency
-                        .bytes
-                        .try_into()
-                        .context("victory motion is too large")?,
-                )?,
-            )?;
+            let bytes = files.read(&row.motion)?;
+            let motion = Motion::decode(&bytes)?;
             motion.validate(&candidate.skeleton)?;
             if let Some(events) = &row.timeline {
                 ensure!(

@@ -37,7 +37,9 @@ pub struct BitmapFont {
     pub height: u32,
     pub line_height: u32,
     pub glyphs: BTreeMap<char, Glyph>,
+    #[serde(skip)]
     pub source_sha256: String,
+    #[serde(skip)]
     pub executable_sha256: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +95,7 @@ pub struct DialogueArt {
     pub textures: Vec<UiTexture>,
     pub cursor: UiTexture,
     pub selection: SelectionArt,
+    #[serde(skip)]
     pub source_sha256: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,11 +146,6 @@ impl DialogueArt {
         for texture in self.textures.iter().chain([&self.cursor]) {
             texture.validate()?;
         }
-        ensure!(
-            self.source_sha256.len() == 64
-                && self.source_sha256.bytes().all(|b| b.is_ascii_hexdigit()),
-            "invalid dialogue art digest"
-        );
         Ok(())
     }
 }
@@ -189,12 +187,6 @@ impl BitmapFont {
                     && y.checked_add(h).is_some_and(|e| e <= self.height)
                     && glyph.advance <= 64,
                 "invalid font glyph rectangle"
-            );
-        }
-        for hash in [&self.source_sha256, &self.executable_sha256] {
-            ensure!(
-                hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
-                "invalid font source digest"
             );
         }
         Ok(())

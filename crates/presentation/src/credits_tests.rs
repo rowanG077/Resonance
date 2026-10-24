@@ -3,15 +3,21 @@ use resonance_events::{EventRuntime, GameWorld, ResourceLibrary};
 use resonance_game::clock::{UPDATE_RATE_DENOMINATOR, UPDATE_RATE_NUMERATOR};
 
 #[test]
-#[ignore = "requires cooked credits and session data; runs audio without a device"]
+#[ignore = "requires RESONANCE_TEST_ASSETS and extracted discs; publishes named session/credits and runs audio without a device"]
 fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Result<()> {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
-        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
-        std::path::PathBuf::from,
-    );
-    let manifest: Manifest =
-        serde_json::from_slice(&fs::read(root.join(resonance_content::credits::PATH))?)?;
-    let font: BitmapFont = serde_json::from_slice(&fs::read(root.join("fonts/dialogue.json"))?)?;
+    let work = crate::test_support::named_opening_fixture()?;
+    let root = work.path();
+    let library = resonance_content::library::Library::open(root, &[])?;
+    let mut snapshot = library.snapshot();
+    resonance_content::credits::document::capture(&mut snapshot, &|| false)?;
+    let files = resonance_content::prepared::Files::from_snapshot(
+        snapshot,
+        &mut Default::default(),
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let manifest = Manifest::load(&files)?;
+    let font: BitmapFont = files.json("fonts/dialogue.json")?;
     let batches = layout(&manifest, &font)?;
     assert!(batches[1].positions.len() > 4);
     assert!(
@@ -23,7 +29,7 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
     );
     let audio = Audio {
         clip: Arc::new(crate::field_audio::Clip::prepare(
-            Arc::from(fs::read(root.join(&manifest.music.asset.path))?),
+            files.read(&manifest.music.asset.path)?,
             &manifest.music,
         )?),
         rate: manifest.music.sample_rate,
@@ -36,7 +42,7 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
          push.s8 18\ncalc 0\narg\npush.s8 0\ncalc 0\narg\nproc 0x6d\nend\n",
         )?,
     )?);
-    let mut session = crate::new_game::Session::load(&root)?;
+    let mut session = crate::new_game::Session::load(root)?;
     let resources = Arc::new(ResourceLibrary {
         session_data: session.events().resources().session_data.clone(),
         ..default()

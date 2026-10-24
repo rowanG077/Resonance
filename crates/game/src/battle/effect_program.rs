@@ -13,9 +13,11 @@ use std::{
 };
 
 pub fn load(files: &Files, path: &str) -> Result<Option<Arc<SourceBank>>> {
-    files
-        .diagnostics()
-        .attempt(path, files.json(path).map(Arc::new))
+    let result =
+        resonance_content::battle_effect::document::read(path, files.diagnostics(), |path| {
+            files.read(path)
+        });
+    files.diagnostics().attempt(path, result.map(Arc::new))
 }
 
 pub fn load_tints(files: &Files) -> Result<Option<Tints>> {
@@ -145,6 +147,7 @@ mod tests {
     fn unavailable_effects_and_sounds_leave_other_visuals_usable() -> Result<()> {
         let timeline = |operation| vec![ScheduledEvent { at: 0, operation }];
         let source = SourceBank {
+            document: None,
             source_sha256: "fixture".into(),
             programs: vec![
                 timeline(EffectOperation::Sound { id: 7, priority: 0 }),

@@ -728,6 +728,7 @@ mod tests {
     fn unavailable_programs_do_not_block_nonvisual_programs() {
         use resonance_content::battle_effect::{EffectOperation, ScheduledEvent};
         let source = Arc::new(SourceBank {
+            document: None,
             source_sha256: String::new(),
             programs: vec![vec![ScheduledEvent {
                 at: 0,
@@ -868,6 +869,7 @@ mod tests {
 
     fn bank(textures: BTreeMap<u8, Vec<EffectTexture>>) -> SourceBank {
         SourceBank {
+            document: None,
             source_sha256: String::new(),
             programs: vec![],
             actors: vec![],
@@ -875,7 +877,6 @@ mod tests {
                 source_sha256: String::new(),
                 textures,
                 models: BTreeMap::new(),
-                files: BTreeMap::new(),
             }),
         }
     }

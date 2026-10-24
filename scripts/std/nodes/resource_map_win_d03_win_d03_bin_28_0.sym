@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 9d39b3bc5244e3ffb28f6ac3c685cb50c95002ef868fa1a606ec2797f2e7a656
+// Source owner: MAP/win_d03/WIN_D03.BIN/28/0
+pub const Node000_Box134: string = "Box134";

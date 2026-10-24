@@ -447,10 +447,10 @@ mod tests {
     #[test]
     #[ignore = "requires locally cooked Thoda scenery; no devices"]
     fn thoda_platform_and_teleporter_bones_rise_by_the_same_amount() -> anyhow::Result<()> {
-        use resonance_content::{animation::Skeleton, field::FieldAssets};
+        use resonance_content::{animation::Skeleton, field::document, library::Library};
         let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
-        let field: FieldAssets =
-            serde_json::from_slice(&std::fs::read(root.join("fields/map-9.json"))?)?;
+        let library = Library::open(&root, &[])?;
+        let (_, field) = document::capture_scene(&mut library.snapshot(), 9, || false)?;
         let skeleton = Skeleton::from_glb(&std::fs::read(root.join(&field.parts[0].mesh))?)?;
         // The platform and both teleporters must rise together.
         let targets = ["aqu_d03_base00", "aqu_d03_po00", "aqu_d03_po01"]

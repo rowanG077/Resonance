@@ -261,6 +261,7 @@ pub(crate) fn from_package(
         )?;
     }
     Ok(ModelPreview {
+        document: None,
         scale: float(metadata, 0x11c)?,
         elevation: float(metadata, 0x120)?,
         parts,
@@ -297,7 +298,7 @@ mod tests {
                 appearance: None,
                 translation: [0.; 3],
                 clips: vec![SceneClip {
-                    motion: "clips/test.motion".into(),
+                    motion: "clips/test.motion.json".into(),
                     resource_slot: 0,
                     duration_seconds: 1.,
                     animation_resource: None,
@@ -316,6 +317,7 @@ mod tests {
             uv_offsets: vec![],
         };
         let model = ModelPreview {
+            document: None,
             scale: 2.,
             elevation: 3.,
             parts: std::iter::once(part("body", false))

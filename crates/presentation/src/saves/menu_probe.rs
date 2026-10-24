@@ -4,8 +4,11 @@ use replay::{Event, Key, MenuPage, SlotMode, SlotState, Step, assert_checkpoint,
 use std::{fs, path::Path};
 
 pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
-    let (identity, _) =
-        new_game::save_context(root, resonance_content::diagnostics::Diagnostics::new(true))?;
+    let (identity, _) = new_game::save_context(
+        root,
+        None,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
     let (_, SceneCheckpoint::Field(expected)) =
         resonance_persistence::decode(&fs::read(save)?)?.admit(&identity)?
     else {

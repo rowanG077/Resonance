@@ -1,0 +1,4 @@
+script library;
+// Skeleton: e17e98e36ec8b42936d9ac89bf9c39a180f17905bbd7f4bb64834ce5cf249d59
+// Source owner: FIELD/e08/1/0
+pub const Node000_Sky: string = "sky";

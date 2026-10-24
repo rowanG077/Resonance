@@ -9,16 +9,20 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_model::{
     Attachment, AttachmentAnimation, AttachmentUvChannel, AttachmentUvMode, ModelPart,
-    TrailMaterial, TrailTexture, WEAPONS_PATH, Weapon, Weapons,
+    TrailMaterial, TrailTexture, Weapon, Weapons,
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
-/// Shared production publisher, also used by the temporary development cooker.
-pub fn publish(extracted: &Path, output: &Path) -> Result<String> {
-    publish_source(extracted, &Sources::read(extracted)?, output)
+/// Decode native equipment for direct named publication.
+pub fn prepare(extracted: &Path, output: &Path) -> Result<Weapons> {
+    prepare_source(extracted, &Sources::read(extracted)?, output)
 }
 
-pub(crate) fn publish_source(extracted: &Path, sources: &Sources, output: &Path) -> Result<String> {
+pub(crate) fn prepare_source(
+    extracted: &Path,
+    sources: &Sources,
+    output: &Path,
+) -> Result<Weapons> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let items = crate::item::read(&executable)?;
     let owner_archive = MapArchive::open(
@@ -107,14 +111,12 @@ pub(crate) fn publish_source(extracted: &Path, sources: &Sources, output: &Path)
             );
         }
     }
-    let bank = Weapons {
+    Ok(Weapons {
         source_sha256: crate::media::hash_file(&path)?,
         table_sha256: crate::digest(table),
         owner_motion_sha256: owner_archive.source_sha256.clone(),
         records: attachments,
-    };
-    crate::write_atomic(&output.join(WEAPONS_PATH), &serde_json::to_vec(&bank)?)?;
-    Ok(WEAPONS_PATH.into())
+    })
 }
 
 /// Resolve the binary directory's slots only while publishing the native catalogue.
@@ -235,12 +237,7 @@ pub(crate) fn read_package(
     }
     Ok(Weapon {
         source_sha256: source_sha256.into(),
-        files: super::files(
-            parts
-                .values()
-                .flat_map(|part| part.layers.iter().map(|layer| &layer.scene)),
-            output,
-        )?,
+
         parts,
         trails,
         uv_animation,
@@ -425,18 +422,30 @@ mod tests {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let mut first = None;
         for disc in [1, 2] {
+            let source = tempfile::tempdir()?;
             let output = tempfile::tempdir()?;
-            let path = publish(&local.join(format!("disc{disc}")), output.path())?;
-            let bytes = fs::read(output.path().join(path))?;
-            let bank: Weapons = serde_json::from_slice(&bytes)?;
-            assert_eq!(bank.records.len(), 179);
-            assert!(matches!(bank.records[&366], Attachment::Shield(_)));
-            assert!(matches!(bank.records[&528], Attachment::Weapon(_)));
-            assert!(matches!(bank.records[&367], Attachment::Nonvisual));
+            let mut bank = prepare(&local.join(format!("disc{disc}")), source.path())?;
             assert_eq!(
                 attachment_model(&bank.records[&366])?.source_sha256,
                 attachment_model(&bank.records[&528])?.source_sha256
             );
+            let mut publisher = crate::named::Publisher::new(source.path(), output.path())?;
+            publisher.battle_equipment(bank.clone())?;
+            publisher.descriptor("GQSEAF", 0)?;
+            let library = resonance_content::library::Library::open(output.path(), &[])?;
+            let mut snapshot = library.snapshot();
+            for (&item, attachment) in &mut bank.records {
+                *attachment = resonance_content::battle_model::document::capture_equipment(
+                    &mut snapshot,
+                    item,
+                    &resonance_content::diagnostics::Diagnostics::new(true),
+                    &|| false,
+                )?;
+            }
+            assert_eq!(bank.records.len(), 179);
+            assert!(matches!(bank.records[&366], Attachment::Shield(_)));
+            assert!(matches!(bank.records[&528], Attachment::Weapon(_)));
+            assert!(matches!(bank.records[&367], Attachment::Nonvisual));
             assert!(!bank.records.contains_key(&530));
             let sword = attachment_model(bank.records.get(&135).context("missing Wooden Blade")?)?;
             assert_eq!(sword.parts.keys().copied().collect::<Vec<_>>(), [0, 1]);
@@ -520,6 +529,7 @@ mod tests {
                     part.layers[1].scene.clips[0].motion
                 );
             }
+            let bytes = serde_json::to_vec(&bank.records)?;
             if let Some(first) = &first {
                 assert_eq!(&bytes, first);
             }

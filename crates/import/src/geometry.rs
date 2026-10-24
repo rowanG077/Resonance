@@ -49,63 +49,18 @@ impl ModelNodeInfo {
     }
 }
 
-/// For a nonzero stage count, start with vertex color and apply the operations
-/// in order, clamping to [0, 1]. Texture indices identify authored UV/sampler slots.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MaterialRecipe {
-    pub context: MaterialContext,
-    pub source_mode: u32,
-    pub source_texture_count: u8,
-    /// Requested stage count, including pass-through stages. Zero requires prior
-    /// graphics state and has no standalone ordinary-material projection.
-    pub stage_count: u8,
-    pub operations: Vec<MaterialOperation>,
+pub(crate) use resonance_content::physical_scene::{
+    MaterialContext, MaterialOperation, MaterialRecipe,
+};
+
+pub(crate) trait MaterialRecipeExt: Sized {
+    fn parse(modes: &[u32], texture_count: usize) -> Result<Self, GeometryError>;
+    fn combination(&self) -> Result<MaterialCombination, GeometryError>;
 }
 
-/// Ordinary material pass. Lighting overlays and explicit render-mode overrides
-/// require separate recipes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum MaterialContext {
-    DefaultGplOrdinary,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum MaterialOperation {
-    MultiplyTexture {
-        texture: u8,
-    },
-    /// Interpolate RGB toward the texture using its alpha; preserve previous alpha.
-    DecalTexture {
-        texture: u8,
-    },
-    /// Interpolate RGB toward white using texture RGB; multiply alpha by texture alpha.
-    BlendTexture {
-        texture: u8,
-    },
-    ReplaceTexture {
-        texture: u8,
-    },
-    /// Add texture RGB, clamp to [0, 1], and preserve previous alpha.
-    AddTexture {
-        texture: u8,
-    },
-    /// Subtract texture RGB, clamp to [0, 1], and preserve previous alpha.
-    SubtractTexture {
-        texture: u8,
-    },
-    /// Requires the draw matrix for its UV transform, prior alpha to weight the
-    /// added texture RGB, and the caller's constant alpha for its output alpha.
-    DefaultViewTexture {
-        texture: u8,
-    },
-    MultiplyVertexColor,
-}
-
-impl MaterialRecipe {
+impl MaterialRecipeExt for MaterialRecipe {
     /// Decode the ordinary material path of a freshly constructed GPL object.
-    pub(crate) fn parse(modes: &[u32], texture_count: usize) -> Result<Self, GeometryError> {
+    fn parse(modes: &[u32], texture_count: usize) -> Result<Self, GeometryError> {
         let &[source_mode] = modes else {
             return Err(Gpl("material needs one authored recipe".into()));
         };
@@ -154,23 +109,8 @@ impl MaterialRecipe {
         })
     }
 
-    pub(crate) fn textures(&self) -> impl Iterator<Item = u8> + '_ {
-        self.operations
-            .iter()
-            .filter_map(|operation| match operation {
-                MaterialOperation::MultiplyTexture { texture }
-                | MaterialOperation::DecalTexture { texture }
-                | MaterialOperation::BlendTexture { texture }
-                | MaterialOperation::ReplaceTexture { texture }
-                | MaterialOperation::AddTexture { texture }
-                | MaterialOperation::SubtractTexture { texture }
-                | MaterialOperation::DefaultViewTexture { texture } => Some(*texture),
-                MaterialOperation::MultiplyVertexColor => None,
-            })
-    }
-
     /// Select only expressions implemented by the current scene shader.
-    pub(crate) fn combination(&self) -> Result<MaterialCombination, GeometryError> {
+    fn combination(&self) -> Result<MaterialCombination, GeometryError> {
         use MaterialOperation::*;
         if self.stage_count == 0 {
             return Err(Gpl(

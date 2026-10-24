@@ -779,9 +779,7 @@ mod tests {
     fn native_meters_draw_live_progress_and_dismiss_at_results() -> Result<()> {
         use resonance_battle::item::ITEM_COOLDOWN_TICKS;
         use resonance_battle::{BattleResult, EscapeFrame, MAX_ESCAPE_GAUGE, MAX_UNISON_GAUGE};
-        let art: Art = serde_json::from_slice(&std::fs::read(
-            fixtures::asset_root().join(resonance_content::battle_ui::PATH),
-        )?)?;
+        let art = fixtures::battle_art()?;
         let draw = |frame: &BattleFrame| -> Result<[Batch; meters::COUNT]> {
             let mut batches = std::array::from_fn(|_| Batch::default());
             meters::draw(frame, &art, &mut batches)?;

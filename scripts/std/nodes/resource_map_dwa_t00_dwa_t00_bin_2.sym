@@ -1,0 +1,5 @@
+script library;
+// Skeleton: b01e685b54c2d6d90555af2bf2177f88ce62acc5c4e5b37c377e025ab375433b
+// Source owner: MAP/dwa_t00/DWA_T00.BIN/2
+pub const Node000_Windowglass01: string = "windowglass01";
+pub const Node001_Glasss_L: string = "glasss_l";

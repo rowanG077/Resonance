@@ -1,0 +1,5 @@
+script library;
+// Skeleton: f5765172827e8cf377e21a7bf047b40040b8c40ce4b9f6a6506d5248e9b628ab
+// Source owner: MAP/psy_i02/PSY_I02.BIN/2
+pub const Node000_Case: string = "case";
+pub const Node001_Case0: string = "case0";

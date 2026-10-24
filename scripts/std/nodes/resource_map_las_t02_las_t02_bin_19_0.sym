@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2cff3e72c1e995216c84beaed995f77482e95993b54c04cca759004239ea3cbe
+// Source owner: MAP/las_t02/LAS_T02.BIN/19/0
+pub const Node000_Del_Mae: string = "del_mae";
+pub const Node001_Del_Ura: string = "del_ura";

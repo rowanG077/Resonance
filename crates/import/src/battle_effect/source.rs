@@ -209,6 +209,7 @@ fn read_with_owner(
         .collect();
     Ok((
         SourceBank {
+            document: None,
             art: None,
             source_sha256: crate::digest(bytes),
             programs,
@@ -333,7 +334,7 @@ fn compile_program(
     ))
 }
 
-pub fn publish(usual: &[u8], output: &Path, prefix: &str) -> Result<Vec<String>> {
+pub fn prepare(usual: &[u8], output: &Path) -> Result<[SourceBank; 2]> {
     let (mut banks, strides): (Vec<_>, Vec<_>) = [2, 3]
         .into_iter()
         .map(|member| read_with_palettes(crate::source_assets::section(usual, member)?))
@@ -341,18 +342,12 @@ pub fn publish(usual: &[u8], output: &Path, prefix: &str) -> Result<Vec<String>>
         .into_iter()
         .unzip();
     let art = super::art::publish(usual, &mut banks, &strides, output)?;
-    let mut paths = ["common", "techniques"]
-        .into_iter()
-        .zip(banks)
-        .map(|(name, mut bank)| {
-            bank.art = Some(art.clone());
-            let path = format!("{prefix}/effects/{name}.json");
-            crate::write_atomic(&output.join(&path), &serde_json::to_vec(&bank)?)?;
-            Ok(path)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    paths.extend(art.files.into_keys());
-    Ok(paths)
+    for bank in &mut banks {
+        bank.art = Some(art.clone());
+    }
+    Ok(banks
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("expected two resident effect banks"))?)
 }
 
 #[cfg(test)]
@@ -567,38 +562,6 @@ mod tests {
             assert!(source.program(0).is_ok());
             assert!(source.program(1).is_err());
         }
-        Ok(())
-    }
-
-    #[test]
-    fn cached_metadata_recompiles_programs_and_preserves_palette_bindings() -> Result<()> {
-        use resonance_content::battle_effect::{Art, visual::ParticleTexture};
-        let bytes = bank(&[u16::MAX]);
-        let expected = read(&bytes)?;
-        let mut cached = expected.clone();
-        cached.programs.clear();
-        cached.actors[0].template_mut()?.lifetime = Some(999);
-        let Declaration::Particle { visual, .. } = &mut cached.actors[0] else {
-            panic!("expected particle fixture")
-        };
-        let ParticleTexture::Atlas { palette_set, .. } = &mut visual.texture else {
-            panic!("expected texture fixture")
-        };
-        *palette_set = 3;
-        cached.art = Some(Art {
-            source_sha256: crate::digest(b"retained artwork"),
-            textures: BTreeMap::new(),
-            models: BTreeMap::new(),
-            files: BTreeMap::new(),
-        });
-        let artwork = serde_json::to_value(&cached.art)?;
-        super::super::refresh_cached(&bytes, &mut cached, None)?;
-        assert_eq!(cached.programs, expected.programs);
-        assert_eq!(cached.actors[0].template()?, expected.actors[0].template()?);
-        assert_eq!(cached.actors[0].particle_visual()?.texture.palette_set(), 3);
-        assert_eq!(serde_json::to_value(&cached.art)?, artwork);
-        cached.source_sha256 = "0".repeat(64);
-        assert!(super::super::refresh_cached(&bytes, &mut cached, None).is_err());
         Ok(())
     }
 

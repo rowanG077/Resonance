@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2a0854d5107cdd674d10221138c973b815d8f323e45091771a64d8f4099b3e1b
+// Source owner: MAP/isa_i01/ISA_I01.BIN/0
+pub const Node000_Obj01: string = "obj01";
+pub const Node001_Obj02: string = "obj02";

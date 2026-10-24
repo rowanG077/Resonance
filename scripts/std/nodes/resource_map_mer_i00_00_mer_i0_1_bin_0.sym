@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 9cdf92b75f7f7bc59efd6b97aad285fc6be9cb6c8f943a006ee63fb03c03eb34
+// Source owner: MAP/mer_i00_00/MER_I0~1.BIN/0
+pub const Node000_Wall: string = "wall";
+pub const Node001_Item: string = "item";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 449eb461ee4c2acd67b1748c203dad860ce2c0f700cbac732d0cfde77b78142c
+// Source owner: MAP/ice_d01/ICE_D01.BIN/18/0
+pub const Node000_Yu: string = "yu";

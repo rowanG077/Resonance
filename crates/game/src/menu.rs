@@ -349,8 +349,7 @@ impl Menu {
                     self.manual_data = Some(data);
                 }
                 Page::Figurines if self.figurines_data.is_none() => {
-                    let data: resonance_content::figurine::FigurineBook =
-                        resources.files.json(menu_data::FIGURINES_PATH)?;
+                    let data = resonance_content::figurine::FigurineBook::load(&resources.files)?;
                     data.validate()?;
                     self.figurines_data = Some(data);
                 }
@@ -1061,8 +1060,8 @@ mod tests {
             serde_json::from_slice(&std::fs::read(root.join("game/session-data.json"))?)?,
         );
         for paranoid in [false, true] {
-            let files = Files::load_with_diagnostics(
-                &root,
+            let files = resonance_content::preparation::capture(
+                &resonance_content::library::Library::open(&root, &[])?,
                 &[],
                 &mut Default::default(),
                 || false,

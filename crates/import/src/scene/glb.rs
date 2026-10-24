@@ -24,7 +24,7 @@ pub(crate) struct Glb {
 impl Glb {
     pub(crate) fn animate(&mut self, motion: Motion) -> Result<resonance_content::SceneClip> {
         let bytes = motion.encode()?;
-        let path = format!("clips/{}.motion", crate::digest(&bytes));
+        let path = format!("clips/{}.motion.json", crate::digest(&bytes));
         let clip = resonance_content::SceneClip {
             motion: path.clone(),
             resource_slot: 0,

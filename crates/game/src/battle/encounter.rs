@@ -1,6 +1,6 @@
 //! Resolve an encounter's enemy requirements before combat or resource activation.
 mod assets;
-mod event_assets;
+pub(crate) mod event_assets;
 pub use assets::{Assets, Inputs};
 mod placement;
 mod preparation;
@@ -13,8 +13,10 @@ pub use render::{
     AccessoryStyle, ModelAccessory, RenderEffect, RenderInstances, RenderModel, RenderTrail,
     TargetAnchor,
 };
+#[cfg(test)]
+use resonance_content::battle_formation::PATH;
 use resonance_content::{
-    battle_formation::{Formations, PATH, Settings},
+    battle_formation::Settings,
     monster::{Monster, MonsterBook},
     prepared::Files,
 };
@@ -74,7 +76,17 @@ pub fn enemies(
     formations: &[u16],
 ) -> Result<Enemies> {
     ensure!(!formations.is_empty(), "empty encounter");
-    let table: Formations = files.json(PATH)?;
+    let table = resonance_content::battle_rules::formations(files)?;
+    enemies_from_formations(&table, catalogue, item_count, formations)
+}
+
+fn enemies_from_formations(
+    table: &resonance_content::battle_formation::Formations,
+    catalogue: &MonsterBook,
+    item_count: usize,
+    formations: &[u16],
+) -> Result<Enemies> {
+    ensure!(!formations.is_empty(), "empty encounter");
     let mut resources: Vec<EnemyResource> = Vec::new();
     let mut spawns = Vec::new();
     let mut settings = None;
@@ -201,8 +213,8 @@ mod tests {
             position: Some([-50, 30]),
             unsupported_reason: Some("encounter appearance override is not prepared".into()),
         };
-        let formations = Formations {
-            source_sha256: "a".repeat(64),
+        let formations = resonance_content::battle_rules::Formations {
+            version: resonance_content::battle_rules::VERSION,
             pools: Vec::new(),
             records: vec![Formation {
                 settings: Settings {
@@ -244,7 +256,7 @@ mod tests {
     }
 
     fn edit(files: &mut Files, change: impl FnOnce(&mut Formation)) {
-        let mut formations: Formations = files.json(PATH).unwrap();
+        let mut formations: resonance_content::battle_rules::Formations = files.json(PATH).unwrap();
         change(&mut formations.records[0]);
         files.insert(
             PATH.into(),
@@ -317,11 +329,11 @@ mod tests {
     #[test]
     fn runtime_validates_only_the_selected_formation() -> Result<()> {
         let (mut files, catalogue) = inputs();
-        let mut formations: Formations = files.json(PATH)?;
+        let mut formations: resonance_content::battle_rules::Formations = files.json(PATH)?;
         let mut broken = formations.records[0].clone();
         broken.actors[0].resource = u8::MAX;
         formations.records.push(broken);
-        assert!(formations.validate().is_err());
+        assert!(formations.records[1].validate().is_err());
         files.insert(PATH.into(), serde_json::to_vec(&formations)?.into());
         assert_eq!(enemies(&files, &catalogue, 1, &[0])?.spawns.len(), 2);
         assert!(enemies(&files, &catalogue, 1, &[1]).is_err());

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 3808b6efb02dc7aa6872016af1779cf58402d100501e606d7d000f2eefa8a915
+// Source owner: MAP/gat_t00/GAT_T00.BIN/17/0
+pub const Node000_Enelgy: string = "enelgy";

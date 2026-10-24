@@ -4,6 +4,9 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod attachments;
+pub mod document;
+
 pub const FIELD_VERSION: u32 = 11;
 /// Script extension: keep an actor centred on the player while following.
 pub const ANCHORED_PLAYER_BEHAVIOR: u8 = 127;
@@ -81,19 +84,8 @@ pub fn scenery_actor(section: u16) -> i32 {
     }
 }
 
-pub fn metadata_path(map: u32) -> String {
-    format!("fields/map-{map}.json")
-}
-
-pub fn audio_path(map: u32) -> String {
-    format!("fields/map-{map}-audio.json")
-}
 /// Native field treasure models: ordinary, reinforced and bag-shaped.
 pub const TREASURE_RESOURCE_BASE: u32 = 0x7fff_0100;
-
-pub fn preload_path(map: u32) -> String {
-    format!("fields/map-{map}.preload.json")
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollisionGroup {
@@ -147,11 +139,10 @@ impl CollisionGroup {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FieldAssets {
     pub version: u32,
     pub map_id: u32,
-    pub source_sha256: String,
     pub script: String,
     pub messages: String,
     /// Repeating panorama drawn behind the field scenery.
@@ -470,11 +461,6 @@ impl FieldAssets {
 
         shadow.validate()?;
 
-        ensure!(
-            self.source_sha256.len() == 64
-                && self.source_sha256.bytes().all(|v| v.is_ascii_hexdigit()),
-            "invalid field source digest"
-        );
         for group in self.ground.iter().chain(&self.regions) {
             group.validate()?;
         }

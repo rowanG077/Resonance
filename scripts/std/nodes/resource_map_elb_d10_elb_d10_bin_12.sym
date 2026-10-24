@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a37bbbb0764cc5bf8d8c251cb1c95e3d2e142934792916ccb362ceb5902d9f0b
+// Source owner: MAP/elb_d10/ELB_D10.BIN/12
+pub const Node000_Number0: string = "0";

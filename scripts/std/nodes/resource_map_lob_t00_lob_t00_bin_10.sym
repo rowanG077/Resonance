@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 1df57892b9d33eedd3e3b11b920bc9aaa265fb22c3befb28cdcdbb9efcdaebb0
+// Source owner: MAP/lob_t00/LOB_T00.BIN/10
+pub const Node000_Water: string = "water";

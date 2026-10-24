@@ -5,19 +5,14 @@ use crate::{
     rel::Rel,
 };
 use anyhow::{Context, Result, ensure};
-use resonance_content::{
-    battle_victory::{Condition, Event, GROUP_COUNT, Group, Ordinary, Performances},
-    field_preload::{File, Role},
+use resonance_content::battle_victory::{
+    Condition, Event, GROUP_COUNT, Group, Ordinary, Performances,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::Path,
 };
-
-pub fn publish(extracted: &Path, output: &Path) -> Result<String> {
-    publish_source(extracted, output, "battle")
-}
 
 /// Every source affecting sparse binding or selection descriptors, for the
 /// ordinary full publication DAG and the selected development publisher.
@@ -50,7 +45,7 @@ pub fn inputs(extracted: &Path) -> Result<BTreeMap<String, String>> {
     Ok(result)
 }
 
-pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> Result<String> {
+pub fn prepare(extracted: &Path, output: &Path) -> Result<Performances> {
     let paths = extracted.join("files");
     let module = Rel::read(&paths.join(crate::field_resources::resolve_path(
         &paths,
@@ -60,13 +55,12 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
     let archive = fs::read(paths.join(archive_path))?;
     let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
     let mut ordinary = Vec::new();
-    let mut files = BTreeMap::new();
     for character in 1..=9 {
-        let bodies = catalogue.party_bodies[usize::from(character - 1)]
+        for (costume, name) in catalogue.party_bodies[usize::from(character - 1)]
             .iter()
-            .flatten()
-            .collect::<BTreeSet<_>>();
-        for name in bodies {
+            .enumerate()
+        {
+            let Some(name) = name else { continue };
             let Some(path) = crate::field_resources::find_path(&paths, name)? else {
                 continue;
             };
@@ -101,18 +95,11 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
                         Err(error) => (None, Some(format!("{error:#}"))),
                     };
                 let motion = clip.encode()?;
-                let path = format!("clips/{}.motion", crate::digest(&motion));
+                let path = format!("clips/{}.motion.json", crate::digest(&motion));
                 crate::write_atomic(&output.join(&path), &motion)?;
-                files.insert(
-                    path.clone(),
-                    File {
-                        sha256: crate::digest(&motion),
-                        bytes: motion.len() as u64,
-                        roles: [Role::Data].into(),
-                    },
-                );
                 ordinary.push(Ordinary {
                     character,
+                    costume: Some(costume.try_into()?),
                     selector,
                     source_sha256: crate::digest(bytes),
                     body_sha256: body_sha256.clone(),
@@ -163,11 +150,8 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
         archive_sha256: crate::digest(&archive),
         ordinary,
         groups,
-        files,
     };
-    let path = format!("{prefix}/victory.json");
-    crate::write_atomic(&output.join(&path), &serde_json::to_vec(&record)?)?;
-    Ok(path)
+    Ok(record)
 }
 
 /// These short streams select the packaged clip or change facial atlas layers.
@@ -419,13 +403,11 @@ mod tests {
         for disc in [1, 2] {
             let extracted = local.join(format!("disc{disc}"));
             let output = tempfile::tempdir()?;
-            let path = publish(&extracted, output.path())?;
-            let bytes = fs::read(output.path().join(path))?;
-            let value: Performances = serde_json::from_slice(&bytes)?;
+            let value = prepare(&extracted, output.path())?;
             let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
             let mut bodies = 0;
             for costumes in &catalogue.party_bodies {
-                for name in costumes.iter().flatten().collect::<BTreeSet<_>>() {
+                for name in costumes.iter().flatten() {
                     bodies += usize::from(
                         crate::field_resources::find_path(&extracted.join("files"), name)?
                             .is_some(),
@@ -448,15 +430,13 @@ mod tests {
                 );
                 assert!(performance.unsupported_reason.is_none());
                 let motion = fs::read(output.path().join(&performance.motion))?;
-                let declared = &value.files[&performance.motion];
-                assert_eq!(declared.sha256, crate::digest(&motion));
-                assert_eq!(declared.bytes, motion.len() as u64);
+                assert!(performance.costume.is_some());
                 assert!(
                     resonance_content::animation::Motion::decode(&motion)?.duration_frames > 0.
                 );
             }
             // Disc packaging can differ while the playable content agrees.
-            let semantic = serde_json::to_vec(&(value.ordinary, value.groups, value.files))?;
+            let semantic = serde_json::to_vec(&(value.ordinary, value.groups))?;
             if let Some(previous) = previous {
                 assert_eq!(semantic, previous);
             }
