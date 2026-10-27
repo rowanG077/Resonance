@@ -91,18 +91,30 @@ publish audio, saves, rumble, scene handoffs or gameplay results.
 
 Smoothing covers field roots, skeletal animation, secondary physics, attached
 models, effects and UI, plus the title, startup fades, menus and model previews,
-skits, overworld travel and game-rendered cinematics. Pre-rendered movies retain
-their native frame cadence. Billboard births/deaths cross-fade; changed text, atlas frames, scene cuts
-and loading handoffs stay discrete. Capture, replay and paused test modes retain
+skits, battle models/cameras/particles, overworld travel and game-rendered cinematics.
+Pre-rendered movies retain their native frame cadence. Billboard births/deaths
+cross-fade; changed text, atlas frames, scene cuts and loading handoffs stay discrete.
+Capture, replay and paused test modes retain
 exact tick sampling. Omit the flag to compare with ordinary rendering.
 
-Two fixed 64 MiB arenas are allocated at startup and reused for isolated scene
-state and temporary prediction work. Prediction makes no system allocator calls;
-ordinary rendering and GPU uploads retain their existing allocation behavior.
-There is no arena growth or emergency heap fallback. The fixed-capacity allocator
-still follows Rust's fatal allocation-failure path on exhaustion, so the feature
-remains opt-in. See [the smoothing notes](docs/performance.md#speculative-smoothing)
-for validation, memory limits and profiling commands.
+Press **F10** to cycle game speed **1× → ½× → ⅕× → ⅒× → 1×** while inspecting
+interpolation. This works at the title and during play, with or without smoothing.
+The performance overlay opens and shows the selected speed; **F3** hides it.
+Rendering stays uncapped, and the simulation timestep stays fixed: at ⅒×, ticks
+arrive about six times per real second while smoothing fills the frames between
+them. Audio follows the selected speed (including pitch); movie frames remain
+unblended. **F7** pauses/resumes without losing the selected speed. **F6** selects
+2×, then restores 1× on the next press. Slow motion is disabled in captures/replays.
+
+Two fixed 64 MiB arenas are reserved at startup and reused for isolated prediction
+work. Normal predictions make no system allocator calls. An oversized branch
+uses emergency storage only to finish safely, then discards its result and disables
+smoothing. Ordinary rendering and GPU uploads retain their allocation behavior.
+See [the smoothing notes](docs/performance.md#speculative-smoothing) for validation
+and profiling commands.
+
+Cooked content uses format 7 and requires explicit texture interpolation metadata.
+Recook existing assets; older cooked packages are rejected.
 
 | Action | Keyboard | Controller |
 |---|---|---|
@@ -128,6 +140,7 @@ for validation, memory limits and profiling commands.
 | Development quicksave / quickload | F5 / F9 | — |
 | Location test selector | Shift+Tab | — |
 | Test speed 1× / 2× | F6 | — |
+| Cycle slow motion: ½× / ⅕× / ⅒× / 1× | F10 | — |
 | Pause / resume | F7 | — |
 | Skip current cutscene / cancel skip | F8 | — |
 

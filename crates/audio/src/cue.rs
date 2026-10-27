@@ -390,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_cues_share_the_native_voice_budget() {
+    fn overlapping_cues_share_the_sound_effect_voice_budget() {
         let cue = signal_cue(
             crate::data::Interpolation::Direct,
             60,
@@ -399,13 +399,14 @@ mod tests {
         );
         let expected = render_signal(cue.clone());
         let mut studio = Studio::new([[0., 0., 1., 0., 0.]; 2]).unwrap();
-        for _ in 0..=crate::sequence::VOICE_BUDGET {
+        let budget = crate::sequence::SOUND_EFFECT_VOICE_BUDGET;
+        for _ in 0..=budget {
             studio.play(cue.clone()).unwrap();
         }
         for frame in expected {
             assert_eq!(
                 studio.next_frame(Err).unwrap(),
-                frame.map(|sample| sample * crate::sequence::VOICE_BUDGET as i16)
+                frame.map(|sample| sample * budget as i16)
             );
         }
         assert!(studio.voices.is_empty());

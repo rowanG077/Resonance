@@ -229,10 +229,12 @@ fn pixels(menu: &Menu, testing: &super::super::testing::Controls, skip_battles: 
         muted,
     );
     for (index, label) in [
-        if testing.double_speed {
-            "F6 SPEED 2X"
-        } else {
-            "F6 SPEED 1X"
+        match testing.speed {
+            resonance_playback::Speed::Normal => "F6 SPEED 1X",
+            resonance_playback::Speed::Double => "F6 SPEED 2X",
+            resonance_playback::Speed::Half => "F6 SPEED 1/2X",
+            resonance_playback::Speed::Fifth => "F6 SPEED 1/5X",
+            resonance_playback::Speed::Tenth => "F6 SPEED 1/10X",
         },
         if testing.paused {
             "F7 RESUME"
