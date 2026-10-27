@@ -1,4 +1,5 @@
 //! Battle-event presentation state shared by the ordinary scenario host.
+#[derive(Clone)]
 pub struct State {
     pub camera: crate::camera::stage::Camera,
     pub fade: Fade,
@@ -22,7 +23,7 @@ impl State {
 }
 
 /// An independent fullscreen cover; the ordinary field fade retains its owner.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Fade {
     pub color: [u8; 3],
     pub opacity: u8,

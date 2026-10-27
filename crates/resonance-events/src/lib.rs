@@ -43,7 +43,8 @@ pub use world::{
     Trigger, TriggerShape, VoicePlayback, WorldTransition,
 };
 mod operation;
-pub use operation::{Operation, Outcome, Progress};
+mod prediction;
+pub use operation::{Operation, OperationFork, Outcome, Progress};
 pub mod camera;
 pub mod caption;
 pub mod collision;

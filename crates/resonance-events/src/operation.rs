@@ -3,7 +3,7 @@
 //! an operation belonging to a different scene or a reused dialogue slot.
 use std::sync::{
     Arc, Mutex, Weak,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -14,7 +14,7 @@ pub enum Outcome {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Progress {
     pub ready: bool,
     pub position: u32,
@@ -65,8 +65,25 @@ impl Operation {
 #[derive(Default)]
 pub(crate) struct OperationScope {
     active: Vec<Weak<Mutex<Progress>>>,
+    // A prediction allocates IDs locally, without advancing the live allocator.
+    prediction_ids: Option<Arc<AtomicU64>>,
 }
 impl OperationScope {
+    pub(crate) fn inherit_allocator(&mut self, source: &Self) {
+        self.prediction_ids.clone_from(&source.prediction_ids);
+    }
+
+    pub(crate) fn fork(&self, fork: &mut OperationFork) -> Self {
+        Self {
+            active: self
+                .active
+                .iter()
+                .filter_map(Weak::upgrade)
+                .map(|state| Arc::downgrade(&fork.state(&state)))
+                .collect(),
+            prediction_ids: Some(fork.ids.clone()),
+        }
+    }
     /// Also retain cancellation ownership for an operation published by a game service.
     pub fn track(&mut self, operation: &Operation) -> Result<(), String> {
         self.active.retain(|task| task.strong_count() != 0);
@@ -77,7 +94,10 @@ impl OperationScope {
         Ok(())
     }
     pub fn begin(&mut self) -> Result<Operation, String> {
-        let id = NEXT_ID
+        let id = self
+            .prediction_ids
+            .as_deref()
+            .unwrap_or(&NEXT_ID)
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| "operation ID exhausted")?;
         let state = Arc::new(Mutex::new(Progress::default()));
@@ -91,6 +111,85 @@ impl OperationScope {
             if state.outcome.is_none() {
                 state.outcome = Some(Outcome::Cancelled);
             }
+        }
+    }
+}
+
+/// Copies an operation graph while preserving aliases *within* a prediction.
+/// Never share this context between independent predictions. Immutable assets
+/// can be shared, but completion/cancellation state must belong to the branch.
+pub struct OperationFork {
+    states: std::collections::BTreeMap<usize, ForkedProgress>,
+    flags: Vec<(Weak<AtomicBool>, bool, Arc<AtomicBool>)>,
+    ids: Arc<AtomicU64>,
+}
+struct ForkedProgress {
+    source: Weak<Mutex<Progress>>,
+    observed: Progress,
+    branch: Arc<Mutex<Progress>>,
+}
+impl Default for OperationFork {
+    fn default() -> Self {
+        Self {
+            states: Default::default(),
+            flags: Vec::new(),
+            ids: Arc::new(AtomicU64::new(NEXT_ID.load(Ordering::Relaxed))),
+        }
+    }
+}
+impl OperationFork {
+    fn state(&mut self, source: &Arc<Mutex<Progress>>) -> Arc<Mutex<Progress>> {
+        self.states
+            .entry(Arc::as_ptr(source) as usize)
+            .or_insert_with(|| {
+                let observed = *source.lock().expect("operation state poisoned");
+                ForkedProgress {
+                    source: Arc::downgrade(source),
+                    observed,
+                    branch: Arc::new(Mutex::new(observed)),
+                }
+            })
+            .branch
+            .clone()
+    }
+
+    /// Service callbacks can mutate operations without touching the owning
+    /// session. A cached prediction is valid only while these inputs match the
+    /// values observed when it was forked; changes inside the branch don't count.
+    pub fn sources_unchanged(&self) -> bool {
+        self.states.values().all(|state| {
+            state.source.upgrade().is_some_and(|source| {
+                *source.lock().expect("operation state poisoned") == state.observed
+            })
+        }) && self.flags.iter().all(|(source, observed, _)| {
+            source
+                .upgrade()
+                .is_some_and(|source| source.load(Ordering::Acquire) == *observed)
+        })
+    }
+
+    /// Snapshot asynchronous voice completion, preserving branch-local aliases.
+    pub fn fork_flag(&mut self, source: &Arc<AtomicBool>) -> Arc<AtomicBool> {
+        if let Some((_, _, branch)) = self
+            .flags
+            .iter()
+            .find(|(weak, _, _)| weak.as_ptr() == Arc::as_ptr(source))
+        {
+            return branch.clone();
+        }
+        let observed = source.load(Ordering::Acquire);
+        let branch = Arc::new(AtomicBool::new(observed));
+        self.flags
+            .push((Arc::downgrade(source), observed, branch.clone()));
+        branch
+    }
+
+    pub fn fork(&mut self, source: &Operation) -> Operation {
+        self.ids
+            .fetch_max(source.id.saturating_add(1), Ordering::Relaxed);
+        Operation {
+            id: source.id,
+            state: self.state(&source.state),
         }
     }
 }
@@ -144,6 +243,41 @@ pub(crate) enum Wait {
     Position(Operation, u32),
 }
 impl Wait {
+    pub(crate) fn fork(&self, fork: &mut OperationFork) -> Self {
+        match self {
+            Self::Service {
+                condition,
+                ready_at,
+            } => Self::Service {
+                condition: Box::new(condition.fork(fork)),
+                ready_at: *ready_at,
+            },
+            Self::Choice { result, window } => Self::Choice {
+                result: fork.fork(result),
+                window: Box::new(window.fork(fork)),
+            },
+            Self::Complete(op) => Self::Complete(fork.fork(op)),
+            Self::Result(op) => Self::Result(fork.fork(op)),
+            Self::Menu(op) => Self::Menu(fork.fork(op)),
+            Self::Battle(op) => Self::Battle(fork.fork(op)),
+            Self::Ready(op) => Self::Ready(fork.fork(op)),
+            Self::Position(op, position) => Self::Position(fork.fork(op), *position),
+            Self::Voice
+            | Self::SkitMedia { .. }
+            | Self::Tick(_)
+            | Self::ControlHandoff(_)
+            | Self::ControlReleased
+            | Self::Camera { .. }
+            | Self::CameraPath { .. }
+            | Self::ActorMotion(_)
+            | Self::DespawnAfterMotion(_)
+            | Self::ActorHeading(_)
+            | Self::FaceAfterMotion { .. }
+            | Self::ActorAnimation(_)
+            | Self::ActorAnimationFrame(_, _) => self.clone(),
+        }
+    }
+
     pub fn track(&self, scope: &mut OperationScope) -> Result<(), String> {
         match self {
             Self::Service { condition, .. } => condition.track(scope),
@@ -297,6 +431,90 @@ impl Wait {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn voice_acknowledgements_are_isolated_and_invalidate_the_cache() {
+        let live = Arc::new(AtomicBool::new(false));
+        let mut fork = OperationFork::default();
+        let branch = fork.fork_flag(&live);
+        assert!(Arc::ptr_eq(&branch, &fork.fork_flag(&live)));
+        branch.store(true, Ordering::Release);
+        assert!(!live.load(Ordering::Acquire));
+        assert!(fork.sources_unchanged());
+        live.store(true, Ordering::Release);
+        assert!(!fork.sources_unchanged());
+    }
+
+    #[test]
+    fn prediction_preserves_aliases_without_completing_or_cancelling_live_operations() {
+        let mut live = OperationScope::default();
+        let source = live.begin().unwrap();
+        source.advance(7).unwrap();
+        let mut fork = OperationFork::default();
+        let mut branch_scope = live.fork(&mut fork);
+        let first = fork.fork(&source);
+        let alias = fork.fork(&source.clone());
+        drop(fork);
+        first.complete(Some(42)).unwrap();
+        assert_eq!(alias.progress().outcome, Some(Outcome::Completed(Some(42))));
+        assert_eq!(source.progress().outcome, None);
+        assert_eq!(source.progress().position, 7);
+        let created = branch_scope.begin().unwrap();
+        drop(branch_scope);
+        assert_eq!(created.progress().outcome, Some(Outcome::Cancelled));
+        assert!(source.is_pending());
+        drop(live);
+        assert_eq!(source.progress().outcome, Some(Outcome::Cancelled));
+    }
+
+    #[test]
+    fn cached_forks_detect_service_updates_even_without_a_simulation_step() {
+        let mut scope = OperationScope::default();
+        let source = scope.begin().unwrap();
+        for position in [0, 4, 8] {
+            let mut fork = OperationFork::default();
+            let copy = fork.fork(&source);
+            assert!(fork.sources_unchanged());
+            copy.cancel();
+            assert!(fork.sources_unchanged());
+            source.advance(position).unwrap();
+            assert!(!fork.sources_unchanged());
+        }
+        let mut fork = OperationFork::default();
+        let _copy = fork.fork(&source);
+        source.complete(None).unwrap();
+        assert!(!fork.sources_unchanged());
+
+        let pending = scope.begin().unwrap();
+        let mut fork = OperationFork::default();
+        let _copy = fork.fork(&pending);
+        drop(scope);
+        assert!(!fork.sources_unchanged());
+    }
+
+    #[test]
+    fn cached_fork_does_not_keep_a_live_operation_pending() {
+        let mut scope = OperationScope::default();
+        let source = scope.begin().unwrap();
+        let mut fork = OperationFork::default();
+        let _copy = fork.fork(&source);
+        drop(source);
+        assert_eq!(scope.active[0].strong_count(), 0);
+        assert!(!fork.sources_unchanged());
+    }
+
+    #[test]
+    fn discarded_prediction_does_not_cancel_a_pending_live_wait() {
+        let mut live = OperationScope::default();
+        let source = live.begin().unwrap();
+        let mut fork = OperationFork::default();
+        let scope = live.fork(&mut fork);
+        let copy = fork.fork(&source);
+        drop(fork);
+        drop(scope);
+        assert_eq!(copy.progress().outcome, Some(Outcome::Cancelled));
+        assert!(source.is_pending());
+    }
     #[test]
     fn deferred_facing_preserves_movement_then_waits_for_the_turn() {
         let mut world = crate::GameWorld::default();

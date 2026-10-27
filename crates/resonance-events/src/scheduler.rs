@@ -71,7 +71,7 @@ impl Drop for Instance {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Background {
     paused: bool,
     require_control: bool,
@@ -91,6 +91,44 @@ pub struct EventRuntime {
     tasks: crate::authored::Tasks,
 }
 impl EventRuntime {
+    /// Fork live VM stacks, memory, RNGs and service waits for disposable execution.
+    /// The caller must use the same operation graph for scene-owned services.
+    pub fn fork_for_prediction(&self, fork: &mut crate::OperationFork) -> Self {
+        Self {
+            world: self.world.fork(fork),
+            exploration_error: self.exploration_error.clone(),
+            program: self.program.clone(),
+            resources: self.resources.clone(),
+            memory: self.memory.clone(),
+            instances: self
+                .instances
+                .iter()
+                .map(|instance| {
+                    instance.as_ref().map(|i| Instance {
+                        handle: i.handle,
+                        key: i.key,
+                        event_actor: i.event_actor,
+                        vm: i.vm.clone(),
+                        program: i.program.clone(),
+                        operations: i.operations.fork(fork),
+                        wait: i.wait.as_ref().map(|w| w.fork(fork)),
+                        join: i.join,
+                        registers: i.registers,
+                        background: i.background.clone(),
+                        callback: i.callback.as_ref().map(|c| match c {
+                            Callback::Owned(op) => Callback::Owned(fork.fork(op)),
+                            Callback::Trigger => Callback::Trigger,
+                        }),
+                    })
+                })
+                .collect(),
+            next_handle: self.next_handle,
+            failed: self.failed,
+            interaction: self.interaction,
+            tasks: self.tasks.clone(),
+        }
+    }
+
     pub fn resources(&self) -> &ResourceLibrary {
         &self.resources
     }
@@ -1275,6 +1313,10 @@ impl EventRuntime {
             let mut commands = Vec::new();
             let mut spawns = Vec::new();
             let mut wait = None;
+            // Newly spawned authored instances also allocate branch-local tokens.
+            instance
+                .operations
+                .inherit_allocator(&self.world.operations);
             let result = if instance.program.authored().is_some() {
                 let mut host = crate::authored::FieldHost {
                     world: &mut self.world,

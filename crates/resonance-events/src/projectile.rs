@@ -82,6 +82,7 @@ impl crate::Actor {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Shot {
     pub source: i32,
     pub position: [f32; 3],

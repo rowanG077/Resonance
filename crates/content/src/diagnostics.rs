@@ -3,6 +3,23 @@ use anyhow::Result;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
+thread_local! {
+    static SPECULATIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Speculative failures must neither publish diagnostics nor alter live error counts.
+/// Stop the branch at its first diagnostic; the committed visit owns recovery.
+pub fn speculative<T>(work: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SPECULATIVE.set(self.0);
+        }
+    }
+    let _restore = Restore(SPECULATIVE.replace(true));
+    work()
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Diagnostic {
     pub scope: String,
@@ -40,6 +57,9 @@ impl Diagnostics {
     /// Record every occurrence, printing a repeated diagnostic only once. The
     /// caller must choose a coherent skip or fallback before using this method.
     pub fn report(&self, scope: &str, error: anyhow::Error) -> Result<()> {
+        if SPECULATIVE.get() {
+            return Err(error);
+        }
         let message = format!("{error:#}");
         let mut entries = self.0.entries.lock().unwrap();
         if let Some(entry) = entries
@@ -89,6 +109,21 @@ impl Diagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speculative_diagnostics_stop_the_branch_without_publishing() {
+        for paranoid in [false, true] {
+            let diagnostics = Diagnostics::new(paranoid);
+            assert!(
+                speculative(|| diagnostics.report("prediction", anyhow::anyhow!("test failure")))
+                    .is_err()
+            );
+            assert!(!diagnostics.has_errors());
+            let result = diagnostics.report("committed", anyhow::anyhow!("test failure"));
+            assert_eq!(result.is_err(), paranoid);
+            assert_eq!(diagnostics.entries().len(), 1);
+        }
+    }
 
     #[test]
     fn tolerant_session_collects_distinct_errors_and_keeps_later_work() {
