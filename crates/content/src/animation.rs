@@ -313,14 +313,22 @@ impl Skeleton {
             local.len() == self.bones.len() && matrices.len() == local.len(),
             "pose bone count differs from skeleton"
         );
-        let mut global = vec![None; local.len()];
-        for index in 0..local.len() {
-            self.compose(index, matrices, &mut global, 0)?;
-        }
         Ok(Pose {
             local,
-            global: global.into_iter().map(Option::unwrap).collect(),
+            global: self.global_matrices(matrices)?,
         })
+    }
+
+    pub fn global_matrices(&self, matrices: &[Matrix]) -> Result<Vec<Matrix>> {
+        ensure!(
+            matrices.len() == self.bones.len(),
+            "pose bone count differs from skeleton"
+        );
+        let mut global = vec![None; matrices.len()];
+        for index in 0..matrices.len() {
+            self.compose(index, matrices, &mut global, 0)?;
+        }
+        Ok(global.into_iter().map(Option::unwrap).collect())
     }
 
     fn compose(

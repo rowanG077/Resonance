@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const SETTLE_UPDATES: u32 = 300;
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub(super) struct Rig {
     root: Entity,
     bones: BTreeMap<u16, Bone>,
@@ -19,6 +19,7 @@ pub(super) struct Rig {
     impulses: BTreeMap<u32, Vec3>,
     disabled: bool,
 }
+#[derive(Clone)]
 struct Bone {
     entity: Entity,
     parent: Entity,
@@ -42,6 +43,50 @@ impl Deformation {
 }
 
 impl Rig {
+    pub(super) fn predict(
+        &self,
+        actor: &resonance_events::Actor,
+        tick: u32,
+        scale: Vec3,
+        animated_roots: &[u16],
+        mut authored_pose: impl FnMut(Entity) -> Option<(GlobalTransform, bool)>,
+    ) -> Option<BTreeMap<Entity, GlobalTransform>> {
+        let authored = self
+            .authored_nodes
+            .iter()
+            .map(|&node| {
+                let (pose, affine) = authored_pose(self.bones[&node].entity)?;
+                Some((
+                    node,
+                    Authored {
+                        world: pose,
+                        affine,
+                    },
+                ))
+            })
+            .collect::<Option<BTreeMap<_, _>>>()?;
+        let mut branch = self.clone();
+        branch.disabled = actor.appearance.secondary_motion_disabled;
+        let steps = tick
+            .saturating_sub(self.tick?)
+            .min(resonance_events::projectile::CHAIN_HISTORY_TICKS);
+        let forces: Vec<_> = (0..steps)
+            .map(|i| {
+                actor
+                    .chain_impulses
+                    .get(&(tick - steps + i + 1))
+                    .map_or(Vec3::ZERO, |impulse| Vec3::from_array(impulse.acceleration))
+            })
+            .collect();
+        let yaw = actor.appearance.fixed_heading.unwrap_or(actor.heading);
+        Some(
+            branch
+                .evaluate(&authored, scale, yaw, animated_roots, &forces)
+                .into_iter()
+                .map(|(node, pose)| (self.bones[&node].entity, pose))
+                .collect(),
+        )
+    }
     pub(super) fn new(
         root: Entity,
         spec: &resonance_content::ScenePart,
@@ -470,7 +515,7 @@ pub(super) fn apply(
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Simulation {
     positions: Vec<Vec3>,
     previous: Vec<Vec3>,
@@ -558,6 +603,88 @@ mod tests {
     use super::*;
     use bevy::math::Affine3A;
     use resonance_content::secondary_motion::Joint;
+
+    #[test]
+    fn speculative_physics_matches_a_real_step_without_mutation_or_heap_calls() {
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let entities = std::array::from_fn::<_, 3, _>(|_| world.spawn_empty().id());
+        let chain = Chain {
+            joints: (0..3)
+                .map(|node| Joint {
+                    node,
+                    gravity: 0.333,
+                    damping: 0.766,
+                })
+                .collect(),
+            attraction: 0.2,
+            preserve_rotation: false,
+            rotation_locks: [false; 2],
+            collision_plane: None,
+        };
+        let targets = [Vec3::ZERO, Vec3::Z * 10., Vec3::Z * 20.];
+        let mut simulation = Simulation::default();
+        simulation.advance(&chain, &targets, None, chain.attraction, &[Vec3::ZERO; 30]);
+        let rig = Rig {
+            root,
+            bones: entities
+                .iter()
+                .enumerate()
+                .map(|(i, &entity)| {
+                    (
+                        i as u16,
+                        Bone {
+                            entity,
+                            parent: root,
+                            authored: Transform::from_translation(targets[i]),
+                        },
+                    )
+                })
+                .collect(),
+            authored_nodes: vec![0, 1, 2],
+            chains: vec![(chain, simulation)],
+            tick: Some(30),
+            pose: BTreeMap::new(),
+            impulses: BTreeMap::new(),
+            disabled: false,
+        };
+        let actor = resonance_events::Actor::new(1, [0.; 3]);
+        let authored: BTreeMap<_, _> = targets
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| {
+                (
+                    i as u16,
+                    Authored {
+                        world: Transform::from_translation(p + Vec3::X * 2.).into(),
+                        affine: false,
+                    },
+                )
+            })
+            .collect();
+        let mut real = rig.clone();
+        let expected = real.evaluate(&authored, Vec3::ONE, 0., &[], &[Vec3::ZERO]);
+        let mut storage = resonance_game::field::PredictionBuffer::new().unwrap();
+        let counts = resonance_simulation_memory::system_calls();
+        for _ in 0..120 {
+            let pose = storage
+                .execute(|| {
+                    rig.predict(&actor, 31, Vec3::ONE, &[], |e| {
+                        let i = entities.iter().position(|&n| n == e)?;
+                        Some((authored[&(i as u16)].world, false))
+                    })
+                    .unwrap()
+                })
+                .unwrap();
+            for (node, target) in &expected {
+                assert_eq!(pose[&entities[*node as usize]], *target);
+            }
+        }
+        assert_eq!(counts, resonance_simulation_memory::system_calls());
+        assert_eq!(rig.tick, Some(30));
+        assert_ne!(rig.chains[0].1.positions, real.chains[0].1.positions);
+        assert_eq!(rig.chains[0].1.targets, targets);
+    }
 
     #[test]
     fn terminal_joint_follows_the_models_moving_attachment() {

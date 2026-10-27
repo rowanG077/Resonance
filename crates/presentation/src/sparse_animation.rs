@@ -42,6 +42,73 @@ pub(super) fn install(app: &mut App) {
 #[derive(Default)]
 pub(super) struct Binding(pub Vec<(Entity, Transform)>);
 impl Binding {
+    /// Sample each track once at each endpoint; retained storage is reused after warmup.
+    pub fn sample_endpoints(
+        &self,
+        from: (&Motion, f32),
+        to: (&Motion, f32),
+        output: &mut Vec<crate::sparse_animation::affine::PoseEndpoint>,
+    ) -> Result<()> {
+        ensure!(
+            [from.1, to.1]
+                .into_iter()
+                .all(|seconds| seconds.is_finite() && seconds >= 0.),
+            "invalid animation endpoint time"
+        );
+        output.clear();
+        output.extend(self.0.iter().map(|&(entity, rest)| affine::PoseEndpoint {
+            entity,
+            poses: affine::PosePair::new(rest.into(), rest.into()),
+            global: false,
+        }));
+        for (next, (motion, seconds)) in [(false, from), (true, to)] {
+            self.sample_tracks(motion, seconds * FRAME_HZ, |index, pose| {
+                if next {
+                    output[index].poses.to = pose;
+                } else {
+                    output[index].poses.from = pose;
+                }
+            })?;
+        }
+        for endpoint in output {
+            endpoint.poses = affine::PosePair::new(endpoint.poses.from, endpoint.poses.to);
+        }
+        Ok(())
+    }
+
+    /// Start with the rest pose, then write each indexed track exactly once.
+    pub fn sample_poses(&self, animation: Option<(&Motion, f32)>) -> Result<Vec<affine::Pose>> {
+        let mut poses: Vec<_> = self.0.iter().map(|&(_, rest)| rest.into()).collect();
+        if let Some((motion, frame)) = animation {
+            self.sample_tracks(motion, frame, |i, pose| poses[i] = pose)?;
+        }
+        Ok(poses)
+    }
+
+    fn sample_tracks(
+        &self,
+        motion: &Motion,
+        frame: f32,
+        mut write: impl FnMut(usize, affine::Pose),
+    ) -> Result<()> {
+        ensure!(
+            frame.is_finite() && frame >= 0.,
+            "invalid animation sample time"
+        );
+        for track in &motion.tracks {
+            let index = usize::from(track.bone);
+            let &(_, rest) = self
+                .0
+                .get(index)
+                .context("animation bone outside bound model")?;
+            write(
+                index,
+                sample_track(track, frame.min(motion.duration_frames), rest)?,
+            );
+        }
+        Ok(())
+    }
+
     pub fn new(
         root: Entity,
         bone_count: usize,
@@ -76,7 +143,6 @@ impl Binding {
                 .collect::<Result<_>>()?,
         ))
     }
-
     pub fn sample(
         &self,
         motion: &Motion,
@@ -134,11 +200,7 @@ pub(super) fn sample_track(
         )))
     } else {
         let pose = track.sample(frame, bind)?;
-        affine::Pose::Trs(Transform {
-            translation: Vec3::from_array(pose.translation),
-            rotation: Quat::from_array(pose.rotation),
-            scale: Vec3::from_array(pose.scale),
-        })
+        resonance_content::animation::pose::LocalPose::Trs(pose).into()
     })
 }
 
@@ -232,14 +294,18 @@ mod tests {
         let binding = Binding(vec![(bone, Transform::IDENTITY)]);
         world
             .run_system_once(move |mut nodes: Query<&mut Transform>| {
+                let mut endpoints = Vec::new();
                 binding
-                    .sample(
-                        &motion,
-                        0.125 / FRAME_HZ,
-                        &mut nodes,
-                        &mut affine::Locals::default(),
+                    .sample_endpoints(
+                        (&motion, 0.125 / FRAME_HZ),
+                        (&motion, 0.125 / FRAME_HZ),
+                        &mut endpoints,
                     )
                     .unwrap();
+                let mut affine = affine::Locals::default();
+                for endpoint in endpoints {
+                    endpoint.apply(0., &mut nodes, &mut affine);
+                }
             })
             .unwrap();
         let actual = world.get::<Transform>(bone).unwrap();
