@@ -2976,12 +2976,14 @@ mod tests {
         // Texture animation composes with expression layers and base offsets.
         Arc::make_mut(&mut body.spec).scene.texture_animations = vec![
             resonance_content::TextureAnimation {
+                interpolation: resonance_content::TextureInterpolation::Step,
                 texture: 0,
                 delay_ticks: 0,
                 loop_start: 0,
                 offsets: vec![[0.; 2], [0.125, 0.25]],
             },
             resonance_content::TextureAnimation {
+                interpolation: resonance_content::TextureInterpolation::Step,
                 texture: 1,
                 delay_ticks: 0,
                 loop_start: 0,

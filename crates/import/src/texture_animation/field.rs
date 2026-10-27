@@ -145,6 +145,7 @@ fn grid_atlas(
             Setting(texture),
             TextureMotion::Sampled {
                 animation: resonance_content::TextureAnimation {
+                    interpolation: resonance_content::TextureInterpolation::Step,
                     texture: (),
                     delay_ticks: 0,
                     loop_start: 0,
@@ -423,6 +424,7 @@ pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
                 Fixed(1),
                 TextureMotion::Sampled {
                     animation: resonance_content::TextureAnimation {
+                        interpolation: resonance_content::TextureInterpolation::Step,
                         texture: (),
                         delay_ticks: 0,
                         loop_start: 0,
@@ -525,6 +527,7 @@ pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
                         Fixed(1),
                         TextureMotion::Sampled {
                             animation: resonance_content::TextureAnimation {
+                                interpolation: resonance_content::TextureInterpolation::Step,
                                 texture: (),
                                 delay_ticks: 0,
                                 loop_start: 0,
@@ -764,6 +767,7 @@ pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
                 Setting(0),
                 TextureMotion::Sampled {
                     animation: resonance_content::TextureAnimation {
+                        interpolation: resonance_content::TextureInterpolation::Step,
                         texture: (),
                         delay_ticks: 0,
                         loop_start: 0,

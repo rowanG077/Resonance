@@ -7,6 +7,7 @@ fn sampled(
     texture: RenderValue,
     offsets: Vec<[f32; 2]>,
     loop_start: usize,
+    interpolation: resonance_content::TextureInterpolation,
 ) -> FieldTextureAnimation {
     track(
         actor,
@@ -16,6 +17,7 @@ fn sampled(
                 texture: (),
                 delay_ticks: 0,
                 loop_start,
+                interpolation,
                 offsets,
             },
         },
@@ -43,6 +45,7 @@ pub(super) fn extend(profiles: &mut BTreeMap<u32, Vec<FieldTextureAnimation>>) {
                             .map(|tick| [0., (tick / 7) as f32 / 32.])
                             .collect(),
                         217,
+                        resonance_content::TextureInterpolation::Step,
                     )
                 },
                 FieldTextureAnimation {
@@ -184,6 +187,7 @@ pub(super) fn extend(profiles: &mut BTreeMap<u32, Vec<FieldTextureAnimation>>) {
                             .flat_map(|v| std::iter::repeat_n([0., v], 4))
                             .collect(),
                         0,
+                        resonance_content::TextureInterpolation::Step,
                     )
                 })
                 .into(),
@@ -221,6 +225,7 @@ pub(super) fn extend(profiles: &mut BTreeMap<u32, Vec<FieldTextureAnimation>>) {
                     Setting(0),
                     (0..=90).map(|tick| [0., tick as f32 / 180.]).collect(),
                     90,
+                    resonance_content::TextureInterpolation::Scroll,
                 )
             }],
         ),

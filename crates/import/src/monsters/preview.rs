@@ -53,6 +53,11 @@ pub(super) fn animate_body(
         animations.push(resonance_content::TextureAnimation {
             texture,
             delay_ticks,
+            interpolation: if settings[channel] == 2 {
+                resonance_content::TextureInterpolation::Scroll
+            } else {
+                resonance_content::TextureInterpolation::Step
+            },
             loop_start: 0,
             offsets,
         });

@@ -1,7 +1,7 @@
 //! Native title lighting bound directly to ordinary field UV tracks.
 use anyhow::{Context, Result, ensure};
-use resonance_content::TextureAnimation;
 use resonance_content::field::{FieldTextureAnimation, RenderValue, TextureClock, TextureMotion};
+use resonance_content::{TextureAnimation, TextureInterpolation};
 use std::{collections::BTreeMap, path::Path};
 
 const PATH: &str = "embedded/title-texture-animations.json";
@@ -27,6 +27,7 @@ pub(crate) fn profiles(executable: &[u8]) -> Result<BTreeMap<u32, Vec<FieldTextu
             actor,
             slot,
             0,
+            TextureInterpolation::Step,
             stepped(steps, step_size, value(address)?)?,
         ))
     };
@@ -44,7 +45,13 @@ pub(crate) fn profiles(executable: &[u8]) -> Result<BTreeMap<u32, Vec<FieldTextu
             474,
             vec![
                 atlas(day.clone(), 0, 0x8035B360)?,
-                sampled(day.clone(), 1, 1, scroll(value(0x8035B364)?)?),
+                sampled(
+                    day.clone(),
+                    1,
+                    1,
+                    TextureInterpolation::Scroll,
+                    scroll(value(0x8035B364)?)?,
+                ),
                 atlas(day, 2, 0x8035B368)?,
             ],
         ),
@@ -56,6 +63,7 @@ fn sampled(
     actor: RenderValue,
     slot: u8,
     loop_start: usize,
+    interpolation: TextureInterpolation,
     offsets: Vec<[f32; 2]>,
 ) -> FieldTextureAnimation {
     FieldTextureAnimation {
@@ -68,6 +76,7 @@ fn sampled(
                 texture: (),
                 delay_ticks: 1,
                 loop_start,
+                interpolation,
                 offsets,
             },
         },

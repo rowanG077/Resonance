@@ -118,6 +118,7 @@ fn phased_fire(texture: u8, first_frame: u32) -> FieldTextureAnimation {
         Setting(texture),
         TextureMotion::Sampled {
             animation: resonance_content::TextureAnimation {
+                interpolation: resonance_content::TextureInterpolation::Step,
                 texture: (),
                 delay_ticks: 0,
                 loop_start: 0,

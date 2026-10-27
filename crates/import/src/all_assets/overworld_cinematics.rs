@@ -281,6 +281,11 @@ impl UvRecipe {
             out[axis] = value;
             out
         };
+        let interpolation = if matches!(self.motion, UvMotion::Atlas { .. }) {
+            resonance_content::TextureInterpolation::Step
+        } else {
+            resonance_content::TextureInterpolation::Scroll
+        };
         let (offsets, loop_start) = match self.motion {
             UvMotion::Scroll { period, .. } => {
                 ensure!(
@@ -360,6 +365,7 @@ impl UvRecipe {
         };
         let track = TextureAnimation {
             texture: self.texture,
+            interpolation,
             delay_ticks: self.delay_ticks,
             offsets,
             loop_start,

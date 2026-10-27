@@ -194,6 +194,11 @@ fn terrain_texture_animations(source: &[u8]) -> Result<Vec<resonance_content::Te
                 delay_ticks: 0,
                 loop_start: 0,
                 offsets,
+                interpolation: if slot < 2 {
+                    resonance_content::TextureInterpolation::Scroll
+                } else {
+                    resonance_content::TextureInterpolation::Step
+                },
             })
         })
         .collect())

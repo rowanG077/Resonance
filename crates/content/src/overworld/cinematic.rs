@@ -292,6 +292,7 @@ mod tests {
         let mut uv = CinematicUv {
             clock: CinematicClock::Presentation,
             animation: TextureAnimation {
+                interpolation: crate::TextureInterpolation::Step,
                 texture: 0,
                 delay_ticks: 0,
                 loop_start: 0,

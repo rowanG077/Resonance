@@ -266,6 +266,16 @@ impl TextureAnimationState {
     }
 }
 
+impl TextureMotion {
+    pub fn is_scroll(&self) -> bool {
+        match self {
+            Self::Scroll { .. } => true,
+            Self::Sampled { animation } => animation.is_scroll(),
+            Self::Atlas { .. } => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +333,7 @@ mod tests {
         });
         track.motion = TextureMotion::Sampled {
             animation: crate::TextureAnimation {
+                interpolation: crate::TextureInterpolation::Step,
                 texture: (),
                 delay_ticks: 0,
                 loop_start: 3,

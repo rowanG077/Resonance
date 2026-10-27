@@ -16,6 +16,7 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
                 uv: vec![CinematicUv {
                     clock: CinematicClock::Presentation,
                     animation: TextureAnimation {
+                        interpolation: resonance_content::TextureInterpolation::Step,
                         texture: 0,
                         delay_ticks: 0,
                         loop_start: 0,
