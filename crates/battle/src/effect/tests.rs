@@ -779,7 +779,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         effects.advance(&frame, false)?;
         assert!(effects.frames().is_empty());
         frame.cues.clear();
-        Arc::make_mut(&mut frame.models[0].bones)[0] = Transform {
+        Arc::make_mut(&mut frame.models[0].bones).global[0] = Transform {
             translation: [2., 3., 4.],
             ..Default::default()
         }
@@ -788,7 +788,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         let first = effects.frames()[0].clone();
         assert_eq!(first.origin, [102., 13., 24.]);
         assert_eq!(first.model.is_some(), static_model);
-        Arc::make_mut(&mut frame.models[0].bones)[0] = Transform {
+        Arc::make_mut(&mut frame.models[0].bones).global[0] = Transform {
             translation: [30., 40., 50.],
             rotation: [0., 1., 0., 0.],
             scale: [2., 3., 4.],
@@ -839,7 +839,9 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         };
         model.world = Transform::default().matrix();
         model.particle_world = model.world;
-        model.bones = Arc::new(vec![bone(10.), bone(20.)]);
+        model.bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![bone(10.), bone(20.)],
+        ));
         frame.models.push(model);
         frame.cues.push(Cue::Effect(request()));
         effects.advance(&frame, false)?;
@@ -857,7 +859,9 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             );
         }
         frame.cues.clear();
-        frame.models[0].bones = Arc::new(vec![bone(30.), bone(40.)]);
+        frame.models[0].bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![bone(30.), bone(40.)],
+        ));
         effects.advance(&frame, false)?;
         for (index, particle) in effects.frames().iter().enumerate() {
             assert_eq!(particle.owner_bone, first[index].owner_bone);
@@ -1355,6 +1359,7 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
     }])?;
     let mut frame = frame();
     frame.weapons.push(crate::WeaponFrame {
+        attachment: None,
         owner: ActorId(0),
         slot: Some(crate::WeaponSlot(0)),
         visible: true,
@@ -1364,11 +1369,11 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         clip: None,
         frame: 0.,
         world: glam::Mat4::from_translation(glam::Vec3::new(20., 0., 0.)).to_cols_array_2d(),
-        bones: Arc::new(vec![
-            glam::Mat4::from_translation(glam::Vec3::new(0., 3., 0.)).to_cols_array_2d(),
-        ]),
+        bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![glam::Mat4::from_translation(glam::Vec3::new(0., 3., 0.)).to_cols_array_2d()],
+        )),
         links: vec![],
-        texture_scroll: None,
+        texture: None,
     });
     for _ in 0..2 {
         effects.advance(&frame, false)?;

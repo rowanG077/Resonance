@@ -205,7 +205,8 @@ fn volt_body_and_corona_animate_in_prepared_encounter() -> Result<()> {
         corona_poses.push(corona.bones.clone());
         corona_frames.push(corona.frame);
         let (texture, offset) = corona
-            .texture_scroll
+            .texture
+            .map(|t| (t.texture, t.offset))
             .context("missing Volt lightning atlas")?;
         assert_eq!(texture, 0);
         assert_eq!(offset[0], 0.);

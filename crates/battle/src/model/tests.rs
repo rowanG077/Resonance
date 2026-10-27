@@ -1919,11 +1919,13 @@ fn reception_markers_follow_current_placement_for_both_sides() -> Result<()> {
     battle.set_models(models(battle.actors(), [Some(Arc::new(definition))])?);
     let translation = |point| Mat4::from_translation(Vec3::from_array(point)).to_cols_array_2d();
     let model = battle.models.as_mut().unwrap().models[0].as_mut().unwrap();
-    model.shown.bones = Arc::new(vec![
-        translation([-1000.; 3]),
-        translation([-10., 10., -4.]),
-        translation([30., 110., 8.]),
-    ]);
+    model.shown.bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+        vec![
+            translation([-1000.; 3]),
+            translation([-10., 10., -4.]),
+            translation([30., 110., 8.]),
+        ],
+    ));
     for side in [Side::Party, Side::Enemy] {
         battle.actors[0].side = side;
         // Actor-profile capsule dimensions do not replace authored reception markers.
@@ -1947,7 +1949,7 @@ fn reception_markers_follow_current_placement_for_both_sides() -> Result<()> {
     );
     // Ordinary contacts retain placement while using the completed pose.
     let model = battle.models.as_mut().unwrap().models[0].as_mut().unwrap();
-    Arc::make_mut(&mut model.shown.bones)[1][3][0] += 4.;
+    Arc::make_mut(&mut model.shown.bones).global[1][3][0] += 4.;
     for side in [Side::Party, Side::Enemy] {
         battle.actors[0].side = side;
         assert_eq!(

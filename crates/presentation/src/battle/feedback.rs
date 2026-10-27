@@ -6,7 +6,7 @@ use resonance_battle::{
 };
 use resonance_game::battle::feedback::Feedback as Resources;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Feedback {
     shake: Option<Shake>,
     motors: [u8; 4],
@@ -15,6 +15,7 @@ pub(super) struct Feedback {
     random: Random,
 }
 
+#[derive(Clone)]
 struct Shake {
     remaining: u32,
     strength: f32,
@@ -1707,11 +1708,13 @@ mod tests {
                 10., 20., 30.,
             ))
             .to_cols_array_2d(),
-            bones: std::sync::Arc::new(vec![
-                identity,
-                bevy::math::Mat4::from_translation(bevy::math::Vec3::new(3., 4., 5.))
-                    .to_cols_array_2d(),
-            ]),
+            bones: std::sync::Arc::new(resonance_content::animation::pose::Palette::independent(
+                vec![
+                    identity,
+                    bevy::math::Mat4::from_translation(bevy::math::Vec3::new(3., 4., 5.))
+                        .to_cols_array_2d(),
+                ],
+            )),
         });
         feedback.resolve_model_effects(&mut frame)?;
         assert!(

@@ -154,19 +154,20 @@ pub use knockdown::{HitProtection, Protection, ProtectionMode, Stagger};
 pub use ledger::Ledger;
 pub use melee::{MeleeAnchor, MeleeDefinition, MeleeVolume};
 pub use model::{
-    ActorShadowFrame, BodySphere, CommonPose, EffectModelDefinition, EffectModelFrame,
-    MainMotionObservation, ModelDefinition, ModelFrame, ModelMaterial, ModelRequest, ModelSample,
-    ModelSampler, Models, MotionBinding, Playback, Pose, PreparedEffectModel, ReactionMotions,
-    ShadowDefinition, WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback,
-    WeaponSlot, WeaponTextureAnimation,
+    ActorShadowFrame, BodySphere, CommonPose, EffectModelAttachment, EffectModelDefinition,
+    EffectModelFrame, EffectModelParent, MainMotionObservation, ModelDefinition, ModelFrame,
+    ModelMaterial, ModelRequest, ModelSample, ModelSampler, Models, MotionBinding, Playback, Pose,
+    PreparedEffectModel, ReactionMotions, ShadowDefinition, WeaponAttachment, WeaponDefinition,
+    WeaponFrame, WeaponLayerDefinition, WeaponPlayback, WeaponSlot, WeaponTextureAnimation,
+    WeaponTextureFrame,
 };
 #[cfg(feature = "test-support")]
 pub use movement::FixtureMotion;
 pub use movement::{Floor, Hover, Movement};
 pub use outcome::{BattlePhase, DepartureReason, TransitionFrame, TransitionKind};
 pub use particle::{
-    ParticleDefinition, ParticleFrame, ParticleGeometry, ParticleId, ParticleState,
-    ParticleTemplate,
+    ParticleDefinition, ParticleFrame, ParticleGeometry, ParticleId, ParticleOriginAttachment,
+    ParticleState, ParticleTemplate,
 };
 pub use prepare::{
     ActionDefinition, ActionDefinitions, ActionExecution, ActionKey, ActorSetup, PreparedBattle,

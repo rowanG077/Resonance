@@ -7,6 +7,14 @@ use resonance_game::field::FieldPrediction;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Key {
+    Battle {
+        request: u64,
+        revision: u64,
+        tick: u32,
+        input: crate::battle::input::Frame,
+        instant_kill: bool,
+        last_page: bool,
+    },
     Field(
         bevy::ecs::change_detection::Tick,
         resonance_game::field::FieldInput,
@@ -31,6 +39,10 @@ pub(crate) enum Key {
 #[allow(clippy::large_enum_variant)] // Keep scene ownership inline; nested data already uses arenas.
 pub(crate) enum Endpoint {
     Field(FieldPrediction),
+    Battle(
+        crate::battle::prediction::Endpoint,
+        resonance_events::OperationFork,
+    ),
     Hold(resonance_events::OperationFork),
     World(crate::overworld::Scene, resonance_events::OperationFork),
     Title(
@@ -44,7 +56,8 @@ impl Endpoint {
     fn sources_unchanged(&self) -> bool {
         match self {
             Self::Field(next) => next.sources_unchanged(),
-            Self::Hold(sources)
+            Self::Battle(_, sources)
+            | Self::Hold(sources)
             | Self::World(_, sources)
             | Self::Title(_, sources) => sources.sources_unchanged(),
             Self::Menu(_) => true,
@@ -70,7 +83,7 @@ impl Endpoint {
             Self::Field(next) => next.state.as_ref()?.menu.as_ref(),
             Self::World(next, _) => next.session.menu.as_ref(),
             Self::Menu(next) => Some(next),
-            Self::Title(..) | Self::Hold(_) => None,
+            Self::Title(..) | Self::Battle(..) | Self::Hold(_) => None,
         }
     }
 }
@@ -248,6 +261,13 @@ impl Prediction {
 
     fn endpoint(&self) -> Option<&Endpoint> {
         self.endpoint.as_ref().filter(|_| self.active)
+    }
+
+    pub(crate) fn battle(&self) -> Option<&crate::battle::prediction::Endpoint> {
+        match self.endpoint()? {
+            Endpoint::Battle(next, _) => Some(next),
+            _ => None,
+        }
     }
 
     pub(crate) fn world(&self) -> Option<&crate::overworld::Scene> {
@@ -675,6 +695,7 @@ mod tests {
             assert!(p.reuse(key));
             assert!(
                 p.field().is_none()
+                    && p.battle().is_none()
                     && p.menu().is_none()
                     && p.title().is_none()
             );

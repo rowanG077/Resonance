@@ -1014,6 +1014,11 @@ impl Effects {
     /// Consume one completed world update. Drawing only reads the resulting particles.
     /// Sounds and impacts join the scene's other presentation events.
     pub fn advance(&mut self, frame: &BattleFrame, paused: bool) -> Result<Vec<Cue>> {
+        // A held particle keeps its world origin even if its owner's pose changes.
+        // Advancing particles publish their active binding again in Particle::step.
+        for particle in self.particles.values_mut() {
+            particle.frame.origin_attachment = None;
+        }
         #[cfg(feature = "test-support")]
         self.started_programs.clear();
         let opening = frame.cues.iter().any(|cue| {

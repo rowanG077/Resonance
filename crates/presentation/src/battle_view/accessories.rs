@@ -18,7 +18,10 @@ const SPARKLE_PALETTE_TICKS: u32 = 4;
 const SPARKLE_PALETTE_CYCLE: [u8; 8] = [27, 28, 29, 30, 31, 30, 29, 28];
 const MAX_SPARKLES: usize = 256;
 
+#[derive(Clone)]
 pub(super) struct Sparkle {
+    pub id: u64,
+    pub opacity: f32,
     pub position: Vec3,
     pub roll: f32,
     fall_speed: f32,
@@ -31,12 +34,13 @@ impl Sparkle {
     }
 
     pub fn alpha(&self) -> f32 {
-        (self.remaining * 4) as f32 / 255.
+        (self.remaining * 4) as f32 / 255. * self.opacity
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Sparkles {
+    next_id: u64,
     particles: Vec<Sparkle>,
     random: Random,
     parity: usize,
@@ -59,7 +63,13 @@ impl Sparkles {
                 let jitter = Vec3::from_array(
                     [30, 15, 30].map(|range| (self.random.next_u32() as i32 % range) as f32),
                 );
+                self.next_id = self
+                    .next_id
+                    .checked_add(1)
+                    .expect("battle sparkle ID exhausted");
                 self.particles.push(Sparkle {
+                    id: self.next_id,
+                    opacity: 1.,
                     position: position + jitter,
                     roll,
                     fall_speed,
@@ -76,8 +86,9 @@ impl Sparkles {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct State {
-    pub source: ModelAccessory,
+    pub source: std::sync::Arc<ModelAccessory>,
     animation: Option<Animation>,
     update: Option<u64>,
     age: u32,
@@ -85,17 +96,58 @@ pub(super) struct State {
     sparkles_visible: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct Frame {
     pub pass: u8,
     pub world: Matrix,
-    pub bones: Vec<Matrix>,
+    pub bones: pose::Palette,
     pub tint: [u8; 4],
     pub depth_write: bool,
     pub material: resonance_battle::ModelMaterial,
     pub uv: Option<(usize, [f32; 2])>,
 }
 
+/// Resolve placement from the pose being drawn, including interpolated owners.
+pub(super) fn placement(
+    source: &ModelAccessory,
+    body: Option<&resonance_battle::ModelFrame>,
+) -> Result<Mat4> {
+    let local = Mat4::from_cols_array_2d(&source.transform.matrix());
+    let Some(attachment) = source.attachment else {
+        return Ok(local);
+    };
+    let body = body.context("attached model owner is missing")?;
+    let parent = Mat4::from_cols_array_2d(&multiply(
+        body.world,
+        *body
+            .bones
+            .get(attachment)
+            .context("attached model pose is missing")?,
+    ));
+    // Record scale is already applied; inherit only translation and rotation.
+    let (_, rotation, translation) = parent.to_scale_rotation_translation();
+    Ok(Mat4::from_rotation_translation(rotation, translation) * local)
+}
+
 impl State {
+    /// Predict from the committed animation age, holding attachments through
+    /// the same owner cuts as body rendering.
+    pub fn predict(&self, source: &BattleFrame, next: &BattleFrame) -> Result<(Self, Vec<Frame>)> {
+        let continuous = self.source.attachment.is_none()
+            || source
+                .models
+                .iter()
+                .find(|model| model.actor == self.source.owner)
+                .is_some_and(|from| {
+                    next.models
+                        .iter()
+                        .any(|to| super::interpolation::continuous_model(from, to))
+                });
+        let mut future = self.clone();
+        let frames = future.sample(if continuous { next } else { source })?;
+        Ok((future, frames))
+    }
+
     pub fn new(source: ModelAccessory) -> Self {
         let animation = source.motion.as_ref().map(|motion| {
             let mut animation = Animation::new(
@@ -110,7 +162,7 @@ impl State {
             animation
         });
         Self {
-            source,
+            source: std::sync::Arc::new(source),
             animation,
             update: None,
             age: 0,
@@ -139,23 +191,7 @@ impl State {
             return Ok(vec![]);
         }
         let body = body.unwrap();
-        let world = if let Some(attachment) = self.source.attachment {
-            let parent = multiply(
-                body.world,
-                *body
-                    .bones
-                    .get(attachment)
-                    .context("attached model pose is missing")?,
-            );
-            // Native attachments retain their parent's translation and rotation;
-            // the record already includes the actor's model scale.
-            let parent = Mat4::from_cols_array_2d(&parent);
-            let (_, rotation, translation) = parent.to_scale_rotation_translation();
-            Mat4::from_rotation_translation(rotation, translation)
-                * Mat4::from_cols_array_2d(&self.source.transform.matrix())
-        } else {
-            Mat4::from_cols_array_2d(&self.source.transform.matrix())
-        };
+        let world = placement(&self.source, Some(body))?;
         let duration = self
             .source
             .motion
@@ -195,13 +231,10 @@ impl State {
                         .map(|bone| pose::sample_bone(bone.bind, None, 0.))
                         .collect::<Result<Vec<_>>>()?
                 };
-                let mut bones = Vec::with_capacity(local.len());
-                for (bone, value) in self.source.skeleton.bones.iter().zip(local) {
-                    let matrix = value.matrix();
-                    bones.push(bone.parent.map_or(matrix, |parent| {
-                        multiply(bones[usize::from(parent)], matrix)
-                    }));
-                }
+                let bones = pose::Palette::new(
+                    &self.source.skeleton,
+                    local.into_iter().map(|bone| bone.value()).collect(),
+                )?;
                 let mut tint = if self.source.inherit_tint {
                     body.tint
                 } else {
@@ -300,9 +333,9 @@ mod tests {
             )
             .to_cols_array_2d(),
             particle_world: Mat4::IDENTITY.to_cols_array_2d(),
-            bones: Arc::new(vec![
-                Mat4::from_translation(Vec3::X * 2.).to_cols_array_2d(),
-            ]),
+            bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+                vec![Mat4::from_translation(Vec3::X * 2.).to_cols_array_2d()],
+            )),
         });
         let source = ModelAccessory {
             owner,
@@ -354,6 +387,31 @@ mod tests {
     }
 
     #[test]
+    fn predicted_attachments_hold_owner_teleports_and_replacements() -> Result<()> {
+        let (from, source) = fixture()?;
+        let mut state = State::new(source);
+        let current = state.sample(&from)?;
+        for replace in [false, true] {
+            let mut next = from.clone();
+            next.update += 1;
+            next.models[0].world[3][0] += if replace { 10. } else { 1000. };
+            if replace {
+                next.models[0].resource = ResourceId(99);
+            }
+            let (_, predicted) = state.predict(&from, &next)?;
+            assert_eq!(predicted[0].world, current[0].world);
+            assert_eq!(predicted[0].bones, current[0].bones);
+        }
+        let mut next = from.clone();
+        next.update += 1;
+        next.models[0].world[3][0] += 10.;
+        let (_, predicted) = state.predict(&from, &next)?;
+        assert_eq!(predicted[0].world[3][0], current[0].world[3][0] + 10.);
+        assert_eq!(state.sample(&from)?[0].world, current[0].world);
+        Ok(())
+    }
+
+    #[test]
     fn ordinary_attachment_keeps_bind_pose_tint_and_record_scale() -> Result<()> {
         let (mut frame, source) = fixture()?;
         let mut state = State::new(source);
@@ -363,11 +421,11 @@ mod tests {
         assert!(poses[0].depth_write && poses[0].uv.is_none());
         assert_eq!(poses[0].world[3][0], 107.);
         assert_eq!(poses[0].world[0][0], 2.);
-        assert_eq!(poses[0].bones, [Mat4::IDENTITY.to_cols_array_2d()]);
+        assert_eq!(poses[0].bones.global, [Mat4::IDENTITY.to_cols_array_2d()]);
         frame.models[0].visible = false;
         assert!(state.sample(&frame)?.is_empty());
         frame.models[0].visible = true;
-        state.source.visible = false;
+        std::sync::Arc::get_mut(&mut state.source).unwrap().visible = false;
         assert!(state.sample(&frame)?.is_empty());
         Ok(())
     }
@@ -464,9 +522,11 @@ mod tests {
         let wing = Frame {
             pass: 2,
             world: identity,
-            bones: (0..4)
-                .map(|i| Mat4::from_translation(Vec3::X * i as f32 * 100.).to_cols_array_2d())
-                .collect(),
+            bones: pose::Palette::independent(
+                (0..4)
+                    .map(|i| Mat4::from_translation(Vec3::X * i as f32 * 100.).to_cols_array_2d())
+                    .collect(),
+            ),
             tint: [64, 64, 64, 255],
             depth_write: false,
             material: resonance_battle::ModelMaterial::Normal,

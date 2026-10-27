@@ -220,18 +220,16 @@ impl Trails {
                     .get(&trail.resource)
                     .context("missing trail weapon model")?
                     .weapon_style;
+                let weapon = frame
+                    .weapons
+                    .iter()
+                    .find(|weapon| weapon.owner == actor && weapon.slot == Some(slot));
                 ribbon
                     .draws
                     .get(variant)
                     .context("weapon trail was not prepared")?
                     .apply(
-                        ribbon_mesh(
-                            &trail.samples,
-                            &ribbon.material,
-                            size,
-                            trail.highlighted,
-                            trail.fade,
-                        )?,
+                        trail.mesh(ribbon, weapon, size)?,
                         DrawOrder(
                             weapon_layer(order.get(actor)?, Some(slot), style, true),
                             0,
@@ -432,6 +430,27 @@ struct Trail {
     samples: VecDeque<Vec<Vec3>>,
 }
 
+impl Trail {
+    fn mesh(&self, ribbon: &Ribbon, weapon: Option<&WeaponFrame>, size: [u32; 2]) -> Result<Mesh> {
+        // The history advances only on committed ticks. Its leading edge must
+        // still meet the sword's rendered pose between those ticks.
+        let head = weapon
+            .filter(|weapon| {
+                self.remaining > 0 && weapon.visible && weapon.resource == self.resource
+            })
+            .map(|weapon| ribbon.sample(weapon))
+            .transpose()?;
+        ribbon_mesh(
+            &self.samples,
+            head.as_deref(),
+            &ribbon.material,
+            size,
+            self.highlighted,
+            self.fade,
+        )
+    }
+}
+
 impl Ribbon {
     fn sample(&self, weapon: &WeaponFrame) -> Result<Vec<Vec3>> {
         let world = Mat4::from_cols_array_2d(&weapon.world);
@@ -545,6 +564,7 @@ impl Trails {
 
 fn ribbon_mesh(
     samples: &VecDeque<Vec<Vec3>>,
+    head: Option<&[Vec3]>,
     material: &TrailMaterial,
     size: [u32; 2],
     highlighted: bool,
@@ -554,6 +574,7 @@ fn ribbon_mesh(
     ensure!(
         (2..=3).contains(&endpoints)
             && samples.len() >= 2
+            && head.is_none_or(|head| head.len() == endpoints)
             && samples.iter().all(|sample| sample.len() == endpoints)
             && size.iter().all(|&n| n > 0),
         "invalid battle ribbon geometry"
@@ -569,21 +590,28 @@ fn ribbon_mesh(
         material.color.map(|v| f32::from(v) / 128.)
     };
     let mut data = Vertices::default();
+    let sample = |index: usize, row: usize| {
+        if index == 0 {
+            head.unwrap_or(&samples[0])[row]
+        } else {
+            samples[index][row]
+        }
+    };
     for row in 0..endpoints - 1 {
         let top = v + height - row as f32 * dv;
         let bottom = top - dv;
         for column in 0..samples.len() - 1 {
-            let a = &samples[column];
-            let b = &samples[column + 1];
             let point = |row: usize, t: f32| {
-                let start = a[row];
-                let end = b[row];
+                let start = sample(column, row);
+                let end = sample(column + 1, row);
                 let previous = column
                     .checked_sub(1)
-                    .map_or(start * 2. - end, |i| samples[i][row]);
-                let next = samples
-                    .get(column + 2)
-                    .map_or(end * 2. - start, |sample| sample[row]);
+                    .map_or(start * 2. - end, |i| sample(i, row));
+                let next = if column + 2 < samples.len() {
+                    sample(column + 2, row)
+                } else {
+                    end * 2. - start
+                };
                 curved_edge(previous, start, end, next, t)
             };
             let color = |t: f32| {
@@ -672,7 +700,8 @@ mod tests {
             ready: false,
         };
         frame.weapons.push(WeaponFrame {
-            texture_scroll: None,
+            attachment: None,
+            texture: None,
             owner: actor,
             slot: Some(WeaponSlot(0)),
             visible: true,
@@ -682,11 +711,13 @@ mod tests {
             clip: None,
             frame: 0.,
             world: Mat4::from_translation(Vec3::new(10., 20., 30.)).to_cols_array_2d(),
-            bones: Arc::new(vec![
-                Mat4::IDENTITY.to_cols_array_2d(),
-                Mat4::from_translation(Vec3::new(2., 0., 0.)).to_cols_array_2d(),
-                Mat4::from_translation(Vec3::new(0., 2., 0.)).to_cols_array_2d(),
-            ]),
+            bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+                vec![
+                    Mat4::IDENTITY.to_cols_array_2d(),
+                    Mat4::from_translation(Vec3::new(2., 0., 0.)).to_cols_array_2d(),
+                    Mat4::from_translation(Vec3::new(0., 2., 0.)).to_cols_array_2d(),
+                ],
+            )),
             links: vec![],
         });
         let request = Cue::WeaponTrail {
@@ -704,6 +735,7 @@ mod tests {
             let trail = &trails.history[&(actor, WeaponSlot(0))];
             ribbon_mesh(
                 &trail.samples,
+                None,
                 &material,
                 [256, 256],
                 trail.highlighted,
@@ -718,6 +750,45 @@ mod tests {
         };
         assert!(positions.contains(&[12., 20., 30.]));
         assert!(positions.contains(&[14., 20., 30.]));
+        // Render-only sword movement must move the ribbon's leading edge without
+        // adding history samples, consuming duration, or advancing its fade.
+        let trail = &trails.history[&(actor, WeaponSlot(0))];
+        let history = trail.samples.clone();
+        let remaining = trail.remaining;
+        let ribbon = &trails.ribbons[&trail.resource];
+        let mut visual = frame.weapons[0].clone();
+        for angle in [0., 0.25, 0.5, 0.75, 1., 0.25] {
+            visual.world = (Mat4::from_translation(Vec3::new(15., 25., 35.))
+                * Mat4::from_rotation_z(angle))
+            .to_cols_array_2d();
+            let rendered = trail.mesh(ribbon, Some(&visual), [256, 256])?;
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                rendered.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("missing rendered ribbon positions");
+            };
+            let points = ribbon.sample(&visual)?;
+            assert_eq!(positions[0], points[0].to_array());
+            assert_eq!(positions[2], points[1].to_array());
+            assert_eq!(trail.samples, history);
+            assert_eq!(trail.remaining, remaining);
+            assert_eq!(trail.fade, 0);
+        }
+        let fading = Trail {
+            resource: trail.resource,
+            remaining: 0,
+            highlighted: false,
+            fade: 1,
+            samples: history,
+        };
+        assert_eq!(
+            fading
+                .mesh(ribbon, Some(&visual), [256, 256])?
+                .attribute(Mesh::ATTRIBUTE_POSITION),
+            fading
+                .mesh(ribbon, None, [256, 256])?
+                .attribute(Mesh::ATTRIBUTE_POSITION),
+        );
         let Some(VertexAttributeValues::Float32x2(uvs)) = before.attribute(Mesh::ATTRIBUTE_UV_0)
         else {
             panic!("missing ribbon texture coordinates");
@@ -797,7 +868,7 @@ mod tests {
         };
         assert!(positions.iter().all(|p| p[0] >= 300.));
         // A third ribbon endpoint can move while its first two remain fixed.
-        Arc::make_mut(&mut frame.weapons[0].bones)[1][3][2] += 2.;
+        Arc::make_mut(&mut frame.weapons[0].bones).global[1][3][2] += 2.;
         trails.advance(&frame, false)?;
         assert_eq!(trails.history[&(actor, WeaponSlot(0))].samples.len(), 3);
         for _ in 0..30 {

@@ -44,6 +44,7 @@ impl FixtureParticle {
                 resource: crate::ResourceId(0),
                 member: 0,
                 origin,
+                origin_attachment: None,
                 heading: 0.,
                 state,
                 model: None,

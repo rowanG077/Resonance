@@ -168,6 +168,7 @@ impl Fixture {
             audio: None,
         })
         .init_resource::<crate::field_view::Controls>()
+        .init_resource::<crate::field_view::Prediction>()
         .init_resource::<input::Controls>()
         .insert_resource(MenuMemory {
             character: 2,
@@ -1124,5 +1125,226 @@ fn invalid_battle_music_keeps_field_audio_and_state() -> Result<()> {
         fixture.party
     );
     assert!(fixture.request.is_pending());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires freshly cooked battle assets; CPU prediction and model/particle publication only"]
+fn demon_fang_predicts_weapon_trails_without_changing_committed_battle() -> Result<()> {
+    let mut fixture = Fixture::new("demon-fang-attachment")?;
+    fixture.enter_combat()?;
+    let actor = ActorId::from_index(0)?;
+    {
+        let mut owner = fixture.app.world_mut().resource_mut::<Owner>();
+        let Phase::Scene(scene) = &mut owner.phase else {
+            unreachable!()
+        };
+        scene
+            .core
+            .record_technique_acquisition(actor, TechniqueId(1))?;
+        let action = scene
+            .core
+            .prepared_technique(actor, TechniqueId(1))
+            .context("Demon Fang was not prepared")?
+            .action;
+        scene
+            .core
+            .set_control_mode(actor, resonance_battle::Control::Auto)?;
+        ensure!(
+            scene.core.queue_technique(actor, action)?,
+            "Demon Fang was not queued"
+        );
+    }
+    let mut storage = resonance_game::field::PredictionBuffer::new()?;
+    let mut cache = interpolation::Cache::default();
+    let initial_uses = fixture
+        .scene()
+        .core
+        .technique_uses(actor, TechniqueId(1))
+        .unwrap();
+    let mut trail_requested = false;
+    let mut moving_samples = 0;
+    let mut largest_held_gap = 0_f32;
+    let mut checked_joint_offsets = 0;
+    let mut largest_joint_gap = 0_f32;
+    for tick in 0..120 {
+        let scene = fixture.scene();
+        let input = fixture
+            .app
+            .world()
+            .resource::<input::Controls>()
+            .clone()
+            .sample(&scene.settings);
+        let predicted = storage
+            .execute(|| {
+                prediction::predict(scene, &input, false, scene.hud.results_on_last_page())
+            })??
+            .0
+            .context("Demon Fang prediction")?;
+        let from = scene.frame.as_ref().unwrap();
+        trail_requested |= from.cues.iter().any(|cue| {
+            matches!(cue,
+            resonance_battle::Cue::WeaponTrail { actor: owner, .. } if *owner == actor)
+        });
+        if trail_requested {
+            for alpha in [0., 0.25, 0.5, 0.75, 1.] {
+                let (frame, _) = cache.sample((tick, 1), from, &scene.particles, &predicted, alpha);
+                for body in frame.models.iter().filter(|m| m.actor == actor) {
+                    let source = from.models.iter().find(|m| m.actor == actor).unwrap();
+                    let target = predicted
+                        .frame
+                        .models
+                        .iter()
+                        .find(|m| m.actor == actor)
+                        .unwrap();
+                    if !crate::battle_view::interpolation::continuous_model(source, target) {
+                        continue;
+                    }
+                    for (i, joint) in source.bones.joints.iter().enumerate() {
+                        let Some(parent) = joint.parent else { continue };
+                        if target.bones.joints[i].parent != Some(parent) {
+                            continue;
+                        }
+                        let a = Mat4::from_cols_array_2d(&source.bones[parent]);
+                        let b = Mat4::from_cols_array_2d(&target.bones[parent]);
+                        if a.determinant().abs() < 1e-8 || b.determinant().abs() < 1e-8 {
+                            continue;
+                        }
+                        // Check native global matrices independently of the
+                        // local-pose metadata used by render interpolation.
+                        let local_a = (a.inverse() * Mat4::from_cols_array_2d(&source.bones[i]))
+                            .w_axis
+                            .truncate();
+                        let local_b = (b.inverse() * Mat4::from_cols_array_2d(&target.bones[i]))
+                            .w_axis
+                            .truncate();
+                        if !local_a.abs_diff_eq(local_b, 0.0001) {
+                            continue;
+                        }
+                        let expected =
+                            Mat4::from_cols_array_2d(&body.bones[parent]).transform_point3(local_a);
+                        let actual = Mat4::from_cols_array_2d(&body.bones[i]).w_axis.truncate();
+                        assert!(
+                            expected.distance(actual) < 0.002,
+                            "joint {i} changed offset at tick {tick}, alpha {alpha}: {}",
+                            expected.distance(actual)
+                        );
+                        largest_joint_gap = largest_joint_gap.max(expected.distance(actual));
+                        checked_joint_offsets += 1;
+                    }
+                }
+                for weapon in frame
+                    .weapons
+                    .iter()
+                    .filter(|w| w.owner == actor && w.visible)
+                {
+                    let binding = weapon
+                        .attachment
+                        .context("Demon Fang sword lost its attachment")?;
+                    let owner = frame
+                        .models
+                        .iter()
+                        .find(|m| m.actor == actor)
+                        .context("Demon Fang owner pose")?;
+                    assert_eq!(weapon.world, binding.world(owner));
+                    let source = from
+                        .weapons
+                        .iter()
+                        .find(|w| w.owner == actor && w.slot == weapon.slot)
+                        .unwrap();
+                    let tip = |weapon: &resonance_battle::WeaponFrame| {
+                        (Mat4::from_cols_array_2d(&weapon.world)
+                            * Mat4::from_cols_array_2d(weapon.bones.last().unwrap()))
+                        .transform_point3(Vec3::ZERO)
+                    };
+                    let gap = tip(weapon).distance(tip(source));
+                    if gap > 0.01 {
+                        moving_samples += 1;
+                    }
+                    largest_held_gap = largest_held_gap.max(gap);
+                }
+            }
+        }
+        fixture.step(None)?;
+        assert_eq!(predicted.frame, *fixture.scene().frame.as_ref().unwrap());
+        assert_eq!(predicted.particles, fixture.scene().particles);
+    }
+    assert!(
+        fixture
+            .scene()
+            .core
+            .technique_uses(actor, TechniqueId(1))
+            .unwrap()
+            > initial_uses,
+        "Demon Fang did not execute: clock {:?}, activity {:?}",
+        fixture.scene().frame.as_ref().unwrap().clock,
+        fixture.scene().core.activity(actor)
+    );
+    ensure!(
+        trail_requested,
+        "Demon Fang did not request a weapon ribbon"
+    );
+    ensure!(
+        moving_samples > 20,
+        "Demon Fang did not exercise motion between ticks"
+    );
+    assert!(
+        checked_joint_offsets > 1000,
+        "insufficient moving skeleton coverage"
+    );
+    eprintln!(
+        "Demon Fang: {moving_samples} moving sword samples, largest former held-trail gap {largest_held_gap:.3}; {checked_joint_offsets} joint offsets, maximum error {largest_joint_gap:.6}"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires freshly cooked battle assets; CPU prediction and model/particle publication only"]
+fn speculative_battle_visits_match_committed_models_effects_and_rng() -> Result<()> {
+    let mut fixture = Fixture::new("speculative-battle")?;
+    fixture.enter_combat()?;
+    let mut storage = resonance_game::field::PredictionBuffer::new()?;
+    let mut times = Vec::new();
+    let mut peak = 0;
+    for _ in 0..120 {
+        let scene = fixture.scene();
+        if scene.completed.is_some() || !scene.lifecycle.prediction_available() {
+            break;
+        }
+        let before = scene.core.snapshot();
+        let random = scene.core.random_state();
+        let input = fixture
+            .app
+            .world()
+            .resource::<input::Controls>()
+            .clone()
+            .sample(&scene.settings);
+        let last_page = scene.hud.results_on_last_page();
+        let calls = resonance_simulation_memory::system_calls();
+        let start = Instant::now();
+        let (predicted, sources) =
+            storage.execute(|| prediction::predict(scene, &input, false, last_page))??;
+        let predicted = predicted.context("battle endpoint")?;
+        let elapsed = start.elapsed().as_secs_f64() * 1000.;
+        assert_eq!(resonance_simulation_memory::system_calls(), calls);
+        times.push(elapsed);
+        peak = peak.max(storage.used_bytes().into_iter().max().unwrap());
+        assert_eq!(scene.core.snapshot(), before);
+        assert_eq!(scene.core.random_state(), random);
+        assert!(sources.sources_unchanged());
+        fixture.step(None)?;
+        assert_eq!(predicted.frame, *fixture.scene().frame.as_ref().unwrap());
+        assert_eq!(predicted.particles, fixture.scene().particles);
+    }
+    ensure!(times.len() >= 60, "too few battle predictions");
+    times.sort_by(f64::total_cmp);
+    eprintln!(
+        "Battle arena 13, {} predictions: median {:.3} ms, p95 {:.3} ms, max {:.3} ms; peak arena {:.2} MiB; zero system allocator calls",
+        times.len(),
+        times[times.len() / 2],
+        times[times.len() * 95 / 100],
+        times.last().unwrap(),
+        peak as f64 / (1024. * 1024.)
+    );
     Ok(())
 }

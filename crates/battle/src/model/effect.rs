@@ -30,7 +30,26 @@ pub struct EffectModelFrame {
     pub clip: Option<u16>,
     pub frame: f32,
     pub world: Matrix,
-    pub bones: Arc<Vec<Matrix>>,
+    pub attachment: Option<EffectModelAttachment>,
+    pub bones: Arc<resonance_content::animation::pose::Palette>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectModelParent {
+    Actor {
+        actor: crate::ActorId,
+        bone: usize,
+    },
+    Particle {
+        particle: crate::ParticleId,
+        bone: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EffectModelAttachment {
+    pub parent: EffectModelParent,
+    pub local: Matrix,
 }
 
 impl PreparedEffectModel {
@@ -214,7 +233,7 @@ impl PreparedEffectModel {
         secondary: &mut Vec<Simulation>,
         elevation: Option<f32>,
         ground_relative: bool,
-        parent: Option<Matrix>,
+        parent: Option<(EffectModelParent, Matrix)>,
         advance: bool,
     ) -> Result<EffectModelFrame> {
         let state = &particle.state;
@@ -232,28 +251,26 @@ impl PreparedEffectModel {
             position.y += elevation;
         }
         // Attached models inherit the joint's full affine placement, including shear.
+        let local = if particle.owner_bone.is_some() {
+            Mat4::from_scale_rotation_translation(scale, rotation, Vec3::from_array(state.offset))
+        } else {
+            Mat4::IDENTITY
+        };
         let world = parent.map_or_else(
             || Mat4::from_scale_rotation_translation(scale, rotation, position),
-            |parent| {
-                let parent = Mat4::from_cols_array_2d(&parent);
-                if particle.owner_bone.is_some() {
-                    parent
-                        * Mat4::from_scale_rotation_translation(
-                            scale,
-                            rotation,
-                            Vec3::from_array(state.offset),
-                        )
-                } else {
-                    parent
-                }
-            },
+            |(_, parent)| Mat4::from_cols_array_2d(&parent) * local,
         );
         let rotation = if parent.is_some() && world.determinant() != 0. {
             world.to_scale_rotation_translation().1
         } else {
             rotation
         };
-        self.sample_at(world, rotation, secondary, advance)
+        let mut frame = self.sample_at(world, rotation, secondary, advance)?;
+        frame.attachment = parent.map(|(parent, _)| EffectModelAttachment {
+            parent,
+            local: local.to_cols_array_2d(),
+        });
+        Ok(frame)
     }
 
     pub(crate) fn sample_at(
@@ -275,7 +292,7 @@ impl PreparedEffectModel {
             let (layer_secondary, remaining) =
                 simulations.split_at_mut(layer.definition.secondary_motion.len());
             simulations = remaining;
-            bones.extend(layer.sample_pose(world, rotation, layer_secondary, advance)?);
+            bones.append(layer.sample_pose(world, rotation, layer_secondary, advance)?);
         }
         Ok(EffectModelFrame {
             resource: self.definition.resource,
@@ -285,6 +302,7 @@ impl PreparedEffectModel {
                 .as_ref()
                 .map_or(0., |(_, animation, _)| animation.clock.frame),
             world: world.to_cols_array_2d(),
+            attachment: None,
             bones: Arc::new(bones),
         })
     }
@@ -295,17 +313,18 @@ impl PreparedEffectModel {
         rotation: Quat,
         secondary: &mut [Simulation],
         advance: bool,
-    ) -> Result<Vec<Matrix>> {
+    ) -> Result<resonance_content::animation::pose::Palette> {
         let mut pose = if let Some((_, animation, _)) = &self.animation {
             animation.pose(&self.definition.skeleton, [false; 3])?.0
         } else {
-            self.definition.skeleton.bind_pose()?
+            resonance_content::animation::pose::Palette::bind(&self.definition.skeleton)?
         };
         if self.animation.is_some() && !self.definition.secondary_motion.is_empty() {
+            let mut driven = pose.global.clone();
             secondary::apply(
                 &self.definition.secondary_motion,
                 secondary,
-                &mut pose.global,
+                &mut driven,
                 secondary::Placement {
                     world: world.to_cols_array_2d(),
                     acceleration: Vec3::ZERO,
@@ -313,8 +332,9 @@ impl PreparedEffectModel {
                 },
                 advance,
             )?;
+            pose.set_globals(driven);
         }
-        Ok(pose.global)
+        Ok(pose)
     }
 }
 

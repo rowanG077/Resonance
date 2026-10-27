@@ -1,8 +1,9 @@
 //! Particle motion and lifetime.
 #[cfg(feature = "test-support")]
 pub mod observed;
-use crate::{ActorId, BattleFrame, Effects, geometry::rotate};
+use crate::{ActorId, BattleFrame, EffectModelParent, Effects, geometry::rotate};
 use anyhow::{Context, Result, ensure};
+use resonance_content::animation::Matrix;
 use resonance_content::battle_effect::{UvAnimation, UvChange};
 use std::sync::Arc;
 
@@ -10,6 +11,19 @@ use std::sync::Arc;
 pub struct ParticleId(pub(crate) i32);
 
 pub use resonance_content::battle_effect::{ParticleGeometry, ParticleState, ParticleTemplate};
+
+/// A sampled origin follows position only, without inheriting the parent's rotation or scale.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParticleOriginAttachment {
+    pub follow: crate::EffectFollow,
+    pub model_ground_relative: bool,
+}
+
+impl ParticleOriginAttachment {
+    pub fn position(self, frame: &BattleFrame) -> Option<[f32; 3]> {
+        self.follow.particle_position(frame)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ParticleDefinition {
@@ -45,6 +59,8 @@ pub struct ParticleFrame {
     pub resource: crate::ResourceId,
     pub member: u16,
     pub origin: [f32; 3],
+    /// Bone or weapon binding sampled this update; absent while its clock is held.
+    pub origin_attachment: Option<ParticleOriginAttachment>,
     pub heading: f32,
     pub state: ParticleState,
     pub model: Option<crate::EffectModelFrame>,
@@ -85,7 +101,7 @@ impl Particle {
     fn step(
         &mut self,
         followed_origin: Option<[f32; 3]>,
-        model_parent: Option<resonance_content::animation::Matrix>,
+        model_parent: Option<(EffectModelParent, Matrix)>,
     ) -> Result<Option<crate::EffectRequest>> {
         let fresh = self.age == 0;
         if fresh {
@@ -113,6 +129,20 @@ impl Particle {
             add(&mut state.acceleration, self.definition.data.jerk);
         }
         let mut child_member = None;
+        self.frame.origin_attachment = followed_origin
+            .and(self.follow)
+            .filter(|follow| {
+                self.frame.owner_bone.is_none()
+                    && model_parent.is_none()
+                    && matches!(
+                        follow,
+                        crate::EffectFollow::Bone { .. } | crate::EffectFollow::Weapon { .. }
+                    )
+            })
+            .map(|follow| ParticleOriginAttachment {
+                follow,
+                model_ground_relative: self.definition.data.model_ground_relative,
+            });
         if let Some(origin) = followed_origin {
             self.frame.origin = origin;
         }
@@ -261,7 +291,7 @@ impl Particle {
 
     fn sample_model(
         &mut self,
-        parent: Option<resonance_content::animation::Matrix>,
+        parent: Option<(EffectModelParent, Matrix)>,
         advance: bool,
     ) -> Result<()> {
         if let Some(model) = &self.model {
@@ -440,6 +470,7 @@ impl Effects {
             resource: definition.resource,
             member: definition.member,
             origin,
+            origin_attachment: None,
             heading,
             state,
             model: None,
@@ -497,7 +528,7 @@ impl Effects {
         &self,
         id: ParticleId,
         frame: &BattleFrame,
-    ) -> Result<Option<resonance_content::animation::Matrix>> {
+    ) -> Result<Option<(EffectModelParent, Matrix)>> {
         let particle = &self.particles[&id];
         if let Some(bone) = particle
             .frame
@@ -517,18 +548,22 @@ impl Effects {
                 .bones
                 .get(usize::from(bone))
                 .context("model particle owner bone is unavailable")?;
-            return Ok(Some(
+            return Ok(Some((
+                EffectModelParent::Actor {
+                    actor: particle.frame.owner,
+                    bone: usize::from(bone),
+                },
                 (glam::Mat4::from_cols_array_2d(&model.world)
                     * glam::Mat4::from_cols_array_2d(joint))
                 .to_cols_array_2d(),
-            ));
+            )));
         }
-        let Some((parent, joint)) = self.particles[&id].model_parent else {
+        let Some((parent_id, joint)) = self.particles[&id].model_parent else {
             return Ok(None);
         };
         let parent = self
             .particles
-            .get(&parent)
+            .get(&parent_id)
             .context("model attachment parent expired")?;
         let bone = parent
             .model
@@ -544,10 +579,14 @@ impl Effects {
             .bones
             .get(bone)
             .context("model attachment joint has no pose")?;
-        Ok(Some(
+        Ok(Some((
+            EffectModelParent::Particle {
+                particle: parent_id,
+                bone,
+            },
             (glam::Mat4::from_cols_array_2d(&pose.world) * glam::Mat4::from_cols_array_2d(joint))
                 .to_cols_array_2d(),
-        ))
+        )))
     }
 
     pub(crate) fn set_particle_model(

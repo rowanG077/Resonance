@@ -73,6 +73,7 @@ fn thrown_weapon_uses_current_equipment_and_retains_existing_projectiles() -> Re
         )?;
     let mut frame = frame();
     frame.weapons.push(crate::WeaponFrame {
+        attachment: None,
         owner: ActorId(0),
         slot: Some(crate::WeaponSlot(0)),
         visible: false,
@@ -82,9 +83,11 @@ fn thrown_weapon_uses_current_equipment_and_retains_existing_projectiles() -> Re
         clip: None,
         frame: 0.,
         world: glam::Mat4::IDENTITY.to_cols_array_2d(),
-        bones: Arc::new(vec![]),
+        bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![],
+        )),
         links: vec![],
-        texture_scroll: None,
+        texture: None,
     });
     effects.advance(&frame, true)?;
     let first = spawn(&mut effects)?;
@@ -212,7 +215,23 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
     assert!(effects.attach_particle_model(child, parent, 1).is_err());
     effects.attach_particle_model(child, parent, 0)?;
     effects.advance_particles(&frame())?;
+    let parent_id = parent;
     let parent = effects.particles[&parent].frame.model.as_ref().unwrap();
+    assert_eq!(
+        effects.particles[&child]
+            .frame
+            .model
+            .as_ref()
+            .unwrap()
+            .attachment,
+        Some(crate::EffectModelAttachment {
+            parent: crate::EffectModelParent::Particle {
+                particle: parent_id,
+                bone: 0
+            },
+            local: glam::Mat4::IDENTITY.to_cols_array_2d(),
+        })
+    );
     let expected = glam::Mat4::from_cols_array_2d(&parent.world)
         * glam::Mat4::from_cols_array_2d(&parent.bones[0]);
     // Nonuniform parent scale and joint rotation produce shear.
@@ -257,7 +276,9 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
         &crate::tests::actor(crate::Side::Enemy),
     )?
     .shown;
-    owner.bones = Arc::new(vec![expected.to_cols_array_2d()]);
+    owner.bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+        vec![expected.to_cols_array_2d()],
+    ));
     frame.models.push(owner);
     for tick in 1..=2 {
         let world = glam::Mat4::from_translation(glam::Vec3::new(tick as f32 * 20., 0., 0.));
@@ -274,6 +295,21 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
             glam::Vec3::new(2., 3., 4.),
         );
         assert_eq!(
+            effects.particles[&id]
+                .frame
+                .model
+                .as_ref()
+                .unwrap()
+                .attachment,
+            Some(crate::EffectModelAttachment {
+                parent: crate::EffectModelParent::Actor {
+                    actor: ActorId(0),
+                    bone: 0
+                },
+                local: local.to_cols_array_2d(),
+            })
+        );
+        assert_eq!(
             effects.particles[&id].frame.model.as_ref().unwrap().world,
             (world * expected * local).to_cols_array_2d(),
         );
@@ -281,7 +317,9 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
     let before = effects.particles[&id].frame.clone();
     let age = effects.particles[&id].age;
     let movement = glam::Mat4::from_translation(glam::Vec3::new(0., 7., 0.));
-    frame.models[0].bones = Arc::new(vec![(movement * expected).to_cols_array_2d()]);
+    frame.models[0].bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+        vec![(movement * expected).to_cols_array_2d()],
+    ));
     effects.advance_particles_filtered(&frame, true)?;
     let after = &effects.particles[&id];
     assert_eq!(after.age, age);

@@ -23,6 +23,7 @@ const BOSS_ALIAS: i32 = 17;
 const SOLDIER_ALIASES: [i32; 2] = [100, 101];
 const SOLDIER_RESOURCE: u32 = 0x2005d;
 
+#[derive(Clone)]
 struct ActorModel {
     alias: i32,
     id: ActorId,
@@ -34,6 +35,7 @@ struct ActorModel {
     selection: Option<Selection>,
 }
 
+#[derive(Clone)]
 pub(super) struct State {
     actors: Vec<ActorModel>,
     combat_count: usize,

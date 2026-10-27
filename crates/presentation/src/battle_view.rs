@@ -3,6 +3,7 @@
 use resonance_events::effect::Blend;
 use resonance_game::battle::encounter::{RenderEffect, RenderInstances, RenderModel, RenderTrail};
 mod effects;
+pub(super) mod interpolation;
 mod model_particles;
 pub(super) use model_particles::Stats as ModelParticleStats;
 mod accessories;
@@ -364,6 +365,13 @@ enum Key {
     Accessory(ActorId, u8, bool),
 }
 
+#[derive(Clone, Copy)]
+struct TextureFrame {
+    layers: [u8; 4],
+    tick: u64,
+    next: Option<(u64, f32)>,
+}
+
 pub(super) struct View {
     diagnostics: Diagnostics,
     stage: Stage,
@@ -387,6 +395,7 @@ pub(super) struct View {
     prepared: bool,
     active: bool,
     held_pose: Vec<(Entity, GlobalTransform)>,
+    sampling: interpolation::Cache,
 }
 
 fn actor_visible(frame: &BattleFrame, actor: ActorId) -> bool {
@@ -591,6 +600,7 @@ impl View {
             prepared: false,
             active: false,
             held_pose: Vec::new(),
+            sampling: Default::default(),
         })
     }
 
@@ -964,6 +974,7 @@ impl View {
     pub fn apply(
         &mut self,
         (frame, particles): (&BattleFrame, &[resonance_battle::ParticleFrame]),
+        sampling_input: interpolation::Input<'_>,
         commands: &mut Commands,
         globals: &mut Query<&mut GlobalTransform>,
         camera_transforms: &mut Query<&mut Transform>,
@@ -1003,46 +1014,11 @@ impl View {
             camera.eye[2] - camera.focus[2],
         )
         .length();
-        let previous_scenery_tick = self.scenery_tick;
-        if self.scenery_update != Some(frame.update) {
-            if !frame.clock.paused() {
-                self.scenery_tick += self
-                    .scenery_update
-                    .map_or(0, |last| frame.update.saturating_sub(last));
-            }
-            self.scenery_update = Some(frame.update);
-        }
-        let scenery_poses = self
-            .scenery_models
-            .iter()
-            .map(|(&slot, model)| model.pose(self.scenery_tick).map(|pose| (slot, pose)))
-            .collect::<Result<BTreeMap<_, _>>>()?;
-        let mut accessory_frames = Vec::new();
-        let mut independent_positions = Vec::new();
-        for accessory in &mut self.accessories {
-            for pose in accessory.sample(frame)? {
-                let key = if accessory.source.attachment.is_none() {
-                    let index = independent_positions.len();
-                    let [x, y, z, _] = pose.world[3];
-                    independent_positions.push([x, y, z]);
-                    Key::Independent(index)
-                } else {
-                    Key::Accessory(
-                        accessory.source.owner,
-                        pose.pass,
-                        matches!(
-                            accessory.source.style,
-                            resonance_game::battle::encounter::AccessoryStyle::Ordinary
-                        ),
-                    )
-                };
-                accessory_frames.push((accessory.source.resource, key, pose));
-            }
-        }
-        let order = ActorOrder::new(frame, &independent_positions)?;
-        let scenery_elapsed = self.scenery_tick - previous_scenery_tick;
-        let camera_position = Vec2::new(camera.eye[0], camera.eye[2]);
-        let camera_focus = Vec2::new(camera.focus[0], camera.focus[2]);
+        let mut sampling = std::mem::take(&mut self.sampling);
+        sampling.sample(self, &sampling_input, frame)?;
+        let scenery_poses = &sampling.scenery_poses;
+        let accessory_frames = &sampling.accessories;
+        let order = ActorOrder::new(frame, &sampling.independent)?;
         for (slot, part) in &self.scenery {
             let result = (|| -> Result<()> {
                 let attachment = match self.stage.scenery_bones.get(slot) {
@@ -1052,33 +1028,7 @@ impl View {
                 let world = stage_world
                     * attachment
                     * Mat4::from_translation(Vec3::from_array(part.spec.scene.translation));
-                let mut color = self.stage_color.color();
-                if let Some(fade) = &self.stage.scenery_fade
-                    && let Some(&minimum) = fade.minimum_alpha.get(slot)
-                {
-                    let anchor = world.transform_point3(Vec3::ZERO);
-                    // Only nearer scenery can obscure the combat focus. Off-axis
-                    // scenery may be in front of the focus but still farther away.
-                    let target = if scenery_in_foreground(
-                        camera_position,
-                        camera_focus,
-                        Vec2::new(anchor.x, anchor.z),
-                    ) {
-                        minimum
-                    } else {
-                        u8::MAX
-                    };
-                    let alpha = self.scenery_alpha.entry(*slot).or_insert(u8::MAX);
-                    let step = u64::from(fade.step)
-                        .saturating_mul(scenery_elapsed)
-                        .min(u64::from(u8::MAX)) as u8;
-                    *alpha = if *alpha > target {
-                        alpha.saturating_sub(step).max(target)
-                    } else {
-                        alpha.saturating_add(step).min(target)
-                    };
-                    color[3] = (u16::from(color[3]) * u16::from(*alpha) / 255) as u8;
-                }
+                let color = sampling.color(*slot, sampling_input.alpha);
                 part.visible(commands, color[3] != 0);
                 part.apply(world, &scenery_poses[slot], globals)?;
                 let material = if frame.hourglass_remaining != 0 {
@@ -1101,7 +1051,10 @@ impl View {
                         .texture_animations
                         .get(slot)
                         .map_or(&[], Vec::as_slice),
-                    self.scenery_tick,
+                    (
+                        self.scenery_tick,
+                        (sampling.next_tick, sampling_input.alpha),
+                    ),
                     self.stage.fog.as_ref(),
                     fog_distance,
                     surfaces,
@@ -1171,7 +1124,18 @@ impl View {
                 model.depth_write,
                 &model.world,
                 &model.bones,
-                Some((model.texture_layers, model.texture_tick)),
+                Some(TextureFrame {
+                    layers: model.texture_layers,
+                    tick: model.texture_tick,
+                    next: sampling_input
+                        .next
+                        .and_then(|next| {
+                            next.models.iter().find(|next| {
+                                next.actor == model.actor && next.resource == model.resource
+                            })
+                        })
+                        .map(|next| (next.texture_tick, sampling_input.alpha)),
+                }),
                 model.light,
                 None,
                 &order,
@@ -1193,14 +1157,14 @@ impl View {
                 &model.bones,
                 None,
                 None,
-                model.texture_scroll,
+                model.texture.as_ref().map(|t| (t.texture, t.offset)),
                 &order,
                 commands,
                 globals,
                 surfaces,
             )?;
         }
-        for &(resource, key, ref wing) in &accessory_frames {
+        for &(resource, key, ref wing) in accessory_frames {
             self.model(
                 resource,
                 key,
@@ -1285,10 +1249,7 @@ impl View {
             (frame, &actor_shadows),
             &self.models,
             particles,
-            self.accessories
-                .iter()
-                .find(|wing| wing.source.sparkle_texture().is_some())
-                .map_or(&[], accessories::State::sparkles),
+            &sampling.sparkles,
             Mat3::from_quat(camera_pose.rotation),
             meshes,
             commands,
@@ -1331,6 +1292,7 @@ impl View {
             .extend_from_slice(self.model_particles.held_pose());
         self.held_pose
             .push((camera_entity, *globals.get(camera_entity)?));
+        self.sampling = sampling;
         Ok(())
     }
 
@@ -1351,9 +1313,9 @@ impl View {
         depth_write: bool,
         world: &Matrix,
         bones: &[Matrix],
-        texture_layers: Option<([u8; 4], u64)>,
+        texture_layers: Option<TextureFrame>,
         light: Option<[f32; 3]>,
-        texture_scroll: Option<(usize, [f32; 2])>,
+        texture_offset: Option<(usize, [f32; 2])>,
         actor_order: &ActorOrder,
         commands: &mut Commands,
         globals: &mut Query<&mut GlobalTransform>,
@@ -1410,14 +1372,13 @@ impl View {
                         depth_write,
                         surfaces,
                     )?;
-                    if let Some((texture, uv)) = texture_scroll {
+                    if let Some((texture, uv)) = texture_offset {
                         part.scroll_uv(material, depth_write, Some(texture), uv, surfaces)?;
                     }
-                    if let Some((layers, tick)) = texture_layers {
+                    if let Some(texture) = texture_layers {
                         part.expression(
                             &model.texture_channels,
-                            layers,
-                            tick,
+                            texture,
                             material,
                             depth_write,
                             surfaces,
@@ -1963,7 +1924,7 @@ impl Part {
         &self,
         appearance: ModelMaterial,
         animations: &[resonance_content::battle_stage::TextureAnimation],
-        tick: u64,
+        (tick, next): (u64, (u64, f32)),
         fog: Option<&resonance_content::battle_stage::Fog>,
         fog_distance: f32,
         surfaces: &mut Assets<TitleSurface>,
@@ -1985,7 +1946,18 @@ impl Part {
                 binding
                     .as_ref()
                     .and_then(|binding| animations.iter().find(|a| a.texture == binding.texture))
-                    .map_or([0.; 2], |animation| animation.offset(tick))
+                    .map_or([0.; 2], |animation| {
+                        let from = animation.offset(tick);
+                        if matches!(
+                            animation.motion,
+                            resonance_content::battle_stage::TextureMotion::Scroll { .. }
+                        ) {
+                            let to = animation.offset(next.0);
+                            std::array::from_fn(|i| from[i] + (to[i] - from[i]) * next.1)
+                        } else {
+                            from
+                        }
+                    })
             });
             let uv_offsets = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
             let surface = surfaces.get(handle).context("missing stage material")?;
@@ -2005,8 +1977,7 @@ impl Part {
     fn expression(
         &self,
         channels: &[resonance_content::battle_profile::TextureChannel],
-        layers: [u8; 4],
-        tick: u64,
+        TextureFrame { layers, tick, next }: TextureFrame,
         appearance: ModelMaterial,
         depth_write: bool,
         surfaces: &mut Assets<TitleSurface>,
@@ -2029,7 +2000,18 @@ impl Part {
                         .iter()
                         .find(|animation| animation.texture == binding.texture)
                 }) {
-                    let offset = animation.offset(tick);
+                    let mut offset = animation.offset(tick);
+                    if animation.is_scroll()
+                        && let Some((tick, alpha)) = next
+                    {
+                        let to = animation.offset(tick);
+                        let value = crate::field_view::prediction::uv_offsets(
+                            Vec4::new(offset[0], offset[1], 0., 0.),
+                            Vec4::new(to[0], to[1], 0., 0.),
+                            alpha,
+                        );
+                        offset = [value.x, value.y];
+                    }
                     uv[channel * 2] += offset[0];
                     uv[channel * 2 + 1] += offset[1];
                 }
@@ -2930,7 +2912,17 @@ mod tests {
                 depth,
                 &mut surfaces,
             )?;
-            body.expression(&channels, [2, 3, 0, 0], 0, material, depth, &mut surfaces)?;
+            body.expression(
+                &channels,
+                TextureFrame {
+                    layers: [2, 3, 0, 0],
+                    tick: 0,
+                    next: None,
+                },
+                material,
+                depth,
+                &mut surfaces,
+            )?;
             let surface = surfaces
                 .get(&body.appearance_materials(material, depth)?[0])
                 .unwrap();
@@ -2992,8 +2984,11 @@ mod tests {
         ];
         body.expression(
             &channels,
-            [2, 3, 0, 0],
-            1,
+            TextureFrame {
+                layers: [2, 3, 0, 0],
+                tick: 1,
+                next: None,
+            },
             ModelMaterial::Normal,
             false,
             &mut surfaces,

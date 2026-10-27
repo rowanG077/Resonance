@@ -4,7 +4,7 @@ use resonance_battle::{
     conditions::{Condition, PHYSICAL_AILMENTS, POISON},
 };
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Appearance {
     colors: Vec<ActorColors>,
 }
@@ -226,7 +226,8 @@ mod tests {
             })
             .collect();
         frame.weapons.push(WeaponFrame {
-            texture_scroll: None,
+            attachment: None,
+            texture: None,
             owner: ids[0],
             slot: Some(resonance_battle::WeaponSlot(0)),
             visible: true,

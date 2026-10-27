@@ -68,26 +68,20 @@ impl Model {
             })
             .collect()
     }
-    pub fn pose(&self, tick: u64) -> Result<Vec<resonance_content::animation::Matrix>> {
+    pub fn pose(&self, tick: u64) -> Result<resonance_content::animation::pose::Palette> {
         let Some(motion) = &self.motion else {
-            return Ok(self.skeleton.bind_pose()?.global);
+            return resonance_content::animation::pose::Palette::bind(&self.skeleton);
         };
         let time = if motion.duration_frames > 0. {
             (tick as f32 * self.rate).rem_euclid(motion.duration_frames)
         } else {
             0.
         };
-        let matrices = resonance_content::animation::pose::sample(&self.skeleton, motion, time)?
-            .iter()
-            .map(|bone| bone.matrix())
-            .collect::<Vec<_>>();
-        Ok(self
-            .skeleton
-            .pose_with_matrices(
-                self.skeleton.bones.iter().map(|bone| bone.bind).collect(),
-                &matrices,
-            )?
-            .global)
+        let local = resonance_content::animation::pose::sample(&self.skeleton, motion, time)?
+            .into_iter()
+            .map(|bone| bone.value())
+            .collect();
+        resonance_content::animation::pose::Palette::new(&self.skeleton, local)
     }
 }
 

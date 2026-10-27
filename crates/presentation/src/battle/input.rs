@@ -35,9 +35,11 @@ struct NavigationPolicy {
 #[derive(Clone, Copy, Default)]
 struct DirectionRepeat {
     held: i8,
+    pressed: i8,
+    released: i8,
     remaining: u8,
 }
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 struct Direction {
     held: i8,
     pressed: i8,
@@ -45,18 +47,34 @@ struct Direction {
     step: i8,
 }
 impl DirectionRepeat {
+    fn gather(&mut self, held: i8) {
+        if held != self.held {
+            if self.held != 0 {
+                self.released = self.held;
+            }
+            if held != 0 {
+                self.pressed = held;
+                self.remaining = NAVIGATION.initial_delay;
+            }
+            self.held = held;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.pressed = 0;
+        self.released = 0;
+    }
+
     fn sample(&mut self, held: i8) -> Direction {
-        let changed = held != self.held;
+        self.gather(held);
         let mut sample = Direction {
             held,
-            pressed: if changed { held } else { 0 },
-            released: if changed { self.held } else { 0 },
+            pressed: self.pressed,
+            released: self.released,
             step: 0,
         };
-        self.held = held;
-        if changed {
-            self.remaining = NAVIGATION.initial_delay;
-            sample.step = held;
+        if self.pressed != 0 {
+            sample.step = self.pressed;
         } else if held != 0 {
             self.remaining = self.remaining.saturating_sub(1);
             if self.remaining == 0 {
@@ -64,6 +82,7 @@ impl DirectionRepeat {
                 self.remaining = NAVIGATION.repeat_interval;
             }
         }
+        self.clear();
         sample
     }
 }
@@ -90,22 +109,29 @@ impl LocalControls {
             button.pressed = false;
             button.released = false;
         }
+        for direction in &mut self.navigation {
+            direction.clear();
+        }
     }
 
-    fn directions(&mut self) -> [Direction; 6] {
+    fn held_directions(&self) -> [i8; 6] {
         let digital = [
             i8::from(self.extra[1].held) - i8::from(self.extra[0].held),
             i8::from(self.extra[3].held) - i8::from(self.extra[2].held),
         ];
         // Battle reads sticks only; shared menu navigation also accepts the D-pad.
-        let held = [
+        [
             direction(self.stick[0]),
             direction(self.stick[1]),
             direction(self.c_stick[0]),
             direction(self.c_stick[1]),
             (direction(self.stick[0]) + digital[0]).signum(),
             (direction(self.stick[1]) + digital[1]).signum(),
-        ];
+        ]
+    }
+
+    fn directions(&mut self) -> [Direction; 6] {
+        let held = self.held_directions();
         std::array::from_fn(|axis| self.navigation[axis].sample(held[axis]))
     }
 
@@ -188,6 +214,10 @@ impl LocalControls {
         }
         self.stick = quantize(sample.stick);
         self.c_stick = quantize(sample.c_stick);
+        let held = self.held_directions();
+        for (direction, held) in self.navigation.iter_mut().zip(held) {
+            direction.gather(held);
+        }
     }
 }
 
@@ -229,7 +259,7 @@ fn menu_input(
     .find_map(|(active, action)| active.then_some(action))
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 struct ControllerSample {
     attack: BattleButton,
     technique: BattleButton,
@@ -311,7 +341,8 @@ impl ControllerSample {
 }
 
 /// One immutable sample is shared by command, results and actor readers.
-pub(super) struct Frame {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Frame {
     slots: [ControllerSample; 4],
     connected: [bool; 4],
 }
@@ -417,7 +448,7 @@ impl Frame {
 
 /// Gamepad slots survive query reordering and other pads disconnecting.
 /// Keyboard always shares the first controller slot.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 pub(super) struct Controls {
     slots: [LocalControls; 4],
     pads: [Option<Entity>; 4],
@@ -596,7 +627,6 @@ pub(super) fn gather(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ControllerPort;
 
     fn actor(slot: ControllerPort, control: Control) -> Actor {
         let mut actor = crate::test_support::actor(Side::Party, 100, 20);
@@ -613,6 +643,69 @@ mod tests {
                 resonance_battle::Activity::Idle,
             )
         }))
+    }
+
+    #[test]
+    fn battle_direction_taps_survive_until_fixed_update() {
+        for (sample, expected) in [
+            (
+                Sample {
+                    stick: Vec2::NEG_X,
+                    ..Default::default()
+                },
+                MenuAction::Left,
+            ),
+            (
+                Sample {
+                    stick: Vec2::Y,
+                    ..Default::default()
+                },
+                MenuAction::Up,
+            ),
+            (
+                Sample {
+                    c_stick: Vec2::X,
+                    ..Default::default()
+                },
+                MenuAction::NextPosition,
+            ),
+            (
+                Sample {
+                    c_stick: Vec2::NEG_Y,
+                    ..Default::default()
+                },
+                MenuAction::PageDown,
+            ),
+            (
+                Sample {
+                    extra_held: [true, false, false, false, false],
+                    ..Default::default()
+                },
+                MenuAction::Left,
+            ),
+        ] {
+            let mut controls = LocalControls::default();
+            controls.gather(sample);
+            let predicted = controls.clone().sample(&CustomizeSettings::default());
+            assert_eq!(predicted.menu, Some(expected));
+            for _ in 0..60 {
+                controls.gather(Sample::default());
+                assert_eq!(
+                    controls.clone().sample(&CustomizeSettings::default()).menu,
+                    Some(expected)
+                );
+            }
+            let actual = controls.sample(&CustomizeSettings::default());
+            assert_eq!(actual.menu, predicted.menu);
+            assert_eq!(actual.pressed_direction, predicted.pressed_direction);
+            for _ in 0..60 {
+                assert_eq!(controls.sample(&CustomizeSettings::default()).menu, None);
+            }
+            controls.gather(sample);
+            controls.discard();
+            controls.gather(Sample::default());
+            assert_eq!(controls.sample(&CustomizeSettings::default()).menu, None);
+        }
     }
 
     #[test]

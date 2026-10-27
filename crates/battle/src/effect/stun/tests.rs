@@ -38,7 +38,9 @@ fn fixture() -> Result<(Effects, BattleFrame)> {
             root_translation: [0.; 3],
             world,
             particle_world: world,
-            bones: Arc::new(vec![glam::Mat4::IDENTITY.to_cols_array_2d()]),
+            bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+                vec![glam::Mat4::IDENTITY.to_cols_array_2d()],
+            )),
         }],
         ..Default::default()
     };

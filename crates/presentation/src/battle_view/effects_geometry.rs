@@ -185,7 +185,17 @@ pub(super) fn particle(
     if !data.positions.is_empty() {
         let offset = Vec3::from_array(particle.state.offset);
         if let Some(matrix) = bone_world {
-            let normal_matrix = Mat3::from_mat4(matrix).inverse().transpose();
+            let basis = Mat3::from_mat4(matrix);
+            // Cofactors give the inverse-transpose direction without division,
+            // so authored zero-scale poses can still flatten attached particles.
+            let mut normal_matrix = Mat3::from_cols(
+                basis.y_axis.cross(basis.z_axis),
+                basis.z_axis.cross(basis.x_axis),
+                basis.x_axis.cross(basis.y_axis),
+            );
+            if basis.determinant() < 0. {
+                normal_matrix = -normal_matrix;
+            }
             ensure!(
                 matrix.is_finite() && normal_matrix.is_finite(),
                 "invalid particle bone matrix"

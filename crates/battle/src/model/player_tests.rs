@@ -118,15 +118,22 @@ fn spell_release_animates_caster_attachments_without_advancing_textures_or_peers
                     "attachment {:?} of {:?}",
                     weapon.slot, weapon.owner
                 );
-                assert_eq!(weapon.texture_scroll, before.texture_scroll);
+                assert_eq!(weapon.texture, before.texture);
             }
         }
     }
     frame.update += 1;
     models.advance(&mut frame, BattleClock::Running, false)?;
     for (weapon, before) in frame.weapons.iter().zip(&attachments) {
-        let (texture, [u, v]) = before.texture_scroll.unwrap();
-        assert_eq!(weapon.texture_scroll, Some((texture, [u + 0.001, v])));
+        let (texture, [u, v]) = before
+            .texture
+            .as_ref()
+            .map(|t| (t.texture, t.offset))
+            .unwrap();
+        assert_eq!(
+            weapon.texture.as_ref().map(|t| (t.texture, t.offset)),
+            Some((texture, [u + 0.001, v]))
+        );
     }
     Ok(())
 }
