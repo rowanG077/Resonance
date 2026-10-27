@@ -52,6 +52,7 @@ enum Movement {
     Push,
     Pull,
 }
+#[derive(Clone)]
 enum Phase {
     Holding,
     Moving {
@@ -60,6 +61,7 @@ enum Phase {
         movement: Movement,
     },
 }
+#[derive(Clone)]
 struct Grip {
     block: i32,
     instance: u64,
@@ -68,7 +70,7 @@ struct Grip {
     facing: Direction,
     phase: Phase,
 }
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Blocks {
     grip: Option<Grip>,
 }

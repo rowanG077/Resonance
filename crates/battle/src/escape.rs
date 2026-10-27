@@ -34,7 +34,7 @@ pub struct EscapeFrame {
     pub gauge: i16,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct State {
     requested: bool,
     gauge: i16,

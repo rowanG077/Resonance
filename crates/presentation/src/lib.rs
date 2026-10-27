@@ -2,6 +2,9 @@
 mod diagnostics;
 #[cfg(test)]
 mod test_support;
+#[global_allocator]
+static ALLOCATOR: resonance_simulation_memory::Allocator = resonance_simulation_memory::Allocator;
+
 use anyhow::{Context, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},

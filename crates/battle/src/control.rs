@@ -263,7 +263,7 @@ impl NormalState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Controller {
     combo_input: ControlInput,
     /// Technique selected from the Tech page, independent of buffered combo input.

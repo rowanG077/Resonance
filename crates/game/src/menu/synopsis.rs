@@ -3,7 +3,7 @@ use resonance_content::menu_data::{
     SYNOPSIS_COUNT, SYNOPSIS_LIST_ROWS, SYNOPSIS_TEXT_ROWS, SynopsisEntry,
 };
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Synopsis {
     #[serde(flatten)]
     pub transition: Transition,

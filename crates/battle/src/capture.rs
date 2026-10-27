@@ -16,7 +16,7 @@ struct Link {
     release_hitstun: Option<u16>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct State {
     held_by: Option<Link>,
     held_victim: Option<ActorId>,

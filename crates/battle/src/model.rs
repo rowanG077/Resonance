@@ -1879,6 +1879,7 @@ pub struct ModelSample {
 
 /// Independent presentation playback using the same poses and attachments as combat.
 /// Sampling never changes the live battle's actor or animation state.
+#[derive(Clone)]
 pub struct ModelSampler(Model);
 impl ModelSampler {
     pub fn new(definition: Arc<ModelDefinition>, id: ActorId, actor: &Actor) -> Result<Self> {

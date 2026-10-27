@@ -151,6 +151,7 @@ impl PreparedSummon {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ActiveSummon {
     arrival: [f32; 3],
     heading: f32,

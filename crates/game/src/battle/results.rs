@@ -206,8 +206,9 @@ pub trait Presentation {
     fn request(&mut self, kind: Request, results: Option<&Results>, battle: &Battle) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub struct Candidate {
-    setup: Setup,
+    setup: Arc<Setup>,
     party: Party,
     active_order: QuickOrder,
     /// Shared menu pages see only actors currently present in battle.
@@ -639,7 +640,7 @@ impl Candidate {
         }
         let menu_actors = setup.actors.clone();
         Ok(Self {
-            setup,
+            setup: Arc::new(setup),
             party,
             active_order: QuickOrder::Cancel,
             menu_party: None,

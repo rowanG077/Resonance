@@ -16,7 +16,7 @@ pub enum Origin {
     Items,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Rename {
     pub focus: Focus,
     pub origin: Origin,

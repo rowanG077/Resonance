@@ -3,7 +3,7 @@ use super::*;
 use resonance_content::model_preview::ModelPreview;
 
 /// Page movement and the independently fading, retained catalogue model.
-#[derive(Default, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct View {
     pub page_fade: u8,
     pub page_closing: bool,
@@ -42,6 +42,7 @@ pub enum PreviewId {
     Figurine(u16),
 }
 
+#[derive(Clone)]
 pub struct Preview<'a> {
     pub id: PreviewId,
     pub model: &'a ModelPreview,

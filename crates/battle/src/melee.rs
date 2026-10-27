@@ -82,6 +82,7 @@ impl MeleeDefinition {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Window {
     pub definition: Arc<MeleeDefinition>,
     pub remaining: u16,

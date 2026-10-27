@@ -16,6 +16,7 @@ mod conditions;
 pub mod crafting;
 mod movement;
 pub mod navigation;
+mod prediction;
 mod prompt;
 pub mod replay;
 mod save_point;
@@ -23,6 +24,7 @@ pub mod shop;
 pub(crate) mod skit;
 mod treasure;
 pub use checkpoint::FieldCheckpoint;
+pub use prediction::{FieldPrediction, PredictionBuffer};
 pub use prompt::{ActionPrompt, FieldAction};
 pub use skit::Playback as SkitPlayback;
 pub use skit::SkitPrompt;
@@ -61,7 +63,7 @@ pub struct FieldEntry {
     pub camera: Option<resonance_events::camera::EntryCamera>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FieldInput {
     /// Physical held buttons and any taps latched between simulation updates.
     pub held_buttons: Buttons,
@@ -73,12 +75,26 @@ pub struct FieldInput {
     pub skip_dialogue: bool,
     /// Held page-scroll direction: up +1, down -1 (right stick / Page Up/Down).
     pub scroll_direction: i8,
+    /// Page Up/Down presses retained until the next gameplay update.
+    pub scroll_pressed: [bool; 2],
     /// Held model-viewer controls: rotation and zoom (right stick).
     pub preview_direction: [f32; 2],
 }
 impl FieldInput {
     pub fn pressed(self, button: Button) -> bool {
         self.pressed_buttons.contains(button)
+    }
+
+    /// Held and latched navigation, shared by menus, shops and crafting.
+    pub(crate) fn navigation(self) -> [(bool, bool); 6] {
+        [
+            (self.direction[0] < -0.5, self.pressed(Button::Left)),
+            (self.direction[0] > 0.5, self.pressed(Button::Right)),
+            (self.direction[1] > 0.5, self.pressed(Button::Up)),
+            (self.direction[1] < -0.5, self.pressed(Button::Down)),
+            (self.scroll_direction > 0, self.scroll_pressed[0]),
+            (self.scroll_direction < 0, self.scroll_pressed[1]),
+        ]
     }
 }
 
@@ -1633,6 +1649,9 @@ fn start_with_entry(
 
 #[cfg(test)]
 mod tests {
+    #[global_allocator]
+    static ALLOCATOR: resonance_simulation_memory::Allocator =
+        resonance_simulation_memory::Allocator;
     #[test]
     fn scenery_and_actors_share_external_clips_without_replacing_autoplay() {
         let mut resources = ResourceLibrary::default();
@@ -1913,6 +1932,204 @@ mod tests {
             }
         }
         panic!("dialogue did not start and finish speaking");
+    }
+
+    #[test]
+    fn prediction_runs_the_next_vm_tick_without_advancing_the_live_script() {
+        let mut code = vec![4, 0, 0, 0];
+        native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+        native(&mut code, NativeCall::SetEventBit, &[123]);
+        code.push(0x20ff);
+        let mut field = session(runtime(code, Default::default()));
+        let pending = field.events.pending_operations();
+        for _ in 0..10 {
+            let mut fork = resonance_events::OperationFork::default();
+            let mut branch = field.events.fork_for_prediction(&mut fork);
+            branch.step().unwrap();
+            assert!(branch.world.event_flags.contains(&123));
+            assert_eq!(field.events.tick(), 0);
+            assert!(!field.events.world.event_flags.contains(&123));
+            assert_eq!(field.events.pending_operations(), pending);
+        }
+        field.step(FieldInput::default()).unwrap();
+        assert!(field.events.world.event_flags.contains(&123));
+    }
+
+    #[test]
+    fn predictions_use_fresh_inputs_and_match_committed_movement_with_collision() {
+        let mut field = empty_session();
+        field.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0,
+            vertices: vec![[-1000., -1000., 0.], [1000., -1000., 0.], [0., 1000., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        field.events.world.controlled_actor = 1;
+        field.events.world.input_enabled = true;
+        field.events.world.insert_actor(1, Actor::new(1, [0.; 3]));
+        let mut obstacle = Actor::new(2, [80., 0., 0.]);
+        obstacle.radius = 25.;
+        obstacle.collidable = true;
+        field.events.world.insert_actor(2, obstacle);
+        let original_random = field.events.world.random_state;
+        let original_gameplay_random = field.events.world.gameplay_random;
+        let positive = FieldInput {
+            direction: [1., 0.],
+            ..Default::default()
+        };
+        let negative = FieldInput {
+            direction: [-1., 0.],
+            ..Default::default()
+        };
+        let mut storage = PredictionBuffer::new().unwrap();
+        let allocation_counts = resonance_simulation_memory::system_calls();
+        let right = storage.predict(&field, positive).unwrap().state.unwrap();
+        let left = storage.predict(&field, negative).unwrap().state.unwrap();
+        assert!(right.events.world.actors[&1].position[0] > 0.);
+        assert!(left.events.world.actors[&1].position[0] < 0.);
+        assert_eq!(field.events.world.actors[&1].position, [0.; 3]);
+        assert_eq!(field.events.tick(), 0);
+        assert_eq!(field.events.world.random_state, original_random);
+        assert_eq!(field.events.world.gameplay_random, original_gameplay_random);
+        drop(right);
+        drop(left);
+        assert_eq!(
+            resonance_simulation_memory::system_calls(),
+            allocation_counts
+        );
+        for _ in 0..40 {
+            // Many rendered frames must not change the next authoritative result.
+            let before = field.events.world.actors[&1].position;
+            let allocation_counts = resonance_simulation_memory::system_calls();
+            for input in [positive, negative, positive, FieldInput::default()] {
+                drop(storage.predict(&field, input).unwrap());
+                assert_eq!(field.events.world.actors[&1].position, before);
+            }
+            let predicted = storage.predict(&field, positive).unwrap().state.unwrap();
+            assert_eq!(
+                resonance_simulation_memory::system_calls(),
+                allocation_counts
+            );
+            field.step(positive).unwrap();
+            assert_eq!(predicted.events.tick(), field.events.tick());
+            assert_eq!(
+                predicted.events.world.actors[&1].position,
+                field.events.world.actors[&1].position
+            );
+            assert_eq!(
+                predicted.events.world.actors[&1].heading,
+                field.events.world.actors[&1].heading
+            );
+        }
+        assert!(field.events.world.actors[&1].position[0] < 80.);
+    }
+
+    #[test]
+    fn menu_predictions_use_fixed_slots_while_field_time_is_paused() {
+        let mut field = empty_session();
+        field.menu = Some(crate::menu::Menu::new(
+            crate::menu::Page::Slots(crate::menu::Mode::Load),
+            None,
+            false,
+        ));
+        let mut storage = PredictionBuffer::new().unwrap();
+        for _ in 0..40 {
+            let tick = field.events.tick();
+            let menu_tick = field.menu.as_ref().unwrap().tick;
+            let counts = resonance_simulation_memory::system_calls();
+            let mut prediction = None;
+            for _ in 0..4 {
+                prediction = storage
+                    .predict(&field, FieldInput::default())
+                    .unwrap()
+                    .state;
+            }
+            assert_eq!(counts, resonance_simulation_memory::system_calls());
+            assert_eq!(field.menu.as_ref().unwrap().tick, menu_tick);
+            let next = prediction.unwrap();
+            assert_eq!(next.events.tick(), tick);
+            field.step(FieldInput::default()).unwrap();
+            assert_eq!(
+                next.menu.as_ref().unwrap().tick,
+                field.menu.as_ref().unwrap().tick
+            );
+            assert_eq!(
+                next.menu.as_ref().unwrap().foreground_fade(),
+                field.menu.as_ref().unwrap().foreground_fade()
+            );
+        }
+    }
+
+    #[test]
+    fn a_predicted_scene_handoff_is_discarded_without_dispatching_it() {
+        let mut code = vec![4, 0, 0, 0];
+        native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+        native(&mut code, NativeCall::ChangeField, &[340, 10, 20, 30, 90]);
+        code.push(0x20ff);
+        let mut field = session(runtime(code, Default::default()));
+        let mut storage = PredictionBuffer::new().unwrap();
+        let allocation_counts = resonance_simulation_memory::system_calls();
+        for _ in 0..8 {
+            assert!(
+                storage
+                    .predict(&field, FieldInput::default())
+                    .unwrap()
+                    .state
+                    .is_none()
+            );
+            assert!(field.events.world.field_transition.is_none());
+            assert_eq!(field.events.tick(), 0);
+        }
+        assert_eq!(
+            resonance_simulation_memory::system_calls(),
+            allocation_counts
+        );
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(
+            field.events.world.field_transition.as_ref().unwrap().map,
+            340
+        );
+    }
+
+    #[test]
+    fn predicting_dialogue_completion_preserves_live_tokens_and_input() {
+        let mut field = choice_session();
+        for _ in 0..100 {
+            field.step(FieldInput::default()).unwrap();
+        }
+        let tokens: Vec<_> = field
+            .events
+            .world
+            .dialogue
+            .values()
+            .map(|d| (d.operation.clone(), d.operation.progress().outcome))
+            .collect();
+        assert!(!tokens.is_empty());
+        let tick = field.events.tick();
+        let audio = format!("{:?}", field.events.world.audio_commands);
+        let mut storage = PredictionBuffer::new().unwrap();
+        let allocation_counts = resonance_simulation_memory::system_calls();
+        for _ in 0..8 {
+            storage
+                .predict(
+                    &field,
+                    FieldInput {
+                        pressed_buttons: [Button::Accept].into(),
+                        skip_dialogue: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            resonance_simulation_memory::system_calls(),
+            allocation_counts
+        );
+        assert_eq!(field.events.tick(), tick);
+        assert_eq!(format!("{:?}", field.events.world.audio_commands), audio);
+        for (operation, outcome) in tokens {
+            assert_eq!(operation.progress().outcome, outcome);
+        }
     }
 
     #[test]

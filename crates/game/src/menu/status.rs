@@ -2,7 +2,7 @@ use super::*;
 use resonance_content::appearance;
 use resonance_events::party::Member;
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Status {
     pub details: bool,
     pub title_focus: bool,

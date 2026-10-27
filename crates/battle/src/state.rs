@@ -777,7 +777,7 @@ pub use resonance_content::random::Random;
 
 /// Mutually exclusive native work owned by an actor. Physical movement and
 /// released effects have independent lifetimes.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) enum ActorTask {
     #[default]
     None,
@@ -879,6 +879,7 @@ pub(crate) const TARGET_SETTLE_UPDATES: u16 = 120;
 
 /// State owned by one actor throughout the battle. Public actor values and model
 /// poses stay separate so gameplay and animation can borrow them independently.
+#[derive(Clone)]
 pub(crate) struct ActorRuntime {
     pub(crate) combo: crate::action_selection::Combo,
     pub(crate) control: Option<crate::control::Controller>,
@@ -922,6 +923,7 @@ impl ActorRuntime {
     }
 }
 
+#[derive(Clone)]
 pub struct Battle {
     pub(crate) runtime: Vec<ActorRuntime>,
     #[cfg(feature = "test-support")]

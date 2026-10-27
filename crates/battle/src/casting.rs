@@ -42,6 +42,7 @@ pub enum CastPhase {
     Released,
 }
 
+#[derive(Clone)]
 pub(crate) enum CastingRun {
     Starting,
     Running(CastRun),
@@ -377,6 +378,7 @@ enum CastStage {
 
 /// One cast owns its policy until recovery. The released spell is a separate
 /// resident, so interrupting its caster never cancels an already released spell.
+#[derive(Clone)]
 pub(crate) struct CastRun {
     pub(crate) held: bool,
     pub(crate) remaining: u32,

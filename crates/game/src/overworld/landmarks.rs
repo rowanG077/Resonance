@@ -50,6 +50,7 @@ pub struct Contact {
     pub blocked: bool,
 }
 
+#[derive(Clone)]
 pub struct Locations {
     pub(super) definitions: Arc<Landmarks>,
     pub(super) guideposts: Arc<Vec<Guidepost>>,

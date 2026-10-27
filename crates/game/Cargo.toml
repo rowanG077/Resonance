@@ -8,6 +8,7 @@ test-support = ["resonance-battle/test-support"]
 
 [dependencies]
 resonance-battle.workspace = true
+resonance-simulation-memory.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 sha2.workspace = true

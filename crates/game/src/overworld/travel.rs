@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Input {
     /// Camera-relative right/forward, normalized to [-1,1]. In vehicles these
     /// are steering/pitch; forward propulsion belongs to throttle.

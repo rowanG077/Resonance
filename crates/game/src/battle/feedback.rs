@@ -4,7 +4,7 @@ use resonance_battle::{
 };
 use std::collections::BTreeMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Feedback {
     pub actors: Vec<ActorFeedback>,
     pub casting: BTreeMap<resonance_battle::ActionKey, CastingFeedback>,
@@ -35,6 +35,7 @@ pub struct Feedback {
     pub landing: Option<EffectAppearance>,
 }
 
+#[derive(Clone)]
 pub struct CastingFeedback {
     pub catalogue: TechniqueId,
     pub chant_voice: Option<Sound>,
@@ -61,7 +62,7 @@ impl CastingFeedback {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ActorFeedback {
     pub acquisition_motion: Option<MotionBinding>,
     pub overlimit: Option<OverLimitFeedback>,
@@ -74,18 +75,21 @@ pub struct ActorFeedback {
     pub knockdown: Option<Sound>,
 }
 
+#[derive(Clone)]
 pub struct OverLimitFeedback {
     pub appearance: EffectAppearance,
     pub bone: u8,
     pub scale: f32,
 }
 
+#[derive(Clone)]
 pub struct BreakfallFeedback {
     pub effect: EffectAppearance,
     pub voice: Option<Sound>,
     pub sound: Option<Sound>,
 }
 
+#[derive(Clone)]
 pub struct RescueFeedback {
     pub motion: Option<MotionBinding>,
     pub expression: Option<[u8; 4]>,

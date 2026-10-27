@@ -62,6 +62,16 @@ pub struct Playback {
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
 }
 impl Playback {
+    fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            events: self.events.fork_for_prediction(fork),
+            dialogue: self
+                .dialogue
+                .iter()
+                .map(|(&slot, player)| (slot, player.fork_for_prediction(fork)))
+                .collect(),
+        }
+    }
     fn step(&mut self, confirm: bool, accelerate: bool) -> Result<()> {
         use resonance_events::input::{Button, Buttons};
         self.events.world.input.sample(
@@ -144,6 +154,26 @@ pub(super) struct Sequence {
     audio: Vec<resonance_events::AudioCommand>,
 }
 impl Sequence {
+    // Starting a different event changes resource and operation ownership.
+    pub(super) fn prediction_available(&self) -> bool {
+        !matches!(self.phase, Phase::RescueReady)
+    }
+    pub(super) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            phase: self.phase,
+            playback: self
+                .playback
+                .as_ref()
+                .map(|playback| playback.fork_for_prediction(fork)),
+            rescue: self.rescue.clone(),
+            party: self.party.clone(),
+            boss: self.boss,
+            scenes: self.scenes.clone(),
+            formation: self.formation.clone(),
+            reserve: self.reserve,
+            audio: self.audio.clone(),
+        }
+    }
     pub(super) fn new(
         plan: Plan,
         party: Party,

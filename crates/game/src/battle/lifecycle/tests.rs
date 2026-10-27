@@ -513,3 +513,56 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
     );
     Ok(())
 }
+
+#[test]
+fn speculative_lifecycle_matches_real_visits_without_publishing_state() -> Result<()> {
+    for defeated in [None, Some(Side::Party), Some(Side::Enemy)] {
+        let mut live = fixture(defeated)?;
+        let mut display = Display::default();
+        for tick in 0..180 {
+            if !live.lifecycle.prediction_available() {
+                break;
+            }
+            let before = live.battle.snapshot();
+            let party = serde_json::to_value(live.candidate.persistent_party())?;
+            let random = live.battle.random_state();
+            let mut fork = resonance_events::OperationFork::default();
+            let mut lifecycle = live.lifecycle.fork_for_prediction(&mut fork);
+            let mut battle = live.battle.clone();
+            let mut candidate = live.candidate.clone();
+            let input = || Input {
+                battle: BattleInput {
+                    paused: tick % 7 == 0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let predicted = lifecycle.step(
+                &mut battle,
+                input(),
+                &mut candidate,
+                &mut Display::default(),
+            )?;
+            assert_eq!(live.battle.snapshot(), before);
+            assert_eq!(live.battle.random_state(), random);
+            assert_eq!(
+                serde_json::to_value(live.candidate.persistent_party())?,
+                party
+            );
+            assert!(fork.sources_unchanged());
+            let committed = live.lifecycle.step(
+                &mut live.battle,
+                input(),
+                &mut live.candidate,
+                &mut display,
+            )?;
+            assert_eq!(predicted, committed);
+            assert_eq!(battle.ledger(), live.battle.ledger());
+            assert_eq!(
+                serde_json::to_value(candidate.persistent_party())?,
+                serde_json::to_value(live.candidate.persistent_party())?
+            );
+        }
+    }
+    Ok(())
+}

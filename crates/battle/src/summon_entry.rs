@@ -39,6 +39,7 @@ struct Placement {
     resume: Option<MotionBinding>,
 }
 
+#[derive(Clone)]
 struct Entry {
     actor: ActorId,
     target: ActorId,
@@ -82,7 +83,7 @@ impl Flash {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct State {
     entry: Option<Entry>,
     generation: u64,

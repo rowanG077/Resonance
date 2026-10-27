@@ -13,7 +13,7 @@ fn preview_step(axis: f32) -> f32 {
     raw.signum() * (raw.abs() - 15.).max(0.) / 20.
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct MonsterList {
     pub row: usize,
     pub variant: usize,

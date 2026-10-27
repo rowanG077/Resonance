@@ -229,6 +229,7 @@ impl crate::Battle {
     }
 }
 
+#[derive(Clone)]
 pub struct Models {
     pub(super) models: Vec<Option<Model>>,
     equipment: BTreeMap<(ActorId, u16), Vec<Arc<WeaponDefinition>>>,
@@ -240,6 +241,7 @@ pub struct Models {
     weapon_overrides: BTreeMap<ActorId, SavedWeapons>,
 }
 
+#[derive(Clone)]
 struct SavedWeapons {
     action: Option<crate::ActionId>,
     ordinary: Vec<Weapon>,

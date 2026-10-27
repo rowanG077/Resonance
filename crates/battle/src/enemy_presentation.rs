@@ -34,6 +34,7 @@ pub struct EnemyPresentation {
     pub speaker_model: Option<ResourceId>,
 }
 
+#[derive(Clone)]
 struct Opening {
     actor: ActorId,
     definition: OpeningDefinition,
@@ -74,6 +75,7 @@ impl Opening {
     }
 }
 
+#[derive(Clone)]
 struct Enemy {
     actor: ActorId,
     voice_ticks: u16,
@@ -81,12 +83,13 @@ struct Enemy {
     finished: bool,
 }
 
+#[derive(Clone)]
 enum Hold {
     Voice(u16),
     Release,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct State {
     enemies: Vec<Enemy>,
     opening: Option<Opening>,

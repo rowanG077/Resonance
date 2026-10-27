@@ -1179,7 +1179,7 @@ fn stealing_consumes_each_enemy_once_even_when_inventory_is_full() -> Result<()>
     assert_eq!(candidate.setup.enemies[0].reward.drops, drops);
     // A guaranteed attempt cannot create an absent steal item.
     candidate.stolen_enemies.clear();
-    candidate.setup.enemies[0].steal = None;
+    Arc::get_mut(&mut candidate.setup).unwrap().enemies[0].steal = None;
     assert!(
         candidate
             .steal(StealRequest {
@@ -1189,7 +1189,9 @@ fn stealing_consumes_each_enemy_once_even_when_inventory_is_full() -> Result<()>
             .is_none()
     );
     // Rover can take Gald without an item; capacity still consumes the attempt.
-    candidate.setup.enemies[0].reward.gald = 127;
+    Arc::get_mut(&mut candidate.setup).unwrap().enemies[0]
+        .reward
+        .gald = 127;
     candidate.party.gald = 99_999_995;
     let rover = StealRequest {
         guaranteed: true,
@@ -1202,7 +1204,9 @@ fn stealing_consumes_each_enemy_once_even_when_inventory_is_full() -> Result<()>
     assert_eq!(candidate.setup.enemies[0].reward.gald, 127);
 
     candidate.stolen_enemies.remove(&second);
-    candidate.setup.enemies[1].reward.gald = 127;
+    Arc::get_mut(&mut candidate.setup).unwrap().enemies[1]
+        .reward
+        .gald = 127;
     candidate.party.gald = 500;
     candidate.party.items.insert(10, 20);
     assert_eq!(

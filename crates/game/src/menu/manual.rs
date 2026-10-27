@@ -1,7 +1,7 @@
 use super::*;
 use resonance_content::menu_data::{ManualChapter, ManualTopic};
 
-#[derive(Default, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct Manual {
     pub page_fade: u8,
     pub page_closing: bool,

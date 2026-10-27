@@ -50,6 +50,7 @@ pub struct ParticleFrame {
     pub model: Option<crate::EffectModelFrame>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Particle {
     pub definition: Arc<ParticleDefinition>,
     pub frame: ParticleFrame,

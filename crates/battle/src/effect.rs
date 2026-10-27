@@ -162,6 +162,7 @@ pub struct EffectRequest {
     pub scale: f32,
     pub tint: EffectTint,
 }
+#[derive(Clone)]
 pub(crate) struct Active {
     appearance: EffectAppearance,
     definition: Arc<EffectDefinition>,
@@ -226,6 +227,7 @@ impl Active {
 }
 
 /// Cosmetic animation owned by the scene, independent of mutable gameplay state.
+#[derive(Clone)]
 pub struct Effects {
     pub(crate) banks: BTreeMap<ResourceId, EffectBank>,
     poison: Option<EffectAppearance>,
@@ -251,6 +253,7 @@ pub struct Effects {
     recorded_births: recorded::Births,
 }
 
+#[derive(Clone)]
 pub struct PassiveEffect {
     pub actor: ActorId,
     pub appearance: EffectAppearance,
@@ -261,6 +264,7 @@ pub struct PassiveEffect {
     pub weapon: Option<ResourceId>,
 }
 
+#[derive(Clone)]
 struct Passive {
     effect: PassiveEffect,
     remaining: u16,
@@ -268,11 +272,13 @@ struct Passive {
     was_idle: bool,
 }
 
+#[derive(Clone)]
 struct OverLimitAura {
     appearance: EffectAppearance,
     anchors: Vec<Option<(u8, f32)>>,
 }
 
+#[derive(Clone)]
 struct Ambient {
     appearance: EffectAppearance,
     interval: u16,

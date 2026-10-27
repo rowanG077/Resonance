@@ -9,7 +9,7 @@ pub enum Focus {
     Cooks,
     Recipes,
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum Content {
     Meal(Meal),
     Notice(Notice),
@@ -47,7 +47,7 @@ impl Content {
         }
     }
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum Notice {
     #[serde(rename = "full")]
     Full,
@@ -65,13 +65,13 @@ impl Notice {
         }
     }
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct Popup {
     pub content: Content,
     pub active: bool,
     pub opacity: u8,
 }
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Cooking {
     #[serde(flatten)]
     pub transition: super::Transition,

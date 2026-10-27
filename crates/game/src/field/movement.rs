@@ -20,7 +20,7 @@ pub(super) fn body_blocks_step(
 }
 
 /// Carry momentum across sliding ground, including movement from walking onto it.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct PlayerMovement {
     instance: Option<u64>,
     position: [f32; 2],

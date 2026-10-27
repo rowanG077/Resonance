@@ -22,6 +22,7 @@ pub struct Performance {
 }
 
 /// A result performance has one update clock and a short, ordered list of changes.
+#[derive(Clone)]
 pub struct Playing {
     actor: ActorId,
     performance: Performance,

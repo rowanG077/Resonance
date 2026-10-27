@@ -35,13 +35,14 @@ pub struct TransitionFrame {
     pub alpha: u8,
 }
 
+#[derive(Clone)]
 struct Transition {
     frame: TransitionFrame,
     kind: TransitionKind,
     speed: u8,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Terminal {
     pub result: Option<BattleResult>,
     // Complete one camera update when recognizing results. Later ending updates only rebuild

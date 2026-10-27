@@ -105,6 +105,7 @@ pub struct RecordedInputs {
     pub positioning: Option<Vec<Positioning>>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Inputs {
     origin: u32,
     owner: ActorId,

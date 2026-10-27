@@ -239,6 +239,7 @@ pub(crate) enum Rebound {
     Bounce,
 }
 
+#[derive(Clone)]
 pub(crate) struct Projectile {
     pub definition: Arc<ProjectileDefinition>,
     pub action: ActionId,

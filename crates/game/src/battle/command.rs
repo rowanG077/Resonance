@@ -224,13 +224,13 @@ pub struct Step {
     pub paused: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Session {
     admission: Admission,
     page: Page,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Page {
     Strip,
     Items(items::Owner),
@@ -265,7 +265,7 @@ impl Page {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Owner {
     session: Option<Session>,
     selected: Command,
