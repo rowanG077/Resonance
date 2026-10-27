@@ -78,6 +78,7 @@ impl Artwork {
     pub(super) fn render_fade(
         &mut self,
         world: &resonance_events::GameWorld,
+        prediction: Option<&crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -85,7 +86,28 @@ impl Artwork {
             .fade_layer
             .as_mut()
             .context("field fade was not prepared")?;
-        layer.update_mesh(batch(world, self.resolution), [1, 1], meshes)?;
+        let mut draw = batch(world, self.resolution);
+        if let Some((next, alpha)) =
+            prediction.and_then(|p| p.field().map(|f| (&f.events.world, p.alpha)))
+        {
+            let next = batch(next, self.resolution);
+            // Keep a quad at a zero-alpha endpoint so fade completion stays continuous.
+            if draw.positions.is_empty() && !next.positions.is_empty() {
+                draw = next.clone();
+                for color in &mut draw.colors {
+                    color[3] = 0.;
+                }
+            }
+            let mut next = next;
+            if next.positions.is_empty() && !draw.positions.is_empty() {
+                next = draw.clone();
+                for color in &mut next.colors {
+                    color[3] = 0.;
+                }
+            }
+            draw.interpolate(&next, alpha);
+        }
+        layer.update_mesh(draw, [1, 1], meshes)?;
         layer.show(true, commands);
         Ok(())
     }

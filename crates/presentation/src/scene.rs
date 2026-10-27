@@ -24,6 +24,8 @@ pub(super) struct AnimatedPart {
     bone_names: Vec<String>,
     binding: Option<super::sparse_animation::Binding>,
     schedule: Vec<SceneClip>,
+    pose_key: Option<(bevy::ecs::change_detection::Tick, Option<u64>)>,
+    poses: Vec<super::sparse_animation::affine::PoseEndpoint>,
 }
 
 #[derive(Component)]
@@ -135,6 +137,8 @@ impl FieldAssets {
                     bone_names: part.bone_names.clone(),
                     binding: None,
                     schedule: part.clips.clone(),
+                    pose_key: None,
+                    poses: Vec::new(),
                 })
                 .observe(
                     |event: On<bevy::world_serialization::WorldInstanceReady>,
@@ -205,7 +209,8 @@ pub(super) fn bind_animated(
 
 pub(super) fn animate_field(
     events: Option<Res<Events>>,
-    roots: Query<(Entity, &AnimatedPart)>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
+    mut roots: Query<(Entity, &mut AnimatedPart)>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<super::sparse_animation::affine::Locals>,
     mut visibility: Query<&mut Visibility>,
@@ -214,10 +219,11 @@ pub(super) fn animate_field(
     let Some(events) = events else {
         return;
     };
-    for (root, part) in &roots {
-        let Some(binding) = &part.binding else {
+    let _timer = crate::performance::smoothing_profile::Timer::start(2);
+    for (root, mut part) in &mut roots {
+        if part.binding.is_none() {
             continue;
-        };
+        }
         let mut visibility = visibility.get_mut(root).unwrap();
         let (clip, elapsed, repeat) = if part.autoplay {
             (0, events.0.tick() as f32 / ANIMATION_HZ, true)
@@ -249,6 +255,39 @@ pub(super) fn animate_field(
             ) / ANIMATION_HZ;
             (clip, sampled, false)
         };
+        let future = prediction
+            .as_ref()
+            .and_then(|p| p.title().map(|(_, e)| (e, p.alpha)))
+            .and_then(|(next, alpha)| {
+                let duration = part.schedule[clip].duration_seconds;
+                let elapsed = if part.autoplay {
+                    next.tick() as f32 / ANIMATION_HZ
+                } else {
+                    let current = events.0.world.actor_for_resource(part.resource)?;
+                    let actor = next.world.actor_for_resource(part.resource)?;
+                    if current.instance != actor.instance || current.visible != actor.visible {
+                        return None;
+                    }
+                    let mut transform = transforms.get_mut(root).ok()?;
+                    transform.translation = Vec3::from_array(current.position)
+                        .lerp(Vec3::from_array(actor.position), alpha);
+                    let a = current.animation.as_ref()?;
+                    let b = actor.animation.as_ref()?;
+                    if (a.source, a.resource, a.slot, a.start_tick)
+                        != (b.source, b.resource, b.slot, b.start_tick)
+                    {
+                        return None;
+                    }
+                    b.sample(next.tick(), 1, duration * ANIMATION_HZ) / ANIMATION_HZ
+                };
+                let time = if repeat && elapsed > duration {
+                    let phase = elapsed % duration;
+                    if phase == 0. { duration } else { phase }
+                } else {
+                    elapsed.min(duration)
+                };
+                Some((time, alpha))
+            });
         let spec = &part.schedule[clip];
         // Include the final key before wrapping to the next animation cycle.
         let time = if repeat && elapsed > spec.duration_seconds {
@@ -264,9 +303,27 @@ pub(super) fn animate_field(
         let Some(clip) = clips.get(&part.clips[clip]) else {
             continue;
         };
-        binding
-            .sample(&clip.0, time, &mut transforms, &mut affine)
-            .expect("validated title animation must evaluate");
+        let key = (
+            events.last_changed(),
+            future.map(|_| prediction.as_ref().unwrap().counts()[0]),
+        );
+        if part.pose_key != Some(key) {
+            let AnimatedPart { binding, poses, .. } = &mut *part;
+            binding
+                .as_ref()
+                .unwrap()
+                .sample_endpoints(
+                    (&clip.0, time),
+                    (&clip.0, future.map_or(time, |(time, _)| time)),
+                    poses,
+                )
+                .expect("validated title animation must evaluate");
+            part.pose_key = Some(key);
+        }
+        let alpha = future.map_or(0., |(_, alpha)| alpha);
+        for &endpoint in &part.poses {
+            endpoint.apply(alpha, &mut transforms, &mut affine);
+        }
     }
 }
 
@@ -277,6 +334,10 @@ pub(super) struct SampledImages {
     pub misses: u64,
 }
 type SampleKey = (AssetId<Image>, u8, u8, bool, bool);
+
+#[cfg(test)]
+#[path = "scene/animation_tests.rs"]
+mod animation_tests;
 
 #[cfg(test)]
 #[path = "scene/sampled_tests.rs"]
@@ -432,6 +493,7 @@ fn bind_materials(
 
 pub(super) fn update_materials(
     events: Option<Res<Events>>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     field: Res<FieldAssets>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
@@ -456,11 +518,24 @@ pub(super) fn update_materials(
                             animation.texture.resolve(&world.texture_bindings) == texture as i32
                         })
                 })
-                .fold([0.; 2], |mut offset, (index, _)| {
-                    let uv = world
+                .fold([0.; 2], |mut offset, (index, animation)| {
+                    let mut uv = world
                         .texture_animation_states
                         .get(index)
                         .map_or([0.; 2], |state| state.offset);
+                    if animation.motion.is_scroll()
+                        && let Some((next, alpha)) = prediction
+                            .as_ref()
+                            .and_then(|p| p.title().map(|(_, e)| (&e.world, p.alpha)))
+                        && let Some(next) = next.texture_animation_states.get(index)
+                    {
+                        let value = crate::field_view::prediction::uv_offsets(
+                            Vec4::new(uv[0], uv[1], 0., 0.),
+                            Vec4::new(next.offset[0], next.offset[1], 0., 0.),
+                            alpha,
+                        );
+                        uv = [value.x, value.y];
+                    }
                     offset[0] += uv[0];
                     offset[1] += uv[1];
                     offset

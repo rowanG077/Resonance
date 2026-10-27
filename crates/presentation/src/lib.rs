@@ -111,6 +111,8 @@ struct PendingAudio(Option<PlaybackAssets>);
 
 #[derive(Resource)]
 pub struct RunOptions {
+    /// Opt-in next-tick scene smoothing; deterministic captures always disable it.
+    pub speculative: bool,
     pub saves: SaveOptions,
     pub assets: PathBuf,
     /// Optional editable source project containing explicit fields.json bindings.
@@ -176,7 +178,7 @@ struct FieldCamera;
 #[derive(Component)]
 struct FieldOverlayCamera;
 type FieldCameraFilter = Or<(With<FieldCamera>, With<FieldOverlayCamera>)>;
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 struct PendingInput {
     held: MenuInput,
     pressed: MenuInput,
@@ -461,6 +463,11 @@ fn build_app_with_display(
         Update,
         field_ui::transition_failure.after(new_game::transition),
     );
+    if app.world().resource::<RunOptions>().speculative && !capture_only {
+        app.world_mut()
+            .resource_mut::<field_view::Prediction>()
+            .reserve()?;
+    }
     dungeons::install(&mut app, capture_only);
     session_screen::install(&mut app);
     credits::install(&mut app);
@@ -727,6 +734,7 @@ fn skin_bounds(
 fn field_camera(
     scene: Res<title_field::Scene>,
     events: Option<Res<Events>>,
+    prediction: Option<Res<field_view::Prediction>>,
     mut cameras: Query<&mut Transform, With<FieldCamera>>,
 ) {
     let Some(events) = events else {
@@ -740,9 +748,25 @@ fn field_camera(
     let Some((position, target)) = camera.sample(events.0.tick().saturating_sub(2), track) else {
         return;
     };
-    for mut camera in &mut cameras {
-        *camera = Transform::from_translation(Vec3::from_array(position))
+    let mut pose = Transform::from_translation(Vec3::from_array(position))
+        .looking_at(Vec3::from_array(target), Vec3::Z);
+    if let Some((_, next, alpha)) = prediction
+        .as_ref()
+        .and_then(|p| p.title().map(|(s, e)| (s, e, p.alpha)))
+        && let Some(next_camera) = next
+            .world
+            .camera
+            .as_ref()
+            .filter(|c| c.resource == camera.resource && c.start_tick == camera.start_tick)
+        && let Some((position, target)) = next_camera.sample(next.tick().saturating_sub(2), track)
+    {
+        let future = Transform::from_translation(Vec3::from_array(position))
             .looking_at(Vec3::from_array(target), Vec3::Z);
+        pose.translation = pose.translation.lerp(future.translation, alpha);
+        pose.rotation = pose.rotation.slerp(future.rotation, alpha);
+    }
+    for mut camera in &mut cameras {
+        *camera = pose;
     }
 }
 
@@ -898,13 +922,23 @@ fn layout(
     title_menu: Option<Res<saves::title::TitleMenu>>,
     diagnostics: Res<crate::diagnostics::Diagnostics>,
     mut exit: MessageWriter<AppExit>,
+    prediction: Option<Res<field_view::Prediction>>,
 ) {
     let state = &menu.0;
+    let next = prediction
+        .as_ref()
+        .and_then(|p| p.title().map(|(s, e)| (s, e, p.alpha)));
+    let smooth = |value: f32, target: fn(&TitleState) -> f32| {
+        next.map_or(value, |(s, _, a)| value + (target(s) - value) * a)
+    };
     TitleOutput::update(&mut outputs, |b| {
         b.x = if movie.active || boot.active() || title_menu.is_some() {
             1.
         } else {
-            events.as_ref().map_or(1., |e| e.0.world.brightness())
+            events.as_ref().map_or(1., |e| {
+                let v = e.0.world.brightness();
+                next.map_or(v, |(_, n, a)| v + (n.world.brightness() - v) * a)
+            })
         };
     });
     for (quad, handle, mut transform) in &mut quads {
@@ -925,10 +959,10 @@ fn layout(
             if quad.index == 16 && !state.disc_label_visible(clock.0) {
                 0.
             } else {
-                state.opacity as f32 / 255.
+                smooth(state.opacity as f32, |s| s.opacity as f32) / 255.
             },
             if selected {
-                state.pulse_alpha() as f32 / 255.
+                smooth(state.pulse_alpha() as f32, |s| s.pulse_alpha() as f32) / 255.
             } else {
                 0.
             },
@@ -940,7 +974,12 @@ fn layout(
             material.opacity_pulse = opacity_pulse;
         }
         let texture = &art.manifest.textures[quad.index];
-        let expand = quad.row.map_or(0., |r| state.expansion[r].trunc());
+        let expand = quad.row.map_or(0., |r| {
+            next.map_or(state.expansion[r].trunc(), |(n, _, a)| {
+                state.expansion[r].trunc()
+                    + (n.expansion[r].trunc() - state.expansion[r].trunc()) * a
+            })
+        });
         transform.scale = Vec3::new(
             texture.width as f32 + expand * 2.,
             texture.height as f32 + expand * 2.,

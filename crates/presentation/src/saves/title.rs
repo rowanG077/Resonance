@@ -140,6 +140,7 @@ fn advance(
 #[allow(clippy::too_many_arguments)] // Menu state, prepared drawing resources, and the presentation clock.
 fn render(
     mut commands: Commands,
+    mut prediction: ResMut<crate::field_view::Prediction>,
     display: Res<crate::display::Display>,
     menu: Option<Res<TitleMenu>>,
     art: Option<ResMut<MenuOverlay>>,
@@ -156,6 +157,7 @@ fn render(
             menu.as_ref().map(|m| &m.0),
             clock.0.tick(),
             display.0,
+            Some(&mut prediction),
             &mut commands,
             &mut meshes,
         )
@@ -285,6 +287,7 @@ mod tests {
                 Some(&app.world().resource::<TitleMenu>().0),
                 0,
                 crate::Resolution::default(),
+                None,
                 &mut Commands::new(&mut queue, app.world()),
                 &mut meshes,
             )?;

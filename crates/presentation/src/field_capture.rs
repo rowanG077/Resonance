@@ -85,6 +85,7 @@ fn vertices(mesh: &Mesh) -> anyhow::Result<Vec<Vertex>> {
 fn sync(
     mut commands: Commands,
     state: State,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     assets: Res<Assets<Mesh>>,
     parts: Query<(&Part, &Mesh3d, &GlobalTransform)>,
     views: Query<Entity, With<super::FieldCamera>>,
@@ -106,8 +107,22 @@ fn sync(
         let vertices = cached
             .entry(mesh.0.id())
             .or_insert_with(|| vertices(source).expect("validated capture mesh"));
-        let tint = Vec4::from_array(particle.rgba.map(|v| f32::from(v) / 255.))
-            * Vec4::new(4., 4., 4., 1.);
+        let color = |rgba: [u8; 4]| {
+            Vec4::from_array(rgba.map(|v| f32::from(v) / 255.)) * Vec4::new(4., 4., 4., 1.)
+        };
+        let mut tint = color(particle.rgba);
+        if let Some((next, alpha)) = prediction.as_ref().and_then(|p| {
+            let next = p
+                .field()?
+                .events
+                .world
+                .model_particles
+                .get(&part.particle)?;
+            (next.born == particle.born && next.resource == particle.resource)
+                .then_some((next, p.alpha))
+        }) {
+            tint = tint.lerp(color(next.rgba), alpha);
+        }
         for vertex in vertices {
             output
                 .0

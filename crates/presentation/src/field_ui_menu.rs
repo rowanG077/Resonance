@@ -116,6 +116,7 @@ const DISABLED: usize = 7;
 const LINE_SPACING: f32 = 2.;
 const TICKS_PER_MINUTE: u64 = 60 * 60;
 
+#[derive(Clone, Copy)]
 pub(super) enum Source<'a> {
     Title(Option<&'a Menu>),
     Field(&'a FieldSession),
@@ -266,19 +267,24 @@ pub(super) struct MenuArtwork {
     pub layers: BTreeMap<(usize, DrawRole, MaterialKey), Layer>,
     band: DepthBand,
     active_page: Option<ActivePage>,
+    animation: MenuAnimation,
+}
+
+#[derive(Clone, Default)]
+struct MenuAnimation {
     world_notice: WorldNotice,
     ship_notice: WorldNotice,
     trail: super::super::choice_cursor::Trail,
 }
 /// Native world notices slide down from the top while their alpha approaches 255.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct WorldNotice {
     message: Option<(String, bool)>,
     opacity: u8,
     tick: Option<u32>,
 }
 impl WorldNotice {
-    fn step(&mut self, tick: u32, message: Option<(&str, bool)>) -> Option<(String, bool, u8)> {
+    fn step(&mut self, tick: u32, message: Option<(&str, bool)>) {
         let elapsed = self
             .tick
             .map_or(1, |last| tick.saturating_sub(last))
@@ -293,13 +299,34 @@ impl WorldNotice {
         } else {
             self.opacity = self.opacity.saturating_sub((elapsed * 16).min(255) as u8);
         }
-        (self.opacity > 0)
-            .then(|| {
-                self.message
-                    .as_ref()
-                    .map(|(s, a)| (s.clone(), *a, self.opacity))
-            })
-            .flatten()
+    }
+
+    fn value(&self) -> Option<(&str, bool, u8)> {
+        self.message
+            .as_ref()
+            .filter(|_| self.opacity > 0)
+            .map(|(message, acknowledgement)| (message.as_str(), *acknowledgement, self.opacity))
+    }
+}
+impl MenuAnimation {
+    fn advance(&mut self, source: Source<'_>) {
+        if let Source::World(session, message) = source {
+            let acknowledgement = matches!(
+                session.prompt(),
+                Some(
+                    resonance_game::overworld::Prompt::Item { .. }
+                        | resonance_game::overworld::Prompt::Guidepost { .. }
+                )
+            );
+            self.world_notice
+                .step(session.events.tick(), message.map(|s| (s, acknowledgement)));
+            let label = session.ship_action().map(|action| match action {
+                resonance_game::overworld::travel::ShipAction::Embark => "Embark",
+                resonance_game::overworld::travel::ShipAction::Disembark => "Disembark",
+            });
+            self.ship_notice
+                .step(session.events.tick(), label.map(|s| (s, false)));
+        }
     }
 }
 impl MenuArtwork {
@@ -483,9 +510,7 @@ impl MenuArtwork {
             layers: BTreeMap::new(),
             band: DepthBand::Field,
             active_page: None,
-            world_notice: Default::default(),
-            ship_notice: Default::default(),
-            trail: Default::default(),
+            animation: Default::default(),
         })
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
@@ -642,7 +667,7 @@ impl MenuArtwork {
             font,
             selection: &dialogue.selection,
             cursor_texture: &dialogue.cursor,
-            trail: self.trail,
+            trail: self.animation.trail,
             preferences,
             experience: &self.experience,
             tick,
@@ -828,11 +853,354 @@ impl MenuArtwork {
         }
         let trail = draw.trail;
         let drawing = draw.batches;
-        self.trail = trail;
+        self.animation.trail = trail;
         self.submit_drawing(drawing, commands, meshes)
     }
 
-    #[allow(clippy::too_many_arguments)] // Compose shared artwork with the live viewport and clock.
+    fn sample(
+        &self,
+        source: Source<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        presentation_tick: u32,
+        animation: &MenuAnimation,
+    ) -> Result<(
+        Option<ActivePage>,
+        DrawBatches,
+        super::super::choice_cursor::Trail,
+    )> {
+        let (menu, shop) = match source {
+            Source::Title(menu) => (menu, None),
+            Source::Field(session) => (
+                session.menu.as_ref(),
+                session
+                    .shop
+                    .as_ref()
+                    .zip(session.events.world.party.as_ref()),
+            ),
+            Source::World(session, _) => (session.menu.as_ref(), None),
+        };
+        let crafting = match source {
+            Source::Field(session) => session
+                .crafting
+                .as_ref()
+                .zip(session.events.world.party.as_ref()),
+            _ => None,
+        };
+        let notice = if let Source::World(session, _) = source {
+            animation
+                .world_notice
+                .value()
+                .filter(|_| session.active_skit.is_none() && session.menu.is_none())
+        } else {
+            None
+        };
+        let ship_notice = if let Source::World(session, _) = source {
+            animation
+                .ship_notice
+                .value()
+                .filter(|_| session.player_has_control())
+        } else {
+            None
+        };
+        if menu.is_none()
+            && shop.is_none()
+            && crafting.is_none()
+            && notice.is_none()
+            && ship_notice.is_none()
+        {
+            return Ok((None, DrawBatches::new(), animation.trail));
+        }
+        let page = menu
+            .map(|menu| ActivePage::Menu(menu.page))
+            .or_else(|| shop.map(|_| ActivePage::Shop))
+            .or_else(|| crafting.map(|_| ActivePage::Crafting))
+            .or_else(|| {
+                notice
+                    .as_ref()
+                    .or(ship_notice.as_ref())
+                    .map(|_| ActivePage::WorldNotice)
+            });
+        let item_visual = menu
+            .filter(|menu| menu.page == Page::Items)
+            .map(items::Visual::from_menu);
+        let preferences = menu
+            .and_then(Menu::preferences)
+            .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
+            .or_else(|| crafting.map(|(_, party)| &party.settings.preferences))
+            .or_else(|| match source {
+                Source::World(session, _) => session
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .map(|party| &party.settings.preferences),
+                _ => None,
+            });
+        let mut draw = self.begin_drawing(font, dialogue, preferences, presentation_tick)?;
+        draw.trail = animation.trail;
+        draw.opacity = menu.map_or_else(
+            || {
+                shop.map(|(s, _)| 255 - s.fade)
+                    .or_else(|| crafting.map(|(c, _)| 255 - c.fade))
+                    .unwrap_or(255)
+            },
+            |m| 255 - m.background_fade(),
+        );
+        if let Some(menu) = menu {
+            if menu.checkpoint.is_none() {
+                draw.quad_role(
+                    DrawRole::Background,
+                    FONT,
+                    draw.screen,
+                    [0.5; 4],
+                    [0., 0., 0., 1.],
+                );
+            }
+            draw.shade(draw.screen);
+            draw.opacity = 255 - menu.foreground_fade();
+            draw.plane = 1;
+            let anchor = match menu.page {
+                Page::Slots(mode) => draw.slots(menu, mode)?,
+                Page::Main | Page::Party | Page::System | Page::Character(_) => draw.main(menu)?,
+                Page::Status | Page::Titles => draw.status(menu)?,
+                Page::Rename => draw.rename(menu)?,
+                Page::Items => draw.items(menu, item_visual.unwrap())?,
+                Page::Collection => draw.collection(menu)?,
+                Page::WorldMap => draw.world_map(menu)?,
+                Page::Monsters => draw.monsters(menu)?,
+                Page::Figurines => draw.figurines(menu)?,
+                Page::Manual => draw.manual(menu)?,
+                Page::Equip => draw.equipment(menu)?,
+                Page::Tech => draw.techniques(menu)?,
+                Page::Unison => draw.unison(menu.unison_page(), menu.at_save_point)?,
+                Page::ExSkills => draw.ex_skills(menu)?,
+                Page::Strategy => draw.strategy(menu.strategy_page())?,
+                Page::Synopsis => draw.synopsis(menu)?,
+                Page::Cooking => draw.cooking(menu)?,
+                Page::Customize => draw.customize(menu)?,
+                Page::GradeShop => draw.grade_shop(menu)?,
+            };
+            let modal = menu.popup.is_some()
+                || match menu.page {
+                    Page::ExSkills => matches!(menu.ex_skills.focus, ExFocus::Confirm { .. }),
+                    Page::Cooking => menu.cooking.popup.is_some(),
+                    Page::Synopsis => menu.synopsis.reading,
+                    Page::Strategy => {
+                        menu.strategy.focus.preset()
+                            && (menu.strategy.focus == StrategyFocus::Rename
+                                || menu.strategy.rename_opacity != 0)
+                    }
+                    Page::Tech => matches!(
+                        menu.tech.focus,
+                        TechFocus::CannotForget | TechFocus::Forget { .. }
+                    ),
+                    _ => false,
+                };
+            draw.plane = if modal { 1 } else { draw.plane.max(2) };
+            match menu.page {
+                Page::Titles => {
+                    draw.plane = 2;
+                    draw.cursor([48., 96.], 127);
+                    draw.plane = 4;
+                }
+                Page::Equip if menu.equipment.focus != EquipmentFocus::Character => {
+                    let fade = u32::from(menu.equipment.transition.page_fade);
+                    draw.cursor(
+                        [32. - (fade * 308 / 256) as f32, 68.],
+                        ((255 - fade) / 2) as u8,
+                    );
+                }
+                Page::Items
+                    if matches!(
+                        menu.inventory.focus,
+                        ItemFocus::Target | ItemFocus::Discard(_)
+                    ) =>
+                {
+                    let row = menu.inventory.row - menu.inventory.first;
+                    draw.plane = 2;
+                    draw.cursor(
+                        [48. + (row % 2) as f32 * 296., 96. + (row / 2) as f32 * 26.],
+                        127,
+                    );
+                    draw.plane = 3;
+                }
+                Page::Tech => draw.tech_cursors(menu),
+                Page::Unison => draw.unison_cursors(menu.unison_page()),
+                Page::ExSkills => draw.ex_cursors(menu),
+                Page::Strategy => draw.strategy_cursors(menu.strategy_page()),
+                Page::Cooking if menu.cooking.focus != CookingFocus::Header => draw.cursor(
+                    menu.cooking.header_cursor(),
+                    (255 - menu.cooking.transition.page_fade) >> 1,
+                ),
+                Page::Customize
+                    if matches!(
+                        menu.customize.focus,
+                        CustomizeFocus::Colors | CustomizeFocus::Volume | CustomizeFocus::Controls
+                    ) =>
+                {
+                    draw.cursor(
+                        menu.customize.options_cursor(),
+                        (255 - menu.customize.transition.page_fade) >> 1,
+                    )
+                }
+                _ => {}
+            }
+            let list = matches!(menu.page, Page::Slots(_)) && menu.focus == SlotFocus::List;
+            if !menu.busy {
+                if list {
+                    draw.cursor([336. + menu.bank as f32 * 144., 30.], 127);
+                }
+                let alpha = match menu.page {
+                    Page::Rename if menu.rename.pending => 0,
+                    Page::Rename => 255 - menu.rename.fade,
+                    Page::Items if !modal => 255 - item_visual.unwrap().fade,
+                    Page::Collection => 255 - menu.collection.page_fade,
+                    Page::Manual => 255 - menu.manual.page_fade,
+                    Page::Monsters => 255 - menu.monsters.view.page_fade,
+                    Page::Figurines => 255 - menu.figurines.view.page_fade,
+                    Page::Equip => 255 - menu.equipment.transition.page_fade,
+                    Page::Customize => {
+                        (255 - menu.customize.transition.page_fade)
+                            >> u8::from(menu.customize.focus == CustomizeFocus::Position)
+                    }
+                    Page::System => menu.system_opacity,
+                    Page::Cooking => (255 - menu.cooking.transition.page_fade) >> u8::from(modal),
+                    Page::ExSkills => {
+                        (255 - menu.ex_skills.transition.page_fade) >> u8::from(modal)
+                    }
+                    Page::Unison => 255,
+                    Page::Tech if !modal => 255,
+                    Page::WorldMap => match menu.world_map.focus {
+                        WorldMapFocus::Locations => 255 - menu.world_map.page_fade,
+                        WorldMapFocus::Shops => menu.world_map.shops_opacity,
+                        WorldMapFocus::Items => menu.world_map.items_opacity,
+                    },
+                    Page::Titles => menu.status.title_opacity,
+                    Page::Status => 255 - menu.status.page_fade,
+                    Page::Strategy if menu.strategy.focus == StrategyFocus::Rename => 127,
+                    Page::Strategy => 255,
+                    // The list regains its active cursor while the popup fades away.
+                    Page::Slots(_) if menu.confirmation.is_none() && menu.notice.is_none() => 255,
+                    _ if modal || menu.confirmation.is_some() || menu.notice.is_some() => 127,
+                    _ => 255,
+                };
+                let group_target = match menu.page {
+                    Page::Tech => menu.tech_target_visible() && menu.tech_targets_all(),
+                    Page::Items => {
+                        menu.inventory.focus == ItemFocus::Target && menu.inventory.target_all
+                    }
+                    _ => false,
+                };
+                if group_target {
+                    for slot in 0..menu.party().formation.len() {
+                        let at = if menu.page == Page::Items {
+                            items::target_cursor(menu, slot, item_visual.unwrap())
+                        } else {
+                            techniques::target_cursor(menu, slot)
+                        };
+                        draw.cursor_trail(at, 255);
+                    }
+                } else {
+                    draw.cursor_trail(anchor, alpha);
+                }
+            }
+            let anchor = if let Some(popup) = &menu.popup {
+                match &popup.content {
+                    PopupContent::Confirmation { kind, bank, yes } => {
+                        let keys = match kind {
+                            ConfirmationKind::Save => ["confirm_save_a", "confirm_save_b"],
+                            ConfirmationKind::Overwrite => {
+                                ["confirm_overwrite_a", "confirm_overwrite_b"]
+                            }
+                            ConfirmationKind::Load => ["confirm_load_a", "confirm_load_b"],
+                        };
+                        draw.popup(
+                            menu_label(&self.spec.labels, keys[*bank])?,
+                            Some(*yes),
+                            popup.opacity,
+                        )?
+                    }
+                    PopupContent::Notice(notice) => {
+                        draw.popup(&wrap(notice, 32), None, popup.opacity)?
+                    }
+                }
+            } else {
+                match menu.page {
+                    Page::Tech => draw.tech_popup(menu)?,
+                    Page::ExSkills => draw.ex_popup(menu)?,
+                    Page::Strategy => draw.strategy_rename(menu.strategy_page())?,
+                    Page::Synopsis => {
+                        draw.synopsis_text(menu)?;
+                        None
+                    }
+                    Page::Cooking => {
+                        draw.cooking_popup(menu)?;
+                        None
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(anchor) = anchor.filter(|_| !menu.busy) {
+                draw.cursor_trail(
+                    anchor,
+                    menu.popup.as_ref().map_or_else(
+                        || match menu.page {
+                            Page::ExSkills => menu.ex_skills.popup_opacity,
+                            _ => 255,
+                        },
+                        |popup| popup.opacity,
+                    ),
+                );
+            }
+        } else if let Some((shop, party)) = shop {
+            draw.shade(draw.screen);
+            draw.plane = 1;
+            let anchor = draw.shop(shop, party)?;
+            draw.plane = 4;
+            draw.cursor_trail(anchor, 255 - shop.fade);
+        } else if let Some((crafting, party)) = crafting {
+            draw.shade(draw.screen);
+            draw.plane = 1;
+            let anchor = draw.crafting(crafting, party)?;
+            draw.plane = 4;
+            draw.cursor_trail(anchor, 255 - crafting.fade);
+        } else if let (Source::World(_, _), Some((message, acknowledgement, opacity))) =
+            (source, notice)
+        {
+            draw.plane = 3;
+            draw.opacity = opacity;
+            let lines = draw.wrap_notice(message, 24., 600.)?;
+            let mut width: f32 = 0.;
+            for line in &lines {
+                width = width.max(draw.text_width(line, 24.)?);
+            }
+            // A tight top notice, 12-pixel inset, 26-pixel
+            // line pitch. Enter/Leave are separate button ribbons below it.
+            let height = lines.len() as f32 * 26.;
+            let top = 24. - ((height + 48.) * (255 - opacity) as f32 / 255.).trunc();
+            let left = ((640. - width) / 2.).trunc();
+            draw.colored_frame(
+                [left - 12., top - 12., width + 24., height + 24.],
+                false,
+                draw.popup_color(),
+            )?;
+            for (index, line) in lines.iter().enumerate() {
+                draw.text_size(line, [left, top + index as f32 * 26.], [24., 24.], WHITE)?;
+            }
+            if !acknowledgement {
+                draw.world_button(6, "Enter", [504., 76.])?;
+                draw.world_button(8, "Leave", [504., 104.])?;
+            }
+        } else if let Some((label, _, opacity)) = ship_notice {
+            draw.opacity = opacity;
+            let x = 616. - draw.text_width(label, 24.)? - 24.;
+            draw.world_button(8, label, [x, 24.])?;
+        }
+        Ok((page, draw.batches, draw.trail))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         source: Source<'_>,
@@ -840,361 +1208,49 @@ impl MenuArtwork {
         dialogue: &DialogueArt,
         presentation_tick: u32,
         resolution: super::super::Resolution,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        self.resolution = resolution;
         let result = (|| {
-            let (menu, shop) = match source {
-                Source::Title(menu) => (menu, None),
-                Source::Field(session) => (
-                    session.menu.as_ref(),
-                    session
-                        .shop
-                        .as_ref()
-                        .zip(session.events.world.party.as_ref()),
-                ),
-                Source::World(session, _) => (session.menu.as_ref(), None),
-            };
-            let crafting = match source {
-                Source::Field(session) => session
-                    .crafting
-                    .as_ref()
-                    .zip(session.events.world.party.as_ref()),
-                _ => None,
-            };
-            let notice = if let Source::World(session, message) = source {
-                let acknowledgement = matches!(
-                    session.prompt(),
-                    Some(
-                        resonance_game::overworld::Prompt::Item { .. }
-                            | resonance_game::overworld::Prompt::Guidepost { .. }
+            self.resolution = resolution;
+            self.animation.advance(source);
+            let (page, mut batches, trail) =
+                self.sample(source, font, dialogue, presentation_tick, &self.animation)?;
+            self.animation.trail = trail;
+            self.set_page(page);
+            if let Some(prediction) = prediction {
+                let next = prediction.scratch_scene(|endpoint, alpha| {
+                    let source = match source {
+                        Source::Field(_) => endpoint.field().map(Source::Field),
+                        Source::World(_, message) => {
+                            endpoint.world().map(|w| Source::World(&w.session, message))
+                        }
+                        Source::Title(_) => endpoint.menu().map(|m| Source::Title(Some(m))),
+                    };
+                    let Some(source) = source else {
+                        return Ok::<_, anyhow::Error>(None);
+                    };
+                    let mut animation = self.animation.clone();
+                    animation.advance(source);
+                    self.sample(
+                        source,
+                        font,
+                        dialogue,
+                        presentation_tick.wrapping_add(1),
+                        &animation,
                     )
-                );
-                self.world_notice
-                    .step(session.events.tick(), message.map(|s| (s, acknowledgement)))
-                    .filter(|_| session.active_skit.is_none() && session.menu.is_none())
-            } else {
-                None
-            };
-            let ship_notice = if let Source::World(session, _) = source {
-                let label = session.ship_action().map(|action| match action {
-                    resonance_game::overworld::travel::ShipAction::Embark => "Embark",
-                    resonance_game::overworld::travel::ShipAction::Disembark => "Disembark",
+                    .map(|(next_page, batches, _)| (next_page == page).then_some((batches, alpha)))
                 });
-                self.ship_notice
-                    .step(session.events.tick(), label.map(|label| (label, false)))
-                    .filter(|_| session.player_has_control())
-            } else {
-                None
-            };
-            if menu.is_none()
-                && shop.is_none()
-                && crafting.is_none()
-                && notice.is_none()
-                && ship_notice.is_none()
-            {
-                self.clear_page(commands);
-                return Ok(());
+                if let Some(Some((next, alpha))) = next.transpose()? {
+                    for (key, batch) in &mut batches {
+                        if let Some(next) = next.get(key) {
+                            batch.interpolate(next, alpha);
+                        }
+                    }
+                }
             }
-            self.set_page(
-                menu.map(|menu| ActivePage::Menu(menu.page))
-                    .or_else(|| shop.map(|_| ActivePage::Shop))
-                    .or_else(|| crafting.map(|_| ActivePage::Crafting))
-                    .or_else(|| {
-                        notice
-                            .as_ref()
-                            .or(ship_notice.as_ref())
-                            .map(|_| ActivePage::WorldNotice)
-                    }),
-            );
-            let item_visual = menu
-                .filter(|menu| menu.page == Page::Items)
-                .map(items::Visual::from_menu);
-            let preferences = menu
-                .and_then(Menu::preferences)
-                .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
-                .or_else(|| crafting.map(|(_, party)| &party.settings.preferences))
-                .or_else(|| match source {
-                    Source::World(session, _) => session
-                        .events
-                        .world
-                        .party
-                        .as_ref()
-                        .map(|party| &party.settings.preferences),
-                    _ => None,
-                });
-            let mut draw = self.begin_drawing(font, dialogue, preferences, presentation_tick)?;
-            draw.opacity = menu.map_or_else(
-                || {
-                    shop.map(|(s, _)| 255 - s.fade)
-                        .or_else(|| crafting.map(|(c, _)| 255 - c.fade))
-                        .unwrap_or(255)
-                },
-                |m| 255 - m.background_fade(),
-            );
-            if let Some(menu) = menu {
-                if menu.checkpoint.is_none() {
-                    draw.quad_role(
-                        DrawRole::Background,
-                        FONT,
-                        draw.screen,
-                        [0.5; 4],
-                        [0., 0., 0., 1.],
-                    );
-                }
-                draw.shade(draw.screen);
-                draw.opacity = 255 - menu.foreground_fade();
-                draw.plane = 1;
-                let anchor = match menu.page {
-                    Page::Slots(mode) => draw.slots(menu, mode)?,
-                    Page::Main | Page::Party | Page::System | Page::Character(_) => {
-                        draw.main(menu)?
-                    }
-                    Page::Status | Page::Titles => draw.status(menu)?,
-                    Page::Rename => draw.rename(menu)?,
-                    Page::Items => draw.items(menu, item_visual.unwrap())?,
-                    Page::Collection => draw.collection(menu)?,
-                    Page::WorldMap => draw.world_map(menu)?,
-                    Page::Monsters => draw.monsters(menu)?,
-                    Page::Figurines => draw.figurines(menu)?,
-                    Page::Manual => draw.manual(menu)?,
-                    Page::Equip => draw.equipment(menu)?,
-                    Page::Tech => draw.techniques(menu)?,
-                    Page::Unison => draw.unison(menu.unison_page(), menu.at_save_point)?,
-                    Page::ExSkills => draw.ex_skills(menu)?,
-                    Page::Strategy => draw.strategy(menu.strategy_page())?,
-                    Page::Synopsis => draw.synopsis(menu)?,
-                    Page::Cooking => draw.cooking(menu)?,
-                    Page::Customize => draw.customize(menu)?,
-                    Page::GradeShop => draw.grade_shop(menu)?,
-                };
-                let modal = menu.popup.is_some()
-                    || match menu.page {
-                        Page::ExSkills => matches!(menu.ex_skills.focus, ExFocus::Confirm { .. }),
-                        Page::Cooking => menu.cooking.popup.is_some(),
-                        Page::Synopsis => menu.synopsis.reading,
-                        Page::Strategy => {
-                            menu.strategy.focus.preset()
-                                && (menu.strategy.focus == StrategyFocus::Rename
-                                    || menu.strategy.rename_opacity != 0)
-                        }
-                        Page::Tech => matches!(
-                            menu.tech.focus,
-                            TechFocus::CannotForget | TechFocus::Forget { .. }
-                        ),
-                        _ => false,
-                    };
-                draw.plane = if modal { 1 } else { draw.plane.max(2) };
-                match menu.page {
-                    Page::Titles => {
-                        draw.plane = 2;
-                        draw.cursor([48., 96.], 127);
-                        draw.plane = 4;
-                    }
-                    Page::Equip if menu.equipment.focus != EquipmentFocus::Character => {
-                        let fade = u32::from(menu.equipment.transition.page_fade);
-                        draw.cursor(
-                            [32. - (fade * 308 / 256) as f32, 68.],
-                            ((255 - fade) / 2) as u8,
-                        );
-                    }
-                    Page::Items
-                        if matches!(
-                            menu.inventory.focus,
-                            ItemFocus::Target | ItemFocus::Discard(_)
-                        ) =>
-                    {
-                        let row = menu.inventory.row - menu.inventory.first;
-                        draw.plane = 2;
-                        draw.cursor(
-                            [48. + (row % 2) as f32 * 296., 96. + (row / 2) as f32 * 26.],
-                            127,
-                        );
-                        draw.plane = 3;
-                    }
-                    Page::Tech => draw.tech_cursors(menu),
-                    Page::Unison => draw.unison_cursors(menu.unison_page()),
-                    Page::ExSkills => draw.ex_cursors(menu),
-                    Page::Strategy => draw.strategy_cursors(menu.strategy_page()),
-                    Page::Cooking if menu.cooking.focus != CookingFocus::Header => draw.cursor(
-                        menu.cooking.header_cursor(),
-                        (255 - menu.cooking.transition.page_fade) >> 1,
-                    ),
-                    Page::Customize
-                        if matches!(
-                            menu.customize.focus,
-                            CustomizeFocus::Colors
-                                | CustomizeFocus::Volume
-                                | CustomizeFocus::Controls
-                        ) =>
-                    {
-                        draw.cursor(
-                            menu.customize.options_cursor(),
-                            (255 - menu.customize.transition.page_fade) >> 1,
-                        )
-                    }
-                    _ => {}
-                }
-                let list = matches!(menu.page, Page::Slots(_)) && menu.focus == SlotFocus::List;
-                if !menu.busy {
-                    if list {
-                        draw.cursor([336. + menu.bank as f32 * 144., 30.], 127);
-                    }
-                    let alpha = match menu.page {
-                        Page::Rename if menu.rename.pending => 0,
-                        Page::Rename => 255 - menu.rename.fade,
-                        Page::Items if !modal => 255 - item_visual.unwrap().fade,
-                        Page::Collection => 255 - menu.collection.page_fade,
-                        Page::Manual => 255 - menu.manual.page_fade,
-                        Page::Monsters => 255 - menu.monsters.view.page_fade,
-                        Page::Figurines => 255 - menu.figurines.view.page_fade,
-                        Page::Equip => 255 - menu.equipment.transition.page_fade,
-                        Page::Customize => {
-                            (255 - menu.customize.transition.page_fade)
-                                >> u8::from(menu.customize.focus == CustomizeFocus::Position)
-                        }
-                        Page::System => menu.system_opacity,
-                        Page::Cooking => {
-                            (255 - menu.cooking.transition.page_fade) >> u8::from(modal)
-                        }
-                        Page::ExSkills => {
-                            (255 - menu.ex_skills.transition.page_fade) >> u8::from(modal)
-                        }
-                        Page::Unison => 255,
-                        Page::Tech if !modal => 255,
-                        Page::WorldMap => match menu.world_map.focus {
-                            WorldMapFocus::Locations => 255 - menu.world_map.page_fade,
-                            WorldMapFocus::Shops => menu.world_map.shops_opacity,
-                            WorldMapFocus::Items => menu.world_map.items_opacity,
-                        },
-                        Page::Titles => menu.status.title_opacity,
-                        Page::Status => 255 - menu.status.page_fade,
-                        Page::Strategy if menu.strategy.focus == StrategyFocus::Rename => 127,
-                        Page::Strategy => 255,
-                        // The list regains its active cursor while the popup fades away.
-                        Page::Slots(_) if menu.confirmation.is_none() && menu.notice.is_none() => {
-                            255
-                        }
-                        _ if modal || menu.confirmation.is_some() || menu.notice.is_some() => 127,
-                        _ => 255,
-                    };
-                    let group_target = match menu.page {
-                        Page::Tech => menu.tech_target_visible() && menu.tech_targets_all(),
-                        Page::Items => {
-                            menu.inventory.focus == ItemFocus::Target && menu.inventory.target_all
-                        }
-                        _ => false,
-                    };
-                    if group_target {
-                        for slot in 0..menu.party().formation.len() {
-                            let at = if menu.page == Page::Items {
-                                items::target_cursor(menu, slot, item_visual.unwrap())
-                            } else {
-                                techniques::target_cursor(menu, slot)
-                            };
-                            draw.cursor_trail(at, 255);
-                        }
-                    } else {
-                        draw.cursor_trail(anchor, alpha);
-                    }
-                }
-                let anchor = if let Some(popup) = &menu.popup {
-                    match &popup.content {
-                        PopupContent::Confirmation { kind, bank, yes } => {
-                            let keys = match kind {
-                                ConfirmationKind::Save => ["confirm_save_a", "confirm_save_b"],
-                                ConfirmationKind::Overwrite => {
-                                    ["confirm_overwrite_a", "confirm_overwrite_b"]
-                                }
-                                ConfirmationKind::Load => ["confirm_load_a", "confirm_load_b"],
-                            };
-                            draw.popup(
-                                menu_label(&self.spec.labels, keys[*bank])?,
-                                Some(*yes),
-                                popup.opacity,
-                            )?
-                        }
-                        PopupContent::Notice(notice) => {
-                            draw.popup(&wrap(notice, 32), None, popup.opacity)?
-                        }
-                    }
-                } else {
-                    match menu.page {
-                        Page::Tech => draw.tech_popup(menu)?,
-                        Page::ExSkills => draw.ex_popup(menu)?,
-                        Page::Strategy => draw.strategy_rename(menu.strategy_page())?,
-                        Page::Synopsis => {
-                            draw.synopsis_text(menu)?;
-                            None
-                        }
-                        Page::Cooking => {
-                            draw.cooking_popup(menu)?;
-                            None
-                        }
-                        _ => None,
-                    }
-                };
-                if let Some(anchor) = anchor.filter(|_| !menu.busy) {
-                    draw.cursor_trail(
-                        anchor,
-                        menu.popup.as_ref().map_or_else(
-                            || match menu.page {
-                                Page::ExSkills => menu.ex_skills.popup_opacity,
-                                _ => 255,
-                            },
-                            |popup| popup.opacity,
-                        ),
-                    );
-                }
-            } else if let Some((shop, party)) = shop {
-                draw.shade(draw.screen);
-                draw.plane = 1;
-                let anchor = draw.shop(shop, party)?;
-                draw.plane = 4;
-                draw.cursor_trail(anchor, 255 - shop.fade);
-            } else if let Some((crafting, party)) = crafting {
-                draw.shade(draw.screen);
-                draw.plane = 1;
-                let anchor = draw.crafting(crafting, party)?;
-                draw.plane = 4;
-                draw.cursor_trail(anchor, 255 - crafting.fade);
-            } else if let (Source::World(_, _), Some((message, acknowledgement, opacity))) =
-                (source, notice)
-            {
-                draw.plane = 3;
-                draw.opacity = opacity;
-                let lines = draw.wrap_notice(&message, 24., 600.)?;
-                let mut width: f32 = 0.;
-                for line in &lines {
-                    width = width.max(draw.text_width(line, 24.)?);
-                }
-                // A tight top notice, 12-pixel inset, 26-pixel
-                // line pitch. Enter/Leave are separate button ribbons below it.
-                let height = lines.len() as f32 * 26.;
-                let top = 24. - ((height + 48.) * (255 - opacity) as f32 / 255.).trunc();
-                let left = ((640. - width) / 2.).trunc();
-                draw.colored_frame(
-                    [left - 12., top - 12., width + 24., height + 24.],
-                    false,
-                    draw.popup_color(),
-                )?;
-                for (index, line) in lines.iter().enumerate() {
-                    draw.text_size(line, [left, top + index as f32 * 26.], [24., 24.], WHITE)?;
-                }
-                if !acknowledgement {
-                    draw.world_button(6, "Enter", [504., 76.])?;
-                    draw.world_button(8, "Leave", [504., 104.])?;
-                }
-            } else if let Some((label, _, opacity)) = ship_notice {
-                draw.opacity = opacity;
-                let x = 616. - draw.text_width(&label, 24.)? - 24.;
-                draw.world_button(8, &label, [x, 24.])?;
-            }
-            let trail = draw.trail;
-            let drawing = draw.batches;
-            self.trail = trail;
-            self.submit_drawing(drawing, commands, meshes)
+            self.submit_drawing(batches, commands, meshes)
         })();
         if result.is_err() {
             self.clear_page(commands);

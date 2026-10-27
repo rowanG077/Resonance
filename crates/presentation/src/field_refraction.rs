@@ -96,6 +96,7 @@ pub(super) struct Pass;
 
 #[allow(clippy::too_many_arguments)]
 fn sync(
+    prediction: Option<Res<crate::field_view::Prediction>>,
     mut commands: Commands,
     state: State,
     art: Option<Res<Artwork>>,
@@ -162,35 +163,58 @@ fn sync(
     let camera = world
         .field_camera
         .as_ref()
-        .map_or(Transform::IDENTITY, super::field_view::camera_transform);
+        .map_or(Transform::IDENTITY, |c| {
+            prediction.as_ref().map_or_else(
+                || super::field_view::camera_transform(c),
+                |p| p.camera_transform(c),
+            )
+        });
     let view_from_world = camera.to_matrix().inverse();
-    let mut effects: Vec<_> = world.refractions.values().collect();
-    effects.sort_unstable_by_key(|effect| effect.draw_order);
+    let mut effects: Vec<_> = world.refractions.iter().collect();
+    effects.sort_unstable_by_key(|(_, effect)| effect.draw_order);
     for (entity, projection) in &views {
         settings.clip_from_world = projection.get_clip_from_view() * view_from_world;
         let pulses = effects
             .iter()
-            .map(|effect| {
-                let size = (effect.size / 2.).trunc() * 2.;
+            .map(|(id, effect)| {
+                let mut size = (effect.size / 2.).trunc() * 2.;
+                let mut position = Vec3::from_array(effect.position);
+                let mut alpha = effect.alpha(world.tick) / 255.;
+                let future = prediction.as_ref().and_then(|p| {
+                    let w = &p.field()?.events.world;
+                    let n = w.refractions.get(id)?;
+                    (n.born == effect.born).then_some((n, w, p.alpha))
+                });
+                if let Some((n, w, a)) = future {
+                    size += ((n.size / 2.).trunc() * 2. - size) * a;
+                    position = position.lerp(Vec3::from_array(n.position), a);
+                    alpha += (n.alpha(w.tick) / 255. - alpha) * a;
+                }
                 if size <= 0. {
                     return Pulse::default();
                 }
-                let rotation = effect_rotation(
+                let mut rotation = effect_rotation(
                     effect.orientation,
                     effect.rotation,
                     effect.rotation_order,
                     camera.rotation,
                 );
+                if let Some((n, _, a)) = future {
+                    rotation = rotation.slerp(
+                        effect_rotation(
+                            n.orientation,
+                            n.rotation,
+                            n.rotation_order,
+                            camera.rotation,
+                        ),
+                        a,
+                    );
+                }
                 Pulse {
-                    center: settings.clip_from_world * Vec3::from_array(effect.position).extend(1.),
+                    center: settings.clip_from_world * position.extend(1.),
                     right: settings.clip_from_world * (rotation * Vec3::X * size).extend(0.),
                     up: settings.clip_from_world * (rotation * Vec3::Y * size).extend(0.),
-                    opacity: Vec4::new(
-                        effect.alpha(world.tick) / 255.,
-                        effect.image as u8 as f32,
-                        0.,
-                        0.,
-                    ),
+                    opacity: Vec4::new(alpha, effect.image as u8 as f32, 0., 0.),
                     tint: Vec4::from_array(
                         art.palette(effect.palette)
                             .map(|v| f32::from(v) * 4. / 255.),

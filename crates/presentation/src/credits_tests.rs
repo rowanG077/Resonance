@@ -113,7 +113,7 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
                 advance(&mut world);
                 assert!(operation.is_pending());
             }
-            assert!(world.resource::<Playback>().brightness() < 0.01);
+            assert!(world.resource::<Playback>().brightness(0.) < 0.01);
             advance(&mut world);
             assert_eq!(
                 operation.progress().outcome,

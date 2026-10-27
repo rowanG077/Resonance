@@ -4,10 +4,12 @@ mod camera_tests;
 #[cfg(test)]
 mod continuity_tests;
 mod frame;
+mod prediction;
 use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Locals, Pose};
 use bevy::prelude::*;
 use frame::Frame;
+pub(super) use prediction::present;
 use std::collections::BTreeSet;
 
 #[derive(Component)]
@@ -106,6 +108,7 @@ fn sample_clip<'a>(
 }
 
 /// Evaluate sparse curves before blending and script adjustments.
+#[allow(clippy::too_many_arguments)] // Independent pose, asset and prediction resources.
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
@@ -265,19 +268,47 @@ impl Rig {
     }
 
     fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, animated: bool) {
+        *pose = self.blended_bone(index, *pose, self.from[index], weight, animated);
+        self.presented[index] = *pose;
+    }
+
+    /// The committed and predicted poses use the same omitted-channel rules.
+    fn blended_bone(
+        &self,
+        index: usize,
+        pose: Frame,
+        source: Frame,
+        weight: f32,
+        animated: bool,
+    ) -> Frame {
         // Cloth and hair resume their rest target when explicit motion ends;
         // carrying a previous clip's bend would pin the dynamics to that pose.
         if !animated && !self.secondary_bones.contains(&index) {
-            *pose = self.presented[index];
+            self.presented[index]
         } else if weight < 1. {
-            *pose = self.from[index].mix(
-                *pose,
-                self.bones[index].1,
-                self.bind_channels[index],
-                weight,
-            );
+            source.mix(pose, self.bones[index].1, self.bind_channels[index], weight)
+        } else {
+            pose
         }
-        self.presented[index] = *pose;
+    }
+
+    fn blend_weight(&self, actor: &resonance_events::Actor, pass: u8, tick: u32) -> f32 {
+        actor.animation.as_ref().map_or(1., |animation| {
+            actor
+                .wings
+                .as_ref()
+                .and_then(|w| w.entrance(pass, tick.saturating_sub(animation.start_tick)))
+                .map_or_else(
+                    || {
+                        if self.sampled {
+                            animation.blend_weight(tick)
+                        } else {
+                            1.
+                        }
+                    },
+                    |entrance| entrance.weight,
+                )
+        })
     }
 }
 
@@ -312,23 +343,13 @@ pub(super) fn blend(
         let animation = actor.animation.as_ref();
         let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
         if key != rig.clip {
-            rig.from = rig.presented.clone();
+            let Rig {
+                from, presented, ..
+            } = &mut *rig;
+            from.clone_from(presented);
             rig.clip = key;
         }
-        let weight = animation.map_or(1., |a| {
-            actor
-                .wings
-                .as_ref()
-                .and_then(|w| w.entrance(part.pass, world.tick.saturating_sub(a.start_tick)))
-                .map(|entrance| entrance.weight)
-                .unwrap_or_else(|| {
-                    if rig.sampled {
-                        a.blend_weight(world.tick)
-                    } else {
-                        1.
-                    }
-                })
-        });
+        let weight = rig.blend_weight(actor, part.pass, world.tick);
         for i in 0..rig.bones.len() {
             let entity = rig.bones[i].0;
             if let Ok(mut transform) = nodes.get_mut(entity) {
@@ -369,7 +390,9 @@ mod tests {
         for (weight, angle) in [(0.5, 0.5), (1., 0.)] {
             for i in 0..2 {
                 let mut pose = Frame::sample(rest.into(), 0, frame::TRS);
+                let predicted = rig.blended_bone(i, pose, rig.from[i], weight, false);
                 rig.blend_bone(i, &mut pose, weight, false);
+                assert_eq!(predicted, pose);
                 let expected = if i == 0 { angle } else { 1. };
                 let rotation =
                     super::super::sparse_animation::affine::rotation(pose.pose.global().affine());
@@ -377,6 +400,18 @@ mod tests {
                 assert_eq!(pose.pose.global().translation(), rest.translation);
             }
         }
+    }
+
+    #[test]
+    fn first_animation_has_no_unseen_bind_pose_to_blend_from() {
+        let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]);
+        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
+        let mut animation = resonance_events::Animation::new(1, 0, 60, 10);
+        animation.blend_ticks = 9;
+        actor.animation = Some(animation);
+        assert_eq!(rig.blend_weight(&actor, 0, 10), 1.);
+        rig.sampled = true;
+        assert_eq!(rig.blend_weight(&actor, 0, 10), 0.);
     }
 
     #[test]

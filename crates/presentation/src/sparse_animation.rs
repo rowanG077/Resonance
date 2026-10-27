@@ -143,28 +143,6 @@ impl Binding {
                 .collect::<Result<_>>()?,
         ))
     }
-    pub fn sample(
-        &self,
-        motion: &Motion,
-        seconds: f32,
-        nodes: &mut Query<&mut Transform>,
-        affine: &mut affine::Locals,
-    ) -> Result<()> {
-        ensure!(
-            seconds.is_finite() && seconds >= 0.,
-            "invalid animation time"
-        );
-        for &(entity, rest) in &self.0 {
-            affine.set(entity, &mut *nodes.get_mut(entity)?, rest.into());
-        }
-        sample(
-            &self.0,
-            motion,
-            (seconds * FRAME_HZ).min(motion.duration_frames),
-            nodes,
-            affine,
-        )
-    }
 }
 
 pub(super) fn sample(

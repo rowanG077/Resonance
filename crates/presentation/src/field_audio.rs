@@ -1369,6 +1369,18 @@ pub(super) fn update(world: &mut World) {
 }
 
 fn flush_commands(world: &mut World) -> Result<()> {
+    if world
+        .resource::<super::new_game::Session>()
+        .events()
+        .world
+        .audio_commands
+        .is_empty()
+    {
+        return world
+            .get_resource::<Control>()
+            .context("field audio session is unavailable")?
+            .check();
+    }
     let commands = std::mem::take(
         &mut world
             .resource_mut::<super::new_game::Session>()

@@ -36,6 +36,7 @@ impl FieldCapture {
         self.validate()?;
         let (mut app, _) = crate::build_app_with_display(
             RunOptions {
+                speculative: false,
                 assets: root.into(),
                 script_root: None,
                 capture: Some(output.into()),

@@ -46,7 +46,7 @@ impl Material for GlowMaterial {
 }
 
 #[derive(Component)]
-pub(super) struct GlowMesh;
+pub(super) struct GlowMesh([f32; 4]);
 
 pub(super) fn setup(
     mut commands: Commands,
@@ -59,7 +59,7 @@ pub(super) fn setup(
         .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
         .load(scene.glow.texture.clone());
     commands.spawn((
-        GlowMesh,
+        GlowMesh(scene.glow.uv),
         // Draw scene effects after models and lights.
         super::draw_order::DrawOrder(super::draw_order::Layer::Overlay, 0, 0),
         MeshMaterial3d(materials.add(GlowMaterial { texture })),
@@ -74,38 +74,27 @@ pub(super) fn setup(
 pub(super) fn update(
     mut commands: Commands,
     events: Option<Res<Events>>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     camera: Single<&Transform, With<FieldCamera>>,
-    scene: Res<Scene>,
-    glow: Single<(Entity, Option<&Mesh3d>, &mut Visibility), With<GlowMesh>>,
+    glow: Single<(Entity, &GlowMesh, Option<&Mesh3d>, &mut Visibility)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    let (entity, handle, mut visibility) = glow.into_inner();
-    let Some(events) = events.filter(|events| !events.0.world.billboards.is_empty()) else {
+    let (entity, glow, handle, mut visibility) = glow.into_inner();
+    let Some(events) = events else {
         // Bevy skips allocating empty meshes but still attempts their upload.
         // Keep the last nonempty buffer and hide it between particle bursts;
         // before the first burst there is no mesh asset to extract at all.
         *visibility = Visibility::Hidden;
         return;
     };
-    let tick = events.0.tick();
-    let quads: Vec<_> = events
-        .0
-        .world
-        .billboards
-        .values()
-        .map(|particle| {
-            let mut color = particle.rgba.map(|v| f32::from(v) / 255.);
-            color[3] = particle.alpha(tick).max(0.) / 255.;
-            Quad::new(
-                Vec3::from_array(particle.position),
-                camera.rotation,
-                particle.size,
-                scene.glow.uv,
-                color,
-                particle.anchor,
-            )
-        })
-        .collect();
+    let future = prediction
+        .as_ref()
+        .and_then(|p| p.title().map(|(_, n)| (&n.world, p.alpha)));
+    let quads = sample(&events.0.world, future, camera.rotation, glow.0);
+    if quads.is_empty() {
+        *visibility = Visibility::Hidden;
+        return;
+    }
     let geometry = Quad::mesh(&quads);
     if let Some(handle) = handle {
         *meshes.get_mut(&handle.0).expect("glow mesh exists") = geometry;
@@ -113,4 +102,152 @@ pub(super) fn update(
         commands.entity(entity).insert(Mesh3d(meshes.add(geometry)));
     }
     *visibility = Visibility::Inherited;
+}
+
+fn sample(
+    world: &resonance_events::GameWorld,
+    future: Option<(&resonance_events::GameWorld, f32)>,
+    camera: Quat,
+    uv: [f32; 4],
+) -> Vec<Quad> {
+    let (next, alpha) = future.map_or((None, 0.), |(w, a)| (Some(w), a));
+    crate::field_effects::particle_pairs(&world.billboards, next.map(|w| &w.billboards))
+        .map(|pair| {
+            let quad = |particle: &resonance_events::effect::BillboardEffect, tick| {
+                let mut color = particle.rgba.map(|v| f32::from(v) / 255.);
+                color[3] = particle.alpha(tick).max(0.) / 255.;
+                Quad::new(
+                    Vec3::from_array(particle.position),
+                    camera,
+                    particle.size,
+                    uv,
+                    color,
+                    particle.anchor,
+                )
+            };
+            let current = pair.current.map(|p| quad(p, world.tick));
+            let next = pair.next.map(|p| quad(p, next.unwrap().tick));
+            Quad::between(current, next, alpha)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn particle_births_replace_fading_light_without_a_tick_boundary_flash() {
+        let mut current = resonance_events::GameWorld::default();
+        current.tick = 10;
+        let mut fading = resonance_events::effect::BillboardEffect::default();
+        fading.born = 10;
+        fading.lifetime = 100;
+        fading.rgba = [255; 4];
+        fading.fade = resonance_events::effect::Fade::Linear(-100.);
+        current.billboards.insert(1, fading.clone());
+        let mut next = resonance_events::GameWorld::default();
+        next.tick = 11;
+        next.billboards.insert(1, fading.clone());
+        let mut born = fading.clone();
+        born.born = 11;
+        born.rgba[3] = 100;
+        next.billboards.insert(2, born);
+        let intensity = |quads: Vec<Quad>| {
+            let mesh = Quad::mesh(&quads);
+            let bevy::mesh::VertexAttributeValues::Float32x4(colors) =
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR).unwrap()
+            else {
+                panic!("colors");
+            };
+            colors.iter().step_by(4).map(|c| c[3]).sum::<f32>()
+        };
+        for alpha in [0., 0.25, 0.5, 0.75, 1.] {
+            assert!(
+                (intensity(sample(
+                    &current,
+                    Some((&next, alpha)),
+                    Quat::IDENTITY,
+                    [0., 0., 1., 1.]
+                )) - 1.)
+                    .abs()
+                    < 0.00001
+            );
+        }
+        // A recycled ID is a death and a birth, not an unrelated pose blend.
+        let mut replacement = fading;
+        replacement.born = 11;
+        replacement.position = [1000., 0., 0.];
+        next.billboards.clear();
+        next.billboards.insert(1, replacement);
+        assert_eq!(
+            sample(
+                &current,
+                Some((&next, 0.5)),
+                Quat::IDENTITY,
+                [0., 0., 1., 1.]
+            )
+            .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn particle_bursts_never_publish_empty_meshes_or_leave_stale_glows_visible() {
+        // An empty event registry followed by a terminating main script.
+        let bytes: Vec<_> = [4_u16, 0, 0, 0, 0x20ff]
+            .into_iter()
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        let events = resonance_events::EventRuntime::new(
+            Arc::new(symphonia_script::Program::decode(&bytes).unwrap()),
+            Arc::default(),
+        )
+        .unwrap();
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .insert_resource(Events(events))
+            .add_systems(Update, update);
+        app.world_mut().spawn((FieldCamera, Transform::default()));
+        let entity = app
+            .world_mut()
+            .spawn((
+                GlowMesh([0., 0., 1., 1.]),
+                Transform::default(),
+                Visibility::Hidden,
+            ))
+            .id();
+        let mut particle = resonance_events::effect::BillboardEffect::default();
+        particle.lifetime = 100;
+        particle.size = [16.; 2];
+        particle.rgba = [255; 4];
+        for count in [0, 1, 0, 2] {
+            app.world_mut().resource_mut::<Events>().0.world.billboards =
+                (0..count).map(|id| (id, particle.clone())).collect();
+            app.update();
+            let expected = if count == 0 {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            };
+            assert_eq!(app.world().get::<Visibility>(entity), Some(&expected));
+            let meshes = app.world().resource::<Assets<Mesh>>();
+            assert!(meshes.iter().all(|(_, mesh)| mesh.count_vertices() > 0));
+            if count > 0 {
+                let handle = app.world().get::<Mesh3d>(entity).unwrap();
+                assert_eq!(
+                    meshes.get(&handle.0).unwrap().count_vertices(),
+                    count as usize * 4
+                );
+            }
+        }
+
+        app.world_mut().remove_resource::<Events>();
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(entity),
+            Some(&Visibility::Hidden)
+        );
+    }
 }

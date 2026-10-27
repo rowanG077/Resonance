@@ -22,6 +22,7 @@ pub(super) fn portal_uv(age: u32, texture: usize) -> f32 {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct Barrier {
     pub position: Position,
     pub heading: f32,
@@ -33,12 +34,14 @@ impl Barrier {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct Wake {
     pub position: Position,
     pub age: u32,
     pub duration: u32,
 }
 
+#[derive(Clone)]
 pub(super) struct Effects {
     pub(super) particles: super::particles::Particles,
     pub wakes: [Option<Wake>; WAKE_COUNT],

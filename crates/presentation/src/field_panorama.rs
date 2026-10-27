@@ -116,9 +116,11 @@ impl Draw {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Independent Bevy resources and queries for visual publication.
 pub(super) fn render(
     mut commands: Commands,
     state: State,
+    prediction: Res<crate::field_view::Prediction>,
     mut art: ResMut<Art>,
     views: Query<(&Transform, &Projection), With<crate::FieldCamera>>,
     display: Res<crate::display::Display>,
@@ -145,7 +147,14 @@ pub(super) fn render(
     });
     let from_clip = view.to_matrix() * projection.get_clip_from_view().inverse();
     let horizontal_span = display.0.aspect() / (4. / 3.);
-    let vertical = -camera.angles[0] / 90.;
+    let mut angles = camera.angles;
+    if let Some(next) = prediction.camera(camera) {
+        angles = std::array::from_fn(|i| {
+            angles[i]
+                + ((next.angles[i] - angles[i] + 180.).rem_euclid(360.) - 180.) * prediction.alpha
+        });
+    }
+    let vertical = -angles[0] / 90.;
     let vertical = if vertical < -0.6 {
         0.
     } else {
@@ -153,7 +162,7 @@ pub(super) fn render(
     };
     let scales = Vec4::new(horizontal_span, 0.5, 1., 1.);
     let offsets = Vec4::new(
-        -camera.angles[2] / 90. + (1. - horizontal_span) * 0.5,
+        -angles[2] / 90. + (1. - horizontal_span) * 0.5,
         0.5 + vertical,
         0.,
         0.,

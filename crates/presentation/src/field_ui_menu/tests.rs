@@ -2,6 +2,93 @@ use super::test_support::Fixture;
 use super::*;
 
 #[test]
+#[ignore = "requires locally cooked menu artwork; CPU only"]
+fn world_notices_do_not_pin_render_scratch() -> Result<()> {
+    use crate::field_view::prediction::{Endpoint, Key, Prediction};
+    let fixture = Fixture::load()?;
+    let mut world = World::new();
+    let mut artwork = fixture.artwork(&mut world)?;
+    // A previously displayed overworld label remains in the retained UI state.
+    artwork
+        .animation
+        .world_notice
+        .step(1, Some(("Iselia", false)));
+    artwork
+        .animation
+        .ship_notice
+        .step(1, Some(("Embark", false)));
+    let menu = fixture.field_menu();
+    let mut prediction = Prediction::default();
+    prediction.reserve()?;
+    let next = prediction.execute(|| menu.clone())?;
+    prediction.publish(
+        Key::Menu(
+            bevy::ecs::change_detection::Tick::new(1),
+            Default::default(),
+        ),
+        Endpoint::Menu(next),
+    );
+    prediction.alpha = 0.5;
+    let mut queue = bevy::ecs::world::CommandQueue::default();
+    let mut meshes = Assets::<Mesh>::default();
+    for _ in 0..30 {
+        artwork.render(
+            Source::Title(Some(&menu)),
+            &fixture.font,
+            &fixture.dialogue,
+            1,
+            crate::Resolution::default(),
+            Some(&mut prediction),
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+        )?;
+        assert_eq!(
+            prediction.scratch_scene(|_, _| 7),
+            Some(7),
+            "drawing a retained world notice disabled prediction"
+        );
+        queue.apply(&mut world);
+        assert_eq!(
+            artwork.animation.world_notice.value(),
+            Some(("Iselia", false, 16))
+        );
+        assert_eq!(
+            artwork.animation.ship_notice.value(),
+            Some(("Embark", false, 16))
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked menu data; CPU only"]
+fn released_page_taps_navigate_once_and_match_prediction() -> Result<()> {
+    let fixture = Fixture::load()?;
+    let mut menu = fixture.field_menu();
+    menu.page = Page::Status;
+    for (direction, pressed, details) in [(-1, [false, true], true), (1, [true, false], false)] {
+        let tapped = resonance_game::field::FieldInput {
+            scroll_pressed: pressed,
+            ..Default::default()
+        };
+        let mut predicted = menu.clone();
+        predicted.step(resonance_game::field::FieldInput {
+            scroll_direction: direction,
+            ..tapped
+        });
+        menu.step(tapped);
+        assert_eq!(menu.status.details, details);
+        assert_eq!(menu.status.details, predicted.status.details);
+        for _ in 0..30 {
+            menu.step(Default::default());
+            assert_eq!(menu.status.details, details);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires locally cooked menus; CPU page admission and drawing only"]
 fn optional_battle_menu_text_is_admitted_when_drawn() -> Result<()> {
     use resonance_content::diagnostics::Diagnostics;
@@ -189,6 +276,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             &fixture.dialogue,
             101,
             crate::Resolution::default(),
+            None,
             &mut Commands::new(&mut queue, &world),
             &mut meshes,
         )?;
@@ -257,6 +345,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         &fixture.dialogue,
         102,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;
@@ -562,6 +651,7 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
         &fixture.dialogue,
         0,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;
@@ -624,6 +714,7 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
         &fixture.dialogue,
         1,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;

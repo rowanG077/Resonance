@@ -150,6 +150,7 @@ fn orient_model_roots(
 
 #[allow(clippy::too_many_arguments)] // Shared assets and independent scene instances.
 pub(super) fn sync(
+    prediction: Option<Res<crate::field_view::Prediction>>,
     state: State,
     art: Res<Art>,
     mut commands: Commands,
@@ -168,7 +169,13 @@ pub(super) fn sync(
         .field_camera
         .as_ref()
         .map_or(Quat::IDENTITY, |camera| {
-            super::field_view::camera_transform(camera).rotation
+            prediction
+                .as_ref()
+                .map_or_else(
+                    || super::field_view::camera_transform(camera),
+                    |p| p.camera_transform(camera),
+                )
+                .rotation
         });
     for (entity, mut part, mut transform, mut visibility) in &mut roots {
         let Some(particle) = world
@@ -230,13 +237,35 @@ pub(super) fn sync(
             camera,
         );
         let brightness = world.brightness();
-        let tint = Vec4::new(
+        let mut tint = Vec4::new(
             brightness,
             brightness,
             brightness,
             f32::from(particle.rgba[3]) / 255.,
         );
-        let ambient_color = Vec4::from_array(particle.rgba.map(f32::from));
+        let mut ambient_color = Vec4::from_array(particle.rgba.map(f32::from));
+        if let Some((n, w, a)) = prediction.as_ref().and_then(|p| {
+            let w = &p.field()?.events.world;
+            let n = w.model_particles.get(&part.handle)?;
+            (n.born == particle.born && n.resource == particle.resource).then_some((n, w, p.alpha))
+        }) {
+            transform.translation = transform.translation.lerp(Vec3::from_array(n.position), a);
+            transform.scale = transform.scale.lerp(Vec3::from_array(n.scale), a);
+            transform.rotation = transform.rotation.slerp(
+                effect_rotation(
+                    SpriteOrientation::World,
+                    n.rotation,
+                    Default::default(),
+                    camera,
+                ),
+                a,
+            );
+            tint = tint.lerp(
+                Vec3::splat(w.brightness()).extend(f32::from(n.rgba[3]) / 255.),
+                a,
+            );
+            ambient_color = ambient_color.lerp(Vec4::from_array(n.rgba.map(f32::from)), a);
+        }
         for handle in &part.materials {
             let material = surfaces
                 .get(handle)

@@ -57,12 +57,29 @@ impl Artwork {
     pub fn render(
         &mut self,
         session: &resonance_game::overworld::Session,
+        future: Option<(&resonance_game::overworld::Session, f32)>,
         overlay: &mut Batch,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let state = session.travel.state();
         let world = state.world.index();
+        let future = future.filter(|(next, _)| {
+            next.travel.state().world == state.world
+                && next.cinematic.is_none() == session.cinematic.is_none()
+        });
+        let blend = |from: f32, to: f32| from + (to - from) * future.map_or(0., |(_, alpha)| alpha);
+        let yaw = future.map_or(state.camera_yaw, |(next, alpha)| {
+            let angle = next.travel.state().camera_yaw - state.camera_yaw;
+            state.camera_yaw + angle.sin().atan2(angle.cos()) * alpha
+        });
+        let mut position = state.position.map();
+        if let Some((next, alpha)) = future {
+            let delta = state.position.displacement_to(next.travel.state().position);
+            position[0] += delta[0] * alpha;
+            position[1] += delta[1] * alpha;
+        }
+
         let visible = session.cinematic.is_none()
             && session.active_skit.is_none()
             && session.menu.is_none()
@@ -73,16 +90,27 @@ impl Artwork {
         if visible {
             self.compass(
                 &mut decoration,
-                state.camera_yaw,
-                session.travel.camera_turn_input(),
+                yaw,
+                future.map_or(session.travel.camera_turn_input(), |(next, _)| {
+                    blend(
+                        session.travel.camera_turn_input(),
+                        next.travel.camera_turn_input(),
+                    )
+                }),
             );
-            let [x, y, _] = state.position.map();
+            let [x, y, _] = position;
             for (index, opacity) in session.travel.map_opacity().into_iter().enumerate() {
-                if opacity == 0 {
+                let opacity = future.map_or(f32::from(opacity), |(next, _)| {
+                    blend(
+                        f32::from(opacity),
+                        f32::from(next.travel.map_opacity()[index]),
+                    )
+                });
+                if opacity <= 0. {
                     continue;
                 }
-                let alpha = f32::from(opacity) / 255.;
-                let slide = f32::from(255 - opacity) / 2.;
+                let alpha = opacity / 255.;
+                let slide = (255. - opacity) / 2.;
                 let layout = Layout::new(index == 0, [x, y], slide);
                 layout.map(&mut map, self.map_sizes[world], alpha);
                 if let Some(party) = &session.events.world.party {
@@ -108,7 +136,7 @@ impl Artwork {
                         );
                     }
                 }
-                draw_direction(overlay, layout.point([x, y]), state.camera_yaw, alpha);
+                draw_direction(overlay, layout.point([x, y]), yaw, alpha);
                 if index == 0 {
                     sprite(
                         &mut decoration,

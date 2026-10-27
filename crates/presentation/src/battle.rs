@@ -1797,6 +1797,7 @@ fn render(
                     .as_ref()
                     .and_then(|frame| frame.enemy_presentation.as_ref())
                     .map_or(0, |opening| opening.letterbox),
+                None,
                 &mut commands,
                 &mut meshes,
             ),

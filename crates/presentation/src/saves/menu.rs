@@ -68,7 +68,9 @@ pub(super) fn update(world: &mut World) {
             Err(error) => failed(world, error),
         }
     }
-    let command = current(world).and_then(|mut menu| menu.take_command());
+    let command = current(world)
+        .filter(|menu| menu.has_command())
+        .and_then(|mut menu| menu.take_command());
     if let Some(command) = command
         && let Err(error) = start(world, command)
     {

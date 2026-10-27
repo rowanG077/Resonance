@@ -278,7 +278,7 @@ impl MenuArtwork {
         draw.cursor(anchor, 255 - page.state.transition.page_fade);
         let trail = draw.trail;
         let drawing = draw.batches;
-        self.trail = trail;
+        self.animation.trail = trail;
         self.submit_drawing(drawing, commands, meshes)
     }
 }

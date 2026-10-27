@@ -122,6 +122,13 @@ struct PendingImage {
     required: bool,
 }
 
+pub(crate) struct TransitionPrediction<'a> {
+    pub cover: Option<&'a resonance_battle::TransitionFrame>,
+    pub letterbox: u16,
+    pub hourglass_remaining: u16,
+    pub alpha: f32,
+}
+
 impl Artwork {
     pub(crate) fn displayed_vitals(&self, actor: usize) -> Option<[i32; 2]> {
         self.numbers
@@ -560,6 +567,7 @@ impl Artwork {
             world,
             dialogue,
             DialogueCamera::battle(world, frame)?,
+            None,
             world.tick,
             // Battle dialogue uses a fixed attachment height plus scripted offsets.
             &BTreeMap::new(),
@@ -584,10 +592,11 @@ impl Artwork {
         &mut self,
         frame: Option<&resonance_battle::TransitionFrame>,
         letterbox: u16,
+        prediction: Option<TransitionPrediction<'_>>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        let flash = self.hourglass_flash_age.map(|age| {
+        let flash_at = |age| {
             let peak_end = HOURGLASS_FLASH_RISE + HOURGLASS_FLASH_PEAK;
             resonance_battle::TransitionFrame {
                 color: [255; 3],
@@ -599,14 +608,59 @@ impl Artwork {
                     255 - (age - peak_end + 1) * HOURGLASS_FLASH_STEP
                 },
             }
-        });
+        };
+        let flash = self.hourglass_flash_age.map(flash_at);
         // Event, summon and departure fades retain ownership of the screen.
         let frame = frame.or(flash.as_ref());
+        let mut cover = frame.map(|frame| {
+            Vec4::new(
+                frame.color[0] as f32,
+                frame.color[1] as f32,
+                frame.color[2] as f32,
+                frame.alpha as f32,
+            ) / 255.
+        });
+        let mut letterbox = f32::from(letterbox);
+        if let Some(next) = prediction {
+            let age = if next.hourglass_remaining > self.hourglass_remaining {
+                Some(0)
+            } else {
+                self.hourglass_flash_age
+                    .map(|age| age + 1)
+                    .filter(|&age| age < HOURGLASS_FLASH_DURATION)
+            };
+            let flash = age.map(flash_at);
+            let future = next.cover.or(flash.as_ref());
+            let same_color = frame.zip(future).is_none_or(|(a, b)| a.color == b.color);
+            if same_color {
+                let future = future.map(|frame| {
+                    Vec4::new(
+                        frame.color[0] as f32,
+                        frame.color[1] as f32,
+                        frame.color[2] as f32,
+                        frame.alpha as f32,
+                    ) / 255.
+                });
+                cover = match (cover, future) {
+                    (Some(a), Some(b)) => Some(a.lerp(b, next.alpha)),
+                    (Some(mut a), None) => {
+                        a.w *= 1. - next.alpha;
+                        Some(a)
+                    }
+                    (None, Some(mut b)) => {
+                        b.w *= next.alpha;
+                        Some(b)
+                    }
+                    _ => None,
+                };
+            }
+            letterbox += (f32::from(next.letterbox) - letterbox) * next.alpha;
+        }
         let layer = &mut self.ui.transition;
         let mut batch = Batch::default();
-        if letterbox != 0 {
+        if letterbox != 0. {
             let [left, top, right, bottom] = self.resolution.ui_rect();
-            let height = f32::from(letterbox).min((bottom - top) * 0.5);
+            let height = letterbox.min((bottom - top) * 0.5);
             for bounds in [
                 [left, top, right, top + height],
                 [left, bottom - height, right, bottom],
@@ -614,13 +668,8 @@ impl Artwork {
                 batch.quad(bounds, [0.5; 4], [0., 0., 0., 1.]);
             }
         }
-        if let Some(frame) = frame.filter(|frame| frame.alpha != 0) {
-            let [r, g, b] = frame.color.map(|channel| f32::from(channel) / 255.);
-            batch.quad(
-                self.resolution.ui_rect(),
-                [0.5; 4],
-                [r, g, b, f32::from(frame.alpha) / 255.],
-            );
+        if let Some(color) = cover.filter(|color| color.w > 0.) {
+            batch.quad(self.resolution.ui_rect(), [0.5; 4], color.to_array());
         }
         layer.upload(batch, commands, meshes)?;
         Ok(())

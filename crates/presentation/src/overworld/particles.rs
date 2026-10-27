@@ -13,15 +13,18 @@ enum Kind {
     Holy,
     Dark,
 }
+#[derive(Clone)]
 struct Particle {
+    id: u64,
     kind: Kind,
     position: Position,
     velocity: Vec3,
     rotation: f32,
     life: u16,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Particles {
+    next_id: u64,
     live: Vec<Particle>,
     stride: u32,
     random: u32,
@@ -32,7 +35,12 @@ impl Particles {
         (self.random >> 8) % range
     }
     fn spawn(&mut self, kind: Kind, position: Position, velocity: Vec3, rotation: f32) {
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("world particle id exhausted");
         self.live.push(Particle {
+            id: self.next_id,
             kind,
             position,
             velocity,
@@ -220,7 +228,7 @@ impl Artwork {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Batch {
     positions: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
@@ -280,6 +288,7 @@ impl Batch {
 pub(super) fn render(
     mut commands: Commands,
     owner: State,
+    prediction: Res<crate::field_view::Prediction>,
     mut art: Option<ResMut<Art>>,
     camera: Query<&Transform, With<super::super::FieldCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -296,14 +305,35 @@ pub(super) fn render(
     };
     let mut batches: [Batch; 5] = Default::default();
     let origin = scene.session.travel.state().position;
-    for p in &scene.effects.particles.live {
+    let future = prediction
+        .world()
+        .filter(|next| interpolation::continuous(scene, next));
+    let next_origin = future.map_or(origin, |next| next.session.travel.state().position);
+    let alpha = future.map_or(0., |_| prediction.alpha);
+    let next = future.map_or(&scene.effects.particles.live, |next| {
+        &next.effects.particles.live
+    });
+    for (from, to) in particle_pairs(&scene.effects.particles.live, next) {
+        let p = from.or(to).unwrap();
         if matches!(p.kind, Kind::Snow) && origin.distance_to(p.position) >= 10000. {
             continue;
         }
-        let delta = origin.displacement_to(p.position);
-        let center = Vec3::new(delta[0], delta[1], p.position.map()[2]);
-        let fade = (f32::from(p.life) / 10.).min(1.);
-        let rotation = Quat::from_rotation_z(p.rotation);
+        let center_at = |origin: Position, p: &Particle| {
+            let delta = origin.displacement_to(p.position);
+            Vec3::new(delta[0], delta[1], p.position.map()[2])
+        };
+        let center = center_at(origin, from.unwrap_or(p))
+            .lerp(center_at(next_origin, to.unwrap_or(p)), alpha);
+        let opacity = match (from.is_some(), to.is_some()) {
+            (true, true) => 1.,
+            (true, false) => 1. - alpha,
+            _ => alpha,
+        };
+        let life = f32::from(from.unwrap_or(p).life)
+            + (f32::from(to.unwrap_or(p).life) - f32::from(from.unwrap_or(p).life)) * alpha;
+        let fade = (life / 10.).min(1.) * opacity;
+        let rotation = Quat::from_rotation_z(from.unwrap_or(p).rotation)
+            .slerp(Quat::from_rotation_z(to.unwrap_or(p).rotation), alpha);
         let batch = &mut batches[0];
         match p.kind {
             Kind::Footprint(rotation) => batch.fan(
@@ -318,8 +348,8 @@ pub(super) fn render(
                 center,
                 Quat::from_euler(
                     EulerRot::XYZ,
-                    f32::from(p.life) * 3f32.to_radians(),
-                    f32::from(p.life) * 4f32.to_radians(),
+                    life * 3f32.to_radians(),
+                    life * 4f32.to_radians(),
                     0.,
                 ),
                 Vec2::new(4., 10.),
@@ -330,12 +360,12 @@ pub(super) fn render(
             Kind::Dust(texture) => batches[texture + 1].square(
                 center,
                 camera.rotation,
-                100. - f32::from(p.life),
+                100. - life,
                 [
                     189. / 255.,
                     182. / 255.,
                     113. / 255.,
-                    f32::from(p.life) / 60. * 128. / 255.,
+                    life / 60. * 128. / 255. * opacity,
                 ],
             ),
             Kind::Snow => batch.fan(
@@ -354,7 +384,7 @@ pub(super) fn render(
                     240. / 255.,
                     240. / 255.,
                     240. / 255.,
-                    (f32::from(p.life) / 30.).min(1.),
+                    (life / 30.).min(1.) * opacity,
                 ],
                 0.,
                 true,
@@ -363,7 +393,7 @@ pub(super) fn render(
                 center,
                 camera.rotation,
                 Vec2::splat(15.),
-                [0., 0., 0., (f32::from(p.life) / 30.).min(1.)],
+                [0., 0., 0., (life / 30.).min(1.) * opacity],
                 0.,
                 false,
             ),
@@ -418,5 +448,53 @@ pub(super) fn render(
             .get_mut(&art.particles.draws[i].as_ref().unwrap().material)
             .unwrap()
             .fog_range = Vec4::new(far * 0.5, far * 0.75, 0., 0.);
+    }
+}
+
+// Births and deaths retain their identity; deleting a particle never shifts another endpoint.
+fn particle_pairs<'a>(
+    from: &'a [Particle],
+    to: &'a [Particle],
+) -> impl Iterator<Item = (Option<&'a Particle>, Option<&'a Particle>)> {
+    let mut from = from.iter().peekable();
+    let mut to = to.iter().peekable();
+    std::iter::from_fn(move || match (from.peek(), to.peek()) {
+        (Some(a), Some(b)) if a.id == b.id => Some((from.next(), to.next())),
+        (Some(a), Some(b)) if a.id < b.id => Some((from.next(), None)),
+        (Some(_), Some(_)) => Some((None, to.next())),
+        (Some(_), None) => Some((from.next(), None)),
+        (None, Some(_)) => Some((None, to.next())),
+        (None, None) => None,
+    })
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    #[test]
+    fn particle_pairs_keep_identity_when_the_middle_particle_survives() -> Result<()> {
+        let mut from = Particles::default();
+        let origin = Position::from_map([0.; 3])?;
+        for _ in 0..3 {
+            from.spawn(Kind::Grass, origin, Vec3::ZERO, 0.);
+        }
+        let mut next = from.clone();
+        next.live.remove(0);
+        next.live.remove(1);
+        next.spawn(Kind::Grass, origin, Vec3::ZERO, 0.);
+        let pairs: Vec<_> = particle_pairs(&from.live, &next.live)
+            .map(|(a, b)| (a.map(|p| p.id), b.map(|p| p.id)))
+            .collect();
+        assert_eq!(
+            pairs,
+            [
+                (Some(1), None),
+                (Some(2), Some(2)),
+                (Some(3), None),
+                (None, Some(4))
+            ]
+        );
+        assert_eq!(from.live.len(), 3);
+        Ok(())
     }
 }

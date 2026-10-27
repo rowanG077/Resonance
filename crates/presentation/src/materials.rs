@@ -179,6 +179,17 @@ pub struct SceneryLighting {
     pub positions: [Vec4; 2],
 }
 
+impl SceneryLighting {
+    pub(crate) fn lerp(self, to: Self, alpha: f32) -> Self {
+        Self {
+            ambient: self.ambient.lerp(to.ambient, alpha),
+            color: self.color.lerp(to.color, alpha),
+            attenuation: self.attenuation.lerp(to.attenuation, alpha),
+            positions: std::array::from_fn(|i| self.positions[i].lerp(to.positions[i], alpha)),
+        }
+    }
+}
+
 /// Unlit scene surface with an optional second, independently mapped texture.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 #[bind_group_data(SurfaceKey)]

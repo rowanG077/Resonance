@@ -753,13 +753,15 @@ pub(super) fn skip_test_battles(options: Res<RunOptions>, session: Option<ResMut
     if options.skip_battles
         && let Some(mut session) = session
     {
-        if options.allow_incomplete_scripts {
+        if options.allow_incomplete_scripts && !session.allow_incomplete_scripts {
             session.allow_incomplete_scripts = true;
             if let Scene::Field(field) = &mut session.scene {
                 field.session.allow_incomplete_scripts = true;
             }
         }
-        if let Err(error) = session.events_mut().world.skip_battle_as_victory() {
+        if session.events().world.battle_request.is_some()
+            && let Err(error) = session.events_mut().world.skip_battle_as_victory()
+        {
             error!("Could not finish test battle: {error}");
         }
     }

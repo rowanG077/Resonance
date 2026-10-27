@@ -307,6 +307,102 @@ fn enter(destination: Destination, map: u32, story: Option<i32>) -> Result<Scene
         Ok(())
     })
 }
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn speculative_ticks_match_real_field_steps_and_report_cpu_cost() -> Result<()> {
+    let mut field = enter(MARTEL_START, 308, Some(107_000))?;
+    field.advance_until(FieldSession::player_has_control)?;
+    let mut baseline = enter(MARTEL_START, 308, Some(107_000))?;
+    baseline.advance_until(FieldSession::player_has_control)?;
+    let mut storage = resonance_game::field::PredictionBuffer::new()?;
+    let mut peak_bytes = 0;
+    let mut times = Vec::with_capacity(960);
+    let mut endpoints = 0;
+    for tick in 0..240 {
+        let input = FieldInput {
+            direction: if tick % 60 < 30 {
+                [0.25, 0.]
+            } else {
+                [-0.25, 0.]
+            },
+            // Exercise real ring scripts, particles, RNG and owned operations.
+            pressed_buttons: if tick == 120 {
+                [Button::Ring].into()
+            } else {
+                Default::default()
+            },
+            ..Default::default()
+        };
+        let before_tick = field.events.tick();
+        let before_audio = format!("{:?}", field.events.world.audio_commands);
+        let before_random = field.events.world.random_state;
+        let before_gameplay_random = field.events.world.gameplay_random;
+        let waits = field.events.pending_operations();
+        let mut next = None;
+        for _ in 0..4 {
+            let allocation_counts = resonance_simulation_memory::system_calls();
+            let started = std::time::Instant::now();
+            next = storage.predict(&field, input)?.state;
+            assert_eq!(
+                resonance_simulation_memory::system_calls(),
+                allocation_counts
+            );
+            times.push(started.elapsed().as_secs_f64() * 1000.);
+            peak_bytes = peak_bytes.max(storage.used_bytes().into_iter().max().unwrap());
+        }
+        assert_eq!(field.events.tick(), before_tick);
+        assert_eq!(field.events.pending_operations(), waits);
+        assert_eq!(field.events.world.random_state, before_random);
+        assert_eq!(field.events.world.gameplay_random, before_gameplay_random);
+        assert_eq!(
+            format!("{:?}", field.events.world.audio_commands),
+            before_audio
+        );
+        field.step(input)?;
+        baseline.step(input)?;
+        assert_eq!(
+            field.events.world.random_state,
+            baseline.events.world.random_state
+        );
+        assert_eq!(
+            field.events.world.gameplay_random,
+            baseline.events.world.gameplay_random
+        );
+        assert_eq!(
+            field.events.world.event_flags,
+            baseline.events.world.event_flags
+        );
+        assert_eq!(
+            field.events.world.actors.len(),
+            baseline.events.world.actors.len()
+        );
+        for (&id, actor) in &field.events.world.actors {
+            let expected = &baseline.events.world.actors[&id];
+            assert_eq!(actor.position, expected.position);
+            assert_eq!(actor.heading, expected.heading);
+        }
+        if let Some(next) = next {
+            endpoints += 1;
+            assert_eq!(next.events.tick(), field.events.tick());
+            for (id, actor) in &next.events.world.actors {
+                assert_eq!(actor.position, field.events.world.actors[id].position);
+                assert_eq!(actor.heading, field.events.world.actors[id].heading);
+            }
+        }
+    }
+    assert!(endpoints >= 200, "only {endpoints} eligible predictions");
+    times.sort_by(f64::total_cmp);
+    eprintln!(
+        "Field 308, {} predictions: median {:.3} ms, p95 {:.3} ms, max {:.3} ms (CPU only); peak arena {:.2} MiB; zero system allocator calls",
+        times.len(),
+        times[times.len() / 2],
+        times[times.len() * 95 / 100],
+        times.last().unwrap(),
+        peak_bytes as f64 / (1024. * 1024.)
+    );
+    Ok(())
+}
 fn mission(field: &FieldSession, address: u16) -> i32 {
     field
         .events

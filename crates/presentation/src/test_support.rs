@@ -3,6 +3,7 @@ use resonance_battle::{Actor, PreparedBattle, Side};
 
 pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOptions {
     crate::RunOptions {
+        speculative: false,
         assets: assets.into(),
         script_root: None,
         saves: Default::default(),

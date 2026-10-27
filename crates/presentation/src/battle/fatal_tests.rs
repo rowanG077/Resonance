@@ -191,6 +191,7 @@ impl Fixture {
             images: vec![],
         })
         .insert_resource(crate::RunOptions {
+            speculative: false,
             assets: root.clone(),
             script_root: None,
             saves: Default::default(),

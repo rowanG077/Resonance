@@ -83,6 +83,27 @@ Wide resolutions expand the camera horizontally and keep UI in a centered 4:3
 area. Gameplay renders without an application cap; movies follow their audio
 clock. Simulation remains at 60000/1001 updates per second.
 
+`--speculative` enables next-tick smoothing. It predicts one normal simulation
+update using current input, then interpolates toward its visual state. Frames
+reuse that endpoint while the committed state, inputs and service completion
+tokens are unchanged. The real simulation stays at 60000/1001 Hz. Predictions never
+publish audio, saves, rumble, scene handoffs or gameplay results.
+
+Smoothing covers field roots, skeletal animation, secondary physics, attached
+models, effects and UI, plus the title, startup fades, menus and model previews,
+skits, overworld travel and game-rendered cinematics. Pre-rendered movies retain
+their native frame cadence. Billboard births/deaths cross-fade; changed text, atlas frames, scene cuts
+and loading handoffs stay discrete. Capture, replay and paused test modes retain
+exact tick sampling. Omit the flag to compare with ordinary rendering.
+
+Two fixed 64 MiB arenas are allocated at startup and reused for isolated scene
+state and temporary prediction work. Prediction makes no system allocator calls;
+ordinary rendering and GPU uploads retain their existing allocation behavior.
+There is no arena growth or emergency heap fallback. The fixed-capacity allocator
+still follows Rust's fatal allocation-failure path on exhaustion, so the feature
+remains opt-in. See [the smoothing notes](docs/performance.md#speculative-smoothing)
+for validation, memory limits and profiling commands.
+
 | Action | Keyboard | Controller |
 |---|---|---|
 | Menu selection / movement | Arrows; WASD also moves in fields | Left stick / D-pad |

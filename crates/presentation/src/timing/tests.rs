@@ -54,6 +54,7 @@ fn fixture() -> App {
             allow_incomplete_scripts: false,
             record_playthrough: None,
             record_title_ticks: 1000,
+            speculative: false,
         })
         .add_systems(
             FixedUpdate,

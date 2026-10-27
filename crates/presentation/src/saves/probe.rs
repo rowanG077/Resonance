@@ -133,6 +133,7 @@ pub(super) fn app_with_target(
             record_title_ticks: 0,
             skip_battles: false,
             allow_incomplete_scripts: false,
+            speculative: false,
         },
         resolution,
     )?;

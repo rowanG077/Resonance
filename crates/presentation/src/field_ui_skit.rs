@@ -155,9 +155,11 @@ impl Artwork {
             self.warm.push(allocate(canvas.surface.clone(), 4.));
         }
     }
+    #[allow(clippy::too_many_arguments)] // Scene endpoints and independent Bevy presentation resources.
     pub fn render(
         &mut self,
         playback: Option<&resonance_game::field::SkitPlayback>,
+        future: Option<(&resonance_game::field::SkitPlayback, f32)>,
         font: &BitmapFont,
         resolution: crate::Resolution,
         commands: &mut Commands,
@@ -185,6 +187,20 @@ impl Artwork {
             "too many skit portraits to render"
         );
         let tick = playback.events.tick();
+        let future = future.filter(|(p, _)| p.id == playback.id);
+        let next_scene = future.and_then(|(p, a)| {
+            p.events
+                .world
+                .skit
+                .as_ref()
+                .map(|s| (s, p.events.tick(), a))
+        });
+        let fade = |start: u32, rate: u32, cap: u32| {
+            let value = ((tick.saturating_sub(start) + 1) * rate).min(cap) as f32;
+            next_scene.map_or(value, |(_, t, a)| {
+                value + (((t.saturating_sub(start) + 1) * rate).min(cap) as f32 - value) * a
+            }) / 255.
+        };
         let rect @ [left, _, right, _] = resolution.ui_rect();
         let mut background = Batch::default();
         background.quad(rect, [0.5; 4], [0., 0., 0., 0.5]);
@@ -192,7 +208,7 @@ impl Artwork {
         self.layers[0].show(true, commands);
         let mut text = Batch::default();
         if let Some(start) = scene.panel_started {
-            let opacity = ((tick.saturating_sub(start) + 1) * 4).min(144) as f32 / 255.;
+            let opacity = fade(start, 4, 144);
             text.quad([left, 384., right, 468.], [0.5; 4], [0., 0., 0., opacity]);
         }
         centered(
@@ -201,12 +217,12 @@ impl Artwork {
             &playback.title,
             34.,
             25.,
-            ((tick + 1) * 4).min(255) as f32 / 255.,
+            fade(0, 4, 255),
             false,
         )?;
         let lines: Vec<_> = scene.subtitle.split('\n').collect();
         let top = if lines.len() == 1 { 402. } else { 392. };
-        let alpha = ((tick.saturating_sub(scene.subtitle_started) + 1) * 8).min(255) as f32 / 255.;
+        let alpha = fade(scene.subtitle_started, 8, 255);
         for (i, line) in lines.iter().enumerate() {
             centered(
                 &mut text,
@@ -253,17 +269,32 @@ impl Artwork {
                     .data = Some(pixels);
                 canvas.painted = Some((portrait.resource, portrait.tiles.clone()));
             }
-            let [x, y] = portrait.position;
-            let [w, h] = portrait.size.map(|v| v * portrait.scale);
+            let next = next_scene.and_then(|(s, _, a)| {
+                let id = scene.portraits.keys().nth(index)?;
+                s.portraits
+                    .get(id)
+                    .filter(|p| p.resource == portrait.resource)
+                    .map(|p| (p, a))
+            });
+            let smooth = |v: f32, target: &dyn Fn(&resonance_events::skit::Portrait) -> f32| {
+                next.map_or(v, |(p, a)| v + (target(p) - v) * a)
+            };
+            let [x, y] = std::array::from_fn(|i| smooth(portrait.position[i], &|p| p.position[i]));
+            let [w, h] = std::array::from_fn(|i| {
+                smooth(portrait.size[i] * portrait.scale, &|p| p.size[i] * p.scale)
+            });
             let mut batch = Batch::default();
-            let mut color = portrait.color;
-            color[3] = portrait.opacity;
+            let mut color = std::array::from_fn(|i| smooth(portrait.color[i], &|p| p.color[i]));
+            color[3] = smooth(portrait.opacity, &|p| p.opacity);
             batch.quad(
                 [x - w / 2., y - h / 2., x + w / 2., y + h / 2.],
                 [1., 1., 1. + asset.size[0] as f32, 1. + asset.size[1] as f32],
                 color,
             );
-            let (sin, cos) = portrait.angle.to_radians().sin_cos();
+            let angle = next.map_or(portrait.angle, |(p, a)| {
+                portrait.angle + ((p.angle - portrait.angle + 180.).rem_euclid(360.) - 180.) * a
+            });
+            let (sin, cos) = angle.to_radians().sin_cos();
             for p in &mut batch.positions {
                 let dx = p[0] - (x - 320.);
                 let dy = p[1] - (240. - y);
