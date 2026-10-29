@@ -362,7 +362,10 @@ pub fn cook_battle_cues(root: &Path, library: &Path, selected: Option<u16>) -> R
             missing.len()
         );
         for id in missing {
-            eprintln!("warning: native battle cue {id} has no source program");
+            // v_52_corp21.snd has absent macros and zero-filled placeholder samples.
+            if !matches!(id, 2158..=2162 | 2166 | 2167) {
+                eprintln!("warning: native battle cue {id} has no source program");
+            }
         }
     }
     Mappings::new(bindings)
