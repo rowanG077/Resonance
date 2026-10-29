@@ -23,18 +23,20 @@ these cooked files.
 ```sh
 nix develop
 cargo build --release -p resonance-import-cli
-target/release/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
-target/release/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
-target/release/resonance-import cook-all --extracted local/extracted --output local/all-assets
+target/release/resonance-import /path/to/Disc1.rvz /path/to/Disc2.rvz
 ```
 
-The current import profile supports North American GQSEAF revision 0.
-Extraction is a one-time step. The normal command now uses the replacement
-importer described in the [cooking guide](docs/cooking.md). It cooks shared assets once from disc 1;
-its only disc-2 inputs are five event speech archives and four story movies.
-A complete second extraction is optional. The replacement covers the currently supported resource catalogue. Required
-conversion failures stop with their owner and path; broader original-game
-controller support remains in development.
+The command reads both disc images and writes `local/all-assets`, which the
+engine loads by default. Use `--output DIRECTORY` to choose a different fresh
+output. No separate extraction command is needed. Temporary native files are
+removed on success or failure; they are needed because the native converters
+read ordinary files, including seekable speech archives and movies.
+
+The current import profile supports North American GQSEAF revision 0. Disc 1
+supplies the shared assets; only five additional event-speech archives and four
+movies are read from disc 2. Shared disc-2 assets are not extracted or cooked.
+See the [cooking guide](docs/cooking.md) for import commands and source selection. Required conversion failures stop with their owner and path;
+broader original-game controller support remains in development.
 The asset library contains fields, world, shared models and animations, battle content, menus,
 skits, audio and movies. Category converters read their native inputs and write
 the final named files directly. Category `mappings.json` files connect the game's
