@@ -25,7 +25,10 @@ const POOLS: [(&str, u32, usize); 6] = [
 
 fn source_files(root: &Path) -> Result<BTreeSet<String>> {
     let mut files = BTreeSet::new();
-    for entry in fs::read_dir(root.join("disc1/files/MAP"))? {
+    let directory = root.join("disc1/files/MAP");
+    for entry in fs::read_dir(&directory)
+        .with_context(|| format!("read field sources {}", directory.display()))?
+    {
         let entry = entry?;
         ensure!(
             entry.file_type()?.is_file(),
@@ -141,7 +144,9 @@ pub fn cook_field_directory(root: &Path, library: &Path) -> Result<Vec<u32>> {
         !mapping_path.exists() && !forage_path.exists(),
         "field directory output already exists"
     );
-    let exe = fs::read(root.join("disc1/sys/main.dol"))?;
+    let executable = root.join("disc1/sys/main.dol");
+    let exe = fs::read(&executable)
+        .with_context(|| format!("read GameCube executable {}", executable.display()))?;
     let files = source_files(root)?;
     let (mappings, foraging) = convert(&exe, &files)?;
     let selected = mappings.iter().map(|(id, _)| id).collect();

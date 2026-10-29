@@ -4,12 +4,19 @@
 GQSEAF revision 0 data into one editable asset library. The command uses
 `crates/importer`; it has no legacy fallback.
 
+Start from the disc images when `local/extracted` is absent, including after
+clearing `local/`:
+
 ```sh
 cargo build --release -p resonance-import-cli
-target/release/resonance-import cook-all \
-  --extracted local/extracted \
-  --output local/all-assets
+target/release/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
+target/release/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
+target/release/resonance-import cook-all
 ```
+
+`cook-all` converts an existing extraction; it does not find or extract disc
+images automatically. Its defaults are `--extracted local/extracted` and
+`--output local/all-assets`, matching the engine's default asset path.
 
 The extraction root contains `disc1/sys/main.dol` and `disc1/files/`. Disc 1 is
 primary. The optional `disc2/files/` supplement needs only five additional event
