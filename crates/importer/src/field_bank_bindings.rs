@@ -259,14 +259,20 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
         serde_json::from_slice(&fs::read(library.join("fields/mappings.json"))?)?;
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     for (id, name) in fields {
-        let actors: Actors = serde_json::from_slice(&fs::read(
-            library.join(format!("fields/{name}/actors.json")),
-        )?)?;
+        let actors: Actors = serde_json::from_slice(
+            &fs::read(library.join(format!("fields/{name}/actors.json")))
+                .with_context(|| format!("read field {id} ({name}) actors"))?,
+        )?;
         let locals = actors
             .models
             .into_iter()
             .filter_map(|model| match model {
-                resonance_content::field::document::ModelBinding::Local(actor) => Some(actor),
+                resonance_content::field::document::ModelBinding::Local(actor)
+                    if resonance_content::field::LOCAL_MODEL_RESOURCES
+                        .contains(&actor.resource) =>
+                {
+                    Some(actor)
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -275,16 +281,12 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
         }
         let row = dol::slice(&exe, field_core::PHASES + id * 24, 24)?;
         let archive = field_core::native_archive(extracted, &exe, row, id as usize)?
-            .context("local rig field lacks archive")?;
+            .with_context(|| format!("field {id} ({name}) local rig archive missing"))?;
         for actor in locals {
-            let package = field_core::optional_section(
-                &archive,
-                16 + actor
-                    .resource
-                    .checked_sub(0xffee0000)
-                    .context("invalid local actor resource")? as usize,
-            )?
-            .context("local rig package missing")?;
+            let section = 16
+                + (actor.resource - resonance_content::field::LOCAL_MODEL_RESOURCES.start) as usize;
+            let package = field_core::optional_section(&archive, section)?
+                .with_context(|| format!("field {id} ({name}) local resource {:#x}, section {section}, model {} has no package", actor.resource, actor.model))?;
             let model: Model = serde_json::from_slice(&fs::read(library.join(&actor.model))?)?;
             for part in model.parts {
                 let body = if world_gpl::is_model(package) {
