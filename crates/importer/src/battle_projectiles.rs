@@ -52,7 +52,7 @@ pub(crate) fn scene_record(row: &[u8], reset_scale: f32) -> Result<Projectile> {
         // already carry the editable visual and the history is never submitted.
         // Enemy-local records use the same clash, steering and ricochet bits
         // that the direct fields below already represent.
-        flags & !0x1f9_367f == 0 || ground_lance || departure || clashing_flight,
+        flags & !(0x1f9_367f | 0x4000) == 0 || ground_lance || departure || clashing_flight,
         "unsupported projectile controller {flags:#x}"
     );
     ensure!(
