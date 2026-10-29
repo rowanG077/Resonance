@@ -1,7 +1,27 @@
 //! One fresh library from the native extraction, in final-owner order.
 use anyhow::{Context, Result, ensure};
-use std::path::Path;
+use std::{path::Path, time::Instant};
 use symphonia_constants::{ArenaId, BattleSceneId, BattleSkillId, MonsterId};
+
+const PASS_COUNT: usize = 64;
+
+struct PassTiming {
+    number: usize,
+    name: &'static str,
+    started: Instant,
+}
+
+impl Drop for PassTiming {
+    fn drop(&mut self) {
+        eprintln!(
+            "[asset type {}/{}] {} took {:.3} seconds",
+            self.number,
+            PASS_COUNT,
+            self.name,
+            self.started.elapsed().as_secs_f64()
+        );
+    }
+}
 
 pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     let executable = root.join("disc1/sys/main.dol");
@@ -14,9 +34,16 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     let started = std::time::Instant::now();
     eprintln!("Writing asset library to {}", library.display());
     let mut pass = 0;
-    let mut heading = |name: &str| {
+    let mut timing = None;
+    let mut heading = |name: &'static str| {
+        drop(timing.take());
         pass += 1;
-        eprintln!("\n[asset type {pass}/64] Cooking {name}");
+        eprintln!("\n[asset type {pass}/{PASS_COUNT}] Cooking {name}");
+        timing = Some(PassTiming {
+            number: pass,
+            name,
+            started: Instant::now(),
+        });
     };
     heading("Descriptor");
     crate::cook_descriptor(library).context("library descriptor")?;
@@ -253,6 +280,8 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     crate::cook_world_script(root, library).context("world script")?;
     heading("World definition");
     crate::cook_world_definition(root, library).context("world definition")?;
+    drop(heading);
+    drop(timing);
     eprintln!(
         "Cook complete in {:.1}s: {}",
         started.elapsed().as_secs_f64(),
