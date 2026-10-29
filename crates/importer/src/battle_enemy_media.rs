@@ -91,45 +91,6 @@ fn clip(path: String, slot: u16) -> SceneClip {
     }
 }
 
-fn duplicate_motion_joints(bytes: &[u8]) -> Result<Option<usize>> {
-    let count = usize::from(dol::u16(bytes, 12)?);
-    let mut joints = BTreeMap::new();
-    for index in 0..count {
-        let node = dol::u16(bytes, 36 + index * 16 + 10)?;
-        joints.entry(node).or_insert(index);
-    }
-    if joints.len() == count {
-        return Ok(None);
-    }
-    let mut cursor = dol::u32(bytes, 20)? as usize;
-    if cursor != 0 {
-        let mut names = Vec::new();
-        for _ in 0..count {
-            let tail = bytes
-                .get(cursor..)
-                .context("enemy motion name table is truncated")?;
-            let end = tail
-                .iter()
-                .position(|&byte| byte == 0)
-                .context("enemy motion name is unterminated")?;
-            names.push(&tail[..end]);
-            cursor += end + 1;
-        }
-        for index in joints.values() {
-            let node = dol::u16(bytes, 36 + index * 16 + 10)?;
-            for other in 0..count {
-                if other != *index && dol::u16(bytes, 36 + other * 16 + 10)? == node {
-                    ensure!(
-                        names[*index] == names[other],
-                        "duplicate enemy joint has different names"
-                    );
-                }
-            }
-        }
-    }
-    Ok(Some(joints.len()))
-}
-
 fn enemy_blend(scene: &mut ScenePart, alpha: &[bool]) {
     for material in &mut scene.materials {
         material.blend |= material
@@ -453,7 +414,9 @@ fn secondary_chains(
             collision_plane: None,
         });
     }
-    tune_chains(model, &mut chains)?;
+    if !chains.is_empty() {
+        tune_chains(model, &mut chains)?;
+    }
     let definition = SecondaryMotion { chains };
     definition.prepare(
         &skeleton
@@ -895,15 +858,8 @@ fn convert(
         alpha.push(transparent);
     }
     let (glb, mut body_part) = world_gpl::static_model(body, paths.clone(), alpha.clone())?;
-    let mut bindings = Vec::new();
-    if secondary_flags != 0 || body.windows(7).any(|bytes| bytes == b"AB_ROOT") {
-        let native = world_gpl::named_animation_bindings(body)?;
-        let dynamics = secondary_chains(&glb, &native, name)?;
-        if secondary_flags != 0 || !dynamics.chains.is_empty() {
-            body_part.secondary_motion = dynamics;
-            bindings = native;
-        }
-    }
+    let bindings = world_gpl::named_animation_bindings(body)?;
+    body_part.secondary_motion = secondary_chains(&glb, &bindings, name)?;
     enemy_blend(&mut body_part, &alpha);
     body_part.mesh = format!("{base}/meshes/body.glb");
     files.insert(body_part.mesh.clone(), glb.clone());
@@ -947,15 +903,8 @@ fn convert(
         };
         let (glb, mut outline_part) =
             world_gpl::static_model(&outline, outline_paths, outline_alpha.clone())?;
-        let mut bindings = Vec::new();
-        if secondary_flags != 0 || outline.windows(7).any(|bytes| bytes == b"AB_ROOT") {
-            let native = world_gpl::named_animation_bindings(&outline)?;
-            let dynamics = secondary_chains(&glb, &native, name)?;
-            if secondary_flags != 0 || !dynamics.chains.is_empty() {
-                outline_part.secondary_motion = dynamics;
-                bindings = native;
-            }
-        }
+        let bindings = world_gpl::named_animation_bindings(&outline)?;
+        outline_part.secondary_motion = secondary_chains(&glb, &bindings, name)?;
         enemy_blend(&mut outline_part, &outline_alpha);
         outline_part.mesh = format!("{base}/meshes/outline.glb");
         outline_part.resource = 1;
@@ -1065,41 +1014,14 @@ fn convert(
             if index >= 2 && slot < usize::from(metadata[0xbd]) {
                 continue;
             }
-            let unique_joints = if motion_bindings[index].is_empty() {
-                duplicate_motion_joints(motion)?
-            } else {
-                None
-            };
-            // A motion can omit joints inserted in this body (for example a
-            // carried weapon). Its compact track indices then cannot index
-            // the full skeleton; resolve its native labels instead.
-            let partial = usize::from(dol::u16(motion, 12)?)
-                != Skeleton::from_glb(&meshes[index])?.bones.len();
-            let encoded = if motion_bindings[index].is_empty() && unique_joints.is_none() && !partial {
-                world_motion::encode(motion, &meshes[index])
-            } else {
-                let bindings = if motion_bindings[index].is_empty() {
-                    let model = member(&package, 0x18 + index * 4)?
-                        .context("enemy duplicate-joint motion has no model")?;
-                    world_gpl::named_animation_bindings(model)?
-                } else {
-                    motion_bindings[index].clone()
-                };
-                let native = bindings
-                    .iter()
-                    .map(|(id, _, raw)| (*id, raw.clone()))
-                    .collect::<Vec<_>>();
-                let encoded = world_motion::encode_bound(motion, &meshes[index], &native)?;
-                if let Some(unique) = unique_joints {
-                    ensure!(
-                        Motion::decode(&encoded)?.tracks.len() >= unique.saturating_sub(1),
-                        "duplicate-joint enemy motion lost more than one named track: encoded {}, native unique {unique}",
-                        Motion::decode(&encoded)?.tracks.len()
-                    );
-                }
-                Ok(encoded)
-            }
-            .with_context(|| format!("enemy {id} part {index} motion {slot}"))?;
+            // Equal track counts do not imply equal joint order. Native names
+            // take precedence over IDs, just as they do for partial motions.
+            let native = motion_bindings[index]
+                .iter()
+                .map(|(id, _, raw)| (*id, raw.clone()))
+                .collect::<Vec<_>>();
+            let encoded = world_motion::encode_bound(motion, &meshes[index], &native)
+                .with_context(|| format!("enemy {id} part {index} motion {slot}"))?;
             if index >= 2 && Motion::decode(&encoded)?.tracks.is_empty() {
                 continue;
             }
@@ -1117,7 +1039,7 @@ fn convert(
                 path
             };
             let mut bound = clip(path.clone(), slot as u16);
-            if !motion_bindings[index].is_empty() {
+            if !part.scene.secondary_motion.is_empty() {
                 bound.pose_chains = posed_chains(
                     motion,
                     &motion_bindings[index],
