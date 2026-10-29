@@ -3,7 +3,7 @@ use std::{fs, io::Write};
 use symphonia_script::authored::NativeDeclaration;
 use symphonia_script_compiler::{SourceResolver, check, format, native_reference};
 
-const USAGE: &str = "usage: symphonia-script check ROOT MODULE...\n       symphonia-script fmt [--check] ROOT [MODULE...]\n       symphonia-script api";
+const USAGE: &str = "usage: symphonia-script check ROOT MODULE...\n       symphonia-script fmt [--check] ROOT [MODULE...]\n       symphonia-script api\n       symphonia-script scenario disassemble INPUT.ssb OUTPUT.ssasm\n       symphonia-script scenario assemble INPUT.ssasm OUTPUT.ssb";
 
 /// Shared CLI entry point. Game tools pass their actual declaration table; the
 /// standalone binary checks language-only modules with an empty native API.
@@ -14,6 +14,9 @@ pub fn run(
 ) -> Result<(), Error> {
     let mut args = args.into_iter();
     let command = args.next().ok_or_else(|| Error::Usage(USAGE.into()))?;
+    if command == "scenario" {
+        return crate::scenario::run(args, output);
+    }
     if command == "api" {
         if args.next().is_some() {
             return Err(Error::Usage(USAGE.into()));

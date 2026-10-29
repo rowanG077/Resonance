@@ -394,7 +394,8 @@ impl MenuArtwork {
         cursor: &resonance_content::font::UiTexture,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
-        let spec = MenuArt::decode(&read("ui/menu.json")?, diagnostics)?;
+        let mut spec = MenuArt::decode(&read("ui/menu.json")?, diagnostics)?;
+        spec.prepare_resources(&read);
         spec.validate_structure()?;
         let mut prepared = BTreeMap::new();
         for (&index, texture) in &spec.textures {
@@ -2262,9 +2263,10 @@ impl Drawing<'_> {
                 Slot::Saved {
                     played_ticks,
                     party,
+                    vitals,
                     ..
                 } => {
-                    self.party(party, true, 0, None)?;
+                    self.party(party, true, 0, None, Some(vitals))?;
                     for (key, position) in [
                         ("gald", [32., 380.]),
                         ("play_time", [32., 406.]),
@@ -2341,6 +2343,7 @@ impl Drawing<'_> {
                 false,
                 menu.first_character,
                 statistics,
+                None,
             )?;
             if menu.first_character > 0 {
                 self.scroll_arrow(SCROLL_UP, [226., 77.])?;
@@ -2435,6 +2438,7 @@ impl Drawing<'_> {
         compact: bool,
         first: usize,
         statistics: Option<&resonance_content::menu_data::MenuData>,
+        preview_vitals: Option<&std::collections::BTreeMap<u8, [u16; 2]>>,
     ) -> Result<()> {
         let visible = if compact {
             party.formation.len()
@@ -2443,7 +2447,10 @@ impl Drawing<'_> {
         };
         for (index, &id) in party.formation.iter().enumerate().skip(first).take(visible) {
             let member = &party.members[usize::from(id - 1)];
-            let [max_hp, max_tp] = member.maximum_vitals();
+            let [max_hp, max_tp] = match preview_vitals {
+                Some(vitals) => *vitals.get(&id).context("missing saved member vitals")?,
+                None => member.maximum_vitals(),
+            };
             let name = member
                 .name
                 .as_deref()

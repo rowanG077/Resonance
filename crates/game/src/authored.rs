@@ -8,7 +8,7 @@ pub use symphonia_script_compiler::AssetReference;
 use symphonia_script_compiler::{ScriptKind, SourceResolver};
 use symphonia_script_tools::{PreparationCache, PreparedModule};
 mod field;
-pub use field::{FieldEvent, FieldScripts};
+pub use field::{FieldEvent, FieldProject, FieldScripts};
 
 pub struct Entry<'a> {
     pub module: &'a str,

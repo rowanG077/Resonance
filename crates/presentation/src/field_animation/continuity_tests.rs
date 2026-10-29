@@ -1,16 +1,13 @@
 //! Sparse scene clips must preserve bones that lose their controller.
 use super::*;
-use resonance_content::{
-    animation::{Motion, Skeleton},
-    field::FieldAssets,
-};
+use resonance_content::{animation::Skeleton, field::document, library::Library};
 
 #[test]
 #[ignore = "requires locally cooked Triet seal; no devices"]
 fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow::Result<()> {
     let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
-    let assets: FieldAssets =
-        serde_json::from_slice(&std::fs::read(root.join("fields/map-221.json"))?)?;
+    let library = Library::open(&root, &[])?;
+    let (_, assets) = document::capture_scene(&mut library.snapshot(), 221, || false)?;
     let model = &assets
         .actors
         .iter()
@@ -43,7 +40,8 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
             .iter()
             .find(|c| c.animation_resource.is_none() && c.resource_slot == slot)
             .unwrap();
-        let motion = Motion::decode(&std::fs::read(root.join(&clip.motion))?)?;
+        let motion =
+            clip.decode_for_skeleton(&std::fs::read(root.join(&clip.motion))?, &skeleton)?;
         for frame in 0..=motion.duration_frames as usize {
             rig.authored_channels.fill(0);
             let poses = rig.sample_tracks(&motion, frame as f32)?;

@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+resonance-content.workspace = true
+resonance-script-content.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 resonance-events.workspace = true
@@ -13,3 +15,8 @@ resonance-model-behavior.workspace = true
 symphonia-script-compiler.workspace = true
 symphonia-script-tools.workspace = true
 symphonia-script.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+resonance-asset-writer.workspace = true
+serde_json.workspace = true

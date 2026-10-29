@@ -52,7 +52,6 @@ mod stored_recovery;
 pub mod stored_spells;
 pub mod summons;
 mod support_spells;
-pub mod trail;
 pub(crate) mod unison;
 pub mod victory;
 pub mod voice;

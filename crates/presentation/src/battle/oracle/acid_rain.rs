@@ -1,14 +1,15 @@
 //! Check each rain drop and its floor callback before comparing stochastic splashes.
-use super::{Trace, compare::equal, random_inputs::Pin};
+use super::{Trace, compare::equal};
 use anyhow::{Context, Result, ensure};
+use resonance_content::battle_effect::{
+    EffectOperation, ParticleBirth, ParticleTemplate, ScheduledEvent,
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 const RAIN_BANK: &str = "7fd0598c911b5fe5467c822140897fe8d65108592ade8a89dc65b40230bd5e82";
 const RAIN_PROGRAM: u64 = 1;
 const FLOOR_PROGRAM: u64 = 2;
-const DROP: u64 = 2;
-const SPLASH: u64 = 0;
 type Clock = (u64, u64);
 
 /// Only independently validated floor callbacks are removed. The parent program,
@@ -36,18 +37,14 @@ pub(super) fn retain_gameplay(
             .is_some_and(|entries| entries.contains(registration)),
         "rain registration differs"
     );
-    let scene: Value = serde_json::from_slice(
-        &serde_json::from_value::<Pin>(registration["scene"].clone())?.read_bytes()?,
+    let (_, bank) = super::content_evidence::registered_scene(registration)?;
+    let metadata = super::content_evidence::effect_value(bank)?;
+    let evidence = super::content_evidence::Evidence::parse(&registration["effects"])?;
+    let contract = Contract::read(
+        &metadata,
+        evidence.current_template(2)?,
+        evidence.current_template(0)?,
     )?;
-    let effects_pin: Pin = serde_json::from_value(registration["effects"].clone())?;
-    let effect_path = scene["effects"].as_str().context("missing rain effects")?;
-    ensure!(
-        scene["source_sha256"] == registration["package_sha256"]
-            && scene["files"][effect_path]["sha256"] == effects_pin.sha256,
-        "rain effects do not belong to the registered scene"
-    );
-    let metadata: Value = serde_json::from_slice(&effects_pin.read_bytes()?)?;
-    let contract = Contract::read(&metadata)?;
     let owner = integer(&source.setup, "owner")?;
     ensure!(native.setup["owner"] == owner, "rain owner differs");
     for trace in [source, native] {
@@ -58,13 +55,16 @@ pub(super) fn retain_gameplay(
             !(event["owner"] == owner
                 && event["bank"] == RAIN_BANK
                 && (event["kind"] == "program_started" && event["program"] == FLOOR_PROGRAM
-                    || event["kind"] == "declaration_started" && event["member"] == SPLASH))
+                    || event["kind"] == "declaration_started"
+                        && event["member"] == contract.splash))
         });
     }
     Ok(())
 }
 
 struct Contract {
+    drop: u64,
+    splash: u64,
     emissions: BTreeMap<u64, usize>,
     bounds: [[f64; 3]; 3],
     velocity: [f64; 3],
@@ -74,24 +74,34 @@ struct Contract {
 }
 
 impl Contract {
-    fn read(metadata: &Value) -> Result<Self> {
-        ensure!(metadata["source_sha256"] == RAIN_BANK, "wrong rain bank");
+    fn read(metadata: &Value, drop_member: u64, splash_member: u64) -> Result<Self> {
         let actors = &metadata["actors"];
-        let drop = &actors[DROP as usize]["template"];
-        let splash = &actors[SPLASH as usize]["template"];
+        let drop: ParticleTemplate =
+            serde_json::from_value(actors[drop_member as usize]["template"].clone())?;
+        let splash: ParticleTemplate =
+            serde_json::from_value(actors[splash_member as usize]["template"].clone())?;
+        let floor: Vec<ScheduledEvent> =
+            serde_json::from_value(metadata["programs"][FLOOR_PROGRAM as usize].clone())?;
         ensure!(
-            actors[DROP as usize]["kind"] == "particle"
-                && actors[SPLASH as usize]["kind"] == "particle"
-                && drop["floor_effect"] == FLOOR_PROGRAM
-                && drop["follow_origin"] == false
-                && drop["follow_orientation"] == false
-                && drop["state"]["acceleration"] == json!([0., 0., 0.])
-                && drop["jerk"] == json!([0., 0., 0.])
-                && splash["state"]["velocity"] == json!([0., 0., 0.])
-                && splash["state"]["acceleration"] == json!([0., 0., 0.])
-                && metadata["programs"][FLOOR_PROGRAM as usize]
-                    == json!([{"at":0,"operation":{"kind":"spawn","particle":SPLASH,
-                        "blend":null,"palette":null,"birth":{}}}]),
+            actors[drop_member as usize]["kind"] == "particle"
+                && actors[splash_member as usize]["kind"] == "particle"
+                && drop.floor_effect == Some(FLOOR_PROGRAM as u16)
+                && !drop.follow_origin
+                && !drop.follow_orientation
+                && drop.state.acceleration == [0.; 3]
+                && drop.jerk == [0.; 3]
+                && splash.state.velocity == [0.; 3]
+                && splash.state.acceleration == [0.; 3]
+                && floor
+                    == vec![ScheduledEvent {
+                        at: 0,
+                        operation: EffectOperation::Spawn {
+                            particle: splash_member as u8,
+                            blend: None,
+                            palette: None,
+                            birth: Box::new(ParticleBirth::default())
+                        }
+                    }],
             "unsupported rain callback recipe"
         );
         let program = metadata["programs"][RAIN_PROGRAM as usize]
@@ -114,7 +124,7 @@ impl Contract {
             let birth = &operation["birth"];
             ensure!(
                 operation["kind"] == "spawn"
-                    && operation["particle"] == DROP
+                    && operation["particle"] == drop_member
                     && birth.as_object().is_some_and(|object| object.len() == 2)
                     && birth["random_draws"] == 3,
                 "unsupported rain emission"
@@ -125,15 +135,17 @@ impl Contract {
             // The first scheduler visit executes declarations at both ages 0 and 1.
             *emissions.entry(integer(event, "at")?.max(1)).or_default() += 1;
         }
-        let velocity = vector(&drop["state"]["velocity"])?;
+        let velocity = drop.state.velocity.map(f64::from);
         ensure!(velocity[1] < 0., "rain does not fall");
         Ok(Self {
+            drop: drop_member,
+            splash: splash_member,
             emissions,
             bounds,
             velocity,
-            drop_lifetime: integer(drop, "lifetime")? as usize,
-            splash_lifetime: integer(splash, "lifetime")? as usize,
-            splash_offset: vector(&splash["state"]["offset"])?,
+            drop_lifetime: drop.lifetime.context("missing drop lifetime")? as usize,
+            splash_lifetime: splash.lifetime.context("missing splash lifetime")? as usize,
+            splash_offset: splash.state.offset.map(f64::from),
         })
     }
 }
@@ -204,7 +216,8 @@ fn validate_run(trace: &Trace, owner: u64, contract: &Contract) -> Result<()> {
             }
             ensure!(
                 particle["owner"] == owner
-                    && (particle["member"] == DROP || particle["member"] == SPLASH)
+                    && (particle["member"] == contract.drop
+                        || particle["member"] == contract.splash)
                     && particle["model"].is_null()
                     && particle["owner_bone"].is_null(),
                 "unexpected rain particle binding"
@@ -234,7 +247,7 @@ fn validate_run(trace: &Trace, owner: u64, contract: &Contract) -> Result<()> {
                         || sample.particle["age"] == 0 && sample.clock.0 + 1 == first.clock.0)),
             "rain particle admission differs"
         );
-        let lifetime = if member == DROP {
+        let lifetime = if member == contract.drop {
             contract.drop_lifetime
         } else {
             contract.splash_lifetime
@@ -245,7 +258,7 @@ fn validate_run(trace: &Trace, owner: u64, contract: &Contract) -> Result<()> {
         );
         let origin = vector(&first.particle["origin"])?;
         let offset = vector(&first.particle["offset"])?;
-        if member == DROP {
+        if member == contract.drop {
             *births.entry(first.clock).or_default() += 1;
             equal(&json!(origin), &json!([0., 0., 0.]), "rain emission origin")?;
             let birth = [
@@ -285,7 +298,7 @@ fn validate_run(trace: &Trace, owner: u64, contract: &Contract) -> Result<()> {
                 &json!(origin),
                 "rain particle origin",
             )?;
-            let expected = if member == DROP {
+            let expected = if member == contract.drop {
                 std::array::from_fn(|axis| offset[axis] + velocity[axis] * age as f64)
             } else {
                 contract.splash_offset
@@ -296,7 +309,7 @@ fn validate_run(trace: &Trace, owner: u64, contract: &Contract) -> Result<()> {
                 "rain particle motion",
             )?;
             let position = vector(&sample.particle["offset"])?;
-            if member == DROP && !crossed && origin[1] + position[1] < 0. {
+            if member == contract.drop && !crossed && origin[1] + position[1] < 0. {
                 crossings
                     .entry(sample.clock)
                     .or_default()
@@ -321,7 +334,7 @@ fn validate_run(trace: &Trace, owner: u64, contract: &Contract) -> Result<()> {
         if event["kind"] == "program_started" && event["program"] == FLOOR_PROGRAM {
             *programs.entry(event_clock(event)?).or_default() += 1;
         }
-        if event["kind"] == "declaration_started" && event["member"] == SPLASH {
+        if event["kind"] == "declaration_started" && event["member"] == contract.splash {
             declarations.insert(event_clock(event)?);
             declaration_count += 1;
         }
@@ -379,9 +392,13 @@ fn event_clock(event: &Value) -> Result<Clock> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const DROP: u64 = 2;
+    const SPLASH: u64 = 0;
 
     fn fixture() -> (Trace, Contract) {
         let contract = Contract {
+            drop: DROP,
+            splash: SPLASH,
             emissions: BTreeMap::from([(1, 2)]),
             bounds: [[0., 0., 1.], [780., 845., 65.], [0., 0., 1.]],
             velocity: [0., -65., 0.],

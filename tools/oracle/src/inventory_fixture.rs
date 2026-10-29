@@ -144,8 +144,15 @@ pub(super) fn run(
     let data = fs::read(source)?;
     let original_native = fs::read(native)?;
     let mut save: Value = serde_json::from_slice(&original_native)?;
-    let menu: Value = serde_json::from_slice(&fs::read(cooked.join("game/menu-data.json"))?)?;
-    let items = menu["items"].as_array().context("missing cooked items")?;
+    let cooking: Value =
+        serde_json::from_slice(&fs::read(cooked.join(resonance_content::cooking::PATH))?)?;
+    let world_map: Value = serde_json::from_slice(&fs::read(
+        cooked.join(resonance_content::menu_data::WORLD_MAP_PATH),
+    )?)?;
+    let item_document: resonance_content::items::Document =
+        serde_json::from_slice(&fs::read(cooked.join(resonance_content::items::PATH))?)?;
+    let item_rules = item_document.prepare()?;
+    let items = &item_rules.menu;
     ensure!(
         items.len() == 528
             && grants
@@ -278,20 +285,20 @@ pub(super) fn run(
         settings["preferences"] = serde_json::to_value(preferences)?;
     }
     if !learn_recipe.is_empty() {
-        let mut cooking = party
+        let mut save_cooking = party
             .get("cooking")
             .cloned()
             .unwrap_or_else(|| json!({"known":1,"recipe":0,"chef":0,"full":false}));
         let mut known = word(ram, session + 0x1e18)?;
         ensure!(
-            cooking["known"] == known
-                && cooking["recipe"] == ram[session + 0x1e1d]
-                && cooking["chef"] == ram[session + 0x1e1e]
-                && cooking["full"] == (ram[session + 0x1e1c] != 0),
+            save_cooking["known"] == known
+                && save_cooking["recipe"] == ram[session + 0x1e1d]
+                && save_cooking["chef"] == ram[session + 0x1e1e]
+                && save_cooking["full"] == (ram[session + 0x1e1c] != 0),
             "starting cooking progress differs"
         );
-        let recipes = menu["cooking"]["recipes"]
-            .as_array()
+        let recipes = cooking["mappings"]
+            .as_object()
             .context("missing cooked recipes")?;
         for &recipe in learn_recipe {
             ensure!(
@@ -301,8 +308,8 @@ pub(super) fn run(
             known |= 1 << recipe;
         }
         ram[session + 0x1e18..session + 0x1e1c].copy_from_slice(&known.to_be_bytes());
-        cooking["known"] = json!(known);
-        party["cooking"] = cooking;
+        save_cooking["known"] = json!(known);
+        party["cooking"] = save_cooking;
     }
     for tag in member_vitals {
         let [character, hp, tp, conditions] =
@@ -376,16 +383,18 @@ pub(super) fn run(
         party["viewed_skits"] = serde_json::to_value(viewed)?;
     }
     if !learn_technique.is_empty() {
-        let definitions: resonance_content::session::SessionData =
-            serde_json::from_slice(&fs::read(cooked.join("game/session-data.json"))?)?;
-        definitions.validate()?;
+        let definitions: resonance_content::arte::document::Document =
+            serde_json::from_slice(&fs::read(cooked.join(resonance_content::arte::PATH))?)?;
+        let definitions = definitions.prepare()?.catalogue;
         for tag in learn_technique {
             let (character, technique): (usize, u16) = pair(tag, "expected CHARACTER:TECHNIQUE")?;
-            let allowed = &definitions
-                .characters
-                .get(character)
-                .context("unknown technique owner")?
-                .allowed_techniques;
+            // Appended elemental variants have no GameCube learned-mask slots.
+            let allowed: Vec<_> = definitions
+                .learned_by(u8::try_from(character + 1)?)?
+                .iter()
+                .copied()
+                .filter(|id| *id < 253)
+                .collect();
             let index = allowed
                 .iter()
                 .position(|&id| id == technique)
@@ -524,10 +533,20 @@ pub(super) fn run(
     party["monsters"] = serde_json::to_value(monsters)?;
     let mut locations: BTreeSet<u16> = serde_json::from_value(travel["visited_locations"].clone())?;
     let mut shops: BTreeSet<u8> = serde_json::from_value(travel["visited_shops"].clone())?;
+    let landmark_path = world_map["landmarks"]
+        .as_str()
+        .context("missing map landmark path")?;
+    resonance_content::library::validate_path(landmark_path)?;
+    let landmarks: resonance_content::overworld::Landmarks =
+        serde_json::from_slice(&fs::read(cooked.join(landmark_path))?)?;
     for &id in visit_location {
-        let location = &menu["world_map"]["locations"][id.to_string()];
-        ensure!(location.is_object(), "unknown map location {id}");
-        let id = location["visit_alias"].as_u64().map_or(id, |v| v as u16);
+        let location = landmarks
+            .worlds
+            .iter()
+            .flatten()
+            .find(|entry| entry.id == id)
+            .with_context(|| format!("unknown map location {id}"))?;
+        let id = location.visit_alias.unwrap_or(id);
         locations.insert(id);
         let at =
             session + 0x1df8 + usize::from(id / 256) * 16 + usize::from((id % 256 - 1) / 32) * 4;
@@ -537,8 +556,8 @@ pub(super) fn run(
     for &id in visit_shop {
         ensure!(
             usize::from(id)
-                < menu["world_map"]["shops"]
-                    .as_array()
+                < world_map["mappings"]
+                    .as_object()
                     .context("missing shops")?
                     .len(),
             "unknown map shop {id}"
@@ -576,8 +595,6 @@ pub(super) fn run(
         ram[session + 0xead + usize::from(id)] = inventory[&id];
     }
     if !item_count.is_empty() {
-        let data: Value =
-            serde_json::from_slice(&fs::read(cooked.join("game/session-data.json"))?)?;
         let mut changed = BTreeSet::new();
         for tag in item_count {
             let (id, count): (u16, u8) = pair(tag, "expected ID:COUNT")?;
@@ -585,9 +602,7 @@ pub(super) fn run(
                 id > 0 && usize::from(id) < items.len() && changed.insert(id),
                 "invalid or duplicate item count: {tag}"
             );
-            let limit = data["items"][usize::from(id)]["stack_limit"]
-                .as_u64()
-                .context("missing item stack limit")?;
+            let limit = u64::from(item_rules.inventory[usize::from(id)].stack_limit);
             ensure!(
                 u64::from(count) <= limit,
                 "item count exceeds cooked stack limit: {tag}"
@@ -609,7 +624,7 @@ pub(super) fn run(
                 .iter()
                 .enumerate()
                 .skip(1)
-                .filter(|(_, item)| item["category"].as_u64().is_some_and(|c| c != 0))
+                .filter(|(_, item)| item.category != 0)
                 .map(|(id, _)| id as u16),
         );
     }
@@ -626,8 +641,9 @@ pub(super) fn run(
     party["found_items"] = serde_json::to_value(found)?;
     party["recent_items"] = serde_json::to_value(recent)?;
     if !learn_ex_compound.is_empty() || !new_ex_compound.is_empty() {
-        let ex: resonance_content::menu_data::ExSkillData =
-            serde_json::from_value(menu["ex_skills"].clone())?;
+        let ex: resonance_content::ex_skills::Document =
+            serde_json::from_slice(&fs::read(cooked.join(resonance_content::ex_skills::PATH))?)?;
+        let ex = ex.prepare(&item_rules.mappings)?;
         ex.validate_rules(items.len())?;
         for (tag, recent) in learn_ex_compound
             .iter()
@@ -686,8 +702,9 @@ pub(super) fn run(
         party["figurines"] = serde_json::to_value(owned)?;
     }
     if !learn_manual_topic.is_empty() {
-        let manual: resonance_content::menu_data::TrainingManual =
-            serde_json::from_value(menu["manual"].clone())?;
+        let manual: resonance_content::menu_data::TrainingManual = serde_json::from_slice(
+            &fs::read(cooked.join(resonance_content::menu_data::MANUAL_PATH))?,
+        )?;
         manual.validate()?;
         let known: BTreeSet<_> = manual
             .chapters

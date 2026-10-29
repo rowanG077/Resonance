@@ -330,7 +330,7 @@ def seal_branches(case, rows, setup, frames, events, banks):
     owner = setup["owner"]
     slot = setup["source_actor_map"][owner]["source_slot"]
     bank = {value["source_sha256"] for value in banks.values()
-            if value["path"].endswith("/techniques.json")}
+            if value["entry"] == "battle/effects/techniques/effects.json"}
     if len(bank) != 1 or not frames:
         raise ValueError("seal callback lacks its bound effect bank or execution window")
     binding = dict(owner=owner, bank=bank.pop(), program=program)

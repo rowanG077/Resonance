@@ -3,6 +3,7 @@ use super::*;
 use bevy::{
     asset::RenderAssetUsages, camera::visibility::NoFrustumCulling, mesh::PrimitiveTopology,
 };
+use resonance_content::overworld::TerrainSurface;
 
 #[derive(Clone, Copy)]
 enum Kind {
@@ -87,8 +88,15 @@ impl Particles {
                     .round()
                     .max(1.) as u32;
                 if self.stride.is_multiple_of(half_stride) {
-                    let terrain = session.travel.response();
-                    if matches!(terrain, 4 | 5 | 10) {
+                    let terrain = session.travel.surface();
+                    if matches!(
+                        terrain,
+                        Some(
+                            TerrainSurface::Snowfield
+                                | TerrainSurface::Desert
+                                | TerrainSurface::Beach
+                        )
+                    ) {
                         let side = if (self.stride / half_stride).is_multiple_of(2) {
                             20.
                         } else {
@@ -111,11 +119,22 @@ impl Particles {
                             self.spawn(Kind::Footprint(rotation), ground, Vec3::ZERO, 0.);
                         }
                     }
-                    if matches!(terrain, 5..=7 | 10) {
+                    if matches!(
+                        terrain,
+                        Some(
+                            TerrainSurface::Desert
+                                | TerrainSurface::Forest
+                                | TerrainSurface::DeepForest
+                                | TerrainSurface::Beach
+                        )
+                    ) {
                         let count = 3 + self.random(4);
                         for _ in 0..count {
                             let angle = self.random(360) as f32 * std::f32::consts::TAU / 360.;
-                            let grass = matches!(terrain, 6 | 7);
+                            let grass = matches!(
+                                terrain,
+                                Some(TerrainSurface::Forest | TerrainSurface::DeepForest)
+                            );
                             let kind = if grass {
                                 Kind::Grass
                             } else {

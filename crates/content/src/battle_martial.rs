@@ -4,6 +4,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod document;
+
 /// Every common action is cooked independently of the characters using it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Catalogue {
@@ -88,12 +90,15 @@ pub fn gameplay_tick(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Attack {
+#[serde(bound(deserialize = "E: Deserialize<'de>"), deny_unknown_fields)]
+pub struct Attack<E = Event> {
     pub duration: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain_at: Option<u16>,
     pub recovery: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect: Option<u16>,
-    pub events: Vec<(u16, Event)>,
+    pub events: Vec<(u16, E)>,
     #[serde(
         default,
         skip_serializing_if = "BTreeMap::is_empty",
@@ -104,11 +109,12 @@ pub struct Attack {
     /// These actions retain authored event, duration, and chaining timestamps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pose_sequence: Option<Vec<PoseStep>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flight: Option<Flight>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hammer: Option<Hammer>,
+    pub hammer: Option<Hammer<E>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub steal: Option<Steal>,
+    pub steal: Option<Steal<E>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fierce_fang: Option<FierceFang>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,8 +174,8 @@ pub struct Flight {
 
 /// Hammer contacts share one template; each launch pattern owns its motion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Hammer {
-    pub pattern: HammerPattern,
+pub struct Hammer<E = Event> {
+    pub pattern: HammerPattern<E>,
     /// Plain, Ice, and Toss Hammer contacts, in selection order.
     pub hits: [crate::battle_action::ActionHit; 3],
     pub impact_effect: u16,
@@ -178,9 +184,9 @@ pub struct Hammer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum HammerPattern {
+pub enum HammerPattern<E = Event> {
     Single {
-        alternate_events: Vec<(u16, Event)>,
+        alternate_events: Vec<(u16, E)>,
     },
     Volley {
         offset: [f32; 3],
@@ -201,11 +207,11 @@ pub enum HammerPattern {
 
 /// Item Thief changes only its remaining track after a successful transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Steal {
+pub struct Steal<E = Event> {
     pub attempt_at: u16,
     pub bonus_at: u16,
     pub success_duration: u16,
-    pub success_events: Vec<(u16, Event)>,
+    pub success_events: Vec<(u16, E)>,
     pub bonus_hit: crate::battle_action::ActionHit,
     pub bonus_offset: [f32; 3],
     pub bonus_forward_speed: f32,

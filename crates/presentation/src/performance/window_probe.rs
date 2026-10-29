@@ -87,6 +87,7 @@ fn run(
     )?;
     let (mut app, _) = crate::build_app_with_display(
         crate::RunOptions {
+            mods: Vec::new(),
             script_root: None,
             saves: crate::saves::SaveOptions {
                 load: encounter.as_ref().map(|(save, _)| save.to_path_buf()),

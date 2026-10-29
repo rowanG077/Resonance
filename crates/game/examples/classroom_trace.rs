@@ -3,9 +3,16 @@ use anyhow::Result;
 use std::{fs, path::Path};
 fn main() -> Result<()> {
     let root = Path::new("local/cooked");
-    let field: resonance_content::field::FieldAssets =
-        serde_json::from_slice(&fs::read(root.join("fields/map-340.json"))?)?;
-    let messages = serde_json::from_slice(&fs::read(root.join(&field.messages))?)?;
+    let library = resonance_content::library::Library::open(root, &[])?;
+    let mut snapshot = library.snapshot();
+    let (_, field) =
+        resonance_content::field::document::capture_scene(&mut snapshot, 340, || false)?;
+    let files = resonance_content::prepared::Files::from_snapshot(
+        snapshot,
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let messages = files.json_or_default(field.messages.as_deref())?;
     if let Some(pc) = std::env::args().nth(1).filter(|a| !a.starts_with("--")) {
         let start = u32::from_str_radix(pc.trim_start_matches("0x"), 16)?;
         let program = symphonia_script::Program::decode(&fs::read(root.join(&field.script))?)?;

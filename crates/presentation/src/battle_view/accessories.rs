@@ -263,8 +263,7 @@ mod tests {
         ResourceId, Side,
     };
     use resonance_content::animation::{
-        Bone, Motion, Skeleton, Track, Transform, TransformChannels, VectorCurve,
-        VectorInterpolation,
+        Bone, Channel, Interpolation, Motion, Skeleton, Track, Transform,
     };
     use std::sync::Arc;
 
@@ -317,7 +316,8 @@ mod tests {
                 bones: vec![Bone {
                     name: "root".into(),
                     parent: None,
-                    bind_channels: TransformChannels(0),
+                    parent_transform: None,
+                    shadow_bounds: true,
                     bind: Transform::default(),
                 }],
             },
@@ -335,20 +335,19 @@ mod tests {
             duration_frames: 30.,
             tracks: vec![Track {
                 bone: 0,
-                bind_channels: TransformChannels(0),
-                period_frames: 30.,
-                times: vec![0., 30.],
-                translation: Some(VectorCurve {
-                    interpolation: VectorInterpolation::Linear,
-                    values: vec![[0.; 3], [30., 0., 0.]],
-                    incoming: vec![],
-                    outgoing: vec![],
-                    ease: vec![],
-                }),
-                scale: None,
-                rotation: None,
-                euler_degrees: None,
-                matrices: None,
+                nodes: vec![resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(Channel {
+                        times: (vec![0., 30.])
+                            .into_iter()
+                            .map(|frame| frame / 30.)
+                            .collect(),
+                        interpolation: Interpolation::Linear,
+                        values: vec![[0.; 3], [30., 0., 0.]],
+                    }),
+                    rotation: None,
+                    scale: None,
+                }],
             }],
         }
     }

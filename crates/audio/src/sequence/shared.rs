@@ -254,7 +254,64 @@ impl State {
     }
 }
 
+/// Ordinary WAV effects occupy the same bounded effect slots as programs.
+/// They do not have native macros, messages or an independent random source.
+pub(crate) struct EffectVoice {
+    control: Control,
+    lease: Lease,
+}
+impl EffectVoice {
+    pub(crate) fn active(&self) -> bool {
+        self.control.owns(self.lease)
+    }
+    pub(crate) fn priority(&self, priority: u16) {
+        let mut state = self
+            .control
+            .0
+            .lock()
+            .expect("synthesizer control lock poisoned");
+        state.pool.update(self.lease, (priority, 0), false);
+    }
+    pub(crate) fn rendered(&self) {
+        let mut state = self
+            .control
+            .0
+            .lock()
+            .expect("synthesizer control lock poisoned");
+        state.pool.initialize(self.lease);
+    }
+}
+impl Drop for EffectVoice {
+    fn drop(&mut self) {
+        self.control.free(self.lease);
+    }
+}
+
 impl Synthesizer {
+    pub(crate) fn frame(&self) -> u64 {
+        self.0.lock().expect("synthesizer lock poisoned").frame
+    }
+
+    pub(crate) fn effect_voice(&self, priority: u16) -> Option<EffectVoice> {
+        let control = self
+            .0
+            .lock()
+            .expect("synthesizer lock poisoned")
+            .random
+            .clone();
+        let lease = control
+            .0
+            .lock()
+            .expect("synthesizer control lock poisoned")
+            .pool
+            .allocate(
+                VoiceSource::SoundEffect { id: u16::MAX },
+                priority,
+                super::SOUND_EFFECT_VOICE_BUDGET as u8,
+            )?;
+        Some(EffectVoice { control, lease })
+    }
+
     pub(super) fn start(&self, loaded: Arc<Loaded>, looping: bool) -> Result<Stream> {
         self.start_recorded(loaded, looping, false)
     }
@@ -306,6 +363,20 @@ impl Synthesizer {
                 entry
                     .state
                     .with_dependent_mut(|_, kernel| kernel.take_preview())
+            })
+    }
+
+    pub(super) fn last_loop_frame(&self, stream: &Stream) -> Option<u64> {
+        self.0
+            .lock()
+            .expect("synthesizer lock poisoned")
+            .entries
+            .iter()
+            .find(|entry| Arc::ptr_eq(&entry.output, &stream.0))
+            .and_then(|entry| {
+                entry
+                    .state
+                    .with_dependent(|_, kernel| kernel.last_loop_frame())
             })
     }
 

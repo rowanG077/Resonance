@@ -36,7 +36,7 @@ impl MealEffect {
     ];
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Ingredient {
     None,
@@ -69,7 +69,7 @@ pub struct FoodPreferences {
     pub likes: Vec<u16>,
     pub dislikes: Vec<u16>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CookingData {
     pub recipes: Vec<Recipe>,
     pub groups: Vec<IngredientGroup>,
@@ -87,7 +87,7 @@ impl CookingData {
         };
         ensure!(
             self.recipes.len() == RECIPE_COUNT
-                && self.groups.len() == 32
+                && self.groups.len() <= 256
                 && self.preferences.len() == 9
                 && self.bonus_skill != 0,
             "invalid cooking catalog"

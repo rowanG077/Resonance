@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, env, fs, io, path::Path};
+use std::{env, fs, io, path::Path};
 
 fn collect(directory: &Path, files: &mut Vec<std::path::PathBuf>) -> io::Result<()> {
     println!("cargo:rerun-if-changed={}", directory.display());
@@ -32,10 +32,8 @@ fn main() -> io::Result<()> {
         collect(&root.join(directory), &mut files)?;
     }
     files.sort();
-    let mut modules = String::from("pub const MODULES: &[(&str, &str)] = &[\n");
-    let mut published = String::from("pub const FILES: &[(&str, &str)] = &[\n");
-    let mut nodes = BTreeMap::new();
-    for (index, path) in files.into_iter().enumerate() {
+    let mut published = String::from("pub const AUTHORED_FILES: &[(&str, &str)] = &[\n");
+    for path in files {
         let relative = path
             .strip_prefix(&root)
             .expect("collected beneath source root");
@@ -47,42 +45,8 @@ fn main() -> io::Result<()> {
             .join("/");
         let source = format!("include_str!({:?})", path);
         published.push_str(&format!("({name:?}, {source}),\n"));
-        if name.starts_with("std/nodes/") && name.ends_with(".sym") {
-            let source = fs::read_to_string(&path)?;
-            if let Some(digest) = source
-                .lines()
-                .find_map(|line| line.strip_prefix("// Skeleton: "))
-            {
-                if digest.len() != 64
-                    || !digest
-                        .bytes()
-                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-                {
-                    return Err(io::Error::other(format!(
-                        "invalid skeleton signature in {name}"
-                    )));
-                }
-                if let Some(previous) = nodes.insert(digest.to_owned(), name.clone()) {
-                    return Err(io::Error::other(format!(
-                        "duplicate skeleton {digest} in {previous} and {name}"
-                    )));
-                }
-            }
-        }
-        if let Some(module) = name.strip_suffix(".sym") {
-            modules.push_str(&format!(
-                "({:?}, FILES[{index}].1),\n",
-                module.replace('/', "::")
-            ));
-        }
-    }
-    modules.push_str("];\n");
-    published.push_str("];\n");
-    published.push_str("pub const NODE_MODULES: &[(&str, &str)] = &[\n");
-    for (digest, path) in nodes {
-        published.push_str(&format!("({digest:?}, {path:?}),\n"));
     }
     published.push_str("];\n");
     let output = env::var_os("OUT_DIR").ok_or_else(|| io::Error::other("missing OUT_DIR"))?;
-    fs::write(Path::new(&output).join("sources.rs"), modules + &published)
+    fs::write(Path::new(&output).join("sources.rs"), published)
 }

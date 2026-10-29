@@ -143,7 +143,8 @@ fn retire(
     }
     if session.is_none() {
         resident.active.store(false, Ordering::Release);
-        resident.files.write().unwrap().take();
+        // The title also owns prepared files without a gameplay session. Scene
+        // transitions own that snapshot; retiring field GPU work must keep it.
     }
     if let Some(preparation) = preparation {
         for entity in preparation.roots.iter().chain(&preparation.entities) {
@@ -816,6 +817,46 @@ pub(super) fn complete_test_startup(world: &mut World) {
 mod tests {
     use super::*;
     use bevy::{asset::RenderAssetUsages, ecs::system::RunSystemOnce, mesh::PrimitiveTopology};
+
+    #[test]
+    fn field_retirement_keeps_title_files_while_releasing_field_gpu_work() {
+        let mut world = World::new();
+        let files = Arc::new(resonance_content::prepared::Files::default());
+        let resident = Resident::default();
+        *resident.files.write().unwrap() = Some(files.clone());
+        resident.active.store(true, Ordering::Release);
+        world.insert_resource(resident.clone());
+        world.init_resource::<Shared>();
+        let root = world.spawn_empty().id();
+        world.insert_resource(Preparation {
+            map: 340,
+            roots: vec![root],
+            entities: vec![],
+            scene_count: 0,
+            converted: 0,
+            started: Instant::now(),
+            effects_copied: false,
+            retained: Bindings::default(),
+        });
+        world.insert_resource(PreparedMaterials {
+            fields: HashMap::new(),
+        });
+        world.resource::<Shared>().0.lock().unwrap().map = Some(340);
+
+        // Covers both returning from a field and subsequent title-only updates.
+        for _ in 0..2 {
+            world.run_system_once(retire).unwrap();
+            assert!(Arc::ptr_eq(
+                resident.files.read().unwrap().as_ref().unwrap(),
+                &files,
+            ));
+            assert!(!resident.active.load(Ordering::Acquire));
+            assert!(!world.contains_resource::<Preparation>());
+            assert!(!world.contains_resource::<PreparedMaterials>());
+            assert!(world.resource::<Shared>().0.lock().unwrap().map.is_none());
+        }
+        assert!(world.get_entity(root).is_err());
+    }
 
     #[test]
     fn warm_keys_share_geometry_but_preserve_pipeline_features() {

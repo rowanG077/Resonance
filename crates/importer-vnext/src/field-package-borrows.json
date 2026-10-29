@@ -1,0 +1,91 @@
+{
+  "temple-of-darkness-0126": {
+    "18": {
+      "clips": {
+        "12": "fields/temple-of-darkness-0126/animations/unidentified-2-idle.glb",
+        "36": "fields/temple-of-darkness-0126/animations/unidentified-2-idle.glb"
+      }
+    },
+    "19": {
+      "clips": {
+        "12": "fields/temple-of-darkness-0126/animations/unidentified-2-idle.glb",
+        "36": "fields/temple-of-darkness-0126/animations/unidentified-2-idle.glb"
+      }
+    },
+    "20": {
+      "clips": {
+        "12": "fields/temple-of-darkness-0126/animations/unidentified-2-idle.glb",
+        "36": "fields/temple-of-darkness-0126/animations/unidentified-2-idle.glb"
+      }
+    },
+    "22": {
+      "media": "meshes/props/temple-of-darkness-unidentified-7",
+      "publish": true,
+      "animated_banks": [],
+      "clips": {
+        "12": "meshes/figurines/bush-baby-0287/animations/idle.glb",
+        "36": "meshes/props/heimdall-unidentified-1/animations/walk.glb",
+        "40": "meshes/props/heimdall-unidentified-1/animations/run.glb",
+        "52": "meshes/props/heimdall-unidentified-1/animations/motion-52.glb"
+      }
+    },
+    "23": {
+      "media": "meshes/props/temple-of-darkness-unidentified-8",
+      "publish": true,
+      "animated_banks": [],
+      "clips": {
+        "12": "meshes/monsters/slime-0157/animations/motion-0.glb",
+        "36": "meshes/monsters/slime-0157/animations/motion-1.glb",
+        "40": "meshes/monsters/slime-0157/animations/motion-1.glb"
+      }
+    }
+  },
+  "tower-of-salvation-0178": {
+    "19": {
+      "source": [
+        168,
+        17
+      ],
+      "clips": {
+        "12": "meshes/props/tower-of-salvation-unidentified-2/animations/idle.glb",
+        "36": "meshes/props/tower-of-salvation-unidentified-2/animations/idle.glb"
+      }
+    }
+  },
+  "temple-of-darkness-0127": {
+    "16": {
+      "source": [
+        126,
+        22
+      ],
+      "animated_banks": [
+        "characters/abyssion"
+      ]
+    },
+    "17": {
+      "source": [
+        126,
+        23
+      ],
+      "animated_banks": [
+        "characters/abyssion"
+      ]
+    }
+  },
+  "ozette-0425": {
+    "16": {
+      "source": [
+        137,
+        24
+      ],
+      "clips": {
+        "12": "fields/flying-dragon-0137/animations/unidentified-9-idle.glb",
+        "80": "fields/flying-dragon-0137/animations/unidentified-9-motion-80.glb",
+        "84": "fields/flying-dragon-0137/animations/unidentified-9-motion-84.glb",
+        "88": "fields/flying-dragon-0137/animations/unidentified-9-motion-88.glb",
+        "92": "fields/flying-dragon-0137/animations/unidentified-9-motion-92.glb",
+        "96": "fields/flying-dragon-0137/animations/unidentified-9-motion-96.glb"
+      }
+    }
+  }
+}

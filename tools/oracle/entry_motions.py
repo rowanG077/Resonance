@@ -1,4 +1,5 @@
 """Bind observed external party motions from their authored package."""
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -69,12 +70,19 @@ def register(trace, terminal, packages, enemy_ids, extracted, importer):
         path, package_clip, offset, proof = matches[0]
         member = next(value for value in setup["party_members"]
                       if value["character"] == setup["party"][source_slot])
-        output = Path(terminal).parent / f"entry-motion-{actor}-{clip}.motion"
+        output = Path(terminal).parent / f"entry-motion-{actor}-{clip}.glb"
         result = subprocess.run([str(importer), "bind-fixture-motion", "--extracted", str(extracted),
             "--package", str(path), "--package-clip", str(package_clip),
             "--character", str(member["character"]), "--costume", str(member["costume"]),
             "--output", str(output)], check=True, capture_output=True, text=True)
         receipt = json.loads(result.stdout)
+        # These pins authenticate this external observation, not cooked assets.
+        for key in ("package", "body", "motion"):
+            receipt[key]["sha256"] = digest(receipt[key]["path"])
+        source = receipt["source_motion"]
+        native = Path(receipt["package"]["path"]).read_bytes()
+        receipt["source_motion_sha256"] = hashlib.sha256(
+            native[source["offset"]:source["offset"] + source["bytes"]]).hexdigest()
         if (receipt["package"]["sha256"] != proof["source_sha256"]
                 or receipt["motion"]["sha256"] != digest(output)
                 or binding["duration"] != receipt["duration_frames"]):

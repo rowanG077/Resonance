@@ -262,11 +262,7 @@ mod tests {
                 Ok(())
             }
         }
-        let sources = symphonia_script_tools::SourceTree::load(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts"
-        ))
-        .unwrap();
+        let sources = resonance_script_content::modules();
         let services = crate::authored::FieldServices::prepare(
             &mut Default::default(),
             &sources,

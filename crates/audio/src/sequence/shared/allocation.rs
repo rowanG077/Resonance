@@ -174,6 +174,15 @@ impl Pool {
         Some(lease)
     }
 
+    pub fn initialize(&mut self, lease: Lease) {
+        if let Some(voice) = self.slots[lease.slot]
+            .as_mut()
+            .filter(|voice| voice.lease == lease)
+        {
+            voice.initialized = true;
+        }
+    }
+
     pub fn update(&mut self, lease: Lease, priority: (u16, u32), initialized: bool) {
         let Some(voice) = &mut self.slots[lease.slot] else {
             return;

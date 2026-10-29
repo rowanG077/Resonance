@@ -1,11 +1,13 @@
 use super::*;
 
 pub(super) struct Fixture {
+    root: std::path::PathBuf,
     pub(super) art: MenuArt,
     pub(super) font: BitmapFont,
     pub(super) dialogue: DialogueArt,
     pub(super) session: std::sync::Arc<resonance_content::session::SessionData>,
     pub(super) data: std::sync::Arc<resonance_content::menu_data::MenuData>,
+    pub(super) files: resonance_content::prepared::Files,
     pub(super) party: resonance_events::party::Party,
 }
 impl Fixture {
@@ -15,15 +17,19 @@ impl Fixture {
             Into::into,
         );
         let read = |path: &str| -> Result<Vec<u8>> { Ok(std::fs::read(root.join(path))?) };
-        let art: MenuArt = serde_json::from_slice(&read("ui/menu.json")?)?;
-        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        let mut art: MenuArt = serde_json::from_slice(&read("ui/menu.json")?)?;
+        art.prepare_resources(&read);
+        let mut dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        dialogue.prepare_images(&read)?;
         let font = serde_json::from_slice(&read(&dialogue.font)?)?;
-        let mut session_data: resonance_content::session::SessionData =
-            serde_json::from_slice(&read("game/session-data.json")?)?;
-        let data: std::sync::Arc<resonance_content::menu_data::MenuData> =
-            std::sync::Arc::new(serde_json::from_slice(&read("game/menu-data.json")?)?);
+        let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+        let files =
+            resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
+        let session_data = resonance_content::session::SessionData::load(&files)?;
+        let data = session_data.rules.clone().unwrap();
         art.validate(data.items.len())?;
-        session_data.rules = Some(data.clone());
         let session = std::sync::Arc::new(session_data);
         let mut party = resonance_events::party::Party::new(&session, Default::default())?;
         party.formation = vec![1, 2, 3, 4];
@@ -41,11 +47,13 @@ impl Fixture {
             }
         }
         Ok(Self {
+            root,
             art,
             font,
             dialogue,
             session,
             data,
+            files,
             party,
         })
     }
@@ -65,7 +73,13 @@ impl Fixture {
             opaque: false,
         });
         let artwork = MenuArtwork::load(
-            |_| Ok(serde_json::to_vec(&self.art)?),
+            |path| {
+                if path == "ui/menu.json" {
+                    Ok(serde_json::to_vec(&self.art)?)
+                } else {
+                    Ok(std::fs::read(self.root.join(path))?)
+                }
+            },
             self.session.experience.clone().into(),
             app.world().resource::<AssetServer>(),
             &mut materials,

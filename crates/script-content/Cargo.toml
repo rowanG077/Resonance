@@ -3,3 +3,9 @@ name = "resonance-script-content"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+symphonia-constants.workspace = true
+
+[dev-dependencies]
+symphonia-script-compiler.workspace = true

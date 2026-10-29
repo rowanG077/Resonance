@@ -23,11 +23,7 @@ pub(super) fn apply(
     };
     let roots = primary
         .clip
-        .map(|index| {
-            primary.spec.scene.clips[index]
-                .secondary_pose_nodes
-                .as_slice()
-        })
+        .map(|index| primary.spec.scene.clips[index].pose_chains.as_slice())
         .unwrap_or_default();
     let helper = transforms.p0();
     let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots) else {

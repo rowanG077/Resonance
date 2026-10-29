@@ -1,32 +1,20 @@
 use super::*;
 
-pub(crate) fn tables() -> CollisionTables {
-    CollisionTables {
-        surface_responses: [
-            [-1, -1, -1, -1],
-            [1, 1, -1, 1],
-            [2, 2, -1, 2],
-            [3, 3, -1, 3],
-            [4, 4, -1, 4],
-            [5, 5, -1, 5],
-            [6, 6, -1, -1],
-            [7, 1, -1, -1],
-            [-1, -1, -1, -1],
-            [-1, -1, -1, -1],
-            [10, -1, -1, 1],
-            [-1, -1, 11, -1],
-            [-1, -1, -1, -1],
-            [13, 13, -1, -1],
-            [-1, -1, -1, -1],
-            [15, -1, -1, -1],
-        ],
-        mode2_probe_half_extent: 120.,
-        other_probe_half_extent: 50.,
+pub(crate) fn tables() -> CollisionSettings {
+    CollisionSettings {
+        radius: 1200.,
+        ship_probe_half_extent: 120.,
+        ground_probe_half_extent: 50.,
     }
 }
-pub(crate) fn rectangle(surface: u32, min: [f32; 2], max: [f32; 2], height: f32) -> CollisionGroup {
+pub(crate) fn rectangle(
+    surface: TerrainSurface,
+    min: [f32; 2],
+    max: [f32; 2],
+    height: f32,
+) -> CollisionGroup {
     CollisionGroup {
-        surface,
+        surface: surface.index() as u32,
         vertices: vec![
             [min[0], min[1], height],
             [max[0], min[1], height],
@@ -38,12 +26,12 @@ pub(crate) fn rectangle(surface: u32, min: [f32; 2], max: [f32; 2], height: f32)
 }
 fn query<'a>(
     groups: &[CollisionGroup],
-    tables: &'a CollisionTables,
+    tables: &'a CollisionSettings,
     origin: [f32; 3],
 ) -> Query<'a> {
     Query {
         faces: Mesh::new(groups).unwrap().faces,
-        tables,
+        settings: tables,
         origin,
     }
 }
@@ -51,8 +39,8 @@ fn query<'a>(
 #[test]
 fn ship_rejects_land_overlapping_water_in_either_source_order() {
     let tables = tables();
-    let water = rectangle(11, [-500.; 2], [500.; 2], 0.);
-    let land = rectangle(1, [-100.; 2], [100.; 2], 40.);
+    let water = rectangle(TerrainSurface::Water, [-500.; 2], [500.; 2], 0.);
+    let land = rectangle(TerrainSurface::Grassland, [-100.; 2], [100.; 2], 40.);
     for groups in [
         vec![water.clone(), land.clone()],
         vec![land.clone(), water.clone()],
@@ -67,40 +55,41 @@ fn ship_rejects_land_overlapping_water_in_either_source_order() {
 #[test]
 fn probes_require_all_four_corners_with_the_modes_own_extent() {
     let tables = tables();
-    let water = rectangle(11, [-100.; 2], [100.; 2], 0.);
-    let ground = rectangle(1, [-100.; 2], [100.; 2], 0.);
+    let water = rectangle(TerrainSurface::Water, [-100.; 2], [100.; 2], 0.);
+    let ground = rectangle(TerrainSurface::Grassland, [-100.; 2], [100.; 2], 0.);
     assert!(!query(&[water], &tables, [0.; 3]).has_clearance(Mode::Ship));
     assert!(query(std::slice::from_ref(&ground), &tables, [0.; 3]).has_clearance(Mode::Ground));
     assert!(!query(&[ground], &tables, [51., 0., 0.]).has_clearance(Mode::Ground));
 }
 
 #[test]
-fn first_eligible_face_and_response_class_are_preserved() {
+fn first_walkable_face_keeps_its_surface_and_barriers_keep_flight_clearance() {
     let tables = tables();
-    let forest = rectangle(7, [-500.; 2], [500.; 2], 25.);
-    let grass = rectangle(1, [-500.; 2], [500.; 2], 80.);
-    let groups = [forest, grass];
+    let forest = rectangle(TerrainSurface::DeepForest, [-500.; 2], [500.; 2], 25.);
+    let grass = rectangle(TerrainSurface::Grassland, [-500.; 2], [500.; 2], 80.);
+    let barrier = rectangle(TerrainSurface::Barrier, [-500.; 2], [500.; 2], 300.);
+    let groups = [barrier, forest, grass];
     let q = query(&groups, &tables, [0.; 3]);
-    let surface = q.surface(Mode::AlternateGround).unwrap();
+    let surface = q.surface(Mode::Ground).unwrap();
     assert_eq!(
-        (surface.surface, surface.response, surface.height),
-        (7, 1, 25.)
+        (surface.kind, surface.height),
+        (TerrainSurface::DeepForest, 25.)
     );
-    assert_eq!(q.surface(Mode::Ground).unwrap().response, 7);
-    assert_eq!(q.surface(Mode::RestrictedGround).unwrap().height, 80.);
+    assert_eq!(q.flight_floor(), 300.);
+    assert!(q.surface(Mode::Ship).is_none());
 }
 
 #[test]
 fn blocked_motion_tries_positive_then_negative_sixty_degrees() -> Result<()> {
     let tables = tables();
-    let right = rectangle(1, [20., -180.], [300., 100.], 0.);
-    let left = rectangle(2, [-300., -180.], [-20., 100.], 0.);
+    let right = rectangle(TerrainSurface::Grassland, [20., -180.], [300., 100.], 0.);
+    let left = rectangle(TerrainSurface::Road, [-300., -180.], [-20., 100.], 0.);
     let groups = [right, left.clone()];
     let motion = query(&groups, &tables, [0.; 3]).motion(100., 0., Mode::Ground)?;
-    assert_eq!(motion.response, Some(1));
+    assert_eq!(motion.surface, Some(TerrainSurface::Grassland));
     assert!(motion.delta[0] > 85. && motion.delta[1] < -49.);
     let motion = query(&[left], &tables, [0.; 3]).motion(100., 0., Mode::Ground)?;
-    assert_eq!(motion.response, Some(2));
+    assert_eq!(motion.surface, Some(TerrainSurface::Road));
     assert!(motion.delta[0] < -85.);
     Ok(())
 }
@@ -108,7 +97,7 @@ fn blocked_motion_tries_positive_then_negative_sixty_degrees() -> Result<()> {
 #[test]
 fn slope_correction_projects_onto_the_plane_and_invalid_input_is_rejected() -> Result<()> {
     let tables = tables();
-    let mut ramp = rectangle(1, [-500.; 2], [500.; 2], 0.);
+    let mut ramp = rectangle(TerrainSurface::Grassland, [-500.; 2], [500.; 2], 0.);
     for vertex in &mut ramp.vertices {
         vertex[2] = vertex[0] + 100.;
     }
@@ -122,7 +111,7 @@ fn slope_correction_projects_onto_the_plane_and_invalid_input_is_rejected() -> R
     assert!(q.motion(f32::NAN, 0., Mode::Ground).is_err());
     assert!(q.motion(1., f32::INFINITY, Mode::Ground).is_err());
     let motion = q.motion(1000., 0., Mode::Ground)?;
-    assert_eq!(motion.response, None);
+    assert_eq!(motion.surface, None);
     assert_eq!(&motion.delta[..2], [0., 0.]);
     assert!((motion.delta[2] - 50.).abs() < 0.0001);
     Ok(())
@@ -137,11 +126,21 @@ fn movement_crosses_the_world_seam_using_the_adjacent_tile() -> Result<()> {
         [
             (
                 west,
-                Mesh::new(&[rectangle(1, [2900., -300.], [3200., 300.], 0.)])?,
+                Mesh::new(&[rectangle(
+                    TerrainSurface::Grassland,
+                    [2900., -300.],
+                    [3200., 300.],
+                    0.,
+                )])?,
             ),
             (
                 east,
-                Mesh::new(&[rectangle(1, [-3200., -300.], [-2900., 300.], 0.)])?,
+                Mesh::new(&[rectangle(
+                    TerrainSurface::Grassland,
+                    [-3200., -300.],
+                    [-2900., 300.],
+                    0.,
+                )])?,
             ),
         ],
         tables(),
@@ -150,7 +149,7 @@ fn movement_crosses_the_world_seam_using_the_adjacent_tile() -> Result<()> {
         terrain
             .query(origin, 500.)?
             .motion(40., std::f32::consts::FRAC_PI_2, Mode::Ground)?;
-    assert_eq!(motion.response, Some(1));
+    assert_eq!(motion.surface, Some(TerrainSurface::Grassland));
     let next = origin.translated(motion.delta)?;
     assert_eq!(next.tile(), east);
     assert!((next.map()[0] - 30.).abs() < 1.);
@@ -161,14 +160,13 @@ fn movement_crosses_the_world_seam_using_the_adjacent_tile() -> Result<()> {
 
 #[test]
 fn malformed_meshes_and_tables_fail_preparation() {
-    let mut group = rectangle(1, [-100.; 2], [100.; 2], 0.);
+    let mut group = rectangle(TerrainSurface::Grassland, [-100.; 2], [100.; 2], 0.);
     group.triangles[0][0] = 100;
     assert!(Mesh::new(&[group]).is_err());
-    assert!(Mesh::new(&[rectangle(16, [-100.; 2], [100.; 2], 0.)]).is_err());
+    let mut invalid = rectangle(TerrainSurface::Grassland, [-100.; 2], [100.; 2], 0.);
+    invalid.surface = 16;
+    assert!(Mesh::new(&[invalid]).is_err());
     let mut invalid = tables();
-    invalid.surface_responses[0][0] = -2;
-    assert!(invalid.validate().is_err());
-    let mut invalid = tables();
-    invalid.other_probe_half_extent = f32::INFINITY;
+    invalid.ground_probe_half_extent = f32::INFINITY;
     assert!(invalid.validate().is_err());
 }

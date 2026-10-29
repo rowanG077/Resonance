@@ -1,6 +1,6 @@
 //! Bind battle-scene aliases and attachment queries to their cooked actor poses.
 use anyhow::{Context, Result, ensure};
-use resonance_content::{animation::Motion, battle_event::Scene, prepared::Files};
+use resonance_content::{battle_event::Scene, prepared::Files};
 use resonance_events::{
     AnimationClip, AttachmentPose, ModelResource, ResourceKind, ResourceLibrary,
     animation::AnimationSource,
@@ -8,15 +8,15 @@ use resonance_events::{
 use std::sync::Arc;
 
 pub fn load(files: &Files, scene: Arc<Scene>) -> Result<crate::battle::event::Prepared> {
-    #[derive(serde::Deserialize)]
-    struct EyeCycle {
-        blink: resonance_content::effect::BlinkCycle,
-    }
-    let cycle: EyeCycle = files.json("data/embedded/field-effects.json")?;
-    cycle.blink.validate()?;
+    let blink = scene
+        .blink
+        .clone()
+        .context("battle event has no captured blink cycle")?;
+    blink.validate()?;
     let mut resources = ResourceLibrary {
-        blink: Some(cycle.blink),
-        messages: files.json(&scene.messages)?,
+        joint_mappings: scene.joint_mappings.clone(),
+        blink: Some(blink),
+        messages: files.json_or_default(scene.messages.as_deref())?,
         actor_names: ResourceLibrary::character_names(),
         ..Default::default()
     };
@@ -47,7 +47,8 @@ pub fn load(files: &Files, scene: Arc<Scene>) -> Result<crate::battle::event::Pr
         };
         prepared.attachments.skeleton = Some(skeleton.clone());
         for clip in &part.clips {
-            let motion = Arc::new(Motion::decode(&files.read(&clip.motion)?)?);
+            let motion =
+                Arc::new(clip.decode_motion(&files.read(&clip.motion)?, &part.bone_names)?);
             let (source, source_resource) = clip
                 .animation_resource
                 .map_or((AnimationSource::Model, resource), |id| {

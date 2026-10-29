@@ -392,6 +392,7 @@ impl Effects {
                             wrap_v: TextureWrap::Clamp,
                             nearest_min: false,
                             nearest_mag: false,
+                            mipmapped: false,
                         },
                     )),
                     images,
@@ -926,7 +927,8 @@ mod tests {
         RenderEffect {
             resource: ResourceId(7),
             source: std::sync::Arc::new(resonance_content::battle_effect::SourceBank {
-                source_sha256: "fixture".into(),
+                template_names: Vec::new(),
+                document: None,
                 programs: vec![],
                 actors: vec![bad_geometry, bad_blend, healthy, missing_texture],
                 art: None,
@@ -983,7 +985,8 @@ mod tests {
     #[test]
     fn palette_and_blend_overrides_have_prepared_materials() {
         let source = resonance_content::battle_effect::SourceBank {
-            source_sha256: String::new(),
+            template_names: Vec::new(),
+            document: None,
             programs: vec![],
             actors: vec![
                 serde_json::from_str(include_str!(

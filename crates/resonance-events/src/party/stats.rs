@@ -81,7 +81,7 @@ impl Member {
         traits.critical_chance_bonus = traits.critical_chance_bonus.min(100);
         traits
     }
-    pub fn equipment_captions(&self, data: &MenuData) -> anyhow::Result<Vec<u8>> {
+    pub fn equipment_captions<'a>(&self, data: &'a MenuData) -> anyhow::Result<Vec<&'a str>> {
         use anyhow::Context;
         let captions: Vec<_> = [0, 1, 2, 5, 3, 4]
             .into_iter()
@@ -89,9 +89,9 @@ impl Member {
             .flat_map(|slot| {
                 data.items[usize::from(self.equipment[slot])]
                     .properties
-                    .caption_ids
+                    .descriptions
                     .iter()
-                    .copied()
+                    .map(String::as_str)
             })
             .collect();
         let suppressed = captions
@@ -99,14 +99,18 @@ impl Member {
             .map(|id| {
                 data.status
                     .equipment_effects
-                    .get(id)
+                    .get(*id)
                     .context("missing selected equipment caption rules")
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(captions
             .iter()
             .copied()
-            .filter(|id| !suppressed.iter().any(|rule| rule.suppresses.contains(id)))
+            .filter(|id| {
+                !suppressed
+                    .iter()
+                    .any(|rule| rule.suppresses.iter().any(|other| other == *id))
+            })
             .collect())
     }
 
@@ -131,14 +135,56 @@ impl Member {
         )
     }
     pub(super) fn vitals_with_rules(&self, data: Option<&MenuData>, character: usize) -> [u16; 2] {
+        self.vitals_with_parts(
+            data.map(|data| data.items.as_slice()),
+            data.map(|data| &data.ex_skills),
+            character,
+        )
+    }
+
+    /// Slot previews need only equipment and EX rules, without a live session.
+    pub fn maximum_vitals_for(
+        &self,
+        items: &[resonance_content::menu_data::Item],
+        ex: &resonance_content::menu_data::ExSkillData,
+        character: usize,
+    ) -> anyhow::Result<[u16; 2]> {
+        anyhow::ensure!(character < ex.characters.len(), "invalid preview character");
+        anyhow::ensure!(
+            self.equipment
+                .iter()
+                .all(|&id| usize::from(id) < items.len()),
+            "invalid saved equipment for character {character}"
+        );
+        anyhow::ensure!(
+            self.ex_skills
+                .into_iter()
+                .filter(|&id| id != 0)
+                .chain(
+                    ex.characters[character]
+                        .equipped_compounds(&self.ex_skills)
+                        .map(|(_, recipe)| recipe.skill)
+                )
+                .all(|id| ex.skills.contains_key(&id)),
+            "missing saved EX skill definition for character {character}"
+        );
+        Ok(self.vitals_with_parts(Some(items), Some(ex), character))
+    }
+
+    fn vitals_with_parts(
+        &self,
+        items: Option<&[resonance_content::menu_data::Item]>,
+        ex: Option<&resonance_content::menu_data::ExSkillData>,
+        character: usize,
+    ) -> [u16; 2] {
         let mut vitals = [self.base_stats[0].min(9999), self.base_stats[1].min(999)];
-        let gear = data.into_iter().flat_map(|data| {
+        let gear = items.into_iter().flat_map(|items| {
             self.equipment
                 .iter()
                 .filter(|&&id| id != 0)
-                .flat_map(move |&id| &data.items[usize::from(id)].properties.stat_bonuses)
+                .flat_map(move |&id| &items[usize::from(id)].properties.stat_bonuses)
         });
-        for bonus in gear.chain(self.ex_bonuses(data.map(|data| &data.ex_skills), character)) {
+        for bonus in gear.chain(self.ex_bonuses(ex, character)) {
             let index = match bonus.stat {
                 ExStat::MaxHp => 0,
                 ExStat::MaxTp => 1,

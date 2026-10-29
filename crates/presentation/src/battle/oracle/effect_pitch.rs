@@ -668,7 +668,7 @@ fn validate_choices(source: &Trace, native: &Trace, result: &mut [Rotations; 2])
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RelativeTemplate {
-    metadata: super::random_inputs::Pin,
+    metadata: super::content_evidence::Evidence,
     member: u64,
     program: u64,
 }
@@ -677,18 +677,26 @@ fn validate_relative(source: &Trace, native: &Trace, result: &mut [Rotations; 2]
     let templates: Vec<RelativeTemplate> =
         super::optional_field(&source.setup, "effect_relative_rotations")?.unwrap_or_default();
     for template in templates {
-        let metadata: Value = serde_json::from_slice(&template.metadata.read_bytes()?)?;
-        let bank = metadata["source_sha256"]
-            .as_str()
-            .context("missing relative rotation bank")?;
+        let metadata = super::content_evidence::effect_value(
+            template.metadata.registered_effect(&source.setup)?,
+        )?;
+        let bank = template.metadata.source_digest()?;
         ensure!(digest(bank), "invalid relative rotation bank");
         let declaration = &metadata["actors"][template.member as usize];
         let slot = declaration["binding"]["slot"]
             .as_u64()
             .context("missing fixed model slot")?;
-        let particle = &declaration["template"];
-        let geometry = &particle["state"]["geometry"]["Size"];
-        let scale: [f64; 3] = serde_json::from_value(geometry["value"].clone())?;
+        let particle: resonance_content::battle_effect::ParticleTemplate =
+            serde_json::from_value(declaration["template"].clone())?;
+        let resonance_content::battle_effect::ParticleGeometry::Size {
+            value: scale,
+            velocity,
+            acceleration,
+        } = &particle.state.geometry
+        else {
+            anyhow::bail!("relative rotation requires size geometry");
+        };
+        let scale = (*scale).map(f64::from);
         let program = metadata["programs"][template.program as usize]
             .as_array()
             .context("missing relative rotation program")?;
@@ -700,11 +708,11 @@ fn validate_relative(source: &Trace, native: &Trace, result: &mut [Rotations; 2]
             declaration["kind"] == "model_particle"
                 && declaration["binding"]["animation"].is_null()
                 && !metadata["art"]["models"][slot.to_string()].is_null()
-                && particle["follow_origin"] == true
-                && particle["follow_orientation"] == false
+                && particle.follow_origin
+                && !particle.follow_orientation
                 && scale.iter().all(|value| value.is_finite() && *value > 0.)
-                && geometry["velocity"] == serde_json::json!([0., 0., 0.])
-                && geometry["acceleration"] == serde_json::json!([0., 0., 0.])
+                && *velocity == [0.; 3]
+                && *acceleration == [0.; 3]
                 && emission["at"] == 0
                 && emission["operation"]["kind"] == "spawn"
                 && emission["operation"]["particle"] == template.member

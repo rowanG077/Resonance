@@ -25,12 +25,12 @@ impl Artwork {
     pub(crate) fn load_cutins(
         &mut self,
         files: &resonance_content::prepared::Files,
-        scenes: impl IntoIterator<Item = (u16, String)>,
+        scenes: impl IntoIterator<Item = (u16, resonance_content::battle_scene::document::Kind, u16)>,
         materials: &mut Assets<Surface>,
         server: &AssetServer,
     ) -> Result<()> {
-        for (catalogue, path) in scenes {
-            let scene: resonance_content::battle_scene::Scene = files.json(&path)?;
+        for (catalogue, kind, id) in scenes {
+            let scene = resonance_content::battle_scene::document::load(files, kind, id)?;
             let Some(cutin) = scene.cutin else { continue };
             ensure!(cutin.images.len() == 1, "skill cut-in requires one image");
             let texture = &cutin.images[0];

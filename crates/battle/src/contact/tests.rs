@@ -106,7 +106,7 @@ fn instant_kill_only_finishes_damaging_enemy_contacts() -> Result<()> {
 
 #[test]
 fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> Result<()> {
-    use resonance_content::animation::{Bone, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Transform};
 
     for target_side in [Side::Party, Side::Enemy] {
         let owner_side = if target_side == Side::Party {
@@ -125,7 +125,8 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
         owner_model.skeleton.bones.push(Bone {
             name: "attack".into(),
             parent: Some(0),
-            bind_channels: TransformChannels(8),
+            parent_transform: None,
+            shadow_bounds: true,
             bind: Transform {
                 translation: [96., 0., 0.],
                 ..Default::default()
@@ -135,7 +136,8 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
         model.skeleton.bones.push(Bone {
             name: "dm5_target".into(),
             parent: Some(0),
-            bind_channels: TransformChannels(8),
+            parent_transform: None,
+            shadow_bounds: true,
             bind: Transform {
                 translation: [50., 0., 0.],
                 ..Default::default()

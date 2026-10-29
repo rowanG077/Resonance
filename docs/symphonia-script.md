@@ -342,31 +342,28 @@ model behaviors still load from the cooked `scripts/` directory.
 ## Model behavior
 
 Maintained model scripts are embedded into the cooker with `include_str!` and
-published verbatim under `<assets>/scripts`. The manifest selects named resources
-and entry functions; it supplies no function arguments. Preparation resolves named
-nodes and validates entry signatures without executing behavior. Sources are immutable cooked assets: field preparation
-verifies their hashes and retains their bytes. The renderer compiles that verified
-snapshot before activating a preview and reuses immutable programs through the
-existing preparation cache.
+published verbatim under `<assets>/scripts`. Model documents select named resources
+and entry functions; they supply no function arguments. Preparation resolves named
+nodes and validates entry signatures without executing behavior. It captures the
+current script bytes, including mod overrides, and the renderer compiles that
+snapshot before activating a preview. Replace a file at its existing path and
+restart to load the edit; no manifest or author-maintained checksum is required.
 
-The entire `std::` library is checked in under [scripts/std](../scripts/std/README.md).
-The build embeds it alongside the model scripts; cooking copies it unchanged.
-It supplies story flags, characters, items, monsters, figurines, locations and
-model node names as ordinary `i32` and `string` constants. Definitions record
-original IDs/names, with readable names for confirmed meanings and explicit
-fallback names for unknown meanings. No symbol manifest or source generator is
-involved. The standard-library index links known model node modules; new models
-remain cookable without a standard-library entry.
+The numeric standard definitions are generated from the shared
+[`symphonia-constants`](../crates/symphonia-constants/README.md) Rust enums during
+cooking. They cover story flags, characters, fields, music, items, monsters,
+figurines, world landmarks and travel. The generated `.sym` enums retain the
+explicit discriminants; there is no separately maintained script catalogue.
+For example, `i32(std::story::StoryFlag::SwordDancerTailVisible)` is 147,
+`i32(std::characters::CharacterId::Lloyd)` is 1, and
+`i32(std::items::ItemId::MemoryGem)` is 491. Script services still accept raw
+numbers, so mods can introduce identities without changing the Rust enums.
 
-`std::story::SwordDancerTailVisible` is integer 147;
-`std::characters::Lloyd` is canonical actor ID 1, independently of localized
-display text. Story flag IDs use the save format's `u16` range; scripts may define
-additional constants without extending an enum.
-
-Monsters and figurines use the same model and animation machinery, with separate
-catalogue IDs. Identical ordered bone-name interfaces share a node module, even
-when their meshes differ. Modules supply plain strings such as
-`pub const Tail: string = "Bone_sippo01";`. `model::node(name: string)` accepts
+Model nodes are string labels, not numeric IDs. `resonance-script nodes MODEL.glb`
+generates an optional reference module from a published GLB skeleton. Cooking
+generates only the small set of semantic aliases used by shipped behaviors in
+`std::model_nodes`. No checked-in skeleton catalogue or hash registry is needed.
+`model::node(name: string)` accepts
 constants or literals and returns a node handle. Preparation resolves the
 program's interned names into body/outline targets, excluding attachments; calls
 use those prepared indices. Requesting an unknown or ambiguous name fails with a
@@ -381,11 +378,11 @@ functions without a return value. For example:
 script model;
 use model;
 use game::story;
-use std::story::SwordDancerTailVisible;
-use std::nodes::sword_dancer_191;
+use std::story::StoryFlag;
+use std::model_nodes;
 pub fn apply() {
-    if !story::flag(SwordDancerTailVisible) {
-        model::set_scale(model::node(sword_dancer_191::Tail), 0.0, 0.0, 0.0);
+    if !story::flag(i32(StoryFlag::SwordDancerTailVisible)) {
+        model::set_scale(model::node(model_nodes::SwordDancerTail), 0.0, 0.0, 0.0);
     }
 }
 ```
@@ -395,15 +392,17 @@ instance. Preview evaluation produces fresh overrides once per menu tick, with
 a bounded instruction budget; it cannot suspend or mutate game progress.
 
 Use `resonance-script check scripts preview::sword_dancer` to check against the
-checked-in library, and `resonance-script api model` to inspect the native API.
+standard library generated from Rust, and `resonance-script api model` to inspect the native API.
 Adding `--assets ASSETS` checks against cooked `std` exclusively, ignoring local
 standard-library files. Both field and model runtime preparation resolve `std`
-from verified cooked bytes. Library modules declare `script library;` and can be
-imported by either script kind.
-Change the checked-in source, rebuild and recook to update these programs.
-Missing or modified cooked files fail integrity checks; there is no embedded
-runtime fallback. The development `--scripts` field-entry tool does not override
-cooked model scripts. Mod overlays are future work.
+from the current captured content. Library modules declare `script library;` and
+can be imported by either script kind.
+Edit the installed `scripts/` files directly or provide those paths in a mod
+directory, then restart the application. Preparation checks and compiles the
+effective sources; no cooker-recorded checksum or recook is required. Missing or
+invalid required modules fail preparation without an embedded runtime fallback.
+The development `--scripts` option selects a field-entry project; use ordinary
+content mods to override shared or model script files.
 
 ## Legacy native registration
 
@@ -469,6 +468,50 @@ per resume and 32,768 per update. Instances share script memory, while coordinat
 registers and VM stacks remain local to each instance. Resource/event handles are
 Rust IDs. Scene readiness gates script execution while dependencies are prepared.
 
+## Editing original scenarios
+
+The `scenario` authoring commands expose the existing lossless assembler and
+disassembler:
+
+```sh
+cargo run -p symphonia-script-tools -- scenario disassemble scenario.ssb scenario.ssasm
+cargo run -p symphonia-script-tools -- scenario assemble scenario.ssasm edited.ssb
+```
+
+The output assembly uses `.scenario`, `.code_base`, labels, instruction mnemonics,
+and `.word`/`.byte` directives. Semicolon comments show original offsets, encoded
+words, and event registry entries. Known instructions include `push.s8`,
+`push.s16`, `push.s32`, `load.s32`, `arg`, `proc`, `calc`, `jump`, `call`,
+`branch_false`, `ret` and `end`. Integer operands accept the shown hexadecimal or
+decimal notation. `proc` addresses the original native procedure table; it does
+not call an authored `.sym` function.
+
+Disassembly checks that reassembly preserves every input byte before writing the
+listing. Unknown or noncanonical words and unused data remain explicit raw
+directives. Diagnostics accompany the output; disassembly is also useful for
+inspecting data that is not an executable VM program. Assembly checks the result
+using the runtime `Program` admission rules before replacing the destination.
+Malformed assembly or invalid reachable instructions leave an existing output
+untouched. Writes use a temporary file in the destination directory and an atomic
+replacement. Inputs are bounded to 4 MiB of bytecode or 64 MiB of assembly.
+
+Branch labels are absolute word PCs relative to `code_base`. They adjust when
+instructions move. The serialized header and registry overlay remain raw words:
+their entry PCs, counts, code base and auxiliary offset do not automatically
+follow labels. Auxiliary tables may also contain layout-dependent values. Keep
+those values consistent when adding or removing instructions. This preserves
+overlapping native layouts instead of inventing a high-level reconstruction.
+The assembly is a lossless editing tool, not a promise that every layout change
+preserves game behavior.
+
+Keep working `.ssasm` files outside the cooked library. The scenario path selected
+by the current resource document is the authoritative installed `.ssb`; the game
+does not select between source and binary versions. Publish an edited binary at
+that path in a mod directory and restart Resonance. Dialogue remains editable in
+the owning `messages.json`. Neither editing path requires cooker hashes or a new
+dependency inventory. Gameplay changes do not invalidate saves; restored games
+use the current scripts.
+
 ## Verification
 
 ```sh
@@ -481,4 +524,7 @@ another cooked directory. These tests open no audio or graphics devices. Tests
 cover enum/catalog agreement, registered signatures, duplicate registration,
 borrowed host state, nested arguments, immediate/deferred results, unsupported
 calls, stack/memory limits and the original classroom/setup events. Bytecode
-`.ssb` files retain their original encoding and are hash-checked before execution.
+`.ssb` files retain the original VM instruction encoding. Preparation reads the
+current selected bytes and checks the program structure; there is no comparison
+against a mandatory cooker-recorded hash. Derived identities track gameplay for
+save admission and internal cache reuse.

@@ -177,25 +177,37 @@ mod tests {
         assert!(Sweep::new(1000, 0).is_none());
     }
 
-    #[test]
-    #[ignore = "requires locally cooked battle audio; no audio device"]
-    fn authored_battle_cues_finish_samples_and_release_loops() {
-        use crate::sequence::{LiveControls, shared::Synthesizer, stream::Stream};
+    fn current_cue(id: i16) -> crate::package::Loaded {
+        use resonance_content::{battle_audio::document::Catalogue, library::Library};
         let root = std::env::var_os("RESONANCE_TEST_ASSETS")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
             });
-        let descriptor: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(root.join("battle/audio.json")).unwrap())
-                .unwrap();
+        let mut snapshot = Library::open(&root, &[]).unwrap().snapshot();
+        let catalogue = Catalogue::capture(&mut snapshot, &|| false).unwrap();
+        let program = snapshot
+            .json::<crate::effect::Definition>(&catalogue.resolved.effects[&id], 16 * 1024 * 1024)
+            .unwrap()
+            .into_program(&mut |path, limit| snapshot.read(path, limit))
+            .unwrap();
+        program
+            .prepare_in(
+                Some(catalogue.audio.program_reverbs(None).unwrap()),
+                &mut |path, limit| snapshot.read(path, limit),
+                &mut Default::default(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    #[ignore = "requires current named battle audio; no audio device"]
+    fn authored_battle_cues_finish_samples_and_release_loops() {
+        use crate::sequence::{LiveControls, shared::Synthesizer, stream::Stream};
         // These authored cues cover staggered envelopes and a looping sample
         // whose program ends after fading its volume to silence.
         for cue in [73, 80] {
-            let path = descriptor["assets"]["sounds"][cue.to_string()]["path"]
-                .as_str()
-                .unwrap();
-            let loaded = std::sync::Arc::new(crate::package::Package::load(&root, path).unwrap());
+            let loaded = std::sync::Arc::new(current_cue(cue));
             let synth = Synthesizer::default();
             let stream = Stream::in_synthesizer(loaded, false, &synth).unwrap();
             let mut audible = false;
@@ -229,18 +241,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires locally cooked recovery cue; no audio device"]
+    #[ignore = "requires current named recovery cue; no audio device"]
     fn recovery_cue_fades_from_silence_to_its_scaled_velocity_in_400_ms() {
-        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
-            });
-        let field: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(root.join("fields/map-340-audio.json")).unwrap())
-                .unwrap();
-        let path = field["sounds"]["132"]["path"].as_str().unwrap();
-        let package = crate::package::Package::load(&root, path).unwrap();
+        let package = current_cue(132);
         let crate::data::EventKind::Notes { voices, .. } = &package.score().first_events[0].kind
         else {
             panic!("missing recovery notes")

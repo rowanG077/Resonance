@@ -1,21 +1,22 @@
 //! Escape voice bindings for every playable character.
 use super::*;
 use battle::model::ModelSource;
-use resonance_content::{
-    battle_profile, menu_data::MenuData, prepared::Cache, session::SessionData,
-};
+use resonance_content::{battle_profile, menu_data::MenuData, session::SessionData};
 use resonance_events::party::Party;
 
 #[test]
 #[ignore = "requires current party profiles and escape voices; CPU only"]
 fn all_party_escape_voices_are_prepared() -> Result<()> {
     let root = common::asset_root();
-    let mut cache = Cache::default();
-    let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: MenuData = files.json("game/menu-data.json")?;
-    let mut data: SessionData = files.json("game/session-data.json")?;
+
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
+    let mut data: SessionData = resonance_content::session::SessionData::load(&files)?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default())?;
     for member in &mut party.members {
@@ -27,8 +28,8 @@ fn all_party_escape_voices_are_prepared() -> Result<()> {
         .into_iter()
         .map(ModelSource::Party)
         .collect();
-    let files = battle::model::load_files(&root, files, &sources, &mut cache, || false)?;
-    let profiles: battle_profile::Table = files.json(battle_profile::PARTY_PATH)?;
+
+    let profiles: battle_profile::Table = resonance_content::battle_rules::party(&files)?;
     let prepared = resonance_battle::PreparedBattle::new(
         vec![(actor(), Default::default())],
         Default::default(),

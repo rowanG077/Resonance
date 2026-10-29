@@ -1,4 +1,5 @@
 //! Scheduled feedback with direct settings for each particle birth.
+pub use super::range::ValueRange;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
@@ -9,23 +10,28 @@ pub struct ScheduledEvent {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum EffectOperation {
+pub enum EffectOperation<Particle = u8> {
     Spawn {
-        particle: u8,
+        particle: Particle,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(with = "super::labels::blend::optional")]
         blend: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         palette: Option<u8>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         birth: Box<ParticleBirth>,
     },
     /// Change one earlier birth in this emitter; sound filtering cannot change
     /// the ordinal among spawn operations.
     SetMotion {
+        #[serde(rename = "previous_spawn")]
         spawn: usize,
         #[serde(flatten)]
         motion: Box<MotionChange>,
     },
     Sound {
         id: u16,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         priority: u8,
     },
     Shake {
@@ -44,29 +50,65 @@ pub enum EffectOperation {
     },
 }
 
+impl<P> EffectOperation<P> {
+    pub(crate) fn map_particle<T>(
+        self,
+        mut map: impl FnMut(P) -> Result<T>,
+    ) -> Result<EffectOperation<T>> {
+        Ok(match self {
+            Self::Spawn {
+                particle,
+                blend,
+                palette,
+                birth,
+            } => EffectOperation::Spawn {
+                particle: map(particle)?,
+                blend,
+                palette,
+                birth,
+            },
+            Self::SetMotion { spawn, motion } => EffectOperation::SetMotion { spawn, motion },
+            Self::Sound { id, priority } => EffectOperation::Sound { id, priority },
+            Self::Shake {
+                duration,
+                amplitude,
+            } => EffectOperation::Shake {
+                duration,
+                amplitude,
+            },
+            Self::StageTint { color, duration } => EffectOperation::StageTint { color, duration },
+            Self::Notice { text } => EffectOperation::Notice { text },
+            Self::Unsupported { reason } => EffectOperation::Unsupported { reason },
+        })
+    }
+}
+
 /// Motion changes applied to one retained particle.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MotionChange {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub offset: [Option<f32>; 3],
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub size: [Option<f32>; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation: Option<ModelAnimation>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub velocity: [Option<f32>; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity_add: Option<[f32; 3]>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub acceleration: [Option<f32>; 3],
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub angular_velocity: [Option<f32>; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forward_motion: Option<ForwardMotion>,
     /// Multiply the current velocity after any explicit assignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity_scale: Option<[f32; 3]>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub size_velocity: [Option<f32>; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub size_acceleration: [Option<f32>; 3],
 }
 
@@ -74,92 +116,31 @@ pub struct MotionChange {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ForwardMotion {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceleration: Option<f32>,
 }
 
-/// A bounded continuous range, or evenly spaced choices when `step` is positive.
-/// Fixed settings have equal endpoints and consume no randomness.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ValueRange {
-    pub min: f32,
-    pub max: f32,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub step: f32,
-    /// Shared unit draw within this emitter's schedule.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub draw: Option<u32>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub reverse: bool,
-}
 fn is_zero(value: &f32) -> bool {
     *value == 0.
-}
-impl ValueRange {
-    pub const fn fixed(value: f32) -> Self {
-        Self {
-            min: value,
-            max: value,
-            step: 0.,
-            draw: None,
-            reverse: false,
-        }
-    }
-    pub fn validate(self) -> Result<()> {
-        ensure!(
-            self.min.is_finite()
-                && self.max.is_finite()
-                && self.min <= self.max
-                && (self.max - self.min).is_finite()
-                && self.step.is_finite()
-                && self.step >= 0.
-                && (self.step == 0. || ((self.max - self.min) / self.step).is_finite()),
-            "invalid particle range"
-        );
-        Ok(())
-    }
-    /// `unit` is a cosmetic sample in [0, 1).
-    pub fn sample(self, unit: f32) -> f32 {
-        let delta = if self.step > 0. {
-            (unit * self.choice_count()).floor() * self.step
-        } else {
-            unit * (self.max - self.min)
-        };
-        if self.reverse {
-            self.max - delta
-        } else {
-            self.min + delta
-        }
-    }
-
-    /// Inclusive choices, allowing the rounding of a representable endpoint.
-    pub fn choice_count(self) -> f32 {
-        debug_assert!(self.step > 0.);
-        let intervals = (self.max - self.min) / self.step;
-        let nearest = intervals.round();
-        let endpoint = self.min + nearest * self.step;
-        let rounding = self.min.abs().max(self.max.abs()) * f32::EPSILON;
-        let intervals = if (endpoint - self.max).abs() <= rounding {
-            nearest
-        } else {
-            intervals.floor()
-        };
-        intervals + 1.
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolarSpread {
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub angles: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub radius: f32,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub radius_jitter: f32,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub angle_jitter: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub radius_draw: Option<u32>,
+    pub radius_draw: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub angle_draw: Option<u32>,
+    pub angle_draw: Option<i64>,
 }
 impl PolarSpread {
     pub fn validate(self) -> Result<()> {
@@ -186,6 +167,7 @@ fn vertices_empty(values: &[[Option<ValueRange>; 3]; 3]) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelParent {
+    #[serde(rename = "previous_spawn")]
     pub spawn: usize,
     pub joint: u8,
 }
@@ -197,8 +179,14 @@ pub struct ModelAnimation {
     pub clip: u16,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub frame: f32,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub blend_ticks: u8,
+    #[serde(
+        default = "crate::defaults::unit",
+        skip_serializing_if = "crate::defaults::is_unit"
+    )]
     pub rate: f32,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub repeat: bool,
 }
 impl ModelAnimation {
@@ -357,7 +345,58 @@ impl ParticleBirth {
             .flatten()
             .chain(self.sums.iter().flat_map(|sum| &sum.terms))
     }
-    pub fn draw_references(&self) -> impl Iterator<Item = u32> + '_ {
+    fn ranges_mut(&mut self) -> impl Iterator<Item = &mut ValueRange> {
+        self.offset
+            .iter_mut()
+            .chain(&mut self.velocity)
+            .chain(&mut self.acceleration)
+            .chain(&mut self.angles)
+            .chain(&mut self.angular_velocity)
+            .chain(&mut self.segment_offset)
+            .chain(&mut self.orbit)
+            .chain(&mut self.orbit_velocity)
+            .chain(&mut self.size)
+            .chain(&mut self.size_velocity)
+            .chain(&mut self.size_acceleration)
+            .chain(self.vertices.iter_mut().flatten())
+            .chain(&mut self.color)
+            .chain(&mut self.end_color)
+            .chain(&mut self.uv)
+            .chain(&mut self.brighten)
+            .chain(&mut self.fade)
+            .chain([&mut self.segment_angle_step])
+            .chain([&mut self.brighten_until])
+            .chain([&mut self.lifetime])
+            .chain([&mut self.fade_from])
+            .chain([&mut self.geometry_count])
+            .chain([&mut self.phase])
+            .chain([&mut self.palette])
+            .chain([&mut self.alpha_palette])
+            .chain([&mut self.model])
+            .flatten()
+            .chain(self.sums.iter_mut().flat_map(|sum| &mut sum.terms))
+    }
+    /// Rewrite every correlated sample reference at the document boundary.
+    pub(super) fn map_draws(&mut self, mut map: impl FnMut(i64) -> Result<i64>) -> Result<()> {
+        for range in self.ranges_mut() {
+            if let Some(draw) = &mut range.draw {
+                *draw = map(*draw)?;
+            }
+        }
+        for spread in [&mut self.offset_spread, &mut self.velocity_spread]
+            .into_iter()
+            .flatten()
+        {
+            for draw in [&mut spread.radius_draw, &mut spread.angle_draw]
+                .into_iter()
+                .flatten()
+            {
+                *draw = map(*draw)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn draw_references(&self) -> impl Iterator<Item = i64> + '_ {
         self.ranges().filter_map(|range| range.draw).chain(
             [self.offset_spread, self.velocity_spread]
                 .into_iter()

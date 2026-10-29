@@ -3,19 +3,20 @@
 use super::*;
 #[path = "battle_audio/gains.rs"]
 mod gains;
+#[cfg(test)]
+#[path = "battle_audio/named_tests.rs"]
+mod named_tests;
 #[path = "battle_audio/pcm.rs"]
 mod pcm;
 use resonance_battle::{ActorId, Cue, Sound, VoicePriority};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct VoiceId(u64);
-use resonance_content::{
-    battle_audio::{Audio, spatial_controls},
-    diagnostics::Diagnostics,
-    prepared::Files,
-};
+use resonance_content::diagnostics::Diagnostics;
 
+#[cfg(test)]
 const DEFAULT_EFFECT_SPATIAL: [f32; 5] = [320., 5., 64., 0., 127.];
+#[cfg(test)]
 const DEFAULT_VOICE_SPATIAL: [f32; 5] = [320., 5., 64., 24., 104.];
 
 #[derive(Clone)]
@@ -26,61 +27,29 @@ pub(crate) struct Assets {
     voice_spatial: [f32; 5],
 }
 impl Assets {
-    pub(crate) fn load(
-        files: &Files,
-        descriptor: Option<&Audio>,
+    pub(crate) fn capture_named(
+        catalogue: &resonance_content::battle_audio::document::Catalogue,
+        selected: &resonance_content::battle_audio::Selection,
+        snapshot: &mut resonance_content::library::Snapshot,
+        diagnostics: Diagnostics,
         cache: &mut Cache,
+        cancelled: &impl Fn() -> bool,
     ) -> Result<Arc<Self>> {
-        let diagnostics = files.diagnostics().clone();
-        let Some(descriptor) = descriptor else {
-            return Ok(Arc::new(Self {
-                mixer: Arc::new(super::Assets::silent(diagnostics.clone())),
-                diagnostics,
-                effect_spatial: DEFAULT_EFFECT_SPATIAL,
-                voice_spatial: DEFAULT_VOICE_SPATIAL,
-            }));
-        };
-        let effect_spatial = diagnostics
-            .attempt(
-                "battle effect position",
-                spatial_controls(descriptor.effect_spatial),
-            )?
-            .unwrap_or(DEFAULT_EFFECT_SPATIAL);
-        let voice_spatial = diagnostics
-            .attempt(
-                "battle voice position",
-                spatial_controls(descriptor.voice_spatial),
-            )?
-            .unwrap_or(DEFAULT_VOICE_SPATIAL);
-        let mixer = Arc::new(super::Assets::load_contents(
-            &descriptor.assets,
+        ensure!(!cancelled(), "battle audio preparation cancelled");
+        let resolved = catalogue.select(selected, &diagnostics)?;
+        let mixer = cache.capture_resolved(
+            &catalogue.audio,
+            resolved,
+            snapshot,
             diagnostics.clone(),
-            cache,
-            &mut |asset, limit, role| {
-                let entry = descriptor.files.get(&asset.path).with_context(|| {
-                    format!("battle audio resource outside inventory: {}", asset.path)
-                })?;
-                ensure!(
-                    entry.sha256 == asset.sha256
-                        && entry.roles.contains(&role)
-                        && !entry.roles.contains(&AudioRole::Movie),
-                    "battle audio dependency binding differs: {}",
-                    asset.path
-                );
-                let bytes = files.read_verified(&asset.path, &entry.sha256, limit)?;
-                ensure!(
-                    bytes.len() as u64 == entry.bytes,
-                    "battle audio dependency size differs: {}",
-                    asset.path
-                );
-                Ok(bytes)
-            },
-        )?);
+            cancelled,
+        )?;
+        ensure!(!cancelled(), "battle audio preparation cancelled");
         Ok(Arc::new(Self {
             diagnostics,
             mixer,
-            effect_spatial,
-            voice_spatial,
+            effect_spatial: catalogue.definition.effect_spatial,
+            voice_spatial: catalogue.definition.voice_spatial,
         }))
     }
 
@@ -105,7 +74,7 @@ impl Assets {
 }
 
 pub(super) enum Source {
-    Score(Arc<Loaded>),
+    Score(Arc<PreparedEffect>),
     Stream(Arc<Clip>),
 }
 #[derive(Clone, Copy)]
@@ -235,7 +204,7 @@ impl Playback {
                 music
                     .map(|track| {
                         ensure!(
-                            assets.mixer.music.contains_key(&track),
+                            assets.mixer.contains_music(&track),
                             "unprepared battle music {track}"
                         );
                         Ok(track)
@@ -423,7 +392,7 @@ impl Playback {
             (|| {
                 if let Some(track) = track {
                     ensure!(
-                        self.assets.mixer.music.contains_key(&track),
+                        self.assets.mixer.contains_music(&track),
                         "unprepared battle music {track}"
                     );
                 }
@@ -482,7 +451,7 @@ pub(super) enum Command {
     Sound {
         category: EffectCategory,
         binding: Sound,
-        score: Arc<Loaded>,
+        score: Arc<PreparedEffect>,
         x: Option<f32>,
         priority: u8,
     },
@@ -675,7 +644,7 @@ impl Frames {
                 ensure!(self.battle.is_none(), "battle audio already active");
                 self.initialize_studio(&assets.mixer)?;
                 if let Some(music) = &mut self.music {
-                    music.player.stream.pause(true)?;
+                    music.player.pause(true);
                 }
                 let field = FieldMusic {
                     assets: self.assets.clone(),
@@ -743,7 +712,7 @@ impl Frames {
                     self.music = state.field.music;
                     self.studio.set_music_reverb(state.field.reverb)?;
                     if let Some(music) = &mut self.music {
-                        music.player.stream.pause(false)?;
+                        music.player.pause(false);
                     }
                 }
                 debug!(
@@ -755,7 +724,7 @@ impl Frames {
                 let state = self.battle.as_ref().context("battle audio is not active")?;
                 if let Some(track) = track {
                     ensure!(
-                        state.assets.mixer.music.contains_key(&track),
+                        state.assets.mixer.contains_music(&track),
                         "unprepared battle music {track}"
                     );
                     if self.music.as_ref().is_some_and(|music| music.id == track)
@@ -792,7 +761,7 @@ impl Frames {
                 } else {
                     state.settings.effects
                 };
-                let mut player = ScorePlayer::new(score, false, &self.synth)?;
+                let mut player = ScorePlayer::new(score, &self.synth)?;
                 player.controls.pan = Some(pan);
                 // Battle importance is lower-first; native allocation is higher-first.
                 // System feedback takes precedence within the sound-effect budget.
@@ -828,7 +797,7 @@ impl Frames {
                 let level = (u16::from(state.settings.voice) * u16::from(percent) / 100) as u8;
                 let source = match source {
                     Source::Score(score) => {
-                        let mut player = ScorePlayer::new(score, false, &self.synth)?;
+                        let mut player = ScorePlayer::new(score, &self.synth)?;
                         player.controls.sound_velocity = Some(level);
                         player.controls.pan = Some(pan);
                         VoiceSource::Score(player)
@@ -1074,19 +1043,18 @@ fn add(target: &mut BusFrame, source: BusFrame) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_content::battle_audio::{Audio, PATH};
     const DRY_GAIN: [[f32; 2]; 3] = [[1.; 2], [0.; 2], [0.; 2]];
 
     fn mixer() -> super::super::Assets {
         super::super::Assets {
             diagnostics: Diagnostics::new(true),
-            music: BTreeMap::new(),
+            recordings: BTreeMap::new(),
             sounds: BTreeMap::new(),
             voices: BTreeMap::new(),
             voice_gains: [1.; 128],
             reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
             music_reverbs: Some(MusicReverbs {
-                presets: [[0.5, 0.5, 1., 0.5, 0.]; 2],
+                presets: vec![[0.5, 0.5, 1., 0.5, 0.]; 2],
                 selectors: vec![1; 112],
             }),
         }
@@ -1119,7 +1087,7 @@ mod tests {
             let diagnostics = Diagnostics::new(paranoid);
             let mut field = mixer();
             field.diagnostics = diagnostics.clone();
-            field.music.insert(0, test_music());
+            field.recordings.insert(0, test_music());
             let (source, mut control) = Arc::new(field).session();
             let mut frames = source.decoder();
             control.send(AudioCommand::Music(resonance_events::MusicCommand::Play(0)))?;
@@ -1129,7 +1097,7 @@ mod tests {
             bank.diagnostics = diagnostics.clone();
             Arc::get_mut(&mut bank.mixer)
                 .unwrap()
-                .music
+                .recordings
                 .insert(1, test_music());
             Arc::get_mut(&mut bank.mixer)
                 .unwrap()
@@ -1235,7 +1203,7 @@ mod tests {
         let mut prepared = assets();
         Arc::get_mut(&mut Arc::get_mut(&mut prepared).unwrap().mixer)
             .unwrap()
-            .music
+            .recordings
             .insert(1, test_music());
         fill_command_queue(&control);
         frames.receive.as_ref().unwrap().try_recv()?;
@@ -1255,7 +1223,7 @@ mod tests {
             let diagnostics = Diagnostics::new(false);
             let mut field = mixer();
             field.diagnostics = diagnostics.clone();
-            field.music.insert(0, test_music());
+            field.recordings.insert(0, test_music());
             field
                 .voices
                 .insert(7, Arc::new(test_clip([16384; 64], RATE, 1)));
@@ -1403,7 +1371,7 @@ mod tests {
                 1,
                 Arc::new(test_clip([12000, -12000].repeat(480), 48000, 2)),
             );
-        assert!(prepared.mixer.music.is_empty() && prepared.mixer.sounds.is_empty());
+        assert!(prepared.mixer.recordings.is_empty() && prepared.mixer.sounds.is_empty());
         let mut settings = settings();
         settings.stereo = true;
         let mut playback = Playback::begin(&mut control, prepared, settings, None)?;
@@ -1757,18 +1725,14 @@ mod tests {
 
     #[test]
     fn battle_return_preserves_scripted_music_gain_and_unfinished_fades() -> Result<()> {
-        let (resources, mut score, tables) =
-            test_score_data(resonance_audio::data::ScoreOrigin::Sequence);
-        score.end_tick = 8;
-        score.loop_events = score.first_events.clone();
         let reverbs = [[0., 0., 1., 0., 0.]; 2];
-        let track = Arc::new(Loaded::new(resources, score, tables, reverbs)?);
+        let track = test_music();
         let mut peaks = Vec::new();
         for (volume, duration_ticks) in [(127, 0), (0, 0), (48, 0), (0, 3)] {
             let mut field = mixer();
             field.reverbs = reverbs;
-            field.music_reverbs.as_mut().unwrap().presets = reverbs;
-            field.music.insert(0, track.clone());
+            field.music_reverbs.as_mut().unwrap().presets = reverbs.to_vec();
+            field.recordings.insert(0, track.clone());
             let (source, _control) = Arc::new(field).session();
             let mut frames = source.decoder();
             frames.command(AudioCommand::Music(resonance_events::MusicCommand::Play(0)))?;
@@ -1788,7 +1752,7 @@ mod tests {
             let mut battle = assets();
             Arc::get_mut(&mut Arc::get_mut(&mut battle).unwrap().mixer)
                 .unwrap()
-                .music
+                .recordings
                 .insert(1, track.clone());
             frames.apply_battle_command(Command::Begin(battle, settings(), Some(1)))?;
             for _ in 0..960 {
@@ -1857,17 +1821,23 @@ mod tests {
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
             Into::into,
         );
-        let descriptor: Audio = serde_json::from_slice(&std::fs::read(root.join(PATH))?)?;
-        let mut bank = mixer();
-        bank.music_reverbs = Some(descriptor.assets.music_reverbs);
-        for track in [85, 95] {
-            bank.music.insert(
-                track,
-                Arc::new(Package::load(&root, &descriptor.assets.music[&track].path)?),
-            );
-        }
-        let mut battle_assets = assets();
-        Arc::get_mut(&mut battle_assets).unwrap().mixer = Arc::new(bank);
+        let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+        let catalogue =
+            resonance_content::battle_audio::document::Catalogue::capture(&mut snapshot, &|| {
+                false
+            })?;
+        let battle_assets = Assets::capture_named(
+            &catalogue,
+            &resonance_content::battle_audio::Selection {
+                music: [85, 95].into(),
+                ..Default::default()
+            },
+            &mut snapshot,
+            Diagnostics::new(true),
+            &mut Cache::default(),
+            &|| false,
+        )?;
+        let position = |frames: &Frames| frames.music.as_ref().unwrap().player.player.position();
         let (source, _control) = Arc::new(mixer()).session();
         let mut frames = source.decoder();
         frames.apply_battle_command(Command::Begin(battle_assets, settings(), None))?;
@@ -1875,14 +1845,11 @@ mod tests {
         for _ in 0..480 {
             frames.frame()?;
         }
-        let before = frames.music.as_ref().unwrap().player.stream.shared_frame();
+        let before = position(&frames);
         let fade = frames.music.as_ref().unwrap().fade.value();
-        assert!(frames.music.as_ref().unwrap().player.stream.started());
+        assert!(position(&frames) > 0);
         frames.apply_battle_command(Command::Music(Some(85), 987))?;
-        assert_eq!(
-            frames.music.as_ref().unwrap().player.stream.shared_frame(),
-            before
-        );
+        assert_eq!(position(&frames), before);
         assert_eq!(frames.music.as_ref().unwrap().fade.value(), fade);
         assert_eq!(frames.music.as_ref().map(|music| music.id), Some(85));
         assert!(
@@ -1897,7 +1864,7 @@ mod tests {
         for _ in 0..480 {
             frames.frame()?;
         }
-        assert!(frames.music.as_ref().unwrap().player.stream.started());
+        assert!(position(&frames) > 0);
         let fade = frames.music.as_ref().unwrap().fade.value();
         frames.apply_battle_command(Command::Music(None, 50))?;
         assert!(frames.battle.as_ref().unwrap().stop_music);
@@ -1913,7 +1880,7 @@ mod tests {
             Arc::get_mut(&mut assets).unwrap().diagnostics = diagnostics.clone();
             Arc::get_mut(&mut Arc::get_mut(&mut assets).unwrap().mixer)
                 .unwrap()
-                .music
+                .recordings
                 .insert(0, test_music());
             let (source, mut control) = Arc::new(mixer()).session();
             let mut frames = source.decoder();
@@ -1980,8 +1947,12 @@ mod tests {
     #[test]
     fn tolerant_audio_skips_missing_playback_requests() -> Result<()> {
         let diagnostics = Diagnostics::default();
-        let files = super::super::tests::empty_prepared_files(diagnostics.clone());
-        let assets = Assets::load(&files, None, &mut Cache::default())?;
+        let assets = Arc::new(Assets {
+            mixer: Arc::new(super::super::Assets::silent(diagnostics.clone())),
+            diagnostics: diagnostics.clone(),
+            effect_spatial: DEFAULT_EFFECT_SPATIAL,
+            voice_spatial: DEFAULT_VOICE_SPATIAL,
+        });
         let (source, mut control) = assets.mixer.clone().session();
         let mut frames = source.decoder();
         let playback = Playback::begin(&mut control, assets, settings(), None)?;
@@ -2020,7 +1991,7 @@ mod tests {
         const SOURCE_FRAMES: usize = 3 * BLOCK_FRAMES;
         let release_end = SOURCE_FRAMES + resonance_audio::RELEASE_FRAMES as usize;
         let reverbs = [[0., 0., 1., 0., 0.]; 2];
-        let score = |id, amplitude, finite| -> Result<Arc<Loaded>> {
+        let score = |id, amplitude, finite| -> Result<Arc<PreparedEffect>> {
             let (mut resources, mut score, tables) = test_score_data(ScoreOrigin::SoundEffect);
             let sample = Arc::make_mut(resources.samples.get_mut(&1).unwrap());
             sample.pcm = vec![amplitude; SOURCE_FRAMES];
@@ -2034,7 +2005,9 @@ mod tests {
             };
             *source = VoiceSource::SoundEffect { id };
             voices[0].max_voices = SOUND_EFFECT_VOICE_BUDGET as u8;
-            Ok(Arc::new(Loaded::new(resources, score, tables, reverbs)?))
+            Ok(Arc::new(
+                Loaded::new(resources, score, tables, reverbs)?.into(),
+            ))
         };
         let quiet = score(1, 8, false)?;
         let stronger = score(1, 16, false)?;
@@ -2044,7 +2017,7 @@ mod tests {
         let (source, _control) = Arc::new(bank).session();
         let mut frames = source.decoder();
         frames.apply_battle_command(Command::Begin(assets(), settings(), None))?;
-        let sound = |score: &Arc<Loaded>, category, priority, x| Command::Sound {
+        let sound = |score: &Arc<PreparedEffect>, category, priority, x| Command::Sound {
             score: score.clone(),
             category,
             priority,

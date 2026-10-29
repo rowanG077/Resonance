@@ -13,20 +13,19 @@ use resonance_content::{
     battle_enemy,
     diagnostics::Diagnostics,
     menu_data::MenuData,
-    prepared::{Cache, Files},
+    prepared::Files,
     session::SessionData,
 };
 use resonance_events::{
     battle::{DefeatPolicy, Encounter, Setup},
     party::Party,
 };
-use resonance_game::battle::encounter::{Inputs, PrepareOptions};
+use resonance_game::battle::encounter::{Assets, PrepareOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 mod acid_rain;
@@ -34,6 +33,7 @@ mod attached_effects;
 mod ballistic_particles;
 mod compare;
 mod contact_damage;
+mod content_evidence;
 mod effect_inputs;
 mod effect_pitch;
 mod enemy_chain;
@@ -250,11 +250,9 @@ fn presentation_requirements(
 }
 
 pub(super) struct Oracle {
-    root: PathBuf,
-    cache: Cache,
     retained: Files,
-    menus: MenuData,
-    session: SessionData,
+    menus: Arc<MenuData>,
+    session: Arc<SessionData>,
     catalogue: Catalogue,
 }
 /// Reconstruct effects from the first initialized source visit.
@@ -370,20 +368,19 @@ fn initial_effect_entry(setup: &Value) -> Result<bool> {
 
 impl Oracle {
     pub fn load(root: &Path) -> Result<Self> {
-        let mut cache = Cache::default();
-        let retained = Files::load_with_diagnostics(
-            root,
-            &["fields/map-332.preload.json"],
-            &mut cache,
+        let retained = resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(root, &[])?,
+            &[],
             || false,
             Diagnostics::new(true),
         )?;
-        let menus = MenuData::load(&retained)?;
-        let mut session: SessionData = retained.json("game/session-data.json")?;
-        session.rules = Some(Arc::new(menus.clone()));
+        let session = Arc::new(SessionData::load(&retained)?);
+        let menus = session
+            .rules
+            .as_ref()
+            .context("missing session rules")?
+            .clone();
         Ok(Self {
-            root: root.into(),
-            cache,
             menus,
             session,
             catalogue: resonance_content::arte::Catalogue::load(&retained)?,
@@ -436,29 +433,26 @@ impl Oracle {
                 });
             }
         }
-        let mut enemies = Vec::new();
-        for entry in fs::read_dir(self.root.join("battle/enemies"))? {
-            let entry = entry?;
-            if let Some(id) = entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse::<u8>().ok())
-                && entry.path().join("definition.json").is_file()
-            {
-                enemies.push(id);
-            }
-        }
-        enemies.sort_unstable();
-        let placements: resonance_content::battle_unison::Catalogue =
-            self.read(resonance_content::battle_unison::PATH)?;
-        for enemy in enemies {
-            let definition: battle_enemy::Definition = self.read(&battle_enemy::path(enemy))?;
-            let body: resonance_content::battle_model::Enemy =
-                self.read(&resonance_content::battle_model::enemy_path(enemy))?;
-            ensure!(
-                body.source_sha256 == definition.source_sha256,
-                "enemy action and body packages differ"
-            );
+        let library = self
+            .retained
+            .library()
+            .context("named library is required")?;
+        let mut snapshot = library.snapshot();
+        let enemies: resonance_content::library::Mappings = snapshot.json(
+            battle_enemy::document::MAPPINGS,
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        let placements = resonance_content::battle_rules::unison(&self.retained)?;
+        for (id, _) in enemies.iter() {
+            let enemy = u8::try_from(id)?;
+            let captured = battle_enemy::document::capture(
+                &mut snapshot,
+                enemy,
+                &Diagnostics::new(true),
+                &|| false,
+            )?;
+            let definition = captured.definition;
+            let body = captured.artwork.context("enemy artwork is missing")?.source;
             for (row, action) in definition.actions.rows.iter().enumerate() {
                 let attack = match &action.execution {
                     Some(
@@ -470,8 +464,8 @@ impl Oracle {
                     Some(EnemyExecution::Spell(native)) => placements
                         .placements
                         .iter()
-                        .position(|placement| placement.native_id == *native)
-                        .map(|id| self.catalogue.definition(id))
+                        .find(|(_, placement)| placement.native_id == *native)
+                        .map(|(&id, _)| self.catalogue.definition(usize::from(id)))
                         .transpose()?
                         .is_some_and(|definition| definition.capabilities.offensive),
                     _ => false,
@@ -549,10 +543,13 @@ impl Oracle {
         Ok(cases)
     }
 
-    fn read<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
-        Ok(serde_json::from_slice(
-            &fs::read(self.root.join(path)).with_context(|| path.to_owned())?,
-        )?)
+    fn enemy(&self, id: u8) -> Result<battle_enemy::document::Captured> {
+        let mut snapshot = self
+            .retained
+            .library()
+            .context("named library is required")?
+            .snapshot();
+        battle_enemy::document::capture(&mut snapshot, id, &Diagnostics::new(true), &|| false)
     }
 
     pub fn run(&mut self, case: &Case, source: &Trace, max_updates: u32) -> Result<Trace> {
@@ -575,8 +572,8 @@ impl Oracle {
                     json!({"poses":[], "effects":[1]})
                 }
                 Binding::Enemy { enemy, row } => {
-                    let definition: battle_enemy::Definition =
-                        self.read(&battle_enemy::path(enemy))?;
+                    let captured = self.enemy(enemy)?;
+                    let definition = captured.definition;
                     let attack = match &definition.actions.rows[row].execution {
                         Some(
                             EnemyExecution::Attack(attack)
@@ -584,12 +581,7 @@ impl Oracle {
                         ) => attack,
                         _ => anyhow::bail!("presentation requires an authored attack timeline"),
                     };
-                    let body: resonance_content::battle_model::Enemy =
-                        self.read(&resonance_content::battle_model::enemy_path(enemy))?;
-                    ensure!(
-                        body.source_sha256 == definition.source_sha256,
-                        "presentation action and body packages differ"
-                    );
+                    let body = captured.artwork.context("enemy artwork is missing")?.source;
                     presentation_requirements(attack, &body, &definition.null_motions)
                         .context("action has non-presentation events")?
                 }
@@ -707,7 +699,7 @@ impl Oracle {
             let Binding::Enemy { enemy, row } = case.binding else {
                 anyhow::bail!("scripted interruption requires an enemy action");
             };
-            let definition: battle_enemy::Definition = self.read(&battle_enemy::path(enemy))?;
+            let definition = self.enemy(enemy)?.definition;
             let attack = match &definition.actions.rows[row].execution {
                 Some(EnemyExecution::Attack(attack) | EnemyExecution::Physical { attack, .. }) => {
                     attack
@@ -1087,9 +1079,11 @@ impl Oracle {
                 overlimit_boost: field(setup, "overlimit_boost")?,
             })
         };
-        let mut inputs = Inputs::load_fixture(
-            &self.root,
-            &self.retained,
+        let mut inputs = Assets::capture_fixture(
+            &mut (&self.retained)
+                .library()
+                .context("named library is required")?
+                .snapshot(),
             &self.menus,
             &self.session,
             &party,
@@ -1104,8 +1098,8 @@ impl Oracle {
                 },
                 music: event_route.as_ref().map(|event| event.music),
             },
-            &mut self.cache,
-            || false,
+            (&self.retained).diagnostics().clone(),
+            &(|| false),
         )?;
         #[derive(Deserialize)]
         struct EntryMotion {
@@ -1150,8 +1144,8 @@ impl Oracle {
                 opening.core.actors(),
                 party.clone(),
                 Default::default(),
-                Arc::new(self.session.clone()),
-                Arc::new(self.menus.clone()),
+                self.session.clone(),
+                self.menus.clone(),
                 Arc::new(self.catalogue.clone()),
             )?;
             for _ in 0..max_updates {
@@ -1401,11 +1395,45 @@ impl Oracle {
         }
         let (owner, target, action, opponent, incoming) =
             selected.context("fixture setup did not run")?;
+        let effect_inputs = source.setup["effect_inputs"]
+            .as_object()
+            .context("oracle capture has no current effect input evidence")?;
+        let effect_inputs = effect_inputs
+            .iter()
+            .map(|(entry, value)| -> Result<_> {
+                let evidence = content_evidence::Evidence::parse(value)?;
+                ensure!(
+                    &evidence.entry == entry,
+                    "effect evidence key differs from its entry"
+                );
+                evidence.source_digest()?;
+                Ok((entry.as_str(), evidence))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let banks: BTreeMap<_, _> = prepared
             .effects
             .iter()
-            .map(|effect| (effect.resource, effect.source.source_sha256.clone()))
-            .collect();
+            .map(|effect| -> Result<_> {
+                let entry = effect
+                    .source
+                    .document
+                    .as_deref()
+                    .context("prepared effect has no current document owner")?;
+                let identity = if let Some(evidence) = effect_inputs.get(entry) {
+                    let expected = evidence.effects()?;
+                    ensure!(
+                        serde_json::to_value(&*effect.source)? == serde_json::to_value(expected)?,
+                        "prepared effect differs from pinned current input {entry}"
+                    );
+                    evidence.source_digest()?.to_owned()
+                } else {
+                    // An unobserved bank cannot acquire a witnessed source
+                    // identity. If it produces output, comparison must differ.
+                    format!("unobserved:{entry}")
+                };
+                Ok((effect.resource, identity))
+            })
+            .collect::<Result<_>>()?;
         let common_effect_bank = banks
             .get(&prepared.poison_effect.resource)
             .context("prepared common effect bank is missing")?
@@ -1466,8 +1494,8 @@ impl Oracle {
             prepared.core.actors(),
             party,
             Default::default(),
-            Arc::new(self.session.clone()),
-            Arc::new(self.menus.clone()),
+            self.session.clone(),
+            self.menus.clone(),
             Arc::new(self.catalogue.clone()),
         )?;
         let mut lifecycle = prepared.lifecycle;

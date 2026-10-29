@@ -1,11 +1,6 @@
 use crate::{DirectionRepeat, field::FieldInput};
 use anyhow::{Result, ensure};
-use resonance_content::{
-    font::BitmapFont,
-    game_over::{Art, PATH},
-    prepared::{Cache, Files},
-};
-use std::path::Path;
+use resonance_content::{font::BitmapFont, game_over::Art, prepared::Files};
 
 #[derive(Clone)]
 pub struct Assets {
@@ -14,30 +9,21 @@ pub struct Assets {
     pub files: Files,
 }
 impl Assets {
-    pub fn load(
-        root: &Path,
-        files: Files,
-        cache: &mut Cache,
-        cancelled: impl Fn() -> bool,
-    ) -> Result<(Files, Self)> {
-        let art: Art = files.json(PATH)?;
-        art.validate()?;
-        let files = files.with_dependencies(root, art.files.clone(), cache, cancelled)?;
+    /// Every resource was captured before scene activation, including the
+    /// optional fatal-defeat route. This never reopens disk or uses an inventory.
+    pub fn from_prepared(files: Files) -> Result<Self> {
+        let art = Art::load(&files)?;
         let font: BitmapFont = files.json(&art.font)?;
         font.validate()?;
-        ensure!(
-            art.files.contains_key(&font.texture),
-            "unlisted game-over font image"
-        );
         files.read(&font.texture)?;
         ensure!(
             std::iter::once(&art.caption)
                 .chain(&art.choices)
                 .flat_map(|s| s.chars())
                 .all(|c| font.glyphs.contains_key(&c)),
-            "uncooked game-over text"
+            "game-over text uses a missing font glyph"
         );
-        Ok((files.clone(), Self { art, font, files }))
+        Ok(Self { art, font, files })
     }
 }
 

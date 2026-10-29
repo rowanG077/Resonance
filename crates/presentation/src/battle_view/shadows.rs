@@ -12,7 +12,7 @@ impl Bounds {
                 .bones
                 .iter()
                 .enumerate()
-                .filter_map(|(index, bone)| includes(&bone.name).then_some(index))
+                .filter_map(|(index, bone)| bone.shadow_bounds.then_some(index))
                 .collect(),
         }
     }
@@ -56,46 +56,20 @@ impl Bounds {
     }
 }
 
-fn includes(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    let prefix = bytes.get(..2).unwrap_or_default();
-    if prefix.eq_ignore_ascii_case(b"mo") {
-        // Body markers carry radius units 1–15; decorative MO labels do not.
-        let digits = bytes[2..]
-            .iter()
-            .take_while(|byte| byte.is_ascii_digit())
-            .count();
-        return name[2..2 + digits]
-            .parse::<u8>()
-            .is_ok_and(|radius| (1..=15).contains(&radius));
-    }
-    ![b"dm", b"at", b"kk", b"pa", b"ab", b"ef", b"ki", b"ns"]
-        .iter()
-        .any(|tag| prefix.eq_ignore_ascii_case(*tag))
-        && ![
-            "Bone_ude",
-            "Bone_te",
-            "Bone_yu",
-            "Bone_ring",
-            "obj_nuno01",
-            "manto",
-        ]
-        .iter()
-        .any(|part| name.contains(part))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn bounds(names: &[&str]) -> Bounds {
+    fn bounds(names: &[&str], excluded: &[usize]) -> Bounds {
         Bounds::prepare(&Skeleton {
             bones: names
                 .iter()
-                .map(|name| resonance_content::animation::Bone {
+                .enumerate()
+                .map(|(index, name)| resonance_content::animation::Bone {
+                    shadow_bounds: !excluded.contains(&index),
                     name: (*name).into(),
                     parent: None,
-                    bind_channels: Default::default(),
+                    parent_transform: None,
                     bind: Default::default(),
                 })
                 .collect(),
@@ -108,7 +82,7 @@ mod tests {
 
     #[test]
     fn spinning_no_shadow_chain_does_not_resize_or_move_body_footprint() {
-        let bounds = bounds(&["Bone_koshi", "Bone_atama", "ns_kyu02", "at02_ns_kyu13"]);
+        let bounds = bounds(&["hips", "head", "ns_kyu02", "at02_ns_kyu13"], &[2, 3]);
         let mut bones = [
             point(-20., 20., -10.),
             point(20., 100., 10.),
@@ -130,11 +104,11 @@ mod tests {
     }
 
     #[test]
-    fn shadow_bounds_keep_body_markers_and_case_sensitive_exclusions() {
+    fn shadow_bounds_obey_explicit_flags_independently_of_joint_names() {
         let names = [
             "root",
             "mo05_kubi",
-            "mo15_Bone_head",
+            "mo15-head",
             "DM3",
             "at02",
             "Kk01",
@@ -152,12 +126,15 @@ mod tests {
             "bone_ude01",
             "mon_hair01",
         ];
-        assert_eq!(bounds(&names).bones, [0, 1, 2, 17]);
+        let excluded = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18];
+        assert_eq!(bounds(&names, &excluded).bones, [0, 1, 2, 17]);
+        let renamed = vec!["custom-joint"; names.len()];
+        assert_eq!(bounds(&renamed, &excluded).bones, [0, 1, 2, 17]);
     }
 
     #[test]
     fn footprint_uses_world_bounds_scale_and_ground_admission() {
-        let bounds = bounds(&["left", "right", "under_floor"]);
+        let bounds = bounds(&["left", "right", "under_floor"], &[]);
         let bones = [
             point(-5., 2., -3.),
             point(5., 4., 3.),

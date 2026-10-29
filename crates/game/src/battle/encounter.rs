@@ -1,7 +1,7 @@
 //! Resolve an encounter's enemy requirements before combat or resource activation.
 mod assets;
-mod event_assets;
-pub use assets::{Assets, Inputs};
+pub(crate) mod event_assets;
+pub use assets::Assets;
 mod placement;
 mod preparation;
 mod render;
@@ -13,8 +13,10 @@ pub use render::{
     AccessoryStyle, ModelAccessory, RenderEffect, RenderInstances, RenderModel, RenderTrail,
     TargetAnchor,
 };
+#[cfg(test)]
+use resonance_content::battle_formation::PATH;
 use resonance_content::{
-    battle_formation::{Formations, PATH, Settings},
+    battle_formation::Settings,
     monster::{Monster, MonsterBook},
     prepared::Files,
 };
@@ -33,7 +35,7 @@ pub struct Prepared {
     pub poison_effect: resonance_battle::EffectAppearance,
     pub holy_song_effect: resonance_battle::EffectAppearance,
     pub stun_particle: Option<Arc<resonance_battle::ParticleDefinition>>,
-    pub head_anchors: Vec<resonance_content::battle_profile::HeadAnchor>,
+    pub head_anchors: Vec<resonance_battle::HeadAnchor>,
     pub ambient_effect: Option<(resonance_battle::EffectAppearance, u16)>,
     pub passive_effects: Vec<resonance_battle::PassiveEffect>,
     pub trails: Vec<RenderTrail>,
@@ -74,7 +76,17 @@ pub fn enemies(
     formations: &[u16],
 ) -> Result<Enemies> {
     ensure!(!formations.is_empty(), "empty encounter");
-    let table: Formations = files.json(PATH)?;
+    let table = resonance_content::battle_rules::formations(files)?;
+    enemies_from_formations(&table, catalogue, item_count, formations)
+}
+
+fn enemies_from_formations(
+    table: &resonance_content::battle_formation::Formations,
+    catalogue: &MonsterBook,
+    item_count: usize,
+    formations: &[u16],
+) -> Result<Enemies> {
+    ensure!(!formations.is_empty(), "empty encounter");
     let mut resources: Vec<EnemyResource> = Vec::new();
     let mut spawns = Vec::new();
     let mut settings = None;
@@ -139,10 +151,7 @@ pub fn enemies(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_content::{
-        battle_formation::{Actor, Formation, Resource},
-        monster::MonsterStats,
-    };
+    use resonance_content::monster::MonsterStats;
 
     fn inputs() -> (Files, MonsterBook) {
         let statistics = MonsterStats {
@@ -163,8 +172,8 @@ mod tests {
         };
         let preview = serde_json::from_value(serde_json::json!({
             "scale":1.,"elevation":0.,"hidden_geometry":[],"behavior":null,"parts":[{
-                "scene":{"resource":0,"mesh":"meshes/enemy.glb","textures":[],"materials":[],
-                    "translation":[0.,0.,0.],"clips":[],"autoplay":false,"texture_animations":[],"bone_names":[]},
+                "resource":0,"mesh":"meshes/enemy.glb","textures":[],"materials":[],
+                    "translation":[0.,0.,0.],"clips":[],"autoplay":false,"texture_animations":[],"bone_names":[],
                 "attached_to":null,"additive":false}]
         })).unwrap();
         let monster = Monster {
@@ -192,39 +201,29 @@ mod tests {
             resistances: vec![],
             preview,
         };
-        let mut actors = vec![Actor::default(); 2];
-        actors[0] = Actor {
-            resource: 0,
-            variant: 1,
-            texture_variant: 0,
-            weapon_variant: 0,
-            position: Some([-50, 30]),
-            unsupported_reason: Some("encounter appearance override is not prepared".into()),
-        };
-        let formations = Formations {
-            source_sha256: "a".repeat(64),
-            pools: Vec::new(),
-            records: vec![Formation {
-                settings: Settings {
-                    play_music: true,
-                    celebrate: true,
-                    entry_voice: true,
-                    escape_restricted: true,
-                },
-                resources: vec![
-                    Resource {
-                        enemy: 0,
-                        hidden_name: true,
-                    },
-                    Resource {
-                        enemy: 1,
-                        hidden_name: true,
-                    },
+        let formations = serde_json::json!({
+            "mappings": {"0": "encounter"},
+            "formations": {"encounter": {
+                "escape_restricted": true,
+                "actors": [
+                    {"enemy": "enemy", "hidden_name": true, "statistics_variant": 1,
+                     "position": [-50, 30],
+                     "unsupported_reason": "encounter appearance override is not prepared"},
+                    {"enemy": "enemy", "hidden_name": true}
                 ],
-                actors,
-            }],
-        };
+                "reserves": [{"enemy": "reserve", "hidden_name": true}]
+            }},
+            "pools": []
+        });
+        let enemy_names = resonance_content::library::Mappings::new(
+            [(0, "enemy".into()), (1, "reserve".into())].into(),
+        )
+        .unwrap();
         let mut files = Files::default();
+        files.insert(
+            resonance_content::battle_enemy::document::MAPPINGS.into(),
+            serde_json::to_vec(&enemy_names).unwrap().into(),
+        );
         files.insert(
             PATH.into(),
             Arc::from(serde_json::to_vec(&formations).unwrap()),
@@ -243,9 +242,12 @@ mod tests {
         )
     }
 
-    fn edit(files: &mut Files, change: impl FnOnce(&mut Formation)) {
-        let mut formations: Formations = files.json(PATH).unwrap();
-        change(&mut formations.records[0]);
+    fn edit(
+        files: &mut Files,
+        change: impl FnOnce(&mut resonance_content::battle_rules::Formation),
+    ) {
+        let mut formations: resonance_content::battle_rules::Formations = files.json(PATH).unwrap();
+        change(formations.formations.get_mut("encounter").unwrap());
         files.insert(
             PATH.into(),
             Arc::from(serde_json::to_vec(&formations).unwrap()),
@@ -304,7 +306,7 @@ mod tests {
     fn automatic_placement_does_not_use_stored_coordinates() {
         let (mut files, catalogue) = inputs();
         edit(&mut files, |row| {
-            row.settings.escape_restricted = false;
+            row.escape_restricted = false;
             for actor in &mut row.actors {
                 actor.position = None;
             }
@@ -317,11 +319,13 @@ mod tests {
     #[test]
     fn runtime_validates_only_the_selected_formation() -> Result<()> {
         let (mut files, catalogue) = inputs();
-        let mut formations: Formations = files.json(PATH)?;
-        let mut broken = formations.records[0].clone();
-        broken.actors[0].resource = u8::MAX;
-        formations.records.push(broken);
-        assert!(formations.validate().is_err());
+        let mut formations: resonance_content::battle_rules::Formations = files.json(PATH)?;
+        let mut broken = formations.formations["encounter"].clone();
+        broken.actors[0].variant = u8::MAX;
+        formations.formations.insert("broken".into(), broken);
+        formations.mappings = resonance_content::library::Mappings::new(
+            [(0, "encounter".into()), (1, "broken".into())].into(),
+        )?;
         files.insert(PATH.into(), serde_json::to_vec(&formations)?.into());
         assert_eq!(enemies(&files, &catalogue, 1, &[0])?.spawns.len(), 2);
         assert!(enemies(&files, &catalogue, 1, &[1]).is_err());
@@ -334,9 +338,11 @@ mod tests {
         assert!(enemies(&Files::default(), &catalogue, 1, &[0]).is_err());
         assert!(enemies(&files, &catalogue, 1, &[1]).is_err());
         for change in [
-            |row: &mut Formation| row.resources[1].enemy = 2,
-            |row: &mut Formation| row.actors[0].variant = 2,
-            |row: &mut Formation| row.actors[0].resource = 2,
+            |row: &mut resonance_content::battle_rules::Formation| {
+                row.reserves[0].enemy = "missing".into()
+            },
+            |row: &mut resonance_content::battle_rules::Formation| row.actors[0].variant = 2,
+            |row: &mut resonance_content::battle_rules::Formation| row.actors[0].count = 0,
         ] {
             let mut changed = files.clone();
             edit(&mut changed, change);

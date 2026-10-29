@@ -89,3 +89,57 @@ fn native_ids_cover_the_catalog_without_interpreter_control_flow() {
     assert_eq!(u8::from(NativeCall::ChangeField), 0x40);
     assert_eq!(u8::from(NativeCall::PlaySound), 0xe0);
 }
+
+#[test]
+fn recovered_native_names_keep_the_original_stack_contracts() {
+    use symphonia_script::NativeCall;
+    let registry = NativeRegistry::gqseaf();
+    for (call, opcode, name, arity) in [
+        (
+            NativeCall::ReplacePartyMember,
+            0x26,
+            "replace_party_member",
+            2,
+        ),
+        (
+            NativeCall::StartBattleSimple,
+            0x37,
+            "start_battle_simple",
+            3,
+        ),
+        (
+            NativeCall::PlaySoundFullVolume,
+            0x55,
+            "play_sound_full_volume",
+            2,
+        ),
+        (NativeCall::AdjustOverlimit, 0x76, "adjust_overlimit", 2),
+        (NativeCall::OpenRenameMenu, 0x91, "open_rename_menu", 1),
+        (NativeCall::FieldSystem, 0x92, "field_system", 2),
+        (
+            NativeCall::IsScriptResourceReady,
+            0x99,
+            "is_script_resource_ready",
+            1,
+        ),
+        (
+            NativeCall::SetCameraOrbitAngles,
+            0xa5,
+            "set_camera_orbit_angles",
+            3,
+        ),
+        (NativeCall::GetCookingRank, 0xc9, "get_cooking_rank", 2),
+        (NativeCall::GetSkitTicks, 0xf0, "get_skit_ticks", 0),
+        (NativeCall::WaitSkitTicks, 0xf3, "wait_skit_ticks", 1),
+    ] {
+        assert_eq!(u8::from(call), opcode);
+        let definition = registry.get_by_name(name).unwrap();
+        assert_eq!(definition.opcode, opcode);
+        assert_eq!(definition.arguments.len(), arity);
+    }
+    let cooking = registry.get(0xc9).unwrap();
+    assert_eq!(cooking.arguments, ["character_id", "recipe_id"]);
+    assert_eq!(cooking.returns_value, Some(true));
+    assert!(registry.get(0x91).unwrap().yields);
+    assert!(registry.get(0xf3).unwrap().yields);
+}

@@ -117,6 +117,7 @@ pub(super) fn app_with_target(
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
         crate::RunOptions {
+            mods: Vec::new(),
             script_root: None,
             assets: root.into(),
             reveal: saves.load.is_none(),
@@ -236,8 +237,8 @@ impl Probe {
         }
         let persistence = world.resource::<Persistence>();
         let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-        let (_, SceneCheckpoint::Field(saved)) = resonance_persistence::decode(&bytes)?
-            .admit(&world.resource::<new_game::Session>().identity)?
+        let (_, SceneCheckpoint::Field(saved)) =
+            resonance_persistence::decode(&bytes)?.into_parts()
         else {
             anyhow::bail!("probe requires a field save");
         };

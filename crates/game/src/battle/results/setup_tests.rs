@@ -69,7 +69,7 @@ fn missing_victory_motions_fall_back_to_posture_and_strict_preparation_rejects_t
             2,
             &[],
             Diagnostics::new(paranoid),
-            |_, _, _, _| Ok(()),
+            |_, _, _, _, _| Ok(()),
         )?;
         fixture.inputs.victory.groups.clear();
         for row in &fixture.inputs.victory.ordinary {

@@ -38,7 +38,7 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         require(self.world.battle_request.is_none(), "nested battle request")?;
         require(self.world.party.is_some(), "battle requires a party")?;
-        let (music, route) = if op == NativeCall::Unknown37 {
+        let (music, route) = if op == NativeCall::StartBattleSimple {
             (None, [0; 5])
         } else {
             (

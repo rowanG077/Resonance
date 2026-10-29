@@ -1,0 +1,848 @@
+[
+  {
+    "fields": [6],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":{"setting":2},"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.0025]},"texture":{"setting":3}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":4}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":5}},
+      {"actor":{"setting":6},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":7}},
+      {"actor":{"offset":1,"setting":6},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":7}},
+      {"actor":{"offset":2,"setting":6},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":7}},
+      {"actor":{"offset":3,"setting":6},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":7}}
+    ]
+  },
+  {
+    "fields": [7,8],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [9],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.01]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.02]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.008333334]},"texture":{"setting":3}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":4}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":5}}
+    ]
+  },
+  {
+    "fields": [10],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.01]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.01]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":4}}
+    ]
+  },
+  {
+    "fields": [11],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":10,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":1}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.0,-0.001]},"texture":{"setting":2}},
+      {"actor":{"setting":3},"clock":"actor","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":4}}
+    ]
+  },
+  {
+    "fields": [12],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":10,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.0,-0.001]},"texture":{"setting":1}},
+      {"actor":{"setting":2},"clock":"actor","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [13],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":32,"interval":2,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.0,-0.001]},"texture":{"setting":1}},
+      {"actor":{"setting":2},"clock":"actor","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [14],
+    "tracks": [
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"frames":16,"interval":10,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [15],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":1}},
+      {"actor":{"setting":2},"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":4}}
+    ]
+  },
+  {
+    "fields": [16],
+    "tracks": [
+      {"actor":999998,"clock":{"effect_pulse":{"interval":4,"phase":0}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.75,0.0],"step":[0.0,0.25],"ticks":4}]},"texture":{"setting":0}},
+      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":1}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":4}]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [17],
+    "tracks": [
+      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":0}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.375,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.625,0.0],"step":[0.0,0.125],"ticks":8}]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [24],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":16,"interval":6,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [26],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":16,"interval":7,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [27,307],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":8,"interval":7,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [31],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.0,-0.001]},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.0,-0.001]},"texture":{"setting":1}},
+      {"actor":{"setting":2},"clock":"actor","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.0,0.01]},"texture":0}
+    ]
+  },
+  {
+    "fields": [54,56,57],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":0},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":10,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [55],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":0},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":10,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}},
+      {"actor":3000,"clock":"field","motion":{"frames":4,"interval":10,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [58],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":10,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [75,76,77,78],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":4}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":4,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":4,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":3,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":2}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":10,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [82,92],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":0},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [89],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":32,"interval":5,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":12,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [91],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [125],
+    "tracks": [
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.000625]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [128,131,132],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [129],
+    "tracks": [
+      {"actor":{"setting":2},"clock":"actor","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":{"setting":0}},
+      {"actor":{"setting":2},"clock":"actor","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":1}},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":30,"velocity":[0.0,0.033333335]},"texture":{"setting":5}}
+    ]
+  },
+  {
+    "fields": [130],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"frames":7,"interval":5,"kind":"atlas","step":[0.2,0.0]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.001,0.0]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [135],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [136,530],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":1}},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":13,"velocity":[0.0,0.08]},"texture":2},
+      {"actor":{"setting":5},"clock":"field","motion":{"kind":"scroll","restart_ticks":84,"velocity":[0.0,-0.012]},"texture":0},
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1}
+    ]
+  },
+  {
+    "fields": [137],
+    "tracks": [
+      {"actor":"scenery","clock":"field","control":{"kind":"clear_when_disabled"},"motion":{"kind":"timeline","loop_from":217,"sequence":[{"kind":"hold","ticks":7},{"kind":"hold","offset":[0.0,0.03125],"ticks":7},{"kind":"hold","offset":[0.0,0.0625],"ticks":7},{"kind":"hold","offset":[0.0,0.09375],"ticks":7},{"kind":"hold","offset":[0.0,0.125],"ticks":7},{"kind":"hold","offset":[0.0,0.15625],"ticks":7},{"kind":"hold","offset":[0.0,0.1875],"ticks":7},{"kind":"hold","offset":[0.0,0.21875],"ticks":7},{"kind":"hold","offset":[0.0,0.25],"ticks":7},{"kind":"hold","offset":[0.0,0.28125],"ticks":7},{"kind":"hold","offset":[0.0,0.3125],"ticks":7},{"kind":"hold","offset":[0.0,0.34375],"ticks":7},{"kind":"hold","offset":[0.0,0.375],"ticks":7},{"kind":"hold","offset":[0.0,0.40625],"ticks":7},{"kind":"hold","offset":[0.0,0.4375],"ticks":7},{"kind":"hold","offset":[0.0,0.46875],"ticks":7},{"kind":"hold","offset":[0.0,0.5],"ticks":7},{"kind":"hold","offset":[0.0,0.53125],"ticks":7},{"kind":"hold","offset":[0.0,0.5625],"ticks":7},{"kind":"hold","offset":[0.0,0.59375],"ticks":7},{"kind":"hold","offset":[0.0,0.625],"ticks":7},{"kind":"hold","offset":[0.0,0.65625],"ticks":7},{"kind":"hold","offset":[0.0,0.6875],"ticks":7},{"kind":"hold","offset":[0.0,0.71875],"ticks":7},{"kind":"hold","offset":[0.0,0.75],"ticks":7},{"kind":"hold","offset":[0.0,0.78125],"ticks":7},{"kind":"hold","offset":[0.0,0.8125],"ticks":7},{"kind":"hold","offset":[0.0,0.84375],"ticks":7},{"kind":"hold","offset":[0.0,0.875],"ticks":7},{"kind":"hold","offset":[0.0,0.90625],"ticks":7},{"kind":"hold","offset":[0.0,0.9375],"ticks":7},[0.0,0.96875]]},"texture":{"setting":0}},
+      {"actor":{"setting":1},"clock":"unconditional_actor","motion":{"frames":8,"interval":9,"kind":"atlas","step":[0.0,0.125]},"texture":0}
+    ]
+  },
+  {
+    "fields": [143],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":32,"interval":10,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":8,"interval":3,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":4,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [150,536],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":601,"velocity":[0.0,0.0016666667]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":1500,"velocity":[0.00066666666,0.0]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [152],
+    "tracks": [
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":13,"velocity":[0.0,0.08]},"texture":2},
+      {"actor":{"setting":5},"clock":"field","motion":{"kind":"scroll","restart_ticks":84,"velocity":[0.0,-0.012]},"texture":0},
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1}
+    ]
+  },
+  {
+    "fields": [156,157,158],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [182],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[-0.0020833334,0.0]},"texture":0},
+      {"actor":{"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[0.0020833334,0.0]},"texture":1},
+      {"actor":{"offset":1,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[-0.0020833334,0.0]},"texture":0},
+      {"actor":{"offset":1,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[0.0020833334,0.0]},"texture":1},
+      {"actor":{"offset":2,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[-0.0020833334,0.0]},"texture":0},
+      {"actor":{"offset":2,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[0.0020833334,0.0]},"texture":1},
+      {"actor":{"offset":3,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[-0.0020833334,0.0]},"texture":0},
+      {"actor":{"offset":3,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[0.0020833334,0.0]},"texture":1},
+      {"actor":{"offset":4,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[-0.0020833334,0.0]},"texture":0},
+      {"actor":{"offset":4,"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":480,"velocity":[0.0020833334,0.0]},"texture":1}
+    ]
+  },
+  {
+    "fields": [184],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":151,"velocity":[0.006666667,0.0]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.002,0.0]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [189,190],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":10000,"velocity":[0.0,-0.0001]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"frames":12,"interval":8,"kind":"atlas","step":[0.0,0.083333336]},"texture":{"setting":1}},
+      {"actor":"scenery","clock":"field","motion":{"frames":8,"interval":8,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":2}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":8,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":3}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":5001,"velocity":[0.0,-0.0002]},"texture":{"setting":4}}
+    ]
+  },
+  {
+    "fields": [213],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[-0.016666668,0.0]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [220],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6},{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6},{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6}]},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6},{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6},{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6}]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6},{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6},{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6}]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [221,369],
+    "tracks": [
+      {"actor":{"setting":2},"clock":"actor","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":0}},
+      {"actor":{"setting":2},"clock":"actor","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [222],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":8,"interval":32,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [232],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":0}
+    ]
+  },
+  {
+    "fields": [233],
+    "tracks": [
+      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":1,"unconditional":true}},"motion":{"kind":"scroll","restart_ticks":301,"velocity":[-0.0033333334,0.0]},"texture":0},
+      {"actor":999998,"clock":{"effect_pulse":{"interval":4,"phase":0,"unconditional":true}},"motion":{"kind":"scroll","restart_ticks":513,"velocity":[-0.001953125,0.0]},"texture":1}
+    ]
+  },
+  {
+    "fields": [234],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":1,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":1,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":2,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":2,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":3,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":3,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":4,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":4,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":5,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":5,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":6,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":6,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":7,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":7,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":8,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":8,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":9,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":9,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":10,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":10,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":11,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":11,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":12,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":12,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":13,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":13,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":14,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":14,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":15,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":15,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":16,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":16,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":17,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":17,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":18,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":18,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"offset":19,"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[-0.01,0.0]},"texture":{"setting":1}},
+      {"actor":{"offset":19,"setting":0},"clock":"field","motion":{"frames":4,"interval":4,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":{"setting":3},"clock":"field","motion":{"kind":"scroll","restart_ticks":111,"velocity":[0.0,-0.009090909]},"texture":1},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":401,"velocity":[0.0025,-0.0025]},"texture":0},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":401,"velocity":[0.0025,-0.0025]},"texture":1}
+    ]
+  },
+  {
+    "fields": [235,237,280],
+    "tracks": [
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [246,247,248,249,250],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[0.00125,0.00125],"wave":{"amplitude":0.025,"degrees_per_tick":2.0,"horizontal":true}},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":0}
+    ]
+  },
+  {
+    "fields": [268],
+    "tracks": [
+      {"actor":{"setting":2},"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":0},
+      {"actor":{"setting":2},"clock":"actor","control":{"kind":"reset_unless","setting":4},"motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.01,0.0]},"texture":1},
+      {"actor":{"setting":3},"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":0},
+      {"actor":{"setting":3},"clock":"actor","control":{"kind":"reset_unless","setting":5},"motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.01,0.0]},"texture":1}
+    ]
+  },
+  {
+    "fields": [270],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[-0.001,0.0]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [282,283,291],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.005,0.0]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [284],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.005,0.0]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"frames":8,"interval":8,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"frames":16,"interval":8,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [292],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"frames":16,"interval":8,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.005,0.0]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [300],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":20001,"velocity":[5e-05,-5e-05]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [301],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":20001,"velocity":[5e-05,-5e-05]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [304,305],
+    "tracks": [
+      {"actor":"scenery","clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.375,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.625,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.75,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.875,0.0],"step":[0.0,0.125],"ticks":8}]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [308],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":3334,"velocity":[0.0003,0.0]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [309],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.0,0.01]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [324],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.02]},"texture":{"setting":1}},
+      {"actor":{"setting":2},"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.02]},"texture":{"setting":3}},
+      {"actor":{"setting":4},"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.00125]},"texture":{"setting":5}}
+    ]
+  },
+  {
+    "fields": [326],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"frames":256,"interval":1,"kind":"atlas","step":[0.00390625,0.0]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"frames":8,"interval":16,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [329],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[-0.005,0.0]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":8,"interval":8,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":2}},
+      {"actor":999980,"clock":"field","motion":{"frames":8,"interval":10,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [330,344],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"frames":4,"interval":12,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [341],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"frames":4,"interval":12,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":32,"interval":6,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":6,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [342],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":32,"interval":6,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":6,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [343],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":32,"interval":6,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [352],
+    "tracks": [
+      {"actor":"scenery","clock":"unconditional_effect","motion":{"frames":256,"interval":1,"kind":"atlas","step":[0.0,0.00390625]},"texture":7}
+    ]
+  },
+  {
+    "fields": [353],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":16,"interval":12,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"frames":16,"interval":8,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [354],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":0},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":3000,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [362],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"frames":5,"interval":7,"kind":"atlas","step":[0.2,0.0]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [366],
+    "tracks": [
+      {"actor":{"setting":2},"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":0}},
+      {"actor":{"setting":2},"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":{"setting":3},"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":0}},
+      {"actor":{"setting":3},"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":0}},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [370,372,373],
+    "tracks": [
+      {"actor":999997,"clock":"unconditional_effect","motion":{"frames":256,"interval":1,"kind":"atlas","step":[0.00390625,0.0]},"texture":0}
+    ]
+  },
+  {
+    "fields": [374],
+    "tracks": [
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1}
+    ]
+  },
+  {
+    "fields": [380],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":2500,"velocity":[0.0,-0.0004]},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.25,0.0]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [414],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":143,"velocity":[0.0,-0.007]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,-0.005]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [419],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":10,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [432],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":32,"interval":1,"kind":"atlas","step":[0.0,0.03125]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [435],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":11,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":301,"velocity":[0.0,-0.0033333334]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [439],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":0},
+      {"actor":{"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.005,0.0]},"texture":1},
+      {"actor":{"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":2}
+    ]
+  },
+  {
+    "fields": [447,449,450,451,452,454,455,457],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [448],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":67,"velocity":[0.0,-0.015]},"texture":{"setting":2}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":6,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":34,"velocity":[0.0,-0.03]},"texture":{"setting":4}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":46,"velocity":[0.0,0.022]},"texture":{"setting":5}}
+    ]
+  },
+  {
+    "fields": [453],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":0}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":6,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":25,"velocity":[0.0,-0.04]},"texture":{"setting":2}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":34,"velocity":[0.0,-0.03]},"texture":{"setting":3}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":241,"velocity":[0.0,-0.004166667]},"texture":{"setting":4}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":121,"velocity":[0.0,-0.008333334]},"texture":{"setting":5}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":6}}
+    ]
+  },
+  {
+    "fields": [456],
+    "tracks": [
+      {"actor":999997,"clock":"effect","motion":{"kind":"scroll","velocity":[-0.00125,-0.00125],"wave":{"amplitude":-0.025,"degrees_per_tick":2.0}},"texture":{"setting":6}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":8,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":1}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":67,"velocity":[0.0,-0.015]},"texture":{"setting":2}},
+      {"actor":999980,"clock":"field","motion":{"frames":4,"interval":6,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}},
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":46,"velocity":[0.0,-0.022]},"texture":{"setting":4}}
+    ]
+  },
+  {
+    "fields": [466,467,468],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":2500,"velocity":[0.0,-0.0004]},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":51,"velocity":[0.0,-0.02]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [474],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":22,"kind":"atlas"}},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","loop_from":1,"sequence":[{"kind":"scroll","step":[0.008333334,0.0],"ticks":6},[0.05,0.0],[0.058333334,0.0],{"kind":"scroll","origin":[0.06666667,0.0],"step":[0.008333333,0.0],"ticks":8},{"kind":"scroll","origin":[0.13333334,0.0],"step":[0.00833334,0.0],"ticks":14},{"kind":"scroll","origin":[0.2500001,0.0],"step":[0.008333325,0.0],"ticks":92}]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":7,"kind":"atlas"}},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [475],
+    "tracks": [
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.0,0.005]},"texture":2},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"scroll","restart_ticks":201,"velocity":[0.005,0.005]},"texture":0},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.00125]},"texture":{"setting":0}},
+      {"actor":{"setting":6},"clock":"field","motion":{"frames":8,"interval":1,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":5}}
+    ]
+  },
+  {
+    "fields": [476],
+    "tracks": [
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.00125]},"texture":{"setting":0}},
+      {"actor":{"setting":6},"clock":"field","motion":{"frames":8,"interval":1,"kind":"atlas","step":[0.0,0.125]},"texture":{"setting":5}}
+    ]
+  },
+  {
+    "fields": [480],
+    "tracks": [
+      {"actor":999980,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.01]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"effect","motion":{"kind":"scroll","velocity":[0.0,-0.0055555557]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [481],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":1001,"velocity":[0.0,-0.001]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [482],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"kind":"scroll","restart_ticks":34,"velocity":[0.0,-0.03]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [484],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"actor","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.0,0.01]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [486],
+    "tracks": [
+      {"actor":999980,"clock":"field","motion":{"frames":16,"interval":7,"kind":"atlas","step":[0.0,0.0625]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [492,494,498],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":250,"velocity":[0.0,-0.004]},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":125,"velocity":[0.0,-0.008]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [493],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":2}},
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":125,"velocity":[0.0,-0.008]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [495],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":250,"velocity":[0.0,-0.004]},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [497],
+    "tracks": [
+      {"actor":{"setting":4},"clock":{"shared_actors":{"actors":[{"setting":4},{"setting":5}]}},"motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":{"setting":4},"clock":{"shared_actors":{"actors":[{"setting":4},{"setting":5}]}},"motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":2}},
+      {"actor":{"setting":4},"clock":{"shared_actors":{"actors":[{"setting":4},{"setting":5}]}},"motion":{"kind":"scroll","restart_ticks":125,"velocity":[0.0,-0.008]},"texture":{"setting":3}},
+      {"actor":{"setting":5},"clock":{"shared_actors":{"actors":[{"setting":4},{"setting":5}]}},"motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":1}},
+      {"actor":{"setting":5},"clock":{"shared_actors":{"actors":[{"setting":4},{"setting":5}]}},"motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":2}},
+      {"actor":{"setting":5},"clock":{"shared_actors":{"actors":[{"setting":4},{"setting":5}]}},"motion":{"kind":"scroll","restart_ticks":125,"velocity":[0.0,-0.008]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [500],
+    "tracks": [
+      {"actor":{"setting":7},"clock":"actor","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.01,0.02]},"texture":0}
+    ]
+  },
+  {
+    "fields": [501],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,-0.016666668]},"texture":{"setting":0}},
+      {"actor":{"setting":1},"clock":"actor","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,-0.016666668]},"texture":{"setting":2}},
+      {"actor":{"setting":1},"clock":"actor","motion":{"kind":"scroll","restart_ticks":30,"velocity":[0.0,-0.033333335]},"texture":{"setting":3}},
+      {"actor":{"setting":4},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":5}},
+      {"actor":{"offset":1,"setting":4},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":5}},
+      {"actor":{"offset":2,"setting":4},"clock":"field","motion":{"frames":4,"interval":15,"kind":"atlas","step":[0.0,0.25]},"texture":{"setting":5}},
+      {"actor":{"setting":7},"clock":"actor","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.01,0.02]},"texture":0}
+    ]
+  },
+  {
+    "fields": [502],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,-0.016666668]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":180,"velocity":[0.0,-0.0055555557]},"texture":{"setting":1}},
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":30,"velocity":[0.0,0.033333335]},"texture":{"setting":5}},
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"scroll","restart_ticks":90,"velocity":[0.0,-0.011111111]},"texture":0},
+      {"actor":{"setting":2},"clock":"field","motion":{"kind":"scroll","restart_ticks":121,"velocity":[0.0,0.008333334]},"texture":{"setting":3}},
+      {"actor":{"offset":1,"setting":2},"clock":"field","motion":{"kind":"scroll","restart_ticks":121,"velocity":[0.0,0.008333334]},"texture":{"setting":3}},
+      {"actor":{"offset":2,"setting":2},"clock":"field","motion":{"kind":"scroll","restart_ticks":121,"velocity":[0.0,0.008333334]},"texture":{"setting":3}},
+      {"actor":{"offset":3,"setting":2},"clock":"field","motion":{"kind":"scroll","restart_ticks":121,"velocity":[0.0,0.008333334]},"texture":{"setting":3}}
+    ]
+  },
+  {
+    "fields": [503],
+    "tracks": [
+      {"actor":999998,"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,-0.016666668]},"texture":{"setting":0}},
+      {"actor":{"setting":3},"clock":"field","motion":{"kind":"scroll","restart_ticks":90,"velocity":[0.0,0.011111111]},"texture":{"setting":4}},
+      {"actor":{"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":1,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":2,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":3,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":4,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":5,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":6,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":7,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":8,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":9,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":10,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":11,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":12,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":13,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":14,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":15,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":16,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":17,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":18,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"offset":19,"setting":1},"clock":"field","motion":{"kind":"scroll","restart_ticks":61,"velocity":[0.0,0.016666668]},"texture":{"setting":2}},
+      {"actor":{"setting":7},"clock":"actor","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.01,0.02]},"texture":0}
+    ]
+  },
+  {
+    "fields": [510],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"field","motion":{"kind":"scroll","restart_ticks":101,"velocity":[0.0,-0.01]},"texture":0}
+    ]
+  },
+  {
+    "fields": [523],
+    "tracks": [
+      {"actor":999998,"clock":"field","control":{"kind":"finish_when","setting":1,"tick":90},"motion":{"kind":"timeline","loop_from":90,"sequence":{"frames":91,"grid":[1,180],"kind":"atlas"}},"texture":{"setting":0}}
+    ]
+  },
+  {
+    "fields": [524],
+    "tracks": [
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,-0.002]},"texture":{"setting":0}},
+      {"actor":999997,"clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.002,0.0]},"texture":{"setting":1}}
+    ]
+  },
+  {
+    "fields": [531],
+    "tracks": [
+      {"actor":{"setting":0},"clock":"actor","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":8,"kind":"atlas"}},"texture":{"setting":1}},
+      {"actor":{"setting":0},"clock":"actor","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":4,"kind":"atlas"}},"texture":{"setting":2}}
+    ]
+  },
+  {
+    "fields": [534],
+    "tracks": [
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":13,"velocity":[0.0,0.08]},"texture":2},
+      {"actor":{"setting":5},"clock":"field","motion":{"kind":"scroll","restart_ticks":84,"velocity":[0.0,-0.012]},"texture":0}
+    ]
+  },
+  {
+    "fields": [535],
+    "tracks": [
+      {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":13,"velocity":[0.0,0.08]},"texture":2},
+      {"actor":{"setting":5},"clock":"field","motion":{"kind":"scroll","restart_ticks":84,"velocity":[0.0,-0.012]},"texture":0},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":601,"velocity":[0.0,0.0016666667]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":1500,"velocity":[0.00066666666,0.0]},"texture":{"setting":1}}
+    ]
+  }
+]

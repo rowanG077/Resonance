@@ -115,7 +115,7 @@ pub struct FieldSession {
     action_hints: prompt::ActionHints,
     skits: skit::Skits,
     pub active_skit: Option<SkitPlayback>,
-    skit_programs: BTreeMap<u16, crate::skit::Prepared>,
+    skit_programs: Arc<BTreeMap<u16, crate::skit::Prepared>>,
     pub voice_feedback: bool,
     /// Actor -> first update of its current continuous dialogue mouth cycle.
     pub talking: BTreeMap<i32, u32>,
@@ -292,7 +292,7 @@ impl FieldSession {
             menu_resources,
             skits,
             active_skit: None,
-            skit_programs: BTreeMap::new(),
+            skit_programs: Arc::default(),
             play_time: entry.play_time,
             effect_clock: crate::clock::PresentationClock::new(entry.persistent.tick),
             map_id: assets.map_id,
@@ -1397,6 +1397,9 @@ fn bind_clips(
 /// Bind cooked models, cameras and effects independently of the field controller.
 pub(crate) fn resources(assets: &FieldAssets) -> Result<ResourceLibrary> {
     let mut resources = ResourceLibrary {
+        dynamic_resources: assets.dynamic_resources,
+        local_resources: assets.local_resources.clone(),
+        joint_mappings: assets.joint_mappings.clone(),
         memory_circle_text: resonance_events::MemoryCircleText {
             tutorial: assets.save_point_tutorial.clone(),
             unlock: assets.save_point_unlock.clone(),
@@ -1496,6 +1499,16 @@ pub(crate) fn bind_attachments(
             .attachments = poses;
     }
     Ok(())
+}
+
+/// Prepare the selected debug-viewer resource at the script's paused boundary.
+pub fn prepare_resource(
+    assets: &FieldAssets,
+    read: impl FnMut(&str) -> Result<Arc<[u8]>>,
+) -> Result<ResourceLibrary> {
+    let mut prepared = resources(assets)?;
+    bind_attachments(&mut prepared, attachments::prepare(assets, read)?)?;
+    Ok(prepared)
 }
 
 fn start_with_entry(
@@ -1637,18 +1650,20 @@ mod tests {
     fn scenery_and_actors_share_external_clips_without_replacing_autoplay() {
         let mut resources = ResourceLibrary::default();
         let own = resonance_content::SceneClip {
-            motion: "clips/test.motion".into(),
+            joints: Default::default(),
+            motion: "clips/test.glb".into(),
             resource_slot: 0,
             duration_seconds: 1.,
             animation_resource: None,
-            secondary_pose_nodes: Vec::new(),
+            pose_chains: Vec::new(),
         };
         let mut shared = resonance_content::SceneClip {
-            motion: "clips/test.motion".into(),
+            joints: Default::default(),
+            motion: "clips/test.glb".into(),
             resource_slot: 12,
             duration_seconds: 2.,
             animation_resource: Some(0x10004),
-            secondary_pose_nodes: Vec::new(),
+            pose_chains: Vec::new(),
         };
         bind_clips(
             &mut resources,
@@ -1680,6 +1695,22 @@ mod tests {
             resources.animations[&8][&12].duration_ticks
         );
         assert_eq!(resources.resolve(8, ResourceKind::Model).unwrap(), 8);
+        assert_eq!(resources.request(8).unwrap(), (ResourceKind::Animation, 8));
+        resources.bindings.insert(7, (ResourceKind::Model, 8));
+        assert!(resources.request(7).is_err());
+        let standalone = resonance_content::field::STANDALONE_MODEL_RESOURCE_BASE | 7;
+        resources
+            .models
+            .insert(standalone, resources.models[&8].clone());
+        assert_eq!(
+            resources.request(7).unwrap(),
+            (ResourceKind::Model, standalone)
+        );
+        assert_eq!(resources.resolve(7, ResourceKind::Model).unwrap(), 8);
+        resources.local_resources.insert(7);
+        assert_eq!(resources.request(7).unwrap(), (ResourceKind::Model, 8));
+        resources.local_resources.insert(8);
+        assert_eq!(resources.request(8).unwrap(), (ResourceKind::Model, 8));
         shared.duration_seconds = 3.;
         assert!(bind_clips(&mut resources, 2, &[shared]).is_err());
     }
@@ -1829,10 +1860,7 @@ mod tests {
                     tokens: vec![
                         Token::Control {
                             opcode: 2,
-                            expression: [0x0000u16, 0x3000, 0x20ff]
-                                .into_iter()
-                                .flat_map(u16::to_be_bytes)
-                                .collect(),
+                            expression: symphonia_script::message::Expression::Constant(0),
                         },
                         Token::Text { text: text.into() },
                     ],
@@ -1979,7 +2007,7 @@ mod tests {
             action_hints: Default::default(),
             skits: Default::default(),
             active_skit: None,
-            skit_programs: BTreeMap::new(),
+            skit_programs: Arc::default(),
             voice_feedback: false,
             talking: Default::default(),
             events,
@@ -2725,7 +2753,7 @@ mod tests {
             if !initial {
                 native(&mut words, NativeCall::YieldCommand, &[0, 2]);
             }
-            native(&mut words, NativeCall::Unknown76, &[0; 2]);
+            native(&mut words, NativeCall::AdjustOverlimit, &[0; 2]);
             native(&mut words, NativeCall::SetEventBit, &[123]);
             words.push(0x20ff);
             let program = Arc::new(
@@ -3252,7 +3280,7 @@ mod tests {
                                 },
                                 Token::Control {
                                     opcode: 8,
-                                    expression: vec![0, 2, 0x30, 0, 0x20, 0xff],
+                                    expression: symphonia_script::message::Expression::Constant(2),
                                 },
                             ],
                         },
@@ -3365,14 +3393,17 @@ mod tests {
             .unwrap_or_else(|| {
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
             });
-        let data: Arc<resonance_content::session::SessionData> = Arc::new(
-            serde_json::from_slice(&std::fs::read(root.join("game/session-data.json")).unwrap())
-                .unwrap(),
-        );
-        let menus: Arc<resonance_content::menu_data::MenuData> = Arc::new(
-            serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json")).unwrap())
-                .unwrap(),
-        );
+        let mut snapshot = resonance_content::library::Library::open(&root, &[])
+            .unwrap()
+            .snapshot();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false).unwrap();
+        let files =
+            resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)
+                .unwrap();
+        let data = Arc::new(resonance_content::session::SessionData::load(&files).unwrap());
+        let menus: Arc<resonance_content::menu_data::MenuData> =
+            Arc::new(resonance_content::menu_data::MenuData::load(&files).unwrap());
         let mut party = resonance_events::party::Party::new(&data, Default::default()).unwrap();
         party.formation = vec![1, 2, 3, 4];
         party.field_leader = 1;

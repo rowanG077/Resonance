@@ -2,13 +2,16 @@
 use crate::{ScenePart, validate_asset_path};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-pub const FIELD_VERSION: u32 = 11;
+pub mod attachments;
+pub mod collision_mesh;
+pub mod document;
+pub mod doors;
+pub mod settings;
+
 /// Script extension: keep an actor centred on the player while following.
 pub const ANCHORED_PLAYER_BEHAVIOR: u8 = 127;
-/// Field-system query extension: number of formations in the last battle.
-pub const BATTLE_FORMATION_COUNT_QUERY: u16 = 0x100;
 /// Reserved resource range for static scenery, separate from character models.
 pub const SCENERY_RESOURCE_BASE: u32 = 0x1000_0000;
 /// Ordinary actor models embedded in a field archive, addressed by signed script IDs.
@@ -19,6 +22,8 @@ pub const SAVE_POINT_RESOURCE: u32 = 0x2000_0000;
 pub const FIELD_SERVICE_MOTION_RESOURCE_BASE: u32 = 0x2100_0000;
 /// Shared automatic flight accessory (native col_wing resource).
 pub const COLETTE_WINGS_RESOURCE: u32 = 0x2200_0000;
+/// Standalone script models cannot collide with automatic party model IDs.
+pub const STANDALONE_MODEL_RESOURCE_BASE: u32 = 0x2400_0000;
 #[derive(Clone, Copy)]
 #[repr(u16)]
 pub enum ServiceMotion {
@@ -81,19 +86,8 @@ pub fn scenery_actor(section: u16) -> i32 {
     }
 }
 
-pub fn metadata_path(map: u32) -> String {
-    format!("fields/map-{map}.json")
-}
-
-pub fn audio_path(map: u32) -> String {
-    format!("fields/map-{map}-audio.json")
-}
 /// Native field treasure models: ordinary, reinforced and bag-shaped.
 pub const TREASURE_RESOURCE_BASE: u32 = 0x7fff_0100;
-
-pub fn preload_path(map: u32) -> String {
-    format!("fields/map-{map}.preload.json")
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollisionGroup {
@@ -147,13 +141,14 @@ impl CollisionGroup {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FieldAssets {
-    pub version: u32,
+    #[serde(skip)]
+    pub joint_mappings: BTreeMap<String, String>,
     pub map_id: u32,
-    pub source_sha256: String,
     pub script: String,
-    pub messages: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<String>,
     /// Repeating panorama drawn behind the field scenery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub panorama: Option<String>,
@@ -167,15 +162,17 @@ pub struct FieldAssets {
     pub regions: Vec<CollisionGroup>,
     pub doors: Vec<Door>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub camera_tracks: BTreeMap<u32, Vec<crate::CameraKey>>,
+    pub camera_tracks: BTreeMap<u32, crate::camera_motion::CameraMotion>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub texture_animations: Vec<FieldTextureAnimation>,
     #[serde(default)]
     pub actors: Vec<ActorAssets>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dynamic_resources: bool,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub local_resources: BTreeSet<u32>,
     /// Geometry recipes requiring a caller texture binding before instantiation.
     pub unbound_geometry: Vec<UnboundGeometry>,
-    /// Full resource catalogue used by scripts that select resources at runtime.
-    pub resource_catalogue: Option<String>,
     pub contact_shadow: ContactShadow,
     pub toon_ramp: String,
     pub effects: String,
@@ -191,9 +188,9 @@ pub struct FieldAssets {
     pub save_point_no_gem: Vec<crate::font::TextSpan>,
 }
 
-/// Native field callback operands: either a fixed value or a live slot written
-/// by ConfigureRendering. Actor and texture targets use the same slot table.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A literal or a live rendering setting. Actor and texture targets share these inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "render_value::Authored", into = "render_value::Authored")]
 pub enum RenderValue {
     Fixed(i32),
     Setting(u8),
@@ -214,6 +211,7 @@ impl RenderValue {
 }
 
 mod environment;
+mod render_value;
 pub use environment::*;
 
 mod texture_animation;
@@ -246,7 +244,7 @@ pub struct Door {
 }
 
 /// A soft textured ground quad, positioned from an animated actor joint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContactShadow<Image = String> {
     pub texture: Image,
     pub uv_size: [f32; 2],
@@ -301,15 +299,14 @@ impl FieldAssets {
     pub fn references(&self) -> impl Iterator<Item = &str> {
         [
             &self.script,
-            &self.messages,
             &self.contact_shadow.texture,
             &self.toon_ramp,
             &self.effects,
         ]
         .into_iter()
+        .chain(self.messages.iter())
         .chain(self.panorama.iter())
         .chain(self.environment.textures())
-        .chain(self.resource_catalogue.iter())
         .chain(
             self.unbound_geometry
                 .iter()
@@ -331,7 +328,6 @@ impl FieldAssets {
     }
 
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == FIELD_VERSION, "unsupported field assets");
         if let Some(water) = &self.water {
             ensure!(
                 water.height.is_finite()
@@ -357,19 +353,7 @@ impl FieldAssets {
             }
         }
         for track in self.camera_tracks.values() {
-            ensure!(
-                track.len() >= 2
-                    && track.len() <= 100_000
-                    && track.iter().all(|key| key.time.is_finite()
-                        && key.time >= 0.
-                        && key
-                            .position
-                            .iter()
-                            .chain(&key.target)
-                            .all(|v| v.is_finite()))
-                    && track.windows(2).all(|keys| keys[0].time < keys[1].time),
-                "invalid field camera track"
-            );
+            track.validate()?;
         }
         for actor in &self.actors {
             ensure!(
@@ -415,11 +399,10 @@ impl FieldAssets {
                 "invalid scenery door"
             );
         }
-        validate_asset_path(&self.messages)?;
-        if let Some(path) = &self.panorama {
+        if let Some(path) = &self.messages {
             validate_asset_path(path)?;
         }
-        if let Some(path) = &self.resource_catalogue {
+        if let Some(path) = &self.panorama {
             validate_asset_path(path)?;
         }
         let mut geometry_resources = std::collections::BTreeSet::new();
@@ -470,11 +453,6 @@ impl FieldAssets {
 
         shadow.validate()?;
 
-        ensure!(
-            self.source_sha256.len() == 64
-                && self.source_sha256.bytes().all(|v| v.is_ascii_hexdigit()),
-            "invalid field source digest"
-        );
         for group in self.ground.iter().chain(&self.regions) {
             group.validate()?;
         }
@@ -500,16 +478,11 @@ impl FieldAssets {
 
 impl crate::ScenePart {
     pub fn validate(&self, available: impl Fn(&str) -> bool) -> Result<()> {
-        for chain in &self.secondary_motion.chains {
-            chain.validate(self.bone_names.len())?;
+        self.secondary_motion.prepare(&self.bone_names)?;
+        for clip in &self.clips {
+            self.secondary_motion
+                .validate_selection(&clip.pose_chains)?;
         }
-        ensure!(
-            self.clips
-                .iter()
-                .flat_map(|c| &c.secondary_pose_nodes)
-                .all(|node| usize::from(*node) < self.bone_names.len()),
-            "secondary animation node exceeds skeleton"
-        );
         ensure!(
             self.material_nodes.is_empty() || self.material_nodes.len() == self.materials.len(),
             "field material node mapping is incomplete"

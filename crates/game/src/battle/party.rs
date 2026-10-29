@@ -517,22 +517,21 @@ mod tests {
         use resonance_battle::{
             ActorId, BattleInput, EquipmentReplacement, Playback, PreparedBattle,
         };
-        use resonance_content::{
-            battle_profile,
-            prepared::{Cache, Files},
-            session::SessionData,
-        };
+        use resonance_content::{battle_profile, session::SessionData};
         let root = std::env::var_os("RESONANCE_TEST_ASSETS")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
             });
-        let mut cache = Cache::default();
-        let mut files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-            false
-        })?;
-        let mut menus: MenuData = files.json("game/menu-data.json")?;
-        let mut data: SessionData = files.json("game/session-data.json")?;
+
+        let files = resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(&root, &[])?,
+            &[],
+            || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
+        let mut menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
+        let mut data: SessionData = resonance_content::session::SessionData::load(&files)?;
         data.rules = Some(Arc::new(menus.clone()));
         let mut party = Party::new(&data, Default::default())?;
         party.formation = vec![1];
@@ -545,22 +544,33 @@ mod tests {
             hp_regeneration: 1,
             ..Default::default()
         };
-        let mut profiles: battle_profile::Table = files.json(battle_profile::PARTY_PATH)?;
-        profiles.body_colliders[0] = battle_profile::StandingCollider {
+        let mut profiles: resonance_content::battle_rules::Party =
+            files.json(resonance_content::battle_rules::PARTY)?;
+        let mappings: resonance_content::library::Mappings =
+            files.json(resonance_content::battle_model::document::PARTY)?;
+        let lloyd = profiles.characters.get_mut(mappings.target(1)?).unwrap();
+        lloyd.body_collider = battle_profile::StandingCollider {
             radius: 42.,
             height: 180.,
         };
-        profiles.records[0].initial_conditions = AttackUp.into();
-        profiles.records[0].intrinsic_conditions =
-            ConditionSet::of(&[CastingSpeed, AilmentResistance]);
-        profiles.records[0].immunities = ConditionSet::of(&[Paralysis, Curse]);
-        files.insert(
-            battle_profile::PARTY_PATH.into(),
-            serde_json::to_vec(&profiles)?.into(),
-        );
-        let inputs = crate::battle::encounter::Inputs::load(
+        lloyd.profile.initial_conditions = AttackUp.into();
+        lloyd.profile.intrinsic_conditions = ConditionSet::of(&[CastingSpeed, AilmentResistance]);
+        lloyd.profile.immunities = ConditionSet::of(&[Paralysis, Curse]);
+        let modification = tempfile::tempdir()?;
+        let rules_path = modification
+            .path()
+            .join(resonance_content::battle_rules::PARTY);
+        std::fs::create_dir_all(rules_path.parent().unwrap())?;
+        std::fs::write(rules_path, serde_json::to_vec(&profiles)?)?;
+        let library = resonance_content::library::Library::open(
             &root,
-            &files,
+            &[resonance_content::library::Mod {
+                name: "profile fixture".into(),
+                root: modification.path().into(),
+            }],
+        )?;
+        let inputs = crate::battle::encounter::Assets::capture(
+            &mut library.snapshot(),
             &menus,
             &data,
             &party,
@@ -571,8 +581,8 @@ mod tests {
                 music: None,
                 defeat: resonance_events::battle::DefeatPolicy::ResumeEvent,
             },
-            &mut cache,
-            || false,
+            (&files).diagnostics().clone(),
+            &(|| false),
         )?;
         let member = inputs.prepare_party_member(
             &menus,

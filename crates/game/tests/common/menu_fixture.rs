@@ -17,7 +17,6 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
     let session = Arc::new(SessionData {
         rules: None,
         version: 1,
-        executable_sha256: "0".repeat(64),
         experience: vec![0, 0, 100],
         items: (0..=SPARE_WEAPON)
             .map(|id| ItemDefinition {
@@ -60,7 +59,6 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
             options: vec![],
             labels: Default::default(),
         },
-        version: MenuData::VERSION,
         items: (0..=SPARE_WEAPON)
             .map(|_| Item {
                 category: 13,
@@ -114,6 +112,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
             equipment_effects: Default::default(),
         },
         world_map: WorldMapData {
+            landmarks: "world/landmarks.json".into(),
             locations: Default::default(),
             field_locations: Default::default(),
             shops: vec![],

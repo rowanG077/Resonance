@@ -2,7 +2,6 @@
 mod common;
 #[path = "common/menu_fixture.rs"]
 mod menu_fixture;
-use common::cooked;
 use resonance_content::{menu_data::MenuData, prepared::Files, session::SessionData};
 use resonance_events::{SavedProgress, party::Party};
 use resonance_game::{
@@ -15,8 +14,8 @@ use resonance_game::{
 use std::sync::Arc;
 
 fn cooked_fixture() -> (Arc<SessionData>, Arc<MenuData>, Party) {
-    let session = Arc::new(cooked::<SessionData>("game/session-data.json"));
-    let data = Arc::new(cooked::<MenuData>("game/menu-data.json"));
+    let session = Arc::new(common::session());
+    let data = Arc::new(common::menu());
     data.validate().unwrap();
     let mut party = Party::new(&session, Default::default()).unwrap();
     party.formation = vec![1, 2, 3, 4, 5, 7, 8, 9];

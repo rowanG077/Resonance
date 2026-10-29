@@ -11,7 +11,7 @@ struct Canvas {
 }
 
 pub(super) struct Artwork {
-    catalog: SkitCatalog,
+    catalog: std::sync::Arc<SkitCatalog>,
     images: BTreeMap<u32, Vec<Handle<Image>>>,
     canvases: Vec<Canvas>,
     canvas_size: [u32; 2],
@@ -22,13 +22,12 @@ pub(super) struct Artwork {
 }
 impl Artwork {
     pub fn load(
-        read: impl Fn(&str) -> Result<Vec<u8>>,
+        catalog: std::sync::Arc<SkitCatalog>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         font: &Handle<Surface>,
         image_assets: &mut Assets<Image>,
     ) -> Result<Self> {
-        let catalog: SkitCatalog = serde_json::from_slice(&read("game/skits.json")?)?;
         catalog.validate()?;
         let mut images = BTreeMap::new();
         for (&id, portrait) in &catalog.portraits {
@@ -421,29 +420,33 @@ mod tests {
     #[test]
     #[ignore = "requires cook-all and prepared skits; no graphics or audio device"]
     fn original_shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
-        use bevy::image::{CompressedImageFormats, ImageType};
-        let root = std::env::var_os("RESONANCE_WORLD_ASSETS")
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
-            });
-        let catalog: SkitCatalog =
-            serde_json::from_slice(&std::fs::read(root.join("game/skits.json"))?)?;
-        catalog.validate()?;
+            .context("set RESONANCE_TEST_ASSETS to a completed current cook")?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        let catalog = resonance_content::skit::document::capture(&mut snapshot, &|| false)?;
+        let files = resonance_content::prepared::Files::from_snapshot(
+            snapshot,
+            || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
         ensure!(!catalog.portraits.is_empty(), "empty portrait corpus");
         for asset in catalog.portraits.values() {
             let images = asset
                 .images
                 .iter()
                 .map(|source| {
-                    Ok(Image::from_buffer(
-                        &std::fs::read(root.join(&source.texture))?,
-                        ImageType::Extension("ktx2"),
-                        CompressedImageFormats::NONE,
-                        false,
-                        ImageSampler::linear(),
-                        RenderAssetUsages::MAIN_WORLD,
-                    )?)
+                    crate::texture::decode(
+                        &source.texture,
+                        &bevy::image::ImageLoaderSettings {
+                            is_srgb: false,
+                            sampler: ImageSampler::linear(),
+                            asset_usage: RenderAssetUsages::MAIN_WORLD,
+                            ..default()
+                        },
+                        &|path| Ok(files.read(path)?.to_vec()),
+                    )
                 })
                 .collect::<Result<Vec<_>>>()?;
             let [width, height] = asset.size;

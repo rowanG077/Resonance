@@ -39,8 +39,10 @@ impl Ambient {
                 .map(|(index, (recipe, material))| {
                     let (capacity, count) = match recipe.emission {
                         AmbientEmission::Drifting {
-                            interval, lifetime, ..
-                        } => (usize::from(lifetime).div_ceil(usize::from(interval)) + 1, 0),
+                            interval_ticks: interval,
+                            lifetime_ticks: lifetime,
+                            ..
+                        } => (((lifetime - 1) as usize).div_ceil(interval as usize) + 1, 0),
                         // Fire emits two layers every fourth tick, alive for 61/31 ticks.
                         AmbientEmission::Fire { .. } => {
                             (61usize.div_ceil(4) + 31usize.div_ceil(4), 0)
@@ -91,10 +93,12 @@ impl Ambient {
             // A long pause/seek cannot contribute particles older than their lifetime.
             // Bound catch-up by that horizon rather than elapsed session time.
             let history = match emitter.recipe.emission {
-                AmbientEmission::Drifting { lifetime, .. } => u32::from(lifetime) + 1,
+                AmbientEmission::Drifting { lifetime_ticks, .. } => lifetime_ticks,
                 AmbientEmission::Fire { .. } => 61,
                 AmbientEmission::Snow {
-                    height, fall_speed, ..
+                    spawn_height: height,
+                    fall_speed_per_tick: fall_speed,
+                    ..
                 } => {
                     ((player.map_or(0., |p| p[2]) + height).max(0.) / f32::from(fall_speed[0]))
                         .ceil() as u32
@@ -128,16 +132,15 @@ impl Emitter {
         }
         match self.recipe.emission {
             AmbientEmission::Drifting {
-                interval,
-                lifetime,
-                position,
-                position_step,
-                position_steps,
-                velocity,
-                half_size,
+                interval_ticks: interval,
+                lifetime_ticks: lifetime,
+                spawn_position: position,
+                spawn_step: position_step,
+                spawn_counts: position_steps,
+                velocity_per_tick: velocity,
+                size,
                 color,
             } if tick.is_multiple_of(u32::from(interval)) => {
-                let lifetime = u32::from(lifetime) + 1;
                 let mut sprite = BillboardEffect::default();
                 sprite.born = tick;
                 sprite.lifetime = lifetime;
@@ -147,7 +150,7 @@ impl Emitter {
                             * sample(&mut self.random, u32::from(position_steps[i])) as f32
                 });
                 sprite.velocity = velocity;
-                sprite.size = half_size.map(|half| half * 2.);
+                sprite.size = size;
                 sprite.rgba = color;
                 sprite.fade = Fade::tail(lifetime);
                 self.sprites.push(sprite);
@@ -157,19 +160,31 @@ impl Emitter {
                     .extend(fire_sprites(position, tick, size, false, &mut self.random));
             }
             AmbientEmission::Snow {
-                spread,
-                height,
-                fall_speed,
+                horizontal_offsets,
+                spawn_height: height,
+                fall_speed_per_tick: fall_speed,
                 ..
             } => {
                 let Some(player) = player else { return };
                 for flake in &mut self.snow {
                     if flake.speed == 0 {
                         flake.position = [
-                            player[0] + sample(&mut self.random, u32::from(spread) * 2 + 2) as f32
-                                - f32::from(spread),
-                            player[1] + sample(&mut self.random, u32::from(spread) * 2 + 2) as f32
-                                - f32::from(spread),
+                            player[0]
+                                + sample(
+                                    &mut self.random,
+                                    (i64::from(horizontal_offsets[1])
+                                        - i64::from(horizontal_offsets[0])
+                                        + 1) as u32,
+                                ) as f32
+                                + horizontal_offsets[0] as f32,
+                            player[1]
+                                + sample(
+                                    &mut self.random,
+                                    (i64::from(horizontal_offsets[1])
+                                        - i64::from(horizontal_offsets[0])
+                                        + 1) as u32,
+                                ) as f32
+                                + horizontal_offsets[0] as f32,
                             player[2] + height,
                         ];
                         flake.speed = fall_speed[0]
@@ -211,10 +226,7 @@ impl Emitter {
                 ),
             ));
         }
-        if let AmbientEmission::Snow {
-            half_size, color, ..
-        } = self.recipe.emission
-        {
+        if let AmbientEmission::Snow { size, color, .. } = self.recipe.emission {
             let [r, g, b, a] = color.map(|v| f32::from(v) / 255.);
             for flake in self.snow.iter().filter(|flake| flake.speed != 0) {
                 quads.push((
@@ -223,7 +235,7 @@ impl Emitter {
                     Quad::new(
                         Vec3::from_array(flake.position),
                         camera,
-                        [half_size * 2.; 2],
+                        [size; 2],
                         sprite.uv,
                         [r * brightness, g * brightness, b * brightness, a],
                         VerticalAnchor::Center,
@@ -265,13 +277,13 @@ mod tests {
     fn emissions_are_bounded_and_gates_stop_births_without_erasing_live_particles() {
         let mut ambient = Ambient::new([(
             recipe(AmbientEmission::Drifting {
-                interval: 4,
-                lifetime: 12,
-                position: [0.; 3],
-                position_step: [0.; 3],
-                position_steps: [1; 3],
-                velocity: [1., 0., 0.],
-                half_size: [5.; 2],
+                interval_ticks: 4,
+                lifetime_ticks: 13,
+                spawn_position: [0.; 3],
+                spawn_step: [0.; 3],
+                spawn_counts: [1; 3],
+                velocity_per_tick: [1., 0., 0.],
+                size: [10.; 2],
                 color: [64; 4],
             }),
             0,
@@ -307,14 +319,94 @@ mod tests {
     }
 
     #[test]
+    fn atmosphere_duration_size_and_discrete_samples_keep_previous_appearance() {
+        let mut ambient = Ambient::new([(
+            recipe(AmbientEmission::Drifting {
+                interval_ticks: 8,
+                lifetime_ticks: 121,
+                spawn_position: [1024., -2184., 253.],
+                spawn_step: [-124., 0., 32.],
+                spawn_counts: [8, 1, 8],
+                velocity_per_tick: [0., 32., 0.],
+                size: [2048., 896.],
+                color: [63, 51, 31, 128],
+            }),
+            0,
+        )]);
+        let emitter = &mut ambient.emitters[0];
+        let mut random = 1;
+        let mut births = Vec::new();
+        for tick in 0..500 {
+            if tick % 8 == 0 {
+                births.push((
+                    tick,
+                    [
+                        1024. - 124. * sample(&mut random, 8) as f32,
+                        -2184. + 0. * sample(&mut random, 1) as f32,
+                        253. + 32. * sample(&mut random, 8) as f32,
+                    ],
+                ));
+            }
+            emitter.step(tick, true, None);
+            let live: Vec<_> = births
+                .iter()
+                .filter(|(born, _)| tick - born <= 120)
+                .collect();
+            assert_eq!(emitter.sprites.len(), live.len());
+            for (actual, (born, position)) in emitter.sprites.iter().zip(live) {
+                assert_eq!(
+                    actual.position,
+                    [
+                        position[0],
+                        position[1] + 32. * (tick - born) as f32,
+                        position[2]
+                    ]
+                );
+                assert_eq!(actual.size, [2048., 896.]);
+                assert_eq!(actual.lifetime, 121);
+                let mut previous = BillboardEffect::default();
+                previous.born = *born;
+                previous.rgba = [63, 51, 31, 128];
+                previous.fade = Fade::tail(121);
+                assert_eq!(actual.alpha(tick), previous.alpha(tick));
+            }
+        }
+        assert_eq!(emitter.random, random);
+        let mut ambient = Ambient::new([(
+            recipe(AmbientEmission::Snow {
+                count: 4096,
+                horizontal_offsets: [-1023, 1024],
+                spawn_height: 800.,
+                fall_speed_per_tick: [3, 18],
+                size: 12.,
+                color: [240, 240, 255, 112],
+                fog_color: [0, 0, 31, 16],
+                fog_range: [100., 10000.],
+            }),
+            0,
+        )]);
+        let emitter = &mut ambient.emitters[0];
+        emitter.step(0, true, Some([137., -218., 40.]));
+        let mut random = 1;
+        for flake in &emitter.snow {
+            let x = 137. + sample(&mut random, 1023 * 2 + 2) as f32 - 1023.;
+            let y = -218. + sample(&mut random, 1023 * 2 + 2) as f32 - 1023.;
+            let speed = 3 + sample(&mut random, 16) as u8;
+            assert_eq!(flake.position, [x, y, 840. - f32::from(speed)]);
+            assert_eq!(flake.speed, speed);
+        }
+        assert_eq!(emitter.random, random);
+    }
+
+    #[test]
     fn snow_recycles_around_the_current_player_in_one_fixed_buffer() {
         let mut ambient = Ambient::new([(
             recipe(AmbientEmission::Snow {
                 count: 4096,
-                spread: 20,
-                height: 10.,
-                fall_speed: [3, 5],
-                half_size: 6.,
+                horizontal_offsets: [-20, 21],
+                spawn_height: 10.,
+                fall_speed_per_tick: [3, 5],
+                size: 12.0,
                 color: [255; 4],
                 fog_color: [0; 4],
                 fog_range: [0., 1000.],

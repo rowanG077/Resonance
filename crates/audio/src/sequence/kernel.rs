@@ -26,6 +26,7 @@ pub(super) struct Kernel<'a> {
     bpm: u32,
     clock: MusicalClock,
     loop_offset: u128,
+    last_loop_frame: Option<u64>,
     voices: Vec<Active<'a>>,
     result: Option<Preview>,
     random: shared::Control,
@@ -74,10 +75,14 @@ impl<'a> Kernel<'a> {
             bpm,
             clock: MusicalClock::default(),
             loop_offset: 0,
+            last_loop_frame: None,
             voices,
             result,
             random,
         })
+    }
+    pub(super) fn last_loop_frame(&self) -> Option<u64> {
+        self.last_loop_frame
     }
     /// Pausing removes active notes while preserving the score cursor.
     pub(super) fn pause(&mut self, paused: bool) {
@@ -370,6 +375,7 @@ impl<'a> Kernel<'a> {
         self.apply_tempos();
         self.dispatch_events(frame, input.sound_velocity)?;
         while self.looping && self.clock.tick() - self.loop_offset >= u128::from(end_tick) {
+            self.last_loop_frame = Some(frame);
             self.loop_offset += u128::from(end_tick - loop_tick);
             self.events = loop_events.iter().peekable();
             self.tempos = song.tempos.iter().peekable();

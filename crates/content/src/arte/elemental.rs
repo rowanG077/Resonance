@@ -1,6 +1,6 @@
 //! Element-dependent martial variants shared by battle, menus and saved parties.
 use super::{Catalogue, LearningRules};
-use crate::menu_data::{Element, MenuData, NamedText};
+use crate::menu_data::{Element, NamedText, Technique};
 use anyhow::{Context, Result};
 
 pub const ACTIVATION_USES: u16 = 200;
@@ -79,8 +79,13 @@ pub fn extend_learning(allowed: &mut Vec<u16>) {
     }
 }
 
-/// Register the optional learnable entries using the already cooked base rules.
-pub(super) fn extend_catalogue(data: &mut Catalogue) -> Result<()> {
+/// Materialize the original elemental variants during import. Current library
+/// readers never call this or overwrite a modder's authored variant values.
+pub fn cook_variants(
+    data: &mut Catalogue,
+    menu: &mut Vec<Technique>,
+    text: &mut Vec<serde_json::Value>,
+) -> Result<()> {
     for variant in VARIANTS {
         let mut definition = data.definition(usize::from(variant.base))?.clone();
         definition.element = variant.element as u8 + 1;
@@ -95,13 +100,8 @@ pub(super) fn extend_catalogue(data: &mut Catalogue) -> Result<()> {
     for allowed in &mut data.learning {
         extend_learning(allowed);
     }
-    Ok(())
-}
-
-pub(crate) fn extend_menu(data: &mut MenuData) -> Result<()> {
     for variant in VARIANTS {
-        let mut definition = data
-            .techniques
+        let mut definition = menu
             .get(usize::from(variant.base))
             .context("elemental arte has no base menu entry")?
             .clone();
@@ -112,21 +112,18 @@ pub(crate) fn extend_menu(data: &mut MenuData) -> Result<()> {
         definition.prerequisite = 0;
         definition.alternatives = [variant.id, 0, 0, 0];
         let id = usize::from(variant.id);
-        data.techniques
-            .resize(data.techniques.len().max(id + 1), definition.clone());
-        data.techniques[id] = definition;
-        if let Some(texts) = &mut data.presentation.techniques {
-            let description = texts
-                .get(usize::from(variant.base))
-                .and_then(Option::as_ref)
-                .map(|text| text.description.clone())
-                .unwrap_or_else(|| "An elemental martial arte.".into());
-            texts.resize_with(texts.len().max(id + 1), || None);
-            texts[id] = Some(NamedText {
-                name: variant.name.into(),
-                description,
-            });
-        }
+        menu.resize(menu.len().max(id + 1), definition.clone());
+        menu[id] = definition;
+        let description = text
+            .get(usize::from(variant.base))
+            .and_then(|text| text["description"].as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| "An elemental martial arte.".into());
+        text.resize(text.len().max(id + 1), serde_json::Value::Null);
+        text[id] = serde_json::to_value(NamedText {
+            name: variant.name.into(),
+            description,
+        })?;
     }
     Ok(())
 }

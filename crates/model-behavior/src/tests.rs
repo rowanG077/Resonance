@@ -32,6 +32,7 @@ fn preview(elevation: f32) -> ModelPreview {
     let mut attachment = part.clone();
     attachment.attached_to = Some("root".into());
     ModelPreview {
+        document: None,
         scale: 1.,
         elevation,
         parts: vec![part.clone(), part, attachment],

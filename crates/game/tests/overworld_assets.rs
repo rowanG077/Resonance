@@ -1,20 +1,14 @@
 //! Original-asset checks are opt-in; synthetic collision tests run without a disc.
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
-    field::CollisionGroup,
-    overworld::{CollisionTables, EncounterTables, TileCatalogue},
+    library::Library,
+    overworld::{Package, TerrainSurface, document},
 };
 use resonance_game::overworld::{
     Position, Rules, TileCoordinate, World,
     collision::{Mesh, Mode, Terrain},
 };
-use serde::de::DeserializeOwned;
-use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeSet,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 fn root() -> PathBuf {
     std::env::var_os("RESONANCE_ASSETS")
@@ -23,44 +17,21 @@ fn root() -> PathBuf {
 }
 
 #[test]
-#[ignore = "requires original world script and cooked game definitions; set RESONANCE_ASSETS and RESONANCE_COOKED"]
+#[ignore = "requires a current named library; set RESONANCE_ASSETS"]
 fn original_world_script_initializes_and_routes_all_landmark_handlers() -> Result<()> {
-    use resonance_events::{EventRuntime, GameWorld, ResourceLibrary, party::Party};
+    use resonance_events::{EventRuntime, GameWorld, party::Party};
     use std::sync::Arc;
     use symphonia_script::{Program, Width};
-    let cooked = std::env::var_os("RESONANCE_COOKED")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
-    let data = Arc::new(serde_json::from_slice::<
-        resonance_content::session::SessionData,
-    >(&fs::read(cooked.join("game/session-data.json"))?)?);
-    #[derive(serde::Deserialize)]
-    struct SkitIndex {
-        skits: Vec<resonance_content::skit::SkitDefinition>,
-        resources: std::collections::BTreeMap<u16, resonance_content::skit::SkitResourcePaths>,
-    }
-    // This sweep stops at the skit handoff. Portrait/media playback has its own
-    // preparation and tests; only the original resource index is needed here.
-    let index: SkitIndex = serde_json::from_slice(&fs::read(cooked.join("game/skits.json"))?)?;
-    let skits = Arc::new(resonance_content::skit::SkitCatalog {
-        preview_order: Vec::new(),
-        version: resonance_content::skit::VERSION,
-        skits: index.skits,
-        resources: index.resources,
-        portraits: Default::default(),
-        portrait_recipes: Vec::new(),
-        media: Default::default(),
-    });
-    let bytes = fs::read(root().join(
-        "assets/4de7a30a3d53ef69e9f9131589a8ed37b8809595091e724f38eaf3e6afb4455b/script.ssb",
-    ))?;
+    let prepared = prepare_world(&root())?;
+    let data = prepared
+        .resources
+        .session_data
+        .as_ref()
+        .context("missing session data")?
+        .clone();
+    let bytes = prepared.files.read(&prepared.definition.script)?;
     let program = Arc::new(Program::decode(&bytes)?);
-    let resources = Arc::new(ResourceLibrary {
-        session_data: Some(data.clone()),
-        skits: Some(skits),
-        fields: (0..547).collect(),
-        ..Default::default()
-    });
+    let resources = prepared.resources.clone();
     let mut party = Party::new(&data, Default::default())?;
     party.items.insert(55, 1);
     party.travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Lightning(
@@ -134,55 +105,37 @@ fn original_world_script_initializes_and_routes_all_landmark_handlers() -> Resul
     }
     Ok(())
 }
-fn table<T: DeserializeOwned>(root: &Path, family: &str) -> Result<T> {
-    #[derive(serde::Deserialize)]
-    struct Source {
-        data: String,
-        module: String,
-    }
-    let module = "US_r_Top2field.rel";
-    let source: Source = serde_json::from_slice(&fs::read(
-        root.join(format!("data/embedded/{family}/{module}.json")),
-    )?)?;
-    resonance_content::validate_asset_path(&source.data)?;
-    ensure!(source.module == module, "wrong original module");
-    let bytes = fs::read(root.join("data").join(&source.data))?;
-    ensure!(
-        source.data == format!("embedded/{family}/{:x}.json", Sha256::digest(&bytes)),
-        "changed original table"
-    );
-    Ok(serde_json::from_slice(&bytes)?)
+fn world_package(root: &Path) -> Result<Package> {
+    Ok(document::capture(&mut Library::open(root, &[])?.snapshot(), &|| false)?.1)
 }
 
 #[test]
 #[ignore = "requires cooked original assets; set RESONANCE_ASSETS or cook local/all-assets"]
 fn original_worlds_prepare_every_base_and_alternate_tile() -> Result<()> {
     let root = root();
-    let catalogue: TileCatalogue = table(&root, "overworld-tiles")?;
-    catalogue.validate()?;
-    let collision: CollisionTables = table(&root, "overworld-collision")?;
+    let package = world_package(&root)?;
+    let collision = &package.movement.collision;
     collision.validate()?;
-    let mut sources = BTreeSet::new();
-    for world in &catalogue.worlds {
+    let mut variants = 0;
+    for world in &package.worlds {
         let mut tiles = Vec::new();
-        for tile in &world.tiles {
+        for tile in world {
             for (variant, asset) in std::iter::once(&tile.base)
                 .chain(&tile.alternate)
                 .enumerate()
             {
-                let groups: Vec<CollisionGroup> = serde_json::from_slice(&fs::read(
-                    root.join(&asset.package).join("4/collision.json"),
-                )?)?;
-                let mesh = Mesh::new(&groups).with_context(|| asset.source.clone())?;
+                let mesh = Mesh::new(&asset.ground).with_context(|| {
+                    format!("terrain ({}, {}), variant {variant}", tile.column, tile.row)
+                })?;
                 if variant == 0 {
                     tiles.push((TileCoordinate::new(tile.column, tile.row)?, mesh));
                 }
-                sources.insert(asset.source.clone());
+                variants += 1;
             }
         }
         let terrain = Terrain::new(tiles, collision.clone())?;
         // Exercise all tile centers, seams and quadrant corners, including wrap.
-        for tile in &world.tiles {
+        for tile in world {
             for offset in [[0., 0.], [3200., 3200.], [6399., 6399.]] {
                 let position = Position::from_map([
                     f32::from(tile.column) * 6400. + offset[0],
@@ -190,12 +143,7 @@ fn original_worlds_prepare_every_base_and_alternate_tile() -> Result<()> {
                     0.,
                 ])?;
                 let query = terrain.query(position, 1000.)?;
-                for mode in [
-                    Mode::Ground,
-                    Mode::Ship,
-                    Mode::AlternateGround,
-                    Mode::RestrictedGround,
-                ] {
+                for mode in [Mode::Ground, Mode::Ship] {
                     if let Some(surface) = query.surface(mode) {
                         ensure!(
                             surface.height.is_finite()
@@ -216,7 +164,7 @@ fn original_worlds_prepare_every_base_and_alternate_tile() -> Result<()> {
             }
         }
     }
-    assert_eq!(sources.len(), 228);
+    assert_eq!(variants, 228);
     Ok(())
 }
 
@@ -224,7 +172,7 @@ fn original_worlds_prepare_every_base_and_alternate_tile() -> Result<()> {
 #[ignore = "requires cooked original assets; set RESONANCE_ASSETS or cook local/all-assets"]
 fn original_encounters_select_iselia_groups_and_the_later_tethealla_table() -> Result<()> {
     let root = root();
-    let tables: EncounterTables = table(&root, "overworld-encounters")?;
+    let tables = world_package(&root)?.encounters;
     let region_zero = tables.area_grids[1]
         .iter()
         .enumerate()
@@ -238,10 +186,22 @@ fn original_encounters_select_iselia_groups_and_the_later_tethealla_table() -> R
     let encounters = Rules::new(tables)?;
     let iselia = Position::from_map([9600., 24600., 0.])?;
     let first = encounters
-        .lookup(World::Sylvarant, iselia, 1, 0, 0)
+        .lookup(
+            World::Sylvarant,
+            iselia,
+            Some(TerrainSurface::Grassland),
+            0,
+            0,
+        )
         .unwrap();
     let second = encounters
-        .lookup(World::Sylvarant, iselia, 1, 1, 0)
+        .lookup(
+            World::Sylvarant,
+            iselia,
+            Some(TerrainSurface::Grassland),
+            1,
+            0,
+        )
         .unwrap();
     assert_eq!(
         (first.group, second.group, first.arena, first.area),
@@ -249,33 +209,57 @@ fn original_encounters_select_iselia_groups_and_the_later_tethealla_table() -> R
     );
     assert!(
         encounters
-            .lookup(World::Sylvarant, iselia, 11, 0, 0)
+            .lookup(World::Sylvarant, iselia, Some(TerrainSurface::Water), 0, 0)
             .is_none()
     );
     assert!(
         encounters
-            .lookup(World::Sylvarant, iselia, -1, 0, 0)
+            .lookup(World::Sylvarant, iselia, None, 0, 0)
             .is_none()
     );
     assert!(
         encounters
-            .lookup(World::Sylvarant, iselia, 1, 2, 0)
+            .lookup(
+                World::Sylvarant,
+                iselia,
+                Some(TerrainSurface::Grassland),
+                2,
+                0
+            )
             .is_none()
     );
     // The authored fallback group 500 is a group, not the no-encounter sentinel.
     assert_eq!(
         encounters
-            .lookup(World::Sylvarant, iselia, 3, 0, 0)
+            .lookup(
+                World::Sylvarant,
+                iselia,
+                Some(TerrainSurface::Wasteland),
+                0,
+                0
+            )
             .unwrap()
             .group,
         500
     );
     let position = Position::from_map(region_zero)?;
     let before = encounters
-        .lookup(World::TetheAlla, position, 1, 0, 10_404_999)
+        .lookup(
+            World::TetheAlla,
+            position,
+            Some(TerrainSurface::Grassland),
+            0,
+            10_404_999,
+        )
         .unwrap();
     let after = encounters
-        .lookup(World::TetheAlla, position, 1, 0, 10_405_000)
+        .lookup(
+            World::TetheAlla,
+            position,
+            Some(TerrainSurface::Grassland),
+            0,
+            10_405_000,
+        )
         .unwrap();
     assert_eq!(
         (before.group, after.group, before.arena, after.arena),
@@ -290,19 +274,13 @@ fn original_world_package_enters_towns_and_restores_travel_without_filesystem_re
 {
     use resonance_events::{PersistentState, party::Party};
     use resonance_game::overworld::{
-        Input, Prepared, Prompt, Session,
+        Input, Prompt, Session,
         travel::{Mount, State},
     };
     let root = PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    let prepared = Prepared::load(
-        &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
-        &mut Default::default(),
-        (0..547).collect(),
-        || false,
-    )?;
+    let prepared = prepare_world(&root)?;
     for world in [World::Sylvarant, World::TetheAlla] {
         for story in [900000, 10405000, 20201000, 22601000] {
             let data = prepared.resources.session_data.as_ref().unwrap();
@@ -381,19 +359,13 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
         party::{EncounterModifier, Party},
     };
     use resonance_game::overworld::{
-        Prepared, Session,
+        Session,
         travel::{Mount, State},
     };
     let root = PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    let prepared = Prepared::load(
-        &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
-        &mut Default::default(),
-        (0..547).collect(),
-        || false,
-    )?;
+    let prepared = prepare_world(&root)?;
     for world in [World::Sylvarant, World::TetheAlla] {
         let mut persistent = PersistentState {
             party: Some(Party::new(
@@ -423,7 +395,7 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
                 }
                 let query = assets
                     .terrain
-                    .query(position, assets.movement.collision_radius)?;
+                    .query(position, assets.movement.collision.radius)?;
                 let Some(surface) = query.surface(Mode::Ground) else {
                     continue;
                 };
@@ -431,7 +403,7 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
                     || !query.has_clearance(Mode::Ground)
                     || assets
                         .rules
-                        .lookup(world, position, surface.response, 0, story)
+                        .lookup(world, position, Some(surface.kind), 0, story)
                         .is_none()
                 {
                     continue;
@@ -479,7 +451,7 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
             .lookup(
                 world,
                 symbol.position,
-                session.travel.response(),
+                session.travel.surface(),
                 symbol.variant,
                 story,
             )
@@ -564,4 +536,29 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
         session.checkpoint()?;
     }
     Ok(())
+}
+
+/// Semantic world checks use the current public documents and dependency discovery.
+fn prepare_world(root: &std::path::Path) -> Result<resonance_game::overworld::Prepared> {
+    use resonance_content::{
+        diagnostics::Diagnostics,
+        library::{FIELDS, Library},
+        preparation,
+        prepared::Files,
+    };
+    let mut snapshot = Library::open(root, &[])?.snapshot();
+    let diagnostics = Diagnostics::new(true);
+    let (_, world) = resonance_content::overworld::document::capture(&mut snapshot, &|| false)?;
+    preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let skits = std::sync::Arc::new(resonance_content::skit::document::capture(
+        &mut snapshot,
+        &|| false,
+    )?);
+    let fields = snapshot
+        .mappings(FIELDS)?
+        .iter()
+        .map(|(id, _)| id)
+        .collect();
+    let files = std::sync::Arc::new(Files::from_snapshot(snapshot, || false, diagnostics)?);
+    resonance_game::overworld::Prepared::from_prepared(world, files, skits, fields)
 }

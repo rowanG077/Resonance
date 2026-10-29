@@ -2,6 +2,67 @@ use super::test_support::Fixture;
 use super::*;
 
 #[test]
+#[ignore = "requires current menu assets; CPU world-map drawing only"]
+fn world_map_draws_shared_location_names_positions_and_visibility() -> Result<()> {
+    let mut fixture = Fixture::load()?;
+    fixture.party.travel.visited_locations =
+        fixture.data.world_map.locations.keys().copied().collect();
+    let mut count = 0;
+    for world in 0..2 {
+        fixture.party.travel.current_location = Some(if world == 0 { 2 } else { 257 });
+        let mut menu = fixture.field_menu();
+        menu.page = Page::WorldMap;
+        menu.world_map.world = world;
+        count += menu.map_locations().len();
+        fixture.drawing(15).world_map(&menu)?;
+    }
+    assert_eq!(count, 55);
+    fixture.party.travel.current_location = Some(2);
+    let entry = std::sync::Arc::make_mut(&mut fixture.data)
+        .world_map
+        .locations
+        .get_mut(&2)
+        .unwrap();
+    entry.name = "Renamed Iselia".into();
+    entry.position = [5000., 6000.];
+    let menu = fixture.field_menu();
+    assert_eq!(
+        menu.map_locations()
+            .iter()
+            .find(|(id, _)| *id == 2)
+            .unwrap()
+            .1
+            .map_point(),
+        [25, 30]
+    );
+    fixture.drawing(15).world_map(&menu)?;
+    std::sync::Arc::make_mut(&mut fixture.data)
+        .world_map
+        .locations
+        .get_mut(&2)
+        .unwrap()
+        .map_listed = false;
+    let menu = fixture.field_menu();
+    assert!(menu.map_locations().iter().all(|(id, _)| *id != 2));
+    fixture.drawing(15).world_map(&menu)?; // The current-location cursor still uses its shared position.
+    std::sync::Arc::make_mut(&mut fixture.data)
+        .world_map
+        .locations
+        .get_mut(&2)
+        .unwrap()
+        .position = [-400., 6000.];
+    assert!(
+        fixture
+            .drawing(15)
+            .world_map(&fixture.field_menu())
+            .unwrap_err()
+            .to_string()
+            .contains("map position")
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires locally cooked menus; CPU page admission and drawing only"]
 fn optional_battle_menu_text_is_admitted_when_drawn() -> Result<()> {
     use resonance_content::diagnostics::Diagnostics;
@@ -32,8 +93,10 @@ fn optional_battle_menu_text_is_admitted_when_drawn() -> Result<()> {
         .iter_mut()
         .enumerate()
     {
-        if id != usize::from(selected) {
-            tech.as_mut().unwrap().description.push('🙂');
+        if id != usize::from(selected)
+            && let Some(tech) = tech
+        {
+            tech.description.push('🙂');
         }
     }
     for key in ["strategy_title", "unison_title"] {
@@ -374,25 +437,32 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         serde_json::Value::Null,
         serde_json::Value::Bool(false),
         serde_json::json!({"lines":[]}),
-        serde_json::json!({"lines":[[{"kind":"button","sprite":255}]]}),
-        serde_json::json!({"lines":[[{"kind":"text","text":"Use","color":255}]]}),
+        serde_json::json!([{"button":"unknown"}]),
+        serde_json::json!([{"color":"unknown"},"Use"]),
     ] {
-        let mut document = serde_json::to_value(healthy.as_ref())?;
+        let mut document: serde_json::Value = fixture
+            .files
+            .json(resonance_content::menu_data::PRESENTATION_PATH)?;
         if prompt.is_null() {
-            document["presentation"]["items"]
+            document["items"]
                 .as_object_mut()
                 .unwrap()
                 .remove("item_group_prompt");
         } else {
-            document["presentation"]["items"]["item_group_prompt"] = prompt;
+            document["items"]["item_group_prompt"] = prompt;
         }
         for key in ["confirm_discard", "discarded", "transformed"] {
-            document["presentation"]["labels"]
-                .as_object_mut()
-                .unwrap()
-                .remove(key);
+            document["labels"].as_object_mut().unwrap().remove(key);
         }
-        let data = MenuData::decode(&serde_json::to_vec(&document)?, &Diagnostics::new(false))?;
+        let mut files = resonance_content::prepared::Files::new(Diagnostics::new(false));
+        for (path, bytes) in fixture.files.iter() {
+            files.insert(path.clone(), bytes.clone());
+        }
+        files.insert(
+            resonance_content::menu_data::PRESENTATION_PATH.into(),
+            serde_json::to_vec(&document)?.into(),
+        );
+        let data = MenuData::load(&files)?;
         data.validate_gameplay()?;
         assert_eq!(data.item_text(id)?.name, healthy.item_text(id)?.name);
         fixture.data = std::sync::Arc::new(data);
@@ -537,16 +607,18 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
 fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()> {
     let mut fixture = Fixture::load()?;
     fixture.art.sprites.rects.remove(&Sprite::Recipes);
+    fixture.art.sprites.named_rects.remove(&Sprite::Recipes);
     fixture.art.sprites.names.clear();
     fixture.art.sprites.number_colors.clear();
     fixture.art.sprites.bar_colors.clear();
     fixture.art.sprites.rects.remove(&Sprite::ItemImages);
+    fixture.art.sprites.named_rects.remove(&Sprite::ItemImages);
     fixture
         .art
         .textures
         .get_mut(&MenuArt::PORTRAIT_TEXTURES.start)
         .unwrap()
-        .width = 0;
+        .path = "missing-status-portrait.ktx2".into();
     let atlas = fixture.art.textures[&MenuArt::ATLAS_TEXTURE].clone();
     fixture.art.textures.insert(usize::MAX, atlas);
     let mut world = World::new();

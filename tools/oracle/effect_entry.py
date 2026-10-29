@@ -56,7 +56,7 @@ def completed_condition_visits(state, battle, banks):
     if battle["combat_tick"] == 0:
         return [], []
     common = [(base, bank) for base, bank in banks.items()
-              if bank["path"].endswith("/battle/effects/common.json")]
+              if bank["entry"] == "battle/effects/common/effects.json"]
     if len(common) != 1:
         raise ValueError("ready condition history needs one verified common bank")
     base, bank = common[0]

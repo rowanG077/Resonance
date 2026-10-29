@@ -37,6 +37,7 @@ impl FieldCapture {
         let (mut app, _) = crate::build_app_with_display(
             RunOptions {
                 assets: root.into(),
+                mods: Vec::new(),
                 script_root: None,
                 capture: Some(output.into()),
                 presentation_start: None,
@@ -125,6 +126,9 @@ pub struct ClassroomProbe {
     pub approach_settle_ticks: u32,
     pub settle_ticks: u32,
     pub interaction_actor: Option<i32>,
+    /// Start an existing confirmed scene trigger after positioning the observer.
+    #[serde(default)]
+    pub trigger: Option<u32>,
     /// Appearance applied after the real interaction reaches its captured state.
     #[serde(default)]
     pub preferences: Option<resonance_content::menu_data::CustomizeSettings>,
@@ -170,6 +174,12 @@ impl ClassroomProbe {
                 pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             })?;
+        }
+        if let Some(trigger) = self.trigger {
+            ensure!(
+                session.events.trigger(trigger, true)?,
+                "probe trigger did not start"
+            );
         }
         for _ in 0..self.settle_ticks {
             session.step(FieldInput::default())?;

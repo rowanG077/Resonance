@@ -128,7 +128,8 @@ pub fn prepare(
 ) -> Result<PreparedSpell> {
     let catalogue = canonical(catalogue);
     let scene_id = scene(catalogue).context("unknown ground spell")?;
-    let scene: battle_scene::Scene = files.json(&battle_scene::path(scene_id))?;
+    let scene =
+        battle_scene::document::load(files, battle_scene::document::Kind::Technique, scene_id)?;
     scene.validate()?;
     if let Some(recipe) = &scene.spell_recipe {
         return super::pattern_spells::prepare(files, &scene, recipe, bank, resources);

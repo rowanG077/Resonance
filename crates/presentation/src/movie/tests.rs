@@ -3,7 +3,7 @@ use super::*;
 use crate::{Art, Clock, FieldAssets, Menu};
 use resonance_events::input::{Button, Buttons};
 use resonance_game::TitleState;
-use std::{path::PathBuf, thread};
+use std::{fs, path::PathBuf, thread};
 
 #[test]
 #[ignore = "requires cooked opening/classroom movies; no window or audio device"]
@@ -79,18 +79,13 @@ fn subtitles_follow_media_time_when_video_is_held() {
     let mut movie = Playback {
         active: true,
         presented_frame: Some(5),
-        asset: Some(MovieAsset {
-            audio_track: 0,
-            version: 2,
-            path: "movies/test.mkv".into(),
-            sha256: "0".repeat(64),
+        final_frame: Some(99),
+        asset: Some(Format {
             width: 640,
             height: 480,
-            frames: 100,
-            frame_micros: 33367,
+            frame_duration: Duration::from_micros(33367),
             sample_rate: 32028,
-            channels: 2,
-            audio_frames: 106868,
+            audio_frames: Some(106868),
         }),
         ..Default::default()
     };
@@ -117,7 +112,8 @@ pub(crate) fn fixture() -> App {
         record_title_ticks: 1000,
         ..crate::test_support::run_options(&root)
     };
-    let mut movie = Playback::load(&root, &options).expect("cook-all first");
+    let library = resonance_content::library::Library::open(&root, &[]).expect("cook-all first");
+    let mut movie = Playback::load(&library, &options).expect("cook-all first");
     let asset = movie.asset.as_ref().unwrap();
     let mut images = Assets::<Image>::default();
     movie.texture = images.add(Image::new(
@@ -136,7 +132,9 @@ pub(crate) fn fixture() -> App {
         source: movie.texture.clone(),
         opacity_pulse: Vec4::X,
     });
-    let manifest = serde_json::from_slice(&fs::read(root.join("title.json")).unwrap()).unwrap();
+    let (title, _) =
+        resonance_content::startup::capture(&mut library.snapshot(), false, &|| false).unwrap();
+    let manifest = title.artwork;
     let mut field = FieldAssets::default();
     field.ready = true;
     let audio = crate::audio::PlaybackAssets::load(
@@ -509,4 +507,69 @@ fn new_game_confirm_opens_script_movie_and_preserves_the_field_session() {
             .count(),
         0
     );
+}
+
+#[test]
+fn named_opening_prepares_short_unknown_lengths_and_preserves_cancellation() -> Result<()> {
+    use resonance_content::library::Library;
+    let root = tempfile::tempdir()?;
+    fs::create_dir(root.path().join("movies"))?;
+    fs::write(
+        root.path().join("content.json"),
+        br#"{"version":94,"game":"tales-of-symphonia"}"#,
+    )?;
+    fs::write(
+        root.path().join("movies/mappings.json"),
+        br#"{"0":"short.mkv"}"#,
+    )?;
+    let mut writer = resonance_media::encode::MovieWriter::new(
+        fs::File::create(root.path().join("movies/short.mkv"))?,
+        16,
+        16,
+        40000,
+        8000,
+    )?;
+    writer.video(&vec![19; 16 * 16 * 3], Duration::ZERO)?;
+    writer.audio(&vec![3700; 640])?;
+    writer.finish()?;
+    let library = Library::open(root.path(), &[])?;
+    assert!(Prepared::capture(&mut library.snapshot(), 0, || true).is_err());
+    let calls = std::cell::Cell::new(0);
+    let error = Prepared::capture(&mut library.snapshot(), 0, || {
+        calls.set(calls.get() + 1);
+        calls.get() > 1
+    })
+    .err()
+    .context("cancellation after stream admission was ignored")?;
+    assert!(error.to_string().contains("cancelled"));
+    let prepared = Prepared::capture(&mut library.snapshot(), 0, || false)?;
+    assert_eq!(prepared.decoder.format().audio_frames, None);
+    assert_eq!(
+        prepared
+            .events
+            .iter()
+            .filter(|event| matches!(event, MovieEvent::Video(_)))
+            .count(),
+        1
+    );
+    let samples: usize = prepared
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            MovieEvent::Audio(chunk) => Some(chunk.samples.len()),
+            _ => None,
+        })
+        .sum();
+    assert_eq!(samples, 640);
+    let options = RunOptions {
+        skip_intro: false,
+        ..crate::test_support::run_options(root.path())
+    };
+    let movie = Playback::load(&library, &options)?;
+    assert!(movie.active);
+    assert_eq!(movie.asset.unwrap().sample_rate, 8000);
+    assert_eq!(movie.video_timestamps()?, [Duration::ZERO]);
+    // The public title loader uses only named entry points and current stream
+    // facts. No movies/0.json, recorded hash or frame count exists in this fixture.
+    Ok(())
 }

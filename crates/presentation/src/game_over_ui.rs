@@ -214,7 +214,6 @@ mod tests {
     use super::*;
     fn font() -> BitmapFont {
         BitmapFont {
-            version: 1,
             texture: String::new(),
             width: 64,
             height: 64,
@@ -230,8 +229,6 @@ mod tests {
                     )
                 })
                 .into(),
-            source_sha256: String::new(),
-            executable_sha256: String::new(),
         }
     }
 

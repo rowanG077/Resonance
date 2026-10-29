@@ -1,0 +1,47 @@
+[
+  {
+    "source": 519,
+    "members": [
+      520,
+      521
+    ],
+    "media": "meshes/props/ymir-forest",
+    "outlined_animation_owner": "characters/elf-guard"
+  },
+  {
+    "source": 475,
+    "members": [
+      477
+    ],
+    "media": "",
+    "source_documents": true
+  },
+  {
+    "source": 495,
+    "members": [
+      496,
+      497
+    ],
+    "media": "",
+    "source_documents": true
+  },
+  {
+    "source": 511,
+    "members": [
+      512,
+      517
+    ],
+    "media": "",
+    "source_documents": true,
+    "include_source": true
+  },
+  {
+    "source": 80,
+    "members": [
+      475
+    ],
+    "media": "",
+    "source_documents": true,
+    "include_source": true
+  }
+]

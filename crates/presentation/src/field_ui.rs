@@ -56,7 +56,9 @@ use coverage::Coverage;
 use resonance_content::font::{BitmapFont, DialogueArt};
 use resonance_events::dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, TextToken, flags};
 use resonance_game::{dialogue::DialoguePlayer, field::FieldSession};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::collections::BTreeMap;
+#[cfg(test)]
+use std::fs;
 pub(super) use world::Artwork as WorldArtwork;
 
 /// Decode before activation. Callers decide whether failure is fatal or optional.
@@ -66,27 +68,24 @@ fn ui_image(
     repeat: bool,
     read: &impl Fn(&str) -> Result<Vec<u8>>,
 ) -> Result<Image> {
-    use bevy::image::{CompressedImageFormats, ImageType};
-    let extension = path
-        .rsplit_once('.')
-        .context("UI image has no extension")?
-        .1;
     let address = if repeat {
         ImageAddressMode::Repeat
     } else {
         ImageAddressMode::ClampToEdge
     };
-    let image = Image::from_buffer(
-        &read(path)?,
-        ImageType::Extension(extension),
-        CompressedImageFormats::NONE,
-        false,
-        ImageSampler::Descriptor(ImageSamplerDescriptor {
-            address_mode_u: address,
-            address_mode_v: address,
-            ..ImageSamplerDescriptor::linear()
-        }),
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    let image = crate::texture::decode(
+        path,
+        &ImageLoaderSettings {
+            is_srgb: false,
+            sampler: ImageSampler::Descriptor(ImageSamplerDescriptor {
+                address_mode_u: address,
+                address_mode_v: address,
+                ..ImageSamplerDescriptor::linear()
+            }),
+            asset_usage: RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+            ..default()
+        },
+        read,
     )
     .with_context(|| format!("UI image {path}"))?;
     anyhow::ensure!(
@@ -270,26 +269,14 @@ pub(super) struct MenuOverlay {
     artwork: menu::MenuArtwork,
 }
 impl MenuOverlay {
-    pub fn load(
-        root: &Path,
-        server: &AssetServer,
-        materials: &mut Assets<Surface>,
-        diagnostics: &resonance_content::diagnostics::Diagnostics,
-    ) -> Result<Self> {
-        Self::load_with(
-            |path| Ok(fs::read(root.join(path))?),
-            server,
-            materials,
-            diagnostics,
-        )
-    }
     pub fn load_with(
         read: impl Fn(&str) -> Result<Vec<u8>>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
-        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        let mut dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        dialogue.prepare_images(&read)?;
         dialogue.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
         font.validate()?;
@@ -454,6 +441,7 @@ impl Artwork {
     pub fn load_with(
         field: &resonance_content::field::FieldAssets,
         session: std::sync::Arc<resonance_content::session::SessionData>,
+        skits: std::sync::Arc<resonance_content::skit::SkitCatalog>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
@@ -461,6 +449,7 @@ impl Artwork {
     ) -> Result<Self> {
         let mut art = Self::load_shared(
             files,
+            skits,
             session.experience.clone().into(),
             &field.overlays,
             server,
@@ -468,7 +457,7 @@ impl Artwork {
             image_assets,
         )?;
         art.subtitles = subtitle_cues(files)?;
-        if files.contains_key(resonance_content::credits::PATH) {
+        if resonance_content::credits::Manifest::captured(files) {
             art.credits = Some(credits::Artwork::load(
                 files,
                 &art.font,
@@ -477,10 +466,26 @@ impl Artwork {
                 materials,
             )?);
         }
+        {
+            let game_over = resonance_game::game_over::Assets::from_prepared(files.clone())?;
+            for path in [&game_over.art.background.path, &game_over.font.texture] {
+                if files.contains_key(path) {
+                    art.images.push(
+                        server
+                            .load_builder()
+                            .with_settings(|settings: &mut ImageLoaderSettings| {
+                                settings.is_srgb = false
+                            })
+                            .load(path.clone()),
+                    );
+                }
+            }
+        }
         Ok(art)
     }
     fn load_shared(
         files: &resonance_content::prepared::Files,
+        skits: std::sync::Arc<resonance_content::skit::SkitCatalog>,
         experience: std::sync::Arc<[u32]>,
         overlays: &BTreeMap<i32, String>,
         server: &AssetServer,
@@ -488,10 +493,10 @@ impl Artwork {
         image_assets: &mut Assets<Image>,
     ) -> Result<Self> {
         let read = |path: &str| -> Result<Vec<u8>> { Ok(files.read(path)?.to_vec()) };
-        let spec: DialogueArt = serde_json::from_slice(
+        let mut spec: DialogueArt = serde_json::from_slice(
             &read("ui/dialogue.json").context("classroom dialogue art is missing; run cook-all")?,
         )?;
-        spec.validate()?;
+        spec.prepare_images(&read)?;
         let font: BitmapFont = serde_json::from_slice(&read(&spec.font)?)?;
         font.validate()?;
         let mut images: Vec<Handle<Image>> = spec
@@ -543,7 +548,7 @@ impl Artwork {
             &spec.cursor,
             files.diagnostics(),
         )?;
-        let skits = skit::Artwork::load(read, server, materials, &surfaces[9], image_assets)?;
+        let skits = skit::Artwork::load(skits, server, materials, &surfaces[9], image_assets)?;
         let (fade_image, fade_surface) = fade::surface(materials, image_assets);
         images.push(fade_image);
         Ok(Self {
@@ -1978,7 +1983,7 @@ mod tests {
             new_game::Session,
         };
         use bevy::ecs::system::RunSystemOnce;
-        use resonance_content::{diagnostics::Diagnostics, prepared::Files};
+        use resonance_content::diagnostics::Diagnostics;
         use resonance_game::menu::Page;
         use std::sync::{Arc, atomic::Ordering};
         let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
@@ -1986,24 +1991,18 @@ mod tests {
             Into::into,
         );
         for paranoid in [false, true] {
-            let mut files = Files::load_with_diagnostics(
+            let package = Arc::new(crate::new_game::FieldPackage::prepare_with_diagnostics(
                 &root,
-                &["fields/map-332.preload.json"],
+                332,
                 &mut Default::default(),
                 || false,
                 Diagnostics::new(paranoid),
-            )?;
+            )?);
+            let mut files = (*package.files).clone();
             let checkpoint = field_checkpoint(&files)?;
-            let mut session = Session::load_prepared(
-                &root,
-                Arc::new(files.clone()),
-                Some(checkpoint.clone()),
-                None,
-                &mut Default::default(),
-            )?;
+            let mut skit_catalog = (*package.skits).clone();
+            let mut session = Session::load_prepared(package, Some(checkpoint.clone()), None)?;
             session.audio = None;
-            let mut skit_catalog: resonance_content::skit::SkitCatalog =
-                files.json("game/skits.json")?;
             // Obtain a real completion token from a script-owned preview request.
             let program = symphonia_script::Program::decode(
                 &[
@@ -2058,13 +2057,10 @@ mod tests {
             session.audio = None;
             skit_catalog.portraits.get_mut(&portrait).unwrap().images[0].texture =
                 "missing-active-skit.ktx2".into();
-            files.insert(
-                "game/skits.json".into(),
-                serde_json::to_vec(&skit_catalog)?.into(),
-            );
             let mut menu_spec: resonance_content::menu::MenuArt = files.json("ui/menu.json")?;
             let missing = resonance_content::menu::MenuArt::WORLD_MAP_TEXTURES.start;
-            menu_spec.textures.get_mut(&missing).unwrap().width = 0;
+            menu_spec.textures.get_mut(&missing).unwrap().path =
+                "missing-selected-world-map.ktx2".into();
             let unused = resonance_content::menu::MenuArt::PORTRAIT_TEXTURES.end - 1;
             menu_spec.textures.get_mut(&unused).unwrap().path =
                 "missing-unused-menu-portrait.ktx2".into();
@@ -2073,7 +2069,11 @@ mod tests {
                 serde_json::to_vec(&menu_spec)?.into(),
             );
             let mut dialogue_spec: DialogueArt = files.json("ui/dialogue.json")?;
+            // Keep the captured header available to the layout reader while the
+            // real AssetServer below exercises the missing on-disk image.
+            let essential_bytes = files.read(&dialogue_spec.textures[0].path)?;
             dialogue_spec.textures[0].path = "missing-essential-dialogue.ktx2".into();
+            files.insert(dialogue_spec.textures[0].path.clone(), essential_bytes);
             files.insert(
                 "ui/dialogue.json".into(),
                 serde_json::to_vec(&dialogue_spec)?.into(),
@@ -2092,6 +2092,7 @@ mod tests {
             .init_asset::<WorldAsset>()
             .init_asset::<crate::sparse_animation::Clip>()
             .init_asset::<crate::materials::TitleSurface>()
+            .init_asset::<crate::menu_backdrop::Material>()
             .register_asset_loader(bevy::image::ImageLoader::new(
                 bevy::image::CompressedImageFormats::NONE,
             ))
@@ -2104,7 +2105,23 @@ mod tests {
             app.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
             let resident = crate::loading::Resident::default();
             app.insert_resource(resident);
-            app.world_mut().spawn(crate::menu_backdrop::Quad);
+            let backdrop_mesh = app
+                .world_mut()
+                .resource_mut::<Assets<Mesh>>()
+                .add(Rectangle::new(640., 480.));
+            let backdrop_image = app
+                .world_mut()
+                .resource_mut::<Assets<Image>>()
+                .add(Image::default());
+            let backdrop_material = app
+                .world_mut()
+                .resource_mut::<Assets<crate::menu_backdrop::Material>>()
+                .add(crate::menu_backdrop::Material::visible(backdrop_image));
+            app.world_mut().spawn((
+                crate::menu_backdrop::Quad,
+                Mesh2d(backdrop_mesh),
+                MeshMaterial2d(backdrop_material),
+            ));
             let server = app.world().resource::<AssetServer>().clone();
             let field_art = crate::field_view::prepared_test_art(session.field_assets(), &server);
             let mut images = app.world_mut().remove_resource::<Assets<Image>>().unwrap();
@@ -2116,6 +2133,7 @@ mod tests {
             let mut art = Artwork::load_with(
                 session.field_assets(),
                 session.data().clone(),
+                Arc::new(skit_catalog),
                 &server,
                 &mut materials,
                 &mut images,
@@ -2347,7 +2365,7 @@ mod tests {
             assert!(
                 diagnostics.entries()[0]
                     .message
-                    .contains("empty menu texture")
+                    .contains("missing-selected-world-map.ktx2")
             );
             if !paranoid {
                 world.run_system_once(draw).unwrap();
@@ -2398,30 +2416,10 @@ mod tests {
     #[test]
     fn optional_subtitle_loading_keeps_missing_and_corrupt_cues_local_to_error_policy() -> Result<()>
     {
-        use resonance_content::{
-            diagnostics::Diagnostics,
-            field_preload::{SHARED_PATH, Shared, VERSION},
-            prepared::Files,
-        };
-        let root =
-            std::env::temp_dir().join(format!("resonance-subtitle-loading-{}", std::process::id()));
-        fs::create_dir_all(&root)?;
-        fs::write(
-            root.join(SHARED_PATH),
-            serde_json::to_vec(&Shared::<resonance_content::field_preload::File> {
-                version: VERSION,
-                files: BTreeMap::new(),
-            })?,
-        )?;
+        use resonance_content::diagnostics::Diagnostics;
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
-            let mut files = Files::load_with_diagnostics(
-                &root,
-                &[],
-                &mut Default::default(),
-                || false,
-                diagnostics.clone(),
-            )?;
+            let mut files = resonance_content::prepared::Files::new(diagnostics.clone());
             for bytes in [
                 None,
                 Some(b"{".as_slice()),
@@ -2438,19 +2436,30 @@ mod tests {
                     assert!(result?.is_empty());
                 }
             }
-            assert_eq!(diagnostics.entries().len(), 3);
+            assert_eq!(
+                diagnostics
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.occurrences)
+                    .sum::<u64>(),
+                3
+            );
             assert!(
                 diagnostics
                     .entries()
                     .iter()
                     .all(|entry| entry.scope == "movie subtitle cues")
             );
-            files.insert("ui/story-subtitles.json".into(), br#"{"version":1,"movie":1,"cues":[{"frame":1,"lines":[{"position":[0,0],"text":"Ready"}]}]}"#.as_slice().into());
+            files.insert(
+                "ui/story-subtitles.json".into(),
+                br#"[{"frame":1,"lines":[{"position":[0,0],"text":"Ready"}]}]"#
+                    .as_slice()
+                    .into(),
+            );
             let cues = subtitle_cues(&files)?;
             assert_eq!(cues.len(), 1);
             assert_eq!(cues[0].lines[0].text, "Ready");
         }
-        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -2472,13 +2481,10 @@ mod tests {
                               mut meshes: ResMut<Assets<Mesh>>,
                               mut failures: crate::field_view::Failures| {
                             let font = BitmapFont {
-                                version: 1,
                                 texture: "font.png".into(),
                                 width: 1,
                                 height: 1,
                                 line_height: 1,
-                                source_sha256: String::new(),
-                                executable_sha256: String::new(),
                                 glyphs: if missing_mesh {
                                     [(
                                         'A',
@@ -2652,14 +2658,11 @@ mod tests {
         assert!(box_above_speaker(0x80, pointer));
         assert!(!box_above_speaker(0x100, pointer));
         let font = BitmapFont {
-            version: 1,
             texture: String::new(),
             width: 1,
             height: 1,
             line_height: 25,
             glyphs: Default::default(),
-            source_sha256: String::new(),
-            executable_sha256: String::new(),
         };
         let mut batches = std::array::from_fn(|_| Batch::default());
         frame(
@@ -2694,14 +2697,11 @@ mod tests {
         request.speaker_actor = Some(0);
         let player = DialoguePlayer::new(&request, 0)?;
         let font = BitmapFont {
-            version: 1,
             texture: String::new(),
             width: 1,
             height: 1,
             line_height: 25,
             glyphs: BTreeMap::new(),
-            source_sha256: String::new(),
-            executable_sha256: String::new(),
         };
         for resolution in ["640x480", "1920x1080"] {
             let resolution = resolution.parse().unwrap();

@@ -15,6 +15,7 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
         wrap_v: TextureWrap::Clamp,
         nearest_min: false,
         nearest_mag: false,
+        mipmapped: false,
     };
     let first = sampled_image(
         Some((source.clone(), binding.clone())),
@@ -41,6 +42,29 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
             .texture_view_descriptor
             .is_none()
     );
+    binding.mipmapped = true;
+    let mipped = sampled_image(
+        Some((source.clone(), binding.clone())),
+        &mut images,
+        &mut cache,
+    )
+    .unwrap();
+    assert_ne!(first.id(), mipped.id());
+    let derived = images.get(&mipped).unwrap();
+    assert_eq!(
+        derived
+            .texture_view_descriptor
+            .as_ref()
+            .unwrap()
+            .mip_level_count,
+        None
+    );
+    let ImageSampler::Descriptor(sampler) = &derived.sampler else {
+        panic!("material sampler must be explicit");
+    };
+    assert_eq!(sampler.mipmap_filter, ImageFilterMode::Linear);
+    assert_eq!(derived.texture_descriptor.mip_level_count, 2);
+    assert_eq!(derived.data, images.get(&source).unwrap().data);
     binding.wrap_u = TextureWrap::Repeat;
     let distinct = sampled_image(
         Some((source.clone(), binding.clone())),
@@ -57,5 +81,5 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
         fresh.id(),
         "weak cache must release retired bindings"
     );
-    assert_eq!((cache.hits, cache.misses), (1, 3));
+    assert_eq!((cache.hits, cache.misses), (1, 4));
 }

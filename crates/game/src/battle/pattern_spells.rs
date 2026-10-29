@@ -84,18 +84,32 @@ mod tests {
         let root = PathBuf::from(
             std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
-        let mut cache = Default::default();
-        let files = Files::load(&root, &[], &mut cache, || false)?;
-        let mut scene: Scene = files.json(&resonance_content::battle_scene::path(252))?;
-        scene.validate()?;
-        let files = files.with_dependencies(&root, scene.files.clone(), &mut cache, || false)?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        // Ordinary encounter preparation captures these shared contact rules
+        // before selecting any stored scenes.
+        for path in [
+            resonance_content::battle_recoil::PATH,
+            resonance_content::battle_model::document::PARTY,
+        ] {
+            snapshot.read(path, resonance_content::preparation::JSON_LIMIT)?;
+        }
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let (mut scene, source_bank) = resonance_content::battle_scene::document::capture(
+            &mut snapshot,
+            resonance_content::battle_scene::document::Kind::Technique,
+            252,
+            &diagnostics,
+            &|| false,
+        )?;
+        let files = Files::from_snapshot(snapshot, || false, diagnostics)?;
         let bank = EffectResource {
-            bank: Some(Arc::new(files.json(&scene.effects)?)),
             resource: ResourceId(1),
             members: Vec::new(),
-            models: scene
-                .models
+            models: source_bank
+                .art
                 .iter()
+                .flat_map(|art| &art.models)
                 .map(|(&slot, part)| {
                     Ok((
                         slot,
@@ -108,6 +122,7 @@ mod tests {
                     ))
                 })
                 .collect::<Result<_>>()?,
+            bank: Some(Arc::new(source_bank)),
         };
         let mut resources = ActionResources::default();
         let baseline = prepare(

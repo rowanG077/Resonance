@@ -1,7 +1,6 @@
 use super::*;
 use resonance_content::menu_data::{
     COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, CustomizeSettings, FLEXIBLE_BATTLE_PARTY_OPTION,
-    FORGET_ARTE_PATHS_CONFIRMATION, FORGET_ARTES_CONFIRMATION, FORGET_ELEMENTAL_ARTES_CONFIRMATION,
     LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
 };
 
@@ -44,14 +43,14 @@ pub struct Customize {
     pub preview_opacity: u8,
 }
 impl Customize {
-    pub fn forget_confirmation(&self) -> Option<&'static str> {
+    pub fn forget_confirmation_key(&self) -> Option<&'static str> {
         match (
             self.original.learn_elemental_artes && !self.draft.learn_elemental_artes,
             self.original.learn_both_arte_paths && !self.draft.learn_both_arte_paths,
         ) {
-            (true, true) => Some(FORGET_ARTES_CONFIRMATION),
-            (true, false) => Some(FORGET_ELEMENTAL_ARTES_CONFIRMATION),
-            (false, true) => Some(FORGET_ARTE_PATHS_CONFIRMATION),
+            (true, true) => Some("forget_artes"),
+            (true, false) => Some("forget_elemental_artes"),
+            (false, true) => Some("forget_arte_paths"),
             (false, false) => None,
         }
     }
@@ -180,7 +179,7 @@ impl Menu {
         }
         if input == Some(Cancel) {
             if state.focus == Focus::Options {
-                if state.forget_confirmation().is_some() {
+                if state.forget_confirmation_key().is_some() {
                     state.focus = Focus::ForgetArtes { yes: false };
                     return Some(2);
                 }

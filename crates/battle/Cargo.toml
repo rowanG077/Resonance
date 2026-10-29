@@ -8,6 +8,7 @@ license.workspace = true
 test-support = ["dep:serde"]
 
 [dependencies]
+symphonia-constants.workspace = true
 anyhow.workspace = true
 glam.workspace = true
 resonance-content.workspace = true

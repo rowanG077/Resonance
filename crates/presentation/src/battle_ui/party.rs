@@ -507,11 +507,12 @@ mod tests {
         use resonance_content::diagnostics::Diagnostics;
 
         let edit = |document: &mut serde_json::Value| {
-            document["portraits"][0]["path"] = serde_json::json!("ui/dialogue.json");
+            document["portraits"]["lloyd"] = serde_json::json!("ui/dialogue.json");
         };
-        assert!(test_artwork_with(edit, &Diagnostics::new(true)).is_err());
+        let path = resonance_content::battle_ui::document::PATH;
+        assert!(test_artwork_with(path, edit, &Diagnostics::new(true)).is_err());
         let diagnostics = Diagnostics::new(false);
-        let (mut artwork, materials, app) = test_artwork_with(edit, &diagnostics)?;
+        let (mut artwork, materials, app) = test_artwork_with(path, edit, &diagnostics)?;
         assert!(artwork.layers().all(|layer| {
             app.world()
                 .resource::<Assets<Image>>()

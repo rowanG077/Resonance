@@ -68,18 +68,14 @@ impl Drawing<'_> {
                 travel
                     .current_location
                     .filter(|id| id / 256 == u16::from(state.world))
-                    .and_then(|id| map_text.locations.get(&id))
-                    .map(|location| location.point)
+                    .and_then(|id| data.world_map.locations.get(&id))
+                    .map(|location| location.map_point())
             };
         if let Some(point) = current {
             self.map_crosshair(point, [1., 128. / 255., 128. / 255., 1. - alpha])?;
         }
-        if let Some((id, _)) = locations.get(state.location) {
-            let location = map_text
-                .locations
-                .get(id)
-                .context("missing selected map location drawing")?;
-            self.map_crosshair(location.point, [1., 1., 1., alpha])?;
+        if let Some((_, location)) = locations.get(state.location) {
+            self.map_crosshair(location.map_point(), [1., 1., 1., alpha])?;
         }
         self.offset = [left, 0.];
         self.opacity = opacity;
@@ -101,18 +97,14 @@ impl Drawing<'_> {
         let starts = self.vertex_counts();
         let first = state.first_location - usize::from(state.location_scroll > 0);
         let scroll = scroll_offset(state.location_scroll, 26);
-        for (row, (id, _)) in locations
+        for (row, (_, location)) in locations
             .iter()
             .skip(first)
             .take(LOCATION_ROWS + usize::from(state.location_scroll != 0))
             .enumerate()
         {
             self.text(
-                &map_text
-                    .locations
-                    .get(id)
-                    .context("missing map location caption")?
-                    .name,
+                &location.name,
                 [24., 86. + row as f32 * 26. - scroll as f32],
                 16.,
                 WHITE,

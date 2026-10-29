@@ -1,37 +1,49 @@
 //! Prepared skit availability and notification text, independent of save data.
+use crate::overworld::PartyCharacter;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const TILE_SIZE: u32 = 8;
 pub const MAX_PORTRAITS: usize = 32;
-pub const VERSION: u32 = 3;
+pub mod document;
+pub mod fields;
+pub use fields::{FieldRange, FieldRef};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SkitCatalog {
-    pub version: u32,
     pub skits: Vec<SkitDefinition>,
     /// Catalogue order for the Katz' Village replay service.
     pub preview_order: Vec<u16>,
     /// Cooked VM scenario and message resources keyed by skit ID.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resources: BTreeMap<u16, SkitResourcePaths>,
     #[serde(default)]
     pub portraits: BTreeMap<u32, PortraitAsset>,
-    pub portrait_recipes: Vec<PortraitRecipe>,
+    pub portrait_recipes: BTreeMap<u16, PortraitRecipe>,
     #[serde(default)]
     pub media: BTreeMap<u32, SkitMedia>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkitResourcePaths {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub script: String,
-    pub messages: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<String>,
     /// Authored permission, additionally constrained by the playback caller.
+    #[serde(default = "allow_skip", skip_serializing_if = "is_allowed")]
     pub allow_skip: bool,
     /// Event-only skits have titles but never produce an ambient notification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+}
+
+fn allow_skip() -> bool {
+    true
+}
+fn is_allowed(value: &bool) -> bool {
+    *value
 }
 
 /// Original images stay independent; each portrait maintains its own tile canvas.
@@ -45,12 +57,12 @@ pub struct PortraitImage {
     pub texture: String,
     pub size: [u32; 2],
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PortraitRecipe {
     pub tracks: [Vec<PortraitFrame>; 3],
     pub repeat: [bool; 3],
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PortraitFrame {
     pub ticks: i16,
     pub image: Option<u16>,
@@ -61,48 +73,74 @@ pub struct PortraitTile {
     pub image: u16,
     pub block: u32,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SkitMedia {
     /// Silent timing tracks need no audio payload. Cooking verifies their PCM.
     pub voice: Option<crate::field_audio::Voice>,
     pub frames: u32,
     pub sample_rate: u32,
-    pub source_sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SkitDefinition {
     pub id: u16,
     pub title: String,
+    pub trigger: SkitTrigger,
     /// Inclusive story-counter range; None means any story progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub story: Option<[i32; 2]>,
-    pub party_mask: u16,
+    /// Every listed character must be in the active formation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub party: Vec<PartyCharacter>,
+    #[serde(default, skip_serializing_if = "SkitLocation::is_anywhere")]
     pub location: SkitLocation,
+    #[serde(default, skip_serializing_if = "SkitCondition::is_unconditional")]
     pub condition: SkitCondition,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SkitLocation {
-    Anywhere,
-    Map(u16),
-    Field,
-    Overworld(Option<u8>),
+pub enum SkitTrigger {
+    Entry,
+    Exploration,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkitLocation {
+    #[default]
+    Anywhere,
+    #[serde(rename = "field")]
+    Map(FieldRef),
+    #[serde(rename = "any_field")]
+    Field,
+    Overworld,
+    Sylvarant,
+    TetheAlla,
+}
+
+impl SkitLocation {
+    fn is_anywhere(&self) -> bool {
+        matches!(self, Self::Anywhere)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkitCondition {
+    #[default]
     None,
     /// A catalogue entry that never announces itself; explicit playback still works.
     Never,
-    Maps([u16; 2]),
+    #[serde(rename = "fields")]
+    Maps(FieldRange),
     All(Vec<Self>),
     Any(Vec<Self>),
     Not(Box<Self>),
     Flag(u16),
     Viewed(u16),
-    Member(u8),
+    Member(PartyCharacter),
     Item(u16),
     Terrain(crate::overworld::Terrain),
     Range {
@@ -117,14 +155,19 @@ pub enum SkitCondition {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkitValue {
+    /// Saved story counter used by the prompt's story range too.
+    StoryProgress,
+    /// Saved world side: zero is Sylvarant, one is Tethe'alla.
+    WorldSide,
+    #[serde(rename = "global_word")]
     Global(u8),
     Gald,
-    AffinityRank(u8),
-    Level(u8),
-    BattleParticipation(u8),
+    AffinityRank(PartyCharacter),
+    Level(PartyCharacter),
+    BattleParticipation(PartyCharacter),
     Battles,
-    HeadgearCategory(u8),
-    Title(u8),
+    HeadgearCategory(PartyCharacter),
+    Title(PartyCharacter),
     RingMode,
     /// Nominal 60 Hz clocks, expressed in whole seconds.
     ExplorationSeconds,
@@ -133,6 +176,10 @@ pub enum SkitValue {
 }
 
 impl SkitCondition {
+    fn is_unconditional(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
     pub fn validate(&self) -> Result<()> {
         match self {
             Self::All(conditions) | Self::Any(conditions) => {
@@ -142,9 +189,11 @@ impl SkitCondition {
                 }
             }
             Self::Not(condition) => condition.validate()?,
-            Self::Maps([start, end]) => ensure!(start <= end, "inverted skit map range"),
+            Self::Maps(range) => ensure!(
+                range.from.id()? <= range.through.id()?,
+                "inverted skit field range"
+            ),
             Self::Viewed(id) => ensure!((1..=860).contains(id), "invalid viewed skit"),
-            Self::Member(id) => ensure!((1..=9).contains(id), "invalid skit party member"),
             Self::Range { value, min, max } => {
                 ensure!(min.is_some() || max.is_some(), "unbounded skit condition");
                 ensure!(
@@ -153,13 +202,10 @@ impl SkitCondition {
                 );
                 match value {
                     SkitValue::AffinityRank(id) => {
-                        ensure!((2..=9).contains(id), "invalid affinity member")
-                    }
-                    SkitValue::Level(id)
-                    | SkitValue::BattleParticipation(id)
-                    | SkitValue::HeadgearCategory(id)
-                    | SkitValue::Title(id) => {
-                        ensure!((1..=9).contains(id), "invalid skit party member");
+                        ensure!(
+                            *id != PartyCharacter::Lloyd,
+                            "Lloyd is excluded from affinity ranking"
+                        )
                     }
                     _ => {}
                 }
@@ -172,7 +218,6 @@ impl SkitCondition {
 
 impl SkitCatalog {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == VERSION, "unsupported skit catalog");
         ensure!(self.skits.len() <= 512, "too many skit definitions");
         ensure!(
             self.preview_order
@@ -180,26 +225,30 @@ impl SkitCatalog {
                 .all(|id| self.resources.contains_key(id)),
             "skit replay catalogue references an unavailable script"
         );
-        let mut previous = 0;
+        let mut ids = BTreeSet::new();
         for skit in &self.skits {
             ensure!(
-                skit.id > previous
-                    && ((1..120).contains(&skit.id) || (600..859).contains(&skit.id))
+                ids.insert(skit.id)
+                    && (1..=860).contains(&skit.id)
                     && !skit.title.is_empty()
                     && skit.title.chars().count() <= 80
                     && !skit.title.chars().any(char::is_control)
                     && skit.story.is_none_or(|[start, end]| start <= end)
-                    && skit.party_mask & !0x3fe == 0
-                    && !matches!(skit.location, SkitLocation::Overworld(Some(2..))),
+                    && skit
+                        .party
+                        .iter()
+                        .enumerate()
+                        .all(|(i, member)| !skit.party[..i].contains(member)),
                 "invalid skit definition {}",
                 skit.id
             );
             skit.condition.validate()?;
-            previous = skit.id;
         }
         for (&id, resource) in &self.resources {
             crate::validate_asset_path(&resource.script)?;
-            crate::validate_asset_path(&resource.messages)?;
+            if let Some(path) = &resource.messages {
+                crate::validate_asset_path(path)?;
+            }
             ensure!((1..=860).contains(&id), "invalid skit resource {id}");
             ensure!(
                 resource.title.as_ref().is_none_or(

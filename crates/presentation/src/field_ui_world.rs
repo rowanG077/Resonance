@@ -13,6 +13,7 @@ pub(crate) struct Artwork {
 impl Artwork {
     pub fn load(
         files: &resonance_content::prepared::Files,
+        skits: std::sync::Arc<resonance_content::skit::SkitCatalog>,
         server: &AssetServer,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
@@ -21,9 +22,12 @@ impl Artwork {
     ) -> Result<Self> {
         let mut common = super::Artwork::load_shared(
             files,
+            skits,
             files
-                .json::<resonance_content::session::SessionData>("game/session-data.json")?
-                .experience
+                .json::<resonance_content::characters::Document>(
+                    resonance_content::characters::PATH,
+                )?
+                .experience_curve()?
                 .into(),
             &BTreeMap::new(),
             server,
