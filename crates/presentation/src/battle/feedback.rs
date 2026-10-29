@@ -152,6 +152,20 @@ impl Feedback {
                         priority: 1,
                         position: owner.audio_position(),
                     }));
+                    if let Some(sound) = self
+                        .resources
+                        .actors
+                        .get(actor.index())
+                        .and_then(|actor| actor.acquisition_voice)
+                    {
+                        cues.push(Cue::Voice {
+                            actor,
+                            sound,
+                            priority: VoicePriority::Announcement,
+                            position: owner.audio_position(),
+                            centered: false,
+                        });
+                    }
                 }
                 Cue::TargetChanged { .. } => {
                     cues.extend(
