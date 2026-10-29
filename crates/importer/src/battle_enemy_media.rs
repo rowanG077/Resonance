@@ -1214,7 +1214,16 @@ pub fn cook_battle_enemy_media_group(root: &Path, library: &Path, ids: &[u8]) ->
     let mut seen = BTreeSet::new();
     let mut ids = ids.to_vec();
     ids.sort_unstable();
-    for id in ids {
+    let total = ids.len();
+    for (index, id) in ids.into_iter().enumerate() {
+        eprintln!(
+            "[enemy media {}/{}] {} ({id})",
+            index + 1,
+            total,
+            MonsterId::try_from(id)?
+                .resource_name()
+                .unwrap_or("unnamed")
+        );
         ensure!(seen.insert(id), "battle enemy {id} is selected twice");
         let files = convert(&mut packages, id, &mut motions, library)?;
         ensure!(

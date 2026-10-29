@@ -29,10 +29,12 @@ pub fn cook_music(root: &Path, library: &Path, selected: Option<u16>) -> Result<
     fs::create_dir_all(&output)?;
     let mut rendered = BTreeSet::new();
     let mut mappings = BTreeMap::new();
-    for (id, (name, source)) in songs {
+    let total = songs.len();
+    for (index, (id, (name, source))) in songs.into_iter().enumerate() {
         if rendered.insert(name.clone()) {
             let target = output.join(format!("{name}.wav"));
             if selected.is_some() || !target.is_file() {
+                eprintln!("[music {}/{}] Rendering {name} ({id})", index + 1, total);
                 let setup = bank.music_setup(0, id)?;
                 let preset = dol::slice(&exe, REVERB_SELECTORS + u32::from(id), 1)?[0];
                 let effects = match preset {
@@ -96,6 +98,7 @@ fn cook_unmapped(
     ] {
         let target = output.join(name);
         if !target.is_file() {
+            eprintln!("[music] Rendering unmapped {name}");
             render_song(
                 &disc.join("files/S").join(source),
                 &target,

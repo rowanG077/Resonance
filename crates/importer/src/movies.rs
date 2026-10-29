@@ -7,7 +7,7 @@ use std::{
     fs,
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const SIGNATURE: &[u8; 16] = b"HVQM4 1.5\0\0\0\0\0\0\0";
@@ -108,9 +108,10 @@ pub fn cook_movies(root: &Path, library: &Path, selected: Option<u32>) -> Result
     }
     fs::create_dir_all(&output)?;
     let mut converted = BTreeSet::new();
-    for (_, (movie, source)) in &sources {
+    for (index, (_, (movie, source))) in sources.iter().enumerate() {
         let name = movie_name(source)?;
         if converted.insert(name) {
+            eprintln!("[movies {}/{}] {name}", index + 1, sources.len());
             convert_movie(
                 movie,
                 &root.join("disc1/sys/main.dol"),
@@ -255,6 +256,8 @@ fn decode_video(movie: &Path, output: &Path, header: &Header) -> Result<()> {
     )?;
     let mut target = fs::File::create(output)?;
     let mut seen = vec![false; header.frames as usize];
+    let mut completed = 0;
+    let mut progress = Instant::now();
     while let Some(frame) = decoder.next_frame()? {
         let index = frame.display_index() as usize;
         ensure!(
@@ -271,6 +274,15 @@ fn decode_video(movie: &Path, output: &Path, header: &Header) -> Result<()> {
             target.write_all(plane.data())?;
         }
         seen[index] = true;
+        completed += 1;
+        if progress.elapsed() >= Duration::from_secs(10) || completed == header.frames {
+            eprintln!(
+                "[movie] {}: decoded {completed}/{} frames",
+                movie.display(),
+                header.frames
+            );
+            progress = Instant::now();
+        }
     }
     ensure!(
         seen.iter().all(|&present| present),
@@ -294,6 +306,11 @@ fn decode_audio(
     let mut tracks = Vec::new();
     let mut paths = Vec::new();
     for stream in 1..=header.audio_streams {
+        eprintln!(
+            "[movie] {}: audio track {stream}/{}",
+            movie.display(),
+            header.audio_streams
+        );
         let mut decoder = h4m::AudioDecoder::new(BufReader::new(fs::File::open(movie)?), stream)?;
         let info = decoder.metadata();
         ensure!(
@@ -372,6 +389,7 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
     let mut raw = vec![0; header.frame_bytes()];
     let mut rgb = vec![0; header.width * header.height * 3];
     let mut video_index = 0u32;
+    let mut progress = Instant::now();
     let mut audio_indices = vec![0u64; audio_tracks.len()];
     loop {
         let audio = audio_tracks
@@ -412,6 +430,14 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
                 Duration::from_micros(u64::from(video_index) * u64::from(header.frame_micros)),
             )?;
             video_index += 1;
+            if progress.elapsed() >= Duration::from_secs(10) || video_index == header.frames {
+                eprintln!(
+                    "[movie] {}: encoded {video_index}/{} frames",
+                    destination.display(),
+                    header.frames
+                );
+                progress = Instant::now();
+            }
         } else {
             break;
         }
