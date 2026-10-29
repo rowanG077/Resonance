@@ -601,8 +601,8 @@ pub(super) struct State {
 impl State {
     pub(super) fn event_audio_levels(&self) -> [u8; 2] {
         [
-            (u16::from(self.settings.effects) * u16::from(self.settings.battle_effects) / 127)
-                as u8,
+            // Scripted scene cues use SE, independently of positioned combat SE.
+            self.settings.effects,
             self.field.levels[2],
         ]
     }
