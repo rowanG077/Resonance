@@ -55,7 +55,7 @@ fn publish_named_title_fields_fixture() -> Result<()> {
 fn publish_complete_named_battle_fixture() -> Result<()> {
     let output = directory("RESONANCE_NAMED_BATTLE_ASSETS")?;
     let extracted = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
-    resonance_importer_vnext::cook_all(&extracted, &output)?;
+    resonance_importer::cook_all(&extracted, &output)?;
     Ok(())
 }
 

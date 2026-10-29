@@ -59,7 +59,7 @@ fn main() -> Result<()> {
             std::io::stdin().read_to_end(&mut bytes)?;
             println!(
                 "{}",
-                resonance_importer_vnext::inspect_effect_templates(&bytes)?
+                resonance_importer::inspect_effect_templates(&bytes)?
             );
         }
         Action::BindFixtureMotion {
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         } => {
             println!(
                 "{}",
-                resonance_importer_vnext::bind_fixture_motion(
+                resonance_importer::bind_fixture_motion(
                     &extracted,
                     &package,
                     package_clip,
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
             );
         }
         Action::CookAll { extracted, output } => {
-            resonance_importer_vnext::cook_all(&extracted, &output)?;
+            resonance_importer::cook_all(&extracted, &output)?;
             println!("Cooked assets: {}", output.display());
         }
         Action::Extract { disc, output } => extract(&disc, &output)?,

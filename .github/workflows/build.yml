@@ -69,7 +69,7 @@ jobs:
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
-          cargo test --locked --release -p resonance-importer-vnext --lib
+          cargo test --locked --release -p resonance-importer --lib
           cargo test --locked --release -p resonance-audio-cook --lib interpolation::tests::
           cargo test --locked --release -p resonance-import-cli
           cargo test --locked --release -p resonance-playback --lib

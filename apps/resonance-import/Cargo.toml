@@ -7,7 +7,7 @@ license.workspace = true
 name = "resonance-import"
 path = "src/main.rs"
 [dependencies]
-resonance-importer-vnext.workspace = true
+resonance-importer.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 nod = "=2.0.0-alpha.9"

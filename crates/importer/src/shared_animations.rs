@@ -344,7 +344,7 @@ pub(crate) fn track_names(
 
 fn encode(extracted: &Path, library: &Path, native: &[u8], id: u32, name: &str) -> Result<Vec<u8>> {
     let Some(glb) =
-        reference(library, name).with_context(|| format!("read vnext owner rig for {name}"))?
+        reference(library, name).with_context(|| format!("read owner rig for {name}"))?
     else {
         return unassigned(native);
     };

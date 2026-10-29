@@ -49,7 +49,7 @@ every recovered scene or native function.
 For a focused native field-core conversion during development:
 
 ```sh
-cargo run -p resonance-importer-vnext -- field-core local/extracted local/field-review 330
+cargo run -p resonance-importer -- field-core local/extracted local/field-review 330
 ```
 
 This writes the selected field’s script, messages and collision mesh, including
