@@ -11,3 +11,4 @@ resonance-importer.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 nod = "=2.0.0-alpha.9"
+tempfile = "3"

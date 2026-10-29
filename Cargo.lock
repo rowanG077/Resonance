@@ -4461,6 +4461,7 @@ dependencies = [
  "clap",
  "nod",
  "resonance-importer",
+ "tempfile",
 ]
 
 [[package]]

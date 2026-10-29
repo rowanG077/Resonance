@@ -1,28 +1,39 @@
 # Asset cooking
 
-`resonance-import cook-all` converts the supported North American GameCube
-GQSEAF revision 0 data into one editable asset library. The command uses
-`crates/importer`; it has no legacy fallback.
-
-Start from the disc images when `local/extracted` is absent, including after
-clearing `local/`:
+`resonance-import DISC_1 DISC_2` converts the supported North American
+GameCube GQSEAF revision 0 disc images into one editable asset library. The
+command uses `crates/importer`; it has no legacy fallback.
 
 ```sh
-cargo build --release -p resonance-import-cli
+cargo run --release -p resonance-import-cli -- /path/to/Disc1.rvz /path/to/Disc2.rvz
+```
+
+Output defaults to `local/all-assets`, matching the engine's default asset path.
+Use `--output DIRECTORY` for another fresh destination. There is no prerequisite
+`local/extracted` directory. Existing nonempty output is rejected before reading
+the discs, so an accidental retry does not redo extraction or overwrite mods.
+
+Disc 1 is primary. Only five additional event-speech archives and four story
+movies are read from disc 2. Shared assets cook once and the
+disc-1 opening wins. Disc order and the supported edition are checked.
+
+The command temporarily extracts native files because the current decoders use
+ordinary file paths, with seekable archives for speech and movies. This is source
+input, not an intermediate cooked format. A temporary directory owns these
+files and removes them on success or failure; nothing is retained under
+`local/extracted` and no extraction cache or freshness check is introduced.
+
+For focused development work, explicit extraction and `cook-all` remain available:
+
+```sh
 target/release/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
 target/release/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
 target/release/resonance-import cook-all
 ```
 
-`cook-all` converts an existing extraction; it does not find or extract disc
-images automatically. Its defaults are `--extracted local/extracted` and
-`--output local/all-assets`, matching the engine's default asset path.
-
-The extraction root contains `disc1/sys/main.dol` and `disc1/files/`. Disc 1 is
-primary. The optional `disc2/files/` supplement needs only five additional event
-speech archives and four story movies, listed in the plan. Shared assets cook
-once; a complete second extraction is unnecessary. The disc-1 opening wins.
-Missing required supplemental files fail with their specific path.
+`cook-all` uses `--extracted local/extracted` and `--output local/all-assets` by
+default. Category commands in `resonance-importer` can reuse that extraction
+without reading disc images again.
 
 ## Conversion and publication
 
