@@ -1746,7 +1746,7 @@ impl Model {
         advance: bool,
         carried_advance: bool,
     ) -> Result<()> {
-        self.step_with_phases(actor, advance, advance, carried_advance)
+        self.step_with_phases(actor, advance, advance, carried_advance, advance)
     }
 
     fn step_with_phases(
@@ -1755,6 +1755,7 @@ impl Model {
         advance_pose: bool,
         advance_presentation: bool,
         carried_advance: bool,
+        secondary_advance: bool,
     ) -> Result<()> {
         if advance_presentation && actor.available() {
             self.blink_ticks = (self.blink_ticks + 1) % BLINK_PERIOD_TICKS;
@@ -1763,7 +1764,12 @@ impl Model {
             self.shown.texture_tick += 1;
         }
         self.sample_pose(advance_pose)?;
-        self.present(actor, advance_presentation, carried_advance)
+        self.present(
+            actor,
+            advance_presentation,
+            carried_advance,
+            secondary_advance,
+        )
     }
 
     fn sample_for_geometry(&mut self, actor: &Actor, advance: bool) -> Result<()> {
@@ -1820,8 +1826,14 @@ impl Model {
         }
     }
 
-    fn present(&mut self, actor: &Actor, advance: bool, carried_advance: bool) -> Result<()> {
-        self.present_body(actor, Some(advance))?;
+    fn present(
+        &mut self,
+        actor: &Actor,
+        advance: bool,
+        carried_advance: bool,
+        secondary_advance: bool,
+    ) -> Result<()> {
+        self.present_body(actor, Some(secondary_advance))?;
         for weapon in &mut self.weapons {
             weapon.step_with_clocks(&self.shown, advance, carried_advance)?;
         }
@@ -1935,7 +1947,7 @@ impl ModelSampler {
         model.shown.clip = sample.clip;
         model.shown.frame = sample.frame;
         model.shown.blend_weight = sample.blend_weight;
-        model.present(actor, advance, advance)?;
+        model.present(actor, advance, advance, advance)?;
         model.sample_shadow(actor);
         Ok((model.shown.clone(), model.weapon_frames()))
     }
