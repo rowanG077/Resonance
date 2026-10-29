@@ -258,7 +258,9 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
     let fields: BTreeMap<u32, String> =
         serde_json::from_slice(&fs::read(library.join("fields/mappings.json"))?)?;
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
-    for (id, name) in fields {
+    let total = fields.len();
+    for (index, (id, name)) in fields.into_iter().enumerate() {
+        eprintln!("[local rigs {}/{}] {name} ({id})", index + 1, total);
         let actors: Actors = serde_json::from_slice(
             &fs::read(library.join(format!("fields/{name}/actors.json")))
                 .with_context(|| format!("read field {id} ({name}) actors"))?,

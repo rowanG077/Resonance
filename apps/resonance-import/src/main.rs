@@ -165,6 +165,12 @@ fn extract(disc_path: &Path, output: &Path, expected_disc: Option<u8>) -> Result
         }
     }
     let fst = meta.fst().map_err(anyhow::Error::msg)?;
+    let total = fst
+        .iter()
+        .filter(|(_, node, name)| {
+            node.is_file() && (!supplement_only || SUPPLEMENT.contains(&name.as_str()))
+        })
+        .count();
     let mut count = 0;
     for (_, node, name) in fst.iter() {
         if !node.is_file() || supplement_only && !SUPPLEMENT.contains(&name.as_str()) {
@@ -179,10 +185,13 @@ fn extract(disc_path: &Path, output: &Path, expected_disc: Option<u8>) -> Result
         );
         let mut bytes = Vec::new();
         partition.open_file(node)?.read_to_end(&mut bytes)?;
-        let target = output.join("files").join(name);
+        let target = output.join("files").join(&name);
         fs::create_dir_all(target.parent().expect("file has a parent"))?;
         fs::write(target, bytes)?;
         count += 1;
+        if count % 100 == 0 || count == total {
+            eprintln!("[extract {count}/{total}] {}: {name}", disc_path.display());
+        }
     }
     ensure!(
         !supplement_only || count == SUPPLEMENT.len(),

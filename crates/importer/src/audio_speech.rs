@@ -508,7 +508,17 @@ pub(crate) fn event_speech(
         };
         let mut file = fs::File::open(&path)
             .with_context(|| format!("missing GameCube event archive {filename}"))?;
-        for (member, entry) in afs_index(&mut file)?.iter().enumerate() {
+        let members = afs_index(&mut file)?;
+        eprintln!("[speech] {filename}: {} lines", members.len());
+        for (member, entry) in members.iter().enumerate() {
+            if selected.is_none() && member % 100 == 0 {
+                eprintln!(
+                    "[speech {}/{}] {filename}: {}",
+                    member + 1,
+                    members.len(),
+                    entry.name
+                );
+            }
             let id = base | u32::try_from(member)?;
             if selected.is_some_and(|wanted| wanted != id) {
                 continue;
@@ -576,7 +586,16 @@ pub(crate) fn battle_speech(
     );
     let mut owners = BTreeMap::new();
     let mut mappings = BTreeMap::new();
+    eprintln!("[battle speech] {} lines", members.len());
     for (member, entry) in members.iter().enumerate() {
+        if selected.is_none() && member % 100 == 0 {
+            eprintln!(
+                "[battle speech {}/{}] {}",
+                member + 1,
+                members.len(),
+                entry.name
+            );
+        }
         let short = u32::try_from(member)?;
         let full = base | short;
         if selected.is_some_and(|wanted| wanted != short && wanted != full) {

@@ -414,7 +414,16 @@ pub fn cook_battle_enemy_effects_group(root: &Path, library: &Path, ids: &[u8]) 
         "enemy effect ID selected twice"
     );
     let mut equal_media = BTreeMap::<Vec<u8>, String>::new();
-    for id in ids {
+    let total = ids.len();
+    for (index, id) in ids.into_iter().enumerate() {
+        eprintln!(
+            "[enemy effects {}/{}] {} ({id})",
+            index + 1,
+            total,
+            MonsterId::try_from(id)?
+                .resource_name()
+                .unwrap_or("unnamed")
+        );
         let name = MonsterId::try_from(id)?
             .resource_name()
             .context("enemy has no name")?;

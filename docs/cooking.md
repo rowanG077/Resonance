@@ -35,6 +35,21 @@ target/release/resonance-import cook-all
 default. Category commands in `resonance-importer` can reuse that extraction
 without reading disc images again.
 
+Progress is always written to stderr. Stage lines identify the active converter;
+field, battle and rig passes include resource names or IDs and item counts.
+Music names each track before rendering. Speech reports archive and line counts,
+and movie decoding/encoding reports frame progress at roughly ten-second
+intervals while frames are being processed. A successful full cook prints its
+total elapsed time. No verbosity flag is needed.
+
+For example:
+
+```text
+[cook] Shared animation bindings
+[local rigs 341/501] tower-of-mana-0369 (369)
+[music 1/112] Rendering …
+```
+
 ## Conversion and publication
 
 Each ordinary category function reads its native input, constructs the final
