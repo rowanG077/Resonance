@@ -258,75 +258,89 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
     let fields: BTreeMap<u32, String> =
         serde_json::from_slice(&fs::read(library.join("fields/mappings.json"))?)?;
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
-    let total = fields.len();
-    for (index, (id, name)) in fields.into_iter().enumerate() {
-        eprintln!("  [{}/{} jobs] Local rigs: {name} ({id})", index + 1, total);
-        let actors: Actors = serde_json::from_slice(
-            &fs::read(library.join(format!("fields/{name}/actors.json")))
-                .with_context(|| format!("read field {id} ({name}) actors"))?,
-        )?;
-        let locals = actors
-            .models
-            .into_iter()
-            .filter_map(|model| match model {
-                resonance_content::field::document::ModelBinding::Local(actor)
-                    if resonance_content::field::LOCAL_MODEL_RESOURCES
-                        .contains(&actor.resource) =>
-                {
-                    Some(actor)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        if locals.is_empty() {
-            continue;
-        }
-        let row = dol::slice(&exe, field_core::PHASES + id * 24, 24)?;
-        let archive = field_core::native_archive(extracted, &exe, row, id as usize)?
-            .with_context(|| format!("field {id} ({name}) local rig archive missing"))?;
-        for (index, actor) in locals.iter().enumerate() {
+    let fields = fields.into_iter().collect::<Vec<_>>();
+    let workers = crate::parallel::workers();
+    for (batch_index, batch) in fields.chunks(workers).enumerate() {
+        let prepared = crate::parallel::map(batch, |index, (id, name)| {
+            let id = *id;
             eprintln!(
-                "    [{}/{} models] {} ({:#x})",
-                index + 1,
-                locals.len(),
-                actor.model,
-                actor.resource
+                "  [{}/{} jobs] Local rigs: {name} ({id})",
+                batch_index * workers + index + 1,
+                fields.len()
             );
-            let section = 16
-                + (actor.resource - resonance_content::field::LOCAL_MODEL_RESOURCES.start) as usize;
-            let package = field_core::optional_section(&archive, section)?
-                .with_context(|| format!("field {id} ({name}) local resource {:#x}, section {section}, model {} has no package", actor.resource, actor.model))?;
-            let model: Model = serde_json::from_slice(&fs::read(library.join(&actor.model))?)?;
-            for part in model.parts {
-                let body = if world_gpl::is_model(package) {
-                    package
-                } else {
-                    field_core::optional_section(package, usize::from(part.resource))?
-                        .context("local rig part missing")?
-                };
-                let names = resonance_content::animation::joint_names_from_glb(&fs::read(
-                    library.join(&part.mesh),
-                )?)?;
-                let native = world_gpl::named_animation_bindings(body)?;
-                ensure!(
-                    native.len() == names.len(),
-                    "local native rig differs from {}",
-                    part.mesh
-                );
-                bindings.rigs.insert(
-                    part.mesh,
-                    native
-                        .into_iter()
-                        .zip(names)
-                        .map(|((id, _, source), name)| AnimationJoint {
-                            id,
-                            name,
-                            source: Some(source),
-                            animated: false,
-                        })
-                        .collect(),
-                );
+            let mut field_rigs = Vec::new();
+            let actors: Actors = serde_json::from_slice(
+                &fs::read(library.join(format!("fields/{name}/actors.json")))
+                    .with_context(|| format!("read field {id} ({name}) actors"))?,
+            )?;
+            let locals = actors
+                .models
+                .into_iter()
+                .filter_map(|model| match model {
+                    resonance_content::field::document::ModelBinding::Local(actor)
+                        if resonance_content::field::LOCAL_MODEL_RESOURCES
+                            .contains(&actor.resource) =>
+                    {
+                        Some(actor)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if locals.is_empty() {
+                return Ok(Vec::new());
             }
+            let row = dol::slice(&exe, field_core::PHASES + id * 24, 24)?;
+            let archive = field_core::native_archive(extracted, &exe, row, id as usize)?
+                .with_context(|| format!("field {id} ({name}) local rig archive missing"))?;
+            for (index, actor) in locals.iter().enumerate() {
+                eprintln!(
+                    "    [{}/{} models] {} ({:#x})",
+                    index + 1,
+                    locals.len(),
+                    actor.model,
+                    actor.resource
+                );
+                let section = 16
+                    + (actor.resource - resonance_content::field::LOCAL_MODEL_RESOURCES.start)
+                        as usize;
+                let package = field_core::optional_section(&archive, section)?
+                .with_context(|| format!("field {id} ({name}) local resource {:#x}, section {section}, model {} has no package", actor.resource, actor.model))?;
+                let model: Model = serde_json::from_slice(&fs::read(library.join(&actor.model))?)?;
+                for part in model.parts {
+                    let body = if world_gpl::is_model(package) {
+                        package
+                    } else {
+                        field_core::optional_section(package, usize::from(part.resource))?
+                            .context("local rig part missing")?
+                    };
+                    let names = resonance_content::animation::joint_names_from_glb(&fs::read(
+                        library.join(&part.mesh),
+                    )?)?;
+                    let native = world_gpl::named_animation_bindings(body)?;
+                    ensure!(
+                        native.len() == names.len(),
+                        "local native rig differs from {}",
+                        part.mesh
+                    );
+                    field_rigs.push((
+                        part.mesh,
+                        native
+                            .into_iter()
+                            .zip(names)
+                            .map(|((id, _, source), name)| AnimationJoint {
+                                id,
+                                name,
+                                source: Some(source),
+                                animated: false,
+                            })
+                            .collect(),
+                    ));
+                }
+            }
+            Ok(field_rigs)
+        })?;
+        for (mesh, joints) in prepared.into_iter().flatten() {
+            bindings.rigs.insert(mesh, joints);
         }
     }
     fs::write(path, resonance_asset_writer::json::encode(&bindings)?)?;

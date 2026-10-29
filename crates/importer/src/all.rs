@@ -199,23 +199,10 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     heading("Shared animation bindings");
     crate::cook_shared_animation_bindings(root, library, None)
         .context("shared animation bindings")?;
-    // Field props reuse figurine and enemy media published above.
-    // These canonical props supply motions reused by lower-numbered fields.
+    // Field props reuse figurine/enemy media and keep canonical actor publication ordered.
     heading("Field scenery and actors");
     fields.sort_by_key(|id| (!matches!(id, 268 | 279 | 479), *id));
-    for (index, &id) in fields.iter().enumerate() {
-        eprintln!(
-            "  [{}/{} jobs] Fields: {} ({id})",
-            index + 1,
-            fields.len(),
-            crate::field_core::field_name(id as usize)
-        );
-        let (exe, archive) = crate::field_core::read(root, id)?;
-        crate::field_scene::cook_from_source(root, library, id, &exe, &archive)
-            .with_context(|| format!("field {id} scene"))?;
-        crate::field_actors::cook_from_source(root, library, id, &exe, &archive)
-            .with_context(|| format!("field {id} actors"))?;
-    }
+    crate::cook_fields(root, library, &fields).context("field scenery and actors")?;
 
     heading("Local animation rigs");
     crate::cook_local_animation_rigs(root, library).context("field-local animation rigs")?;

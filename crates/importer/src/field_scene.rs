@@ -349,6 +349,16 @@ pub(crate) fn cook_from_source(
     exe: &[u8],
     archive: &[u8],
 ) -> Result<()> {
+    publish(library, prepare(extracted, library, id, exe, archive)?)
+}
+
+fn prepare(
+    extracted: &Path,
+    library: &Path,
+    id: u32,
+    exe: &[u8],
+    archive: &[u8],
+) -> Result<Vec<(String, Vec<u8>)>> {
     let texture_animations = texture_animations(id)?;
     let environment = environment(id)?;
     let water = water(id);
@@ -554,6 +564,10 @@ pub(crate) fn cook_from_source(
         format!("{root}/scene.json"),
         resonance_asset_writer::json::encode(&scene)?,
     ));
+    Ok(files)
+}
+
+fn publish(library: &Path, files: Vec<(String, Vec<u8>)>) -> Result<()> {
     for (path, bytes) in files {
         let target = library.join(&path);
         if target.exists() {
@@ -563,6 +577,45 @@ pub(crate) fn cook_from_source(
             );
         } else {
             crate::output::write(&target, &bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// Convert field sources/scenery in parallel, then publish and finalize actors in order.
+/// Only one CPU-sized batch is retained; each actor reuses its opened native archive.
+pub fn cook_fields(extracted: &Path, library: &Path, fields: &[u32]) -> Result<()> {
+    // Field 141 owns the idle scenery motion reused by six later fields. Finish
+    // its batch before preparing those consumers, retaining the original alias.
+    let boundary = fields
+        .iter()
+        .position(|&id| id == 141)
+        .map_or(fields.len(), |i| i + 1);
+    let mut completed = 0;
+    for section in [&fields[..boundary], &fields[boundary..]] {
+        for batch in section.chunks(crate::parallel::workers()) {
+            let prepared = crate::parallel::map(batch, |index, &id| {
+                eprintln!(
+                    "  [{}/{} jobs] Fields: {} ({id})",
+                    completed + index + 1,
+                    fields.len(),
+                    field_core::field_name(id as usize)
+                );
+                let (exe, archive) = field_core::read(extracted, id)?;
+                let files = prepare(extracted, library, id, &exe, &archive)
+                    .with_context(|| format!("field {id} scene"))?;
+                Ok((id, exe, archive, files))
+            })?;
+            for (id, exe, archive, files) in prepared {
+                publish(library, files)?;
+                eprintln!(
+                    "    Finalizing actors: {} ({id})",
+                    field_core::field_name(id as usize)
+                );
+                field_actors::cook_from_source(extracted, library, id, &exe, &archive)
+                    .with_context(|| format!("field {id} actors"))?;
+            }
+            completed += batch.len();
         }
     }
     Ok(())

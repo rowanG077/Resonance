@@ -190,7 +190,7 @@ pub use field_npc_models::cook_field_models;
 pub use field_npc_models::cook_field_npc_model;
 pub use field_overlays::cook_field_overlay_media;
 pub use field_resource_models::{cook_native_cameras, cook_native_models};
-pub use field_scene::cook_field_scene;
+pub use field_scene::{cook_field_scene, cook_fields};
 pub use field_settings::cook_field_settings;
 pub use field_wings::{cook_field_wings, field_wing_mappings};
 pub use figurine_media::cook_figurine_media;

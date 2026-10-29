@@ -49,15 +49,38 @@ Each job retains its name and number when running concurrently; log lines can
 arrive out of order. Speech counts lines within an archive, field rigs count
 models within a field, and movies report decode/encode frames at roughly
 ten-second intervals while frames are processed. No verbosity flag is needed.
-A successful full cook prints its total elapsed time.
+Each completed pass prints a wall-clock duration with the same asset-type
+number and name, for example:
+
+```text
+[asset type 39/64] Field scenery and actors took 42.318 seconds
+```
+
+A failed pass also prints its elapsed time before the error. Timings include
+waiting for that pass's workers. A successful full cook additionally prints its
+total elapsed time. To capture your run and extract the timing lines:
+
+```sh
+cargo run --release -p resonance-import-cli -- cook-all 2>&1 | tee /tmp/resonance-cook.log
+rg 'took .* seconds' /tmp/resonance-cook.log
+```
 
 Independent work within a pass uses `std::thread::available_parallelism()` to
 detect the CPU allowance and start at most that many workers. Each pass finishes
 before the next starts. Parallel passes include field scripts/collision, battle
 party characters (each character's costumes remain ordered), arenas, scenes,
-skills, enemy rules, field definitions, music tracks and movies. Shared asset
-owners and deduplication passes keep their required serial ordering. On failure,
-new work stops and active workers finish before the error returns.
+skills, enemy rules, field definitions, music tracks and movies. Field source and
+scenery conversion, field-local rigs, enemy media and enemy effects also run in
+CPU-sized batches. Each batch converts concurrently and applies shared-owner
+updates in the original order. Field actor finalization stays ordered, and field
+141's shared scenery motion is published before its consumers are prepared.
+Opened field archives are reused for actor finalization. Only one batch is held
+in memory; there is no temporary cooked library.
+
+Music/movie aliases are resolved before dispatch. Enemy motion and effect media
+retain the same first owner as the sequential converter. Native animation
+binding caches and other shared-owner passes keep their required ordering.
+On failure, new work stops and active workers finish before the error returns.
 
 ## Conversion and publication
 

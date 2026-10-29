@@ -381,27 +381,6 @@ pub fn cook_battle_enemy_effects(root: &Path, library: &Path, id: u8) -> Result<
     cook_battle_enemy_effects_group(root, library, &[id])
 }
 
-fn redirect_paths(value: &mut serde_json::Value, paths: &BTreeMap<String, String>) {
-    match value {
-        serde_json::Value::String(path) => {
-            if let Some(owner) = paths.get(path) {
-                *path = owner.clone();
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                redirect_paths(value, paths);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for value in values.values_mut() {
-                redirect_paths(value, paths);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Write each completed owner directly, reusing equal media from earlier owners.
 pub fn cook_battle_enemy_effects_group(root: &Path, library: &Path, ids: &[u8]) -> Result<()> {
     ensure!(!ids.is_empty(), "no enemy effects selected");
@@ -415,46 +394,53 @@ pub fn cook_battle_enemy_effects_group(root: &Path, library: &Path, ids: &[u8]) 
     );
     let mut equal_media = BTreeMap::<Vec<u8>, String>::new();
     let total = ids.len();
-    for (index, id) in ids.into_iter().enumerate() {
-        eprintln!(
-            "  [{}/{} jobs] Enemy effects: {} ({id})",
-            index + 1,
-            total,
-            MonsterId::try_from(id)?
+    let workers = crate::parallel::workers();
+    for (batch_index, batch) in ids.chunks(workers).enumerate() {
+        let native = batch
+            .iter()
+            .map(|&id| packages.read(id))
+            .collect::<Result<Vec<_>>>()?;
+        let prepared = crate::parallel::map(&native, |index, package| {
+            let id = batch[index];
+            let name = MonsterId::try_from(id)?
                 .resource_name()
-                .unwrap_or("unnamed")
-        );
-        let name = MonsterId::try_from(id)?
-            .resource_name()
-            .context("enemy has no name")?;
-        let owner = format!("battle/enemies/{name}/effects");
-        let package = packages.read(id)?;
-        let (mut definition, media) = convert(&package, &owner, &resident_sets)
-            .with_context(|| format!("enemy {id} effects"))?;
-        let mut redirects = BTreeMap::new();
-        for (path, bytes) in media {
-            if let Some(existing) = equal_media.get(&bytes) {
-                redirects.insert(path, existing.clone());
-            } else {
-                crate::output::write(&library.join(&path), &bytes)?;
-                equal_media.insert(bytes, path);
+                .context("enemy has no name")?;
+            eprintln!(
+                "  [{}/{} jobs] Enemy effects: {name} ({id})",
+                batch_index * workers + index + 1,
+                total
+            );
+            let owner = format!("battle/enemies/{name}/effects");
+            let (definition, media) = convert(package, &owner, &resident_sets)
+                .with_context(|| format!("enemy {id} effects"))?;
+            Ok((owner, definition, media))
+        })?;
+        for (owner, mut definition, media) in prepared {
+            let mut redirects = BTreeMap::new();
+            for (path, bytes) in media {
+                if let Some(existing) = equal_media.get(&bytes) {
+                    redirects.insert(path, existing.clone());
+                } else {
+                    crate::output::write(&library.join(&path), &bytes)?;
+                    equal_media.insert(bytes, path);
+                }
             }
-        }
-        if let Some(artwork) = &mut definition.artwork {
-            for atlas in artwork.textures.values_mut() {
-                for texture in atlas {
-                    for image in &mut texture.images {
-                        if let Some(owner) = redirects.get(&image.path) {
-                            image.path = owner.clone();
+            if let Some(artwork) = &mut definition.artwork {
+                for atlas in artwork.textures.values_mut() {
+                    for texture in atlas {
+                        for image in &mut texture.images {
+                            if let Some(owner) = redirects.get(&image.path) {
+                                image.path = owner.clone();
+                            }
                         }
                     }
                 }
+                for model in artwork.models.values_mut() {
+                    crate::output::redirect_paths(model, &redirects);
+                }
             }
-            for model in artwork.models.values_mut() {
-                redirect_paths(model, &redirects);
-            }
+            crate::output::json(&library.join(format!("{owner}/effects.json")), &definition)?;
         }
-        crate::output::json(&library.join(format!("{owner}/effects.json")), &definition)?;
     }
     Ok(())
 }
