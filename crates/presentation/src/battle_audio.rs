@@ -800,6 +800,8 @@ impl Frames {
                         let mut player = ScorePlayer::new(score, &self.synth)?;
                         player.controls.sound_velocity = Some(level);
                         player.controls.pan = Some(pan);
+                        // Spoken cues share the synth pool with combat effects.
+                        player.controls.priority = Some(u16::from(u8::MAX) + 2);
                         VoiceSource::Score(player)
                     }
                     Source::Stream(clip) => {
@@ -2096,6 +2098,26 @@ mod tests {
             drained[2 * BLOCK_FRAMES..]
                 .iter()
                 .all(|&frame| frame == [0.; 2])
+        );
+        frames.apply_battle_command(Command::Begin(assets(), settings(), None))?;
+        for _ in 0..SOUND_EFFECT_VOICE_BUDGET {
+            frames.apply_battle_command(sound(&stronger, EffectCategory::Battle, 0, None))?;
+        }
+        frames.apply_battle_command(Command::Voice {
+            actor: ActorId::from_index(0)?,
+            playback: VoiceId(1),
+            binding: Sound::Cue(2),
+            source: Source::Score(system),
+            x: None,
+            complete: Arc::new(AtomicBool::new(false)),
+        })?;
+        let mut peak = 0f32;
+        for _ in 0..2 * BLOCK_FRAMES {
+            peak = peak.max(frames.frame()?.unwrap()[0].abs());
+        }
+        assert!(
+            peak > combat_only_ceiling,
+            "combat effects silenced battle speech"
         );
         Ok(())
     }
