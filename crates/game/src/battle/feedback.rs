@@ -64,6 +64,7 @@ impl CastingFeedback {
 #[derive(Default)]
 pub struct ActorFeedback {
     pub acquisition_motion: Option<MotionBinding>,
+    pub acquisition_voice: Option<Sound>,
     pub overlimit: Option<OverLimitFeedback>,
     pub overlimit_voice: Option<Sound>,
     pub technique_command: Option<Sound>,

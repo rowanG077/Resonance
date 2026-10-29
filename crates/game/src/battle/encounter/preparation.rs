@@ -258,6 +258,7 @@ impl ActorRow<'_> {
                     artwork.as_deref(),
                     model::MotionRole::Acquisition,
                 ),
+                acquisition_voice: voices.select(*source, |v| v.acquisition, &mut sound)?,
                 overlimit: None,
                 overlimit_voice: voices.absolute(
                     *source,

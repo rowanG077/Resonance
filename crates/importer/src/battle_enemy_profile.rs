@@ -159,6 +159,7 @@ fn voices(usual: &[u8], base: u32, party: bool) -> Result<Voices> {
         unison_start: line(12),
         technique_command: line(13),
         item_use: line(14),
+        acquisition: line(15),
         entry: [line(16), line(17), line(18)],
         major_enemy: line(19),
         outnumbered: line(20),
