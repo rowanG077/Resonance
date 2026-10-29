@@ -1,9 +1,16 @@
 //! One fresh library from the native extraction, in final-owner order.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::path::Path;
 use symphonia_constants::{ArenaId, BattleSceneId, BattleSkillId, MonsterId};
 
 pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
+    let executable = root.join("disc1/sys/main.dol");
+    ensure!(
+        executable.is_file(),
+        "missing extracted GameCube input {}; extract disc 1 first with resonance-import extract --disc <disc-1-image> --output {}",
+        executable.display(),
+        root.join("disc1").display()
+    );
     crate::cook_descriptor(library).context("library descriptor")?;
     crate::cook_scripts(library).context("script definitions and behaviors")?;
     let mut fields = crate::cook_game_ui(root, library).context("game and interface")?;
