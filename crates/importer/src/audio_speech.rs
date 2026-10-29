@@ -480,6 +480,7 @@ pub(crate) fn event_speech(
     let scenes: BTreeMap<u32, Scene> = serde_json::from_str(include_str!("event-speech.json"))?;
     let mut mappings = BTreeMap::new();
     let mut owners = BTreeMap::<String, Source>::new();
+    let mut archives = Vec::new();
     for row in dol::slice(&exe, DIRECTORY, 18 * 12)?.chunks_exact(12) {
         let pointer = dol::u32(row, 0)?;
         if pointer == 0 {
@@ -500,20 +501,29 @@ pub(crate) fn event_speech(
         if selected.is_some_and(|id| id & 0xffff0000 != base) {
             continue;
         }
-        let first = root.join("disc1/files/EV").join(filename);
+        archives.push((base, filename.to_owned()));
+    }
+    let total = archives.len();
+    for (job, (base, filename)) in archives.into_iter().enumerate() {
+        let first = root.join("disc1/files/EV").join(&filename);
         let path = if first.is_file() {
             first
         } else {
-            root.join("disc2/files/EV").join(filename)
+            root.join("disc2/files/EV").join(&filename)
         };
         let mut file = fs::File::open(&path)
             .with_context(|| format!("missing GameCube event archive {filename}"))?;
         let members = afs_index(&mut file)?;
-        eprintln!("[speech] {filename}: {} lines", members.len());
+        eprintln!(
+            "  [{}/{} jobs] Event speech: {filename} ({} lines)",
+            job + 1,
+            total,
+            members.len()
+        );
         for (member, entry) in members.iter().enumerate() {
             if selected.is_none() && member % 100 == 0 {
                 eprintln!(
-                    "[speech {}/{}] {filename}: {}",
+                    "    [{}/{} lines] {filename}: {}",
                     member + 1,
                     members.len(),
                     entry.name
@@ -586,11 +596,11 @@ pub(crate) fn battle_speech(
     );
     let mut owners = BTreeMap::new();
     let mut mappings = BTreeMap::new();
-    eprintln!("[battle speech] {} lines", members.len());
+    eprintln!("  [1/1 jobs] Battle speech ({} lines)", members.len());
     for (member, entry) in members.iter().enumerate() {
         if selected.is_none() && member % 100 == 0 {
             eprintln!(
-                "[battle speech {}/{}] {}",
+                "    [{}/{} lines] Battle speech: {}",
                 member + 1,
                 members.len(),
                 entry.name

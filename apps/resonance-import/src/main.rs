@@ -190,7 +190,10 @@ fn extract(disc_path: &Path, output: &Path, expected_disc: Option<u8>) -> Result
         fs::write(target, bytes)?;
         count += 1;
         if count % 100 == 0 || count == total {
-            eprintln!("[extract {count}/{total}] {}: {name}", disc_path.display());
+            eprintln!(
+                "  [{count}/{total} files] Extracting {}: {name}",
+                disc_path.display()
+            );
         }
     }
     ensure!(

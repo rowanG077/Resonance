@@ -1217,7 +1217,7 @@ pub fn cook_battle_enemy_media_group(root: &Path, library: &Path, ids: &[u8]) ->
     let total = ids.len();
     for (index, id) in ids.into_iter().enumerate() {
         eprintln!(
-            "[enemy media {}/{}] {} ({id})",
+            "  [{}/{} jobs] Enemy media: {} ({id})",
             index + 1,
             total,
             MonsterId::try_from(id)?

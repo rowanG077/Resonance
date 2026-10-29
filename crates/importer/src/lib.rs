@@ -93,6 +93,7 @@ mod native_archive;
 mod options;
 mod original_models;
 mod output;
+mod parallel;
 pub use original_models::cook_original_models;
 mod rel;
 mod rename;

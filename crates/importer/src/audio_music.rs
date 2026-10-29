@@ -29,25 +29,29 @@ pub fn cook_music(root: &Path, library: &Path, selected: Option<u16>) -> Result<
     fs::create_dir_all(&output)?;
     let mut rendered = BTreeSet::new();
     let mut mappings = BTreeMap::new();
-    let total = songs.len();
-    for (index, (id, (name, source))) in songs.into_iter().enumerate() {
+    let mut jobs = Vec::new();
+    for (id, (name, source)) in songs {
         if rendered.insert(name.clone()) {
-            let target = output.join(format!("{name}.wav"));
-            if selected.is_some() || !target.is_file() {
-                eprintln!("[music {}/{}] Rendering {name} ({id})", index + 1, total);
-                let setup = bank.music_setup(0, id)?;
-                let preset = dol::slice(&exe, REVERB_SELECTORS + u32::from(id), 1)?[0];
-                let effects = match preset {
-                    0 => field_reverbs,
-                    1 | 2 => reverbs(&exe, preset)?,
-                    _ => anyhow::bail!("unsupported music reverb preset {preset}"),
-                };
-                render_song(&source, &target, &bank, &setup, &sustains, &tables, effects)
-                    .with_context(|| format!("render music {id} ({name})"))?;
-            }
+            jobs.push((id, name.clone(), source));
         }
         mappings.insert(u32::from(id), format!("{name}.wav"));
     }
+    crate::parallel::for_each(&jobs, |index, (id, name, source)| {
+        let target = output.join(format!("{name}.wav"));
+        if selected.is_some() || !target.is_file() {
+            eprintln!("  [{}/{} jobs] Music: {name} ({id})", index + 1, jobs.len());
+            let setup = bank.music_setup(0, *id)?;
+            let preset = dol::slice(&exe, REVERB_SELECTORS + u32::from(*id), 1)?[0];
+            let effects = match preset {
+                0 => field_reverbs,
+                1 | 2 => reverbs(&exe, preset)?,
+                _ => anyhow::bail!("unsupported music reverb preset {preset}"),
+            };
+            render_song(source, &target, &bank, &setup, &sustains, &tables, effects)
+                .with_context(|| format!("render music {id} ({name})"))?;
+        }
+        Ok(())
+    })?;
     if selected.is_none() {
         cook_unmapped(&disc, &output, &bank, &sustains, &tables)?;
     }
@@ -90,15 +94,20 @@ fn cook_unmapped(
     let setup = bank.music_setup(0, 0)?;
     // No native music ID supplies a reverb selector for these arrangements.
     let dry = [[0., 0., 0.01, 0., 0.]; 2];
-    for (source, name) in [
+    let arrangements = [
         ("bgm_etc004.song", "bgm-etc004.wav"),
         ("temp2.song", "temp2.wav"),
         ("temp3.song", "temp3.wav"),
         ("temp4.song", "temp4.wav"),
-    ] {
+    ];
+    for (index, &(source, name)) in arrangements.iter().enumerate() {
         let target = output.join(name);
         if !target.is_file() {
-            eprintln!("[music] Rendering unmapped {name}");
+            eprintln!(
+                "  [{}/{} jobs] Unmapped music: {name}",
+                index + 1,
+                arrangements.len()
+            );
             render_song(
                 &disc.join("files/S").join(source),
                 &target,

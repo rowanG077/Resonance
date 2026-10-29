@@ -163,13 +163,21 @@ pub fn cook_field_core(extracted: &Path, library: &Path, selected: Option<u32>) 
             "field ID {id} exceeds native catalogue"
         );
     }
-    for (id, row) in phases.chunks_exact(24).enumerate() {
-        if selected.is_some_and(|only| id != only as usize) {
-            continue;
-        }
+    let rows = phases
+        .chunks_exact(24)
+        .enumerate()
+        .filter(|(id, _)| selected.is_none_or(|only| *id == only as usize))
+        .collect::<Vec<_>>();
+    crate::parallel::for_each(&rows, |index, &(id, row)| {
+        eprintln!(
+            "  [{}/{} jobs] Field source: {} ({id})",
+            index + 1,
+            rows.len(),
+            field_name(id)
+        );
         let Some(archive) = native_archive(extracted, &exe, row, id)? else {
             ensure!(selected.is_none(), "field {id} has no native source");
-            continue;
+            return Ok(());
         };
         let native = section(&archive, 6).with_context(|| format!("field {id}"))?;
         let script = crate::field_gameplay::prepare(id, native)?;
@@ -209,6 +217,6 @@ pub fn cook_field_core(extracted: &Path, library: &Path, selected: Option<u32>) 
                 &collision_mesh::encode(&collision)?,
             )?;
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }

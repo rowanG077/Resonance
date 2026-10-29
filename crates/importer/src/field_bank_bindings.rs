@@ -260,7 +260,7 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let total = fields.len();
     for (index, (id, name)) in fields.into_iter().enumerate() {
-        eprintln!("[local rigs {}/{}] {name} ({id})", index + 1, total);
+        eprintln!("  [{}/{} jobs] Local rigs: {name} ({id})", index + 1, total);
         let actors: Actors = serde_json::from_slice(
             &fs::read(library.join(format!("fields/{name}/actors.json")))
                 .with_context(|| format!("read field {id} ({name}) actors"))?,
@@ -284,7 +284,14 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
         let row = dol::slice(&exe, field_core::PHASES + id * 24, 24)?;
         let archive = field_core::native_archive(extracted, &exe, row, id as usize)?
             .with_context(|| format!("field {id} ({name}) local rig archive missing"))?;
-        for actor in locals {
+        for (index, actor) in locals.iter().enumerate() {
+            eprintln!(
+                "    [{}/{} models] {} ({:#x})",
+                index + 1,
+                locals.len(),
+                actor.model,
+                actor.resource
+            );
             let section = 16
                 + (actor.resource - resonance_content::field::LOCAL_MODEL_RESOURCES.start) as usize;
             let package = field_core::optional_section(&archive, section)?
