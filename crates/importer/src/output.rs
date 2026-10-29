@@ -16,3 +16,27 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<()> {
 pub(crate) fn json(path: &Path, document: &impl serde::Serialize) -> Result<()> {
     write(path, &resonance_asset_writer::json::encode(document)?)
 }
+
+pub(crate) fn redirect_paths(
+    value: &mut serde_json::Value,
+    paths: &std::collections::BTreeMap<String, String>,
+) {
+    match value {
+        serde_json::Value::String(path) => {
+            if let Some(owner) = paths.get(path) {
+                *path = owner.clone();
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                redirect_paths(value, paths);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values_mut() {
+                redirect_paths(value, paths);
+            }
+        }
+        _ => {}
+    }
+}

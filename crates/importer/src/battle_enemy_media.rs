@@ -865,14 +865,13 @@ pub(crate) fn variant_artwork(
 }
 
 fn convert(
-    packages: &mut EnemyPackages,
+    package: &[u8],
     id: u8,
     motions: &mut BTreeMap<Vec<u8>, String>,
     library: &Path,
 ) -> Result<BTreeMap<String, Vec<u8>>> {
     let monster = MonsterId::try_from(id)?;
     let name = monster.resource_name().context("enemy has no name")?;
-    let package = packages.read(id)?;
     ensure!(package.starts_with(b"em8\0"), "invalid enemy package");
     let body = member(&package, 0x18)?.context("enemy body is missing")?;
     let outline = member(&package, 0x1c)?;
@@ -1210,30 +1209,61 @@ fn convert(
 pub fn cook_battle_enemy_media_group(root: &Path, library: &Path, ids: &[u8]) -> Result<()> {
     ensure!(!ids.is_empty(), "no battle enemies selected");
     let mut packages = EnemyPackages::open(&root.join("disc1"))?;
-    let mut motions = BTreeMap::new();
-    let mut seen = BTreeSet::new();
+    let mut motions = BTreeMap::<Vec<u8>, String>::new();
     let mut ids = ids.to_vec();
     ids.sort_unstable();
-    let total = ids.len();
-    for (index, id) in ids.into_iter().enumerate() {
-        eprintln!(
-            "  [{}/{} jobs] Enemy media: {} ({id})",
-            index + 1,
-            total,
-            MonsterId::try_from(id)?
-                .resource_name()
-                .unwrap_or("unnamed")
-        );
-        ensure!(seen.insert(id), "battle enemy {id} is selected twice");
-        let files = convert(&mut packages, id, &mut motions, library)?;
-        ensure!(
-            files.keys().all(|path| !library.join(path).exists()),
-            "enemy {id} media already exists"
-        );
-        // Keep completed owners if a later native package needs a focused fix.
-        for (path, bytes) in files {
-            let output = library.join(path);
-            crate::output::write(&output, &bytes)?;
+    ensure!(
+        ids.windows(2).all(|pair| pair[0] != pair[1]),
+        "battle enemy selected twice"
+    );
+    let workers = crate::parallel::workers();
+    for (batch_index, batch) in ids.chunks(workers).enumerate() {
+        let native = batch
+            .iter()
+            .map(|&id| packages.read(id))
+            .collect::<Result<Vec<_>>>()?;
+        let prepared = crate::parallel::map(&native, |index, package| {
+            let id = batch[index];
+            eprintln!(
+                "  [{}/{} jobs] Enemy media: {} ({id})",
+                batch_index * workers + index + 1,
+                ids.len(),
+                MonsterId::try_from(id)?
+                    .resource_name()
+                    .unwrap_or("unnamed")
+            );
+            let mut local_motions = BTreeMap::new();
+            let files = convert(package, id, &mut local_motions, library)
+                .with_context(|| format!("enemy {id} media"))?;
+            Ok((id, files, local_motions))
+        })?;
+        // Select canonical clip owners in the same enemy order as the serial cook.
+        for (id, mut files, local_motions) in prepared {
+            let mut redirects = BTreeMap::new();
+            for (bytes, path) in local_motions {
+                if let Some(owner) = motions.get(&bytes) {
+                    redirects.insert(path.clone(), owner.clone());
+                    files.remove(&path);
+                } else {
+                    motions.insert(bytes, path);
+                }
+            }
+            if !redirects.is_empty() {
+                for (path, bytes) in &mut files {
+                    if path.ends_with(".json") {
+                        let mut document = serde_json::from_slice(bytes)?;
+                        crate::output::redirect_paths(&mut document, &redirects);
+                        *bytes = resonance_asset_writer::json::to_vec(&document)?;
+                    }
+                }
+            }
+            ensure!(
+                files.keys().all(|path| !library.join(path).exists()),
+                "enemy {id} media already exists"
+            );
+            for (path, bytes) in files {
+                crate::output::write(&library.join(path), &bytes)?;
+            }
         }
     }
     Ok(())
