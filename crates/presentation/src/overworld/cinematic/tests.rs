@@ -43,22 +43,14 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
     };
     let definition = Cinematic {
         world: resonance_content::overworld::World::Sylvarant,
-        camera: vec![
-            CameraKey {
-                time: 0.,
-                position: [0.; 3],
-                target: [0.; 3],
-            },
-            CameraKey {
-                time: 10.,
-                position: [0.; 3],
-                target: [0.; 3],
-            },
-        ],
+        camera: resonance_content::camera_motion::CameraMotion::from_keys(&[
+            CameraKey::looking_at(0., [0.; 3], [0.; 3]),
+            CameraKey::looking_at(10., [0.; 3], [0.; 3]),
+        ])
+        .unwrap(),
         actors: [(1, vec![part.clone()]), (2, vec![part])].into(),
         dialogue: vec![],
         presentation: CinematicPresentation {
-            provenance: "synthetic renderer fixture".into(),
             fade: CinematicFade {
                 white: false,
                 end_rate: 8,
@@ -104,13 +96,13 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
     assert_eq!(uv(&playback, 2, 0, 7), Vec2::new(0.5, 0.));
     assert_eq!(uv(&playback, 2, 1, 7), Vec2::ZERO);
     let mut audio = vec![];
-    playback.step(&mut audio);
-    playback.step(&mut audio);
+    playback.step(&mut audio)?;
+    playback.step(&mut audio)?;
     assert_eq!(opacity(&playback, 2), 85. / 255.);
     assert_eq!(uv(&playback, 2, 0, 7), Vec2::new(0.5, 0.));
     assert_eq!(uv(&playback, 2, 0, 8), Vec2::ZERO);
-    playback.step(&mut audio);
-    playback.step(&mut audio);
+    playback.step(&mut audio)?;
+    playback.step(&mut audio)?;
     assert_eq!(opacity(&playback, 2), 0.);
     assert_eq!(opacity(&playback, 1), 1.);
     Ok(())

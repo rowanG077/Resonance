@@ -8,10 +8,7 @@ pub(super) enum StunPhase {
 }
 
 impl Effects {
-    pub fn with_head_anchors(
-        mut self,
-        anchors: Vec<resonance_content::battle_profile::HeadAnchor>,
-    ) -> Self {
+    pub fn with_head_anchors(mut self, anchors: Vec<crate::HeadAnchor>) -> Self {
         self.head_anchors = anchors;
         self
     }

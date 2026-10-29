@@ -351,7 +351,7 @@ struct Model {
     shadow_bounds: shadows::Bounds,
     target_anchor: Option<resonance_game::battle::encounter::TargetAnchor>,
     lit: bool,
-    texture_channels: Vec<resonance_content::battle_profile::TextureChannel>,
+    texture_channels: Vec<resonance_content::AtlasChannel>,
     weapon_style: Option<WeaponStyle>,
     suppressed_nodes: BTreeSet<usize>,
     instances: Vec<Instance>,
@@ -869,11 +869,12 @@ impl View {
         for (slot, part) in &self.scenery {
             part.layer(commands, LAYER, true);
             relayered_parts += usize::from(part.root.is_some());
-            let layer = if *slot == 0 || *slot >= 4 {
-                Layer::Scene(0)
-            } else {
-                Layer::Foreground(*slot)
-            };
+            let layer = self
+                .stage
+                .foreground_layers
+                .iter()
+                .position(|entry| entry == slot)
+                .map_or(Layer::Scene(0), |order| Layer::Foreground(order as u8));
             for &(draw, index) in &part.draws {
                 commands.entity(draw).insert(DrawOrder(
                     layer,
@@ -2004,7 +2005,7 @@ impl Part {
 
     fn expression(
         &self,
-        channels: &[resonance_content::battle_profile::TextureChannel],
+        channels: &[resonance_content::AtlasChannel],
         layers: [u8; 4],
         tick: u64,
         appearance: ModelMaterial,
@@ -2038,7 +2039,7 @@ impl Part {
                 for (binding, axis) in [(&material.color, 1), (&material.multiply, 3)] {
                     if binding
                         .as_ref()
-                        .is_some_and(|b| b.texture == usize::from(channel.texture))
+                        .is_some_and(|b| b.texture == channel.texture)
                     {
                         uv[axis] += (1. / f32::from(channel.frames)) * f32::from(layers[layer]);
                     }
@@ -2864,10 +2865,11 @@ mod tests {
                 scene: serde_json::from_value(serde_json::json!({
                     "resource": 0, "mesh": "unused.glb", "textures": ["color.ktx2", "multiply.ktx2"],
                     "materials": [{
+                        "meshes": [0],
                         "color": (!outline).then(|| binding(0)),
                         "multiply": (!outline).then(|| binding(1)),
                         "vertex_color": !outline, "blend": true, "depth_write": true,
-                        "draw_order": 0, "cull": if outline { "front" } else { "back" }
+                        "cull": if outline { "front" } else { "back" }
                     }],
                     "translation": [0, 0, 0], "clips": [], "autoplay": false,
                     "texture_animations": [], "outline_color": outline.then_some([0, 0, 0, 127])
@@ -2905,11 +2907,11 @@ mod tests {
             &mut surfaces,
         )?;
         let channels = [
-            resonance_content::battle_profile::TextureChannel {
+            resonance_content::AtlasChannel {
                 texture: 0,
                 frames: 4,
             },
-            resonance_content::battle_profile::TextureChannel {
+            resonance_content::AtlasChannel {
                 texture: 1,
                 frames: 8,
             },

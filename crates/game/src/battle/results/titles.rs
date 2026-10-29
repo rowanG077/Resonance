@@ -215,7 +215,6 @@ mod tests {
             ComboTitleAward, EquipmentRequirement, EquipmentTitleAward, TitleAwardRules,
         };
         TitleAwardRules {
-            provenance: "synthetic award fixture".into(),
             levels: [(20, 15), (40, 16), (100, 17)]
                 .into_iter()
                 .map(

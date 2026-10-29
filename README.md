@@ -22,31 +22,46 @@ these cooked files.
 
 ```sh
 nix develop
-cargo build --workspace
-target/debug/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
-target/debug/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
-target/debug/resonance-import cook-all --jobs 6
+cargo build --release -p resonance-import-cli
+target/release/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
+target/release/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
+target/release/resonance-import cook-all --extracted local/extracted --output local/all-assets
 ```
 
 The current import profile supports North American GQSEAF revision 0.
-Extraction is a one-time step. `cook-all` converts general assets from both discs
-into one shared `local/all-assets` library, including unused resources in supported
-formats. It also prepares startup, menus, skits and every field in the source
-catalogue through shared conversion paths. Field resources and media follow their
-source declarations; no list of Iselia fields or separate route-cooking commands
-is needed. Battle preparation is separate; the coverage report identifies deferred
-battle resources. Identical resources are reused across discs; disc names remain
-provenance only. Cooking does not establish runtime support for every recovered
-scene or native function. Cooks reuse valid outputs; inspect `--help` for
-other paths and worker limits. Keep discs, extracted files, cooked assets and
-recordings in the ignored `local/` directory. Cooking uses in-process Rust codecs,
+Extraction is a one-time step. The normal command now uses the replacement
+importer described in the [cooking guide](docs/cooking.md). It cooks shared assets once from disc 1;
+its only disc-2 inputs are five event speech archives and four story movies.
+A complete second extraction is optional. The replacement covers the currently supported resource catalogue. Required
+conversion failures stop with their owner and path; broader original-game
+controller support remains in development.
+The asset library contains fields, world, shared models and animations, battle content, menus,
+skits, audio and movies. Category converters read their native inputs and write
+the final named files directly. Category `mappings.json` files connect the game's
+IDs to readable resource names. Disc ownership and hashes are not stored in the
+library. See the [asset guide](docs/cooked-library.md) for its layout and editing.
+
+Choose a fresh output directory. Converters write the final files directly and
+leave completed files in place on failure. Use a new output for a full import;
+keep edits in a separate library. Cooking does not establish runtime support for
+every recovered scene or native function.
+
+For a focused native field-core conversion during development:
+
+```sh
+cargo run -p resonance-importer-vnext -- field-core local/extracted local/field-review 330
+```
+
+This writes the selected field’s script, messages and collision mesh, including
+the explicitly maintained gameplay corrections where applicable.
+It is a partial category output. Use a complete library to boot the game. Keep discs, extracted files,
+cooked assets and recordings in the ignored `local/` directory. Cooking uses in-process Rust codecs,
 with no FFmpeg, vgmstream or KTX command-line tools. The
 [development flake](flake.nix) supplies the build and oracle tools.
 Audio interpolation filters are generated in Rust; no Dolphin installation or
 DSP coefficient file is required.
-The importer parses original databases into validated JSON, including
-recipes, ingredients, item statistics, EX skill definitions and menu settings in
-`game/menu-data.json`.
+The importer writes editable gameplay definitions, including recipes, ingredients,
+item statistics, EX skills and menu settings, under `game/` and `ui/`.
 Executable addresses and packed table layouts stay inside the importer; the
 player reads the converted records.
 
@@ -56,10 +71,11 @@ VM and tooling crates. Check the maintained model scripts with
 [language guide](docs/symphonia-script.md) for syntax, native APIs and bindings.
 
 Field cooking includes skit scripts, animated portraits and media timing. The
-English disc's skit tracks are silent; preparation verifies that and uses their
-duration without playing them. The shared library retains the decoded audio.
-Field audio includes every declared script branch and shared menu sounds. Rerun
-`cook-all` after changes to source assets, cooked formats or the importer.
+English disc's skit tracks are silent; their timing is retained without writing
+empty WAV files. Shared music is rendered offline to WAV and reused by fields and
+battles. Field audio includes declared script branches and shared menu sounds.
+Edit cooked resources directly for mods. Changes to original inputs, cooked
+formats or conversion code require a new cook into a fresh directory.
 
 ## Play
 
@@ -180,12 +196,12 @@ The supported route has been exercised on ARM Linux; Windows, Steam Deck and
 Apple Silicon macOS hardware validation remains pending. Intel macOS is out
 of scope.
 
-Maintained SymphoniaScript sources are embedded in the cooker and published under
-the cooked asset directory's `scripts/`. These are immutable cooked assets,
-verified and loaded with the field. Change the checked-in sources, rebuild and
-recook to update them. Mod overlays are future work.
-The checked-in [standard library](scripts/std/README.md) supplies ordinary string
-and integer constants. Cooking copies it unchanged. Check source with
+Maintained SymphoniaScript sources are embedded in the importer and published under
+the cooked asset directory's `scripts/`. Cooked scripts can be edited directly.
+Change the checked-in sources and rebuild to change the defaults for future cooks.
+Mod overlays are future work.
+The [standard definitions](scripts/std/README.md) are generated from the known-ID
+enums in `symphonia-constants`. Check source with
 `resonance-script check scripts preview::sword_dancer`; add `--assets ASSETS` to
 check against the cooked library instead.
 

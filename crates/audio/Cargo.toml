@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 hound = "3.5"
+resonance-asset-writer.workspace = true
+resonance-content.workspace = true
 self_cell = "=1.3.0"

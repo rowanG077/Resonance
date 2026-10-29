@@ -19,8 +19,8 @@ pub(crate) fn wind(world: &mut GameWorld, recipe: Option<&FieldWind>) {
         // A cosmetic stream derived from the update never consumes gameplay randomness.
         let mut random = Random::new(u64::from(world.effect_tick));
         std::array::from_fn(|axis| {
-            recipe.base[axis]
-                + recipe.step[axis] * (random.next_u32() % u32::from(recipe.steps)) as f32
+            recipe.first[axis]
+                + recipe.step[axis] * (random.next_u32() % u32::from(recipe.count)) as f32
         })
     } else if let Some(previous) = previous {
         // The gate controls new samples; the last force remains active.
@@ -41,9 +41,9 @@ mod tests {
         let mut world = GameWorld::default();
         let recipe = FieldWind {
             gate: EnvironmentGate::SettingNonzero(7),
-            base: [0., 1.8, -0.8],
+            first: [0., 1.8, -0.8],
             step: [0., 1. / 15., -1. / 30.],
-            steps: 32,
+            count: 32,
         };
         wind(&mut world, Some(&recipe));
         assert!(world.environment_wind.is_empty());

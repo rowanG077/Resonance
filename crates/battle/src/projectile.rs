@@ -733,7 +733,7 @@ mod tests {
 
     #[test]
     fn launch_policy_samples_target_or_bones_once_and_retains_actor_offset() -> Result<()> {
-        use resonance_content::animation::{Bone, Transform, TransformChannels};
+        use resonance_content::animation::{Bone, Transform};
         let bone_direction = Some(ProjectileBoneDirection { from: 0, to: 1 });
         for (origin, bone_direction, expected) in [
             (ProjectileOrigin::Actor, None, [90., -10., 50.]),
@@ -753,7 +753,8 @@ mod tests {
             body.skeleton.bones.push(Bone {
                 name: "tip".into(),
                 parent: Some(0),
-                bind_channels: TransformChannels(8),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     translation: [10., 0., 20.],
                     ..Default::default()

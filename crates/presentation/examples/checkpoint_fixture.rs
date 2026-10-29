@@ -1,4 +1,4 @@
-//! Wrap a typed checkpoint with current content identity; never opens a device.
+//! Wrap a typed checkpoint in the current save format; never opens a device.
 use anyhow::{Context, Result, bail, ensure};
 use resonance_content::session::{GameText, SessionData};
 use resonance_game::field::FieldCheckpoint;
@@ -45,9 +45,12 @@ fn register_party_stats(
         observed.state_sha256 == format!("{:x}", Sha256::digest(fs::read(source_state)?)),
         "party observations belong to a different source state"
     );
-    let data: SessionData =
-        serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
-    let text: GameText = serde_json::from_slice(&fs::read(root.join("game/text.json"))?)?;
+    let mut snapshot = resonance_content::library::Library::open(root, &[])?.snapshot();
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files = resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
+    let data = SessionData::load(&files)?;
+    let text = GameText::load(&files)?;
     data.validate()?;
     let party = &mut checkpoint.progress.party;
     ensure!(

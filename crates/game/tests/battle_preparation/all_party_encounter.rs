@@ -3,15 +3,11 @@ use resonance_battle::TechniqueId;
 use resonance_battle::{
     Activity, BattlePhase, ButtonInput, Character, ContactSource, ControlInput, Cue,
 };
-use resonance_content::{
-    diagnostics::Diagnostics, menu_data::MenuData, prepared::Cache, session::SessionData,
-};
+use resonance_content::{diagnostics::Diagnostics, menu_data::MenuData, session::SessionData};
 use resonance_events::{battle::DefeatPolicy, party::Party};
 use resonance_game::battle::encounter::{Assets, PrepareOptions, Prepared};
 
 pub(super) struct ColdEncounter {
-    root: std::path::PathBuf,
-    cache: Cache,
     files: Files,
     pub(super) menus: MenuData,
     pub(super) session: SessionData,
@@ -21,15 +17,16 @@ pub(super) struct ColdEncounter {
 impl ColdEncounter {
     pub(super) fn load() -> Result<Self> {
         let root = common::asset_root();
-        let mut cache = Cache::default();
-        let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-            false
-        })?;
+
+        let files = resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(&root, &[])?,
+            &[],
+            || false,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
         let session = SessionData::load(&files)?;
         let menus = session.rules.as_ref().unwrap().as_ref().clone();
         Ok(Self {
-            root,
-            cache,
             files,
             menus,
             session,
@@ -43,20 +40,34 @@ impl ColdEncounter {
 
     fn prepare_formation(&mut self, party: &Party, formation: u16) -> Result<(Assets, Prepared)> {
         party.validate(&self.session)?;
-        let (assets, prepared) = Assets::load(
-            &self.root,
-            &self.files,
-            &self.menus,
-            &self.session,
-            party,
-            opening_setup(formation, DefeatPolicy::GameOver),
-            PrepareOptions {
-                story: self.story,
-                ..opening_options(0x2345)
-            },
-            &mut self.cache,
-            || false,
-        )?;
+        let (assets, prepared) = {
+            let mut snapshot = (&self.files)
+                .library()
+                .context("named library is required")?
+                .snapshot();
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &(|| false),
+            )?;
+            let inputs = resonance_game::battle::encounter::Assets::capture(
+                &mut snapshot,
+                &self.menus,
+                &self.session,
+                party,
+                opening_setup(formation, DefeatPolicy::GameOver),
+                (&self.files).diagnostics().clone(),
+                &(|| false),
+            )?;
+            let (assets, prepared, _) = inputs.prepare_named(
+                &self.menus,
+                PrepareOptions {
+                    story: self.story,
+                    ..opening_options(0x2345)
+                },
+                &catalogue,
+            )?;
+            Ok::<_, anyhow::Error>((assets, prepared))
+        }?;
 
         Ok((assets, prepared))
     }
@@ -66,14 +77,25 @@ impl ColdEncounter {
 #[ignore = "requires cooked party costumes and victory motions; CPU only"]
 fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
     let mut fixture = ColdEncounter::load()?;
+    let mut snapshot = fixture
+        .files
+        .library()
+        .context("named library is required")?
+        .snapshot();
+    let mut available = std::collections::BTreeSet::new();
+    for character in 1..=9_u8 {
+        let mapping = snapshot.resolve(
+            resonance_content::battle_model::document::PARTY,
+            u32::from(character),
+            Some("mappings.json"),
+        )?;
+        for (costume, _) in snapshot.mappings(&mapping)?.iter() {
+            available.insert((character, u8::try_from(costume)?));
+        }
+    }
     for (character, titles) in fixture.menus.titles.iter().enumerate() {
         for costume in titles.iter().filter_map(|title| title.costume) {
-            assert!(fixture.files.contains_key(
-                &resonance_content::battle_model::party_costume_path(
-                    (character + 1) as u8,
-                    costume as u8,
-                )
-            ));
+            assert!(available.contains(&((character + 1) as u8, costume as u8)));
         }
     }
     for costume in 0..5 {
@@ -82,11 +104,7 @@ fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
             party.formation = formation
                 .iter()
                 .copied()
-                .filter(|&character| {
-                    fixture.files.contains_key(
-                        &resonance_content::battle_model::party_costume_path(character, costume),
-                    )
-                })
+                .filter(|&character| available.contains(&(character, costume)))
                 .collect();
             if party.formation.is_empty() {
                 continue;
@@ -106,19 +124,46 @@ fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
             let (assets, prepared) = fixture
                 .prepare(&party)
                 .with_context(|| format!("party {formation:?}, costume {costume}"))?;
-            for &character in &formation {
-                let body: resonance_content::battle_model::Party =
-                    assets
-                        .files
-                        .json(&resonance_content::battle_model::party_costume_path(
-                            character, costume,
-                        ))?;
-                assert!(prepared.models.iter().any(|model| {
-                    model
-                        .parts
+            for (actor, &character) in formation.iter().enumerate() {
+                let (_, body) = resonance_content::battle_model::document::capture_party(
+                    &mut snapshot,
+                    character,
+                    costume,
+                    &Diagnostics::new(true),
+                    &|| false,
+                )?;
+                let rendered = prepared
+                    .models
+                    .iter()
+                    .find(|model| {
+                        model
+                            .parts
+                            .iter()
+                            .any(|part| part.scene.mesh == body.parts[0].mesh)
+                    })
+                    .context("missing rendered party body")?;
+                let appearance = body.parts[0].appearance.as_ref().unwrap();
+                assert_eq!(
+                    rendered
+                        .texture_channels
                         .iter()
-                        .any(|part| part.scene.mesh == body.parts[0].mesh)
-                }));
+                        .map(|c| (c.texture, c.frames))
+                        .collect::<Vec<_>>(),
+                    [
+                        (appearance.eyes.unwrap(), 16),
+                        (appearance.mouth.unwrap(), 8)
+                    ]
+                );
+                let head = &prepared.head_anchors[actor];
+                assert_eq!(
+                    body.body.skeleton.bones[usize::from(head.bone)].name,
+                    "head"
+                );
+                let overlimit = prepared.feedback.actors[actor].overlimit.as_ref().unwrap();
+                assert_eq!(
+                    body.body.skeleton.bones[usize::from(overlimit.bone)].name,
+                    "spine-01"
+                );
                 let character = Character::try_from(character)?;
                 assert_eq!(
                     prepared
@@ -260,7 +305,7 @@ fn prepare(fixture: &mut ColdEncounter, formation: &[u8], controls: [u8; 4]) -> 
         formation
             .iter()
             .copied()
-            .map(Character::try_from)
+            .map(|id| Character::try_from(id).map_err(anyhow::Error::from))
             .collect::<Result<Vec<_>>>()?
     );
     Ok(prepared)
@@ -315,10 +360,17 @@ fn mixed_parties_prepare_spells_and_audio() -> Result<()> {
                 assert!(traits.aid_revenge);
             }
         }
-        let audio = assets.audio.as_ref().context("missing battle audio")?;
+        let audio = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut assets
+                .files
+                .library()
+                .context("named library required")?
+                .snapshot(),
+            &|| false,
+        )?;
         assert!(
             audio
-                .assets
+                .resolved
                 .music
                 .contains_key(&i16::try_from(prepared.music)?)
         );
@@ -701,10 +753,10 @@ fn elemental_variants_execute_from_equipment_and_permanent_learning() -> Result<
 #[cfg(feature = "test-support")]
 #[ignore = "requires current combined arte publications; CPU only"]
 fn every_combined_unison_recipe_executes() -> Result<()> {
-    use resonance_content::battle_unison::{self, Catalogue};
+    use resonance_content::battle_unison::Catalogue;
     let mut fixture = ColdEncounter::load()?;
     fixture.story = 1_403_000;
-    let catalogue: Catalogue = fixture.files.json(battle_unison::PATH)?;
+    let catalogue: Catalogue = resonance_content::battle_rules::unison(&fixture.files)?;
     let mut failures = Vec::new();
     let mut cases = 0;
     let selected_row = std::env::var("RESONANCE_TEST_UNISON_ROW")
@@ -729,7 +781,7 @@ fn every_combined_unison_recipe_executes() -> Result<()> {
                             .iter()
                             .copied()
                             .filter_map(|arte| {
-                                (catalogue.placements.get(usize::from(arte))?.native_id == native
+                                (catalogue.placements.get(&arte)?.native_id == native
                                     && fixture.menus.techniques[usize::from(arte)].unison_usable)
                                     .then_some((index as u8 + 1, arte))
                             })
@@ -785,7 +837,8 @@ fn elemental_variants_keep_base_unison_recipes() -> Result<()> {
     use resonance_content::{arte::elemental, battle_unison};
     let mut fixture = ColdEncounter::load()?;
     fixture.story = 1_403_000;
-    let catalogue: battle_unison::Catalogue = fixture.files.json(battle_unison::PATH)?;
+    let catalogue: battle_unison::Catalogue =
+        resonance_content::battle_rules::unison(&fixture.files)?;
     for (name, participants) in [
         (
             "Pow Blade",
@@ -928,7 +981,7 @@ fn execute_combination(
 #[ignore = "requires prepared angel and Colette artwork; CPU only"]
 fn angels_and_colette_prepare_independent_animated_wings() -> Result<()> {
     use resonance_game::battle::encounter::AccessoryStyle;
-    let mut fixture = ColdEncounter::load()?;
+    let fixture = ColdEncounter::load()?;
     let mut party = Party::new(&fixture.session, Default::default())?;
     // Kratos has wings at the first Tower fight, but neither the later Tower fight
     // nor the Torent duel. The Torent package still contains unused wing artwork.
@@ -940,21 +993,35 @@ fn angels_and_colette_prepare_independent_animated_wings() -> Result<()> {
         } else {
             vec![1, 2, 3, 4]
         };
-        let (assets, prepared) = Assets::load(
-            &fixture.root,
-            &fixture.files,
-            &fixture.menus,
-            &fixture.session,
-            &party,
-            opening_setup(formation, DefeatPolicy::GameOver),
-            PrepareOptions {
-                colette_state: 1,
-                story: 23_001_000,
-                ..opening_options(0x2345)
-            },
-            &mut fixture.cache,
-            || false,
-        )?;
+        let (assets, prepared) = {
+            let mut snapshot = (&fixture.files)
+                .library()
+                .context("named library is required")?
+                .snapshot();
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &(|| false),
+            )?;
+            let inputs = resonance_game::battle::encounter::Assets::capture(
+                &mut snapshot,
+                &fixture.menus,
+                &fixture.session,
+                &party,
+                opening_setup(formation, DefeatPolicy::GameOver),
+                (&fixture.files).diagnostics().clone(),
+                &(|| false),
+            )?;
+            let (assets, prepared, _) = inputs.prepare_named(
+                &fixture.menus,
+                PrepareOptions {
+                    colette_state: 1,
+                    story: 23_001_000,
+                    ..opening_options(0x2345)
+                },
+                &catalogue,
+            )?;
+            Ok::<_, anyhow::Error>((assets, prepared))
+        }?;
         let colette_has_wings = formation != 74;
         assert_eq!(
             prepared.accessories.len(),
@@ -993,7 +1060,7 @@ fn angels_and_colette_prepare_independent_animated_wings() -> Result<()> {
                 if matches!(wing.style, AccessoryStyle::Colette { .. }) {
                     resonance_events::Wings::ATTACHMENT_BONE
                 } else {
-                    "Bone_sebone02"
+                    "spine-02"
                 }
             );
             let model = prepared
@@ -1100,5 +1167,127 @@ fn ordinary_attachments_prepare_all_instances_and_selected_motions() -> Result<(
         assert!(!assets.files.diagnostics().has_errors());
         assert!(!core.is_diagnostic());
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires installed library; named profile edits, CPU only, no conversion"]
+fn named_profile_edits_reach_prepared_party() -> Result<()> {
+    use resonance_content::{
+        battle_rules,
+        library::{Library, Mod},
+    };
+    let root = common::asset_root();
+    let modifications = tempfile::tempdir()?;
+    let path = modifications.path().join(battle_rules::PARTY);
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    let mut rules: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join(battle_rules::PARTY))?)?;
+    let profile = &mut rules["characters"]["lloyd"]["profile"];
+    profile["head_anchor"] = serde_json::json!({"bone":"spine-01", "offset":[1.,2.,3.]});
+    profile["overlimit_bone"] = "head".into();
+    profile["species"] = "plant".into();
+    profile["size"] = "huge".into();
+    profile["recoil_weight"] = "grounded".into();
+    profile["casting"] =
+        serde_json::json!({"release_rate":0.75,"chant_once":true,"chant_loop_start":1.0});
+    profile["expressions"] = serde_json::json!([
+        {"texture":"mouth","frames":8,"idle":1,"active":2,"rescue":3,"blink":[4,5],"blink_exclude":[6]},
+        {"texture":0,"frames":16,"idle":7,"active":8,"rescue":9}
+    ]);
+    profile["shadow"] = serde_json::Value::Null;
+    profile.as_object_mut().unwrap().remove("target_anchor");
+    std::fs::write(&path, serde_json::to_vec(&rules)?)?;
+    let library = Library::open(
+        &root,
+        &[Mod {
+            name: "profile anchors".into(),
+            root: modifications.path().into(),
+        }],
+    )?;
+    let files =
+        resonance_content::preparation::capture(&library, &[], || false, Diagnostics::new(true))?;
+    let session = SessionData::load(&files)?;
+    let menus = session.rules.as_ref().unwrap().as_ref().clone();
+    let mut party = Party::new(&session, Default::default())?;
+    party.formation = vec![1];
+    let mut snapshot = library.snapshot();
+    let catalogue =
+        resonance_content::battle_audio::document::Catalogue::capture(&mut snapshot, &|| false)?;
+    let inputs = resonance_game::battle::encounter::Assets::capture(
+        &mut snapshot,
+        &menus,
+        &session,
+        &party,
+        opening_setup(2, DefeatPolicy::GameOver),
+        Diagnostics::new(true),
+        &|| false,
+    )?;
+    // The selected profile is retained with the captured encounter.
+    rules["characters"]["lloyd"]["profile"]["head_anchor"]["bone"] = "missing-after-capture".into();
+    std::fs::write(&path, serde_json::to_vec(&rules)?)?;
+    let (_, prepared, _) = inputs.prepare_named(&menus, opening_options(17), &catalogue)?;
+    let (_, body) = resonance_content::battle_model::document::capture_party(
+        &mut library.snapshot(),
+        1,
+        0,
+        &Diagnostics::new(true),
+        &|| false,
+    )?;
+    let head = body.body.skeleton.bone("spine-01").unwrap();
+    let overlimit = body.body.skeleton.bone("head").unwrap();
+    assert_eq!(u16::from(prepared.head_anchors[0].bone), head);
+    assert_eq!(prepared.head_anchors[0].offset, [1., 2., 3.]);
+    assert_eq!(
+        u16::from(prepared.feedback.actors[0].overlimit.as_ref().unwrap().bone),
+        overlimit
+    );
+    let model = prepared
+        .models
+        .iter()
+        .find(|model| {
+            model
+                .parts
+                .iter()
+                .any(|p| p.scene.mesh == body.parts[0].mesh)
+        })
+        .unwrap();
+    assert_eq!(model.target_anchor.unwrap().bone, Some(head));
+    assert_eq!(model.target_anchor.unwrap().offset, [1., 2., 3.]);
+    assert_eq!(
+        model
+            .texture_channels
+            .iter()
+            .map(|c| (c.texture, c.frames))
+            .collect::<Vec<_>>(),
+        [
+            (body.parts[0].appearance.as_ref().unwrap().mouth.unwrap(), 8),
+            (0, 16)
+        ]
+    );
+    assert_eq!(prepared.feedback.rescues[0].expression, Some([3, 9, 0, 0]));
+    let actor = &prepared.core.actors()[0];
+    assert_eq!(actor.species, resonance_battle::Species::Plant);
+    assert_eq!(actor.movement.steering.positioning_radius, 3);
+    assert_eq!(
+        actor.reaction.profile.vertical,
+        resonance_battle::VerticalRecoil::Grounded
+    );
+    assert!(!actor.reaction.profile.can_launch);
+    let body = prepared
+        .core
+        .models()
+        .unwrap()
+        .definition(resonance_battle::ActorId::from_index(0)?)
+        .unwrap();
+    assert_eq!(body.reactions.chant_rate, 0.75);
+    assert!(body.reactions.chant_once);
+    assert_eq!(body.reactions.chant_loop_start, 1.0);
+    assert_eq!(body.reactions.falling_blend, 12);
+    assert_eq!(body.idle_expression, [1, 7, 0, 0]);
+    assert_eq!(body.active_expression, [2, 8, 0, 0]);
+    assert_eq!(body.blinks[0].frames, [4, 5]);
+    assert_eq!(body.blinks[0].excluded_expressions, [6]);
+    assert!(body.shadow.is_none());
     Ok(())
 }

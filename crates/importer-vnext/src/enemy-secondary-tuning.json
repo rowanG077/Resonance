@@ -1,0 +1,42 @@
+[
+  {
+    "models": ["clumsy-assassin-0224", "resolute-assassin-0225"],
+    "chains": ["cloth-2-left", "cloth-2-right"],
+    "attraction": 0.008167, "gravity": 1.6, "damping": 0.633,
+    "taper": true, "lock_y": true,
+    "collision_plane": {"anchor": "spine-01", "normal": [0, -1, 0]}
+  },
+  {
+    "models": ["convict-0226"], "chains": ["sideburns"],
+    "attraction": 0.158167, "gravity": 2.566, "damping": 0.4
+  },
+  {
+    "models": ["convict-0226"], "chains": ["hair"],
+    "attraction": 0.116, "gravity": 0.966, "damping": 0.633,
+    "taper": true, "weighted_root": true,
+    "collision_plane": {"anchor": "neck", "normal": [0, -1, 0], "offset": -10}
+  },
+  {
+    "models": ["meredy-0233"], "chains": ["braid-left", "braid-right"],
+    "attraction": 0.04, "gravity": 1.266, "damping": 0.366,
+    "lock_y": true
+  },
+  {
+    "models": ["zelos-wilder-0235"], "chains": ["hair-3"],
+    "attraction": 0.116, "gravity": 0.966, "damping": 0.633,
+    "taper": true, "weighted_root": true,
+    "collision_plane": {"anchor": "spine-02", "normal": [0, -1, 0]}
+  },
+  {
+    "models": ["zelos-wilder-0235"], "chains": ["waist-cloth"],
+    "attraction": 0.0665, "gravity": 1.6, "damping": 0.633,
+    "taper": true, "lock_y": true,
+    "collision_plane": {"anchor": "spine-01", "normal": [0, -1, 0]}
+  },
+  {
+    "models": ["kratos-aurion-0241", "kratos-aurion-0242"],
+    "chains": ["cape-2-left", "cape-2-right"],
+    "attraction": 0.0665, "gravity": 1.6, "damping": 0.633,
+    "taper": true, "lock_y": true
+  }
+]

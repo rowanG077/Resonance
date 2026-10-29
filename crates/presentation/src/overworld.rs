@@ -9,6 +9,7 @@ mod capture;
 mod cinematic;
 mod effects;
 mod particles;
+mod preparation;
 use anyhow::{Context, Result};
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 pub use capture::{Probe, capture_overworld};
@@ -110,7 +111,7 @@ impl Scene {
             let height = match landmark.height {
                 Some(height) => height,
                 None => terrain
-                    .query(position, package.definition.movement.collision_radius)?
+                    .query(position, package.definition.movement.collision.radius)?
                     .surface(game::collision::Mode::Ground)
                     .map_or(0., |surface| surface.height),
             };
@@ -494,6 +495,12 @@ fn instances(
     if art.ui.is_none() {
         match super::field_ui::WorldArtwork::load(
             &scene.package.files,
+            scene
+                .package
+                .resources
+                .skits
+                .clone()
+                .expect("prepared world skits"),
             &server,
             &mut commands,
             &mut meshes,
@@ -615,7 +622,7 @@ fn instances(
     let mut added = Vec::new();
     for &id in scene.landmarks.keys() {
         let model = match scene.session.locations.appearance(id).map(|a| a.marker) {
-            Some(Marker::Model { id }) => Model::Marker(id),
+            Some(Marker::Model(id)) => Model::Marker(id),
             Some(Marker::FieldPoint) if scene.session.locations.reward(id).is_some() => {
                 Model::Actor(99)
             }
@@ -913,7 +920,7 @@ fn pose(
                 .locations
                 .appearance(id)
                 .is_some_and(|a| match a.marker {
-                    Marker::Model { id } => instance.model == Model::Marker(id),
+                    Marker::Model(id) => instance.model == Model::Marker(id),
                     Marker::FieldPoint => {
                         matches!(instance.model, Model::Actor(99) | Model::Marker(17))
                             && a.interaction != resonance_content::overworld::Interaction::Disabled
@@ -928,8 +935,12 @@ fn pose(
                 slot = Some(0);
             }
             if instance.model == Model::Marker(17) {
-                let [near, far] = scene.package.definition.movement.camera_distances
-                    [usize::from(state.alternate_perspective)];
+                let [near, far] = scene
+                    .package
+                    .definition
+                    .movement
+                    .camera_distances
+                    .for_view(state.alternate_perspective);
                 alpha = ((far - session.travel.camera_distance()) / (far - near)).clamp(0., 1.);
                 visible &= !mount.long_range() && alpha > 0.;
             }
@@ -1241,7 +1252,6 @@ fn animate(
     owner: State,
     art: Option<Res<Art>>,
     roots: Query<&Instance>,
-    clips: Res<Assets<sparse_animation::Clip>>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<sparse_animation::affine::Locals>,
     mut exit: MessageWriter<AppExit>,
@@ -1263,7 +1273,7 @@ fn animate(
         let Some(index) = part.spec.clips.iter().position(|c| c.resource_slot == slot) else {
             continue;
         };
-        let clip = clips.get(&part.clips[index]).unwrap();
+        let clip = &part.motions[index];
         let elapsed_ticks = scene.session.events.tick().saturating_sub(start);
         let elapsed = elapsed_ticks as f32 / resonance_content::ANIMATION_HZ;
         let duration = part.spec.clips[index].duration_seconds;
@@ -1310,7 +1320,7 @@ fn animate(
         };
         if let Err(error) = instance
             .binding
-            .sample(&clip.0, seconds, &mut nodes, &mut affine)
+            .sample(clip, seconds, &mut nodes, &mut affine)
         {
             error!("World animation failed: {error:#}");
             exit.write(AppExit::error());
@@ -1342,10 +1352,11 @@ fn camera(
         0.
     };
     let up = Vec3::new(-bank * direction.y, bank * direction.x, 1.);
-    let (eye, target, up, fov, far) = if let Some(playback) = &scene.session.cinematic {
+    let (eye, rotation, fov, far) = if let Some(playback) = &scene.session.cinematic {
         let camera = playback.camera();
         let mut eye = Vec3::from_array(camera.position);
         let mut target = Vec3::from_array(camera.target);
+        let mut rotation = Quat::from_array(camera.orientation);
         let center = Vec3::new(eye.x, eye.y, 0.);
         if playback.id == 520 || (playback.id == 517 && playback.ticks() >= 1620) {
             // Cosmetic shake is deterministic without consuming encounter RNG.
@@ -1358,19 +1369,24 @@ fn camera(
             };
             eye += Vec3::new(jitter(0), jitter(1), jitter(2)) / 500.;
             target += Vec3::new(jitter(3), jitter(4), jitter(5)) / 50.;
+            rotation = Quat::from_rotation_arc(
+                (Vec3::from_array(camera.target) - Vec3::from_array(camera.position)).normalize(),
+                (target - eye).normalize(),
+            ) * rotation;
         }
-        (
-            eye - center,
-            target - center,
-            Vec3::Z,
-            18.9f32,
-            cinematic::FAR_CLIP,
-        )
+        (eye - center, rotation, 18.9f32, cinematic::FAR_CLIP)
     } else {
-        (eye, target, up, 31.668, distance + 10000.)
+        (
+            eye,
+            Transform::from_translation(eye)
+                .looking_at(target, up)
+                .rotation,
+            31.668,
+            distance + 10000.,
+        )
     };
     for (mut transform, mut projection) in &mut cameras {
-        *transform = Transform::from_translation(eye).looking_at(target, up);
+        *transform = Transform::from_translation(eye).with_rotation(rotation);
         *projection = Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
             fov: fov.to_radians(),
             aspect_ratio: display.0.aspect(),

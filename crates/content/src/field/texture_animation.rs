@@ -24,7 +24,7 @@ pub enum TextureClock {
     EffectPulse {
         interval: u32,
         phase: u32,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         unconditional: bool,
     },
     /// Advance only while the target actor exists.
@@ -47,12 +47,14 @@ pub enum TextureControl {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TextureMotion {
     /// Explicit frames support pauses, held endings and irregular atlas layouts.
+    #[serde(rename = "timeline")]
     Sampled {
+        #[serde(flatten)]
         animation: crate::TextureAnimation<()>,
     },
     Scroll {
         velocity: [f32; 2],
-        #[serde(default, alias = "vertical_wave")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         wave: Option<FieldTextureWave>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         restart_ticks: Option<u32>,
@@ -67,7 +69,7 @@ pub enum TextureMotion {
 pub struct FieldTextureWave {
     pub degrees_per_tick: f32,
     pub amplitude: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub horizontal: bool,
 }
 impl FieldTextureAnimation {

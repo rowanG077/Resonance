@@ -10,8 +10,8 @@ use resonance_content::{
 use resonance_events::{GameWorld, OverlayKind};
 
 struct Bank {
-    art: OverlayArt,
-    surfaces: Vec<Handle<Surface>>,
+    sizes: Vec<[u32; 2]>,
+    surfaces: Vec<Option<Handle<Surface>>>,
 }
 
 pub(super) struct Artwork {
@@ -34,10 +34,19 @@ impl Artwork {
         let mut loaded = Vec::new();
         let mut samplers: Vec<(ImageSamplerDescriptor, Handle<Image>)> = Vec::new();
         for (&id, path) in overlays {
-            let art: OverlayArt = serde_json::from_slice(&read(path)?)?;
+            let art = OverlayArt::load(path, &read)?;
             art.validate()?;
             let mut surfaces = Vec::new();
+            let mut sizes = Vec::new();
             for texture in &art.textures {
+                let Some(texture) = texture else {
+                    surfaces.push(None);
+                    sizes.push([0, 0]);
+                    continue;
+                };
+                sizes.push(resonance_asset_writer::texture::dimensions(&read(
+                    &texture.images[0],
+                )?)?);
                 let descriptor = sampler(&texture.sampler)?;
                 // Equal pixel files can have different native sampling. A tiny
                 // separate sampler image avoids changing a shared image asset.
@@ -53,21 +62,12 @@ impl Artwork {
                         image
                     }
                 };
-                let pages: Vec<Handle<Image>> = texture
-                    .images
-                    .iter()
-                    .map(|image| {
-                        server
-                            .load_builder()
-                            .with_settings(|settings: &mut ImageLoaderSettings| {
-                                settings.is_srgb = false
-                            })
-                            .load(image.path.clone())
-                    })
-                    .collect();
-                // Ordinary overlays select a texture, always using its first palette.
-                let source = pages[0].clone();
-                surfaces.push(materials.add(Surface {
+                let source: Handle<Image> = server
+                    .load_builder()
+                    .with_settings(|settings: &mut ImageLoaderSettings| settings.is_srgb = false)
+                    .load(texture.images[0].clone());
+                loaded.push(source.clone());
+                surfaces.push(Some(materials.add(Surface {
                     source: source.clone(),
                     sampling,
                     frame_mask: source.clone(),
@@ -76,10 +76,9 @@ impl Artwork {
                     additive: false,
                     texture_effect: Default::default(),
                     opaque: false,
-                }));
-                loaded.extend(pages);
+                })));
             }
-            banks.insert(id as u32, Bank { art, surfaces });
+            banks.insert(id as u32, Bank { sizes, surfaces });
         }
         Ok(Self {
             banks,
@@ -102,7 +101,11 @@ impl Artwork {
         if self.prepared {
             return;
         }
-        for surface in self.banks.values().flat_map(|bank| &bank.surfaces) {
+        for surface in self
+            .banks
+            .values()
+            .flat_map(|bank| bank.surfaces.iter().flatten())
+        {
             self.warm.push(allocate(surface.clone(), commands, meshes));
         }
         self.prepared = true;
@@ -132,7 +135,10 @@ impl Artwork {
                 .with_context(|| format!("uncooked overlay resource {:#x}", actor.resource))?;
             let alpha = overlay.alpha(world.tick);
             let mut emit = |texture: usize, rect, uv, color, scale, depth: f32| {
-                if actor.visible && !actor.appearance.model_hidden && (0. ..=200.).contains(&depth)
+                if bank.surfaces.get(texture).is_some_and(Option::is_some)
+                    && actor.visible
+                    && !actor.appearance.model_hidden
+                    && (0. ..=200.).contains(&depth)
                 {
                     draws.push(Draw {
                         resource: actor.resource,
@@ -146,17 +152,15 @@ impl Artwork {
             match &overlay.kind {
                 OverlayKind::Sprite(sprite) => {
                     let texture = usize::from(sprite.image);
-                    let image = &bank
-                        .art
-                        .textures
+                    let size = *bank
+                        .sizes
                         .get(texture)
-                        .context("overlay texture index is outside its bank")?
-                        .images[0];
+                        .context("overlay texture index is outside its bank")?;
                     let mut color = overlay.rgba.map(|v| f32::from(v) / 255.);
                     color[3] = f32::from(alpha) / 255.;
                     emit(
                         texture,
-                        centered_rect(overlay.size, [image.width, image.height]),
+                        centered_rect(overlay.size, size),
                         [0., 0., 255. / 256., 255. / 256.],
                         color,
                         sprite.scale,
@@ -168,12 +172,8 @@ impl Artwork {
                         overlay.size == [-1, -1] && actor.heading == 0. && overlay.duration <= 1,
                         "unsupported location caption presentation: {overlay:?}"
                     );
-                    let sizes = bank.art.textures.iter().map(|texture| {
-                        let image = &texture.images[0];
-                        [image.width, image.height]
-                    });
                     resonance_events::caption::frame(
-                        sizes,
+                        bank.sizes.iter().copied(),
                         world.tick.saturating_sub(overlay.born) as usize,
                         |sprite| {
                             // The controller replaces reveal opacity while fading out.
@@ -198,7 +198,10 @@ impl Artwork {
         sort(&mut draws);
         let count = draws.len();
         for (index, draw) in draws.into_iter().enumerate() {
-            let surface = self.banks[&draw.resource].surfaces[draw.texture].clone();
+            let surface = self.banks[&draw.resource].surfaces[draw.texture]
+                .as_ref()
+                .unwrap()
+                .clone();
             if index == self.layers.len() {
                 // All material/vertex-layout combinations were warmed before play.
                 self.layers

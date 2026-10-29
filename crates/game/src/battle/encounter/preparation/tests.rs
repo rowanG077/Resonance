@@ -1,11 +1,10 @@
 use super::*;
 use resonance_battle::TechniqueId;
-use resonance_content::prepared::Files;
 
 #[test]
 #[ignore = "requires current cooked encounter assets; CPU only"]
 fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
-    use resonance_content::{diagnostics::Diagnostics, prepared::Cache, session::SessionData};
+    use resonance_content::{diagnostics::Diagnostics, session::SessionData};
     use resonance_events::{
         battle::{DefeatPolicy, Setup},
         party::Party,
@@ -15,18 +14,17 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         .unwrap_or_else(|| {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
         });
-    let mut cache = Cache::default();
+
     for paranoid in [false, true] {
         let diagnostics = Diagnostics::new(paranoid);
-        let files = Files::load_with_diagnostics(
-            &root,
-            &["fields/map-332.preload.json"],
-            &mut cache,
+        let files = resonance_content::preparation::capture(
+            &resonance_content::library::Library::open(&root, &[])?,
+            &[],
             || false,
             diagnostics.clone(),
         )?;
-        let menus: MenuData = files.json("game/menu-data.json")?;
-        let mut session: SessionData = files.json("game/session-data.json")?;
+        let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
+        let mut session: SessionData = resonance_content::session::SessionData::load(&files)?;
         session.rules = Some(Arc::new(menus.clone()));
         let mut party = Party::new(&session, Default::default())?;
         party.battle_rules.modifiers = 0x0150;
@@ -41,9 +39,11 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         party.members[0].shortcuts = [1, 2, 0, 0];
         party.members[0].technique_uses = [(1, 17), (2, 23)].into();
         party.validate(&session)?;
-        let inputs = Inputs::load(
-            &root,
-            &files,
+        let inputs = Assets::capture(
+            &mut (&files)
+                .library()
+                .context("named library is required")?
+                .snapshot(),
             &menus,
             &session,
             &party,
@@ -54,8 +54,8 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
                 music: None,
                 defeat: DefeatPolicy::ResumeEvent,
             },
-            &mut cache,
-            || false,
+            (&files).diagnostics().clone(),
+            &(|| false),
         )?;
         assert!(inputs.spell_scenes.contains_key(&213));
         let result = inputs.prepare(
@@ -75,6 +75,18 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
             |request| Ok(Some(request)),
         )?;
         assert!(!diagnostics.has_errors());
+        let stun = result.stun_particle.as_ref().context("stun bird missing")?;
+        let render = result
+            .effects
+            .iter()
+            .find(|effect| effect.resource == stun.resource)
+            .context("stun artwork bank missing")?;
+        let (member, template) = render
+            .source
+            .named_particle(resonance_content::battle_effect::document::STUN_BIRD)?;
+        assert_eq!(stun.member, u16::from(member));
+        assert_eq!(&stun.data, template);
+        assert!(render.members.contains(&stun.member));
         let mut battle = result.core;
         for actor in battle.actors() {
             assert_eq!(
@@ -221,16 +233,25 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
                 2,
                 &[(3, 66)],
                 diagnostics.clone(),
-                |party, _, _, files| {
+                |party, _, _, snapshot, modification| {
                     party.settings.battle_controls[0] = 1;
-
-                    if fault == "enemy descriptor" {
-                        files.remove(&resonance_content::battle_model::enemy_path(
-                            battle::enemy::GHOST,
-                        ));
-                    }
-                    if fault == "enemy definition" {
-                        files.remove(&resonance_content::battle_enemy::path(battle::enemy::GHOST));
+                    if matches!(fault, "enemy descriptor" | "enemy definition") {
+                        use resonance_content::battle_enemy::document;
+                        let path = snapshot.resolve(
+                            document::MAPPINGS,
+                            u32::from(battle::enemy::GHOST),
+                            Some("enemy.json"),
+                        )?;
+                        let mut entry: serde_json::Value =
+                            snapshot.json(&path, resonance_content::preparation::JSON_LIMIT)?;
+                        if fault == "enemy descriptor" {
+                            entry["artwork"] = serde_json::json!({"model":"battle/enemies/ghost/missing-model.json"});
+                        } else {
+                            entry["rules"] = serde_json::json!({});
+                        }
+                        let target = modification.join(path);
+                        std::fs::create_dir_all(target.parent().context("missing enemy owner")?)?;
+                        std::fs::write(target, serde_json::to_vec(&entry)?)?;
                     }
                     Ok(())
                 },

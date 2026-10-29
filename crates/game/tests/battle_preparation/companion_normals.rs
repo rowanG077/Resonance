@@ -7,20 +7,17 @@ use resonance_content::session::SessionData;
 #[ignore = "requires current party and weapon publications; no devices"]
 fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
     let root = common::asset_root();
-    let mut cache = resonance_content::prepared::Cache::default();
-    let files = Files::load(&root, &["fields/map-340.preload.json"], &mut cache, || {
-        false
-    })?;
+
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
     let weapons = [135, 159, 175, 190, 205, 228, 242, 258, 228];
-    let mut models: Vec<_> = battle::party::Character::ALL
-        .into_iter()
-        .map(battle::model::ModelSource::Party)
-        .collect();
-    models.extend(weapons.map(battle::model::ModelSource::Weapon));
-    models.push(battle::model::ModelSource::Enemy(36));
-    let files = battle::model::load_files(&root, files, &models, &mut cache, || false)?;
-    let menu: resonance_content::menu_data::MenuData = files.json("game/menu-data.json")?;
-    let session: SessionData = files.json("game/session-data.json")?;
+    let menu: resonance_content::menu_data::MenuData =
+        resonance_content::menu_data::MenuData::load(&files)?;
+    let session: SessionData = resonance_content::session::SessionData::load(&files)?;
     let mut party = resonance_events::party::Party::new(&session, Default::default())
         .map_err(anyhow::Error::msg)?;
     let mut missed_contacts = Vec::new();

@@ -101,6 +101,26 @@ pub(super) fn phase(world: &World) -> Result<Phase> {
     .phase()
 }
 
+/// These workers need no ECS updates until their result can be installed.
+pub(super) fn preparing(world: &World) -> bool {
+    world
+        .get_resource::<loading::Pending>()
+        .is_some_and(loading::Task::is_running)
+        || world
+            .get_resource::<loading::FieldPending>()
+            .is_some_and(loading::Task::is_running)
+        || world
+            .get_resource::<loading::WorldPending>()
+            .is_some_and(loading::Task::is_running)
+        || world
+            .get_resource::<loading::BattlePending>()
+            .is_some_and(loading::Task::is_running)
+        || world
+            .get_resource::<super::super::Quickload>()
+            .is_some_and(|task| task.0.is_running())
+        || super::super::menu::preparing(world)
+}
+
 pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
     match phase {
         Phase::Loading => false,

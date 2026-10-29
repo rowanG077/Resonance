@@ -4,24 +4,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 pub const PATH: &str = "battle/defense-system.json";
-pub const VERSION: u32 = 2;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Definition {
-    pub version: u32,
-    pub source_sha256: String,
-    pub recipe_sha256: String,
-    pub core: FixedMember,
-    pub repair: FixedMember,
-    pub orbit: u8,
+pub struct Definition<Enemy = u8> {
+    pub core: FixedMember<Enemy>,
+    pub repair: FixedMember<Enemy>,
+    pub orbit: Enemy,
     pub orbit_count: u8,
-    pub arm: u8,
-    /// PA marker slots in formation arm order. The native controller owns four arms.
-    pub arm_slots: [u8; 4],
+    pub arm: Enemy,
+    /// Exact GLB joint names in formation arm order.
+    pub arm_joints: [String; 4],
     pub deployment: Deployment,
     pub repair_cycle: RepairCycle,
     pub repair_sound: u16,
@@ -33,8 +29,8 @@ pub struct Definition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FixedMember {
-    pub enemy: u8,
+pub struct FixedMember<Enemy = u8> {
+    pub enemy: Enemy,
     pub position: [f32; 3],
     pub heading: f32,
 }
@@ -42,6 +38,7 @@ pub struct FixedMember {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Deployment {
+    #[serde(with = "crate::battle_motion")]
     pub clip: u16,
     pub ticks: u16,
     pub hp_percent: u8,
@@ -99,6 +96,37 @@ impl Messages {
     }
 }
 
+impl<Enemy> Definition<Enemy> {
+    /// Cooking names the four members; preparation resolves them back to IDs.
+    /// Both use the same controller parameters and serialized structure.
+    pub(crate) fn map_enemies<Resolved>(
+        self,
+        mut resolve: impl FnMut(Enemy) -> Result<Resolved>,
+    ) -> Result<Definition<Resolved>> {
+        let mut fixed = |member: FixedMember<Enemy>| -> Result<FixedMember<Resolved>> {
+            Ok(FixedMember {
+                enemy: resolve(member.enemy)?,
+                position: member.position,
+                heading: member.heading,
+            })
+        };
+        Ok(Definition {
+            core: fixed(self.core)?,
+            repair: fixed(self.repair)?,
+            orbit: resolve(self.orbit)?,
+            orbit_count: self.orbit_count,
+            arm: resolve(self.arm)?,
+            arm_joints: self.arm_joints,
+            deployment: self.deployment,
+            repair_cycle: self.repair_cycle,
+            repair_sound: self.repair_sound,
+            repair_sound_priority: self.repair_sound_priority,
+            messages: self.messages,
+            camera_yaw_limits: self.camera_yaw_limits,
+        })
+    }
+}
+
 impl Definition {
     pub fn contains(&self, enemy: u8) -> bool {
         [self.core.enemy, self.repair.enemy, self.orbit, self.arm].contains(&enemy)
@@ -111,10 +139,6 @@ impl Definition {
     }
 
     pub fn validate(&self) -> Result<()> {
-        ensure!(
-            self.version == VERSION,
-            "unsupported Defense System; recook content"
-        );
         let ids = [self.core.enemy, self.repair.enemy, self.orbit, self.arm];
         ensure!(
             ids.into_iter().collect::<BTreeSet<_>>().len() == ids.len()
@@ -128,8 +152,11 @@ impl Definition {
             "Defense System exceeds formation capacity"
         );
         ensure!(
-            self.arm_slots.into_iter().collect::<BTreeSet<_>>().len() == 4
-                && self.arm_slots.into_iter().all(|slot| slot < 10),
+            self.arm_joints.iter().collect::<BTreeSet<_>>().len() == 4
+                && self
+                    .arm_joints
+                    .iter()
+                    .all(|joint| !joint.is_empty() && !joint.chars().any(char::is_control)),
             "invalid Defense System attachment slots"
         );
         for member in [self.core, self.repair] {

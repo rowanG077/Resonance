@@ -3,23 +3,20 @@
 Core overworld travel and scene ownership are implemented in this worktree:
 Sylvarant and Tethe'alla, Noishe, Rheairds and the ship, world events and
 cinematics, town/dungeon entry and return, presentation, menus and persistence.
-Native presentation differences and further integration checks are listed below. The separate battle implementation in `../resonance` owns combat;
-world encounter lookup produces group/arena/terrain/region data for that boundary.
-The shared `resonance-events::battle::Request` contract is present here; the combat
-renderer/runner remains in the separate battle worktree.
+Native presentation differences and further integration checks are listed below.
+World encounter lookup supplies group, arena, terrain and region data to the
+shared `resonance-events::battle::Request` boundary and current battle runtime.
 
 ## Current implementation
 
 For a temporary flight playground, run:
 
 ```sh
-cargo run -p resonance -- --assets local/overworld-skits --test-overworld
+cargo run -p resonance -- --assets /path/to/current/library --test-overworld
 ```
 
-Use a complete current cooked asset directory instead if this local fixture is
-unavailable. Town and dungeon entry requires the complete field catalogue; a
-world-only cook cannot supply those destinations. The local test fixture now
-includes all 501 cooked field inventories. This skips the opening and starts a fresh four-rider party on Rheairds
+Use a complete current named library: town and dungeon entry also require its
+field catalogue. This skips the opening and starts a fresh four-rider party on Rheairds
 near Iselia with 100,000 gald. Story progress starts in early Sylvarant, after the
 Sylvarant Base rescue, with Kratos in reserve. Rheairds are granted independently;
 late-story events and the interworld portals retain their normal story conditions.
@@ -43,9 +40,18 @@ capture through the same startup path.
 collision/encounter/movement tables, full-resolution landmarks and runtime world
 packages. The importer reads these from the supported English field module and
 executable. Terrain preparation shares the production decoding graph and binds
-one tile at a time. `worlds/world.json` inventories both worlds, all 228 terrain
-sources (including story variants), the shared VM, skits and world visual assets.
-World loading verifies every dependency before creating a session.
+one tile at a time. `world/world.json` refers to both continents, their 228 terrain
+variants, shared rules, script and visual owners. Preparation follows those
+current references into the retained session snapshot; there is no stored asset
+inventory or identity scan.
+
+Each grid-cell directory holds `terrain.json` and, when present, `alternate.json`,
+with inline artwork and independent collision GLBs. The former model wrappers,
+JSON triangle dumps and base/alternate subdirectories are removed. Collision GLBs
+use standard Y-up geometry plus mesh-object `surface` and `order` properties;
+the reader applies node transforms and prepares the existing ordered query data.
+See [the terrain editing guide](cooked-library.md#world-terrain) for Blender export
+and base/alternate editing. World documents use the root layout version.
 
 `resonance-game::overworld` supplies collision, mount control, landmark services,
 world session ownership and checkpoint/field-return state. Collision retains
@@ -191,16 +197,10 @@ Field audio preparation inventories ambient actor cues as well as explicit sound
 calls, including Thoda's sound 286. Chests remain visible across the ground landmark
 horizon, with a gradual fade at its outer edge.
 
-The cooked field audio audit compares every script branch and actor-bound ambient
-cue with each field's sound and preload inventories. Dynamic sound references
-require the full catalogue. Run it with `RESONANCE_WORLD_ASSETS` set:
+Field audio conversion resolves script requests and actor-bound ambient cues
+through the current mappings. Dynamic sound references require the full catalogue.
 
-```sh
-cargo test -p resonance-import original_prepared_fields_include_every_scripted_sound -- --ignored
-```
-
-The exploration fixture refresh added missing references in 75 field inventories;
-the subsequent audit passed all 501 maps. A device-free mixer regression renders
+A device-free mixer regression renders
 Thoda's ambient cue and checks room-music restoration after the inn jingle.
 
 The GPU transition probe accepts optional approach direction, confirmed exit
@@ -239,17 +239,18 @@ item rewards and party requirements. Menu map points are downscaled and cannot
 substitute for these travel records. World terrain packages have local collision
 geometry in member 4; the shared event program is `field_sil.so`.
 
-Collision-table columns 1 and 3 have no established mount meanings. Ground
-movement uses column 0 and ship movement uses column 2. Rheaird flight bypasses
-horizontal ground collision; landing requires clear terrain and resolves
-landmark contacts first.
+Collision meshes use named terrain surfaces. Ground movement accepts walkable
+land; ship movement accepts water and rejects overlapping land. Piers retain
+their boarding role. Unused native query modes and response tables are absent
+from cooked content. Rheaird flight bypasses horizontal ground collision; landing
+requires clear terrain and resolves landmark contacts first.
 
 ## Validation so far
 
 Content, event and game unit suites and event integration checks cover the
 runtime behavior below. Original-disc checks reconstruct collision, encounter and
-movement tables and full landmark positions from both discs. The terrain package
-check binds all 228 sources and verifies their runtime inventory and motion files.
+movement tables and full landmark positions from both discs. The terrain comparison binds all 228 source variants and compares their surfaces,
+vertices and ordered triangles with the current GLBs on both original discs.
 The existing collision sweep covers base tile centers/seams and alternate meshes.
 The original world VM sweep reaches field/skit boundaries for all 160 handlers at
 seven story milestones and four approach directions (4,480 cases).
@@ -262,14 +263,10 @@ failed field-return preparation without consuming the source operation.
 
 ```sh
 cargo test -p resonance-content -p resonance-game -p resonance-events --lib --test events
-cargo test -p resonance-import --lib original_overworld -- --ignored
-cargo test -p resonance-import --lib original_world_templates -- --ignored
 RESONANCE_ASSETS=/absolute/path/to/all-assets RESONANCE_COOKED=/absolute/path/to/current-cooked cargo test -p resonance-game --test overworld_assets original_world_script -- --ignored
-RESONANCE_COOKED=/absolute/path/to/media-library RESONANCE_WORLD_SKITS=/absolute/path/to/disposable-world-output cargo test -p resonance-import --lib original_world_skit_resources -- --ignored
-RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-import --lib original_world_terrain_packages -- --ignored
 RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-presentation --lib original_world_ -- --ignored
 RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-game --test overworld_assets original_world_enemy -- --ignored
-cargo clippy -p resonance-content -p resonance-game -p resonance-events -p resonance-import -p resonance-presentation --all-targets -- -D warnings
+cargo clippy -p resonance-content -p resonance-game -p resonance-events -p resonance-importer-vnext -p resonance-presentation --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -400,7 +397,7 @@ scheduler. The script controls animation waits, reward branches, sounds, receipt
 messages, acknowledgement and full-inventory closing. `TreasureKind` and
 `TreasureReward` also replace raw style/reward encodings in the Rust field state;
 the original native ABI converts at its boundary. Script preparation uses the
-verified cooked sources and validates all receipt glyphs before activation.
+current captured sources and validates all receipt glyphs before activation.
 
 Repeated Salvation rests now finish the original optional-skit scan: the field
 ID query and saved battle-participation query are supported, including when no

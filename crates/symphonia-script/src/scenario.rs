@@ -15,6 +15,7 @@ use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+pub mod calls;
 
 const UNUSED_PROCEDURES: &[u8] = &[0x05, 0x06, 0x07, 0x08, 0x09, 0x5b, 0xef];
 

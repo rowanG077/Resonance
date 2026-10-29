@@ -12,7 +12,6 @@ pub enum SpellRecipe {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PatternSpell {
-    pub provenance: String,
     /// Active callback ticks; transition, initialization and retirement stay native.
     pub lifetime: u16,
     pub origin: PatternOrigin,
@@ -58,10 +57,6 @@ impl SpellRecipe {
 
 impl PatternSpell {
     pub fn validate(&self) -> Result<()> {
-        ensure!(
-            !self.provenance.trim().is_empty() && self.provenance.len() <= 4096,
-            "spell recipe provenance is missing or unbounded"
-        );
         ensure!(
             (46..=3600).contains(&self.lifetime),
             "invalid pattern spell lifetime"
@@ -122,7 +117,6 @@ mod tests {
 
     fn pattern() -> PatternSpell {
         PatternSpell {
-            provenance: "test fixture".into(),
             lifetime: 100,
             origin: PatternOrigin::SceneGround { toward_caster: 1. },
             heading_offset: 20.,
@@ -156,22 +150,28 @@ mod tests {
     }
 
     #[test]
-    fn scene_recipe_rejects_old_format_and_missing_projectile_bindings() {
-        let mut value = serde_json::json!({
-            "version": super::super::VERSION,
-            "source_sha256": "a".repeat(64), "effects": "effects.json",
-            "textures": [], "models": {}, "files": {},
-            "spell_recipe": SpellRecipe::FixedPattern(pattern()),
+    fn scene_reader_validates_projectile_bindings_and_effect_dependencies() {
+        let mut entry = serde_json::json!({
+            "effects": "effects.json", "duration": 0,
         });
-        let scene: Scene = serde_json::from_value(value.clone()).unwrap();
-        assert!(
-            scene
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("projectile is missing")
-        );
-        value.as_object_mut().unwrap().remove("version");
-        assert!(serde_json::from_value::<Scene>(value).is_err());
+        let read = |entry: &serde_json::Value| {
+            super::super::document::read(
+                "scene.json",
+                &crate::diagnostics::Diagnostics::new(true),
+                |path| match path {
+                    "scene.json" => Ok(serde_json::to_vec(entry)?.into()),
+                    "effects.json" => Ok(b"{}".as_slice().into()),
+                    _ => anyhow::bail!("missing fixture document: {path}"),
+                },
+            )
+        };
+        assert!(read(&entry).is_ok());
+        entry["spell_recipe"] = serde_json::to_value(SpellRecipe::FixedPattern(pattern())).unwrap();
+        let error = format!("{:#}", read(&entry).unwrap_err());
+        assert!(error.contains("projectile is missing"), "{error}");
+        entry.as_object_mut().unwrap().remove("spell_recipe");
+        entry["effects"] = "missing-effects.json".into();
+        let error = format!("{:#}", read(&entry).unwrap_err());
+        assert!(error.contains("missing fixture document"), "{error}");
     }
 }

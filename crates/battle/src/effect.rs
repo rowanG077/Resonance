@@ -20,6 +20,13 @@ pub use recorded::FixtureEffectBirth;
 mod stun;
 pub use scheduler::EffectDefinition;
 
+/// Resolved joint and actor-local offset used by stun and poison effects.
+#[derive(Debug, Clone, Copy)]
+pub struct HeadAnchor {
+    pub bone: u8,
+    pub offset: [f32; 3],
+}
+
 #[derive(Debug, Clone)]
 pub struct EffectBank {
     pub(crate) resource: ResourceId,
@@ -243,7 +250,7 @@ pub struct Effects {
     ambient: Option<Ambient>,
     passive: Vec<Passive>,
     stun_particle: Option<Arc<crate::ParticleDefinition>>,
-    head_anchors: Vec<resonance_content::battle_profile::HeadAnchor>,
+    head_anchors: Vec<HeadAnchor>,
     stunned: BTreeMap<ActorId, ParticleId>,
     #[cfg(feature = "test-support")]
     started_programs: Vec<EffectRequest>,

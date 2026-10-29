@@ -20,7 +20,7 @@ use resonance_content::{
     field::{AmbientEmission, FieldAssets, HeatHaze},
 };
 use resonance_events::effect::{Blend, RotationOrder, SpriteOrientation};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::collections::BTreeMap;
 
 const EMOTES: usize = 0;
 const STATUS: usize = 1;
@@ -41,7 +41,7 @@ pub(super) struct Artwork {
     warm_mesh: Handle<Mesh>,
     draws: Vec<Vec<(Entity, Handle<Mesh>)>>,
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
-    overlay_materials: BTreeMap<u32, Vec<SpriteMaterials>>,
+    overlay_materials: BTreeMap<u32, Vec<Option<SpriteMaterials>>>,
     refraction_texture: [Handle<Image>; 2],
     heat_haze: Option<(HeatHaze, Handle<Image>)>,
     ambient: super::field_ambient::Ambient,
@@ -84,27 +84,15 @@ impl Artwork {
         self.spec.mouth_cycle[age as usize % self.spec.mouth_cycle.len()]
     }
     pub fn load(
-        root: &Path,
         field: &FieldAssets,
         server: &AssetServer,
         meshes: &mut Assets<Mesh>,
         surfaces: &mut Assets<TitleSurface>,
+        files: &resonance_content::prepared::Files,
     ) -> Result<Self> {
-        Self::load_with(root, field, server, meshes, surfaces, None)
-    }
-    pub fn load_with(
-        root: &Path,
-        field: &FieldAssets,
-        server: &AssetServer,
-        meshes: &mut Assets<Mesh>,
-        surfaces: &mut Assets<TitleSurface>,
-        files: Option<&resonance_content::prepared::Files>,
-    ) -> Result<Self> {
-        let mut spec: FieldEffects = if let Some(files) = files {
-            files.json(&field.effects)?
-        } else {
-            serde_json::from_slice(&fs::read(root.join(&field.effects))?)?
-        };
+        let mut spec: FieldEffects = files
+            .json::<resonance_content::field::settings::Settings>(&field.effects)?
+            .effects;
         spec.validate()?;
         for (&kind, leaf) in &field.particles {
             spec.sprites.insert(
@@ -166,17 +154,14 @@ impl Artwork {
             .collect();
         let mut overlay_materials = BTreeMap::new();
         for (&resource, path) in &field.overlays {
-            let overlay: resonance_content::effect::OverlayArt = if let Some(files) = files {
-                files.json(path)?
-            } else {
-                serde_json::from_slice(&fs::read(root.join(path))?)?
-            };
+            let overlay =
+                resonance_content::effect::OverlayArt::load(path, |path| files.read(path))?;
             overlay_materials.insert(
                 resource as u32,
                 overlay
                     .textures
                     .iter()
-                    .map(|t| variants(&t.images[0].path))
+                    .map(|t| t.as_ref().map(|t| variants(&t.images[0])))
                     .collect(),
             );
         }
@@ -434,10 +419,10 @@ pub(super) fn render(
         }
         previous_blend = mode;
         let (materials, uv) = if let Some((resource, image)) = effect.texture {
-            (
-                &art.overlay_materials[&resource][usize::from(image)],
-                [0., 0., 1., 1.],
-            )
+            let Some(materials) = &art.overlay_materials[&resource][usize::from(image)] else {
+                continue;
+            };
+            (materials, [0., 0., 1., 1.])
         } else {
             (
                 &art.sprite_materials[&effect.recipe],
@@ -475,7 +460,7 @@ pub(super) fn render(
         (
             Request::Emote(id),
             emote.actor,
-            ("Bone_atama", [0., 0., 128.]),
+            ("head", [0., 0., 128.]),
             resonance_events::emote::sprites(
                 emote.kind,
                 world.tick.saturating_sub(emote.start_tick),
@@ -489,7 +474,7 @@ pub(super) fn render(
         (
             Request::Paralysis,
             symbol.actor,
-            ("Bone_atama", [0.; 3]),
+            ("head", [0.; 3]),
             vec![resonance_events::emote::paralysis(symbol.frame)],
             [0.; 3],
             STATUS,
@@ -751,18 +736,18 @@ mod tests {
                 ))
                 .id()
         };
-        let _geometry = node("Bone_atama", Vec3::splat(999.));
+        let _geometry = node("head", Vec3::splat(999.));
         let prefix = node("Bone_atama_extra", Vec3::splat(1.));
         let wrong_case = node("bone_atama", Vec3::splat(2.));
-        let head_a = node("Bone_atama", Vec3::splat(3.));
-        let head_b = node("Bone_atama", Vec3::new(7., 8., 9.));
-        let broken = world.spawn((Name::new("Bone_atama"), ChildOf(root))).id();
+        let head_a = node("head", Vec3::splat(3.));
+        let head_b = node("head", Vec3::new(7., 8., 9.));
+        let broken = world.spawn((Name::new("head"), ChildOf(root))).id();
         let unlabeled = world.spawn(Transform::IDENTITY).id();
         let mut sample = |nodes: &[Entity], offset| {
             let rig = Rig::new(nodes.iter().map(|&e| (e, Transform::IDENTITY)).collect());
             world
                 .run_system_once(move |names: Query<&Name>, helper: TransformHelper| {
-                    anchor_position(&rig, "Bone_atama", offset, [10., 20., 30.], &names, &helper)
+                    anchor_position(&rig, "head", offset, [10., 20., 30.], &names, &helper)
                 })
                 .unwrap()
         };

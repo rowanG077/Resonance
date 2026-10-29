@@ -242,7 +242,10 @@ pub(super) fn return_to_title(world: &mut World) -> Result<()> {
     discard_field(world);
     retire(world);
     let resident = world.resource::<loading::Resident>();
-    *resident.files.write().unwrap() = None;
+    *resident.files.write().unwrap() = world
+        .resource::<super::session_screen::Title>()
+        .files
+        .clone();
     resident.active.store(false, Ordering::Release);
     resident.battle.store(false, Ordering::Release);
     if let Some(mut old) = world.remove_resource::<super::Events>() {

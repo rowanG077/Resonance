@@ -15,20 +15,20 @@ pub struct Playback {
     pub definition: Arc<Cinematic>,
     pub following: SceneDestination,
     ticks: u32,
+    camera: CameraKey,
 }
 impl Playback {
     pub fn new(id: u16, definition: Arc<Cinematic>, following: SceneDestination) -> Result<Self> {
         ensure!((513..=526).contains(&id), "invalid numbered world scene");
-        ensure!(
-            definition.camera.len() >= 2,
-            "missing world cinematic camera"
-        );
+        definition.camera.validate()?;
+        let camera = definition.camera.sample(0.)?;
         definition.presentation.validate(&definition.actors)?;
         Ok(Self {
             id,
             definition,
             following,
             ticks: 0,
+            camera,
         })
     }
     pub fn ticks(&self) -> u32 {
@@ -38,29 +38,10 @@ impl Playback {
         self.ticks() as f32 / 60.
     }
     pub fn camera(&self) -> CameraKey {
-        // The native player samples twice at 0.25 authored frames per 60-Hz tick.
-        let frame = self.ticks as f32 * 0.5;
-        let keys = &self.definition.camera;
-        let end = keys
-            .partition_point(|key| key.time < frame)
-            .min(keys.len() - 1);
-        let a = &keys[end.saturating_sub(1)];
-        let b = &keys[end];
-        let fraction = if a.time == b.time {
-            0.
-        } else {
-            ((frame - a.time) / (b.time - a.time)).clamp(0., 1.)
-        };
-        CameraKey {
-            time: frame,
-            position: std::array::from_fn(|i| {
-                a.position[i] + fraction * (b.position[i] - a.position[i])
-            }),
-            target: std::array::from_fn(|i| a.target[i] + fraction * (b.target[i] - a.target[i])),
-        }
+        self.camera.clone()
     }
     fn duration(&self) -> u32 {
-        (self.definition.camera.last().unwrap().time * 2.).ceil() as u32
+        (self.definition.camera.duration_frames() * 2.).ceil() as u32
     }
     pub fn fade(&self) -> (f32, bool) {
         let (alpha, white) = self
@@ -97,12 +78,13 @@ impl Playback {
             .map(audio_command)
             .collect()
     }
-    pub fn step(&mut self, audio: &mut Vec<AudioCommand>) -> bool {
+    pub fn step(&mut self, audio: &mut Vec<AudioCommand>) -> Result<bool> {
         self.ticks += 1;
+        self.camera = self.definition.camera.sample(self.ticks as f32 * 0.5)?;
         let complete =
             self.ticks >= self.duration() + self.definition.presentation.fade.end_ticks();
         if self.ticks > self.duration() {
-            return complete;
+            return Ok(complete);
         }
         for before_dialogue in [true, false] {
             if !before_dialogue {
@@ -137,7 +119,7 @@ impl Playback {
                     .map(audio_command),
             );
         }
-        complete
+        Ok(complete)
     }
 }
 
@@ -214,7 +196,7 @@ impl super::Session {
     pub(super) fn step_cinematic(&mut self) -> Result<()> {
         let playback = self.cinematic.as_mut().unwrap();
         self.events.world.tick += 1;
-        if !playback.step(&mut self.events.world.audio_commands) {
+        if !playback.step(&mut self.events.world.audio_commands)? {
             return Ok(());
         }
         if playback.id == 516 {

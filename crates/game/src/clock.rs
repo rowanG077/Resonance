@@ -78,14 +78,12 @@ mod tests {
             clock.advance();
         }
         let mut title = TitleState::default();
-        assert!(title.disc_label_visible(clock));
         for _ in 0..53 {
             clock.advance();
             title.step(MenuInput::default());
         }
         assert_eq!((clock.tick(), title.tick), (128, 53));
-        assert!(!title.disc_label_visible(clock));
         let next_title = TitleState::default();
-        assert!(!next_title.disc_label_visible(clock));
+        assert_eq!((clock.tick(), next_title.tick), (128, 0));
     }
 }

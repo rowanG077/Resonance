@@ -7,6 +7,9 @@ use std::path::PathBuf;
 struct Args {
     #[arg(long, default_value = "local/all-assets")]
     assets: PathBuf,
+    /// Enable a mod directory. Repeat in priority order; the last mod wins.
+    #[arg(long = "mod", value_name = "DIRECTORY")]
+    mods: Vec<PathBuf>,
     /// Editable SymphoniaScript project with fields.json entry bindings.
     #[arg(long)]
     scripts: Option<PathBuf>,
@@ -101,7 +104,12 @@ fn main() -> anyhow::Result<()> {
     let _playground = if args.test_overworld {
         let directory = tempfile::tempdir()?;
         let checkpoint = directory.path().join("rheairds.json");
-        resonance_presentation::prepare_overworld_test_fixture(&args.assets, &checkpoint)?;
+        resonance_presentation::prepare_overworld_test_fixture(
+            &args.assets,
+            &args.mods,
+            args.scripts.as_deref(),
+            &checkpoint,
+        )?;
         args.load = Some(checkpoint);
         args.save_directory
             .get_or_insert_with(|| directory.path().join("saves"));
@@ -112,6 +120,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(output) = &args.record_music {
         return resonance_presentation::record_title_music(
             &args.assets,
+            &args.mods,
             output,
             args.audio_frames,
             !args.skip_intro,
@@ -127,6 +136,7 @@ fn main() -> anyhow::Result<()> {
                 load: args.load,
             },
             assets: args.assets,
+            mods: args.mods,
             script_root: args.scripts,
             capture_at,
             presentation_start: args.presentation_start,
@@ -153,6 +163,43 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mods_keep_command_line_precedence_with_saves_and_captures() {
+        let args = Args::try_parse_from([
+            "resonance",
+            "--mod",
+            "mods/translation",
+            "--mod",
+            "mods/music",
+            "--load",
+            "save.json",
+            "--capture",
+            "field.png",
+        ])
+        .unwrap();
+        assert_eq!(
+            args.mods,
+            [
+                PathBuf::from("mods/translation"),
+                PathBuf::from("mods/music")
+            ]
+        );
+        assert!(matches!(
+            args.capture_target(),
+            Some(resonance_presentation::CaptureAt::LoadedField)
+        ));
+        for mode in ["--record-music", "--test-overworld"] {
+            let mut arguments = vec!["resonance", "--mod", "mods/music", mode];
+            if mode == "--record-music" {
+                arguments.push("track.wav");
+            }
+            assert_eq!(
+                Args::try_parse_from(arguments).unwrap().mods,
+                [PathBuf::from("mods/music")]
+            );
+        }
+    }
 
     #[test]
     fn loaded_save_capture_uses_the_field_runner_but_play_does_not() {

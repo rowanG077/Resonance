@@ -1,30 +1,23 @@
 use super::{opening_options, opening_setup};
 use anyhow::{Context, Result};
-use resonance_content::{
-    menu_data::MenuData,
-    prepared::{Cache, Files},
-};
+use resonance_content::menu_data::MenuData;
 
 #[test]
 #[ignore = "requires current opening battle publications; CPU preparation only"]
 fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generation() -> Result<()> {
     use resonance_battle::Sound;
     use resonance_events::{battle::DefeatPolicy, party::Party};
-    use resonance_game::battle::{
-        encounter::{Assets, PrepareOptions},
-        party::Character,
-    };
+    use resonance_game::battle::{encounter::PrepareOptions, party::Character};
     use std::sync::Arc;
 
     let root = super::common::asset_root();
-    let mut file_cache = Cache::default();
-    let mut retained = Files::load(
-        &root,
-        &["fields/map-332.preload.json"],
-        &mut file_cache,
+    let mut retained = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
         || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
     )?;
-    let mut menus: MenuData = retained.json("game/menu-data.json")?;
+    let mut menus: MenuData = resonance_content::menu_data::MenuData::load(&retained)?;
     for path in [
         resonance_content::menu_data::MANUAL_PATH,
         resonance_content::menu_data::FIGURINES_PATH,
@@ -42,7 +35,7 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
     assert!(menus.validate().is_err());
     menus.validate_gameplay()?;
     let mut data: resonance_content::session::SessionData =
-        retained.json("game/session-data.json")?;
+        resonance_content::session::SessionData::load(&retained)?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default()).map_err(anyhow::Error::msg)?;
     party.formation = vec![1, 2, 3];
@@ -57,15 +50,17 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
         .statistics
         .clear();
     assert!(
-        resonance_game::battle::encounter::Inputs::load(
-            &root,
-            &retained,
+        resonance_game::battle::encounter::Assets::capture(
+            &mut (&retained)
+                .library()
+                .context("named library is required")?
+                .snapshot(),
             &invalid,
             &data,
             &party,
             opening_setup(1, DefeatPolicy::GameOver),
-            &mut file_cache,
-            || false,
+            (&retained).diagnostics().clone(),
+            &(|| false)
         )
         .is_err(),
         "selected enemy data must still validate"
@@ -80,30 +75,47 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
             colette_state: if formation == 2 { 1000 } else { 0 },
             ..opening_options(0x2345)
         };
-        let (mut assets, prepared) = Assets::load(
-            &root,
-            &retained,
-            &menus,
-            &data,
-            &party,
-            opening_setup(formation, DefeatPolicy::GameOver),
-            options(),
-            &mut file_cache,
-            || false,
-        )?;
+        let (mut assets, prepared) = {
+            let mut snapshot = (&retained)
+                .library()
+                .context("named library is required")?
+                .snapshot();
+            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                &mut snapshot,
+                &(|| false),
+            )?;
+            let inputs = resonance_game::battle::encounter::Assets::capture(
+                &mut snapshot,
+                &menus,
+                &data,
+                &party,
+                opening_setup(formation, DefeatPolicy::GameOver),
+                (&retained).diagnostics().clone(),
+                &(|| false),
+            )?;
+            let (assets, prepared, _) = inputs.prepare_named(&menus, options(), &catalogue)?;
+            Ok::<_, anyhow::Error>((assets, prepared))
+        }?;
 
-        let audio = assets.audio.as_ref().context("missing battle audio")?;
+        let audio = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut assets
+                .files
+                .library()
+                .context("named library required")?
+                .snapshot(),
+            &|| false,
+        )?;
         let sound = |request| -> Result<_> {
             match request {
                 Sound::Cue(index) => {
                     anyhow::ensure!(
-                        audio.assets.sounds.contains_key(&i16::try_from(index)?),
+                        audio.resolved.effects.contains_key(&i16::try_from(index)?),
                         "unpublished battle cue {index}"
                     );
                 }
                 Sound::Stream(index) => {
                     anyhow::ensure!(
-                        audio.assets.voices.contains_key(&u32::from(index)),
+                        audio.resolved.voices.contains_key(&u32::from(index)),
                         "unpublished battle voice {index}"
                     );
                 }
@@ -199,15 +211,42 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
         let _ = first.snapshot();
         assert_eq!(first.random_state(), seed);
         assets
-            .inputs
             .files
             .remove(resonance_content::battle_projectile::PATH);
-        assert!(assets.prepare(&menus, options(), |_| Ok(None)).is_err());
+        // Replay uses captured rules, without decoding their source again.
+        let replay = assets.prepare(&menus, options(), sound)?.core;
+        assert_eq!(first.snapshot(), replay.snapshot());
         assert!(
             retained
                 .read(resonance_content::battle_projectile::PATH)
                 .is_ok()
         );
     }
+    // A fresh capture still rejects a broken required document.
+    let modification = tempfile::tempdir()?;
+    let path = modification
+        .path()
+        .join(resonance_content::battle_projectile::PATH);
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, b"{")?;
+    let library = resonance_content::library::Library::open(
+        &root,
+        &[resonance_content::library::Mod {
+            name: "broken projectiles".into(),
+            root: modification.path().into(),
+        }],
+    )?;
+    let error = resonance_game::battle::encounter::Assets::capture(
+        &mut library.snapshot(),
+        &menus,
+        &data,
+        &party,
+        opening_setup(1, DefeatPolicy::GameOver),
+        resonance_content::diagnostics::Diagnostics::new(true),
+        &|| false,
+    )
+    .err()
+    .context("fresh capture accepted broken projectile rules")?;
+    assert!(format!("{error:#}").contains(resonance_content::battle_projectile::PATH));
     Ok(())
 }

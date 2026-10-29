@@ -1318,7 +1318,7 @@ fn record_live(
                 "updates":updates, "audio_frames":frames, "audio_device":false, "keyboard_input":pad.is_none(), "gamepad_input":pad.is_some(),
                 "width":resolution.width, "height":resolution.height, "unprepared_reads":unprepared,
                 "initial":initial, "captures":captures, "final_scene":final_scene,
-                "identity":app.world().get_resource::<new_game::Session>().map(|session|&session.identity),
+                "save_version":resonance_persistence::VERSION,
                 "audio_commands":app.world().resource::<crate::field_audio::Trace>().0,
             }),
         )?;
@@ -1535,6 +1535,13 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
             *timed_out = true;
             return Ok(());
         }
+        // Rendering the same frozen scene competes with CPU preparation,
+        // especially on software GPUs. Resume updates when the worker finishes
+        // so normal installation, error handling and GPU warmup still run.
+        if scene::preparing(app.world()) {
+            thread::sleep(std::time::Duration::from_millis(1));
+            continue;
+        }
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::ZERO,
         ));
@@ -1578,10 +1585,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preparation_waits_without_updates_then_delivers_worker_result() {
+        let mut app = App::new();
+        let updates = std::sync::Arc::new(AtomicU32::new(0));
+        let observed = updates.clone();
+        let pending = loading::Pending::spawn(move |_| {
+            thread::sleep(std::time::Duration::from_millis(20));
+            assert_eq!(observed.load(Ordering::Relaxed), 0);
+            Err(anyhow::anyhow!("prepared error"))
+        })
+        .unwrap();
+        app.insert_resource(crate::diagnostics::Diagnostics(
+            resonance_content::diagnostics::Diagnostics::new(true),
+        ))
+        .insert_resource(crate::TitleActive)
+        .insert_resource(crate::timing::Ready(false))
+        .insert_resource(Clock::default())
+        .insert_resource(Persistence {
+            store: Store::new(std::env::temp_dir()),
+            slot: SlotId::new("unused").unwrap(),
+            writing: Mutex::default(),
+        })
+        .insert_resource(pending)
+        .add_systems(Update, move |world: &mut World| {
+            updates.fetch_add(1, Ordering::Relaxed);
+            let task = world.remove_resource::<loading::Pending>().unwrap();
+            let result = task
+                .poll()
+                .unwrap()
+                .expect("worker result ready before update");
+            assert_eq!(result.err().unwrap().to_string(), "prepared error");
+            world.resource_mut::<crate::timing::Ready>().0 = true;
+        });
+        let mut timed_out = false;
+        wait_ready(&mut app, &mut timed_out).unwrap();
+        assert!(!timed_out);
+        assert!(!app.world().contains_resource::<loading::Pending>());
+        assert_eq!(app.world().resource::<Clock>().0.tick(), 0);
+    }
+
+    #[test]
     fn ready_scene_does_not_run_an_extra_update() {
         let mut app = App::new();
         let mut boot = crate::boot::Playback::default();
-        boot.logos = Some(Default::default());
+        boot.logos = Some(crate::test_support::boot_logos());
         app.insert_resource(crate::diagnostics::Diagnostics(
             resonance_content::diagnostics::Diagnostics::new(true),
         ))
@@ -2064,11 +2111,9 @@ mod tests {
         let package = new_game::FieldPackage::prepare(&root, 332, &mut cache, || false).unwrap();
         let saved = crate::test_support::field_checkpoint(&package.files).unwrap();
         let mut session = new_game::Session::load_prepared(
-            &root,
-            package.files,
+            std::sync::Arc::new(package),
             Some(saved.clone()),
             None,
-            &mut cache,
         )
         .unwrap();
         // Save the initialized field, including its camera bounds.
@@ -2091,7 +2136,7 @@ mod tests {
                 slot.clone(),
                 resonance_persistence::encode(
                     &Header {
-                        identity: session.identity.clone(),
+                        version: resonance_persistence::VERSION,
                         label: "Scenario".into(),
                         location: "Opening".into(),
                         played_ticks: saved.played_ticks,

@@ -5,9 +5,9 @@ use crate::{
     config::Preferences,
     field_ui::{MenuOverlay, Surface},
 };
+use resonance_content::library::Library;
 use resonance_content::menu_data::CustomizeSettings;
 use resonance_game::menu::{Menu, Mode, Page};
-use std::{fs, path::Path};
 
 #[derive(Resource)]
 pub(crate) struct TitleMenu(pub Menu);
@@ -16,10 +16,12 @@ impl TitleMenu {
         Self(Menu::new(Page::Slots(Mode::Load), None, false))
     }
 
-    pub fn customize(preferences: &CustomizeSettings, root: &Path) -> Result<Self> {
-        let data = serde_json::from_slice(&fs::read(
-            root.join(resonance_content::menu_data::CUSTOMIZE_PATH),
-        )?)?;
+    pub fn customize(preferences: &CustomizeSettings, library: &Library) -> Result<Self> {
+        let document: resonance_content::options::Document = library.snapshot().json(
+            resonance_content::options::PATH,
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        let data = document.prepare()?;
         Ok(Self(Menu::title_customize(preferences.clone(), data)?))
     }
 }
@@ -44,14 +46,23 @@ fn prepare(world: &mut World) {
         return;
     }
     let server = world.resource::<AssetServer>().clone();
-    let root = world.resource::<crate::RunOptions>().assets.clone();
+    let files = world
+        .resource::<crate::loading::Resident>()
+        .files
+        .read()
+        .unwrap()
+        .clone();
     let diagnostics = crate::diagnostics::policy(world);
-    match MenuOverlay::load(
-        &root,
-        &server,
-        &mut world.resource_mut::<Assets<Surface>>(),
-        &diagnostics,
-    ) {
+    let result = (|| {
+        let files = files.context("title menu needs prepared UI resources")?;
+        MenuOverlay::load_with(
+            |path| Ok(files.read(path)?.to_vec()),
+            &server,
+            &mut world.resource_mut::<Assets<Surface>>(),
+            &diagnostics,
+        )
+    })();
+    match result {
         Ok(overlay) => {
             world.insert_resource(overlay);
         }
@@ -485,5 +496,79 @@ mod tests {
             assert!(diagnostics.has_errors());
             assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
         }
+    }
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::*;
+    use resonance_content::{
+        diagnostics::Diagnostics,
+        options::{self, Document},
+        prepared::Files,
+    };
+    use std::{fs, sync::Arc};
+
+    #[test]
+    #[ignore = "requires current options library; no media or output devices"]
+    fn title_options_use_active_mod_layers_and_preserve_user_config() -> Result<()> {
+        let root =
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
+        let root = std::path::Path::new(&root);
+        let mut doc: Document = serde_json::from_slice(&fs::read(root.join(options::PATH))?)?;
+        doc.options.get_mut("combined_battles").unwrap().name = "Nearby Battles".into();
+        doc.defaults.window = "gold".into();
+        doc.confirmations
+            .insert("forget_arte_paths".into(), "Forget the other path?".into());
+        let output = tempfile::tempdir()?;
+        fs::create_dir(output.path().join("game"))?;
+        fs::write(output.path().join(options::PATH), serde_json::to_vec(&doc)?)?;
+        let library = Library::open_paths(root, &[output.path().to_owned()])?;
+        let mut snapshot = library.snapshot();
+        snapshot.read(options::PATH, resonance_content::preparation::JSON_LIMIT)?;
+        let files = Arc::new(Files::from_snapshot(
+            snapshot,
+            || false,
+            Diagnostics::new(true),
+        )?);
+        let resident = crate::loading::Resident::default();
+        *resident.files.write().unwrap() = Some(files.clone());
+        let preferences = CustomizeSettings {
+            message_speed: 7,
+            battle_rank: 2,
+            volumes: resonance_content::menu_data::Volumes {
+                music: 42,
+                ..CustomizeSettings::default().volumes
+            },
+            ..Default::default()
+        };
+        let title = TitleMenu::customize(&preferences, &resident.library(root)?)?;
+        let field = options::load(&files)?;
+        assert_eq!(
+            serde_json::to_value(title.0.customize_data()?)?,
+            serde_json::to_value(&field)?
+        );
+        assert_eq!(title.0.customize_data()?.option_name(15), "Nearby Battles");
+        assert_eq!(
+            title
+                .0
+                .customize_data()?
+                .confirmation("forget_arte_paths")?,
+            "Forget the other path?"
+        );
+        assert_eq!(title.0.customize_data()?.defaults.window, 2);
+        assert_eq!(title.0.customize.draft, preferences);
+        let config = output.path().join("config.toml");
+        fs::write(&config, toml::to_string_pretty(&preferences)?)?;
+        let loaded = Preferences::load(config)?;
+        assert_eq!(loaded.settings, preferences);
+        assert_eq!(
+            TitleMenu::customize(&loaded.settings, &library)?
+                .0
+                .customize
+                .draft,
+            preferences
+        );
+        Ok(())
     }
 }

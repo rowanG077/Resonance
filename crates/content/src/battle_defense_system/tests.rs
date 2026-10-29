@@ -2,9 +2,6 @@ use super::*;
 
 fn fixture() -> Definition {
     Definition {
-        version: VERSION,
-        source_sha256: "a".repeat(64),
-        recipe_sha256: "b".repeat(64),
         core: FixedMember {
             enemy: 11,
             position: [850., 0., 0.],
@@ -18,7 +15,7 @@ fn fixture() -> Definition {
         orbit: 12,
         orbit_count: 2,
         arm: 13,
-        arm_slots: [3, 2, 1, 0],
+        arm_joints: ["arm-3", "arm-2", "arm-1", "arm-0"].map(str::to_owned),
         deployment: Deployment {
             clip: 32,
             ticks: 120,
@@ -55,12 +52,11 @@ fn composition_rejects_ambiguous_members_and_invalid_bindings() -> Result<()> {
     assert_eq!(valid.fixed_member(14), Some(valid.repair));
     assert_eq!(valid.fixed_member(13), None);
     let changes: &[fn(&mut Definition)] = &[
-        |v| v.version = 0,
         |v| v.arm = v.core.enemy,
         |v| v.repair.enemy = 255,
         |v| v.orbit_count = 3,
-        |v| v.arm_slots[0] = v.arm_slots[1],
-        |v| v.arm_slots[0] = 10,
+        |v| v.arm_joints[0] = v.arm_joints[1].clone(),
+        |v| v.arm_joints[0].clear(),
         |v| v.core.position[1] = f32::NAN,
         |v| v.repair.heading = f32::INFINITY,
         |v| v.deployment.ticks = 0,
@@ -85,8 +81,14 @@ fn composition_rejects_ambiguous_members_and_invalid_bindings() -> Result<()> {
         change(&mut invalid);
         assert!(invalid.validate().is_err(), "accepted {invalid:?}");
     }
-    let mut old = serde_json::to_value(&valid)?;
-    old.as_object_mut().unwrap().remove("deployment");
-    assert!(serde_json::from_value::<Definition>(old).is_err());
+    let mut incomplete =
+        serde_json::to_value(crate::battle_rules::DefenseSystem::from_definition(
+            valid,
+            &crate::library::Mappings::new(
+                (11..=14).map(|id| (id, format!("enemy-{id}"))).collect(),
+            )?,
+        )?)?;
+    incomplete.as_object_mut().unwrap().remove("deployment");
+    assert!(serde_json::from_value::<crate::battle_rules::DefenseSystem>(incomplete).is_err());
     Ok(())
 }

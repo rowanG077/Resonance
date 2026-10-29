@@ -102,7 +102,7 @@
     },
     {
       "opcode": 17,
-      "name": "native_11",
+      "name": "discard_14_arguments",
       "arguments": [
         "arg0",
         "arg1",
@@ -319,10 +319,10 @@
     },
     {
       "opcode": 38,
-      "name": "native_26",
+      "name": "replace_party_member",
       "arguments": [
-        "arg0",
-        "arg1"
+        "replacement_character",
+        "old_character"
       ],
       "returns_value": true
     },
@@ -484,17 +484,17 @@
     },
     {
       "opcode": 55,
-      "name": "native_37",
+      "name": "start_battle_simple",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
+        "formation_id",
+        "arena_id",
+        "defeat_flags"
       ],
       "returns_value": true
     },
     {
       "opcode": 56,
-      "name": "native_38",
+      "name": "discard_2_arguments",
       "arguments": [
         "arg0",
         "arg1"
@@ -813,10 +813,10 @@
     },
     {
       "opcode": 85,
-      "name": "native_55",
+      "name": "play_sound_full_volume",
       "arguments": [
-        "arg0",
-        "arg1"
+        "sound_id",
+        "pan_offset"
       ]
     },
     {
@@ -1125,10 +1125,10 @@
     },
     {
       "opcode": 118,
-      "name": "native_76",
+      "name": "adjust_overlimit",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "delta"
       ],
       "returns_value": true
     },
@@ -1378,17 +1378,18 @@
     },
     {
       "opcode": 145,
-      "name": "native_91",
+      "name": "open_rename_menu",
       "arguments": [
-        "arg0"
-      ]
+        "character_id"
+      ],
+      "yields": true
     },
     {
       "opcode": 146,
-      "name": "native_92",
+      "name": "field_system",
       "arguments": [
-        "arg0",
-        "arg1"
+        "command",
+        "argument"
       ],
       "returns_value": true
     },
@@ -1475,9 +1476,9 @@
     },
     {
       "opcode": 153,
-      "name": "native_99",
+      "name": "is_script_resource_ready",
       "arguments": [
-        "arg0"
+        "resource_slot"
       ],
       "returns_value": true
     },
@@ -1585,12 +1586,13 @@
     },
     {
       "opcode": 165,
-      "name": "native_a5",
+      "name": "set_camera_orbit_angles",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
-      ]
+        "x_degrees",
+        "y_degrees",
+        "z_degrees"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 166,
@@ -2003,9 +2005,10 @@
     },
     {
       "opcode": 201,
-      "name": "native_c9",
+      "name": "get_cooking_rank",
       "arguments": [
-        "arg0"
+        "character_id",
+        "recipe_id"
       ],
       "returns_value": true
     },
@@ -2410,7 +2413,7 @@
     },
     {
       "opcode": 240,
-      "name": "native_f0",
+      "name": "get_skit_ticks",
       "arguments": [],
       "returns_value": true
     },
@@ -2425,17 +2428,18 @@
     },
     {
       "opcode": 242,
-      "name": "native_f2",
+      "name": "discard_argument",
       "arguments": [
-        "arg0"
+        "value"
       ]
     },
     {
       "opcode": 243,
-      "name": "native_f3",
+      "name": "wait_skit_ticks",
       "arguments": [
-        "arg0"
-      ]
+        "tick"
+      ],
+      "yields": true
     },
     {
       "opcode": 244,

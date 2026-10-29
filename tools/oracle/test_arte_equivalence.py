@@ -12,6 +12,28 @@ import single_action_fixture
 
 
 class ArteTraceTests(unittest.TestCase):
+    def test_enemy_item_recovery_uses_named_items_and_omitted_defaults(self):
+        rows = [dict(execution=dict(attack=dict(events=[
+            [1, dict(use_item=dict(item=id))]]))) for id in (1, 3, 4)]
+        catalogue = dict(mappings={"1": "apple-gel", "3": "orange-gel", "4": "empty"},
+            items={"apple-gel": dict(field_use=dict(kind="recover", hp=30)),
+                   "orange-gel": dict(field_use=dict(kind="recover", tp=30)),
+                   "empty": dict(category="unclassified")})
+        descriptors = [dict(id=f"enemy:1:{row}", context="combat",
+            binding=dict(side="enemy", enemy=1, row=row)) for row in range(3)]
+        with patch.object(bridge, "ContentSnapshot") as content, \
+                patch.object(bridge.technique_content, "prepare", return_value=dict(definitions=[])), \
+                patch.object(bridge, "read", side_effect=lambda path: catalogue if path.name == "items.json" else {}):
+            content.return_value.enemy_rules.return_value = dict(actions=dict(rows=rows))
+            content.return_value.unison_placements.return_value = {}
+            cases = bridge.resolve_cases(Path("assets"), descriptors)
+        self.assertTrue(cases[0]["healing"])
+        self.assertNotIn("restores_tp", cases[0])
+        self.assertTrue(cases[1]["restores_tp"])
+        self.assertNotIn("healing", cases[1])
+        self.assertNotIn("healing", cases[2])
+        self.assertNotIn("restores_tp", cases[2])
+
     def test_completed_ready_condition_birth_requires_exact_continuation(self):
         copied = bytes(range(24))
         setup = dict(initial_battle=dict(presentation_tick=114),
@@ -694,7 +716,7 @@ class ArteTraceTests(unittest.TestCase):
                          attachment=dict(kind="actor", actor=actor)) for actor in (0,1)]
         frames = [dict(combat_tick=tick, presentation_tick=tick, programs=programs) for tick in (1,2)]
         events = [dict(kind="started", owner=0), dict(kind="payment", owner=0, amount=25)]
-        banks = {1:dict(source_sha256="seals", path="/techniques.json")}
+        banks = {1:dict(source_sha256="seals", entry="battle/effects/techniques/effects.json")}
         branch, changes = bridge.support_outcomes.seal_branches(
             dict(native=77), [row, after], setup, frames, events, banks)
         self.assertEqual(branch, [])
@@ -882,9 +904,11 @@ class ArteTraceTests(unittest.TestCase):
         for first, expected in (([0,0,254,0,0,0], [0]),
                                 ([0,1,254,0,0,0], []), ([0,0,0,0,0,0], [])):
             raw[22:28] = bytes(first)
-            metadata = dict(source_sha256=bridge.hashlib.sha256(raw).hexdigest(), programs=[[]])
-            with patch.object(bridge, "read", return_value=metadata):
-                authored = bridge.effect_bank(raw, "bank.json")
+            metadata = dict(programs=[[]], actors=[], art=None)
+            with patch.object(bridge, "ContentSnapshot") as content:
+                content.return_value.effects.return_value = metadata
+                content.return_value.evidence.return_value = {}
+                authored = bridge.effect_bank(raw, "bank.json", ".", "proof")
             self.assertEqual(authored["immediate_end_programs"], expected)
         for attachment, origin, generations in ((0, 0, 1), (0, 0x3f800000, 2),
                                                  (0x81000000, 0x3f800000, 1),
@@ -1158,7 +1182,7 @@ class ArteTraceTests(unittest.TestCase):
         live[19] = 23
         self.assertEqual(bridge.declaration_matches(bank,live,100),[])
         live[19] = 22
-        bank["metadata"]["programs"][0][0]["operation"]["blend"] = 1
+        bank["metadata"]["programs"][0][0]["operation"]["blend"] = "additive"
         live[1] = 1
         self.assertEqual(bridge.declaration_matches(bank,live,100),[0])
         live[1] = 0
@@ -1461,20 +1485,20 @@ class ArteTraceTests(unittest.TestCase):
         declaration = bytes.fromhex("070000110000100000010041001e001e0000040004800000")
         sprite = dict(kind="particle", template=dict(lifetime=None, uv_animation=dict(frames=[
             dict(change=dict(kind="rectangle", rect=[0,64,32,32]))])))
-        common = dict(source_sha256="common", declarations=[bytes(24)] * 19 + [declaration],
-                      metadata=dict(actors=[{}] * 19 + [sprite]))
+        common = dict(source_sha256="common", declarations=[declaration],
+                      stun_member=0, metadata=dict(actors=[sprite]))
         setup = dict(common_effect_bank="common", initial_battle=dict(actors=[dict(slot=4,address=1000)]))
         row = dict(particle_0_184=0, particle_0_278=1 << 16,
                    particle_0_1c=1000 + bridge.enemy_artes.POSITION_X,
                    battle_actor_4_action=bridge.STUN_ACTION << 24, battle_actor_4_cast_clock_word=179)
         pending = dict(row, particle_0_278=9 << 16)
         self.assertEqual(bridge.stun_particle_identity(pending,"particle_0",declaration,setup,{1:common},initialized=False),
-                         (common,bridge.STUN_DECLARATION,0))
+                         (common,0,0))
         copied = bytearray(declaration)
         copied[8:16] = bytes.fromhex("0000004000200020")
         self.assertIsNone(bridge.stun_particle_identity(pending,"particle_0",copied,setup,{1:common},initialized=False))
         self.assertEqual(bridge.stun_particle_identity(row,"particle_0",copied,setup,{1:common}),
-                         (common,bridge.STUN_DECLARATION,0))
+                         (common,0,0))
         row["battle_actor_4_action"] = 3 << 24
         self.assertIsNone(bridge.stun_particle_identity(row,"particle_0",copied,setup,{1:common}))
         row["battle_actor_4_action"] = bridge.STUN_ACTION << 24

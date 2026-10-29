@@ -4,9 +4,8 @@ use serde::{Deserialize, Serialize};
 
 pub const PATH: &str = "battle/formations.json";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Formations {
-    pub source_sha256: String,
     pub records: Vec<Formation>,
     pub pools: Vec<Vec<WeightedFormation>>,
 }
@@ -85,10 +84,7 @@ impl Formations {
 
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.source_sha256.len() == 64
-                && self.source_sha256.bytes().all(|b| b.is_ascii_hexdigit())
-                && !self.records.is_empty()
-                && self.records.len() <= usize::from(u16::MAX) + 1,
+            !self.records.is_empty() && self.records.len() <= usize::from(u16::MAX) + 1,
             "invalid formation catalogue"
         );
         for record in &self.records {
@@ -113,7 +109,6 @@ mod tests {
     #[test]
     fn weighted_encounters_use_the_actual_total_and_reject_empty_pools() {
         let table = Formations {
-            source_sha256: String::new(),
             records: vec![],
             pools: vec![
                 vec![

@@ -1,102 +1,99 @@
 # Field preparation
 
-Every cooked field requires `shared.preload.json` and a complete
-`fields/map-{id}.preload.json`. The schema lives
-in `resonance_content::field_preload`, generation in
-`resonance_import::field_preload`, and runtime ownership in `prepared`,
-presentation `loading` and `field_warm`.
+Field preparation follows the current named documents and captures their
+dependencies before gameplay starts. A field ID resolves through
+`fields/mappings.json` to a directory such as `fields/iselia-1/`, whose
+`field.json` references the scene, actors, collision, dialogue, scripts and audio.
+The names are illustrative; use the installed mappings for actual assignments.
 
-`cook-all` walks the original field catalogue and prepares every field through
-one path. The catalogue resolves each source archive; its declarations select
-geometry, animations, collision, dialogue, declared NPC resources,
-the field's packed model bank and MAP-local models. The bank has its own script-ID
-table; a direct actor ID need not be a separately declared shared NPC resource.
-Standalone character files and grouped archive dependencies resolve through the
-source resource catalog. Cooking rejects declared model/animation IDs without a
-character binding. All overlay texture banks are cooked independently of script branches.
-The runtime evaluates procedural location-caption reveals from their cooked image sizes;
-it does not generate an animation track on first use. Authored animation tracks remain
-cooked assets. Mesh filenames
-include their content hash so a changed shared character clip set cannot overwrite
-meshes referenced by another field.
-The shared inventory includes skit scenarios, message tables, portrait atlases
-and media metadata. Portrait surfaces and dialogue layers warm with the field;
-opening Z performs no reads or shader compilation. Silent media carries only a
-clock; audible tracks join the prepared voice bank. Shared content hashes and
-dependent field inventories must refresh together with `worlds/world.json`.
-Refreshing only the fields leaves the first overworld transition unable to verify
-shared menu or skit data. Use a complete `cook-all` run after shared content changes.
-Field particle recipes carry their texture, palette and motion parameters.
-Their texture dependencies and render layers are prepared before activation;
-live particles only update geometry and use the same missing-effect audit.
-The same field preparation inventories audio across declared script branches,
-message voices and shared native service cues. It resolves sound banks, music
-and voices across both extracted discs. Movie dependencies follow the field's
-script requests. Unresolved requests fail cooking.
+The cooked library contains no preload manifest, stored checksum, fingerprint
+or hash-based resource name. Loading follows named paths. The relevant
+code lives in `resonance_content::library`, `field::document`, `preparation` and
+`prepared`, and presentation `new_game::fields`, `loading` and `field_warm`.
+See [Editing named content](editable-content.md) for file formats and mod rules.
 
-The shared dialogue atlas has a fixed repertoire. Unsupported source-font
-characters share its original fallback bitmap, declared explicitly in the font
-metadata, so cooking one field cannot change another field's glyph coordinates.
+## Capturing the effective content
 
-Paths are relative to `--output`, default `local/all-assets`. Field scene and
-audio metadata use `fields/map-{id}.json` and `fields/map-{id}-audio.json`.
-No field-specific command or manual dependency list is required.
+A preparation opens the base library with its ordered mod directories. Whole
+files use the last override; mapping files merge by machine ID. One snapshot
+resolves those mappings and follows direct references, retaining the selected
+bytes while preparation discovers further dependencies. Resource paths are
+relative to the library root and remain independent of original disc locations.
 
-## Inventory contract
+Discovery includes declared scene alternatives and hidden actors, field effects,
+script-selected resources, shared character models, dialogue and UI artwork,
+skits, menu model catalogues, audio and movie requests. Runtime script compilation
+can capture additional declared dependencies through the same snapshot. A
+converted physical resource does not by itself establish a supported gameplay
+binding. Missing or unsupported optional resources follow the diagnostic policy;
+`--paranoid` makes those diagnostics fatal. Cancellation always stops preparation.
 
-Field schema 11 contains field data and its runtime resource references. Preload schema 2 owns
-integrity metadata: `shared.preload.json` contains common dependencies once, and
-each field's preload contains its local files, input metadata and missing inputs.
-Every dependency has a digest, byte size and loading role. Field descriptors do
-not repeat a dependency list. Missing media produces an incomplete manifest;
-malformed metadata and missing or corrupt payloads fail generation.
+Music selects shared WAV recordings under `audio/music/`; effects select their
+editable programs or WAV replacements, and full voice IDs resolve directly to
+WAVs through the speech mapping. Large media retains captured stream handles instead of loading the
+whole soundtrack or movie into the resident byte store. File properties come
+from the current media; modders do not maintain byte counts or digests.
 
-Cooking retains the full declared resource pool, including hidden actors and
-media available on other branches. It does not recursively preload destination
-fields. Completeness does not establish support for native services or effects.
+Saves contain a format version, not a content fingerprint. Preparation reads the
+selected destination and shared resources it uses. It never scans other fields
+or computes a global gameplay identity. Available field IDs come from
+`fields/mappings.json`; listing an ID does not read its target.
 
-## Activation contract
+A snapshot retains bytes already read. A new preparation reads current files
+without comparing them with earlier snapshots. Prepared field packages can be
+reused within the running application; restart after editing to refresh all
+resident assets. No changed-content error or fingerprint cache is involved.
 
-1. A background worker merges shared and local inventories, rejects inconsistent
-   dependencies, verifies payloads and decodes field/audio data.
-   Immutable bytes share by digest; instruments share only when sample and
-   tuning/loop metadata agree. Extending a snapshot reuses its verified bytes;
-   fresh loads still check disk payloads. Movies are verified as streams and prebuffered.
-2. Once installed, the memory-backed asset reader serves only declared, verified
-   bytes; undeclared paths cannot fall back to disk. Consumption is independent of
-   field activation. Each model loads once;
-   scenes/clips come from its retained glTF graph. Completion requires both loaded
-   dependencies and finished load jobs. Texture copies share by image and sampler.
-3. Offscreen draws prepare representatives of every distinct mesh-layout/material
-   pipeline variant, both depth-write states, dialogue/subtitles, location captions,
-   effects and shadows using the live camera/target settings. Resolve every texture
-   and sampler, but share warm draws across models with the same pipeline keys.
-   Instancing every model for every variant bloats Bevy's skinning staging buffer;
-   its full contents are uploaded every frame even after warm scenes are retired.
-   Wait for expected render draws, successful compilation and GPU completion.
-4. Release the black hold, attach the destination audio source and resume field
-   updates. Opening audio commands remain queued until the scene is ready.
-   Retain prepared resources for revisits. Undeclared reads, sampler bindings or
-   field pipelines fail the development guard; dynamic geometry/uniform updates
-   remain allowed.
+## Activation
 
-Selected menu pages decode their textures from the installed snapshot on demand.
-Each page holds input until its images and GPU draw are ready. Sliding menu layers
-submit even while offscreen so the draw fence cannot stall their opening animation.
-Unused pages need no texture decoding. Diagnostics count undeclared paths as
-`unprepared_reads`; a verified memory read after activation is valid.
+1. A background worker captures current documents, checks their structure and
+   references, compiles scripts and prepares audio. The resulting `Files` view
+   retains those bytes. Instrument decoding can reuse the same captured WAV
+   buffer with the same tuning and loop settings; no content hash is calculated.
+2. The application installs the completed view before renderer loading begins. The resident
+   asset reader serves captured bytes; a missing path cannot fall back to disk
+   once a prepared view is installed. Models retain their loaded glTF graphs,
+   and textures retain their selected image and sampler bindings.
+3. Offscreen draws prepare representatives of the required mesh/material
+   pipeline variants, including depth-write states, dialogue, subtitles,
+   captions, effects and shadows. Warm draws share compatible pipeline keys;
+   the renderer waits for resource loading, shader compilation, expected draws
+   and GPU completion before releasing the loading hold.
+4. Destination audio attaches and gameplay resumes. Opening audio commands wait
+   for readiness. The running application retains its two most recently used
+   field packages, so quickload and a return to the previous field reuse the
+   captured inputs and decoded skit programs. Each skit playback still creates
+   its own VM and takes the caller's current story state. Older destinations can
+   prepare again. Renderer artwork has
+   its own cache. Transitions retire live actors, effects and UI instances and
+   recreate them from prepared assets when returning. New unexpected reads,
+   samplers or field pipelines are reported by the development guard. Dynamic
+   geometry and uniform updates remain allowed.
 
-New Game prepares setup and classroom together. Later destinations prepare on
-request; checkpoint startup prepares its saved field directly. Field changes
-pause gameplay, retire outgoing audio and publish verified bytes before renderer
-loading begins. Live actors, effects and UI instances retire on handoff; visited
-packages and artwork remain cached. Returns recreate instances from those assets
-and reuse shader and sampler variants. Available destinations are discovered from
-published field inventories. The validated playable route covers maps 330–340;
-preparing other fields does not establish support for their native services.
+New Game prepares the setup field; its transition prepares the classroom before
+activation. Later destinations prepare on request, while checkpoint startup
+prepares the saved field directly. Selected
+menu pages decode their images from captured bytes on demand and hold input
+until their images and GPU draw are ready. A memory read after activation is
+valid; `unprepared_reads` counts paths absent from the installed view.
 
-Relevant tests: `cargo test -p resonance-import --lib field_preload::`,
-`cargo test -p resonance-content prepared::`, and
-`cargo test -p resonance-presentation sampled_tests:: --lib`.
-The first Iselia exit is covered without output devices by
-`RESONANCE_WORLD_ASSETS="$PWD/local/all-assets" cargo test --release -p resonance-presentation --lib iselia_first_tutorial_skips_both_battles_and_enters_the_overworld -- --ignored`.
+Offline recordings keep the game clock frozen during readiness waits. While an
+independent CPU preparation worker runs, the recorder also stops redrawing the
+unchanged scene. Application updates resume once the worker finishes, allowing
+normal installation, error handling and GPU warmup within the same deadline.
+
+## Editing and verification
+
+Finish editing and restart the application. Restart recreates the asset server,
+image/sampler caches and scene preparations. Re-entering a field or reopening a
+preview does not reload edits. Existing snapshots retain their bytes and playing
+media retains its selected handle. Mod overrides and renames require no recook
+or regenerated dependency list; references and mappings must still resolve.
+
+Focused coverage lives in content `library::tests` and `prepared::tests`, and
+presentation `loading::tests`, `sampled_tests` and `new_game::fields::tests`.
+The native field/mod/save tests require a completed current library through
+`RESONANCE_TEST_ASSETS` or the fixture-specific variable in their ignore message.
+Preparation alone does not prove that every native service is implemented.
+Representative gameplay, GPU readiness and performance acceptance remain separate
+checks; their completed results are recorded in the plan.

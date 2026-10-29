@@ -9,13 +9,24 @@ pub struct ParticleVisual {
     /// Sample the completed scene through the texture's opacity mask.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene_sample: Option<[i8; 2]>,
+    #[serde(with = "super::labels::blend")]
     pub blend: u8,
+    #[serde(
+        default = "crate::defaults::enabled",
+        skip_serializing_if = "crate::defaults::is_enabled"
+    )]
     pub depth_test: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub depth_write: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub ground_relative: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub anchored: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub copies: u8,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub copy_rotation: u8,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub after_actor: bool,
 }
 
@@ -53,21 +64,28 @@ pub enum ParticleShape {
     TriangleBand,
     Ring {
         segments: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         flared: bool,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         hidden: bool,
         uv_layout: UvLayout,
     },
     Orbit,
     RadialQuads {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         flat: bool,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         advance_u: bool,
     },
     BillboardTrail,
     Ribbon {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         depth: bool,
     },
     Spiral {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         radius_step: f32,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         segment_offset: [f32; 3],
         steps_per_segment: u8,
         uv_layout: UvLayout,
@@ -77,6 +95,7 @@ pub enum ParticleShape {
     },
     Shell {
         segments: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         elliptical: bool,
         uv_layout: UvLayout,
     },
@@ -87,7 +106,9 @@ pub enum ParticleShape {
         columns: u8,
     },
     VertexQuad {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         copy_axis: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         local_copies: bool,
     },
     Unsupported {
@@ -100,8 +121,11 @@ pub enum ParticleShape {
 pub enum ParticleTexture {
     Untextured,
     Atlas {
+        #[serde(with = "super::labels::atlas")]
         slot: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         dual: bool,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         palette_set: u8,
     },
 }
@@ -128,9 +152,17 @@ impl ParticleTexture {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelVisual {
+    #[serde(with = "super::labels::blend")]
     pub blend: u8,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub lit: bool,
+    #[serde(
+        default = "crate::defaults::enabled",
+        skip_serializing_if = "crate::defaults::is_enabled"
+    )]
     pub depth_test: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub cull_back: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub before_actor: bool,
 }

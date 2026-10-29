@@ -186,11 +186,8 @@ fn transitioned_joint(
     previous: &Value,
     world: &[f64; 12],
 ) -> Result<Option<[f64; 12]>> {
-    use super::random_inputs::Pin;
-    use resonance_content::{
-        animation::{Motion, multiply},
-        battle_scene::Scene,
-    };
+    use super::content_evidence::Evidence;
+    use resonance_content::animation::multiply;
     let Some(transitions) = source.frames[frame].get("model_parent_transitions") else {
         return Ok(None);
     };
@@ -218,15 +215,27 @@ fn transitioned_joint(
         .filter(|plan| plan["bank"] == relation["child"]["bank"]);
     let plan = plans.next().context("missing bound joint scene")?;
     ensure!(plans.next().is_none(), "ambiguous bound joint scene");
-    let scene_pin: Pin = serde_json::from_value(plan["scene"].clone())?;
-    let scene: Scene = serde_json::from_slice(&scene_pin.read_bytes()?)?;
+    let scene_evidence = Evidence::parse(&plan["scene"])?;
+    let effects_evidence = Evidence::parse(&plan["effects"])?;
+    scene_evidence.includes(&effects_evidence)?;
+    scene_evidence.contains_source(
+        &effects_evidence,
+        serde_json::from_value(plan["effects_range"].clone())?,
+    )?;
+    let (scene, effects) = scene_evidence.scene()?;
+    ensure!(
+        scene.effects == effects_evidence.entry
+            && plan["bank"] == effects_evidence.source_digest()?,
+        "joint observation has inconsistent scene and effect evidence"
+    );
     let model = entry["model"]
         .as_u64()
         .and_then(|value| u8::try_from(value).ok())
         .context("invalid joint model slot")?;
-    let definition = scene
-        .models
-        .get(&model)
+    let definition = effects
+        .art
+        .as_ref()
+        .and_then(|art| art.models.get(&model))
         .context("missing joint model slot")?;
     let mut joints = plan["joints"]
         .as_array()
@@ -238,15 +247,6 @@ fn transitioned_joint(
         .and_then(|value| u16::try_from(value).ok())
         .context("invalid bound joint")?;
     ensure!(joints.next().is_none(), "ambiguous bound joint");
-    let scene_path = std::path::Path::new(
-        plan["scene"]["path"]
-            .as_str()
-            .context("missing scene path")?,
-    );
-    let assets = scene_path
-        .ancestors()
-        .nth(3)
-        .context("invalid scene asset path")?;
     let root: [f32; 12] = serde_json::from_value(current["world"].clone())?;
     let root = std::array::from_fn(|column| {
         std::array::from_fn(|row| {
@@ -261,24 +261,21 @@ fn transitioned_joint(
         let clip = controller["clip"]
             .as_u64()
             .context("missing joint controller clip")?;
-        let mut clips = definition
+        // Gameplay attachments consume the primary contact rig. Outline clips
+        // may use a different GLB to bind their differently named joints.
+        let clip = definition
             .layers
+            .first()
+            .context("missing joint controller model")?
+            .scene
+            .clips
             .iter()
-            .flat_map(|layer| &layer.scene.clips)
-            .filter(|candidate| u64::from(candidate.resource_slot) == clip);
-        let clip = clips.next().context("missing joint controller motion")?;
-        ensure!(
-            clips.all(|other| other.motion == clip.motion),
-            "ambiguous joint controller motion"
-        );
-        let file = scene
-            .files
-            .get(&clip.motion)
-            .context("unbound joint controller motion")?;
-        let pin: Pin = serde_json::from_value(
-            serde_json::json!({"path":assets.join(&clip.motion),"sha256":file.sha256}),
+            .find(|candidate| u64::from(candidate.resource_slot) == clip)
+            .context("missing joint controller motion")?;
+        let motion = clip.decode_for_skeleton(
+            &scene_evidence.read(&clip.motion)?,
+            &definition.rig.skeleton,
         )?;
-        let motion = Motion::decode(&pin.read_bytes()?)?;
         let frame = controller["frame"]
             .as_f64()
             .context("missing joint controller frame")? as f32;
@@ -299,17 +296,8 @@ fn transitioned_joint(
     )?;
     // A blend starts at the outgoing pose. Both observations already contain
     // that pose, so replacing it with the incoming clip would introduce a jump.
-    let effects_file = scene
-        .files
-        .get(&scene.effects)
-        .context("unbound joint scene effects")?;
-    let effects_pin: Pin = serde_json::from_value(serde_json::json!({
-        "path": assets.join(&scene.effects), "sha256": effects_file.sha256
-    }))?;
-    let effects: resonance_content::battle_effect::SourceBank =
-        serde_json::from_slice(&effects_pin.read_bytes()?)?;
     ensure!(
-        relation["parent"]["bank"] == effects.source_sha256,
+        relation["parent"]["bank"] == effects_evidence.source_digest()?,
         "joint controller effect bank changed"
     );
     let parent_age = source.frames[frame]["particles"]

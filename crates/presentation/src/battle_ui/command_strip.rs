@@ -537,9 +537,7 @@ mod tests {
     #[test]
     #[ignore = "requires current cooked battle artwork; CPU command drawing only"]
     fn command_emblems_selection_and_disabled_overlay_use_prepared_art() -> Result<()> {
-        let art: Art = serde_json::from_slice(&std::fs::read(
-            fixtures::asset_root().join(resonance_content::battle_ui::PATH),
-        )?)?;
+        let art = fixtures::battle_art()?;
         let font = fixtures::dialogue_font()?;
         let mut state = Frame {
             actor: resonance_battle::ActorId::from_index(0)?,

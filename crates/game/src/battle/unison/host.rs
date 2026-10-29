@@ -91,9 +91,7 @@ pub(crate) fn prepare_host(
             let elemental = resonance_content::arte::elemental::find(catalogue_id);
             let placement = catalogue
                 .placements
-                .get(usize::from(
-                    elemental.map_or(catalogue_id, |variant| variant.base),
-                ))
+                .get(&elemental.map_or(catalogue_id, |variant| variant.base))
                 .context("missing Unison arte placement")?;
             let duration = if elemental.is_some()
                 && let resonance_battle::ActionExecution::Attack(attack) =
@@ -119,7 +117,7 @@ pub(crate) fn prepare_host(
             .map(&mut resources.sound)
             .transpose()?
             .flatten();
-        if let Some(voice) = host.prelude.voices.get(index).copied().flatten()
+        if let Some(voice) = catalogue.voices.get(index).copied().flatten()
             && let Some(sound) = (resources.sound)(voice)?
         {
             prelude_voices.push((actor.actor, sound));
@@ -165,11 +163,11 @@ pub(crate) fn prepare_host(
                 .all(|arte| available_artes.contains(&UnisonArteId(*arte)))
         });
         let execution = if eligible && family::has_pair(combination.native_id, &participants) {
-            let scene: Scene = resources
-                .files
-                .json(&resonance_content::battle_scene::path(
-                    combination.native_id,
-                ))?;
+            let scene = resonance_content::battle_scene::document::load(
+                resources.files,
+                resonance_content::battle_scene::document::Kind::Technique,
+                combination.native_id,
+            )?;
             let bank = resources
                 .spell_scenes
                 .get(&combination.native_id)

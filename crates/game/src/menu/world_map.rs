@@ -1,5 +1,5 @@
 use super::*;
-use resonance_content::menu_data::{MapLocation, Shop};
+use resonance_content::{menu_data::Shop, overworld::Landmark};
 
 pub const LOCATION_ROWS: usize = 9;
 pub const ITEM_ROWS: usize = 8;
@@ -81,17 +81,15 @@ impl Menu {
             fade_description(&mut map.description_fade, map.description_previous != item);
     }
 
-    pub fn map_locations(&self) -> Vec<(u16, &MapLocation)> {
+    pub fn map_locations(&self) -> Vec<(u16, &Landmark)> {
         let travel = &self.party().travel;
         let data = &self.resources.as_ref().unwrap().data;
         data.world_map
             .locations
             .iter()
-            .filter(|&(id, _)| {
+            .filter(|&(id, location)| {
                 id / 256 == u16::from(self.world_map.world)
-                    && data.presentation.world_map.as_ref().is_some_and(|text| {
-                        text.locations.get(id).is_some_and(|caption| caption.listed)
-                    })
+                    && location.map_listed
                     && travel.visited_locations.contains(id)
             })
             .map(|(&id, location)| (id, location))

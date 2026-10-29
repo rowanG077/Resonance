@@ -70,7 +70,9 @@ pub fn prepare(
             voices,
         });
     }
-    let elements = source.contact_sounds.elements[1..]
+    let elements = source
+        .contact_sounds
+        .elements
         .iter()
         .map(|&cue| {
             ensure!(cue != 0, "missing elemental contact cue");

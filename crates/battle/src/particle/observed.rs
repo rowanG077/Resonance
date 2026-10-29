@@ -95,8 +95,9 @@ mod tests {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../content/tests/fixtures/projectile-model-follow.json"
         ))?;
-        let mut template: ParticleTemplate =
-            serde_json::from_value(fixture["bank"]["actors"][0]["template"].clone())?;
+        let mut template: ParticleTemplate = serde_json::from_value(
+            fixture["files"]["effects/throw/actors.json"][0]["template"].clone(),
+        )?;
         template.lifetime = Some(3);
         template.follow_origin = false;
         template.follow_orientation = false;

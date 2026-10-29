@@ -4,17 +4,14 @@ use anyhow::{Context, Result};
 use bevy::prelude::*;
 use resonance_audio::{
     BLOCK_FRAMES,
-    cue::{
-        Studio,
-        package::{Loaded, Manifest},
-    },
-    package::Loaded as LoadedProgram,
+    cue::{Bank, Studio},
+    effect::Prepared as LoadedProgram,
 };
 use resonance_content::diagnostics::Diagnostics;
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
+#[cfg(test)]
+use std::{fs, path::Path};
 use std::{
-    fs,
-    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU32, AtomicU64, Ordering},
@@ -26,12 +23,12 @@ use std::{
 #[derive(Clone)]
 pub(crate) struct PlaybackAssets {
     music: Option<TitleMusic>,
-    cues: Option<Arc<Loaded>>,
+    cues: Option<Arc<Bank>>,
     diagnostics: Diagnostics,
 }
 
 #[cfg(test)]
-pub(super) fn test_assets(music: TitleMusic, cues: Loaded) -> PlaybackAssets {
+pub(super) fn test_assets(music: TitleMusic, cues: Bank) -> PlaybackAssets {
     PlaybackAssets {
         music: Some(music),
         cues: Some(Arc::new(cues)),
@@ -40,41 +37,120 @@ pub(super) fn test_assets(music: TitleMusic, cues: Loaded) -> PlaybackAssets {
 }
 
 impl PlaybackAssets {
+    #[cfg(test)]
+    pub(crate) fn cue_only(&self) -> Self {
+        Self {
+            music: None,
+            ..self.clone()
+        }
+    }
+
+    #[cfg(test)]
     pub fn load(root: &Path, diagnostics: Diagnostics) -> Result<Self> {
-        let music = diagnostics.attempt("title music preparation", TitleMusic::load(root))?;
-        let mut rejected = Vec::new();
-        let cues = diagnostics.attempt(
-            "title cue preparation",
-            (|| -> Result<_> {
-                let path = root.join("title-sounds.json");
-                let metadata: resonance_content::TitleAudio = serde_json::from_slice(
-                    &fs::read(&path).with_context(|| format!("reading {}", path.display()))?,
-                )?;
-                metadata.validate()?;
-                Manifest::load(root, &metadata.path, &metadata.sha256, |name, error| {
-                    rejected.push((name.to_owned(), error));
-                    Ok(())
-                })
-            })(),
+        Self::load_in(
+            &resonance_content::library::Library::open(root, &[])?,
+            diagnostics,
+        )
+    }
+
+    pub fn load_in(
+        library: &resonance_content::library::Library,
+        diagnostics: Diagnostics,
+    ) -> Result<Self> {
+        let mut snapshot = library.snapshot();
+        let definition: resonance_content::startup::Definition = snapshot.json(
+            resonance_content::startup::PATH,
+            resonance_content::preparation::JSON_LIMIT,
         )?;
-        if let Some(bank) = &cues {
-            for name in ["navigate", "confirm", "back", "error"] {
-                if !bank.cues.contains_key(name)
-                    && !rejected.iter().any(|(rejected, _)| rejected == name)
-                {
-                    rejected.push((
-                        name.to_owned(),
-                        anyhow::anyhow!("missing required menu cue"),
-                    ));
+        definition.validate()?;
+        Self::capture(&mut snapshot, &definition, diagnostics, &|| false)
+    }
+
+    pub(crate) fn capture(
+        snapshot: &mut resonance_content::library::Snapshot,
+        definition: &resonance_content::startup::Definition,
+        diagnostics: Diagnostics,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Self> {
+        use anyhow::ensure;
+        use resonance_content::{preparation::JSON_LIMIT, startup};
+        let mut samples = resonance_audio::package::SampleCache::default();
+        let result = super::Recording::capture(snapshot, &definition.music, cancelled);
+        ensure!(!cancelled(), "title audio preparation cancelled");
+        let music = diagnostics
+            .attempt("title music preparation", result)?
+            .map(|music| TitleMusic {
+                music,
+                master_lead_ms: 1185,
+            });
+        // Read cue structure independently so a bad optional music recording does
+        // not hide healthy menu sounds under the existing tolerant policy.
+        let result = (|| -> Result<_> {
+            let cues: startup::Cues<serde_json::Value> =
+                snapshot.json(&definition.cues, JSON_LIMIT)?;
+            ensure!(
+                cues.version == startup::VERSION
+                    && !cues.cues.is_empty()
+                    && cues.cues.len() <= 1024,
+                "invalid title cue bank"
+            );
+            let reverbs = match cues.reverbs {
+                Some(reverbs) => reverbs,
+                None => resonance_content::field_audio::mix::Mix::read(snapshot)?.field_reverbs,
+            };
+            for parameters in reverbs {
+                resonance_audio::reverb::validate_parameters(parameters)?;
+            }
+            Ok((cues, reverbs))
+        })();
+        ensure!(!cancelled(), "title audio preparation cancelled");
+        let bank = diagnostics.attempt("title cue preparation", result)?;
+        let cues = if let Some((bank, reverbs)) = bank {
+            let mut cues = std::collections::BTreeMap::new();
+            let mut names = std::collections::BTreeSet::new();
+            for (name, path) in bank.cues {
+                names.insert(name.clone());
+                let result = (|| -> Result<_> {
+                    ensure!(
+                        !name.is_empty() && name.len() <= 128,
+                        "invalid title cue name"
+                    );
+                    let path: String = serde_json::from_value(path)?;
+                    let loaded =
+                        capture_program(snapshot, &path, reverbs, &mut samples, cancelled)?;
+                    ensure!(
+                        loaded.reverbs() == reverbs,
+                        "cue uses a different effects studio"
+                    );
+                    Ok(loaded)
+                })();
+                ensure!(!cancelled(), "title audio preparation cancelled");
+                if let Some(cue) = diagnostics.attempt(&format!("title cue {name}"), result)? {
+                    cues.insert(name, cue);
                 }
             }
-        }
-        for (name, error) in rejected {
-            diagnostics.report(&format!("title cue {name}"), error)?;
-        }
+            for name in ["navigate", "confirm", "back", "error"] {
+                if !names.contains(name) {
+                    diagnostics.report(
+                        &format!("title cue {name}"),
+                        anyhow::anyhow!("missing required menu cue"),
+                    )?;
+                }
+            }
+            (!cues.is_empty()).then(|| {
+                Arc::new(Bank {
+                    sample_rate: resonance_audio::SOURCE_RATE,
+                    reverbs,
+                    cues,
+                })
+            })
+        } else {
+            None
+        };
+        ensure!(!cancelled(), "title audio preparation cancelled");
         Ok(Self {
             music,
-            cues: cues.filter(|bank| !bank.cues.is_empty()).map(Arc::new),
+            cues,
             diagnostics,
         })
     }
@@ -111,9 +187,34 @@ impl PlaybackAssets {
     }
 }
 
+fn capture_program(
+    snapshot: &mut resonance_content::library::Snapshot,
+    path: &str,
+    reverbs: [[f32; 5]; 2],
+    samples: &mut resonance_audio::package::SampleCache,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Arc<LoadedProgram>> {
+    anyhow::ensure!(!cancelled(), "title audio preparation cancelled");
+    let definition = resonance_audio::effect::Definition::read(path, &mut |path, limit| {
+        snapshot.read(path, limit)
+    })?;
+    let environment = definition.reverbs().is_none().then_some(reverbs);
+    let loaded = definition
+        .prepare_in(
+            environment,
+            &mut |path, limit| {
+                anyhow::ensure!(!cancelled(), "title audio preparation cancelled");
+                snapshot.read(path, limit)
+            },
+            samples,
+        )
+        .with_context(|| format!("prepare title program {path}"))?;
+    Ok(Arc::new(loaded))
+}
+
 #[derive(Clone)]
 pub(crate) struct SoundControl {
-    cues: Option<Arc<Loaded>>,
+    cues: Option<Arc<Bank>>,
     send: SyncSender<Arc<LoadedProgram>>,
     rendered: Arc<AtomicU64>,
     settings: Arc<AtomicU32>,
@@ -172,7 +273,7 @@ impl SoundControl {
 pub(crate) struct GameAudio {
     master_lead_ms: u16,
     music: Option<TitleMusic>,
-    cues: Option<Arc<Loaded>>,
+    cues: Option<Arc<Bank>>,
     requests: Arc<Mutex<Option<Receiver<Arc<LoadedProgram>>>>>,
     rendered: Arc<AtomicU64>,
     settings: Arc<AtomicU32>,
@@ -269,11 +370,11 @@ impl GameFrames {
     fn next_frame(&mut self) -> Result<[f32; 2]> {
         if self.frame.is_multiple_of(BLOCK_FRAMES as u64) {
             let settings = self.settings.load(Ordering::Relaxed);
-            let music_level = (settings & 0xff) as f32 / 127.;
+            let music_level = (settings & 0xff) as usize;
             let effects_level = ((settings >> 8) & 0xff) as f32 / 127.;
             self.stereo = settings & 0x1_0000 != 0;
             if let Some(music) = &mut self.music {
-                music.level = music_level;
+                music.level = music.gains[music_level];
                 music.mono = !self.stereo;
             }
             if let Some(studio) = &mut self.studio {
@@ -366,6 +467,8 @@ impl Decodable for GameAudio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[path = "named_tests.rs"]
+    mod named;
     fn assets(diagnostics: Diagnostics) -> PlaybackAssets {
         let root = disk_assets();
         let mut assets = PlaybackAssets::load(root.path(), diagnostics).unwrap();
@@ -374,11 +477,7 @@ mod tests {
     }
 
     fn disk_assets() -> tempfile::TempDir {
-        use resonance_audio::{
-            data::{Command, Interpolation, ScoreOrigin},
-            package::SampleAsset,
-        };
-        use sha2::{Digest, Sha256};
+        use resonance_audio::data::{Command, Interpolation, ScoreOrigin};
         let root = tempfile::tempdir().unwrap();
         let mut wave = hound::WavWriter::create(
             root.path().join("sample.wav"),
@@ -395,7 +494,7 @@ mod tests {
         }
         wave.finalize().unwrap();
         let (mut resources, score, tables) =
-            crate::field_audio::test_score_data(ScoreOrigin::Sequence);
+            crate::field_audio::test_score_data(ScoreOrigin::SoundEffect);
         resources.programs.insert(
             1,
             vec![
@@ -407,20 +506,14 @@ mod tests {
                 Command::End,
             ],
         );
-        let mut package = resonance_audio::package::Package {
-            version: resonance_audio::package::VERSION,
+        let program = resonance_audio::package::editable::Program {
             programs: resources.programs,
             samples: [(
                 1,
-                SampleAsset {
+                resonance_audio::package::editable::Sample {
+                    silence: None,
                     path: "sample.wav".into(),
-                    sha256: format!(
-                        "{:x}",
-                        Sha256::digest(fs::read(root.path().join("sample.wav")).unwrap())
-                    ),
                     key: 60,
-                    rate: resonance_audio::SOURCE_RATE as u16,
-                    first_frames: 16,
                     loop_start: 0,
                     loop_length: 0,
                 },
@@ -428,139 +521,100 @@ mod tests {
             .into(),
             score,
             tables,
-            reverbs: [[0., 0., 1., 0., 0.]; 2],
+            reverbs: Some([[0., 0., 1., 0., 0.]; 2]),
         };
+        fs::create_dir_all(root.path().join("audio")).unwrap();
         fs::write(
-            root.path().join("music.json"),
-            serde_json::to_vec(&package).unwrap(),
+            root.path().join(resonance_audio::effect::recipe::TABLES),
+            serde_json::to_vec(&program.tables).unwrap(),
         )
         .unwrap();
-        package.score = crate::field_audio::test_score_data(ScoreOrigin::SoundEffect).1;
-        let bytes = serde_json::to_vec(&package).unwrap();
         for path in ["cue.json", "back.json"] {
-            fs::write(root.path().join(path), &bytes).unwrap();
+            fs::write(
+                root.path().join(path),
+                serde_json::to_vec(&resonance_audio::effect::Definition::Synthesized(
+                    resonance_audio::effect::Recipe::from_program(&program).unwrap(),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
         }
-        let manifest = Manifest {
-            version: resonance_audio::cue::package::VERSION,
-            sample_rate: resonance_audio::SOURCE_RATE,
-            reverbs: package.reverbs,
+        let cues: resonance_content::startup::Cues = resonance_content::startup::Cues {
+            version: resonance_content::startup::VERSION,
+            reverbs: program.reverbs,
             cues: ["navigate", "confirm", "back", "error"]
                 .into_iter()
                 .map(|name| {
                     (
                         name.into(),
-                        resonance_audio::cue::package::Asset {
-                            program: resonance_audio::cue::package::Program {
-                                path: if name == "back" {
-                                    "back.json"
-                                } else {
-                                    "cue.json"
-                                }
-                                .into(),
-                                sha256: format!("{:x}", Sha256::digest(&bytes)),
-                            },
-                        },
+                        if name == "back" {
+                            "back.json"
+                        } else {
+                            "cue.json"
+                        }
+                        .into(),
                     )
                 })
                 .collect(),
         };
-        let bytes = serde_json::to_vec(&manifest).unwrap();
-        fs::write(root.path().join("cues.json"), &bytes).unwrap();
         fs::write(
-            root.path().join("title-sounds.json"),
-            serde_json::to_vec(&resonance_content::TitleAudio {
-                version: 3,
-                path: "cues.json".into(),
-                sha256: format!("{:x}", Sha256::digest(bytes)),
-            })
-            .unwrap(),
+            root.path().join("cues.json"),
+            serde_json::to_vec(&cues).unwrap(),
         )
         .unwrap();
-        fs::write(
-            root.path().join("title-audio.json"),
-            serde_json::to_vec(&resonance_content::TitleAudio {
-                version: 3,
-                path: "music.json".into(),
-                sha256: format!(
-                    "{:x}",
-                    Sha256::digest(fs::read(root.path().join("music.json")).unwrap())
-                ),
-            })
-            .unwrap(),
-        )
-        .unwrap();
+        named::write_startup(root.path()).unwrap();
         root
     }
 
-    #[test]
-    fn title_loading_reports_bad_descriptors_and_isolates_rejected_cues() {
-        let root = disk_assets();
-        for (path, scope) in [
-            ("title-audio.json", "title music preparation"),
-            ("music.json", "title music preparation"),
-            ("title-sounds.json", "title cue preparation"),
-            ("back.json", "title cue back"),
-        ] {
-            let original = fs::read(root.path().join(path)).unwrap();
-            for missing in [false, true] {
-                if missing {
-                    fs::remove_file(root.path().join(path)).unwrap();
-                } else if matches!(path, "title-audio.json" | "music.json") {
-                    let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
-                    if path == "title-audio.json" {
-                        value.as_object_mut().unwrap().remove("sha256");
-                    } else {
-                        value["score"]["initial_bpm_1024"] = serde_json::json!(240 * 1024);
-                    }
-                    fs::write(root.path().join(path), serde_json::to_vec(&value).unwrap()).unwrap();
-                } else {
-                    fs::write(root.path().join(path), b"not JSON").unwrap();
-                }
-                for paranoid in [false, true] {
-                    let diagnostics = Diagnostics::new(paranoid);
-                    let loaded = PlaybackAssets::load(root.path(), diagnostics.clone());
-                    assert_eq!(loaded.is_err(), paranoid, "{path}, missing={missing}");
-                    let entries = diagnostics.entries();
-                    assert_eq!(entries.len(), 1);
-                    assert_eq!(
-                        (entries[0].scope.as_str(), entries[0].occurrences),
-                        (scope, 1)
-                    );
-                    if let Ok(mut assets) = loaded {
-                        assert_eq!(
-                            assets.music.is_none(),
-                            matches!(path, "title-audio.json" | "music.json")
-                        );
-                        assert_eq!(assets.cues.is_none(), path == "title-sounds.json");
-                        if let Some(bank) = &assets.cues {
-                            assert!(bank.cues.contains_key("navigate"));
-                            assert_eq!(bank.cues.contains_key("back"), path != "back.json");
-                            // Listen to the admitted cue without music masking a failure.
-                            assets.music = None;
-                        }
-                        let (source, control) = assets.session(false);
-                        if path != "title-sounds.json" {
-                            control.play("navigate").unwrap();
-                            assert!(source.decoder().take(640).any(|sample| sample != 0.));
-                        }
-                        control.check().unwrap();
-                    }
-                }
-                fs::write(root.path().join(path), &original).unwrap();
-                let diagnostics = Diagnostics::new(true);
-                assert!(PlaybackAssets::load(root.path(), diagnostics.clone()).is_ok());
-                assert!(
-                    !diagnostics.has_errors(),
-                    "repaired descriptor stayed rejected"
-                );
-            }
-        }
+    fn navigation() -> Vec<f32> {
+        navigation_after(0)
     }
 
-    fn navigation() -> Vec<f32> {
+    #[test]
+    fn menu_inherits_the_shared_mix_and_can_override_its_acoustics() -> Result<()> {
+        use resonance_content::field_audio::{
+            MusicReverbs,
+            mix::{Mix, PATH},
+        };
+        let root = disk_assets();
+        let reverbs = [[0.5, 0.5, 3., 0.5, 0.]; 2];
+        let mix = Mix {
+            music_reverbs: MusicReverbs {
+                presets: reverbs.to_vec(),
+                selectors: vec![],
+            },
+            voice_gains: (0..128).map(|v| v as f32 / 127.).collect(),
+            field_reverbs: reverbs,
+            battle_reverbs: [[0.5, 0.5, 2., 0.5, 0.]; 2],
+        };
+        fs::write(root.path().join(PATH), serde_json::to_vec(&mix)?)?;
+        for path in ["cue.json", "back.json"] {
+            let path = root.path().join(path);
+            let mut program: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            program.as_object_mut().unwrap().remove("reverbs");
+            fs::write(path, serde_json::to_vec(&program)?)?;
+        }
+        let path = root.path().join("cues.json");
+        let mut cues: resonance_content::startup::Cues = serde_json::from_slice(&fs::read(&path)?)?;
+        cues.reverbs = None;
+        fs::write(&path, serde_json::to_vec(&cues)?)?;
+        let inherited = PlaybackAssets::load(root.path(), Diagnostics::new(true))?;
+        assert_eq!(inherited.cues.unwrap().reverbs, reverbs);
+        cues.reverbs = Some(mix.battle_reverbs);
+        fs::write(&path, serde_json::to_vec(&cues)?)?;
+        let local = PlaybackAssets::load(root.path(), Diagnostics::new(true))?;
+        assert_eq!(local.cues.unwrap().reverbs, mix.battle_reverbs);
+        Ok(())
+    }
+
+    fn navigation_after(frames: usize) -> Vec<f32> {
         let (audio, control) = assets(Diagnostics::new(true)).session(false);
+        let mut source = audio.decoder();
+        for _ in 0..frames * 2 {
+            assert_eq!(source.next(), Some(0.));
+        }
         control.play("navigate").unwrap();
-        let samples: Vec<_> = audio.decoder().take(640).collect();
+        let samples: Vec<_> = source.take(640).collect();
         assert_eq!(samples.len(), 640);
         assert!(samples.iter().any(|sample| *sample > 0.));
         assert!(samples[600..].iter().all(|sample| *sample == 0.));
@@ -568,57 +622,105 @@ mod tests {
     }
 
     #[test]
+    fn menu_cues_accept_stereo_wave_replacements_and_finish() -> Result<()> {
+        let root = disk_assets();
+        let mut wave = hound::WavWriter::create(
+            root.path().join("replacement.wav"),
+            hound::WavSpec {
+                channels: 2,
+                sample_rate: 48000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )?;
+        for _ in 0..480 {
+            wave.write_sample(12000i16)?;
+            wave.write_sample(-6000i16)?;
+        }
+        wave.finalize()?;
+        fs::write(
+            root.path().join("cue.json"),
+            br#"{
+            "kind":"wave", "audio":"replacement.wav"
+        }"#,
+        )?;
+        let mut assets = PlaybackAssets::load(root.path(), Diagnostics::new(true))?;
+        assets.music = None;
+        let (audio, control) = assets.session(false);
+        control.settings(127, 127, true);
+        let mut frames = audio.decoder();
+        for _ in 0..74 {
+            assert_eq!(frames.next(), Some(0.));
+        }
+        control.play("navigate")?;
+        let samples = frames.take(1600).collect::<Vec<_>>();
+        assert_eq!(samples.len(), 1600);
+        assert!(
+            samples
+                .chunks_exact(2)
+                .any(|frame| frame[0] > 0. && frame[1] < 0.)
+        );
+        assert!(samples[1400..].iter().all(|sample| *sample == 0.));
+        Ok(())
+    }
+
+    #[test]
     fn broken_music_or_cue_keeps_healthy_cues_unless_paranoid() {
-        let expected = navigation();
         for paranoid in [false, true] {
             for broken_music in [false, true] {
+                // Match the session clock so the healthy cue has the same
+                // startup gain when the retained music page is exhausted.
+                let expected = navigation_after(if broken_music { 4000 } else { 0 });
                 let diagnostics = Diagnostics::new(paranoid);
                 let mut assets = assets(diagnostics.clone());
-                let origin = if broken_music {
-                    resonance_audio::data::ScoreOrigin::Sequence
-                } else {
-                    resonance_audio::data::ScoreOrigin::SoundEffect
-                };
-                let (mut resources, mut score, tables) =
-                    crate::field_audio::test_score_data(origin);
-                for event in &mut score.first_events {
-                    if !broken_music
-                        && let resonance_audio::data::EventKind::Notes { source, .. } =
-                            &mut event.kind
-                    {
-                        *source = resonance_audio::data::VoiceSource::SoundEffect { id: 2 };
-                    }
-                }
-                resources.programs.insert(
-                    1,
-                    vec![resonance_audio::data::Command::Jump {
-                        program: 1,
-                        instruction: 0,
-                    }],
-                );
-                let score = Arc::new(
-                    resonance_audio::package::Loaded::new(
-                        resources,
-                        score,
-                        tables,
-                        [[0., 0., 1., 0., 0.]; 2],
-                    )
-                    .unwrap(),
-                );
                 if broken_music {
+                    let (music, file) =
+                        super::super::Recording::test(&vec![[0; 2]; 8000], None).unwrap();
+                    // The first PCM page is retained. Truncation fails when the
+                    // player later requests the next page from its open file.
+                    file.set_len(44).unwrap();
                     assets.music = Some(TitleMusic {
-                        music: score,
+                        music,
                         master_lead_ms: 1185,
                     });
                 } else {
+                    use resonance_audio::data::{Command, EventKind, ScoreOrigin, VoiceSource};
+                    let (mut resources, mut score, tables) =
+                        crate::field_audio::test_score_data(ScoreOrigin::SoundEffect);
+                    for event in &mut score.first_events {
+                        if let EventKind::Notes { source, .. } = &mut event.kind {
+                            *source = VoiceSource::SoundEffect { id: 2 };
+                        }
+                    }
+                    resources.programs.insert(
+                        1,
+                        vec![Command::Jump {
+                            program: 1,
+                            instruction: 0,
+                        }],
+                    );
+                    let cue = Arc::new(
+                        resonance_audio::package::Loaded::new(
+                            resources,
+                            score,
+                            tables,
+                            [[0., 0., 1., 0., 0.]; 2],
+                        )
+                        .unwrap()
+                        .into(),
+                    );
                     Arc::get_mut(assets.cues.as_mut().unwrap())
                         .unwrap()
                         .cues
-                        .insert("broken".into(), score);
+                        .insert("broken".into(), cue);
                 }
                 let (audio, control) = assets.session(false);
                 let mut source = audio.decoder();
-                if !broken_music {
+                if broken_music {
+                    for _ in 0..4000 * 2 {
+                        assert_eq!(source.next(), Some(0.));
+                    }
+                } else {
                     control.play("broken").unwrap();
                 }
                 control.play("navigate").unwrap();
@@ -629,7 +731,11 @@ mod tests {
                             .check()
                             .unwrap_err()
                             .to_string()
-                            .contains("instruction budget")
+                            .contains(if broken_music {
+                                "music PCM page"
+                            } else {
+                                "instruction budget"
+                            })
                     );
                     assert!(control.check().is_ok(), "failure was delivered twice");
                 } else {

@@ -70,15 +70,24 @@ pub struct EnemyDecisionDefinition {
 }
 
 impl EnemyDecisionDefinition {
-    fn approach_parameters(&self, row: &EnemyChoice) -> crate::ApproachParameters {
-        row.approach.unwrap_or(crate::ApproachParameters {
+    fn approach_parameters(
+        &self,
+        row: &EnemyChoice,
+        walk_override: Option<f32>,
+    ) -> crate::ApproachParameters {
+        let walking = crate::ApproachParameters {
             minimum: row.approach_minimum,
             maximum: row.approach_range,
             motion: self.walk_motion,
             motion_rate: 0.5,
-            speed: self.walk_speed,
+            speed: walk_override.unwrap_or(self.walk_speed),
             turn_ticks: self.turn_ticks,
-        })
+        };
+        if walk_override.is_some() {
+            walking
+        } else {
+            row.approach.unwrap_or(walking)
+        }
     }
 }
 
@@ -170,7 +179,8 @@ impl Battle {
             .iter()
             .find(|row| row.action == request.action)
             .context("requested enemy action has no authored entry")?;
-        let parameters = definition.approach_parameters(row);
+        let parameters = definition
+            .approach_parameters(row, self.runtime[request.actor.index()].enemy_walk_override);
         let allied_recipient = row.target_allies
             || row.target_policy.unwrap_or(definition.strategy) == TargetPolicy::SelfTarget;
         ensure!(
@@ -727,12 +737,43 @@ impl Battle {
             && self.actors[index].hp_percent() <= i16::from(value.hp_percent)
         {
             self.runtime[index].enemy_walk_override = Some(value.speed);
+            if self.prepared.actor_setup[index]
+                .enemy_decision
+                .as_ref()
+                .is_some_and(|definition| definition.difficulty == Difficulty::Hard)
+                && self
+                    .actors
+                    .iter()
+                    .filter(|owner| owner.side == crate::Side::Enemy && owner.available())
+                    .count()
+                    == 1
+            {
+                self.runtime[index].enemy_cast_base_ticks = value.last_enemy_hard_cast_ticks;
+            }
             let (clip, replacement) = value.motion_alias;
             self.model_requests
                 .push(crate::ModelRequest::MotionAliases {
                     actor,
                     aliases: [(clip, Some(replacement))].into(),
                 });
+            if self.runtime[index].task().approach().is_some()
+                && let Some(motion) = self.prepared.actor_setup[index]
+                    .enemy_decision
+                    .as_ref()
+                    .and_then(|definition| definition.walk_motion)
+            {
+                let owner = &self.actors[index];
+                let rate = owner.motion_rate(0.5, owner.conditions.effective());
+                self.request_pose(
+                    actor,
+                    Some(motion),
+                    crate::Pose {
+                        rate,
+                        repeat: true,
+                        ..Default::default()
+                    },
+                );
+            }
         }
     }
 
@@ -769,7 +810,8 @@ impl Battle {
                 cues,
             );
         }
-        let parameters = definition.approach_parameters(row);
+        let parameters =
+            definition.approach_parameters(row, self.runtime[owner.index()].enemy_walk_override);
         let allied_recipient = row.target_allies
             || row.target_policy.unwrap_or(definition.strategy) == TargetPolicy::SelfTarget;
         if self.request_approach(owner, target, action, parameters)?
@@ -1069,10 +1111,16 @@ mod tests {
             .enemy_decision
             .as_mut()
             .unwrap()
+            .difficulty = Difficulty::Hard;
+        prepared.resources.actor_setup[1]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
             .walk_override = Some(resonance_content::battle_action::EnemyWalkOverride {
             hp_percent: 25,
             speed: 2.83,
             motion_alias: (1, 45),
+            last_enemy_hard_cast_ticks: Some(0),
         });
         let mut battle = prepared.finish()?;
         battle.advance_enemy_ai(ActorId(1), &mut Vec::new())?;
@@ -1082,9 +1130,11 @@ mod tests {
         // Integer HP percent is 26 at 1092 HP and 25 at 1091 HP.
         battle.step(crate::BattleInput::default())?;
         assert_eq!(battle.actors[1].movement.forward, 2.);
+        assert_eq!(battle.runtime[1].enemy_cast_base_ticks, None);
         battle.actors[1].hp = 1091;
         battle.step(crate::BattleInput::default())?;
         assert_eq!(battle.actors[1].movement.forward, 2.);
+        assert_eq!(battle.runtime[1].enemy_cast_base_ticks, Some(0));
 
         // The existing acceleration observes the new limit on the next update.
         battle.step(crate::BattleInput::default())?;
@@ -1095,6 +1145,7 @@ mod tests {
         battle.step(crate::BattleInput::default())?;
         assert_eq!(battle.actors[1].movement.forward, 2.83);
         assert!(battle.runtime[1].task().approach().is_some());
+        assert_eq!(battle.runtime[1].enemy_cast_base_ticks, Some(0));
         Ok(())
     }
 

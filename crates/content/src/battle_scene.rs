@@ -1,44 +1,29 @@
 //! Artwork and contact metadata for stored battle scenes.
-use crate::battle_model::{ModelPart, Weapon};
+use crate::battle_model::Weapon;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod document;
 mod spell;
 pub use spell::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
 
-/// Version 1 makes the migrated spell recipe part of the scene publication.
-pub const VERSION: u32 = 1;
-
-pub fn path(technique: u16) -> String {
-    format!("battle/scenes/{technique:03}.json")
-}
-
-pub fn skill_path(catalogue: u16) -> String {
-    format!("battle/scenes/skills/{catalogue:03}.json")
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Scene {
-    pub version: u32,
-    pub source_sha256: String,
+#[serde(deny_unknown_fields, bound(deserialize = "W: Deserialize<'de>"))]
+pub struct Scene<W = Weapon> {
     /// Standard source bank, consumed by the shared effect preparation path.
     pub effects: String,
-    pub textures: Vec<Texture>,
-    /// Authored model slots. Aliases share physical assets, not playback state.
-    pub models: BTreeMap<u8, ModelPart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cutin: Option<Texture>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub weapon: Option<Weapon>,
-    #[serde(default)]
+    pub weapon: Option<W>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub projectiles: Vec<SceneProjectile>,
     /// Participant action tracks, in the scene's authored variant order.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub actions: BTreeMap<u8, SceneAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions_error: Option<String>,
-    #[serde(default)]
     pub duration: u16,
     /// Scenery RGB uses 64 as neutral; actor lighting is independent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,16 +38,32 @@ pub struct Scene {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_radius: Option<f32>,
     /// Native strategies consume these parameters after resolving all dependencies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spell_recipe: Option<SpellRecipe>,
-    pub files: BTreeMap<String, crate::field_preload::File>,
+}
+
+impl<W> Scene<W> {
+    /// Only the attachment binding differs between authored and prepared scenes.
+    pub fn with_weapon<T>(self, weapon: Option<T>) -> Scene<T> {
+        Scene {
+            effects: self.effects,
+            cutin: self.cutin,
+            weapon,
+            projectiles: self.projectiles,
+            actions: self.actions,
+            actions_error: self.actions_error,
+            duration: self.duration,
+            stage_color: self.stage_color,
+            camera: self.camera,
+            strike_points: self.strike_points,
+            recovery_radius: self.recovery_radius,
+            spell_recipe: self.spell_recipe,
+        }
+    }
 }
 
 impl Scene {
     pub fn validate(&self) -> Result<()> {
-        ensure!(
-            self.version == VERSION,
-            "unsupported battle scene version; recook assets"
-        );
         if let Some(recipe) = &self.spell_recipe {
             recipe.validate(self)?;
         }
@@ -140,6 +141,8 @@ impl SceneProjectile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Texture {
     /// Palette pages retain their original order.
+    #[serde(with = "crate::texture::images")]
     pub images: Vec<crate::font::UiTexture>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub sampler: crate::texture::Sampler,
 }

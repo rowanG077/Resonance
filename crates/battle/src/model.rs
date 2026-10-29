@@ -345,7 +345,7 @@ pub struct ModelDefinition {
     pub active_expression: [u8; 4],
     /// Story-selected eyes take precedence over expressions and blinking.
     pub forced_eye_frame: Option<u8>,
-    pub blink: Option<resonance_content::battle_profile::Blink>,
+    pub blinks: Vec<resonance_content::battle_profile::Blink>,
     pub weapons: Vec<Arc<WeaponDefinition>>,
     pub shadow: Option<ShadowDefinition>,
     /// Observe root translation independently of drawn-root movement.
@@ -1346,17 +1346,18 @@ impl Model {
     pub(crate) fn render_frame(&self, actor: &Actor) -> ModelFrame {
         let mut frame = self.shown.clone();
         let blink_start = BLINK_PERIOD_TICKS - 3 * BLINK_FRAME_TICKS;
-        if actor.available()
-            && self.blink_ticks >= blink_start
-            && let Some(blink) = &self.definition.blink
-            && let Some(expression) = frame.texture_layers.get_mut(usize::from(blink.channel))
-            && !blink.excluded_expressions.contains(expression)
-        {
-            let stage = (self.blink_ticks - blink_start) / BLINK_FRAME_TICKS;
-            *expression = match stage {
-                1 => blink.frames[1],
-                _ => blink.frames[0],
-            };
+        if actor.available() && self.blink_ticks >= blink_start {
+            for blink in &self.definition.blinks {
+                if let Some(expression) = frame.texture_layers.get_mut(usize::from(blink.channel))
+                    && !blink.excluded_expressions.contains(expression)
+                {
+                    let stage = (self.blink_ticks - blink_start) / BLINK_FRAME_TICKS;
+                    *expression = match stage {
+                        1 => blink.frames[1],
+                        _ => blink.frames[0],
+                    };
+                }
+            }
         }
         if let Some(eyes) = self.definition.forced_eye_frame {
             frame.texture_layers[0] = eyes;

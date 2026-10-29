@@ -1,0 +1,728 @@
+{
+  "angel-commander-yellow": {
+    "color": [
+      1.0,
+      1.0,
+      0.5
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "angel-swordian-cream": {
+    "color": [
+      0.875,
+      0.75,
+      0.625
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "armored-grey": {
+    "color": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "armored-white": {
+    "color": [
+      0.75,
+      0.75,
+      0.75
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "blue-rounded": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      448,
+      128,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "blue-tapered": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "botta-blue": {
+    "color": [
+      0.25,
+      0.25,
+      1.0
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "botta-red": {
+    "color": [
+      1.0,
+      0.25,
+      0.25
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "brown-sparks": {
+    "color": [
+      0.5,
+      0.25,
+      0.25
+    ],
+    "rectangle": [
+      160,
+      192,
+      32,
+      32
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "brown-tapered": {
+    "color": [
+      0.5,
+      0.25,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "cardinal-knight-green": {
+    "color": [
+      0.25,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "commander-knight-yellow": {
+    "color": [
+      0.75,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      64,
+      64,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "doom-guard-pink": {
+    "color": [
+      1.0,
+      0.75,
+      0.75
+    ],
+    "palette": 5,
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "dragon-knight-cream": {
+    "color": [
+      1.0,
+      1.0,
+      0.75
+    ],
+    "rectangle": [
+      448,
+      352,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "duelist-grey": {
+    "color": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "palette": 2,
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "evil-sorcerer-yellow": {
+    "color": [
+      0.75,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      0,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "garr-blue": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      0,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "gnome-brown": {
+    "color": [
+      0.5,
+      0.375,
+      0.125
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "green-rounded": {
+    "color": [
+      0.25,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      128,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "green-tapered": {
+    "color": [
+      0.25,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "kvar-blue": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "living-armor-white": {
+    "color": [
+      0.75,
+      0.75,
+      0.75
+    ],
+    "palette": 1,
+    "rectangle": [
+      0,
+      32,
+      128,
+      128
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "magnius-red": {
+    "color": [
+      0.75,
+      0.25,
+      0.25
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "orange-red-tapered": {
+    "color": [
+      0.75,
+      0.25,
+      0.0
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "orange-rounded": {
+    "color": [
+      0.75,
+      0.5,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      128,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "orange-tapered": {
+    "color": [
+      0.75,
+      0.5,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "origin-blue": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      192,
+      192,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "phantom-knight-purple": {
+    "color": [
+      0.375,
+      0.0,
+      0.5
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "pronyma-yellow": {
+    "color": [
+      0.75,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      192,
+      192,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "purple-rounded": {
+    "color": [
+      0.75,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      448,
+      128,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "purple-tapered": {
+    "color": [
+      0.75,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "red-rounded": {
+    "color": [
+      0.75,
+      0.25,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      128,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "red-tapered": {
+    "color": [
+      0.75,
+      0.25,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "rogue-purple": {
+    "color": [
+      0.5,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "skeleton-pink": {
+    "color": [
+      1.0,
+      0.75,
+      0.75
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "solid-blue": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ]
+  },
+  "sorceress-yellow": {
+    "color": [
+      0.75,
+      0.75,
+      0.375
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "spearman-yellow": {
+    "color": [
+      0.75,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "spirit-grey": {
+    "color": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "rectangle": [
+      1,
+      1,
+      63,
+      63
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "sword-dancer-orange": {
+    "color": [
+      0.75,
+      0.25,
+      0.0
+    ],
+    "rectangle": [
+      192,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "undertaker-blue": {
+    "color": [
+      0.25,
+      0.25,
+      0.75
+    ],
+    "rectangle": [
+      0,
+      32,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "vidarr-orange": {
+    "color": [
+      0.75,
+      0.25,
+      0.0
+    ],
+    "rectangle": [
+      64,
+      64,
+      64,
+      64
+    ],
+    "texture": {
+      "slot": 2,
+      "source": "enemy"
+    }
+  },
+  "yellow-rounded": {
+    "color": [
+      0.75,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      128,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  },
+  "yellow-tapered": {
+    "color": [
+      0.75,
+      0.75,
+      0.25
+    ],
+    "rectangle": [
+      448,
+      0,
+      64,
+      64
+    ],
+    "texture": {
+      "source": "common"
+    }
+  }
+}

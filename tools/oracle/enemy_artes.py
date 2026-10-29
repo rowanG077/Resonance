@@ -100,6 +100,8 @@ def distinct_ground_targets(rows):
 def prepare(args, manifest):
     cases = select(manifest, args.case, args.enemy)
     inputs = manifest["inputs"]
+    for resource in inputs["content"].values():
+        pinned(resource)
     source_path = pinned(inputs["state"])
     pinned(inputs["movie"])
     if digest(Path(str(source_path) + ".dtm")) != inputs["movie"]["sha256"]:
@@ -161,7 +163,7 @@ def prepare(args, manifest):
     packages = [row for row in manifest["enemies"] if row["enemy"] in roster]
     for record in packages:
         pinned(record["package"])
-        pinned(record["monster"])
+        pinned(record["monster_catalogue"])
     output = output_path(args.output)
     output.mkdir(parents=True, exist_ok=False)
     source = State(source_path)

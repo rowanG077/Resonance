@@ -8,8 +8,9 @@ mod stream;
 pub use stream::MovieStream;
 
 use anyhow::{Context, Result, ensure};
-use resonance_content::MovieAsset;
+use resonance_content::library::StreamReader;
 use std::{
+    fs::File,
     path::Path,
     sync::{
         Arc, Mutex,
@@ -47,6 +48,17 @@ type DecodeResult<T> = std::result::Result<Option<T>, String>;
 
 /// Decoded video frames buffered before playback and in each decoder queue.
 pub const VIDEO_LOOKAHEAD: usize = 10;
+
+/// Facts from the current media headers. Unknown stream length is supported;
+/// playback and preparation use EOF instead of a manually maintained count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Format {
+    pub width: u32,
+    pub height: u32,
+    pub frame_duration: Duration,
+    pub sample_rate: u32,
+    pub audio_frames: Option<u64>,
+}
 
 struct Track<T> {
     receiver: Mutex<Option<Receiver<DecodeResult<T>>>>,
@@ -114,25 +126,92 @@ impl<T> Drop for Track<T> {
 pub struct MovieDecoder {
     video: Track<VideoFrame>,
     audio: Track<AudioChunk>,
+    format: Format,
+    source: StreamReader,
 }
 
 impl MovieDecoder {
-    pub fn open(path: &Path, asset: MovieAsset) -> Result<Self> {
-        asset.validate()?;
-        let path = path
-            .canonicalize()
-            .context("cooked movie file is missing")?;
-        let video_path = path.clone();
-        let video_asset = asset.clone();
+    pub fn open(path: &Path, audio_track: u16) -> Result<Self> {
+        Self::from_file(
+            File::open(path).with_context(|| format!("open movie {}", path.display()))?,
+            audio_track,
+        )
+    }
+
+    pub fn load(snapshot: &mut resonance_content::library::Snapshot, id: u32) -> Result<Self> {
+        let file = resonance_content::movie::capture(snapshot, id)?;
+        Self::from_file(file, 0).with_context(|| format!("movie {id}"))
+    }
+
+    pub fn from_file(file: File, audio_track: u16) -> Result<Self> {
+        let source = StreamReader::new(file)?;
+        let reader = VideoReader::from_input(container::from_source(source.clone())?)?;
+        let audio =
+            decoder::AudioReader::new(container::from_source(source.clone())?, audio_track)?;
+        let (width, height) = reader.dimensions();
+        let frame_duration = reader
+            .frame_duration()
+            .context("movie video requires a default frame duration")?;
+        ensure!(
+            (Duration::from_millis(10)..=Duration::from_millis(100)).contains(&frame_duration),
+            "movie frame duration must be between 10 and 100 milliseconds"
+        );
+        let format = Format {
+            width,
+            height,
+            frame_duration,
+            sample_rate: audio.sample_rate,
+            audio_frames: audio.frames,
+        };
+        let completion = decoder::Completion::default();
+        let video_completion = completion.clone();
         let video = Track::start(
             "movie-video-decoder",
             VIDEO_LOOKAHEAD,
-            move |stop, sender| decoder::video(&video_path, &video_asset, stop, sender),
+            move |stop, sender| decoder::video(reader, format, stop, sender, video_completion),
         )?;
         let audio = Track::start("movie-audio-decoder", 16, move |stop, sender| {
-            decoder::audio(&path, &asset, stop, sender)
+            audio.run(stop, sender, completion)
         })?;
-        Ok(Self { video, audio })
+        Ok(Self {
+            video,
+            audio,
+            format,
+            source,
+        })
+    }
+
+    pub fn format(&self) -> Format {
+        self.format
+    }
+
+    /// Offline capture planning only. Scan timestamps from the pinned stream,
+    /// without decoding pixels or requiring a stored frame-count inventory.
+    pub fn video_timestamps(&self) -> Result<Vec<Duration>> {
+        let mut input = container::from_source(self.source.clone())?;
+        let id = container::track(&input, matroska_demuxer::TrackType::Video)?
+            .track_number()
+            .get();
+        let scale = input.info().timestamp_scale().get();
+        let mut packet = matroska_demuxer::Frame::default();
+        let mut times = Vec::new();
+        while input.next_frame(&mut packet)? {
+            if packet.track == id {
+                let time = container::timestamp(packet.timestamp, scale)?;
+                ensure!(
+                    times.len() < 100_000
+                        && time < Duration::from_secs(3600)
+                        && times.last().is_none_or(|&previous| time > previous),
+                    "invalid movie video timeline"
+                );
+                times.push(time);
+            }
+        }
+        ensure!(
+            times.first() == Some(&Duration::ZERO),
+            "movie video must start at time zero"
+        );
+        Ok(times)
     }
 
     pub fn try_video(&self) -> Result<Option<VideoFrame>> {
@@ -160,14 +239,9 @@ impl MovieDecoder {
     }
 
     /// Read a deterministic frame for capture without starting audio playback.
-    pub fn frame(path: &Path, asset: MovieAsset, index: u32) -> Result<VideoFrame> {
-        asset.validate()?;
-        ensure!(index < asset.frames, "movie capture frame is out of range");
+    pub fn frame(path: &Path, index: u32) -> Result<VideoFrame> {
+        ensure!(index < 100_000, "movie capture frame is out of range");
         let mut reader = VideoReader::open(path)?;
-        ensure!(
-            reader.dimensions() == (asset.width, asset.height),
-            "movie video format disagrees with the cooked manifest"
-        );
         loop {
             let frame = reader
                 .next_frame()?

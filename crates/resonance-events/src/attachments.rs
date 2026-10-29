@@ -161,7 +161,7 @@ mod tests {
     use super::*;
     use crate::{Actor, Animation, AnimationClip, AttachmentPose, EventRuntime, ModelResource};
     use resonance_content::{
-        animation::{Bone, Motion, Skeleton, TransformChannels},
+        animation::{Bone, Motion, Skeleton},
         field::CollisionQuery,
     };
     use std::sync::Arc;
@@ -171,7 +171,8 @@ mod tests {
             bones: vec![Bone {
                 name: "socket".into(),
                 parent: None,
-                bind_channels: TransformChannels(0),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform::default(),
             }],
         });
@@ -300,7 +301,8 @@ mod tests {
                             bones: vec![Bone {
                                 name: "socket".into(),
                                 parent: None,
-                                bind_channels: TransformChannels(0),
+                                parent_transform: None,
+                                shadow_bounds: true,
                                 bind: Transform {
                                     translation: [10., 0., 0.],
                                     ..Default::default()
@@ -376,21 +378,42 @@ mod tests {
             bones: vec![Bone {
                 name: "socket".into(),
                 parent: None,
-                bind_channels: TransformChannels(0),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     translation: [0., 5., 2.],
                     ..Default::default()
                 },
             }],
         });
-        let motion: Motion = serde_json::from_value(serde_json::json!({
-            "duration_frames":2., "tracks":[{
-                "bone":0, "bind_channels":0, "period_frames":2., "times":[0.,2.],
-                "translation":{"interpolation":"linear","values":[[10.,0.,5.],[30.,0.,5.]]},
-                "rotation":{"interpolation":"step","values":[[0.,0.,0.70710677,0.70710677],[0.,0.,0.70710677,0.70710677]]},
-                "scale":{"interpolation":"linear","values":[[2.,2.,2.],[2.,2.,2.]]}
-            }]
-        })).unwrap();
+        use resonance_content::animation::{Channel, Interpolation, NodeTrack, Track};
+        let motion = Motion {
+            duration_frames: 2.0,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![NodeTrack {
+                    bind: Default::default(),
+                    translation: Some(Channel {
+                        interpolation: Interpolation::Linear,
+                        times: vec![0.0, 0.06666666666666667],
+                        values: vec![[10.0, 0.0, 5.0], [30.0, 0.0, 5.0]],
+                    }),
+                    rotation: Some(Channel {
+                        interpolation: Interpolation::Step,
+                        times: vec![0.0, 0.06666666666666667],
+                        values: vec![
+                            [0.0, 0.0, 0.70710677, 0.70710677],
+                            [0.0, 0.0, 0.70710677, 0.70710677],
+                        ],
+                    }),
+                    scale: Some(Channel {
+                        interpolation: Interpolation::Linear,
+                        times: vec![0.0, 0.06666666666666667],
+                        values: vec![[2.0, 2.0, 2.0], [2.0, 2.0, 2.0]],
+                    }),
+                }],
+            }],
+        };
         let model = ModelResource {
             names: vec!["socket".into()],
             clips: [(

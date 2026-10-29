@@ -1,11 +1,18 @@
-//! Sparse animation curves and deterministic, renderer-independent bone poses.
+//! Standard glTF animation tracks and renderer-independent skeletal poses.
 mod codec;
+mod named;
+pub use named::NamedMotion;
+mod tracks;
+pub use tracks::{Channel, Interpolation, Motion, NodeTrack, Track};
 pub mod pose;
 mod skeleton;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+pub use skeleton::joint_names_from_glb;
+pub(crate) use skeleton::scene_nodes_from_glb;
+pub(crate) use skeleton::{node_parents, rest_transform};
 
-/// Conversion from native clip-frame units to the cooked glTF timeline.
+/// The game animation clock. glTF timestamps are stored in seconds.
 pub const FRAME_HZ: f32 = 30.;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,8 +24,19 @@ pub struct Skeleton {
 pub struct Bone {
     /// An authored label; repeated labels do not merge indexed bones or tracks.
     pub name: String,
+    /// Include this joint in the animated body footprint. Read from GLB extras;
+    /// renaming a joint must not change its contribution.
+    #[serde(
+        default = "crate::defaults::enabled",
+        skip_serializing_if = "crate::defaults::is_enabled"
+    )]
+    pub shadow_bounds: bool,
     pub parent: Option<u16>,
-    pub bind_channels: TransformChannels,
+    /// Static GLB nodes between this joint and its indexed parent. Kept apart
+    /// from the local rest pose so animation cannot overwrite an editor's group
+    /// transform. This is prepared from the model, never a cooked sidecar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_transform: Option<Matrix>,
     pub bind: Transform,
 }
 
@@ -38,6 +56,7 @@ impl TransformChannels {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Transform {
     pub translation: [f32; 3],
     /// Quaternion components are x, y, z, w.
@@ -55,91 +74,6 @@ impl Default for Transform {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Motion {
-    /// Native frame units. Callers control looping, playback rate and pauses.
-    pub duration_frames: f32,
-    pub tracks: Vec<Track>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Track {
-    pub bone: u16,
-    /// Presence of channels in the model's rest pose, including authored identity values.
-    pub bind_channels: TransformChannels,
-    pub period_frames: f32,
-    pub times: Vec<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub translation: Option<VectorCurve>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scale: Option<VectorCurve>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rotation: Option<QuaternionCurve>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub euler_degrees: Option<VectorCurve>,
-    /// Row-major 3x4 affine matrices, retained without TRS decomposition.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub matrices: Option<Vec<[f32; 12]>>,
-}
-
-impl Track {
-    pub fn channels(&self) -> TransformChannels {
-        TransformChannels(
-            u8::from(self.scale.is_some())
-                | (u8::from(self.euler_degrees.is_some()) << 1)
-                | (u8::from(self.rotation.is_some()) << 2)
-                | (u8::from(self.matrices.is_some()) << 4)
-                | (u8::from(self.translation.is_some()) << 3),
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VectorInterpolation {
-    Step,
-    Linear,
-    ShortestAngleLinear,
-    Bezier,
-    Hermite,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VectorCurve {
-    pub interpolation: VectorInterpolation,
-    pub values: Vec<[f32; 3]>,
-    /// Bezier control offsets or Hermite tangents, without time rescaling.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub incoming: Vec<[f32; 3]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub outgoing: Vec<[f32; 3]>,
-    /// Incoming/outgoing time controls, independently authored per key.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ease: Vec<[f32; 2]>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QuaternionInterpolation {
-    Step,
-    ShortestSlerp,
-    Squad,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuaternionCurve {
-    pub interpolation: QuaternionInterpolation,
-    pub values: Vec<[f32; 4]>,
-    /// Spherical cubic controls retain their authored quaternion signs.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub incoming: Vec<[f32; 4]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub outgoing: Vec<[f32; 4]>,
-    /// Incoming/outgoing time controls, independently authored per key.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ease: Vec<[f32; 2]>,
-}
-
 /// Column-major affine matrix, in the model's authored coordinate system.
 pub type Matrix = [[f32; 4]; 4];
 
@@ -150,6 +84,18 @@ pub struct Pose {
 }
 
 impl Skeleton {
+    pub fn single(name: impl Into<String>) -> Self {
+        Self {
+            bones: vec![Bone {
+                name: name.into(),
+                parent: None,
+                parent_transform: None,
+                shadow_bounds: true,
+                bind: Transform::default(),
+            }],
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.bones.is_empty() && self.bones.len() <= u16::MAX as usize,
@@ -158,6 +104,12 @@ impl Skeleton {
         for (index, bone) in self.bones.iter().enumerate() {
             ensure!(!bone.name.is_empty(), "empty name for bone {index}");
             bone.bind.validate()?;
+            if let Some(matrix) = bone.parent_transform {
+                ensure!(
+                    matrix.iter().flatten().all(|value| value.is_finite()),
+                    "invalid parent transform for bone {index}"
+                );
+            }
             let mut cursor = bone.parent;
             let mut depth = 0;
             while let Some(parent) = cursor {
@@ -271,6 +223,9 @@ impl Skeleton {
                 |(track, frame)| pose::sample_bone(bone.bind, Some(track), frame),
             )?;
         let local = pose::BonePose::complete(adjust(index, bone, local.value())).matrix();
+        let local = bone
+            .parent_transform
+            .map_or(local, |parent| multiply(parent, local));
         match bone.parent {
             Some(parent) => Ok(multiply(
                 self.sampled_global(layers, parent, depth + 1, adjust)?,
@@ -334,7 +289,9 @@ impl Skeleton {
         if let Some(matrix) = *global.get(index).context("invalid bone parent")? {
             return Ok(matrix);
         }
-        let matrix = local[index];
+        let matrix = self.bones[index]
+            .parent_transform
+            .map_or(local[index], |parent| multiply(parent, local[index]));
         let matrix = if let Some(parent) = self.bones[index].parent {
             multiply(
                 self.compose(usize::from(parent), local, global, depth + 1)?,
@@ -479,134 +436,6 @@ pub fn transform_point(matrix: Matrix, point: [f32; 3]) -> [f32; 3] {
     })
 }
 
-impl Motion {
-    pub fn validate(&self, skeleton: &Skeleton) -> Result<()> {
-        self.validate_bones(skeleton.bones.len())
-    }
-
-    pub fn validate_bones(&self, bone_count: usize) -> Result<()> {
-        ensure!(
-            self.duration_frames.is_finite() && self.duration_frames > 0.,
-            "invalid motion duration"
-        );
-        let mut bones = std::collections::BTreeSet::new();
-        for track in &self.tracks {
-            ensure!(
-                track.bind_channels.0 & !31 == 0,
-                "invalid rest transform channels"
-            );
-            ensure!(
-                track.rotation.is_none() || track.euler_degrees.is_none(),
-                "conflicting rotation curves"
-            );
-            if let Some(matrices) = &track.matrices {
-                ensure!(
-                    track.translation.is_none()
-                        && track.scale.is_none()
-                        && track.rotation.is_none()
-                        && track.euler_degrees.is_none()
-                        && matrices.len() == track.times.len()
-                        && finite(matrices),
-                    "invalid affine animation channel"
-                );
-            }
-            ensure!(
-                usize::from(track.bone) < bone_count && bones.insert(track.bone),
-                "duplicate or missing motion bone"
-            );
-            let n = track.times.len();
-            ensure!(
-                track.period_frames.is_finite()
-                    && track.period_frames > 0.
-                    && track.period_frames <= self.duration_frames
-                    && n > 0
-                    && track.times[0] == 0.
-                    && track
-                        .times
-                        .iter()
-                        .all(|t| t.is_finite() && *t >= 0. && *t <= track.period_frames)
-                    && track.times.windows(2).all(|t| t[0] <= t[1]),
-                "invalid motion key times"
-            );
-            for curve in [&track.translation, &track.scale, &track.euler_degrees]
-                .into_iter()
-                .flatten()
-            {
-                ensure!(
-                    curve.values.len() == n
-                        && finite(&curve.values)
-                        && valid_ease(&curve.ease, n)
-                        && (curve.ease.is_empty()
-                            || curve.interpolation == VectorInterpolation::Hermite),
-                    "invalid vector curve values"
-                );
-                let controls = matches!(
-                    curve.interpolation,
-                    VectorInterpolation::Bezier | VectorInterpolation::Hermite
-                );
-                ensure!(
-                    valid_controls(&curve.incoming, &curve.outgoing, n, controls),
-                    "invalid vector curve controls"
-                );
-            }
-            if let Some(curve) = &track.rotation {
-                ensure!(
-                    curve.values.len() == n
-                        && finite(&curve.values)
-                        && valid_ease(&curve.ease, n)
-                        && (curve.ease.is_empty()
-                            || curve.interpolation == QuaternionInterpolation::Squad)
-                        && curve.values.iter().all(|&q| dot(q, q) > 0.5),
-                    "invalid quaternion curve values"
-                );
-                ensure!(
-                    valid_controls(
-                        &curve.incoming,
-                        &curve.outgoing,
-                        n,
-                        curve.interpolation == QuaternionInterpolation::Squad
-                    ),
-                    "invalid quaternion curve controls"
-                );
-            }
-        }
-        Ok(())
-    }
-}
-
-fn valid_ease(values: &[[f32; 2]], count: usize) -> bool {
-    (values.is_empty() || values.len() == count) && finite(values)
-}
-
-/// Preserve the source evaluator's time warp, including signed controls.
-fn eased_time(ease: &[[f32; 2]], a: usize, b: usize, t: f32) -> Result<f32> {
-    if ease.is_empty() || t == 0. || t == 1. {
-        return Ok(t);
-    }
-    let mut first = ease.get(a).context("missing outgoing time control")?[1];
-    let mut second = ease.get(b).context("missing incoming time control")?[0];
-    let total = first + second;
-    if total == 0. {
-        return Ok(t);
-    }
-    let inverse = 1. / total;
-    if total > 1. {
-        first *= inverse;
-        second *= inverse;
-    }
-    let shape = 0.5 - inverse;
-    let value = if t < first {
-        t * (t * (shape / first))
-    } else if t < 1. - second {
-        shape * (2. * t - first)
-    } else {
-        let rest = 1. - t;
-        1. - rest * (rest * (shape / second))
-    };
-    ensure!(value.is_finite(), "invalid eased animation time");
-    Ok(value)
-}
-
 pub fn euler_rotation(degrees: [f32; 3]) -> [f32; 4] {
     let [x, y, z] = degrees.map(|value| (value.to_radians() * 0.5).sin_cos());
     [
@@ -617,340 +446,10 @@ pub fn euler_rotation(degrees: [f32; 3]) -> [f32; 4] {
     ]
 }
 
-fn finite<const N: usize>(values: &[[f32; N]]) -> bool {
-    values.iter().flatten().all(|v| v.is_finite())
-}
-
-fn valid_controls<const N: usize>(
-    incoming: &[[f32; N]],
-    outgoing: &[[f32; N]],
-    count: usize,
-    needed: bool,
-) -> bool {
-    incoming.len() == if needed { count } else { 0 }
-        && outgoing.len() == incoming.len()
-        && finite(incoming)
-        && finite(outgoing)
-}
-
-impl Track {
-    fn interval(&self, time: f32) -> Result<(usize, usize, f32)> {
-        ensure!(!self.times.is_empty(), "empty motion track");
-        let time = if time > self.period_frames {
-            time.rem_euclid(self.period_frames)
-        } else {
-            time
-        };
-        // Equal-time keys represent a discontinuity. The last key at that time
-        // wins, while interpolation before it still approaches the first key.
-        let a = self
-            .times
-            .partition_point(|key| *key <= time)
-            .saturating_sub(1);
-        let b = (a + 1) % self.times.len();
-        let delta = if self.times[b] > self.times[a] {
-            self.times[b]
-        } else {
-            self.period_frames
-        } - self.times[a];
-        let t = if delta > 0. {
-            (time - self.times[a]) / delta
-        } else {
-            0.
-        };
-        Ok((a, b, t))
-    }
-
-    /// Affine consumers can evaluate matrix tracks without discarding shear.
-    pub fn sample_matrix(&self, time: f32, bind: Transform) -> Result<Matrix> {
-        if let Some(matrices) = &self.matrices {
-            let (a, _, _) = self.interval(time)?;
-            let m = matrices.get(a).context("missing affine animation key")?;
-            return Ok([
-                [m[0], m[4], m[8], 0.],
-                [m[1], m[5], m[9], 0.],
-                [m[2], m[6], m[10], 0.],
-                [m[3], m[7], m[11], 1.],
-            ]);
-        }
-        Ok(self.sample(time, bind)?.matrix())
-    }
-
-    pub fn sample(&self, time: f32, mut bind: Transform) -> Result<Transform> {
-        ensure!(
-            self.matrices.is_none(),
-            "affine animation requires an affine pose consumer; refusing lossy TRS conversion"
-        );
-        ensure!(!self.times.is_empty(), "empty motion track");
-        let (a, b, t) = self.interval(time)?;
-        if let Some(curve) = &self.translation {
-            bind.translation = curve.sample(a, b, t)?;
-        }
-        if let Some(curve) = &self.scale {
-            bind.scale = curve.sample(a, b, t)?;
-        }
-        if let Some(curve) = &self.rotation {
-            bind.rotation = curve.sample(a, b, t)?;
-        }
-        if let Some(curve) = &self.euler_degrees {
-            bind.rotation = euler_rotation(curve.sample(a, b, t)?);
-        }
-        Ok(bind)
-    }
-}
-
-impl VectorCurve {
-    fn sample(&self, a: usize, b: usize, t: f32) -> Result<[f32; 3]> {
-        let t = eased_time(&self.ease, a, b, t)?;
-        let av = *self.values.get(a).context("missing vector key")?;
-        let bv = *self.values.get(b).context("missing vector key")?;
-        Ok(match self.interpolation {
-            VectorInterpolation::Step => av,
-            VectorInterpolation::Linear => lerp(av, bv, t),
-            VectorInterpolation::ShortestAngleLinear => std::array::from_fn(|i| {
-                let (mut a, mut b) = (av[i], bv[i]);
-                if a - b > 180. {
-                    a -= 360.;
-                } else if a - b < -180. {
-                    b -= 360.;
-                }
-                (1. - t) * a + t * b
-            }),
-            VectorInterpolation::Bezier | VectorInterpolation::Hermite => {
-                let outgoing = self.outgoing.get(a).context("missing outgoing tangent")?;
-                let incoming = self.incoming.get(b).context("missing incoming tangent")?;
-                std::array::from_fn(|i| {
-                    if self.interpolation == VectorInterpolation::Bezier {
-                        let u = 1. - t;
-                        av[i] * (u * u * u)
-                            + (av[i] + outgoing[i]) * (3. * u * u * t)
-                            + (bv[i] + incoming[i]) * (3. * u * t * t)
-                            + bv[i] * (t * t * t)
-                    } else {
-                        let t2 = t * t;
-                        let t3 = t2 * t;
-                        av[i] * (2. * t3 - 3. * t2 + 1.)
-                            + bv[i] * (3. * t2 - 2. * t3)
-                            + outgoing[i] * (t3 - 2. * t2 + t)
-                            + incoming[i] * (t3 - t2)
-                    }
-                })
-            }
-        })
-    }
-}
-
-impl QuaternionCurve {
-    fn sample(&self, a: usize, b: usize, t: f32) -> Result<[f32; 4]> {
-        let t = eased_time(&self.ease, a, b, t)?;
-        let av = *self.values.get(a).context("missing quaternion key")?;
-        let bv = *self.values.get(b).context("missing quaternion key")?;
-        let value = match self.interpolation {
-            QuaternionInterpolation::Step => av,
-            QuaternionInterpolation::ShortestSlerp => shortest_slerp(av, bv, t),
-            QuaternionInterpolation::Squad => {
-                let ac = *self
-                    .outgoing
-                    .get(a)
-                    .context("missing outgoing quaternion control")?;
-                let bc = *self
-                    .incoming
-                    .get(b)
-                    .context("missing incoming quaternion control")?;
-                let t = t.clamp(0., 1.);
-                spherical(
-                    spherical(av, bv, t),
-                    spherical(ac, bc, t),
-                    2. * t * (1. - t),
-                )
-            }
-        };
-        ensure!(
-            finite(&[value]) && dot(value, value) > 0.5,
-            "invalid sampled quaternion"
-        );
-        Ok(normalize(value))
-    }
-}
-
-fn lerp<const N: usize>(a: [f32; N], b: [f32; N], t: f32) -> [f32; N] {
-    std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
-}
-
 fn dot(a: [f32; 4], b: [f32; 4]) -> f32 {
     (0..4).map(|i| a[i] * b[i]).sum()
 }
 fn normalize(q: [f32; 4]) -> [f32; 4] {
     let length = dot(q, q).sqrt();
     q.map(|v| v / length)
-}
-
-fn shortest_slerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
-    spherical(a, if dot(a, b) < 0. { b.map(|v| -v) } else { b }, t)
-}
-
-fn spherical(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
-    let dot = dot(a, b).clamp(-1., 1.);
-    if 1. + dot <= 0.000001 {
-        let orthogonal = [-b[1], b[0], -b[3], b[2]];
-        let angle = std::f32::consts::FRAC_PI_2 * t;
-        return std::array::from_fn(|i| a[i] * angle.cos() + orthogonal[i] * angle.sin());
-    }
-    if 1. - dot <= 0.000001 {
-        return lerp(a, b, t);
-    }
-    let angle = dot.acos();
-    std::array::from_fn(|i| {
-        (a[i] * ((1. - t) * angle).sin() + b[i] * (t * angle).sin()) / angle.sin()
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn curves_preserve_bezier_offsets_and_authored_quaternion_arcs() {
-        let curve = VectorCurve {
-            interpolation: VectorInterpolation::Bezier,
-            values: vec![[0.; 3], [8., 0., 0.]],
-            incoming: vec![[0.; 3]; 2],
-            outgoing: vec![[0., 4., 0.], [0.; 3]],
-            ease: vec![],
-        };
-        assert_eq!(curve.sample(0, 1, 0.5).unwrap(), [4., 1.5, 0.]);
-        assert_eq!(curve.sample(0, 1, 0.).unwrap(), curve.values[0]);
-        assert_eq!(curve.sample(0, 1, 1.).unwrap(), curve.values[1]);
-        let mid = spherical([0., 0., 0., 1.], [0., 0., 0.8660254, -0.5], 0.5);
-        assert!(mid[2] > 0.86 && mid[3] > 0.49);
-    }
-
-    #[test]
-    fn fractional_pose_blends_before_composing_scaled_parents() {
-        let skeleton = Skeleton {
-            bones: vec![
-                Bone {
-                    name: "root".into(),
-                    parent: None,
-                    bind_channels: TransformChannels(1),
-                    bind: Transform {
-                        scale: [2.; 3],
-                        ..Transform::default()
-                    },
-                },
-                Bone {
-                    // Source weapon rigs can repeat a label on distinct nodes.
-                    name: "root".into(),
-                    parent: Some(0),
-                    bind_channels: TransformChannels(8),
-                    bind: Transform {
-                        translation: [3., 0., 0.],
-                        ..Transform::default()
-                    },
-                },
-            ],
-        };
-        let mut motion = Motion {
-            duration_frames: 2.,
-            tracks: vec![Track {
-                bone: 0,
-                bind_channels: TransformChannels(0),
-                period_frames: 2.,
-                times: vec![0., 2.],
-                translation: Some(VectorCurve {
-                    interpolation: VectorInterpolation::Linear,
-                    values: vec![[0.; 3], [8., 0., 0.]],
-                    incoming: vec![],
-                    outgoing: vec![],
-                    ease: vec![],
-                }),
-                scale: None,
-                rotation: None,
-                euler_degrees: None,
-                matrices: None,
-            }],
-        };
-        skeleton.validate().unwrap();
-        motion.validate(&skeleton).unwrap();
-        let pose = skeleton.sample(&motion, 0.25).unwrap();
-        assert_eq!(pose.point(1, [1., 0., 0.]).unwrap(), [9., 0., 0.]);
-        let blend = skeleton
-            .blend(&skeleton.bind_pose().unwrap(), &pose, 0.5)
-            .unwrap();
-        assert_eq!(blend.point(1, [1., 0., 0.]).unwrap(), [8.5, 0., 0.]);
-        // Some battle clips return to their first pose at a duplicate endpoint.
-        let track = &mut motion.tracks[0];
-        track.times.push(2.);
-        track.translation.as_mut().unwrap().values.push([0.; 3]);
-        motion.validate(&skeleton).unwrap();
-        assert_eq!(
-            motion.tracks[0]
-                .sample(1.75, Transform::default())
-                .unwrap()
-                .translation[0],
-            7.
-        );
-        assert_eq!(
-            motion.tracks[0]
-                .sample(2., Transform::default())
-                .unwrap()
-                .translation[0],
-            0.
-        );
-        motion.tracks[0].times[2] = 1.5;
-        assert!(motion.validate(&skeleton).is_err());
-    }
-    #[test]
-    fn authored_time_euler_and_affine_channels_remain_distinct() {
-        assert_eq!(
-            eased_time(&[[0., 0.25], [0.25, 0.]], 0, 1, 0.125).unwrap(),
-            -0.09375
-        );
-        assert_eq!(eased_time(&[[0., 0.], [0., 0.]], 0, 1, 0.37).unwrap(), 0.37);
-        let curve = VectorCurve {
-            interpolation: VectorInterpolation::ShortestAngleLinear,
-            values: vec![[0., 0., 350.], [0., 0., 10.]],
-            incoming: vec![],
-            outgoing: vec![],
-            ease: vec![],
-        };
-        assert_eq!(curve.sample(0, 1, 0.5).unwrap(), [0.; 3]);
-        let rotated = Transform {
-            rotation: euler_rotation([0., 0., 90.]),
-            ..Transform::default()
-        }
-        .matrix();
-        let point = transform_point(rotated, [1., 0., 0.]);
-        assert!(point[0].abs() < 0.00001 && (point[1] - 1.).abs() < 0.00001);
-        // Close-angle crossfades must not shrink the skeleton.
-        let from = Transform {
-            rotation: euler_rotation([0., 0., 170.]),
-            ..Transform::default()
-        };
-        let to = Transform {
-            rotation: euler_rotation([0., 0., 174.]),
-            ..Transform::default()
-        };
-        for basis in &from.blend(to, 0.5).matrix()[..3] {
-            let length_squared: f32 = basis[..3].iter().map(|v| v * v).sum();
-            assert!((length_squared - 1.).abs() < 0.00001);
-        }
-        let track = Track {
-            bone: 0,
-            bind_channels: TransformChannels(0),
-            period_frames: 2.,
-            times: vec![0.],
-            translation: None,
-            scale: None,
-            rotation: None,
-            euler_degrees: None,
-            matrices: Some(vec![[1., 0.5, 0., 3., 0., 1., 0., 4., 0., 0., 1., 5.]]),
-        };
-        let matrix = track.sample_matrix(0.5, Transform::default()).unwrap();
-        assert_eq!(transform_point(matrix, [0., 2., 0.]), [4., 6., 5.]);
-        assert!(
-            track.sample(0.5, Transform::default()).is_err(),
-            "shear must not be approximated as TRS"
-        );
-    }
 }

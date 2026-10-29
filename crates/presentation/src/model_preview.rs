@@ -33,7 +33,7 @@ use std::{
     time::Instant,
 };
 use symphonia_script_tools::PreparationCache;
-type Pending = crate::loading::Task<source::Bytes>;
+type Pending = crate::loading::Task<source::Prepared>;
 const LAYER: usize = 29;
 
 pub(super) fn install(app: &mut App) {
@@ -110,6 +110,7 @@ struct Part {
     root: Option<Entity>,
     materials: Vec<Handle<Surface>>,
     clips: Vec<Handle<crate::sparse_animation::Clip>>,
+    motions: Vec<std::sync::Arc<resonance_content::animation::Motion>>,
     clip: Option<usize>,
     binding: crate::sparse_animation::Binding,
     bones: BTreeMap<String, Entity>,
@@ -295,32 +296,8 @@ fn prepare(
             viewer.status = PreviewStatus::Loading;
             menu.busy = true;
             record.preview.validate()?;
-            let behavior = record
-                .preview
-                .behavior
-                .as_ref()
-                .map(|binding| {
-                    let sources = context
-                        .resident
-                        .as_ref()
-                        .context("missing scene inventory")?
-                        .files
-                        .read()
-                        .unwrap()
-                        .as_ref()
-                        .context("missing scene script sources")?
-                        .script_sources()?;
-                    PreparedBehavior::prepare(
-                        &mut viewer.behaviors,
-                        &sources,
-                        binding,
-                        &record.preview,
-                    )
-                })
-                .transpose()?;
-            viewer.overrides = evaluate_behavior(behavior.as_ref(), menu)?;
-            viewer.behavior = behavior;
-            viewer.behavior_tick = Some(menu.tick);
+            viewer.behavior = None;
+            viewer.behavior_tick = None;
             for part in &viewer.parts {
                 if part.spec.attached_to.is_none()
                     && let Some(root) = part.root
@@ -329,7 +306,19 @@ fn prepare(
                 }
             }
             viewer.retired = std::mem::take(&mut viewer.parts);
-            viewer.job = Some(source.prepare(&record.preview)?);
+            let library = context
+                .resident
+                .as_ref()
+                .context("missing scene content")?
+                .files
+                .read()
+                .unwrap()
+                .as_ref()
+                .context("missing scene content")?
+                .library()
+                .context("preview requires a named library")?
+                .clone();
+            viewer.job = Some(source.prepare(&record.preview, library)?);
             viewer.started = Instant::now();
             *shared.0.lock().unwrap() = Default::default();
             assets
@@ -338,11 +327,32 @@ fn prepare(
                 .unwrap()
                 .opacity = 0.;
         }
-        let record = viewer.record.clone().unwrap();
         if let Some(job) = &viewer.job
             && let Some(result) = job.poll()?
         {
-            *source.bytes.write().unwrap() = result?;
+            let prepared = result?;
+            let record = Record {
+                id: viewer.record.as_ref().unwrap().id,
+                preview: prepared.model,
+            };
+            let behavior = record
+                .preview
+                .behavior
+                .as_ref()
+                .map(|binding| {
+                    PreparedBehavior::prepare(
+                        &mut viewer.behaviors,
+                        &prepared.sources,
+                        binding,
+                        &record.preview,
+                    )
+                })
+                .transpose()?;
+            viewer.overrides = evaluate_behavior(behavior.as_ref(), menu)?;
+            viewer.behavior = behavior;
+            viewer.behavior_tick = Some(menu.tick);
+            viewer.record = Some(record.clone());
+            *source.files.write().unwrap() = Some(prepared.files);
             viewer.job = None;
             viewer.parts = record
                 .preview
@@ -373,7 +383,10 @@ fn prepare(
                                 s.is_srgb = false;
                                 s.sampler = ImageSampler::linear();
                             })
-                            .load(resonance_content::texture::TOON_RAMP_PATH)
+                            .load(format!(
+                                "preview://{}",
+                                resonance_content::model_preview::document::TOON_RAMP
+                            ))
                     }),
                     spec: spec.clone(),
                     root: None,
@@ -382,15 +395,21 @@ fn prepare(
                         .scene
                         .clips
                         .iter()
-                        .map(|clip| server.load(format!("preview://{}", clip.motion)))
+                        .map(|clip| {
+                            server
+                                .load_builder()
+                                .load(format!("preview://{}", clip.motion))
+                        })
                         .collect(),
                     clip: None,
+                    motions: Vec::new(),
                     binding: Default::default(),
                     bones: BTreeMap::new(),
                     ready: false,
                 })
                 .collect();
         }
+        let record = viewer.record.clone().unwrap();
         let mut sampled = std::mem::take(&mut viewer.sampled);
         for part in &mut viewer.parts {
             for id in std::iter::once(part.gltf.id().untyped())
@@ -524,14 +543,18 @@ impl Part {
             gltf.meshes.len() == scene.materials.len(),
             "preview material count differs from its recipe"
         );
-        for handle in &self.clips {
-            assets
-                .clips
-                .get(handle)
-                .unwrap()
-                .0
-                .validate_bones(scene.bone_names.len())?;
-        }
+        self.motions = self
+            .clips
+            .iter()
+            .zip(&scene.clips)
+            .map(|(handle, spec)| {
+                assets
+                    .clips
+                    .get(handle)
+                    .unwrap()
+                    .bind(&scene.bone_names, spec)
+            })
+            .collect::<Result<_>>()?;
         for (index, spec) in scene.materials.iter().enumerate() {
             let binding = |binding: &resonance_content::TextureBinding| {
                 (self.textures[binding.texture].clone(), binding.clone())
@@ -672,7 +695,6 @@ fn animate(
     mut commands: Commands,
     mut state: State,
     mut viewer: ResMut<Viewer>,
-    clips: Res<Assets<crate::sparse_animation::Clip>>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<crate::sparse_animation::affine::Locals>,
     mut surfaces: ResMut<Assets<Surface>>,
@@ -693,7 +715,10 @@ fn animate(
             viewer.overrides = evaluate_behavior(viewer.behavior.as_ref(), menu)?;
             viewer.behavior_tick = Some(menu.tick);
         }
-        let translation = preview_translation(&viewer.overrides, preview.model.elevation);
+        let translation = preview_translation(
+            &viewer.overrides,
+            viewer.record.as_ref().unwrap().preview.elevation,
+        );
         // Each ready part must be sampled before dynamics initialize, even while
         // another part is still loading.
         for part in viewer.parts.iter().filter(|part| part.ready) {
@@ -713,10 +738,7 @@ fn animate(
             if let Some(index) = part.clip {
                 let duration = part.spec.scene.clips[index].duration_ticks();
                 let tick = preview.sample(duration);
-                let clip = &clips
-                    .get(&part.clips[index])
-                    .context("prepared preview clip is missing")?
-                    .0;
+                let clip = &part.motions[index];
                 part.binding.sample(
                     clip,
                     tick as f32 / resonance_content::ANIMATION_HZ,
@@ -939,6 +961,7 @@ mod tests {
             world.resource_mut::<Viewer>().record = Some(Record {
                 id: PreviewId::Monster(1),
                 preview: Arc::new(ModelPreview {
+                    document: None,
                     scale: 1.,
                     elevation: 0.,
                     parts: Vec::new(),

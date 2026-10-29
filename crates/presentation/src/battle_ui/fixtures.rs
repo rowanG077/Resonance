@@ -18,10 +18,17 @@ pub(super) fn dialogue_font() -> Result<BitmapFont> {
     Ok(font)
 }
 
+pub(super) fn battle_art() -> Result<Art> {
+    let mut snapshot = resonance_content::library::Library::open(&asset_root(), &[])?.snapshot();
+    resonance_content::battle_ui::document::capture(
+        &mut snapshot,
+        &resonance_content::diagnostics::Diagnostics::new(true),
+        &|| false,
+    )
+}
+
 pub(super) fn battle_font() -> Result<BitmapFont> {
-    let art: Art = serde_json::from_slice(&std::fs::read(
-        asset_root().join(resonance_content::battle_ui::PATH),
-    )?)?;
+    let art = battle_art()?;
     art.font.validate()?;
     Ok(art.font)
 }

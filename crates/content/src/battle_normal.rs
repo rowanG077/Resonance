@@ -5,34 +5,47 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Attack {
-    pub continuation: Continuation,
+pub mod document;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    deny_unknown_fields,
+    bound(
+        serialize = "E: Serialize, C: Serialize + Default + PartialEq",
+        deserialize = "E: Deserialize<'de>, C: Deserialize<'de> + Default"
+    )
+)]
+pub struct Attack<E = Event, C = Continuation> {
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+    pub continuation: C,
     pub duration: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain_at: Option<u16>,
     pub recovery: u16,
     pub reach: [u16; 2],
-    pub events: Vec<(u16, Event)>,
+    pub events: Vec<(u16, E)>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Event {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", bound(deserialize = "H: Deserialize<'de>"))]
+pub enum Event<H = ActionHit> {
     Effect(u16),
     Pose(ActionPose),
     AnimationRate(f32),
-    Contact(MeleeContact),
+    Contact(MeleeContact<H>),
     /// Release a shared projectile. A missing hit retains the technique's recipe.
     Projectile {
         member: u8,
-        hit: Option<ActionHit>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hit: Option<H>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         feedback: Option<crate::battle_martial::ProjectileFeedback>,
     },
     Throw {
         slot: WeaponSlot,
         flight: WeaponFlight,
         radius: f32,
-        hit: ActionHit,
+        hit: H,
     },
     Forward(f32),
     Vertical(f32),
@@ -60,6 +73,17 @@ pub enum Event {
     },
     Sound(u16),
     Voice(Option<Sound>),
+}
+
+impl<H> Event<H> {
+    pub(crate) fn hit(&self) -> Option<&H> {
+        match self {
+            Self::Contact(contact) => Some(&contact.hit),
+            Self::Projectile { hit, .. } => hit.as_ref(),
+            Self::Throw { hit, .. } => Some(hit),
+            _ => None,
+        }
+    }
 }
 
 /// Directional successors and the selection used for any other input.

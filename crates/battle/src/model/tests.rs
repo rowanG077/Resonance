@@ -4,9 +4,7 @@ use crate::{
     PreparedBattle, ResourceId, Side,
     tests::{models, prepare_actors},
 };
-use resonance_content::animation::{
-    Bone, Track, Transform, TransformChannels, VectorCurve, VectorInterpolation,
-};
+use resonance_content::animation::{Bone, Channel, Interpolation, Track, Transform};
 
 fn definition() -> Arc<ModelDefinition> {
     let mut definition = crate::tests::model_definition(7, [(0, 10.), (1, 10.)]);
@@ -14,7 +12,8 @@ fn definition() -> Arc<ModelDefinition> {
     definition.skeleton.bones.push(Bone {
         name: "hand".into(),
         parent: Some(0),
-        bind_channels: TransformChannels(8),
+        parent_transform: None,
+        shadow_bounds: true,
         bind: Transform {
             translation: [2., 0., 3.],
             ..Default::default()
@@ -24,20 +23,19 @@ fn definition() -> Arc<ModelDefinition> {
         duration_frames: 10.,
         tracks: vec![Track {
             bone: 1,
-            bind_channels: TransformChannels(8),
-            period_frames: 10.,
-            times: vec![0., 10.],
-            translation: Some(VectorCurve {
-                interpolation: VectorInterpolation::Linear,
-                values: vec![[2., 0., 3.], [12., 0., 3.]],
-                incoming: vec![],
-                outgoing: vec![],
-                ease: vec![],
-            }),
-            scale: None,
-            rotation: None,
-            euler_degrees: None,
-            matrices: None,
+            nodes: vec![resonance_content::animation::NodeTrack {
+                bind: resonance_content::animation::Transform::default(),
+                translation: Some(Channel {
+                    times: (vec![0., 10.])
+                        .into_iter()
+                        .map(|frame| frame / 30.)
+                        .collect(),
+                    interpolation: Interpolation::Linear,
+                    values: vec![[2., 0., 3.], [12., 0., 3.]],
+                }),
+                rotation: None,
+                scale: None,
+            }],
         }],
     };
     definition.motions = BTreeMap::from([(0, motion.clone()), (1, motion)]);
@@ -50,7 +48,7 @@ fn partial_pose_keeps_advancing_during_body_blend_and_blends_out_from_visible_po
     let motion = definition.motions.get_mut(&1).unwrap();
     let mut root = motion.tracks[0].clone();
     root.bone = 0;
-    root.translation.as_mut().unwrap().values = vec![[0.; 3], [20., 0., 0.]];
+    root.nodes[0].translation.as_mut().unwrap().values = vec![[0.; 3], [20., 0., 0.]];
     motion.tracks.push(root);
     let actor = actor();
     let mut model = Model::new(Arc::new(definition), ActorId(0), &actor)?;
@@ -92,7 +90,7 @@ fn partial_pose_keeps_advancing_during_body_blend_and_blends_out_from_visible_po
     model.step(&actor, true)?;
     assert_eq!(model.animation.clock.frame, 6.);
     assert_eq!(model.parts[0].animation.clock.frame, 3.);
-    assert_eq!(model.composed_local()[0].translation()[0], 2.4);
+    crate::tests::assert_close(model.composed_local()[0].translation()[0], 2.4, 0.000001);
     assert_eq!(model.composed_local()[1].translation()[0], 5.);
     let visible = model.shown.clone();
     model.step(&actor, false)?;
@@ -325,7 +323,8 @@ fn secondary_motion_keeps_history_and_leaves_terminal_guides_at_the_sampled_pose
     definition.skeleton.bones.push(Bone {
         name: "guide".into(),
         parent: Some(1),
-        bind_channels: TransformChannels(8),
+        parent_transform: None,
+        shadow_bounds: true,
         bind: Transform {
             translation: [8., 0., 0.],
             ..Default::default()
@@ -470,17 +469,177 @@ fn affine_root_policy_preserves_translation_observation_and_shear() -> Result<()
     let motion = definition.motions.get_mut(&0).unwrap();
     let track = &mut motion.tracks[0];
     track.bone = 0;
-    track.translation = None;
-    track.matrices = Some(vec![
-        [1., 0.25, 0., 10., 0., 1., 0., 20., 0., 0., 1., 30.];
-        track.times.len()
-    ]);
+    *track = serde_json::from_value(serde_json::json!({
+        "bone": 0,
+        "nodes": [
+            {
+                "bind": {
+                    "translation": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rotation": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "scale": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ]
+                },
+                "translation": {
+                    "interpolation": "Step",
+                    "times": [
+                        0.0,
+                        0.3333333333333333
+                    ],
+                    "values": [
+                        [
+                            10.0,
+                            20.0,
+                            30.0
+                        ],
+                        [
+                            10.0,
+                            20.0,
+                            30.0
+                        ]
+                    ]
+                },
+                "rotation": {
+                    "interpolation": "Step",
+                    "times": [
+                        0.0,
+                        0.3333333333333333
+                    ],
+                    "values": [
+                        [
+                            0.6613770059156627,
+                            0.25016086033996915,
+                            0.25016086033996915,
+                            0.6613770059156626
+                        ],
+                        [
+                            0.6613770059156627,
+                            0.25016086033996915,
+                            0.25016086033996915,
+                            0.6613770059156626
+                        ]
+                    ]
+                },
+                "scale": {
+                    "interpolation": "Step",
+                    "times": [
+                        0.0,
+                        0.3333333333333333
+                    ],
+                    "values": [
+                        [
+                            1.1327822185373186,
+                            1.0,
+                            0.8827822185373188
+                        ],
+                        [
+                            1.1327822185373186,
+                            1.0,
+                            0.8827822185373188
+                        ]
+                    ]
+                }
+            },
+            {
+                "bind": {
+                    "translation": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rotation": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "scale": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ]
+                },
+                "translation": {
+                    "interpolation": "Step",
+                    "times": [
+                        0.0,
+                        0.3333333333333333
+                    ],
+                    "values": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ]
+                },
+                "rotation": {
+                    "interpolation": "Step",
+                    "times": [
+                        0.0,
+                        0.3333333333333333
+                    ],
+                    "values": [
+                        [
+                            -0.6445546065376735,
+                            -0.2907737250699674,
+                            -0.2907737250699674,
+                            0.6445546065376734
+                        ],
+                        [
+                            -0.6445546065376735,
+                            -0.2907737250699674,
+                            -0.2907737250699674,
+                            0.6445546065376734
+                        ]
+                    ]
+                },
+                "scale": {
+                    "interpolation": "Step",
+                    "times": [
+                        0.0,
+                        0.3333333333333333
+                    ],
+                    "values": [
+                        [
+                            1.0,
+                            1.0,
+                            1.0
+                        ],
+                        [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    ]
+                }
+            }
+        ]
+    }))?;
     definition.suppress_root_translation = [false, true, false];
     let subject = actor();
     let model = Model::new(Arc::new(definition), ActorId(0), &subject)?;
     assert_eq!(model.shown.root_translation, [10., 20., 30.]);
     assert_eq!(model.shown.bones[0][3], [10., 0., 30., 1.]);
-    assert_eq!(model.shown.bones[0][1], [0.25, 1., 0., 0.]);
+    for (actual, expected) in model.shown.bones[0][1].into_iter().zip([0.25, 1., 0., 0.]) {
+        crate::tests::assert_close(actual, expected, 0.000001);
+    }
     Ok(())
 }
 
@@ -488,7 +647,7 @@ fn affine_root_policy_preserves_translation_observation_and_shear() -> Result<()
 fn hurt_restarts_the_selected_clip_and_preserves_the_contact_frames_drawing_pose() {
     let mut definition = Arc::try_unwrap(definition()).unwrap();
     definition.reactions.hurt = [Some(1), Some(0)];
-    definition.motions.get_mut(&1).unwrap().tracks[0]
+    definition.motions.get_mut(&1).unwrap().tracks[0].nodes[0]
         .translation
         .as_mut()
         .unwrap()
@@ -539,7 +698,7 @@ fn absent_reaction_slots_preserve_playback_and_declared_missing_clips_fail() {
     let mut definition = Arc::try_unwrap(definition()).unwrap();
     definition.initial.rate = 0.5;
     definition.reactions.hurt = [None, Some(1)];
-    definition.motions.get_mut(&1).unwrap().tracks[0]
+    definition.motions.get_mut(&1).unwrap().tracks[0].nodes[0]
         .translation
         .as_mut()
         .unwrap()
@@ -946,19 +1105,17 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
 #[test]
 fn sparse_clips_retain_omitted_channels_until_replaced() {
     let mut definition = (*definition()).clone();
-    definition.motions.get_mut(&0).unwrap().tracks[0]
+    definition.motions.get_mut(&0).unwrap().tracks[0].nodes[0]
         .translation
         .as_mut()
         .unwrap()
         .values = vec![[12., 0., 3.]; 2];
     let mut sparse = definition.motions[&1].clone();
-    sparse.tracks[0].translation = None;
-    sparse.tracks[0].rotation = Some(resonance_content::animation::QuaternionCurve {
-        interpolation: resonance_content::animation::QuaternionInterpolation::ShortestSlerp,
+    sparse.tracks[0].nodes[0].translation = None;
+    sparse.tracks[0].nodes[0].rotation = Some(resonance_content::animation::Channel {
+        interpolation: resonance_content::animation::Interpolation::Linear,
+        times: vec![0., 10. / 30.],
         values: vec![[0., 0., 0., 1.], [0., 0., 1., 0.]],
-        incoming: vec![],
-        outgoing: vec![],
-        ease: vec![],
     });
     definition.motions.insert(2, sparse);
     definition.motions.insert(
@@ -1486,11 +1643,18 @@ fn blink_overlay_preserves_expressions_and_pauses_with_the_model() -> Result<()>
 
     let baseline = [7, 3, 9, 11];
     let mut body = (*definition()).clone();
-    body.blink = Some(Blink {
-        channel: 1,
-        frames: [4, 5],
-        excluded_expressions: vec![8],
-    });
+    body.blinks = vec![
+        Blink {
+            channel: 1,
+            frames: [4, 5],
+            excluded_expressions: vec![8],
+        },
+        Blink {
+            channel: 3,
+            frames: [12, 13],
+            excluded_expressions: vec![11],
+        },
+    ];
     let mut actor = actor();
     let mut model = Model::new(Arc::new(body), ActorId(0), &actor)?;
     model.shown.texture_layers = baseline;
@@ -1502,6 +1666,9 @@ fn blink_overlay_preserves_expressions_and_pauses_with_the_model() -> Result<()>
         }
     }
     assert_eq!(model.render_frame(&actor).texture_layers, [7, 4, 9, 11]);
+    model.shown.texture_layers[3] = 9;
+    assert_eq!(model.render_frame(&actor).texture_layers, [7, 4, 9, 12]);
+    model.shown.texture_layers[3] = 11;
     model.step(&actor, false)?;
     assert_eq!(model.render_frame(&actor).texture_layers, [7, 4, 9, 11]);
 
@@ -1528,11 +1695,11 @@ fn blink_overlay_preserves_expressions_and_pauses_with_the_model() -> Result<()>
 fn forced_eyes_survive_expressions_and_blinking() -> Result<()> {
     let mut body = (*definition()).clone();
     body.forced_eye_frame = Some(15);
-    body.blink = Some(resonance_content::battle_profile::Blink {
+    body.blinks = vec![resonance_content::battle_profile::Blink {
         channel: 0,
         frames: [1, 2],
         excluded_expressions: vec![],
-    });
+    }];
     let actor = actor();
     let mut model = Model::new(Arc::new(body), ActorId(0), &actor)?;
     for tick in 0..BLINK_PERIOD_TICKS {
@@ -1903,7 +2070,8 @@ fn reception_markers_follow_current_placement_for_both_sides() -> Result<()> {
     definition.skeleton.bones.push(Bone {
         name: "dm8_upper".into(),
         parent: Some(0),
-        bind_channels: TransformChannels(8),
+        parent_transform: None,
+        shadow_bounds: true,
         bind: Transform::default(),
     });
     definition.reception_spheres = Some(vec![

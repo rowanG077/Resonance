@@ -62,10 +62,12 @@ mod field_refraction;
 mod field_rumble;
 mod field_ui;
 use field_ui::{credits, session_screen};
+mod field_resources;
 mod field_view;
 mod game_over;
 mod glow;
 mod materials;
+mod texture;
 pub use materials::{
     TitleOutput, TitleSurface, TitleText, install_output_materials, install_surface_material,
 };
@@ -77,10 +79,9 @@ mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
-    CheckpointRecordingOptions, CheckpointReplay, IdentityRepair, SaveOptions,
-    check_checkpoint_identity, prepare_checkpoint_fixture, prepare_overworld_test_fixture,
-    record_battle, record_checkpoint, record_checkpoint_window, record_new_game,
-    repair_checkpoint_identity, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
+    CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
+    prepare_overworld_test_fixture, record_battle, record_checkpoint, record_checkpoint_window,
+    record_new_game, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
     run_title_load_probe,
 };
 mod new_game_capture;
@@ -110,6 +111,8 @@ struct PendingAudio(Option<PlaybackAssets>);
 pub struct RunOptions {
     pub saves: SaveOptions,
     pub assets: PathBuf,
+    /// Enabled mod directories in ascending priority.
+    pub mods: Vec<PathBuf>,
     /// Optional editable source project containing explicit fields.json bindings.
     pub script_root: Option<PathBuf>,
     pub capture_at: Option<CaptureAt>,
@@ -161,6 +164,8 @@ struct Art {
 struct TitleQuad {
     index: usize,
     row: Option<usize>,
+    selected_index: Option<usize>,
+    top: f32,
 }
 #[derive(Resource, Default, Clone)]
 struct RenderReady(Arc<AtomicBool>);
@@ -259,25 +264,19 @@ fn build_app_with_display(
         || matches!(options.capture_at, Some(CaptureAt::TitleTick(_)));
     let assets = fs::canonicalize(&options.assets)
         .context("missing cooked assets; run resonance-import cook-all first")?;
-    let title_path = assets.join("title.json");
-    let manifest: TitleAssets = serde_json::from_slice(
-        &fs::read(&title_path).with_context(|| format!("missing cooked title at {}; rerun resonance-import cook-all", title_path.display()))?,
-    )
-    .with_context(|| {
-        format!(
-            "incompatible cooked title assets at {}; rerun resonance-import cook-all for this asset directory",
-            title_path.display()
-        )
-    })?;
-    manifest.validate()?;
-    for texture in &manifest.textures {
-        anyhow::ensure!(
-            assets.join(&texture.path).is_file(),
-            "missing cooked texture {}",
-            texture.path
-        );
-    }
-    let (scene, events) = title_field::load(&assets)?;
+    let library = resonance_content::library::Library::open_paths(&assets, &options.mods)?;
+    let title_field::Prepared {
+        scene,
+        events,
+        art: manifest,
+        audio,
+        boot,
+        files,
+    } = title_field::prepare(
+        &library,
+        !options.skip_intro && !matches!(options.capture_at, Some(CaptureAt::MovieFrame(_))),
+        diagnostics.clone(),
+    )?;
     let replay = options
         .replay
         .as_ref()
@@ -293,15 +292,15 @@ fn build_app_with_display(
         revealed: options.reveal,
         ..Default::default()
     };
-    let music =
-        Some(PlaybackAssets::load(&assets, diagnostics.clone())?).filter(|audio| !audio.is_empty());
-    let movie = movie::Playback::load(&assets, &options)?;
-    let boot = boot::Playback::load(&assets, &options)?;
+    let music = Some(audio).filter(|audio| !audio.is_empty());
+    let movie = movie::Playback::load(&library, &options)?;
+    let boot = boot::Playback::from_assets(boot)?;
     let initial_clock = PresentationClock::new(options.presentation_start.unwrap_or(0));
     let mut app = App::new();
     app.insert_resource(session_screen::Title {
         events: Some(events.fresh()?),
         audio: music.clone(),
+        files: Some(files.clone()),
     });
     app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(TitleActive);
@@ -311,6 +310,11 @@ fn build_app_with_display(
         !options.headless() && options.replay.is_none(),
     )?;
     loading::install(&mut app, &assets);
+    *app.world()
+        .resource::<loading::Resident>()
+        .files
+        .write()
+        .unwrap() = Some(files);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
@@ -626,13 +630,13 @@ fn setup(
     );
     art.images = art
         .manifest
-        .textures
         .iter()
-        .map(|t| {
+        .flat_map(resonance_content::startup::Artwork::images)
+        .map(|path| {
             server
                 .load_builder()
                 .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
-                .load(t.path.clone())
+                .load(path.to_owned())
         })
         .collect();
     commands.spawn((
@@ -654,28 +658,24 @@ fn setup(
     ));
     field.load(&scene.assets, &events.0, &server, &mut commands);
     let quad = meshes.add(Rectangle::new(1., 1.));
-    for (index, row, top) in [
-        (2, None, 24.),
-        (3, None, 417.),
-        (16, None, 384.),
-        (5, Some(0), 295.),
-        (7, Some(1), 324.),
-        (9, Some(2), 353.),
-    ] {
-        let texture = &art.manifest.textures[index];
+    let mut index = 0;
+    for artwork in &art.manifest {
+        let selected_index = artwork.selected_image.as_ref().map(|_| index + 1);
         commands.spawn((
             Mesh2d(quad.clone()),
             MeshMaterial2d(text.add(TitleText {
                 source: art.images[index].clone(),
                 opacity_pulse: Vec4::ZERO,
             })),
-            Transform::from_xyz(
-                0.,
-                HEIGHT as f32 / 2. - top - texture.height as f32 / 2.,
-                1.,
-            ),
-            TitleQuad { index, row },
+            Transform::from_xyz(0., 0., 1.),
+            TitleQuad {
+                index,
+                row: artwork.choice.map(|choice| choice.row()),
+                selected_index,
+                top: artwork.top,
+            },
         ));
+        index += 1 + usize::from(selected_index.is_some());
     }
 }
 
@@ -734,12 +734,12 @@ fn field_camera(
     };
     let track = &scene.assets.camera_tracks[&camera.resource];
     // The title camera samples two updates behind the title counter.
-    let Some((position, target)) = camera.sample(events.0.tick().saturating_sub(2), track) else {
+    let Ok(key) = camera.sample(events.0.tick().saturating_sub(2), track) else {
         return;
     };
     for mut camera in &mut cameras {
-        *camera = Transform::from_translation(Vec3::from_array(position))
-            .looking_at(Vec3::from_array(target), Vec3::Z);
+        *camera = Transform::from_translation(Vec3::from_array(key.position))
+            .with_rotation(Quat::from_array(key.orientation));
     }
 }
 
@@ -851,10 +851,15 @@ fn advance(
             commands.queue(move |world: &mut World| {
                 let menu = match action {
                     resonance_game::TitleAction::Load => Ok(saves::title::TitleMenu::load()),
-                    _ => saves::title::TitleMenu::customize(
-                        &world.resource::<config::Preferences>().settings,
-                        &world.resource::<RunOptions>().assets,
-                    ),
+                    _ => world
+                        .resource::<loading::Resident>()
+                        .library(&world.resource::<RunOptions>().assets)
+                        .and_then(|library| {
+                            saves::title::TitleMenu::customize(
+                                &world.resource::<config::Preferences>().settings,
+                                &library,
+                            )
+                        }),
                 };
                 match menu {
                     Ok(menu) => {
@@ -884,9 +889,9 @@ fn advance(
 #[allow(clippy::too_many_arguments)] // Scene layout and output material resources.
 fn layout(
     menu: Res<Menu>,
-    clock: Res<Clock>,
     events: Option<Res<Events>>,
     art: Res<Art>,
+    images: Res<Assets<Image>>,
     mut quads: Query<(&TitleQuad, &MeshMaterial2d<TitleText>, &mut Transform)>,
     mut materials: ResMut<Assets<TitleText>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
@@ -917,13 +922,17 @@ fn layout(
             continue;
         };
         let selected = quad.row == Some(state.selected);
-        let source = &art.images[quad.index - usize::from(selected)];
+        let index = if selected {
+            quad.selected_index.unwrap_or(quad.index)
+        } else {
+            quad.index
+        };
+        let source = &art.images[index];
+        let Some(image) = images.get(source) else {
+            continue;
+        };
         let opacity_pulse = Vec4::new(
-            if quad.index == 16 && !state.disc_label_visible(clock.0) {
-                0.
-            } else {
-                state.opacity as f32 / 255.
-            },
+            state.opacity as f32 / 255.,
             if selected {
                 state.pulse_alpha() as f32 / 255.
             } else {
@@ -936,13 +945,10 @@ fn layout(
             material.source = source.clone();
             material.opacity_pulse = opacity_pulse;
         }
-        let texture = &art.manifest.textures[quad.index];
+        let size = image.size_f32();
+        transform.translation.y = HEIGHT as f32 / 2. - quad.top - size.y / 2.;
         let expand = quad.row.map_or(0., |r| state.expansion[r].trunc());
-        transform.scale = Vec3::new(
-            texture.width as f32 + expand * 2.,
-            texture.height as f32 + expand * 2.,
-            1.,
-        );
+        transform.scale = Vec3::new(size.x + expand * 2., size.y + expand * 2., 1.);
     }
 }
 
@@ -973,3 +979,6 @@ mod input_tests {
         assert!(!pending.down_repeat.step(false, consumed, 101));
     }
 }
+
+#[cfg(test)]
+mod title_art_tests;

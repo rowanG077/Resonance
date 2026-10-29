@@ -22,7 +22,7 @@ fn main() -> Result<()> {
             .transpose()
     };
     // This diagnostic accepts a raw checkpoint or a persistence envelope. The
-    // player owns save identity validation; the trace exercises field entry.
+    // trace exercises field entry.
     let checkpoint: Option<FieldCheckpoint> = argument("--load")?
         .map(|path| -> Result<_> {
             let json: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
@@ -31,14 +31,19 @@ fn main() -> Result<()> {
             )?)
         })
         .transpose()?;
-    let assets: resonance_content::field::FieldAssets =
-        serde_json::from_slice(&fs::read(root.join(
-            resonance_content::field::metadata_path(checkpoint.as_ref().map_or(340, |c| c.map_id)),
-        ))?)?;
-    let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
-    let data: std::sync::Arc<resonance_content::session::SessionData> = std::sync::Arc::new(
-        serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?,
-    );
+    let library = resonance_content::library::Library::open(root, &[])?;
+    let mut snapshot = library.snapshot();
+    let (_, assets) = resonance_content::field::document::capture_scene(
+        &mut snapshot,
+        checkpoint.as_ref().map_or(340, |c| c.map_id),
+        || false,
+    )?;
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files =
+        resonance_content::prepared::Files::capture_snapshot(&snapshot, || false, diagnostics)?;
+    let messages = files.json_or_default(assets.messages.as_deref())?;
+    let data = std::sync::Arc::new(resonance_content::session::SessionData::load(&files)?);
     let entry = if let Some(checkpoint) = checkpoint {
         checkpoint.entry(&assets, data.clone(), [330, 332, 340].into())?
     } else {
@@ -240,12 +245,19 @@ fn main() -> Result<()> {
                 follow,
                 "transition requested; use --follow to enter the next field"
             );
-            let assets: resonance_content::field::FieldAssets = serde_json::from_slice(&fs::read(
-                root.join(resonance_content::field::metadata_path(transition.map)),
-            )?)?;
+            let (_, assets) = resonance_content::field::document::capture_scene(
+                &mut snapshot,
+                transition.map,
+                || false,
+            )?;
+            let next_files = resonance_content::prepared::Files::capture_snapshot(
+                &snapshot,
+                || false,
+                files.diagnostics().clone(),
+            )?;
             let next = FieldSession::enter(
-                &fs::read(root.join(&assets.script))?,
-                serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?,
+                &next_files.read(&assets.script)?,
+                next_files.json_or_default(assets.messages.as_deref())?,
                 &assets,
                 FieldEntry {
                     play_time: session.play_time,

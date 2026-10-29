@@ -14,6 +14,8 @@ const STUN_TICKS: usize = 180;
 
 #[derive(Default)]
 pub(super) struct QualifiedReactions {
+    stun_member: Option<u64>,
+    landing_member: Option<u64>,
     poses: BTreeSet<(usize, u64)>,
     heights: BTreeSet<(usize, u64)>,
     declarations: [BTreeSet<(u64, u64, u64)>; 2],
@@ -43,11 +45,12 @@ impl QualifiedReactions {
             return true;
         };
         let stun = event["kind"] == "declaration_started"
-            && event["member"] == 19
+            && event["member"].as_u64() == self.stun_member
             && self.declarations[side].contains(&key);
         let landing = self.landings[side].contains(&key)
             && (event["kind"] == "program_started" && event["program"] == 17
-                || event["kind"] == "declaration_started" && event["member"] == 25);
+                || event["kind"] == "declaration_started"
+                    && event["member"].as_u64() == self.landing_member);
         !(stun || landing)
     }
 }
@@ -86,8 +89,7 @@ fn authored_rule(source: &Trace, native: &Trace) -> Result<Option<Rule>> {
         .next()
         .context("missing action row")?
         .parse()?;
-    let pin: super::random_inputs::Pin = serde_json::from_value(source.setup["catalogue"].clone())?;
-    let catalogue: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let catalogue = super::content_evidence::action_catalogue(source)?;
     let party_spell = source.case.starts_with("party:")
         && catalogue["definitions"][row]["capabilities"]["spell"] == true
         && source.setup["input"]["selection_arte"].as_u64() == Some(row as u64);
@@ -115,12 +117,8 @@ fn authored_rule(source: &Trace, native: &Trace) -> Result<Option<Rule>> {
         if !registered_owner(source, registration) {
             return Ok(None);
         }
-        let pin: super::random_inputs::Pin = serde_json::from_value(registration["scene"].clone())?;
-        let scene: Value = serde_json::from_slice(&pin.read_bytes()?)?;
-        ensure!(
-            scene["source_sha256"] == registration["package_sha256"],
-            "reaction scene package differs"
-        );
+        let (scene, _) = super::content_evidence::registered_scene(registration)?;
+        let scene = serde_json::to_value(scene)?;
         vertical = vertical_rule(source, native, &scene)?;
         if let Some(projectiles) = scene["projectiles"].as_array() {
             rules.extend(
@@ -231,7 +229,10 @@ fn recipient_rule(
         let pin: super::random_inputs::Pin = serde_json::from_value(value.clone())?;
         Ok(serde_json::from_slice(&pin.read_bytes()?)?)
     };
-    let formations = read(&proof["formations"])?;
+    let formations: resonance_content::battle_rules::Formations =
+        serde_json::from_value(read(&proof["formations"])?)?;
+    let formation_enemies = serde_json::from_value(read(&proof["formation_enemies"])?)?;
+    let formations = serde_json::to_value(formations.prepare(&formation_enemies)?)?;
     let formation = source.setup["formation"]
         .as_u64()
         .context("missing reaction formation")? as usize;
@@ -263,19 +264,22 @@ fn recipient_rule(
                 == binding["enemy"],
         "reaction recipient differs from observed formation"
     );
-    let definition = read(&binding["definition"])?;
-    let model = read(&binding["model"])?;
-    let monster = read(&binding["monster"])?;
+    let evidence = super::content_evidence::Evidence::parse(&binding["content"])?;
+    let enemy = binding["enemy"]
+        .as_u64()
+        .and_then(|id| u8::try_from(id).ok())
+        .context("invalid reaction enemy ID")?;
+    let (definition, preview) = evidence.enemy(enemy)?;
+    let package_digest = evidence.source_digest()?;
     ensure!(
-        monster["id"] == binding["enemy"]
-            && model["source_sha256"] == definition["source_sha256"]
-            && source.setup["detached_contacts"]["enemy_packages"]
-                .as_array()
-                .is_some_and(|packages| packages.iter().any(|package| {
-                    package["package"]["sha256"] == definition["source_sha256"]
-                })),
+        source.setup["detached_contacts"]["enemy_packages"]
+            .as_array()
+            .is_some_and(|packages| packages.iter().any(|package| {
+                package["enemy"] == enemy && package["package"]["sha256"] == package_digest
+            })),
         "reaction recipient package differs"
     );
+    let definition = serde_json::to_value(definition)?;
     let profile = &definition["profile"];
     if !["immunities", "intrinsic_conditions"]
         .iter()
@@ -292,18 +296,12 @@ fn recipient_rule(
     {
         return Ok(None);
     }
-    let Some(clips) = monster["preview"]["parts"][0]["scene"]["clips"].as_array() else {
-        return Ok(None);
-    };
+    let clips = &preview.parts[0].scene.clips;
     let has_clip = |id: u64| {
-        clips.iter().any(|clip| {
-            clip["resource_slot"] == id
-                && clip["motion"]
-                    .as_str()
-                    .is_some_and(|path| model["files"][path]["sha256"].as_str().is_some())
-        }) && definition["null_motions"]
-            .as_array()
-            .is_some_and(|nulls| !nulls.iter().any(|clip| clip == id))
+        clips.iter().any(|clip| u64::from(clip.resource_slot) == id)
+            && definition["null_motions"]
+                .as_array()
+                .is_some_and(|nulls| !nulls.iter().any(|clip| clip == id))
     };
     if !has_clip(STUN_CLIP) || !has_clip(3) {
         return Ok(None);
@@ -322,10 +320,10 @@ fn vertical_rule(source: &Trace, native: &Trace, scene: &Value) -> Result<Option
         native.setup.get("reaction_recoil") == Some(pin),
         "reaction recoil pin differs"
     );
-    let pin: super::random_inputs::Pin = serde_json::from_value(pin.clone())?;
-    let recoil: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let evidence = super::content_evidence::Evidence::parse(pin)?;
+    let recoil = evidence.recoil()?;
     ensure!(
-        recoil["source_sha256"] == source.setup["stored_scenes"]["module"]["sha256"],
+        source.setup["stored_scenes"]["module"]["sha256"] == evidence.source_digest()?,
         "reaction recoil module differs"
     );
     let hits = contacts(source);
@@ -460,6 +458,7 @@ struct Stun {
 }
 
 fn witnessed_stuns(trace: &Trace, target: u64, native: bool) -> Result<Vec<Stun>> {
+    let stun_member = super::content_evidence::template_member(trace, STUN_BANK, 19)?;
     let hits: Vec<_> = contacts(trace)
         .into_iter()
         .filter(|hit| hit["target"] == target)
@@ -476,7 +475,7 @@ fn witnessed_stuns(trace: &Trace, target: u64, native: bool) -> Result<Vec<Stun>
         {
             if particle["owner"] == target
                 && particle["bank"] == STUN_BANK
-                && particle["member"] == 19
+                && particle["member"] == stun_member
                 && particle["initialized"] == true
             {
                 let id = particle["id"]
@@ -556,7 +555,7 @@ fn witnessed_stuns(trace: &Trace, target: u64, native: bool) -> Result<Vec<Stun>
             declaration["kind"] == "declaration_started"
                 && declaration["owner"] == target
                 && declaration["bank"] == STUN_BANK
-                && declaration["member"] == 19
+                && declaration["member"] == stun_member
                 && at(trace, declaration) == Some(first)
         }))
         .context("stun effect lacks unique bound declaration")?;
@@ -612,6 +611,15 @@ fn qualify(source: &Trace, native: &Trace, rule: Rule) -> Result<QualifiedReacti
     {
         return Ok(result);
     }
+    let stun_member = super::content_evidence::template_member(source, STUN_BANK, 19)?;
+    let landing_member = super::content_evidence::template_member(source, STUN_BANK, 25)?;
+    ensure!(
+        super::content_evidence::template_member(native, STUN_BANK, 19)? == stun_member
+            && super::content_evidence::template_member(native, STUN_BANK, 25)? == landing_member,
+        "reaction template bindings differ"
+    );
+    result.stun_member = Some(stun_member);
+    result.landing_member = Some(landing_member);
     let hits = [contacts(source), contacts(native)];
     if !(hits[0].len() == hits[1].len()
         && hits[0].iter().zip(&hits[1]).all(|(a, b)| {
@@ -688,7 +696,7 @@ fn qualify(source: &Trace, native: &Trace, rule: Rule) -> Result<QualifiedReacti
                     particles.iter().any(|particle| {
                         particle["owner"] == target
                             && particle["bank"] == STUN_BANK
-                            && particle["member"] == 19
+                            && particle["member"] == stun_member
                     })
                 })
         }) {
@@ -925,6 +933,7 @@ fn vertical_motion(
 // origin retains the pre-clamp landing height. The vertical proof above makes
 // that height independently recoverable from the preceding two gravity steps.
 fn landing_feedback(trace: &Trace, target: u64) -> Result<(u64, u64, u64)> {
+    let landing_member = super::content_evidence::template_member(trace, STUN_BANK, 25)?;
     let landing = exactly_one((2..trace.frames.len()).filter(|&index| {
         height(&trace.frames[index - 1], target).is_some_and(|y| y > 0.)
             && height(&trace.frames[index], target) == Some(0.)
@@ -961,7 +970,7 @@ fn landing_feedback(trace: &Trace, target: u64) -> Result<(u64, u64, u64)> {
             event["owner"] == target
                 && event["bank"] == STUN_BANK
                 && (event["kind"] == "program_started" && event["program"] == 17
-                    || event["kind"] == "declaration_started" && event["member"] == 25)
+                    || event["kind"] == "declaration_started" && event["member"] == landing_member)
         })
         .collect();
     ensure!(
@@ -985,7 +994,7 @@ fn landing_feedback(trace: &Trace, target: u64) -> Result<(u64, u64, u64)> {
         {
             if particle["owner"] != target
                 || particle["bank"] != STUN_BANK
-                || particle["member"] != 25
+                || particle["member"] != landing_member
             {
                 continue;
             }
@@ -1039,7 +1048,7 @@ mod tests {
         }
         Trace {
             case: "enemy:1:0".into(),
-            setup: json!({"owner":1,"party":[1],"common_effect_bank":STUN_BANK,
+            setup: json!({"owner":1,"party":[1],"common_effect_bank":STUN_BANK,"effect_inputs":{"common":{"source":{"sha256":STUN_BANK},"effect_templates":(0..26).map(|id|vec![id]).collect::<Vec<_>>() }},
             "actors":[{"actor":0,"side":0,"conditions":[]}],"contact_stun":[{"clock":2,"target":0,"stunned":stunned},{"clock":6,"target":0,"stunned":false}]}),
             frames,
             events,

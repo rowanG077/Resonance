@@ -1,12 +1,11 @@
-//! Cross-fades retain channel presence; matrix mode is cleared by channel setters.
+//! Cross-fades use the model rest pose when switching between TRS and affine keys.
 use super::Pose;
 use bevy::prelude::*;
 
 const SCALE: u8 = 1;
-const ROTATION: u8 = 6;
 const QUATERNION: u8 = 4;
 const TRANSLATION: u8 = 8;
-pub(super) const TRS: u8 = SCALE | QUATERNION | TRANSLATION;
+const TRS: u8 = SCALE | QUATERNION | TRANSLATION;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Frame {
@@ -17,75 +16,55 @@ pub(super) struct Frame {
 
 impl From<Transform> for Frame {
     fn from(transform: Transform) -> Self {
-        Self::sample(transform.into(), TRS, TRS)
+        Self::sample(transform.into(), TRS)
     }
 }
 
 impl Frame {
-    pub fn sample(pose: Pose, authored: u8, bind: u8) -> Self {
-        let flags = if matches!(pose, Pose::Affine(_)) {
-            16
-        } else {
-            (authored | bind) & !ROTATION
-                | if authored & ROTATION != 0 {
-                    authored & ROTATION
-                } else {
-                    bind & ROTATION
-                }
-        };
+    pub fn sample(pose: Pose, authored: u8) -> Self {
         Self {
             pose,
-            flags,
+            flags: if matches!(pose, Pose::Affine(_)) {
+                16
+            } else {
+                authored | TRS
+            },
             authored,
         }
     }
 
-    fn set(&mut self, channel: u8, rest: Transform, rest_channels: u8) {
-        let Pose::Trs(mut value) = self.pose else {
-            self.pose = Transform::IDENTITY.into();
-            self.flags = 0;
-            return self.set(channel, rest, rest_channels);
+    fn set(&mut self, channel: u8, rest: Transform) {
+        let mut value = match self.pose {
+            Pose::Trs(value) => value,
+            Pose::Affine(_) => {
+                self.flags = 0;
+                Transform::IDENTITY
+            }
         };
         match channel {
-            SCALE => {
-                value.scale = if rest_channels & SCALE != 0 {
-                    rest.scale
-                } else {
-                    Vec3::ONE
-                }
-            }
-            QUATERNION => {
-                value.rotation = if rest_channels & QUATERNION != 0 {
-                    rest.rotation
-                } else {
-                    Quat::IDENTITY
-                };
-                self.flags &= !ROTATION;
-            }
-            TRANSLATION => {
-                value.translation = if rest_channels & TRANSLATION != 0 {
-                    rest.translation
-                } else {
-                    Vec3::ZERO
-                }
-            }
+            SCALE => value.scale = rest.scale,
+            QUATERNION => value.rotation = rest.rotation,
+            TRANSLATION => value.translation = rest.translation,
             _ => unreachable!(),
         }
         self.flags |= channel;
         self.pose = value.into();
     }
 
-    pub fn mix(mut self, mut to: Self, rest: Transform, rest_channels: u8, weight: f32) -> Self {
+    pub fn mix(mut self, mut to: Self, rest: Transform, weight: f32) -> Self {
         if matches!((self.pose, to.pose), (Pose::Trs(_), Pose::Trs(_))) {
             to.pose = self.pose.mix(to.pose, weight);
             return to;
         }
+        // A matrix has no individual TRS channels. Seed only the channels that
+        // participate in this transition; several controllers may have sampled
+        // this joint, so authored presence cannot be inferred from its last pose.
         for channel in [SCALE, TRANSLATION, QUATERNION] {
             if self.flags & channel != 0 && to.authored & channel == 0 {
-                to.set(channel, rest, rest_channels);
+                to.set(channel, rest);
             }
             if to.authored & channel != 0 && self.flags & channel == 0 {
-                self.set(channel, rest, rest_channels);
+                self.set(channel, rest);
             }
         }
         if let (Pose::Trs(from), Pose::Trs(mut value)) = (self.pose, to.pose) {
@@ -120,16 +99,16 @@ mod tests {
         ));
         let rest = Transform::from_xyz(2., 4., 6.).with_scale(Vec3::splat(2.));
         let old = Transform::from_xyz(10., 20., 30.).with_scale(Vec3::splat(4.));
-        let from = Frame::sample(old.into(), TRS, 0);
-        let to = Frame::sample(matrix, 16, 0);
-        let Pose::Trs(mixed) = from.mix(to, rest, TRS, 0.25).pose else {
+        let from = Frame::sample(old.into(), TRS);
+        let to = Frame::sample(matrix, 16);
+        let Pose::Trs(mixed) = from.mix(to, rest, 0.25).pose else {
             panic!("TRS setters clear matrix mode")
         };
         assert_eq!(mixed.translation, Vec3::new(8., 16., 24.));
         assert_eq!(mixed.scale, Vec3::splat(3.5));
         let translation_only =
-            Frame::sample(Transform::from_xyz(10., 20., 30.).into(), TRANSLATION, 0);
-        let Pose::Trs(mixed) = to.mix(translation_only, rest, TRS, 0.25).pose else {
+            Frame::sample(Transform::from_xyz(10., 20., 30.).into(), TRANSLATION);
+        let Pose::Trs(mixed) = to.mix(translation_only, rest, 0.25).pose else {
             panic!()
         };
         assert_eq!(mixed.translation, Vec3::new(4., 8., 12.));
@@ -138,23 +117,47 @@ mod tests {
             Vec3::ONE,
             "unrequested scale never prefills from a sheared matrix"
         );
-        assert_eq!(to.mix(to, rest, TRS, 0.25), to);
-        // A rest Euler channel is not a quaternion channel, even though both
-        // have already become quaternions in the renderer's Transform.
+        assert_eq!(to.mix(to, rest, 0.25), to);
+        // GLB models provide a complete rest transform, including rotation.
         let rest = rest.with_rotation(Quat::from_rotation_z(1.));
         let old = Frame::sample(
             Transform::from_rotation(Quat::from_rotation_z(2.)).into(),
             QUATERNION,
-            0,
         );
-        let Pose::Trs(mixed) = old.mix(to, rest, 2, 0.5).pose else {
+        let Pose::Trs(mixed) = old.mix(to, rest, 0.5).pose else {
             panic!()
         };
-        assert!(mixed.rotation.angle_between(Quat::from_rotation_z(1.)) < 0.001);
-        assert_eq!(mixed.scale, Vec3::ONE);
-        assert_eq!(mixed.translation, Vec3::ZERO);
-        let euler = Frame::sample(rest.into(), 2, 0);
-        assert_eq!(euler.mix(to, rest, 2, 0.5), to);
-        assert_eq!(to.mix(euler, rest, 2, 0.5), euler);
+        assert!(mixed.rotation.angle_between(Quat::from_rotation_z(1.5)) < 0.001);
+        assert_eq!(mixed.scale, Vec3::splat(1.5));
+        assert_eq!(mixed.translation, Vec3::new(1., 2., 3.));
+    }
+
+    #[test]
+    fn overlapping_controllers_keep_channel_presence_after_an_affine_transition() {
+        let rest = Transform::from_xyz(2., 4., 6.).with_scale(Vec3::splat(2.));
+        let from = Frame::from(Transform::from_xyz(10., 20., 30.).with_scale(Vec3::splat(4.)));
+        let affine = Frame::sample(
+            Pose::Affine(Affine3A::from_scale(Vec3::splat(7.))),
+            16 | TRANSLATION,
+        );
+        let partial = from.mix(affine, rest, 0.25);
+        let Pose::Trs(value) = partial.pose else {
+            panic!("unwritten channels leave matrix mode")
+        };
+        assert_eq!(value.scale, Vec3::splat(3.5));
+        assert_eq!(value.translation, Vec3::ZERO);
+
+        let next = Frame::sample(Transform::from_xyz(10., 20., 30.).into(), TRANSLATION);
+        let Pose::Trs(value) = affine.mix(next, rest, 0.25).pose else {
+            panic!()
+        };
+        assert_eq!(value.translation, Vec3::new(4., 8., 12.));
+        assert_eq!(value.scale, Vec3::ONE);
+
+        // When every TRS channel was also authored, no setter should replace
+        // the final affine sample with a rest transform.
+        let complete = Frame::sample(affine.pose, 16 | TRS);
+        assert_eq!(from.mix(complete, rest, 0.25), complete);
+        assert_eq!(partial.mix(complete, rest, 0.25), complete);
     }
 }

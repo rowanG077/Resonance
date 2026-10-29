@@ -1,6 +1,6 @@
 //! World contact and scripted story visibility, evaluated from persistent progress.
 use super::{Position, World, travel::Mount};
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
 use resonance_content::overworld::{
     FlightZone, Guidepost, Interaction, Landmark, Landmarks, Marker,
 };
@@ -52,26 +52,40 @@ pub struct Contact {
 
 pub struct Locations {
     pub(super) definitions: Arc<Landmarks>,
-    pub(super) guideposts: Arc<Vec<Guidepost>>,
+    pub(super) guideposts: Vec<u16>,
+    indices: BTreeMap<u16, (usize, usize)>,
     pub(super) appearances: BTreeMap<u16, Appearance>,
     pub(super) story_rules: Arc<super::scripts::Rules>,
 }
 impl Locations {
     pub fn new(
         definitions: Arc<Landmarks>,
-        guideposts: Arc<Vec<Guidepost>>,
         story_rules: Arc<super::scripts::Rules>,
     ) -> Result<Self> {
         definitions.validate()?;
-        let mut ids = BTreeSet::new();
-        for guidepost in guideposts.iter() {
-            guidepost.validate(&definitions)?;
-            ensure!(ids.insert(guidepost.location), "duplicate world guidepost");
-        }
+        let indices = definitions
+            .worlds
+            .iter()
+            .enumerate()
+            .flat_map(|(world, entries)| {
+                entries
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, entry)| (entry.id, (world, index)))
+            })
+            .collect();
+        let guideposts = definitions
+            .worlds
+            .iter()
+            .flatten()
+            .filter(|entry| entry.guidepost.is_some())
+            .map(|entry| entry.id)
+            .collect();
         let appearances = Self::default_appearances(&definitions);
         Ok(Self {
             definitions,
             guideposts,
+            indices,
             appearances,
             story_rules,
         })
@@ -93,10 +107,8 @@ impl Locations {
             .collect()
     }
     pub fn definition(&self, id: u16) -> Option<&Landmark> {
-        self.definitions
-            .worlds
-            .get(usize::from(id / 256))?
-            .get(usize::from((id & 255).checked_sub(1)?))
+        let &(world, index) = self.indices.get(&id)?;
+        self.definitions.worlds.get(world)?.get(index)
     }
     pub fn appearance(&self, id: u16) -> Option<Appearance> {
         self.appearances.get(&id).copied()
@@ -149,38 +161,39 @@ impl Locations {
             .reduce(f32::min)
     }
     pub fn reward(&self, id: u16) -> Option<u16> {
-        self.definitions.item_rewards.get(&id).copied()
+        self.definition(id)?.reward_item
     }
     pub fn guidepost(&self, id: u16) -> Option<&Guidepost> {
-        self.guideposts.iter().find(|g| g.location == id)
+        self.definition(id)?.guidepost.as_ref()
     }
 
-    pub(super) fn flight_floor(&self, position: Position, zones: &[FlightZone]) -> Result<f32> {
+    pub(super) fn flight_floor(
+        &self,
+        world: World,
+        position: Position,
+        zones: &[FlightZone],
+    ) -> Result<f32> {
         let mut floor = position.map()[2];
-        for zone in zones {
-            let (center, radius, height) = match *zone {
-                FlightZone::Landmark {
-                    location,
-                    margin,
-                    height,
-                    active_only,
-                } => {
-                    let landmark = self
-                        .definition(location)
-                        .context("missing flight landmark")?;
-                    if active_only
-                        && self.appearances[&location].interaction == Interaction::Disabled
-                    {
-                        continue;
-                    }
-                    (landmark.position, landmark.radius + margin, height)
+        let landmarks = self.definitions.worlds[world.index()]
+            .iter()
+            .filter_map(|landmark| {
+                let rule = landmark.flight_floor?;
+                if rule.active_only
+                    && self.appearances[&landmark.id].interaction == Interaction::Disabled
+                {
+                    return None;
                 }
-                FlightZone::Circle {
-                    position,
-                    radius,
-                    height,
-                } => (position, radius, height),
-            };
+                Some((
+                    landmark.position,
+                    landmark.radius + rule.margin,
+                    rule.height,
+                ))
+            });
+        for (center, radius, height) in landmarks.chain(
+            zones
+                .iter()
+                .map(|zone| (zone.position, zone.radius, zone.height)),
+        ) {
             if Position::from_map([center[0], center[1], 0.])?.distance_to(position) <= radius {
                 floor = floor.max(height);
             }

@@ -5,9 +5,10 @@ use super::{
     travel::{self, Mount, Travel},
 };
 use anyhow::{Context, Result, ensure};
-use resonance_content::overworld::{Guidepost, Landmarks, MovementParameters};
+use resonance_content::overworld::{Landmarks, MovementParameters};
 use resonance_events::{EventRuntime, PersistentState, ResourceLibrary, SavedProgress};
 use std::sync::Arc;
+use symphonia_constants::{GlobalId, ItemId, MusicBankId, StoryFlag};
 use symphonia_script::{Program, Width};
 
 /// Prepared immutable dependencies. Construction performs no runtime file reads.
@@ -19,7 +20,6 @@ pub struct Assets {
     pub rules: Arc<Rules>,
     pub movement: Arc<MovementParameters>,
     pub landmarks: Arc<Landmarks>,
-    pub guideposts: Arc<Vec<Guidepost>>,
     pub program: Arc<Program>,
     pub story_rules: Arc<super::scripts::Rules>,
     pub resources: Arc<ResourceLibrary>,
@@ -66,9 +66,6 @@ struct PendingBattle {
 }
 
 const PORTAL_DEPARTURE_SOUND: i16 = 26;
-const SOUL_EATER: u16 = 241;
-const SOUL_EATER_ACQUIRED: u16 = 1271;
-const DEVILS_ARM_ACQUIRED: u16 = 1287;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -130,7 +127,7 @@ impl Session {
         if resolve_floor {
             let floor = assets
                 .terrain
-                .query(state.position, assets.movement.collision_radius)?
+                .query(state.position, assets.movement.collision.radius)?
                 .motion(
                     0.,
                     state.heading,
@@ -146,11 +143,7 @@ impl Session {
             }
         }
         let travel = Travel::new(state, assets.movement.clone())?;
-        let locations = Locations::new(
-            assets.landmarks.clone(),
-            assets.guideposts.clone(),
-            assets.story_rules.clone(),
-        )?;
+        let locations = Locations::new(assets.landmarks.clone(), assets.story_rules.clone())?;
         let (mut world, memory) = persistent.into_world();
         world.played_ticks = play_time.total();
         world.current_field = Some(3000);
@@ -212,11 +205,7 @@ impl Session {
         mut persistent: PersistentState,
         play_time: crate::clock::PlayTime,
     ) -> Result<Self> {
-        let mut locations = Locations::new(
-            assets.landmarks.clone(),
-            assets.guideposts.clone(),
-            assets.story_rules.clone(),
-        )?;
+        let mut locations = Locations::new(assets.landmarks.clone(), assets.story_rules.clone())?;
         let party = persistent
             .party
             .as_ref()
@@ -238,13 +227,19 @@ impl Session {
         // Script global 4 selects the base world/music bank. Preserve the late
         // Tethe'alla bank when returning from a field.
         let bank = if state.world == super::World::Sylvarant {
-            0
-        } else if resonance_events::script_global(&persistent.memory, 4)? == 2 {
-            2
+            MusicBankId::Sylvarant
+        } else if resonance_events::script_global(
+            &persistent.memory,
+            i32::from(GlobalId::WorldMusicBank.raw()),
+        )? == i32::from(MusicBankId::TetheAllaLate.raw())
+        {
+            MusicBankId::TetheAllaLate
         } else {
-            1
+            MusicBankId::TetheAlla
         };
-        persistent.memory.write(0x50, Width::S32, bank)?;
+        persistent
+            .memory
+            .write(0x50, Width::S32, i32::from(bank.raw()))?;
         Self::enter(assets, state, persistent, play_time)
     }
     pub fn prompt(&self) -> Option<&Prompt> {
@@ -288,7 +283,7 @@ impl Session {
         let Some(encounter) = self.assets.rules.lookup(
             self.travel.state().world,
             position,
-            self.travel.response(),
+            self.travel.surface(),
             variant,
             self.events.memory().read(0x40, Width::S32)?,
         ) else {
@@ -312,7 +307,7 @@ impl Session {
                 if let Some(neighbor) = self.assets.rules.lookup(
                     self.travel.state().world,
                     position,
-                    self.travel.response(),
+                    self.travel.surface(),
                     variant,
                     self.events.memory().read(0x40, Width::S32)?,
                 ) {
@@ -373,14 +368,14 @@ impl Session {
                 .party
                 .as_mut()
                 .context("world party is missing")?
-                .change_item(data, SOUL_EATER, 1)
+                .change_item(data, ItemId::SoulEater.raw(), 1)
                 .map_err(anyhow::Error::msg)?;
-            self.events
-                .world
-                .event_flags
-                .extend([SOUL_EATER_ACQUIRED, DEVILS_ARM_ACQUIRED]);
+            self.events.world.event_flags.extend([
+                StoryFlag::SoulEaterAcquired.raw(),
+                StoryFlag::DevilsArmAcquired.raw(),
+            ]);
             self.prompt = Some(Prompt::Item {
-                item: SOUL_EATER,
+                item: ItemId::SoulEater.raw(),
                 received,
             });
         }
@@ -430,7 +425,7 @@ impl Session {
         state.camera_yaw = 0.;
         let ground = assets
             .terrain
-            .query(state.position, assets.movement.collision_radius)?
+            .query(state.position, assets.movement.collision.radius)?
             .flight_floor();
         state.position =
             super::Position::from_map([portal.position[0], portal.position[1], ground])?;
@@ -677,7 +672,7 @@ impl Session {
         let terrain = self
             .assets
             .rules
-            .terrain(state.world, self.travel.response());
+            .terrain(state.world, self.travel.surface());
         self.skits.step(
             &self.events,
             3000,
@@ -996,8 +991,9 @@ impl Session {
         let state = self.travel.state();
         if state.mount.airborne() {
             let floor = self.locations.flight_floor(
+                state.world,
                 state.position,
-                &self.assets.movement.flight_zones[state.world.index()],
+                self.assets.movement.flight_zones.get(state.world),
             )?;
             self.travel.clear_flight_obstacle(floor)?;
         }
@@ -1067,12 +1063,9 @@ impl Session {
                     .events
                     .world
                     .event_flags
-                    .contains(&post.event_flags[0].unwrap().get())
+                    .contains(&post.discovery_flag.get())
             {
-                self.events
-                    .world
-                    .event_flags
-                    .extend(post.event_flags.iter().flatten().map(|v| v.get()));
+                self.events.world.event_flags.extend(post.flags());
                 self.prompt = Some(Prompt::Guidepost {
                     name: post.name.clone(),
                 });

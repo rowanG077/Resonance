@@ -389,9 +389,11 @@ impl Drawing<'_> {
         if let Focus::ForgetArtes { yes } = state.focus {
             cursor = self
                 .popup(
-                    state
-                        .forget_confirmation()
-                        .context("missing arte confirmation")?,
+                    data.confirmation(
+                        state
+                            .forget_confirmation_key()
+                            .context("missing arte confirmation")?,
+                    )?,
                     Some(yes),
                     255,
                 )?
@@ -399,4 +401,79 @@ impl Drawing<'_> {
         }
         Ok(cursor)
     }
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires current menu artwork/options; CPU drawing only"]
+fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
+    use super::test_support::Fixture;
+    use resonance_content::options::{self, Document};
+    let fixture = Fixture::load()?;
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
+    let mut doc: Document = serde_json::from_slice(&std::fs::read(
+        std::path::Path::new(&root).join(options::PATH),
+    )?)?;
+    doc.options.get_mut("combined_battles").unwrap().name = "Nearby Battles".into();
+    doc.confirmations
+        .insert("forget_artes".into(), "Forget both kinds?".into());
+    let data = doc.prepare()?;
+    let mut menu = Menu::title_customize(
+        resonance_content::menu_data::CustomizeSettings {
+            learn_elemental_artes: true,
+            learn_both_arte_paths: true,
+            ..data.defaults.clone()
+        },
+        data,
+    )?;
+    menu.customize.transition = Default::default();
+    for row in 0..18 {
+        menu.customize.row = row;
+        menu.customize.first = row.saturating_sub(8);
+        fixture.drawing(0).customize(&menu)?;
+    }
+    for window in 0..3 {
+        for background in 0..6 {
+            menu.customize.row = 3;
+            menu.customize.first = 0;
+            menu.customize.draft.window = window;
+            menu.customize.draft.background = background;
+            fixture.drawing(0).customize(&menu)?;
+        }
+    }
+    menu.customize.row = 4;
+    for group in 0..7 {
+        for component in 0..5 {
+            menu.customize.focus = Focus::Colors;
+            menu.customize.color_group = group;
+            menu.customize.component = component;
+            fixture.drawing(0).customize(&menu)?;
+        }
+    }
+    menu.customize.row = 5;
+    for channel in 0..6 {
+        menu.customize.focus = Focus::Volume;
+        menu.customize.channel = channel;
+        fixture.drawing(0).customize(&menu)?;
+    }
+    menu.customize.row = 6;
+    for button in 0..7 {
+        menu.customize.focus = Focus::Controls;
+        menu.customize.button = button;
+        fixture.drawing(0).customize(&menu)?;
+    }
+    menu.customize.row = 13;
+    menu.customize.first = 5;
+    menu.customize.focus = Focus::Position;
+    fixture.drawing(0).customize(&menu)?;
+    menu.customize.draft.learn_elemental_artes = false;
+    menu.customize.draft.learn_both_arte_paths = false;
+    menu.customize.focus = Focus::ForgetArtes { yes: false };
+    assert_eq!(
+        menu.customize_data()?
+            .confirmation(menu.customize.forget_confirmation_key().unwrap())?,
+        "Forget both kinds?"
+    );
+    fixture.drawing(0).customize(&menu)?;
+    Ok(())
 }

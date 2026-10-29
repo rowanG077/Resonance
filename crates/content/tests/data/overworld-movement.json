@@ -1,89 +1,61 @@
 {
-  "heading_quantization": 4096.0,
-  "camera_yaw_quantization": 32.0,
-  "stick_maximum": 80.0,
-  "foot_stick_divisor": 8.0,
-  "mounted_stick_divisor": 6.800000190734863,
-  "flight_speed_multiplier": 4.0,
-  "ship_speed_multiplier": 2.5,
-  "direct_vehicle_stick_divisor": 1.5,
-  "flight_bank_divisor": 3.0,
-  "flight_acceleration_ticks": 30.0,
-  "ship_acceleration_ticks": 60.0,
-  "pitch_limit": 64.0,
-  "pitch_step": 4.266666889190674,
   "altitude_per_pitch": 0.25,
-  "maximum_altitude": 1500.0,
-  "flight_clearance": 300.0,
-  "turn_limit": 48.0,
-  "flight_turn_step": 1.600000023841858,
-  "ship_turn_step": 0.800000011920929,
-  "zoom_transition_ticks": 30.0,
-  "lift_step": 20.0,
-  "minimum_lift_step": 2.5,
+  "camera_distances": {
+    "close": {
+      "foot": 1200.0,
+      "mounted": 2800.0
+    },
+    "distant": {
+      "foot": 1800.0,
+      "mounted": 3400.0
+    }
+  },
+  "camera_turn_degrees": 0.015,
+  "camera_yaw_quantization": 32.0,
   "descent_easing_height": 150.0,
-  "camera_turn_degrees": 0.014999999664723873,
-  "collision_radius": 1200.0,
-  "camera_distances": [
-    [
-      1200.0,
-      2800.0
-    ],
-    [
-      1800.0,
-      3400.0
-    ]
-  ],
-  "flight_zones": [
-    [
+  "direct_vehicle_stick_divisor": 1.5,
+  "flight_acceleration_ticks": 30.0,
+  "flight_bank_divisor": 3.0,
+  "flight_clearance": 300.0,
+  "flight_speed_multiplier": 4.0,
+  "flight_turn_step": 1.6,
+  "flight_zones": {
+    "tethe_alla": [
       {
-        "area": "landmark",
-        "location": 23,
-        "margin": 50.0,
-        "height": 1000.0,
-        "active_only": true
-      },
-      {
-        "area": "landmark",
-        "location": 25,
-        "margin": 50.0,
-        "height": 1000.0,
-        "active_only": true
-      }
-    ],
-    [
-      {
-        "area": "circle",
+        "height": 1200.0,
         "position": [
           19800.0,
           49840.0
         ],
-        "radius": 400.0,
-        "height": 1200.0
+        "radius": 400.0
       },
       {
-        "area": "landmark",
-        "location": 266,
-        "margin": 300.0,
-        "height": 500.0,
-        "active_only": true
-      },
-      {
-        "area": "landmark",
-        "location": 274,
-        "margin": 50.0,
-        "height": 500.0,
-        "active_only": false
-      },
-      {
-        "area": "circle",
+        "height": 400.0,
         "position": [
           51074.0,
           32808.0
         ],
-        "radius": 300.0,
-        "height": 400.0
+        "radius": 300.0
       }
     ]
-  ]
+  },
+  "foot_stick_divisor": 8.0,
+  "heading_quantization": 4096.0,
+  "lift_step": 20.0,
+  "maximum_altitude": 1500.0,
+  "minimum_lift_step": 2.5,
+  "mounted_stick_divisor": 6.8,
+  "pitch_limit": 64.0,
+  "pitch_step": 4.266667,
+  "ship_acceleration_ticks": 60.0,
+  "ship_speed_multiplier": 2.5,
+  "ship_turn_step": 0.8,
+  "stick_maximum": 80.0,
+  "turn_limit": 48.0,
+  "zoom_transition_ticks": 30.0,
+  "collision": {
+    "radius": 1200.0,
+    "ground_probe_half_extent": 50.0,
+    "ship_probe_half_extent": 120.0
+  }
 }

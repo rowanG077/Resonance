@@ -3,8 +3,9 @@ use crate::overworld::{
     landmarks::tests::definitions,
     travel::tests::{parameters, state, terrain, terrain_at_height},
 };
+use resonance_content::overworld::TerrainSurface;
 use resonance_content::{
-    overworld::{Interaction, Marker},
+    overworld::{Guidepost, Interaction, Marker},
     session::SessionData,
 };
 use resonance_events::input::Button;
@@ -13,15 +14,24 @@ use resonance_events::party::Party;
 fn data() -> Arc<SessionData> {
     // Small valid party data; no original files are needed for scene ownership.
     Arc::new(serde_json::from_value(serde_json::json!({
-        "version":1,"executable_sha256":"0".repeat(64),"experience":[0,0,10],
-        "items":vec![serde_json::json!({"equipment_kind":null,"allowed_characters":511,"stack_limit":20});usize::from(SOUL_EATER)+1],
+        "version":1,"experience":[0,0,10],
+        "items":vec![serde_json::json!({"equipment_kind":null,"allowed_characters":511,"stack_limit":20});usize::from(ItemId::SoulEater.raw())+1],
         "characters":vec![serde_json::json!({"level":1,"experience":0,"affinity":0,
             "base_stats":[100,20,30,40,50,60,70],"luck":10,"overlimit":0,
                 "equipment":vec![0;6],"techniques":[],"allowed_techniques":[],"shortcuts":vec![0;4],
             "growth":vec![serde_json::json!({"base":1,"random":1,"title_bonus":0});7],"level_techniques":{}});9]
     })).unwrap())
 }
-fn start(mut landmarks: Landmarks, guideposts: Vec<Guidepost>) -> Result<Session> {
+fn start(mut landmarks: Landmarks, guideposts: Vec<(u16, Guidepost)>) -> Result<Session> {
+    for (id, post) in guideposts {
+        landmarks
+            .worlds
+            .iter_mut()
+            .flatten()
+            .find(|entry| entry.id == id)
+            .unwrap()
+            .guidepost = Some(post);
+    }
     let data = data();
     let mut party = Party::new(&data, Default::default())?;
     party.travel.saved_formation = vec![1];
@@ -49,11 +59,10 @@ fn start(mut landmarks: Landmarks, guideposts: Vec<Guidepost>) -> Result<Session
     let assets = Arc::new(Assets {
         files: Default::default(),
         world: crate::overworld::World::Sylvarant,
-        terrain: Arc::new(terrain(1)),
+        terrain: Arc::new(terrain(TerrainSurface::Grassland)),
         rules: Arc::new(Rules::new(crate::overworld::tests::tables())?),
         movement: parameters(),
         landmarks: Arc::new(landmarks),
-        guideposts: Arc::new(guideposts),
         program,
         story_rules: crate::overworld::scripts::fixture(),
         resources,
@@ -94,10 +103,15 @@ fn flying_clears_landmarks_on_entry_movement_and_restore() -> Result<()> {
         landmark.position = [3200., 3200.];
         landmark.radius = radius;
         landmark.interaction = Interaction::Active;
+        landmark.flight_floor = Some(resonance_content::overworld::FlightFloor {
+            margin,
+            height: floor,
+            active_only: true,
+        });
         let initial = start(landmarks, vec![])?;
         let mut assets = (*initial.assets).clone();
         assets.world = world;
-        assets.terrain = Arc::new(terrain(0));
+        assets.terrain = Arc::new(terrain(TerrainSurface::Barrier));
         let assets = Arc::new(assets);
         let mut persistent = initial.events.persistent_state()?;
         persistent.memory.write(0x40, Width::S32, 22905000)?;
@@ -204,7 +218,7 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
     assert_eq!(
         session.prompt(),
         Some(&Prompt::Item {
-            item: SOUL_EATER,
+            item: ItemId::SoulEater.raw(),
             received: true
         })
     );
@@ -347,23 +361,29 @@ fn sandworm_handoff_freezes_the_source_and_resumes_once_after_results() -> Resul
         assert_eq!(session.events.tick(), tick);
         let won = outcome == Outcome::Victory;
         let party = session.events.world.party.as_ref().unwrap();
-        assert_eq!(party.items.get(&SOUL_EATER).copied(), won.then_some(1));
-        assert_eq!(party.found_items.contains(&SOUL_EATER), won);
-        for flag in [SOUL_EATER_ACQUIRED, DEVILS_ARM_ACQUIRED] {
+        assert_eq!(
+            party.items.get(&ItemId::SoulEater.raw()).copied(),
+            won.then_some(1)
+        );
+        assert_eq!(party.found_items.contains(&ItemId::SoulEater.raw()), won);
+        for flag in [
+            StoryFlag::SoulEaterAcquired.raw(),
+            StoryFlag::DevilsArmAcquired.raw(),
+        ] {
             assert_eq!(session.events.world.event_flags.contains(&flag), won);
         }
         if won {
             assert_eq!(
                 session.prompt(),
                 Some(&Prompt::Item {
-                    item: SOUL_EATER,
+                    item: ItemId::SoulEater.raw(),
                     received: true
                 })
             );
             assert!(!session.player_has_control());
             session.step(Input::default())?;
             assert_eq!(
-                session.events.world.party.as_ref().unwrap().items[&SOUL_EATER],
+                session.events.world.party.as_ref().unwrap().items[&ItemId::SoulEater.raw()],
                 1
             );
             session.step(Input {
@@ -507,7 +527,10 @@ fn field_arrivals_resolve_height_before_a_town_prompt_can_pause_travel() -> Resu
                 Ok((
                     center.neighbor(offset),
                     collision::Mesh::new(&[collision::tests::rectangle(
-                        1, [-400.; 2], [400.; 2], 200.,
+                        TerrainSurface::Grassland,
+                        [-400.; 2],
+                        [400.; 2],
+                        200.,
                     )])?,
                 ))
             })
@@ -681,7 +704,7 @@ fn rheaird_portals_require_progress_and_latch_until_leaving_the_gate() -> Result
     assert_eq!(session.travel.state(), &before);
     let mut assets = (*session.assets).clone();
     assets.world = World::TetheAlla;
-    assets.terrain = Arc::new(terrain_at_height(0, 348.));
+    assets.terrain = Arc::new(terrain_at_height(TerrainSurface::Barrier, 348.));
     let mut arrival = session.change_world(Arc::new(assets))?;
     assert_eq!(arrival.travel.state().position.map(), [4000., 3500., 348.]);
     assert_eq!(
@@ -762,19 +785,18 @@ fn entry_prompt_cancel_and_preparation_keep_the_source_and_return_location() -> 
 #[test]
 fn discovery_rewards_only_once_and_checkpoint_preserves_mount_and_flags() -> Result<()> {
     let mut landmarks = definitions();
-    landmarks.item_rewards.insert(63, 2);
-    landmarks.party_requirements.clear();
+    landmarks.worlds[0][62].reward_item = Some(2);
+    for entry in landmarks.worlds.iter_mut().flatten() {
+        entry.required_character = None;
+    }
     landmarks.worlds[0][62].position = [3200., 3200.];
     landmarks.worlds[0][62].marker = Marker::FieldPoint;
     let mut session = start(landmarks, vec![])?;
     // Move town 1 away from the player's position to reach the discovery.
     let mut definitions = (*session.assets.landmarks).clone();
     definitions.worlds[0][0].position = [6000., 3200.];
-    session.locations = Locations::new(
-        Arc::new(definitions),
-        Default::default(),
-        crate::overworld::scripts::fixture(),
-    )?;
+    session.locations =
+        Locations::new(Arc::new(definitions), crate::overworld::scripts::fixture())?;
     session.step(Input {
         travel: travel::Input {
             stick: [1., 0.],
@@ -825,7 +847,7 @@ fn discovery_rewards_only_once_and_checkpoint_preserves_mount_and_flags() -> Res
 #[test]
 fn guidepost_sets_all_regional_flags_and_full_inventory_retains_discovery() -> Result<()> {
     let mut data = definitions();
-    data.item_rewards.insert(1, 2);
+    data.worlds[0][0].reward_item = Some(2);
     let mut session = start(data, vec![])?;
     session
         .events
@@ -856,15 +878,10 @@ fn guidepost_sets_all_regional_flags_and_full_inventory_retains_discovery() -> R
     );
     let post = Guidepost {
         name: "Region".into(),
-        name_id: 0,
-        location: 1,
-        event_flags: [
-            std::num::NonZeroU16::new(900),
-            std::num::NonZeroU16::new(901),
-            None,
-        ],
+        discovery_flag: std::num::NonZeroU16::new(900).unwrap(),
+        unlock_flags: vec![std::num::NonZeroU16::new(901).unwrap()],
     };
-    let mut session = start(definitions(), vec![post])?;
+    let mut session = start(definitions(), vec![(1, post)])?;
     session.step(Input::default())?;
     assert_eq!(
         session.prompt(),
@@ -964,12 +981,29 @@ fn restored_play_time_unlocks_overworld_skits_as_exploration_continues() -> Resu
         .reject_displacement(crate::overworld::Position::from_map([4000., 4000., 0.])?);
     let mut checkpoint = session.checkpoint()?;
     checkpoint.played_ticks = (REQUIRED_SECONDS - 1) * 60;
-    let catalog = Arc::new(serde_json::from_value(serde_json::json!({
-        "version": resonance_content::skit::VERSION, "preview_order": [], "portrait_recipes": [],
-        "skits": [{"id": 788, "title": "Time to talk", "party_mask": 0,
-            "location": "anywhere", "story": null,
-            "condition": {"range": {"value": "played_seconds", "min": REQUIRED_SECONDS}}}]
-    }))?);
+    use resonance_content::skit::{
+        SkitCatalog, SkitCondition, SkitDefinition, SkitLocation, SkitValue,
+    };
+    let catalog = Arc::new(SkitCatalog {
+        preview_order: vec![],
+        portrait_recipes: Default::default(),
+        resources: Default::default(),
+        portraits: Default::default(),
+        media: Default::default(),
+        skits: vec![SkitDefinition {
+            id: 788,
+            title: "Time to talk".into(),
+            party: vec![],
+            trigger: resonance_content::skit::SkitTrigger::Exploration,
+            location: SkitLocation::Anywhere,
+            story: None,
+            condition: SkitCondition::Range {
+                value: SkitValue::PlayedSeconds,
+                min: Some(REQUIRED_SECONDS as i64),
+                max: None,
+            },
+        }],
+    });
     let mut assets = (*session.assets).clone();
     assets.resources = Arc::new(ResourceLibrary {
         session_data: assets.resources.session_data.clone(),
@@ -998,27 +1032,26 @@ fn restored_play_time_unlocks_overworld_skits_as_exploration_continues() -> Resu
 fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
     use resonance_content::skit::{SkitCatalog, SkitResourcePaths};
     let mut session = start(definitions(), vec![])?;
-    let mut words = vec![4u16, 0, 0, 0];
     // Set flag 42, wait two updates, end. No notification definition is needed.
+    let mut words = vec![4u16, 0, 0, 0];
     words.extend([
         42, 0x3000, 0x4000, 0x2068, 0, 0x3000, 0x4000, 2, 0x3000, 0x4000, 0x2064, 0x20ff,
     ]);
     let catalog = Arc::new(SkitCatalog {
         preview_order: Vec::new(),
-        version: resonance_content::skit::VERSION,
         skits: vec![],
         resources: [(
             450,
             SkitResourcePaths {
                 script: "skit.ssb".into(),
-                messages: "messages.json".into(),
+                messages: Some("messages.json".into()),
                 allow_skip: true,
                 title: Some("Event scene".into()),
             },
         )]
         .into(),
         portraits: Default::default(),
-        portrait_recipes: vec![],
+        portrait_recipes: Default::default(),
         media: Default::default(),
     });
     catalog.validate()?;
@@ -1105,7 +1138,6 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
         let definition = Arc::new(resonance_content::overworld::Cinematic {
             world: source.assets.world,
             presentation: resonance_content::overworld::CinematicPresentation {
-                provenance: "synthetic continuation fixture".into(),
                 fade: resonance_content::overworld::CinematicFade {
                     white: false,
                     end_rate: 8,
@@ -1117,18 +1149,10 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
                 end_audio: vec![],
                 actors: Default::default(),
             },
-            camera: vec![
-                resonance_content::CameraKey {
-                    time: 0.,
-                    position: [0., -500., 300.],
-                    target: [0.; 3],
-                },
-                resonance_content::CameraKey {
-                    time: 60.,
-                    position: [100., -500., 300.],
-                    target: [100., 0., 0.],
-                },
-            ],
+            camera: resonance_content::camera_motion::CameraMotion::from_keys(&[
+                resonance_content::CameraKey::looking_at(0., [0., -500., 300.], [0.; 3]),
+                resonance_content::CameraKey::looking_at(60., [100., -500., 300.], [100., 0., 0.]),
+            ])?,
             actors: Default::default(),
             dialogue: vec![],
         });

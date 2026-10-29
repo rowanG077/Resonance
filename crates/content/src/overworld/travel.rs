@@ -3,22 +3,7 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Mount {
-    Foot,
-    Noishe,
-    Rheairds,
-    Ship,
-}
-impl Mount {
-    pub fn long_range(self) -> bool {
-        self != Self::Foot
-    }
-    pub fn airborne(self) -> bool {
-        self == Self::Rheairds
-    }
-}
+pub use symphonia_constants::MountId as Mount;
 
 /// World HUD display modes, in the original Start-button cycle order.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

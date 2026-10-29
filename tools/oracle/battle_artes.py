@@ -16,6 +16,7 @@ from battle_fixture import BattleFixture, DTM_BUTTONS, neutral_movie
 from battle_state import projectile_locations, watch_locations
 from effect_fixture import prepare
 from state import State, digest, inspect
+import technique_content
 
 MANIFEST = Path(__file__).with_name("cases") / "battle-artes.json"
 SETTINGS = 0x8035A768
@@ -80,7 +81,9 @@ def prepare_case(args, manifest):
     defaults["capture_frames"] = manifest["capture_frames"][case["fixture"]]
     character, arte = case["character"], case["arte"]
     input_arte = case.get("input_arte", arte)
-    catalogue = read(techniques_path)
+    document = read(techniques_path)
+    catalogue = technique_content.prepare(document)
+    catalogue["learning"] = technique_content.native_learning(document)
     definition = catalogue["definitions"][arte]
     if definition["tp_cost"] != case["tp_cost"]:
         raise ValueError("manifest TP cost differs from the authored catalogue")

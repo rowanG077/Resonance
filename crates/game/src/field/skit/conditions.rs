@@ -19,7 +19,9 @@ impl Context<'_> {
         Ok(match condition {
             None => true,
             Never => false,
-            Maps([start, end]) => (u32::from(*start)..=u32::from(*end)).contains(&self.map),
+            Maps(range) => {
+                (u32::from(range.from.id()?)..=u32::from(range.through.id()?)).contains(&self.map)
+            }
             All(conditions) | Any(conditions) => {
                 let all = matches!(condition, All(_));
                 for condition in conditions {
@@ -32,7 +34,7 @@ impl Context<'_> {
             Not(condition) => !self.matches(condition)?,
             Flag(id) => self.events.world.event_flags.contains(id),
             Viewed(id) => self.party.viewed_skits.contains(id),
-            Member(id) => self.party.formation.contains(id),
+            Member(id) => self.party.formation.contains(&(*id as u8)),
             Item(id) => self.party.items.get(id).is_some_and(|count| *count > 0),
             Terrain(required) => self
                 .overworld
@@ -45,8 +47,18 @@ impl Context<'_> {
 
     fn value(&self, value: SkitValue) -> Result<Option<i64>> {
         use SkitValue::*;
-        let member = |id: u8| self.party.members.get(usize::from(id.saturating_sub(1)));
+        let member = |id: resonance_content::overworld::PartyCharacter| {
+            self.party.members.get(usize::from(id as u8 - 1))
+        };
         Ok(match value {
+            StoryProgress => Some(i64::from(resonance_events::script_global(
+                self.events.memory(),
+                0,
+            )?)),
+            WorldSide => Some(i64::from(resonance_events::script_global(
+                self.events.memory(),
+                4,
+            )?)),
             Global(index) => Some(i64::from(resonance_events::script_global(
                 self.events.memory(),
                 i32::from(index),
@@ -64,7 +76,7 @@ impl Context<'_> {
                     .filter(|(index, other)| {
                         other.affinity > candidate.affinity
                             || (other.affinity == candidate.affinity
-                                && *index + 1 < usize::from(id))
+                                && *index + 1 < usize::from(id as u8))
                     })
                     .count() as i64
             }),
@@ -73,7 +85,7 @@ impl Context<'_> {
                 .party
                 .battles
                 .participation
-                .get(usize::from(id.saturating_sub(1)))
+                .get(usize::from(id as u8 - 1))
                 .copied()
                 .map(i64::from),
             Battles => Some(i64::from(self.party.battles.total)),

@@ -5,8 +5,7 @@ use resonance_battle::{
     WeaponTextureAnimation,
 };
 use resonance_content::{
-    animation::Motion,
-    battle_model::{AttachmentAnimation, AttachmentUvMode, ModelPart},
+    battle_model::{AttachmentAnimation, AttachmentTextureAnimation, ModelPart},
     prepared::Files,
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -37,9 +36,8 @@ pub(super) fn prepare(
         },
     )?;
     weapon.effect_interval = animation
-        .map(|animation| animation.effect_interval)
-        .filter(|&interval| interval != 0)
-        .map(|interval| u16::from(interval) + 1);
+        .and_then(|animation| animation.effect_every_ticks)
+        .map(|interval| interval.get());
     Ok(Arc::new(weapon))
 }
 
@@ -119,7 +117,7 @@ fn layers(
             };
             let mut motions = BTreeMap::new();
             for clip in &layer.scene.clips {
-                let motion = Motion::decode(&files.read(&clip.motion)?)?;
+                let motion = clip.decode_for_skeleton(&files.read(&clip.motion)?, skeleton)?;
                 motion.validate(skeleton)?;
                 ensure!(
                     motions.insert(clip.resource_slot, motion).is_none(),
@@ -131,7 +129,10 @@ fn layers(
                 skeleton: skeleton.clone(),
                 motions,
                 playback,
-                secondary_motion: layer.scene.secondary_motion.chains.clone(),
+                secondary_motion: layer
+                    .scene
+                    .secondary_motion
+                    .prepare(&layer.scene.bone_names)?,
                 texture_animation,
             })
         })
@@ -143,48 +144,57 @@ fn texture_animation(
     independent: bool,
     texture_count: usize,
 ) -> Result<Option<WeaponTextureAnimation>> {
-    let channel = animation.channels[usize::from(independent)];
-    if channel.count == 0 || matches!(channel.mode, AttachmentUvMode::Disabled) {
+    let Some(channel) = (if independent {
+        &animation.independent
+    } else {
+        &animation.primary
+    }) else {
         return Ok(None);
-    }
-    ensure!(
-        channel.count == 1,
-        "weapon texture animation requires one texture"
-    );
-    let texture = usize::try_from(channel.texture)?;
+    };
+    let (texture, prepared) = match channel {
+        AttachmentTextureAnimation::Scroll {
+            texture,
+            step_milli_uv,
+            offset_milli_uv,
+        } => {
+            let texture = usize::from(*texture);
+            (
+                texture,
+                WeaponTextureAnimation::Scroll {
+                    texture,
+                    initial: *offset_milli_uv,
+                    step: *step_milli_uv,
+                },
+            )
+        }
+        AttachmentTextureAnimation::Atlas {
+            texture,
+            rows,
+            ticks_per_frame,
+            frames,
+        } => {
+            let texture = usize::from(*texture);
+            let order = if frames.is_empty() {
+                (0..*rows).collect()
+            } else {
+                frames.clone()
+            };
+            (
+                texture,
+                WeaponTextureAnimation::Atlas {
+                    texture,
+                    rows: *rows,
+                    ticks_per_frame: ticks_per_frame.get(),
+                    order,
+                },
+            )
+        }
+    };
     ensure!(
         texture < texture_count,
         "weapon texture animation binding is missing"
     );
-    Ok(Some(match channel.mode {
-        AttachmentUvMode::ScrollU | AttachmentUvMode::ScrollV => {
-            let axis = usize::from(matches!(channel.mode, AttachmentUvMode::ScrollV));
-            let mut initial = [0; 2];
-            let mut step = [0; 2];
-            initial[axis] = channel.initial_scroll;
-            step[axis] = i16::from(channel.frames_or_step);
-            WeaponTextureAnimation::Scroll {
-                texture,
-                initial,
-                step,
-            }
-        }
-        AttachmentUvMode::Frames | AttachmentUvMode::Sequence => {
-            let rows = u8::try_from(channel.frames_or_step)?;
-            let order = if matches!(channel.mode, AttachmentUvMode::Frames) {
-                (0..rows).collect()
-            } else {
-                animation.frame_order.clone()
-            };
-            WeaponTextureAnimation::Atlas {
-                texture,
-                rows,
-                ticks_per_frame: u16::try_from(channel.period)? + 1,
-                order,
-            }
-        }
-        mode => anyhow::bail!("weapon texture animation {mode:?} is not prepared"),
-    }))
+    Ok(Some(prepared))
 }
 
 /// Weapon playback starts at its idle clip, independently of the body entry phase.
@@ -204,30 +214,78 @@ pub fn owner_linked() -> WeaponPlayback {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_content::battle_model::AttachmentUvChannel;
 
     #[test]
-    fn atlas_preparation_keeps_authored_order_and_inclusive_period() -> Result<()> {
-        let channel = AttachmentUvChannel {
-            count: 1,
-            texture: 0,
-            mode: AttachmentUvMode::Sequence,
-            frames_or_step: 4,
-            period: 8,
-            initial_scroll: 1,
-        };
-        let mut animation = AttachmentAnimation {
-            channels: [
-                channel,
-                AttachmentUvChannel {
-                    mode: AttachmentUvMode::Frames,
-                    period: 5,
-                    ..channel
-                },
-            ],
-            frame_order: vec![0, 1, 2, 3, 2, 1],
-            effect_interval: 0,
-        };
+    #[ignore = "requires current stored battle scenes; metadata only"]
+    fn stored_scene_weapon_controls_preserve_disabled_and_signed_scroll_channels() -> Result<()> {
+        use anyhow::Context;
+        use resonance_content::{battle_scene::document, library::Library};
+        let root =
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
+        let mut snapshot = Library::open(std::path::Path::new(&root), &[])?.snapshot();
+        // Equipment and enemy controls are compared with both native sources
+        // in import. These four scene-owned weapons complete that corpus.
+        for (mapping, id) in [
+            (document::TECHNIQUES, 301),
+            (document::TECHNIQUES, 312),
+            (document::TECHNIQUES, 314),
+            (document::SKILLS, 228),
+        ] {
+            let path = snapshot.resolve(mapping, id, Some("scene.json"))?;
+            let scene: document::Definition = snapshot.json(&path, 16 * 1024 * 1024)?;
+            let weapon = scene.weapon.context("missing scene weapon")?;
+            assert!(weapon.parts.keys().copied().eq([0]));
+            let expected = if mapping == document::SKILLS {
+                serde_json::json!({"0":{
+                    "primary":{"kind":"scroll","step_milli_uv":[0,80]},
+                    "independent":{"kind":"scroll","step_milli_uv":[0,-12]}
+                }})
+            } else {
+                serde_json::json!({})
+            };
+            assert_eq!(
+                serde_json::to_value(weapon.uv_animation)?,
+                expected,
+                "{path}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn scroll_preparation_keeps_signed_axes_offsets_and_independent_selection() -> Result<()> {
+        let mut animation: AttachmentAnimation = serde_json::from_value(serde_json::json!({
+            "primary":{"kind":"scroll","texture":1,"step_milli_uv":[80,0],"offset_milli_uv":[-128,4]},
+            "independent":{"kind":"scroll","texture":2,"step_milli_uv":[0,-12],"offset_milli_uv":[7,-9]}
+        }))?;
+        for (independent, expected) in [
+            (false, (1, [-128, 4], [80, 0])),
+            (true, (2, [7, -9], [0, -12])),
+        ] {
+            let Some(WeaponTextureAnimation::Scroll {
+                texture,
+                initial,
+                step,
+            }) = texture_animation(&animation, independent, 3)?
+            else {
+                panic!("missing scroll channel")
+            };
+            assert_eq!((texture, initial, step), expected);
+            assert!(texture_animation(&animation, independent, expected.0).is_err());
+        }
+        animation.primary = None;
+        assert!(texture_animation(&animation, false, 0)?.is_none());
+        assert!(texture_animation(&animation, true, 3)?.is_some());
+        assert!(texture_animation(&AttachmentAnimation::default(), true, 0)?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn atlas_preparation_keeps_authored_order_and_direct_timing() -> Result<()> {
+        let animation: AttachmentAnimation = serde_json::from_value(serde_json::json!({
+            "primary":{"kind":"atlas", "rows":4, "ticks_per_frame":9, "frames":[0,1,2,3,2,1]},
+            "independent":{"kind":"atlas", "rows":4, "ticks_per_frame":6}
+        }))?;
         for (independent, expected_ticks, expected_order) in [
             (false, 9, vec![0, 1, 2, 3, 2, 1]),
             (true, 6, vec![0, 1, 2, 3]),
@@ -247,8 +305,12 @@ mod tests {
             );
         }
         assert!(texture_animation(&animation, false, 0).is_err());
-        animation.channels[0].period = -1;
-        assert!(texture_animation(&animation, false, 1).is_err());
+        assert!(
+            serde_json::from_value::<AttachmentAnimation>(serde_json::json!({
+                "primary":{"kind":"atlas", "rows":4, "ticks_per_frame":0}
+            }))
+            .is_err()
+        );
         Ok(())
     }
 }

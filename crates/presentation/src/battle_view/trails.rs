@@ -140,6 +140,7 @@ impl Trails {
                                 | Filter::NearestMipmapLinear
                         ),
                         nearest_mag: matches!(sampler.mag_filter, Filter::Nearest),
+                        mipmapped: false,
                     };
                     crate::scene::sampled_image(
                         Some((image.clone(), binding)),
@@ -563,11 +564,7 @@ fn ribbon_mesh(
     const CURVE_STEPS: usize = 3;
     let du = width / ((samples.len() - 1) * CURVE_STEPS) as f32;
     let dv = height / (endpoints - 1) as f32;
-    let rgb = if highlighted {
-        [1.; 3]
-    } else {
-        material.color.map(|v| f32::from(v) / 128.)
-    };
+    let rgb = if highlighted { [1.; 3] } else { material.color };
     let mut data = Vertices::default();
     for row in 0..endpoints - 1 {
         let top = v + height - row as f32 * dv;
@@ -648,7 +645,7 @@ mod tests {
             texture: None,
             palette: 0,
             additive: false,
-            color: [64, 32, 32],
+            color: [0.5, 0.25, 0.25],
             uv: [0, 0, 64, 64],
         };
         let mut trails = Trails {

@@ -17,9 +17,77 @@ pub mod flags {
     pub const PLACEMENT: u16 = AUTO_SIDE | ABOVE | BELOW;
 }
 pub const DIALOGUE_SLOTS: u8 = 3;
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 use symphonia_script::message::Message;
-use symphonia_script_vm::{Host, Memory, RunEvent, Vm};
+use symphonia_script_vm::Memory;
+
+#[cfg(test)]
+#[test]
+fn editable_message_controls_resolve_saved_names_numbers_and_voice_cues() {
+    let message: Message = serde_json::from_str(
+        r#"[
+        {"actor_name":"controlled"}, ": ", {"item_name":3}, " x",
+        {"number":{"add":[{"state_i32":2064},1]}}, {"color":"red"}, {"voice":1179693}
+    ]"#,
+    )
+    .unwrap();
+    let mut memory = Memory::default();
+    memory.write(2064, symphonia_script::Width::S32, 4).unwrap();
+    let names = BTreeMap::from([(1, "Traveler".into())]);
+    let text = resonance_content::session::GameText {
+        items: BTreeMap::from([(3, "Apple Gel".into())]),
+        ..Default::default()
+    };
+    let resolved = resolve(&message, &mut memory, &names, &text, 1).unwrap();
+    let prose: String = resolved
+        .tokens
+        .iter()
+        .filter_map(|token| match token {
+            TextToken::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(prose, "Traveler: Apple Gel x5");
+    assert!(matches!(
+        resolved.tokens[5],
+        TextToken::Control {
+            opcode: 3,
+            value: 2
+        }
+    ));
+    assert!(matches!(
+        resolved.tokens[6],
+        TextToken::Control {
+            opcode: 9,
+            value: 1179693
+        }
+    ));
+    // Retained preparations keep their parsed values; a new edit replaces only
+    // the requested controls and still uses the current saved character name.
+    let edit: Message =
+        serde_json::from_str(r#"[{"actor_name":"lloyd"},{"color":"green"},{"voice":"stop"}]"#)
+            .unwrap();
+    let edited = resolve(&edit, &mut memory, &names, &text, 1).unwrap();
+    assert!(matches!(&edited.tokens[0], TextToken::Text { text } if text == "Traveler"));
+    assert!(matches!(
+        edited.tokens[1],
+        TextToken::Control {
+            opcode: 3,
+            value: 4
+        }
+    ));
+    assert!(matches!(
+        edited.tokens[2],
+        TextToken::Control {
+            opcode: 9,
+            value: -1
+        }
+    ));
+    assert!(matches!(
+        resolved.tokens[6],
+        TextToken::Control { value: 1179693, .. }
+    ));
+}
 
 #[derive(Debug, Clone)]
 pub enum TextToken {
@@ -119,9 +187,6 @@ impl crate::GameWorld {
         Ok(operation)
     }
 }
-struct ExpressionHost;
-impl Host for ExpressionHost {}
-
 /// Evaluate message expressions against shared scenario memory using the same
 /// VM arithmetic and reference rules as event scripts.
 pub(crate) fn resolve(
@@ -138,21 +203,8 @@ pub(crate) fn resolve(
             Token::Text { text } => tokens.push(TextToken::Text { text: text.clone() }),
             Token::Raw { value } => return Err(format!("undecoded message byte {value:#x}")),
             Token::Control { opcode, expression } => {
-                if expression.len() > 4096 || !expression.len().is_multiple_of(2) {
-                    return Err("invalid message expression length".into());
-                }
-                let mut bytes = vec![0, 4, 0, 0, 0, 0, 0, 0];
-                bytes.extend(expression);
-                let program =
-                    Arc::new(symphonia_script::Program::decode(&bytes).map_err(|e| e.to_string())?);
-                let mut vm = Vm::new(program, 0).map_err(|e| e.to_string())?;
-                let result = vm
-                    .run(&mut ExpressionHost, memory, 1024)
-                    .map_err(|e| e.to_string())?;
-                if result.event != RunEvent::Halted {
-                    return Err("message expression suspended".into());
-                }
-                let value = vm.expression().ok_or("message expression has no result")?;
+                let value = symphonia_script_vm::message::evaluate(expression, memory)
+                    .map_err(|error| error.to_string())?;
                 match opcode {
                     1 => {
                         let id = if value == crate::CONTROLLED_ACTOR {

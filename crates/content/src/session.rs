@@ -9,21 +9,38 @@ pub struct SessionData {
     #[serde(skip)]
     pub rules: Option<std::sync::Arc<crate::menu_data::MenuData>>,
     pub version: u32,
-    pub executable_sha256: String,
+    #[serde(default)]
     pub items: Vec<ItemDefinition>,
     pub characters: Vec<CharacterDefinition>,
     pub experience: Vec<u32>,
 }
 
-/// Localized labels are independent of the statistics used for save identity.
+/// Localized labels are independent of gameplay statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GameText {
     #[serde(default)]
     pub characters: BTreeMap<i32, String>,
+    #[serde(default)]
     pub items: BTreeMap<u16, String>,
+    #[serde(default)]
     pub titles: BTreeMap<u16, String>,
     #[serde(default)]
     pub techniques: BTreeMap<u16, String>,
+}
+
+impl GameText {
+    pub fn load(files: &crate::prepared::Files) -> Result<Self> {
+        Ok(Self {
+            characters: files
+                .json::<crate::characters::Document>(crate::characters::PATH)?
+                .names()?,
+            items: crate::items::load(files)?.names(files.diagnostics())?,
+            titles: files
+                .json::<crate::titles::Document>(crate::titles::PATH)?
+                .names(files.diagnostics())?,
+            techniques: crate::arte::document::load(files)?.names(files.diagnostics())?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,9 +97,11 @@ pub struct CharacterDefinition {
     /// Weapon, armor, head, accessory 1, accessory 2, shield/body.
     pub equipment: [u16; 6],
     pub techniques: Vec<u16>,
+    #[serde(default)]
     pub allowed_techniques: Vec<u16>,
     pub shortcuts: [u16; 4],
     pub growth: [StatGrowth; 7],
+    #[serde(default)]
     pub level_techniques: BTreeMap<u8, Vec<u16>>,
 }
 
@@ -104,13 +123,33 @@ pub struct StatGrowth {
 impl SessionData {
     /// Bind and admit the shared rules before constructing a party or loading a save.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
-        let rules = crate::menu_data::MenuData::load(files)?;
+        let items = crate::items::load(files)?;
+        let techniques = crate::arte::document::load(files)?;
+        let characters: crate::characters::Document = files.json(crate::characters::PATH)?;
+        let cooking: crate::cooking::Document = files.json(crate::cooking::PATH)?;
+        let ex: crate::ex_skills::Document = files.json(crate::ex_skills::PATH)?;
+        let rules = crate::menu_data::MenuData::load_with_tables(
+            files,
+            &items,
+            &techniques,
+            &characters,
+            &cooking,
+            &ex,
+        )?;
         rules.validate_gameplay()?;
-        let mut data: Self = files.json("game/session-data.json")?;
-        for character in &mut data.characters {
-            crate::arte::elemental::extend_learning(&mut character.allowed_techniques);
-        }
-        data.rules = Some(std::sync::Arc::new(rules));
+        let data = Self {
+            characters: characters.prepare(
+                &items.mappings,
+                &techniques,
+                &rules.titles,
+                &cooking.mappings,
+                &ex,
+            )?,
+            experience: characters.experience_curve()?,
+            items: items.inventory,
+            rules: Some(std::sync::Arc::new(rules)),
+            version: 1,
+        };
         data.validate()?;
         Ok(data)
     }
@@ -128,14 +167,6 @@ impl SessionData {
             (2..=256).contains(&self.experience.len())
                 && self.experience.windows(2).all(|p| p[0] <= p[1]),
             "invalid experience curve"
-        );
-        ensure!(
-            self.executable_sha256.len() == 64
-                && self
-                    .executable_sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_hexdigit()),
-            "invalid session source digest"
         );
         for item in &self.items {
             ensure!(
@@ -245,7 +276,7 @@ impl SessionData {
 fn character_techniques_use_their_allowed_catalogue() -> Result<()> {
     use serde_json::json;
     let mut session: SessionData = serde_json::from_value(json!({
-        "version":1, "executable_sha256":"0".repeat(64), "experience":[0,0],
+        "version":1,  "experience":[0,0],
         "items":[{"equipment_kind":null,"allowed_characters":0,"stack_limit":1}],
         "characters":vec![json!({
             "affinity":0,"level":1,"experience":0,"base_stats":[1,0,0,0,0,0,0],

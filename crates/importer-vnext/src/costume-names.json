@@ -1,0 +1,153 @@
+{
+  "1": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "nobleman"
+    },
+    "2": {
+      "name": "arrgh-me-hearties"
+    },
+    "3": {
+      "name": "default"
+    },
+    "4": {
+      "name": "beach-boy"
+    }
+  },
+  "2": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "fair-lady"
+    },
+    "2": {
+      "name": "maid"
+    },
+    "3": {
+      "name": "angel",
+      "body": "default"
+    },
+    "4": {
+      "name": "mermaid"
+    }
+  },
+  "3": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "easter-sunday"
+    },
+    "2": {
+      "name": "katz-katz-katz"
+    },
+    "3": {
+      "name": "katz-katz-katz"
+    },
+    "4": {
+      "name": "beach-comber"
+    }
+  },
+  "4": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "glamorous-beauty"
+    },
+    "2": {
+      "name": "maiden"
+    },
+    "3": {
+      "name": "maiden"
+    },
+    "4": {
+      "name": "no-not-the-sun"
+    }
+  },
+  "5": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "you-look-great"
+    },
+    "2": {
+      "name": "successor"
+    },
+    "3": {
+      "name": "alternate"
+    },
+    "4": {
+      "name": "queen-of-the-beach"
+    }
+  },
+  "6": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "narcissist"
+    },
+    "2": {
+      "name": "masked-swordsman"
+    },
+    "3": {
+      "name": "masked-swordsman"
+    },
+    "4": {
+      "name": "pickup-artist"
+    }
+  },
+  "7": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "little-madam"
+    },
+    "2": {
+      "name": "dream-traveler"
+    },
+    "3": {
+      "name": "initial"
+    },
+    "4": {
+      "name": "first-timer-at-sea"
+    }
+  },
+  "8": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "dandy"
+    },
+    "2": {
+      "name": "god-of-the-kitchen"
+    },
+    "3": {
+      "name": "god-of-the-kitchen"
+    },
+    "4": {
+      "name": "swimmer"
+    }
+  },
+  "9": {
+    "0": {
+      "name": "default"
+    },
+    "1": {
+      "name": "judgment"
+    },
+    "2": {
+      "name": "alternate"
+    },
+    "3": {
+      "name": "alternate"
+    }
+  }
+}

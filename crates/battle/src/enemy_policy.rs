@@ -15,6 +15,11 @@ const STATION_REARM_TICKS: u64 = 900;
 
 #[derive(Debug, Clone)]
 pub enum EnemyBehavior {
+    HealthRecoil {
+        hp_percent: u8,
+        knockdown_immune: bool,
+        clear_pending_on_hit: bool,
+    },
     /// Leave when either the health threshold or elapsed gameplay time is reached.
     Retreat {
         hp_percent: u8,
@@ -23,6 +28,7 @@ pub enum EnemyBehavior {
     /// Permanently change choices and release turning, push and Unison restrictions.
     HealthStage {
         hp_percent: u8,
+        motion_aliases: Vec<(u16, Option<u16>)>,
         initial_station: EnemyStation,
         initial_actions: std::ops::Range<EnemyChoiceId>,
         final_actions: std::ops::Range<EnemyChoiceId>,
@@ -58,7 +64,9 @@ pub enum EnemyBehavior {
     Transformation {
         reveal_hp_percent: u8,
         revealed_bones: Vec<u16>,
+        reveal_armor: Option<u8>,
         airborne_hp_percent: u8,
+        airborne_recover_in_air: bool,
         airborne_walk_speed: f32,
         airborne_motions: Vec<(u16, Option<u16>)>,
         hover_height: f32,
@@ -93,6 +101,9 @@ impl PreparedBattle {
                 continue;
             };
             match &decision.behavior {
+                Some(EnemyBehavior::HealthRecoil { hp_percent, .. }) => {
+                    ensure!(*hp_percent <= 100, "invalid enemy recoil threshold");
+                }
                 Some(EnemyBehavior::Retreat {
                     hp_percent,
                     after_ticks,
@@ -107,6 +118,7 @@ impl PreparedBattle {
                     initial_station,
                     initial_actions,
                     final_actions,
+                    ..
                 }) => ensure!(
                     *hp_percent <= 100
                         && initial_station
@@ -242,6 +254,23 @@ impl Battle {
         let runtime = &mut self.runtime[index];
         let hurt_pending = std::mem::take(&mut runtime.enemy_behavior.hurt_pending);
         match behavior {
+            EnemyBehavior::HealthRecoil {
+                hp_percent,
+                knockdown_immune,
+                clear_pending_on_hit,
+            } => {
+                if !runtime.enemy_behavior.initialized
+                    && self.actors[index].hp_percent() <= i16::from(*hp_percent)
+                {
+                    let profile = &mut self.actors[index].reaction.profile;
+                    profile.can_knock_down = !knockdown_immune;
+                    if *knockdown_immune {
+                        profile.can_launch = false;
+                    }
+                    profile.clear_pending = *clear_pending_on_hit;
+                    runtime.enemy_behavior.initialized = true;
+                }
+            }
             EnemyBehavior::Retreat { .. } => {}
             EnemyBehavior::HealthStage {
                 initial_station, ..
@@ -475,7 +504,7 @@ impl Battle {
 mod tests {
     use super::*;
     use crate::{ActionKey, ActionRequest, BattleClock, BattleInput, Models, Side};
-    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Skeleton, Transform};
     use std::{collections::BTreeMap, sync::Arc};
 
     #[test]
@@ -572,7 +601,8 @@ mod tests {
         let bone = |name: &str, x| Bone {
             name: name.into(),
             parent: None,
-            bind_channels: TransformChannels(8),
+            parent_transform: None,
+            shadow_bounds: true,
             bind: Transform {
                 translation: [x, 0., 0.],
                 ..Default::default()

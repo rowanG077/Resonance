@@ -275,7 +275,7 @@ impl Drawing<'_> {
             .chain(captions.iter().map(|id| {
                 status_text
                     .equipment_effects
-                    .get(id)
+                    .get(*id)
                     .context("equipment effect caption was not prepared")
                     .map(|text| (text, 20.))
             }))

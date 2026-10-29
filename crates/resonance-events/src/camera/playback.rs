@@ -1,5 +1,5 @@
 use crate::CameraTrack;
-use resonance_content::CameraKey;
+use resonance_content::camera_motion::CameraMotion;
 
 impl CameraTrack {
     pub fn new(resource: u32, tick: u32) -> Self {
@@ -107,23 +107,11 @@ impl CameraTrack {
         })
     }
 
-    pub fn sample(&self, tick: u32, keys: &[CameraKey]) -> Option<([f32; 3], [f32; 3])> {
-        let time = self.frame(tick, keys.last()?.time);
-        let right = keys
-            .partition_point(|key| key.time < time)
-            .min(keys.len() - 1);
-        let a = &keys[right.saturating_sub(1)];
-        let b = &keys[right];
-        let fraction = if a.time == b.time {
-            0.
-        } else {
-            (time - a.time) / (b.time - a.time)
-        };
-        let interpolate =
-            |a: [f32; 3], b: [f32; 3]| std::array::from_fn(|i| a[i] + (b[i] - a[i]) * fraction);
-        Some((
-            interpolate(a.position, b.position),
-            interpolate(a.target, b.target),
-        ))
+    pub fn sample(
+        &self,
+        tick: u32,
+        motion: &CameraMotion,
+    ) -> anyhow::Result<resonance_content::CameraKey> {
+        motion.sample(self.frame(tick, motion.duration_frames()))
     }
 }

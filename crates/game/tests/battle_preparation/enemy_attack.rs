@@ -4,19 +4,13 @@ use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     ActionRequest, Activity, ActorId, BattleInput, ButtonInput, ContactSource, ControlInput, Cue,
 };
-use resonance_content::{
-    battle_effect,
-    diagnostics::Diagnostics,
-    menu_data::MenuData,
-    prepared::{Cache, Files},
-    session::SessionData,
-};
+use resonance_content::{battle_effect, diagnostics::Diagnostics, session::SessionData};
 use resonance_events::{battle::DefeatPolicy, libc_random, party::Party};
 use resonance_game::battle::{
-    encounter::{Assets, PrepareOptions, Prepared},
+    encounter::{PrepareOptions, Prepared},
     party::Character,
 };
-use std::{collections::BTreeSet, sync::Arc};
+use std::collections::BTreeSet;
 
 const SEED: u64 = 0x2345;
 const ENCOUNTER_COMPLETION_BUDGET: u32 = 600;
@@ -30,13 +24,14 @@ struct Fixture {
 
 fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
     let root = crate::common::asset_root();
-    let mut files = Cache::default();
-    let retained = Files::load(&root, &["fields/map-332.preload.json"], &mut files, || {
-        false
-    })?;
-    let menus: MenuData = retained.json("game/menu-data.json")?;
-    let mut data: SessionData = retained.json("game/session-data.json")?;
-    data.rules = Some(Arc::new(menus.clone()));
+    let retained = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let data = SessionData::load(&retained)?;
+    let menus = data.rules.as_ref().context("missing session rules")?;
     let mut party = Party::new(&data, Default::default())?;
     if solo_regal {
         let growth = menus.titles[7][usize::from(party.members[7].title - 1)].growth;
@@ -51,20 +46,34 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
     party.field_leader = party.formation[0];
     party.settings.battle_controls = [0; 4];
     party.validate(&data)?;
-    let (assets, prepared) = Assets::load(
-        &root,
-        &retained,
-        &menus,
-        &data,
-        &party,
-        opening_setup(formation, DefeatPolicy::ResumeEvent),
-        PrepareOptions {
-            story: 0,
-            ..opening_options(SEED)
-        },
-        &mut files,
-        || false,
-    )?;
+    let (assets, prepared) = {
+        let mut snapshot = (&retained)
+            .library()
+            .context("named library is required")?
+            .snapshot();
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut snapshot,
+            &(|| false),
+        )?;
+        let inputs = resonance_game::battle::encounter::Assets::capture(
+            &mut snapshot,
+            menus,
+            &data,
+            &party,
+            opening_setup(formation, DefeatPolicy::ResumeEvent),
+            (&retained).diagnostics().clone(),
+            &(|| false),
+        )?;
+        let (assets, prepared, _) = inputs.prepare_named(
+            menus,
+            PrepareOptions {
+                story: 0,
+                ..opening_options(SEED)
+            },
+            &catalogue,
+        )?;
+        Ok::<_, anyhow::Error>((assets, prepared))
+    }?;
 
     assert_eq!(
         prepared.characters,
@@ -85,9 +94,15 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
         .iter()
         .find(|enemy| enemy.reward.monster == 50)
         .map(|enemy| -> Result<_> {
-            let source: resonance_content::battle_enemy::Definition = assets
-                .files
-                .json(&resonance_content::battle_enemy::path(enemy.reward.monster))?;
+            use resonance_content::{battle_enemy::document, library::Mappings};
+            let mappings: Mappings = assets.files.json(document::MAPPINGS)?;
+            let path = mappings.resolve(
+                document::MAPPINGS,
+                u32::from(enemy.reward.monster),
+                Some("enemy.json"),
+            )?;
+            let entry: document::Entry = assets.files.json(&path)?;
+            let source = entry.rules;
             let cast = source
                 .actions
                 .rows
@@ -110,11 +125,12 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
     if solo_regal {
         // Enemy-only Fire Ball must prepare its contact particles and cast palette
         // even when the party has no Fire Ball resource dependency.
-        let source: battle_effect::SourceBank = assets.files.json(battle_effect::COMMON_PATH)?;
         let common = prepared
             .effects
             .iter()
-            .find(|effect| effect.source.source_sha256 == source.source_sha256)
+            .find(|effect| {
+                effect.source.document.as_deref() == Some(battle_effect::document::COMMON)
+            })
             .context("missing common effect bank")?;
         let tints: battle_effect::Tints = assets.files.json(battle_effect::TINTS_PATH)?;
         let fire = 3;
@@ -127,12 +143,7 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
         }) {
             assert!(common.members.contains(&u16::from(member)));
         }
-        let pulse = common.source.particle(82)?;
-        assert!(
-            common.palettes.get(&82).is_some_and(
-                |pairs| pairs.contains(&[tints.palettes[fire], pulse.state.palettes[1]])
-            )
-        );
+        super::assert_stored_spell_art(common, tints.palettes[fire])?;
     }
     Ok(Fixture {
         party: prepared

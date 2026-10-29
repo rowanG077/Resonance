@@ -19,7 +19,6 @@ pub(super) struct Rig {
     secondary_bones: BTreeSet<usize>,
     from: Vec<Frame>,
     presented: Vec<Frame>,
-    bind_channels: Vec<u8>,
     authored_channels: Vec<u8>,
     clip: Option<(resonance_events::animation::AnimationSource, u32, u16, u32)>,
 }
@@ -30,7 +29,6 @@ pub(super) fn bind(
     roots: Query<(Entity, &ActorPart), Without<Rig>>,
     children: Query<&Children>,
     nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
-    clips: Res<Assets<super::sparse_animation::Clip>>,
 ) {
     for (root, part) in &roots {
         if !part.prepared {
@@ -41,17 +39,18 @@ pub(super) fn bind(
             .expect("prepared animation skeleton must contain every bone");
         rig.secondary_bones.extend(
             spec.secondary_motion
-                .chains
-                .iter()
-                .flat_map(|chain| chain.joints.iter().map(|joint| usize::from(joint.node))),
+                .prepare(&spec.bone_names)
+                .expect("prepared dynamics must reference existing bones")
+                .into_iter()
+                .flat_map(|chain| {
+                    chain
+                        .joints
+                        .into_iter()
+                        .map(|joint| usize::from(joint.node))
+                }),
         );
-        for clip in &art.models[&part.resource][part.part].clips {
-            for track in &clips.get(clip).expect("prepared sparse clip").0.tracks {
-                rig.bind_channels[usize::from(track.bone)] = track.bind_channels.0;
-            }
-        }
         for (i, &(_, rest)) in rig.bones.iter().enumerate() {
-            let frame = Frame::sample(rest.into(), 0, rig.bind_channels[i]);
+            let frame = Frame::sample(rest.into(), 0);
             rig.from[i] = frame;
             rig.presented[i] = frame;
         }
@@ -73,13 +72,12 @@ pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
 /// Resolve the displayed clip and its sampling time.
 fn sample_clip<'a>(
     model: &'a resonance_content::ScenePart,
-    handles: &[Handle<super::sparse_animation::Clip>],
-    clips: &'a Assets<super::sparse_animation::Clip>,
+    motions: &'a [std::sync::Arc<resonance_content::animation::Motion>],
     animation: &resonance_events::Animation,
     resource: u32,
     tick: u32,
     delay: f32,
-) -> Option<(&'a resonance_content::animation::Motion, f32, &'a [u16])> {
+) -> Option<(&'a resonance_content::animation::Motion, f32, &'a [String])> {
     let index = model
         .clips
         .iter()
@@ -99,9 +97,9 @@ fn sample_clip<'a>(
         }
     }
     Some((
-        &clips.get(&handles[index]).expect("prepared sparse clip").0,
+        &motions[index],
         time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-        &spec.secondary_pose_nodes,
+        &spec.pose_chains,
     ))
 }
 
@@ -109,7 +107,6 @@ fn sample_clip<'a>(
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
-    clips: Res<Assets<super::sparse_animation::Clip>>,
     mut rigs: Query<(&ActorPart, &mut Rig)>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<Locals>,
@@ -136,8 +133,7 @@ pub(super) fn sample(
             });
             let Some((clip, mut time, _)) = sample_clip(
                 &model.spec,
-                &model.clips,
-                &clips,
+                &model.motions,
                 animation,
                 actor.resource,
                 world.tick,
@@ -160,12 +156,7 @@ pub(super) fn sample(
                 let entity = rig.bones[i].0;
                 if let Some(weight) = echo_entrance {
                     let rest = rig.bones[i].1;
-                    pose = Frame::sample(rest.into(), 0, rig.bind_channels[i]).mix(
-                        pose,
-                        rest,
-                        rig.bind_channels[i],
-                        weight,
-                    );
+                    pose = Frame::sample(rest.into(), 0).mix(pose, rest, weight);
                 }
                 if let Ok(mut transform) = nodes.get_mut(entity) {
                     affine.set(entity, &mut transform, pose.pose);
@@ -216,7 +207,6 @@ impl Rig {
         let previous: Vec<_> = bones.iter().map(|(_, t)| Frame::from(*t)).collect();
         Self {
             sampled: false,
-            bind_channels: vec![frame::TRS; bones.len()],
             authored_channels: vec![0; bones.len()],
             bones,
             camera_facing: Vec::new(),
@@ -257,7 +247,6 @@ impl Rig {
                     Frame::sample(
                         super::sparse_animation::sample_track(track, time, self.bones[i].1)?,
                         self.authored_channels[i],
-                        self.bind_channels[i],
                     ),
                 ))
             })
@@ -270,12 +259,7 @@ impl Rig {
         if !animated && !self.secondary_bones.contains(&index) {
             *pose = self.presented[index];
         } else if weight < 1. {
-            *pose = self.from[index].mix(
-                *pose,
-                self.bones[index].1,
-                self.bind_channels[index],
-                weight,
-            );
+            *pose = self.from[index].mix(*pose, self.bones[index].1, weight);
         }
         self.presented[index] = *pose;
     }
@@ -332,11 +316,8 @@ pub(super) fn blend(
         for i in 0..rig.bones.len() {
             let entity = rig.bones[i].0;
             if let Ok(mut transform) = nodes.get_mut(entity) {
-                let mut pose = Frame::sample(
-                    affine.get(entity, *transform),
-                    rig.authored_channels[i],
-                    rig.bind_channels[i],
-                );
+                let mut pose =
+                    Frame::sample(affine.get(entity, *transform), rig.authored_channels[i]);
                 let animated = rig.authored_channels[i] != 0;
                 rig.blend_bone(i, &mut pose, weight, animated);
                 // A newly loaded rig has no previous visible pose to blend from.
@@ -368,7 +349,7 @@ mod tests {
         rig.from = rig.presented.clone();
         for (weight, angle) in [(0.5, 0.5), (1., 0.)] {
             for i in 0..2 {
-                let mut pose = Frame::sample(rest.into(), 0, frame::TRS);
+                let mut pose = Frame::sample(rest.into(), 0);
                 rig.blend_bone(i, &mut pose, weight, false);
                 let expected = if i == 0 { angle } else { 1. };
                 let rotation =

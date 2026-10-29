@@ -5,12 +5,24 @@ use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
 };
-use resonance_content::animation::{FRAME_HZ, Motion, Transform as PoseTransform};
+use resonance_content::animation::{FRAME_HZ, Motion, NamedMotion, Transform as PoseTransform};
 use std::sync::Arc;
 
 #[derive(Asset, TypePath, Debug)]
-pub(super) struct Clip(pub Arc<Motion>);
+pub(super) struct Clip(pub NamedMotion);
 
+impl Clip {
+    pub fn bind(
+        &self,
+        bones: &[String],
+        spec: &resonance_content::SceneClip,
+    ) -> Result<Arc<Motion>> {
+        Ok(Arc::new(self.0.bind(bones, &spec.joints)?))
+    }
+}
+
+// Typed loads select this loader; leave `.glb` extension dispatch to Bevy's
+// scene loader so loading a model's #Scene0 never selects an animation clip.
 #[derive(Default, TypePath)]
 struct Loader;
 impl AssetLoader for Loader {
@@ -20,16 +32,15 @@ impl AssetLoader for Loader {
     async fn load(
         &self,
         reader: &mut dyn Reader,
-        _: &(),
+        _settings: &(),
         _context: &mut LoadContext<'_>,
     ) -> Result<Clip> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let motion = Motion::decode(&bytes)?;
-        Ok(Clip(Arc::new(motion)))
+        Ok(Clip(NamedMotion::decode(&bytes)?))
     }
     fn extensions(&self) -> &[&str] {
-        &["motion"]
+        &[]
     }
 }
 
@@ -128,7 +139,7 @@ pub(super) fn sample_track(
         rotation: rest.rotation.to_array(),
         scale: rest.scale.to_array(),
     };
-    Ok(if track.matrices.is_some() {
+    Ok(if track.is_affine() {
         affine::Pose::Affine(bevy::math::Affine3A::from_mat4(Mat4::from_cols_array_2d(
             &track.sample_matrix(frame, bind)?,
         )))
@@ -213,15 +224,40 @@ mod tests {
 
     #[test]
     fn sparse_playback_evaluates_fractional_curves_and_restores_omitted_channels() {
-        let motion: Motion = serde_json::from_value(serde_json::json!({
-            "duration_frames":2., "tracks":[{"bone":0,"bind_channels":0,"period_frames":2.,"times":[0.,2.],
-            "translation":{"interpolation":"bezier","values":[[0.,0.,0.],[8.,0.,0.]],
-                "incoming":[[0.,0.,0.],[0.,0.,0.]],"outgoing":[[0.,4.,0.],[0.,0.,0.]]},
-            "scale":null,"rotation":null}]
-        }))
-        .unwrap();
+        use resonance_content::animation::{Channel, Interpolation, NodeTrack, Track};
+        let motion = Motion {
+            duration_frames: 2.0,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![NodeTrack {
+                    bind: Default::default(),
+                    translation: Some(Channel {
+                        interpolation: Interpolation::CubicSpline,
+                        times: vec![0.0, 0.06666666666666667],
+                        values: vec![
+                            [0.0, 0.0, 0.0],
+                            [0.0, 0.0, 0.0],
+                            [0.0, 180.0, 0.0],
+                            [-0.0, -0.0, -0.0],
+                            [8.0, 0.0, 0.0],
+                            [0.0, 0.0, 0.0],
+                        ],
+                    }),
+                    rotation: None,
+                    scale: None,
+                }],
+            }],
+        };
         motion.validate_bones(1).unwrap();
-        assert_eq!(motion.tracks[0].times.len(), 2);
+        assert_eq!(
+            motion.tracks[0].nodes[0]
+                .translation
+                .as_ref()
+                .unwrap()
+                .times
+                .len(),
+            2
+        );
         let expected = motion.tracks[0]
             .sample(0.125, PoseTransform::default())
             .unwrap();

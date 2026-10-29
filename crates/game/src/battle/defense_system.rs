@@ -31,23 +31,17 @@ pub fn definition(
         "Defense System members do not match its composition"
     );
     let mut anchors = Vec::new();
-    for (actor, slot) in arms.into_iter().zip(content.arm_slots) {
-        let marker = format!("pa{slot:02}_");
+    for (actor, joint) in arms.into_iter().zip(&content.arm_joints) {
         let bones: Vec<_> = core_model
             .skeleton
             .bones
             .iter()
             .enumerate()
-            .filter_map(|(index, bone)| {
-                bone.name
-                    .to_ascii_lowercase()
-                    .starts_with(&marker)
-                    .then_some(index)
-            })
+            .filter_map(|(index, bone)| (&bone.name == joint).then_some(index))
             .collect();
         ensure!(
             bones.len() == 1,
-            "Defense System requires one attachment for {marker}"
+            "Defense System requires one attachment for {joint}"
         );
         anchors.push(DefenseArm {
             actor,

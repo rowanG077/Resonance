@@ -3,23 +3,76 @@ use serde::{Deserialize, Serialize};
 
 /// A minimum flight floor above geometry absent from the terrain collision mesh.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "area", rename_all = "snake_case")]
-pub enum FlightZone {
-    Landmark {
-        location: u16,
-        margin: f32,
-        height: f32,
-        active_only: bool,
-    },
-    Circle {
-        position: [f32; 2],
-        radius: f32,
-        height: f32,
-    },
+#[serde(deny_unknown_fields)]
+pub struct FlightZone {
+    pub position: [f32; 2],
+    pub radius: f32,
+    pub height: f32,
 }
 
-/// Native world movement/camera constants, extracted once with the terrain tables.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlightZones {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sylvarant: Vec<FlightZone>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tethe_alla: Vec<FlightZone>,
+}
+impl FlightZones {
+    pub fn get(&self, world: super::World) -> &[FlightZone] {
+        match world {
+            super::World::Sylvarant => &self.sylvarant,
+            super::World::TetheAlla => &self.tethe_alla,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MountDistances {
+    pub foot: f32,
+    pub mounted: f32,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CameraDistances {
+    pub close: MountDistances,
+    pub distant: MountDistances,
+}
+impl CameraDistances {
+    pub fn for_view(&self, distant: bool) -> [f32; 2] {
+        let view = if distant { self.distant } else { self.close };
+        [view.foot, view.mounted]
+    }
+}
+
+/// Probe half extents and the neighborhood radius, in world units.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollisionSettings {
+    pub radius: f32,
+    pub ground_probe_half_extent: f32,
+    pub ship_probe_half_extent: f32,
+}
+impl CollisionSettings {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            [
+                self.radius,
+                self.ground_probe_half_extent,
+                self.ship_probe_half_extent
+            ]
+            .into_iter()
+            .all(|v| v.is_finite() && v > 0. && v < super::TILE_SIZE / 2.),
+            "invalid world collision extent"
+        );
+        Ok(())
+    }
+}
+
+/// Editable movement and camera settings, independent of the source platform.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovementParameters {
     pub stick_maximum: f32,
     pub foot_stick_divisor: f32,
@@ -35,25 +88,26 @@ pub struct MovementParameters {
     pub altitude_per_pitch: f32,
     pub maximum_altitude: f32,
     pub flight_clearance: f32,
-    pub flight_zones: [Vec<FlightZone>; 2],
+    pub flight_zones: FlightZones,
     pub turn_limit: f32,
     pub flight_turn_step: f32,
     pub ship_turn_step: f32,
-    /// Zoom distances in the two perspective camera modes: [foot, mounted].
-    pub camera_distances: [[f32; 2]; 2],
+    pub camera_distances: CameraDistances,
     pub zoom_transition_ticks: f32,
     pub lift_step: f32,
     pub minimum_lift_step: f32,
     pub descent_easing_height: f32,
     /// Degrees per unit of camera rotation input.
     pub camera_turn_degrees: f32,
-    pub collision_radius: f32,
+    pub collision: CollisionSettings,
     /// Native scene-transfer precision, in steps per radian.
     pub heading_quantization: f32,
     pub camera_yaw_quantization: f32,
 }
 impl MovementParameters {
     pub fn validate(&self) -> Result<()> {
+        self.collision.validate()?;
+        let distances = [false, true].map(|view| self.camera_distances.for_view(view));
         let values = [
             self.stick_maximum,
             self.foot_stick_divisor,
@@ -77,14 +131,13 @@ impl MovementParameters {
             self.minimum_lift_step,
             self.descent_easing_height,
             self.camera_turn_degrees,
-            self.collision_radius,
             self.heading_quantization,
             self.camera_yaw_quantization,
         ];
         ensure!(
             values
                 .into_iter()
-                .chain(self.camera_distances.into_iter().flatten())
+                .chain(distances.into_iter().flatten())
                 .all(|v| v.is_finite() && v > 0. && v <= 10000.),
             "invalid world movement parameter"
         );
@@ -99,8 +152,7 @@ impl MovementParameters {
                 && self.flight_clearance < self.maximum_altitude
                 && self.minimum_lift_step <= self.lift_step
                 && self.descent_easing_height < self.flight_clearance
-                && self.collision_radius < super::TILE_SIZE / 2.
-                && self.camera_distances.iter().all(|pair| pair[0] < pair[1]),
+                && distances.iter().all(|pair| pair[0] < pair[1]),
             "inconsistent world movement limits"
         );
         // Turning subtracts from speed. All supported turn values must leave a
@@ -111,39 +163,15 @@ impl MovementParameters {
                 && self.ship_speed_multiplier * speed >= self.turn_limit * self.altitude_per_pitch,
             "world turning can produce a negative speed"
         );
-        for (world, zones) in self.flight_zones.iter().enumerate() {
+        for zones in [&self.flight_zones.sylvarant, &self.flight_zones.tethe_alla] {
             for zone in zones {
-                let (extent, height) = match *zone {
-                    FlightZone::Landmark {
-                        location,
-                        margin,
-                        height,
-                        ..
-                    } => {
-                        ensure!(
-                            usize::from(location / 256) == world && location % 256 != 0,
-                            "invalid flight landmark"
-                        );
-                        (margin, height)
-                    }
-                    FlightZone::Circle {
-                        position,
-                        radius,
-                        height,
-                    } => {
-                        ensure!(
-                            position.into_iter().all(f32::is_finite),
-                            "invalid flight zone position"
-                        );
-                        (radius, height)
-                    }
-                };
                 ensure!(
-                    extent.is_finite()
-                        && extent > 0.
-                        && height.is_finite()
-                        && height > 0.
-                        && height + self.flight_clearance <= self.maximum_altitude,
+                    zone.position.into_iter().all(f32::is_finite)
+                        && zone.radius.is_finite()
+                        && zone.radius > 0.
+                        && zone.height.is_finite()
+                        && zone.height > 0.
+                        && zone.height + self.flight_clearance <= self.maximum_altitude,
                     "invalid flight zone clearance"
                 );
             }

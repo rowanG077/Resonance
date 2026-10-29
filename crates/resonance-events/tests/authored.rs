@@ -1,11 +1,12 @@
 use resonance_events::{
     EventRuntime, GameWorld, Outcome, ResourceLibrary, authored::native_declarations,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 use symphonia_script::{NativeCall, Program};
 
 fn compile(source: &str) -> Arc<Program> {
-    let sources = BTreeMap::from([("test".into(), format!("script field;\n{source}"))]);
+    let mut sources = resonance_script_content::modules();
+    sources.insert("test".into(), format!("script field;\n{source}"));
     Arc::new(
         symphonia_script_compiler::compile("test", &sources, &native_declarations())
             .unwrap()
