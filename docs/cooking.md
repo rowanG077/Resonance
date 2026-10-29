@@ -35,20 +35,29 @@ target/release/resonance-import cook-all
 default. Category commands in `resonance-importer` can reuse that extraction
 without reading disc images again.
 
-Progress is always written to stderr. Stage lines identify the active converter;
-field, battle and rig passes include resource names or IDs and item counts.
-Music names each track before rendering. Speech reports archive and line counts,
-and movie decoding/encoding reports frame progress at roughly ten-second
-intervals while frames are being processed. A successful full cook prints its
-total elapsed time. No verbosity flag is needed.
-
-For example:
+Progress is always written to stderr, with a numbered asset-type heading,
+indented `i/N jobs` lines and further-indented counters within each job:
 
 ```text
-[cook] Shared animation bindings
-[local rigs 341/501] tower-of-mana-0369 (369)
-[music 1/112] Rendering …
+[asset type 48/64] Cooking Movies
+  Using 10 worker threads for 10 jobs
+  [1/10 jobs] Movie: opening
+    [300/1500 frames] opening: decoding
 ```
+
+Each job retains its name and number when running concurrently; log lines can
+arrive out of order. Speech counts lines within an archive, field rigs count
+models within a field, and movies report decode/encode frames at roughly
+ten-second intervals while frames are processed. No verbosity flag is needed.
+A successful full cook prints its total elapsed time.
+
+Independent work within a pass uses `std::thread::available_parallelism()` to
+detect the CPU allowance and start at most that many workers. Each pass finishes
+before the next starts. Parallel passes include field scripts/collision, battle
+party characters (each character's costumes remain ordered), arenas, scenes,
+skills, enemy rules, field definitions, music tracks and movies. Shared asset
+owners and deduplication passes keep their required serial ordering. On failure,
+new work stops and active workers finish before the error returns.
 
 ## Conversion and publication
 

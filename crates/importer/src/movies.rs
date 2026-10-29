@@ -108,18 +108,22 @@ pub fn cook_movies(root: &Path, library: &Path, selected: Option<u32>) -> Result
     }
     fs::create_dir_all(&output)?;
     let mut converted = BTreeSet::new();
-    for (index, (_, (movie, source))) in sources.iter().enumerate() {
+    let mut jobs = Vec::new();
+    for (movie, source) in sources.values() {
         let name = movie_name(source)?;
         if converted.insert(name) {
-            eprintln!("[movies {}/{}] {name}", index + 1, sources.len());
-            convert_movie(
-                movie,
-                &root.join("disc1/sys/main.dol"),
-                &output.join(format!("{name}.mkv")),
-            )
-            .with_context(|| format!("convert movie {source}"))?;
+            jobs.push((name, movie, source));
         }
     }
+    crate::parallel::for_each(&jobs, |index, &(name, movie, source)| {
+        eprintln!("  [{}/{} jobs] Movie: {name}", index + 1, jobs.len());
+        convert_movie(
+            movie,
+            &root.join("disc1/sys/main.dol"),
+            &output.join(format!("{name}.mkv")),
+        )
+        .with_context(|| format!("convert movie {source}"))
+    })?;
     crate::output::json(&library.join(MOVIES), &mappings)?;
     Ok(())
 }
@@ -246,7 +250,7 @@ impl Colors {
     }
 }
 
-fn decode_video(movie: &Path, output: &Path, header: &Header) -> Result<()> {
+fn decode_video(movie: &Path, output: &Path, header: &Header, name: &str) -> Result<()> {
     let mut decoder = h4m::VideoDecoder::with_limits(
         BufReader::new(fs::File::open(movie)?),
         h4m::VideoLimits {
@@ -277,8 +281,7 @@ fn decode_video(movie: &Path, output: &Path, header: &Header) -> Result<()> {
         completed += 1;
         if progress.elapsed() >= Duration::from_secs(10) || completed == header.frames {
             eprintln!(
-                "[movie] {}: decoded {completed}/{} frames",
-                movie.display(),
+                "    [{completed}/{} frames] {name}: decoding",
                 header.frames
             );
             progress = Instant::now();
@@ -302,13 +305,13 @@ fn decode_audio(
     movie: &Path,
     scratch: &Path,
     header: &Header,
+    name: &str,
 ) -> Result<(Vec<AudioTrack>, Vec<PathBuf>)> {
     let mut tracks = Vec::new();
     let mut paths = Vec::new();
     for stream in 1..=header.audio_streams {
         eprintln!(
-            "[movie] {}: audio track {stream}/{}",
-            movie.display(),
+            "    [{stream}/{} audio tracks] {name}",
             header.audio_streams
         );
         let mut decoder = h4m::AudioDecoder::new(BufReader::new(fs::File::open(movie)?), stream)?;
@@ -363,12 +366,16 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
     let mut header_bytes = [0; 68];
     fs::File::open(movie)?.read_exact(&mut header_bytes)?;
     let header = Header::parse(&header_bytes)?;
+    let name = destination
+        .file_stem()
+        .context("movie output has no name")?
+        .to_string_lossy();
     let colors = Colors::read(&fs::read(dol_path)?)?;
     let scratch =
         tempfile::tempdir_in(destination.parent().context("movie has no output parent")?)?;
     let yuv = scratch.path().join("video.yuv");
-    decode_video(movie, &yuv, &header)?;
-    let (audio_tracks, audio_paths) = decode_audio(movie, scratch.path(), &header)?;
+    decode_video(movie, &yuv, &header, &name)?;
+    let (audio_tracks, audio_paths) = decode_audio(movie, scratch.path(), &header, &name)?;
     let temporary = tempfile::NamedTempFile::new_in(scratch.path())?;
     let formats: Vec<_> = audio_tracks
         .iter()
@@ -432,8 +439,7 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
             video_index += 1;
             if progress.elapsed() >= Duration::from_secs(10) || video_index == header.frames {
                 eprintln!(
-                    "[movie] {}: encoded {video_index}/{} frames",
-                    destination.display(),
+                    "    [{video_index}/{} frames] {name}: encoding",
                     header.frames
                 );
                 progress = Instant::now();
