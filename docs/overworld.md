@@ -266,7 +266,7 @@ cargo test -p resonance-content -p resonance-game -p resonance-events --lib --te
 RESONANCE_ASSETS=/absolute/path/to/all-assets RESONANCE_COOKED=/absolute/path/to/current-cooked cargo test -p resonance-game --test overworld_assets original_world_script -- --ignored
 RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-presentation --lib original_world_ -- --ignored
 RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-game --test overworld_assets original_world_enemy -- --ignored
-cargo clippy -p resonance-content -p resonance-game -p resonance-events -p resonance-importer-vnext -p resonance-presentation --all-targets -- -D warnings
+cargo clippy -p resonance-content -p resonance-game -p resonance-events -p resonance-importer -p resonance-presentation --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 

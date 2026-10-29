@@ -4460,11 +4460,11 @@ dependencies = [
  "anyhow",
  "clap",
  "nod",
- "resonance-importer-vnext",
+ "resonance-importer",
 ]
 
 [[package]]
-name = "resonance-importer-vnext"
+name = "resonance-importer"
 version = "0.1.0"
 dependencies = [
  "ahx-rs",
@@ -4567,7 +4567,7 @@ dependencies = [
  "resonance-content",
  "resonance-events",
  "resonance-game",
- "resonance-importer-vnext",
+ "resonance-importer",
  "resonance-media",
  "resonance-model-behavior",
  "resonance-persistence",

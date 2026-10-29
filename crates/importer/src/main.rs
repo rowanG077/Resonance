@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, ensure};
-use resonance_importer_vnext as cooker;
+use resonance_importer as cooker;
 use std::{env, ffi::OsString, fmt::Display, path::PathBuf, str::FromStr};
 
 fn number<T: FromStr>(args: &[OsString], index: usize) -> Result<T>
@@ -65,7 +65,7 @@ fn main() -> Result<()> {
             || args.len() == 4 && args[0] == "battle-stage"
             || args.len() == 5 && args[0] == "battle-effect-texture"
             || args.len() == 5 && args[0] == "battle-party-model",
-        "usage: resonance-importer-vnext <owner> <extraction-root> <output> [selection]"
+        "usage: resonance-importer <owner> <extraction-root> <output> [selection]"
     );
     let extracted = PathBuf::from(&args[1]);
     let library = PathBuf::from(&args[2]);

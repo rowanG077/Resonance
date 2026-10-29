@@ -993,7 +993,7 @@ fn decode_resource(
             instance_detached.push(detached);
         }
     }
-    let gltf = json!({"asset":{"version":"2.0","generator":"resonance-importer-vnext"},"scene":0,"scenes":[{"nodes":roots}],"nodes":nodes,"buffers":[{"byteLength":buffer.len()}],"bufferViews":views,"accessors":accessors,"meshes":meshes,"skins":skins});
+    let gltf = json!({"asset":{"version":"2.0","generator":"resonance-importer"},"scene":0,"scenes":[{"nodes":roots}],"nodes":nodes,"buffers":[{"byteLength":buffer.len()}],"bufferViews":views,"accessors":accessors,"meshes":meshes,"skins":skins});
     Ok((
         gltf::pack_glb(&gltf, &buffer)?,
         instance_meshes,

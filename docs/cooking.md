@@ -2,7 +2,7 @@
 
 `resonance-import cook-all` converts the supported North American GameCube
 GQSEAF revision 0 data into one editable asset library. The command uses
-`crates/importer-vnext`; it has no legacy fallback.
+`crates/importer`; it has no legacy fallback.
 
 ```sh
 cargo build --release -p resonance-import-cli
@@ -34,7 +34,7 @@ stage and automatically install another generation.
 Focused development conversions use the replacement owner's CLI:
 
 ```sh
-cargo run -p resonance-importer-vnext -- field-core local/extracted local/field-review 330
+cargo run -p resonance-importer -- field-core local/extracted local/field-review 330
 ```
 
 That writes one field's script, messages and collision. It needs the appropriate
@@ -89,7 +89,7 @@ Offline checkpoint replay preserves saved preferences; interactive loads apply
 the user's `config.toml` preferences.
 
 Stored battle scenes now require scene format 1. The Ray fixed-pattern recipe in
-`crates/importer-vnext/src/battle_scene_package.rs::ray_recipe` translates its verified native
+`crates/importer/src/battle_scene_package.rs::ray_recipe` translates its verified native
 schedule and extracts heading, strike points, camera and color from the original
 REL tables. Cooking includes the resulting typed recipe in the scene descriptor
 and its normal resource preparation. Preparation resolves the declared contacts

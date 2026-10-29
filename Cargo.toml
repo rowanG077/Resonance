@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/battle", "apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/importer-vnext", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content", "crates/symphonia-constants"]
+members = ["crates/battle", "apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/importer", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content", "crates/symphonia-constants"]
 
 [workspace.package]
 version = "0.1.0"
@@ -37,7 +37,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "png", "ktx2", "zstd_rust", "x11", "wayland"] }
 resonance-content = { path = "crates/content" }
 resonance-game = { path = "crates/game" }
-resonance-importer-vnext = { path = "crates/importer-vnext" }
+resonance-importer = { path = "crates/importer" }
 resonance-presentation = { path = "crates/presentation" }
 
 [profile.dev]
