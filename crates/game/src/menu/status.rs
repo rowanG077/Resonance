@@ -3,10 +3,18 @@ use resonance_content::appearance;
 use resonance_events::party::Member;
 pub const VISIBLE_TITLES: usize = 9;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum Focus {
+    #[default]
+    Name,
+    Title,
+    Costume,
+}
+
 #[derive(Debug, Default, serde::Serialize)]
 pub struct Status {
     pub details: bool,
-    pub title_focus: bool,
+    pub focus: Focus,
     pub row: usize,
     pub title_first: usize,
     pub page_fade: u8,
@@ -20,12 +28,6 @@ pub struct Status {
 const PORTRAIT_FADE: u8 = 240;
 
 impl Status {
-    pub fn title_list_first(&self) -> usize {
-        self.title_first
-            .min(self.row)
-            .max(self.row.saturating_sub(VISIBLE_TITLES - 1))
-    }
-
     pub(super) fn opening() -> Self {
         Self {
             page_fade: 231 - MAIN_SLIDE_STEP,
@@ -100,9 +102,55 @@ impl Menu {
     pub fn titles(&self) -> Vec<u8> {
         self.member().titles.iter().copied().collect()
     }
+    /// Default appearance followed by unique costumes unlocked by owned titles.
+    /// Title IDs supply captions; zero denotes the story's default outfit.
+    pub fn costumes(&self) -> Vec<u8> {
+        let mut costumes = vec![0];
+        let Some(resources) = &self.resources else {
+            return costumes;
+        };
+        let titles = &resources.data.titles[self.member_index()];
+        let mut seen = std::collections::BTreeSet::new();
+        for &id in &self.member().titles {
+            if let Some(costume) = titles[usize::from(id - 1)].costume
+                && seen.insert(costume)
+            {
+                costumes.push(id);
+            }
+        }
+        costumes
+    }
+
+    fn costume_title(&self) -> Option<u8> {
+        let rules = &self.resources.as_ref()?.data.titles[self.member_index()];
+        self.member().costume_title(rules)
+    }
+
+    fn default_costume(&self) -> u8 {
+        let progress = self.checkpoint.as_ref().unwrap().progress();
+        appearance::story_costume(
+            self.member_index() as u32 + 1,
+            progress.script_globals[usize::from(appearance::ANGEL_PROGRESS / 4)],
+            &progress.event_flags,
+        )
+    }
+
+    /// Entries use title IDs; zero is Default. None means the equipped outfit
+    /// has no selectable entry (for example, an outfit selected by an event).
+    pub fn status_choices(&self) -> (Vec<u8>, Option<u8>) {
+        if self.status.focus == Focus::Costume {
+            (
+                self.costumes(),
+                self.costume_title()
+                    .or_else(|| (self.member().costume == self.default_costume()).then_some(0)),
+            )
+        } else {
+            (self.titles(), Some(self.member().title))
+        }
+    }
+
     pub(super) fn step_status(&mut self, input: Input) -> Option<i16> {
         use MenuAction::*;
-        let [left, right, up, down] = [Left, Right, Up, Down].map(|action| input == Some(action));
         let length = self.checkpoint.as_ref()?.progress().party.formation.len();
         match self.page {
             Page::Status => {
@@ -112,23 +160,31 @@ impl Menu {
                     self.status.details = matches!(input, Some(NextTab | PageDown));
                     return Some(0x26);
                 }
-                if left || right {
-                    self.character = (self.character + if left { length - 1 } else { 1 }) % length;
+                if matches!(input, Some(Left | Right)) {
+                    self.character = (self.character
+                        + if input == Some(Left) { length - 1 } else { 1 })
+                        % length;
                     return Some(1);
                 }
-                if up && self.status.title_focus || down && !self.status.title_focus {
-                    self.status.title_focus = down;
+                let focus = match (self.status.focus, input) {
+                    (Focus::Name, Some(Down)) | (Focus::Costume, Some(Up)) => Focus::Title,
+                    (Focus::Title, Some(Up)) => Focus::Name,
+                    (Focus::Title, Some(Down)) => Focus::Costume,
+                    (focus, _) => focus,
+                };
+                if focus != self.status.focus {
+                    self.status.focus = focus;
                     return Some(1);
                 }
-                if input == Some(Confirm) && self.status.title_focus {
+                if input == Some(Confirm) && self.status.focus != Focus::Name {
                     if !self.admit_page(Page::Titles) {
                         return Some(4);
                     }
-                    self.status.row = self
-                        .titles()
+                    let (choices, selected) = self.status_choices();
+                    self.status.row = choices
                         .iter()
-                        .position(|id| *id == self.member().title)
-                        .unwrap();
+                        .position(|id| Some(*id) == selected)
+                        .unwrap_or(0);
                     self.status.title_first = self.status.row.saturating_sub(VISIBLE_TITLES - 1);
                     self.page = Page::Titles;
                     self.status.title_closing = false;
@@ -146,31 +202,39 @@ impl Menu {
                 None
             }
             Page::Titles => {
-                let titles = self.titles();
+                let costumes = self.status.focus == Focus::Costume;
+                let (choices, _) = self.status_choices();
                 let previous = self.status.row;
-                if up {
-                    self.status.row = self.status.row.saturating_sub(1);
-                }
-                if down {
-                    self.status.row = (self.status.row + 1).min(titles.len() - 1);
-                }
-                self.status.title_first = self.status.title_list_first();
+                let delta = match input {
+                    Some(Up) => -1,
+                    Some(Down) => 1,
+                    Some(PageUp | PreviousTab) => -(VISIBLE_TITLES as isize),
+                    Some(PageDown | NextTab) => VISIBLE_TITLES as isize,
+                    _ => 0,
+                };
+                move_list(
+                    &mut self.status.row,
+                    &mut self.status.title_first,
+                    choices.len(),
+                    VISIBLE_TITLES,
+                    delta,
+                );
                 if input == Some(Confirm) {
                     let index = self.member_index();
-                    let title = titles[self.status.row];
-                    let costume =
-                        self.resources.as_ref()?.data.titles[index][usize::from(title - 1)].costume;
-                    let progress = self.checkpoint.as_mut()?.progress_mut();
-                    let member = &mut progress.party.members[index];
-                    member.title = title;
-                    member.costume = costume.map_or(
-                        appearance::story_costume(
-                            index as u32 + 1,
-                            progress.script_globals[usize::from(appearance::ANGEL_PROGRESS / 4)],
-                            &progress.event_flags,
-                        ),
-                        |costume| costume as u8,
-                    );
+                    let title = choices[self.status.row];
+                    if costumes {
+                        let costume = title
+                            .checked_sub(1)
+                            .and_then(|title| {
+                                self.resources.as_ref()?.data.titles[index][usize::from(title)]
+                                    .costume
+                            })
+                            .map_or_else(|| self.default_costume(), |costume| costume as u8);
+                        self.checkpoint.as_mut()?.progress_mut().party.members[index].costume =
+                            costume;
+                    } else {
+                        self.checkpoint.as_mut()?.progress_mut().party.members[index].title = title;
+                    }
                     self.party_changed = true;
                     self.status.title_closing = true;
                     return Some(2);

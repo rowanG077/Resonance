@@ -606,7 +606,9 @@ impl MenuArtwork {
                     && (menu.strategy_page().description().is_none()
                         || state.description_opacity == 255)
             }
-            Page::Status => !menu.status.animating() && menu.status.portrait_fade == 0,
+            Page::Status | Page::Titles => {
+                !menu.status.animating() && menu.status.portrait_fade == 0
+            }
             Page::Cooking => {
                 let state = &menu.cooking;
                 !state.transition.animating()
@@ -1065,11 +1067,6 @@ impl MenuArtwork {
                     };
                 draw.plane = if modal { 1 } else { draw.plane.max(2) };
                 match menu.page {
-                    Page::Titles => {
-                        draw.plane = 2;
-                        draw.cursor([48., 96.], 127);
-                        draw.plane = 4;
-                    }
                     Page::Equip if menu.equipment.focus != EquipmentFocus::Character => {
                         let fade = u32::from(menu.equipment.transition.page_fade);
                         draw.cursor(
