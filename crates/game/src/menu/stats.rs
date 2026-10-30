@@ -75,11 +75,11 @@ impl Projection {
 
 pub(crate) fn live_member(
     data: &MenuData,
-    member: &Member,
+    committed: &Member,
     character: usize,
     actor: &resonance_battle::Actor,
 ) -> Stats {
-    let mut stats = with_combat(member.stats_for(data, character), actor.equipment.stats);
+    let mut stats = with_combat(committed.stats_for(data, character), actor.equipment.stats);
     stats.hp = actor.equipment.max_hp.clamp(0, i32::from(u16::MAX)) as u16;
     stats.tp = actor.equipment.max_tp;
     stats.luck = actor.equipment.luck;

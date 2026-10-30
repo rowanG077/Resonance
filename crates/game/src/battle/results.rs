@@ -404,29 +404,27 @@ impl Candidate {
         state: &'a crate::menu::equipment::Equipment,
         character: usize,
     ) -> crate::menu::equipment::Page<'a> {
+        let party = self.menu_party();
+        let battle_stats = party.formation.get(character).and_then(|&member| {
+            self.setup
+                .actors
+                .iter()
+                .find(|(_, saved)| *saved as u8 == member)
+                .map(|&(actor, character)| crate::menu::equipment::BattleStats {
+                    actor: &battle.actors()[actor.index()],
+                    committed: &self.party.members[character.index()],
+                    formation: &self.party.formation,
+                })
+        });
         crate::menu::equipment::Page {
             state,
-            party: self.menu_party(),
+            party,
             session: &self.session,
             data: &self.menus,
             names: &self.menus.initial_names,
             character,
             stats: self.menu_stats(battle.ledger()),
-            battle: self
-                .menu_party()
-                .formation
-                .get(character)
-                .and_then(|&member| {
-                    self.setup
-                        .actors
-                        .iter()
-                        .find(|(_, saved)| *saved as u8 == member)
-                        .map(|&(actor, _)| crate::menu::equipment::BattleStats {
-                            current: &battle.actors()[actor.index()],
-                            committed: &self.party.members[usize::from(member - 1)],
-                            formation: &self.party.formation,
-                        })
-                }),
+            battle: battle_stats,
         }
     }
 

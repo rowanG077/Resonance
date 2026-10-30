@@ -1,5 +1,5 @@
 //! Current battle values and prospective equipment values have different owners.
-use super::item_tests::{enter_battle, native_fixture};
+use super::item_tests::{enter_battle, native_battle, native_fixture};
 use super::*;
 use resonance_battle::{
     ActionDefinition, ActionExecution, ActionKey, ActionRequest, ActorSetup, AttackEvent,
@@ -181,7 +181,7 @@ fn accepted_draft_changes_do_not_change_current_equipment_or_stats_until_commit(
         },
         |actors, setup| {
             setup.devils_arms_unlocked = true;
-            super::item_tests::native_battle(actors)
+            native_battle(actors)
         },
     )?;
     // Give the in-memory items the same slot rules as a weapon and an accessory.
@@ -261,5 +261,42 @@ fn accepted_draft_changes_do_not_change_current_equipment_or_stats_until_commit(
     assert_eq!(page.current_member()?.equipment[3], 2);
     assert_eq!(page.current_stats()?, planned);
     assert_eq!(f.battle.actors()[0].equipment.luck, 35);
+    Ok(())
+}
+
+#[test]
+fn battle_menu_stats_merge_uncommitted_kills_by_character() -> Result<()> {
+    let mut f = native_fixture(
+        &[9, 1],
+        |party, _, menus| {
+            menus.items[1].properties.kills_damage = true;
+            for character in [0, 8] {
+                party.members[character].equipment[0] = 1;
+            }
+            party.battles.kills[0] = 100;
+            party.battles.kills[8] = 4999;
+            Ok(())
+        },
+        |actors, setup| {
+            setup.devils_arms_unlocked = true;
+            native_battle(actors)
+        },
+    )?;
+    let saved = serde_json::to_value(f.candidate.persistent_party())?;
+    // The ledger is indexed by actor, while saved totals are indexed by character.
+    let mut ledger = f.battle.ledger().clone();
+    ledger.kills[0] = 20;
+    ledger.kills[1] = 7;
+    for unlocked in [false, true] {
+        f.candidate.setup.devils_arms_unlocked = unlocked;
+        let stats = f.candidate.menu_stats(&ledger);
+        for (character, total) in [(0, 107), (8, 5000)] {
+            let member = &f.candidate.party.members[character];
+            let base = member.stats_for(&f.candidate.menus, character);
+            let display = stats.member(&f.candidate.menus, member, character);
+            assert_eq!(display.slash, base.slash + if unlocked { total } else { 0 });
+        }
+    }
+    assert_eq!(serde_json::to_value(f.candidate.persistent_party())?, saved);
     Ok(())
 }
