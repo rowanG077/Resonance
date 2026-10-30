@@ -244,6 +244,11 @@ impl Plugin for FieldRendering {
                     super::field_pose::bones,
                     super::secondary_motion::apply,
                     super::field_pose::attachments,
+                    super::field_weapons::render,
+                    super::field_weapons::choreograph,
+                    super::field_weapons::dynamics,
+                    super::field_weapons::strings,
+                    super::field_weapons::publish,
                     super::field_pose::outlines,
                     shadows::pose,
                     super::field_effects::render,
@@ -292,6 +297,7 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         prepare,
         audit::begin,
         instances,
+        super::field_weapons::instances,
         super::field_model_particles::spawn,
         super::field_model_particles::sync,
         camera,
@@ -704,6 +710,7 @@ pub(super) fn save_point_diagnostic(world: &World) -> serde_json::Value {
 
 /// A warm restart keeps meshes, clips, textures and compiled materials alive.
 pub(super) fn reset_live(world: &mut World) {
+    super::field_weapons::retire(world);
     super::field_model_particles::retire(world);
     if let Some(mut art) = world.get_resource_mut::<Art>() {
         let instances = std::mem::take(&mut art.instances);
@@ -735,6 +742,10 @@ pub(super) fn ready(world: &mut World) -> bool {
     if !session.is_field() {
         return false;
     }
+    if !super::field_weapons::ready(world) {
+        return false;
+    }
+    let session = world.resource::<super::new_game::Session>();
     let Some(art) = world.get_resource::<Art>() else {
         return false;
     };
@@ -778,6 +789,7 @@ pub(super) fn retire_live(world: &mut World) {
     {
         return;
     }
+    super::field_weapons::retire(world);
     let art = world.remove_resource::<Art>();
     let ui = world.remove_resource::<super::field_ui::Artwork>();
     let effects = world.remove_resource::<super::field_effects::Artwork>();
@@ -1089,6 +1101,7 @@ pub(super) fn advance_live(
     mut session: Option<ResMut<super::new_game::Session>>,
     display: Res<super::display::Display>,
     art: Option<Res<Art>>,
+    weapons: super::field_weapons::Readiness,
     mut ui: Option<ResMut<super::field_ui::Artwork>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
@@ -1123,6 +1136,9 @@ pub(super) fn advance_live(
     let Some(art) = art.filter(|a| a.ready && a.map == session.map_id()) else {
         return;
     };
+    if !weapons.ready(&session.field().events.world) {
+        return;
+    }
     let Some(ui) = &mut ui else {
         return;
     };
