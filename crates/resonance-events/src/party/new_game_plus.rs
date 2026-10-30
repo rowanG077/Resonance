@@ -99,22 +99,22 @@ impl Party {
             if has(Benefit::Titles) {
                 member.title = previous.title;
                 member.titles = previous.titles.clone();
-                member.costume = data
+                // Carry the independently selected outfit only when a carried
+                // title unlocks it. Story variants restart with the new run.
+                member.costume = if data
                     .rules
                     .as_ref()
                     .and_then(|rules| rules.titles.get(index))
-                    .and_then(|titles| titles.get(usize::from(member.title - 1)))
-                    .and_then(|title| title.costume)
-                    .map_or_else(
-                        || {
-                            resonance_content::appearance::story_costume(
-                                index as u32 + 1,
-                                0,
-                                &BTreeSet::new(),
-                            )
-                        },
-                        |costume| costume as u8,
-                    );
+                    .is_some_and(|titles| previous.costume_title(titles).is_some())
+                {
+                    previous.costume
+                } else {
+                    resonance_content::appearance::story_costume(
+                        index as u32 + 1,
+                        0,
+                        &BTreeSet::new(),
+                    )
+                };
             }
             if has(Benefit::Tech) {
                 member.techniques = previous.techniques.clone();
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn carried_titles_restore_their_outfits_without_carrying_story_costumes() {
+    fn carried_titles_keep_independent_outfits_without_carrying_story_costumes() {
         use resonance_content::menu_data::{Costume, Title};
         let mut data = crate::party::tests::data();
         let mut menus = crate::party::tests::technique_menu();
@@ -248,22 +248,38 @@ mod tests {
             costume: Some(Costume::Variant2),
         });
         data.rules = Some(std::sync::Arc::new(menus));
-        for carry in [false, true] {
+        for (carry, equipped, costume, owns_costume) in [
+            (false, 1, 2, true),
+            (true, 1, 2, true),
+            (true, 2, 0, true),
+            (true, 1, 2, false),
+            (true, 2, 1, true),
+        ] {
             let mut party = Party::new(&data, Default::default()).unwrap();
-            party.members[0].title = 2;
-            party.members[0].titles.insert(2);
-            // Deliberately stale appearance: derive from the title, not this value.
-            party.members[0].costume = 1;
+            party.members[0].title = equipped;
+            if owns_costume {
+                party.members[0].titles.insert(2);
+            }
+            party.members[0].costume = costume;
             party.members[1].costume = 3;
+            party.members[6].costume = 0; // Endgame Presea; her new story starts with variant 3.
             party.new_game_plus.purchases = Some(if carry {
                 [Benefit::Titles].into()
             } else {
                 Default::default()
             });
             party.start_new_game_plus(&data).unwrap();
-            assert_eq!(party.members[0].title, if carry { 2 } else { 1 });
-            assert_eq!(party.members[0].costume, if carry { 2 } else { 0 });
+            assert_eq!(party.members[0].title, if carry { equipped } else { 1 });
+            assert_eq!(
+                party.members[0].costume,
+                if carry && owns_costume && costume == 2 {
+                    2
+                } else {
+                    0
+                }
+            );
             assert_eq!(party.members[1].costume, 0);
+            assert_eq!(party.members[6].costume, if carry { 3 } else { 0 });
             let saved = serde_json::to_vec(&party).unwrap();
             let loaded: Party = serde_json::from_slice(&saved).unwrap();
             assert_eq!(loaded.members[0].costume, party.members[0].costume);

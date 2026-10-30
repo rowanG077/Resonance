@@ -179,7 +179,7 @@ pub enum ItemUse {
 pub struct Title {
     /// Same order as the character's seven base growth statistics.
     pub growth: [u8; 7],
-    /// Replaces the story-selected model variant while this title is equipped.
+    /// Unlocks this variant in the costume selector when the title is owned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub costume: Option<Costume>,
 }

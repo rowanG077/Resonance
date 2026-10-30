@@ -71,3 +71,9 @@ The Unison menu selects one learned, Unison-eligible arte for each character.
 This loadout is saved separately from regular arte combos and key mappings.
 Timed character confirmation uses that character's selected Unison arte;
 stick directions do not change it.
+
+Status has separate title and costume rows. Owned costume titles unlock outfits
+in the costume selector; changing a title keeps the selected outfit. Default
+restores the character's story outfit. The title selector compares the current
+and highlighted titles' bonuses per level as numbers, including fractional stat
+points, with colors indicating better, worse or equal growth.
