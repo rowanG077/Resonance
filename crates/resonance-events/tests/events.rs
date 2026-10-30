@@ -31,6 +31,43 @@ fn steps(events: &mut EventRuntime, count: u32) {
     }
 }
 
+#[test]
+fn carried_weapon_identity_survives_attach_and_throw_in_one_script_update() {
+    for character in 1..=9 {
+        for slot in 0..8 {
+            let owner = 100 + character as i32;
+            let code = script(&[
+                (Call::AttachActorToMember, &[500, owner, slot]),
+                (Call::AttachActorToMember, &[500, owner, -1]),
+            ]);
+            let mut world = GameWorld::default();
+            world.insert_actor(owner, Actor::new(character, [0.; 3]));
+            world.insert_actor(500, Actor::new(999, [0.; 3]));
+            let resources = ResourceLibrary {
+                models: [(
+                    character,
+                    ModelResource {
+                        names: (0..8).map(|slot| format!("kk{slot:02}")).collect(),
+                        ..Default::default()
+                    },
+                )]
+                .into(),
+                ..Default::default()
+            };
+            let events = runtime(program(&code, &[0x20ff]), resources, world);
+            let prop = &events.world.actors[&500];
+            assert!(prop.attachment.is_none());
+            assert_eq!(
+                prop.field_weapon,
+                Some(FieldWeapon {
+                    character: character as u8,
+                    slot: slot as u8
+                })
+            );
+        }
+    }
+}
+
 fn controlled_world() -> GameWorld {
     let mut world = GameWorld::default();
     world.input_enabled = true;
