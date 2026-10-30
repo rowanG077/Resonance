@@ -1,0 +1,754 @@
+{
+  "key_a": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_a_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_a.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_b": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_b_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_b.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_c": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_c_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_c.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_d": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_d_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_d.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_e": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_e_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_e.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_g": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_g_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_g.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_h": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_h_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_h.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_i": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_i_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_i.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_j": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_j_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_j.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_k": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_k_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_k.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_l": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_l_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_l.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_m": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_m_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_m.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_n": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_n_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_n.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_o": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_o_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_o.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_p": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_p_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_p.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_q": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_q_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_q.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_r": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_r_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_r.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_s": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_s_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_s.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_t": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_t_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_t.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_u": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_u_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_u.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_v": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_v_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_v.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_w": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_w_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_w.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_x": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_x_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_x.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_y": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_y_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_y.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_z": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_z_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_z.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_0": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_0_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_0.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_1": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_1_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_1.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_2": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_2_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_2.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_3": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_3_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_3.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_4": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_4_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_4.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_5": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_5_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_5.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_6": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_6_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_6.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_7": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_7_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_7.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_8": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_8_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_8.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_9": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_9_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_9.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f1": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f1_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f1.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f2": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f2_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f2.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f3": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f3_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f3.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f4": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f4_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f4.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f5": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f5_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f5.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f6": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f6_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f6.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f7": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f7_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f7.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f8": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f8_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f8.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f9": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f9_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f9.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f10": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f10_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f10.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f11": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f11_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f11.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_f12": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_f12_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_f12.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_enter": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_enter_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_enter.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_escape": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_escape_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_escape.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_space": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_space_icon_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_space_icon.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_tab": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_tab_icon_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_tab_icon.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_up": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_arrow_up_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_arrow_up.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_down": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_arrow_down_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_arrow_down.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_left": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_arrow_left_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_arrow_left.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_right": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_arrow_right_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_arrow_right.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_home": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_home_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_home.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_page_up": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_page_up_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_page_up.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_page_down": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_page_down_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_page_down.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_shift": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_shift_icon_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_shift_icon.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_control": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_ctrl_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_ctrl.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_alt": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_alt_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_alt.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_backspace": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_backspace_icon_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_backspace_icon.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_delete": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_delete_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_delete.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_insert": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_insert_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_insert.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_minus": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_minus_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_minus.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_equal": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_equals_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_equals.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_comma": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_comma_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_comma.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_period": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_period_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_period.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_bracket_left": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_bracket_open_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_bracket_open.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_bracket_right": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_bracket_close_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_bracket_close.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_semicolon": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_semicolon_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_semicolon.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_slash": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_slash_forward_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_slash_forward.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_backslash": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_slash_back_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_slash_back.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_quote": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_apostrophe_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_apostrophe.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_backquote": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_tilde_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_tilde.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_capslock": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_capslock_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_capslock.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_end": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_end_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_end.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_numlock": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_numlock_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_numlock.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_pause": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_pause_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_pause.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_printscreen": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_printscreen_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_printscreen.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_scroll_lock": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_scroll_lock_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_scroll_lock.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_win": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_win_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_win.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_function": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_function_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_function.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_asterisk": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_asterisk_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_asterisk.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_plus": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_plus_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_plus.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_dpad_left": {
+    "normal": "Nintendo Switch/Vector/switch_dpad_left_outline.svg",
+    "pressed": "Nintendo Switch/Vector/switch_dpad_left_outline.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_dpad_left.svg",
+      "component": "original red arm path"
+    }
+  },
+  "pad_dpad_right": {
+    "normal": "Nintendo Switch/Vector/switch_dpad_right_outline.svg",
+    "pressed": "Nintendo Switch/Vector/switch_dpad_right_outline.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_dpad_right.svg",
+      "component": "original red arm path"
+    }
+  },
+  "pad_dpad_up": {
+    "normal": "Nintendo Switch/Vector/switch_dpad_up_outline.svg",
+    "pressed": "Nintendo Switch/Vector/switch_dpad_up_outline.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_dpad_up.svg",
+      "component": "original red arm path"
+    }
+  },
+  "pad_dpad_down": {
+    "normal": "Nintendo Switch/Vector/switch_dpad_down_outline.svg",
+    "pressed": "Nintendo Switch/Vector/switch_dpad_down_outline.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_dpad_down.svg",
+      "component": "original red arm path"
+    }
+  },
+  "stick": {
+    "normal": "Generic/Vector/generic_stick.svg",
+    "pressed": "Generic/Vector/generic_stick_press.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Generic/Vector/generic_stick_press.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_horizontal": {
+    "normal": "Generic/Vector/generic_stick_horizontal.svg",
+    "pressed": "Generic/Vector/generic_stick_horizontal.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Generic/Vector/generic_stick_horizontal.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "button": {
+    "normal": "Generic/Vector/generic_button.svg",
+    "pressed": "Generic/Vector/generic_button_pressed.svg",
+    "accent": "native cap subpath M44 38",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "stick_l_up": {
+    "normal": "Nintendo Switch/Vector/switch_stick_l_up.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_l_up.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_l_up.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_l_down": {
+    "normal": "Nintendo Switch/Vector/switch_stick_l_down.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_l_down.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_l_down.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_l_left": {
+    "normal": "Nintendo Switch/Vector/switch_stick_l_left.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_l_left.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_l_left.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_l_right": {
+    "normal": "Nintendo Switch/Vector/switch_stick_l_right.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_l_right.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_l_right.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_r_up": {
+    "normal": "Nintendo Switch/Vector/switch_stick_r_up.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_r_up.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_r_up.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_r_down": {
+    "normal": "Nintendo Switch/Vector/switch_stick_r_down.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_r_down.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_r_down.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_r_left": {
+    "normal": "Nintendo Switch/Vector/switch_stick_r_left.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_r_left.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_r_left.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "stick_r_right": {
+    "normal": "Nintendo Switch/Vector/switch_stick_r_right.svg",
+    "pressed": "Nintendo Switch/Vector/switch_stick_r_right.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_stick_r_right.svg",
+      "component": "exact native direction-arrow subpaths"
+    }
+  },
+  "pad_a": {
+    "normal": "Xbox Series/Vector/xbox_button_a_outline.svg",
+    "pressed": "Xbox Series/Vector/xbox_button_a.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_b": {
+    "normal": "Xbox Series/Vector/xbox_button_b_outline.svg",
+    "pressed": "Xbox Series/Vector/xbox_button_b.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_x": {
+    "normal": "Xbox Series/Vector/xbox_button_x_outline.svg",
+    "pressed": "Xbox Series/Vector/xbox_button_x.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_y": {
+    "normal": "Xbox Series/Vector/xbox_button_y_outline.svg",
+    "pressed": "Xbox Series/Vector/xbox_button_y.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_start": {
+    "normal": "Xbox Series/Vector/xbox_button_start_outline.svg",
+    "pressed": "Xbox Series/Vector/xbox_button_start.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_back": {
+    "normal": "Xbox Series/Vector/xbox_button_back_outline.svg",
+    "pressed": "Xbox Series/Vector/xbox_button_back.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_l1": {
+    "normal": "Steam Deck/Vector/steamdeck_button_l1_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_l1.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_l2": {
+    "normal": "Steam Deck/Vector/steamdeck_button_l2_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_l2.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_l4": {
+    "normal": "Steam Deck/Vector/steamdeck_button_l4_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_l4.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_l5": {
+    "normal": "Steam Deck/Vector/steamdeck_button_l5_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_l5.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_r1": {
+    "normal": "Steam Deck/Vector/steamdeck_button_r1_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_r1.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_r2": {
+    "normal": "Steam Deck/Vector/steamdeck_button_r2_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_r2.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_r4": {
+    "normal": "Steam Deck/Vector/steamdeck_button_r4_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_r4.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_r5": {
+    "normal": "Steam Deck/Vector/steamdeck_button_r5_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_r5.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_l3": {
+    "normal": "Steam Deck/Vector/steamdeck_button_l4_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_l4_outline.svg",
+    "label_sources": [
+      "Keyboard & Mouse/Vector/keyboard_3_outline.svg"
+    ],
+    "adaptation": "Original L frame/letter with original digit 3",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "pad_r3": {
+    "normal": "Steam Deck/Vector/steamdeck_button_r4_outline.svg",
+    "pressed": "Steam Deck/Vector/steamdeck_button_r4_outline.svg",
+    "label_sources": [
+      "Keyboard & Mouse/Vector/keyboard_3_outline.svg"
+    ],
+    "adaptation": "Original R frame/letter with original digit 3",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  }
+}
