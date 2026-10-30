@@ -10,10 +10,22 @@ struct Vertex {
 };
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
+#ifdef MULTISAMPLED_UI
+    @interpolate(perspective, sample)
+#endif
     @location(0) world_position: vec4<f32>,
+#ifdef MULTISAMPLED_UI
+    @interpolate(perspective, sample)
+#endif
     @location(2) uv: vec2<f32>,
 #ifdef GLYPH_PATTERN
+#ifdef MULTISAMPLED_UI
+    @interpolate(perspective, sample)
+#endif
     @location(3) pattern_uv: vec2<f32>,
+#endif
+#ifdef MULTISAMPLED_UI
+    @interpolate(perspective, sample)
 #endif
     @location(4) color: vec4<f32>,
 };

@@ -86,6 +86,7 @@ impl HudLayer {
             frame_mask: image.clone(),
             color_mask: image.clone(),
             coverage: Coverage::default(),
+            sample_coverage: false,
             additive: false,
             texture_effect: definition.texture_effect,
             opaque: false,
