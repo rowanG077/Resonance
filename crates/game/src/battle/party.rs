@@ -388,7 +388,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: Character) -> Resul
 }
 
 impl Loadout {
-    pub(super) fn battle_stats(
+    pub(crate) fn battle_stats(
         &self,
         formation: &[u8],
         devils_arms_unlocked: bool,

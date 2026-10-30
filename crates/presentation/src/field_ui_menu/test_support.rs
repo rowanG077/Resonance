@@ -113,6 +113,7 @@ impl Fixture {
             input_atlas: crate::input_icons::default_atlas(),
             prompt_device: Default::default(),
             tick,
+            stats: Default::default(),
             plane: 1,
             opacity: 255,
             offset: [0.; 2],

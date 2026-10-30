@@ -510,7 +510,7 @@ fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()
     );
     assert_eq!(
         f.candidate
-            .equipment_page(&crate::menu::equipment::Equipment::opening(), 2)
+            .equipment_page(&f.battle, &crate::menu::equipment::Equipment::opening(), 2)
             .party
             .formation,
         [1, 3, 9]

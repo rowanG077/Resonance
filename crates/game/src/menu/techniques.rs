@@ -280,6 +280,30 @@ pub struct Page<'a> {
     pub context: Context<'a>,
 }
 impl<'a> Page<'a> {
+    pub fn target_stats(
+        self,
+        field: super::stats::Projection,
+    ) -> Result<resonance_events::party::Stats> {
+        let index = usize::from(self.party.formation[self.state.target] - 1);
+        let member = &self.party.members[index];
+        match self.context {
+            Context::Field { .. } => Ok(field.member(self.data, member, index)),
+            Context::Battle { battle, actors, .. } => {
+                let actor = actors
+                    .iter()
+                    .find(|(_, character)| character.index() == index)
+                    .ok_or_else(|| anyhow::anyhow!("Tech target has no live actor"))?
+                    .0;
+                Ok(super::stats::live_member(
+                    self.data,
+                    member,
+                    index,
+                    &battle.actors()[actor.index()],
+                ))
+            }
+        }
+    }
+
     pub fn battle(self) -> bool {
         self.context.battle()
     }

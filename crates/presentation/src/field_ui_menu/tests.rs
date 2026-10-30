@@ -386,6 +386,8 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
             data: &fixture.data,
             names: &fixture.data.initial_names,
             character: 0,
+            stats: Default::default(),
+            battle: None,
         };
         artwork.render_battle_equipment(
             page,

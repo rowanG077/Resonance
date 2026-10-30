@@ -16,6 +16,8 @@ impl Drawing<'_> {
             data: &resources.data,
             names: &resources.data.initial_names,
             character: menu.character,
+            stats: self.stats,
+            battle: None,
         })
     }
 
@@ -23,6 +25,8 @@ impl Drawing<'_> {
         let data = page.data;
         let member_index = page.member_index()?;
         let member = &page.party.members[member_index];
+        let current = page.current_member()?;
+        let stats = page.current_stats()?;
         let state = page.state;
         let items = page.items();
         let selected = match state.focus {
@@ -64,19 +68,17 @@ impl Drawing<'_> {
             [24., 60., 120., 20.],
             if focus == Focus::Character { 255 } else { 127 },
         );
-        self.portrait(member_index, member, [176., 20.])?;
+        self.portrait(member_index, current, [176., 20.])?;
         self.text_size(page.character_name(), [32., 60.], [20.; 2], WHITE)?;
-        let [hp, tp] = member.maximum_vitals();
-        self.gauge(false, [32., 86.], [16., 24.], member.hp, hp, Compact)?;
-        self.gauge(true, [144., 86.], [16., 24.], member.tp, tp, Compact)?;
+        self.gauge(false, [32., 86.], [16., 24.], current.hp, stats.hp, Compact)?;
+        self.gauge(true, [144., 86.], [16., 24.], current.tp, stats.tp, Compact)?;
         let mut anchor = [32. + left, 68.];
         if focus == Focus::List {
             let slot = SLOTS[state.slot];
             self.text_size(data.label(LABELS[state.slot])?, [24., 112.], [20.; 2], GOLD)?;
-            self.equipment_name_data(data, member.equipment[slot], [104., 112.])?;
+            self.equipment_name_data(data, current.equipment[slot], [104., 112.])?;
             if let Some(id) = selected {
-                let stats = member.stats(data);
-                let preview = member.preview_equipment(data, slot, id);
+                let preview = page.preview_stats(slot, id)?;
                 for (row, (label, current, next)) in [
                     (
                         if member_index == 0 { "slash" } else { "attack" },
