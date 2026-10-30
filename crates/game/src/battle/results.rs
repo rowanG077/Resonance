@@ -43,6 +43,8 @@ mod poison_tests;
 mod reward_tests;
 #[cfg(test)]
 mod setup_tests;
+#[cfg(test)]
+mod stats_tests;
 mod strategy;
 #[cfg(test)]
 mod strategy_tests;
@@ -386,8 +388,19 @@ impl Candidate {
         }
     }
 
+    fn menu_stats(&self, ledger: &resonance_battle::Ledger) -> crate::menu::stats::Projection {
+        let mut kills = self.menu_party().battles.kills;
+        for &(actor, character) in &self.setup.actors {
+            kills[character.index()] = kills[character.index()]
+                .saturating_add(ledger.kills[actor.index()])
+                .min(5_000);
+        }
+        crate::menu::stats::Projection::new(self.setup.devils_arms_unlocked, kills)
+    }
+
     pub fn equipment_page<'a>(
         &'a self,
+        battle: &'a Battle,
         state: &'a crate::menu::equipment::Equipment,
         character: usize,
     ) -> crate::menu::equipment::Page<'a> {
@@ -398,6 +411,22 @@ impl Candidate {
             data: &self.menus,
             names: &self.menus.initial_names,
             character,
+            stats: self.menu_stats(battle.ledger()),
+            battle: self
+                .menu_party()
+                .formation
+                .get(character)
+                .and_then(|&member| {
+                    self.setup
+                        .actors
+                        .iter()
+                        .find(|(_, saved)| *saved as u8 == member)
+                        .map(|&(actor, _)| crate::menu::equipment::BattleStats {
+                            current: &battle.actors()[actor.index()],
+                            committed: &self.party.members[usize::from(member - 1)],
+                            formation: &self.party.formation,
+                        })
+                }),
         }
     }
 

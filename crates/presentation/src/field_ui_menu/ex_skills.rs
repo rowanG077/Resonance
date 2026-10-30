@@ -220,8 +220,8 @@ impl Drawing<'_> {
         if state.focus == Focus::SkillList {
             self.ex_preview_offset(state.preview_opacity);
             self.frame([420., 60., 200., 266.])?;
-            let current = member.stats(data);
-            let preview = preview.stats(data);
+            let current = self.stats.member(data, member, menu.member_index());
+            let preview = self.stats.member(data, &preview, menu.member_index());
             for (row, (key, a, b)) in [
                 ("hp", current.hp, preview.hp),
                 ("tp", current.tp, preview.tp),

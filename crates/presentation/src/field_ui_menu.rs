@@ -696,6 +696,7 @@ impl MenuArtwork {
             prompt_device: self.prompt_device,
             experience: &self.experience,
             tick,
+            stats: Default::default(),
             plane: 0,
             opacity: 255,
             offset: [0.; 2],
@@ -975,6 +976,33 @@ impl MenuArtwork {
                     _ => None,
                 });
             let mut draw = self.begin_drawing(font, dialogue, preferences, presentation_tick)?;
+            let stat_source = menu
+                .and_then(|menu| menu.checkpoint.as_ref())
+                .map(|checkpoint| {
+                    let progress = checkpoint.progress();
+                    (&progress.party, &progress.event_flags)
+                })
+                .or_else(|| match source {
+                    Source::Field(session) => session
+                        .events
+                        .world
+                        .party
+                        .as_ref()
+                        .map(|party| (party, &session.events.world.event_flags)),
+                    Source::World(session, _) => session
+                        .events
+                        .world
+                        .party
+                        .as_ref()
+                        .map(|party| (party, &session.events.world.event_flags)),
+                    Source::Title(_) => None,
+                });
+            if let Some((party, flags)) = stat_source {
+                draw.stats = resonance_game::menu::stats::Projection::new(
+                    flags.contains(&0x3fa),
+                    party.battles.kills,
+                );
+            }
             draw.opacity = menu.map_or_else(
                 || {
                     shop.map(|(s, _)| 255 - s.fade)
@@ -1264,6 +1292,7 @@ struct Drawing<'a> {
     prompt_device: crate::input_icons::PromptDevice,
     experience: &'a [u32],
     tick: u32,
+    stats: resonance_game::menu::stats::Projection,
     plane: usize,
     opacity: u8,
     offset: [f32; 2],
@@ -2694,7 +2723,7 @@ impl Drawing<'_> {
                         &data.status_text()?.technical_type
                     };
                     self.text(technique_type, [x + 80., y + 26.], 16., WHITE)?;
-                    let stats = member.stats(data);
+                    let stats = self.stats.member(data, member, usize::from(id - 1));
                     for (row, columns) in [
                         [
                             (

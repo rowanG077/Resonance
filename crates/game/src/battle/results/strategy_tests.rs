@@ -510,7 +510,7 @@ fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()
     );
     assert_eq!(
         f.candidate
-            .equipment_page(&crate::menu::equipment::Equipment::opening(), 2)
+            .equipment_page(&f.battle, &crate::menu::equipment::Equipment::opening(), 2)
             .party
             .formation,
         [1, 3, 9]
@@ -551,5 +551,42 @@ fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()
         f.candidate.persistent_party().formation,
         [1, 2, 3, 9, 5, 6, 7, 8]
     );
+    Ok(())
+}
+
+#[test]
+fn battle_menu_stats_merge_uncommitted_kills_by_character() -> Result<()> {
+    let mut f = super::item_tests::native_fixture(
+        &[9, 1],
+        |party, _, menus| {
+            menus.items[1].properties.kills_damage = true;
+            for character in [0, 8] {
+                party.members[character].equipment[0] = 1;
+            }
+            party.battles.kills[0] = 100;
+            party.battles.kills[8] = 4999;
+            Ok(())
+        },
+        |actors, setup| {
+            setup.devils_arms_unlocked = true;
+            native_battle(actors)
+        },
+    )?;
+    let saved = serde_json::to_value(f.candidate.persistent_party())?;
+    // The ledger is indexed by actor, while saved totals are indexed by character.
+    let mut ledger = f.battle.ledger().clone();
+    ledger.kills[0] = 20;
+    ledger.kills[1] = 7;
+    for unlocked in [false, true] {
+        f.candidate.setup.devils_arms_unlocked = unlocked;
+        let stats = f.candidate.menu_stats(&ledger);
+        for (character, total) in [(0, 107), (8, 5000)] {
+            let member = &f.candidate.party.members[character];
+            let base = member.stats_for(&f.candidate.menus, character);
+            let display = stats.member(&f.candidate.menus, member, character);
+            assert_eq!(display.slash, base.slash + if unlocked { total } else { 0 });
+        }
+    }
+    assert_eq!(serde_json::to_value(f.candidate.persistent_party())?, saved);
     Ok(())
 }

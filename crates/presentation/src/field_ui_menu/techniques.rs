@@ -569,7 +569,7 @@ impl Drawing<'_> {
         let all = page.tech_targets_all();
         let target = usize::from(party.formation[state.target] - 1);
         let member = &party.members[target];
-        let stats = member.stats(data);
+        let stats = page.target_stats(self.stats)?;
         self.portrait(target, member, [32., 346.])?;
         self.text_size(page.character_name(target), [96., 332.], [20.; 2], WHITE)?;
         self.gauge(false, [224., 332.], [16., 20.], member.hp, stats.hp, Full)?;

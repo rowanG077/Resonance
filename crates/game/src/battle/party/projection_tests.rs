@@ -522,3 +522,96 @@ fn rescue_equipment_uses_capabilities_and_retains_consumption_slot_order() -> Re
     );
     Ok(())
 }
+
+#[test]
+fn devils_arms_display_matches_combat_without_changing_the_saved_base() -> Result<()> {
+    let (mut menus, mut member) = fixture()?;
+    menus.items[1].properties.kills_damage = true;
+    menus.items[2].equipment_stats = [400, 350, 0, 0, 0, 0, 0];
+    // The display must continue past the ordinary equipment stat cap, as combat does.
+    for character in 0..9 {
+        let character = Character::from_index(character)?;
+        for strength in [1000, 30000] {
+            member.base_stats[2] = strength;
+            for weapon in [1, 2] {
+                member.equipment[0] = weapon;
+                let saved = serde_json::to_value(&member)?;
+                let base = member.stats_for(&menus, character.index());
+                for unlocked in [false, true] {
+                    for kills in [0, 255, 256, 1234, 5000] {
+                        let display = crate::menu::stats::Projection::new(unlocked, [kills; 9])
+                            .member(&menus, &member, character.index());
+                        let combat =
+                            loadout(&menus, &member, character)?.battle_stats(&[], unlocked, kills);
+                        assert_eq!(i32::from(display.slash), combat.slash);
+                        assert_eq!(i32::from(display.thrust), combat.thrust);
+                        assert_eq!(display.strength, base.strength);
+                        assert_eq!(display.defense, base.defense);
+                        assert_eq!(member.stats_for(&menus, character.index()), base);
+                        assert_eq!(serde_json::to_value(&member)?, saved);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn devils_arms_previews_and_item_values_share_the_character_bonus() -> Result<()> {
+    use crate::menu::stats::Projection;
+    let (mut menus, mut member) = fixture()?;
+    menus.items[1].properties.kills_damage = true;
+    menus.items[1].equipment_stats = [0, 0, -40, 10, -20, 60, -30];
+    menus.items[2].equipment_stats = [400, 350, 0, 0, 0, 0, 0];
+    let stats = Projection::new(true, [101, 202, 303, 404, 505, 606, 707, 808, 909]);
+    for character in [5, 8] {
+        member.equipment[0] = 2;
+        let saved = serde_json::to_value(&member)?;
+        let current = stats.member(&menus, &member, character);
+        let preview = stats.preview_equipment(&menus, &member, character, 0, 1);
+        let kills = if character == 5 { 606 } else { 909 };
+        assert_eq!(preview.slash, current.strength + kills);
+        assert_eq!(
+            stats.equipment(&menus.items[1], Some(character)),
+            [i32::from(kills), i32::from(kills), -40, 10, -20, 60, -30,]
+        );
+        member.equipment[0] = 1;
+        assert_eq!(stats.member(&menus, &member, character), preview);
+        assert_eq!(
+            stats.preview_equipment(&menus, &member, character, 0, 2),
+            current
+        );
+        // Changing armor keeps the equipped weapon's bonus.
+        assert_eq!(
+            stats.preview_equipment(&menus, &member, character, 1, 0),
+            preview
+        );
+        member.equipment[0] = 2;
+        assert_eq!(serde_json::to_value(&member)?, saved);
+    }
+    Ok(())
+}
+
+#[test]
+fn shared_weapon_item_stats_require_an_explicit_wielder() -> Result<()> {
+    use crate::menu::stats::Projection;
+    let (mut menus, _) = fixture()?;
+    menus.items[1].properties.kills_damage = true;
+    let mut kills = [0; 9];
+    kills[5] = 123;
+    kills[8] = 987;
+    for unlocked in [false, true] {
+        let stats = Projection::new(unlocked, kills);
+        assert_eq!(stats.equipment(&menus.items[1], None)[0], 0);
+        assert_eq!(
+            stats.equipment(&menus.items[1], Some(5))[0],
+            if unlocked { 123 } else { 0 }
+        );
+        assert_eq!(
+            stats.equipment(&menus.items[1], Some(8))[0],
+            if unlocked { 987 } else { 0 }
+        );
+    }
+    Ok(())
+}

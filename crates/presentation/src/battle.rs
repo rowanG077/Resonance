@@ -1531,7 +1531,7 @@ fn render_menu(
                     .render_unison(candidate.unison_page(state), tick, commands, meshes)
             }
             View::Equipment(state) => scene.hud.render_equipment(
-                candidate.equipment_page(state, scene.lifecycle.equipment_character()),
+                candidate.equipment_page(&scene.core, state, scene.lifecycle.equipment_character()),
                 tick,
                 commands,
                 meshes,
