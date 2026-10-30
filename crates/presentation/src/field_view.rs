@@ -202,6 +202,7 @@ impl Plugin for FieldPlugin {
 struct FieldRendering;
 impl Plugin for FieldRendering {
     fn build(&self, app: &mut App) {
+        app.init_resource::<super::field_weapons::EquipmentCache>();
         super::field_ui::install(app);
         super::materials::install(app);
         super::sparse_animation::install(app);
@@ -287,6 +288,7 @@ fn sample_poses() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sch
 
 fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
+        super::field_weapons::prepare,
         prepare,
         audit::begin,
         instances,
@@ -804,6 +806,9 @@ pub(super) fn retire_live(world: &mut World) {
         && let Some(mut retained) = world.get_resource_mut::<RetainedFields>()
     {
         retained.0.clear();
+    }
+    if !world.contains_resource::<super::new_game::Session>() {
+        world.insert_resource(super::field_weapons::EquipmentCache::default());
     }
 }
 
