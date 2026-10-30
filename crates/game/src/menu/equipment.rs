@@ -346,7 +346,7 @@ pub struct Page<'a> {
 
 #[derive(Clone, Copy)]
 pub struct BattleStats<'a> {
-    pub current: &'a resonance_battle::Actor,
+    pub actor: &'a resonance_battle::Actor,
     /// Committed equipment and base stats, before this menu's draft edits.
     pub committed: &'a resonance_events::party::Member,
     /// Saved battle formation, including temporarily absent members.
@@ -364,7 +364,7 @@ impl<'a> Page<'a> {
         let index = self.member_index()?;
         let member = self.current_member()?;
         Ok(match self.battle {
-            Some(battle) => super::stats::live_member(self.data, member, index, battle.current),
+            Some(battle) => super::stats::live_member(self.data, member, index, battle.actor),
             None => self.stats.member(self.data, member, index),
         })
     }
