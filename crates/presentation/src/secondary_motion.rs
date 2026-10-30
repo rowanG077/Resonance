@@ -49,6 +49,25 @@ impl Deformation {
 }
 
 impl Rig {
+    pub(super) fn controls(
+        &mut self,
+        actor: &resonance_events::Actor,
+        world: &resonance_events::GameWorld,
+    ) {
+        self.disabled = actor.appearance.secondary_motion_disabled;
+        self.impulses = actor
+            .chain_impulses
+            .iter()
+            .map(|(&tick, impulse)| (tick, Vec3::from_array(impulse.acceleration)))
+            .collect();
+        for (&tick, &wind) in &world.environment_wind {
+            let force = self.impulses.entry(tick).or_default();
+            if *force == Vec3::ZERO {
+                *force = Vec3::from_array(wind);
+            }
+        }
+    }
+
     pub(super) fn new(
         root: Entity,
         spec: &resonance_content::ScenePart,
@@ -418,7 +437,7 @@ pub(super) fn apply(
             let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
                 continue;
             };
-            rig.disabled = actor.appearance.secondary_motion_disabled;
+            rig.controls(actor, &state.get().events.world);
             // Offscreen actors keep their last model pose and dynamics. Move
             // the clock forward so returning onscreen does not catch up the
             // skipped simulation ticks; a new rig still evaluates once.
@@ -431,17 +450,6 @@ pub(super) fn apply(
                 .and_then(|index| art.models[&part.resource][part.part].spec.clips.get(index))
                 .map(|clip| clip.pose_chains.as_slice())
                 .unwrap_or_default();
-            rig.impulses = actor
-                .chain_impulses
-                .iter()
-                .map(|(&tick, impulse)| (tick, Vec3::from_array(impulse.acceleration)))
-                .collect();
-            for (&tick, &wind) in &state.get().events.world.environment_wind {
-                let force = rig.impulses.entry(tick).or_default();
-                if *force == Vec3::ZERO {
-                    *force = Vec3::from_array(wind);
-                }
-            }
             let yaw = actor.appearance.fixed_heading.unwrap_or(actor.heading);
             let output = if culled {
                 Some(rig.pose.clone())

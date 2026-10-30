@@ -63,6 +63,8 @@ mod field_probe;
 mod field_refraction;
 mod field_rumble;
 mod field_ui;
+mod field_weapons;
+mod weapon_geometry;
 use field_ui::{credits, session_screen};
 mod field_resources;
 mod field_view;

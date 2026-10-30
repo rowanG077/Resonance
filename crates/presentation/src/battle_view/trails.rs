@@ -1,6 +1,6 @@
 //! Weapon ribbons own their short pose history; drawing never advances it.
 use super::*;
-use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology};
+use crate::weapon_geometry::Vertices;
 use resonance_battle::WeaponSlot;
 use resonance_battle::{ActorId, Cue, ResourceId, WeaponFrame};
 use resonance_content::{
@@ -271,17 +271,7 @@ impl Trails {
                     .get(weapon.owner.index())
                     .context("invalid battle rope owner")?;
                 let distance = eye.distance(Vec3::from_array(actor.position));
-                let width = if distance > 4000. {
-                    1.
-                } else if distance > 2800. {
-                    2.
-                } else if distance > 1600. {
-                    3.
-                } else if distance > 400. {
-                    4.
-                } else {
-                    5.
-                };
+                let width = crate::weapon_geometry::string_width(distance);
                 let world = Mat4::from_cols_array_2d(&weapon.world);
                 let mut data = Vertices::default();
                 for &[a, b] in &weapon.links {
@@ -292,9 +282,16 @@ impl Trails {
                             .context("invalid battle rope bone")?;
                         Ok((world * Mat4::from_cols_array_2d(bone)).transform_point3(Vec3::ZERO))
                     };
-                    data.line(endpoint(a)?, endpoint(b)?, eye, rotation, width);
+                    data.line(
+                        endpoint(a)?,
+                        endpoint(b)?,
+                        eye,
+                        rotation,
+                        width,
+                        13.33_f32.to_radians(),
+                    );
                 }
-                if data.positions.is_empty() {
+                if data.is_empty() {
                     return Ok(());
                 }
                 draw.apply(
@@ -369,54 +366,6 @@ impl Draw {
             .entity(self.entity)
             .insert((Visibility::Inherited, order));
         Ok(())
-    }
-}
-#[derive(Default)]
-struct Vertices {
-    positions: Vec<[f32; 3]>,
-    normals: Vec<[f32; 3]>,
-    colors: Vec<[f32; 4]>,
-    uv: Vec<[f32; 2]>,
-}
-impl Vertices {
-    fn quad(&mut self, positions: [Vec3; 4], uv: [[f32; 2]; 4], colors: [[f32; 4]; 4]) {
-        // Two triangles form one ribbon segment.
-        for i in [0, 1, 2, 2, 1, 3] {
-            self.positions.push(positions[i].to_array());
-            self.normals.push([0., 1., 0.]);
-            self.uv.push(uv[i]);
-            self.colors.push(colors[i]);
-        }
-    }
-    fn line(&mut self, a: Vec3, b: Vec3, eye: Vec3, camera: Quat, width: f32) {
-        let inverse = camera.inverse();
-        let av = inverse * (a - eye);
-        let bv = inverse * (b - eye);
-        if av.z >= 0. || bv.z >= 0. {
-            return;
-        }
-        let projected = Vec2::new(bv.x / -bv.z - av.x / -av.z, bv.y / -bv.z - av.y / -av.z);
-        let normal = Vec2::new(-projected.y, projected.x).normalize_or_zero();
-        let scale =
-            width * (13.33_f32.to_radians() * 0.5).tan() / resonance_content::SCENE_HEIGHT as f32;
-        let offset = |depth: f32| camera * Vec3::new(normal.x, normal.y, 0.) * (scale * -depth);
-        let aa = offset(av.z);
-        let bb = offset(bv.z);
-        self.quad(
-            [a - aa, a + aa, b - bb, b + bb],
-            [[0.; 2]; 4],
-            [[1., 1., 1., 128. / 255.]; 4],
-        );
-    }
-    fn mesh(self) -> Mesh {
-        Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
     }
 }
 const HISTORY_SAMPLES: usize = 8;

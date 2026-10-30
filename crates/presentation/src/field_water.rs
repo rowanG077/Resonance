@@ -1,5 +1,5 @@
 //! Planar reflections share the field's animated meshes and use one small render target.
-use super::{ActorPart, Art, State};
+use super::Art;
 use crate::{
     draw_order::{DrawOrder, Layer},
     materials::TitleSurface,
@@ -21,7 +21,7 @@ use bevy::{
 };
 use resonance_content::field::{FieldWater, MODEL_DRAW_SPAN};
 
-const REFLECTION_LAYER: usize = 24;
+pub(super) const REFLECTION_LAYER: usize = 24;
 
 pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "field_water.wgsl");
@@ -256,38 +256,5 @@ mod tests {
             .length()
                 < 0.001
         );
-    }
-}
-
-pub(super) fn layers(
-    mut commands: Commands,
-    art: Res<Art>,
-    state: State,
-    actors: Query<&ActorPart>,
-    mut layers: Query<(Option<&RenderLayers>, &mut Visibility), With<MeshMaterial3d<TitleSurface>>>,
-) {
-    let Some(water) = &art.water else {
-        return;
-    };
-    for actor in &actors {
-        let reflection_only = water.spec.reflection_only_actors.contains(&actor.actor);
-        let desired = if reflection_only {
-            RenderLayers::layer(REFLECTION_LAYER)
-        } else if water.reflects(actor.actor, state.get().events.world.controlled_actor) {
-            RenderLayers::from_layers(&[0, REFLECTION_LAYER])
-        } else {
-            RenderLayers::layer(0)
-        };
-        for &(_, entity) in &actor.geometry {
-            if let Ok((current, mut visibility)) = layers.get_mut(entity) {
-                if reflection_only {
-                    *visibility = Visibility::Inherited;
-                }
-                if current == Some(&desired) {
-                    continue;
-                }
-            }
-            commands.entity(entity).insert(desired.clone());
-        }
     }
 }
