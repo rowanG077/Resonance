@@ -2049,11 +2049,11 @@ mastery, chef selection and fullness, and use the current recipe rules.
 
 ## Options and preferences
 
-`game/options.json` owns all 18 option names/descriptions, editor labels, themes,
+`game/options.json` owns all 20 option names/descriptions, editor labels, themes,
 reset defaults and arte-forgetting confirmations. Both field and title menus read
 this document through the active library, including enabled mods. Option keys are
-engine meanings, such as `message_speed`, `combined_battles` and
-`learn_both_arte_paths`; their menu order is fixed by the engine.
+engine meanings, such as `message_speed`, `combined_battles`, `learn_both_arte_paths`,
+`display_mode`, `resolution` and `anti_aliasing`; their menu order is fixed by the engine.
 
 Defaults use names: `difficulty` is `normal`, `hard` or `mania`, and `window` is
 `plain`, `ornate` or `gold`, matching `ui/menu.json`. `background` is
@@ -2080,7 +2080,39 @@ Each action occurs exactly once. The `actions` object owns their displayed
 captions. Button glyphs come from the named menu artwork; the options document
 contains no sprite numbers. `color_groups` and `volume_channels` use meaningful
 keys. Volumes retain the 0–127 scale, `message_speed` is updates per character
-(0 means immediate), `screen_position` is `[x, y]`, and colors are `[r, g, b, a]`.
+(0 means immediate), and colors are `[r, g, b, a]`.
+`defaults.display_mode` is `windowed`, `borderless` or `fullscreen`;
+`defaults.resolution` is `[width, height]` in physical pixels (each 1–8192).
+Resolution and display-mode changes preview immediately in Customize. Keep accepts
+the preview; Revert, Cancel or 15 seconds without confirmation restores the previous
+settings. The timeout uses wall-clock time, independent of gameplay ticks and pause.
+Only confirmed settings can be saved on exiting Customize. Borderless fills the desktop;
+fullscreen selects the matching monitor mode with the highest refresh rate,
+or keeps the current monitor mode if the render size has no matching mode.
+Windowed uses the selected render size as its window size.
+The resolution choices combine common presets with the current monitor's physical
+desktop size (labelled Native) and advertised video modes, without duplicate sizes.
+Sizes exceeding the GPU or saved-settings limits are omitted. Changing monitors
+refreshes the choices without changing the selected resolution automatically.
+`defaults.anti_aliasing` is `off`, `smaa_low`, `smaa_medium`, `smaa_high`,
+`smaa_ultra`, `msaa2`, `msaa4` (the engine default), `msaa8` or `smaa_s2x`.
+One selector exposes only choices supported by the GPU's scene color and
+sampled depth formats. Unavailable MSAA choices fall back to 4× MSAA, or
+SMAA Ultra if necessary; unavailable S2x falls back to SMAA Ultra.
+The renderer uses spatial [SMAA](https://www.iryoku.com/smaa/) with real
+area/search lookup textures. All presets and S2x share one reconstruction pipeline. S2x preserves the two MSAA samples, calibrates
+hardware sample ordering, reconstructs each using its subpixel area tables,
+and averages the results in linear light. Edge detection uses encoded color; sRGB input reads are re-encoded for its thresholds.
+sRGB views decode filtering inputs and encode the reconstructed output for all SMAA modes, including
+when the scene stores encoded bytes in an unorm target. S2x runs before scene effects;
+regular SMAA runs after those effects. No AA mode uses frame history or jitter.
+UI and movie cameras never run the morphological pass; shared scene/UI targets
+use matching MSAA counts to preserve composition. Refraction preserves
+per-sample depth coverage at MSAA silhouettes.
+
+The options document requires the desktop/AA options and their reset defaults.
+Re-cook `game/options.json` after updating the engine; the console screen-position
+option and offsets are no longer part of the schema.
 Empty option descriptions are omitted. Other descriptions and confirmation
 messages preserve explicit newline characters.
 
