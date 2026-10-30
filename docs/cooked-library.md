@@ -2207,9 +2207,12 @@ stats add zero. Omitted `growth` means no bonus. Different definitions can have
 the same display name; `zelos-magic-swordsman` and `kratos-magic-swordsman` have
 different bonuses and remain independent.
 
-A title's optional `costume`, such as `"nobleman"`, selects a name from that
-character's `battle/party/<character>/mappings.json`. Omit it to let story rules
-choose the costume. A named alias selects the first matching costume ID.
+A title's optional `costume`, such as `"nobleman"`, unlocks an outfit from that
+character's `battle/party/<character>/mappings.json` in Status's separate costume
+selector when the title is owned. Equipping a title never changes the selected
+costume. Omit `costume` for titles that unlock no outfit. The selector's Default
+entry restores the story-selected outfit. A named alias selects the first matching
+costume ID.
 
 `awards.levels`, `awards.combos` and `awards.equipment` are ordered lists. Keep
 list order to preserve award notices. A level rule can be
