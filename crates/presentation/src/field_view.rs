@@ -248,7 +248,7 @@ impl Plugin for FieldRendering {
                     super::field_effects::render,
                     fog,
                     water::render,
-                    water::layers,
+                    actor_layers,
                     ui,
                 )
                     .chain()
@@ -334,6 +334,28 @@ pub(super) struct Art {
     pub(super) panorama: Option<panorama::Artwork>,
     water: Option<water::Artwork>,
 }
+/// Render policy applies to all geometry owned by an actor, regardless of its source.
+pub(super) fn actor_layers(
+    mut commands: Commands,
+    art: Res<Art>,
+    state: State,
+    geometry: Query<(Entity, &ActorGeometry, Option<&RenderLayers>)>,
+) {
+    let Some(water) = &art.water else { return };
+    for (entity, actor, current) in &geometry {
+        let desired = if water.spec.reflection_only_actors.contains(&actor.0) {
+            RenderLayers::layer(water::REFLECTION_LAYER)
+        } else if water.reflects(actor.0, state.get().events.world.controlled_actor) {
+            RenderLayers::from_layers(&[0, water::REFLECTION_LAYER])
+        } else {
+            RenderLayers::layer(0)
+        };
+        if current != Some(&desired) {
+            commands.entity(entity).insert(desired);
+        }
+    }
+}
+
 pub(super) struct Part {
     pub(super) spec: ScenePart,
     // Retain all scenes, clips, meshes and skins for the field's lifetime.
@@ -485,6 +507,10 @@ impl Part {
             .collect()
     }
 }
+
+/// Ownership shared by original meshes, replacements and procedural geometry.
+#[derive(Component, Clone, Copy)]
+pub(super) struct ActorGeometry(pub i32);
 
 #[derive(Component)]
 pub(super) struct ActorPart {
@@ -2189,6 +2215,7 @@ fn pose(
                     instance.geometry.push((index, entity));
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[index].clone()),
+                        ActorGeometry(instance.actor),
                         DrawOrder::field_model(
                             draw_stage,
                             actor_order,
