@@ -29,6 +29,7 @@ mod battle;
 mod battle_view;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
+pub mod anti_aliasing;
 mod camera;
 mod config;
 mod debug_font;

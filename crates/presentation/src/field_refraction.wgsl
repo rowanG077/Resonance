@@ -1,5 +1,6 @@
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 #import resonance::effect_color::{quantize, sample_bytes}
+#import resonance::effect_depth::depth_coverage
 
 struct Pulse { center: vec4<f32>, right: vec4<f32>, up: vec4<f32>, opacity: vec4<f32>, tint: vec4<f32> };
 struct Settings {
@@ -14,7 +15,6 @@ struct Settings {
 @group(0) @binding(1) var linear_sampler: sampler;
 @group(0) @binding(2) var displacement: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> settings: Settings;
-@group(0) @binding(4) var scene_depth: texture_depth_2d;
 @group(0) @binding(5) var air_displacement: texture_2d<f32>;
 @group(0) @binding(6) var<storage, read> pulses: array<Pulse>;
 @group(0) @binding(7) var heat_displacement: texture_2d<f32>;
@@ -53,16 +53,19 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let offset = (sample - vec2<f32>(128.)) * settings.parameters.yz;
         color = mix(color, captured_scene(in.uv + offset), transform.w);
     }
-    let depth = textureLoad(scene_depth, vec2<i32>(in.position.xy), 0);
     // Enlarged copies with alpha 0x90. Pass B uses LEQUAL,
     // pass A GEQUAL; the scene depth buffer uses the reverse convention.
-    if settings.screen_copy.y != 0. && (1. - settings.screen_copy.y / 200.) * (1. - settings.screen_copy.z) + settings.screen_copy.z >= depth {
+    if settings.screen_copy.y != 0. {
+        let coverage = depth_coverage(vec2<i32>(in.position.xy),
+            (1. - settings.screen_copy.y / 200.) * (1. - settings.screen_copy.z) + settings.screen_copy.z, 1u);
         let uv = (in.uv * vec2<f32>(640., 480.) + vec2<f32>(3.)) / vec2<f32>(646., 486.);
-        color = mix(color, textureSampleLevel(scene, linear_sampler, uv, 0.), 144. / 255.);
+        color = mix(color, textureSampleLevel(scene, linear_sampler, uv, 0.), 144. / 255. * coverage);
     }
-    if settings.screen_copy.x != 0. && (1. - settings.screen_copy.x / 200.) * (1. - settings.screen_copy.z) + settings.screen_copy.z <= depth {
+    if settings.screen_copy.x != 0. {
+        let coverage = depth_coverage(vec2<i32>(in.position.xy),
+            (1. - settings.screen_copy.x / 200.) * (1. - settings.screen_copy.z) + settings.screen_copy.z, 2u);
         let uv = (in.uv * vec2<f32>(640., 480.) + vec2<f32>(4.)) / vec2<f32>(648., 488.);
-        color = mix(color, textureSampleLevel(scene, linear_sampler, uv, 0.), 144. / 255.);
+        color = mix(color, textureSampleLevel(scene, linear_sampler, uv, 0.), 144. / 255. * coverage);
     }
     return color;
 }
@@ -91,7 +94,8 @@ fn quad_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) inst
 fn quad_fragment(in: RippleVertex) -> @location(0) vec4<f32> {
     let pulse = pulses[in.pulse];
     // Reverse-Z: ripples remain behind nearer scenery.
-    if in.position.z <= textureLoad(scene_depth, vec2<i32>(in.position.xy), 0) { discard; }
+    let coverage = depth_coverage(vec2<i32>(in.position.xy), in.position.z, 0u);
+    if coverage == 0. { discard; }
     let bounds = settings.uv[u32(pulse.opacity.y)];
     let atlas_uv = mix(bounds.xy, bounds.zw, in.uv);
     var sample: vec2<f32>;
@@ -101,5 +105,5 @@ fn quad_fragment(in: RippleVertex) -> @location(0) vec4<f32> {
     // Scene-copy coordinates include the camera's raster-center offset.
     let screen = (in.position.xy + settings.parameters.w) / vec2<f32>(textureDimensions(scene));
     let captured = captured_scene(screen + offset);
-    return vec4<f32>(quantize(captured.rgb * pulse.tint.rgb, in.position.xy), pulse.opacity.x);
+    return vec4<f32>(quantize(captured.rgb * pulse.tint.rgb, in.position.xy), pulse.opacity.x * coverage);
 }
