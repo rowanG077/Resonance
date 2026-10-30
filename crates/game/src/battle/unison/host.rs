@@ -16,6 +16,7 @@ pub(crate) struct HostMember<'a> {
     pub techniques: &'a BTreeMap<u16, ActionKey>,
     pub temporary_weapons: &'a BTreeMap<u16, Vec<Arc<WeaponDefinition>>>,
     pub short_weapon: bool,
+    pub selected: Option<u16>,
 }
 
 pub(crate) fn prepare_host(
@@ -134,6 +135,7 @@ pub(crate) fn prepare_host(
             },
             windup_voice,
             artes,
+            selected: actor.selected.map(resonance_battle::TechniqueId),
             short_weapon: actor.short_weapon,
         });
     }

@@ -326,13 +326,7 @@ impl Drawing<'_> {
                             24.,
                             WHITE,
                         )?;
-                        self.sprite(
-                            self.spec.sprite(
-                                Sprite::Buttons,
-                                if self.tick % 40 < 20 { 10 } else { 9 },
-                            )?,
-                            [600. - self.text_width(label, 24.)?, 24.],
-                        );
+                        self.button(10, [600. - self.text_width(label, 24.)?, 24.])?;
                     }
                 }
             }

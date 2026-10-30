@@ -10,6 +10,7 @@ pub mod equipment;
 pub mod ex_skills;
 pub mod figurines;
 pub mod grade_shop;
+pub mod input_capture;
 pub mod items;
 pub mod manual;
 pub mod monsters;
@@ -1368,5 +1369,32 @@ mod tests {
         menu.step(FieldInput::default());
         assert_eq!(menu.step(input([0., -1.])), None);
         assert_eq!(menu.confirmation, Some(false));
+    }
+}
+
+impl Menu {
+    /// Physical recording is shared by title, field and world menus.
+    pub fn capture_physical(
+        &mut self,
+        held: &std::collections::BTreeSet<resonance_content::input::PhysicalInput>,
+    ) -> bool {
+        if self.page == Page::Customize {
+            let captured = self.customize.capture_input(held);
+            if let Some(error) = self.customize.binding_error.take() {
+                self.notice = Some(error);
+                self.step_popup();
+            }
+            return captured;
+        }
+        if self.page == Page::Tech {
+            if let Some(checkpoint) = &mut self.checkpoint {
+                let (captured, changed) = self
+                    .tech
+                    .capture_physical(&mut checkpoint.progress_mut().party, held);
+                self.party_changed |= changed;
+                return captured;
+            }
+        }
+        false
     }
 }

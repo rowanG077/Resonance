@@ -243,3 +243,51 @@ Its placement/rate constants are extracted from the original REL, while the came
 restriction is an explicitly maintained Resonance setting. Source evidence and
 source comparison evidence belongs outside the cooked library. Runtime reads the current named
 rules and discovers their dependencies without a stored preload inventory.
+
+## Input icons
+
+Game UI cooking exports the full input atlas and its layout to
+`ui/controls/input-prompts.ktx2` and `ui/controls/input-prompts.json`, with the
+CC0 license beside them. The defaults use 256-pixel tiles rendered from SVG.
+The stored KTX2, layout and license are bundled only with the importer.
+The viewer requires the cooked files and does not contain an embedded fallback.
+The curated atlas contains 117 distinct controls, including L1–L5/R1–R5 and
+readable START/BACK labels. It excludes mouse art, grouped keyboard-arrow islands,
+unused generic shapes, duplicate aliases and LT/RT artwork. Physical key aliases
+share the canonical icon at runtime. Keys and L/R use blue/gold, while A/B/X/Y
+use green/red/blue/yellow. Each has a matching pressed frame. Source geometry and
+lettering come from the Kenney pack.
+
+All runtime button prompts share this atlas, including the post-battle Cook
+prompt, inline manual/EX/item help, and script-created controller-help sprites.
+The historical `ui/controls/gamecube.json` name preserves the script's 32 image
+indices; newly cooked banks contain only the three window ornaments. Button
+slots resolve the current keymap and active device at draw time, including their
+pressed states. Original controller images are neither loaded nor required.
+Menu and battle atlas cooking clears obsolete controller pixels to prevent
+accidental reuse.
+
+To add just these files to an existing library:
+
+```sh
+cargo run -p resonance-importer -- input-prompts local/extracted local/all-assets
+```
+
+Like other cooking steps, this refuses to overwrite existing files. Edit the KTX2
+in place, or override it from a mod directory. The JSON's `size` must match the
+image. `icons` and `pressed` map each name to its normal and pressed
+`[x, y, width, height]` pixel rectangles. A mod can
+change those rectangles or add icons for additional keys. Keep the `button`
+fallback. Runtime preparation reads both files through the normal layered
+library; missing or invalid files report an error. Add these files to older
+libraries using the cooking command above.
+
+The final composed SVG is stored at `resources/input-prompts/atlas.svg` alongside
+the ready-to-cook KTX2 and layout. It is below 10 MB and uses normal Git storage.
+Ordinary builds and cooking do not run SVG tooling. Composing just the SVG
+requires only `python3 tools/build_input_prompts.py --svg-only` and leaves the
+runtime texture/layout pair unchanged. Full generation rasterizes the composed
+SVG once and publishes the SVG, KTX2 and layout after conversion succeeds; it
+requires ImageMagick with librsvg and Rust, without Pillow. The viewer's normal
+image loader owns texture decoding and errors; atlas preparation does not
+decompress or specially validate the KTX2.

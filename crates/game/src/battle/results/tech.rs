@@ -82,6 +82,34 @@ impl Candidate {
         edit: Edit,
     ) -> Result<EditResult> {
         match edit {
+            Edit::Unison { member, technique } => {
+                let actor = Self::tech_actor(setup, member)?;
+                let target = party
+                    .members
+                    .get_mut(member)
+                    .context("Unknown Unison character")?;
+                ensure!(
+                    technique.is_none_or(|id| target.techniques.contains(&id)),
+                    "Unison arte is not learned"
+                );
+                let live = battle.prepare_unison_arte(actor, technique.map(TechniqueId))?;
+                let changed = target.unison_arte != technique;
+                target.unison_arte = technique;
+                live.commit();
+                Ok(EditResult { changed, cue: None })
+            }
+            Edit::RemoveBinding { member, technique } => {
+                let target = party
+                    .members
+                    .get_mut(member)
+                    .context("unknown binding member")?;
+                let before = target.arte_bindings.len();
+                target.arte_bindings.retain(|b| b.technique != technique);
+                Ok(EditResult {
+                    changed: before != target.arte_bindings.len(),
+                    cue: None,
+                })
+            }
             Edit::Control { slot, value } => {
                 ensure!(
                     slot < party.formation.len().min(4) && value < 3,
@@ -202,6 +230,16 @@ impl Candidate {
         )?;
         let visit = match step {
             Step::Navigate(visit) => visit,
+            Step::BindingDecision(yes) => {
+                let visit = page.state.finish_binding_replacement(
+                    self.menu_party.as_mut().context("Tech page has no party")?,
+                    yes,
+                );
+                if visit.changed {
+                    self.publish_menu_edits();
+                }
+                visit
+            }
             Step::Edit(edit) => {
                 let result = Self::apply_tech_edit(
                     &self.setup,
@@ -265,5 +303,22 @@ impl Candidate {
             }
         }
         Ok(visit)
+    }
+}
+
+impl Candidate {
+    pub(in crate::battle) fn capture_arte_binding(
+        &mut self,
+        page: &mut BattlePage,
+        held: &std::collections::BTreeSet<resonance_content::input::PhysicalInput>,
+    ) -> bool {
+        let Some(party) = &mut self.menu_party else {
+            return false;
+        };
+        let (captured, changed) = page.state.capture_physical(party, held);
+        if changed {
+            self.publish_menu_edits();
+        }
+        captured
     }
 }

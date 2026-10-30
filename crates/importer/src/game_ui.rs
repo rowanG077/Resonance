@@ -33,6 +33,7 @@ pub fn cook_game_ui(source: &Path, library: &Path) -> Result<Vec<u32>> {
     crate::cook_ending(source, library).context("ending artwork")?;
     crate::cook_title_screen(source, library).context("title screen")?;
     crate::cook_ui_controls(source, library).context("controller help")?;
+    crate::cook_input_prompts(library).context("input button atlas")?;
     crate::cook_ui_emotions(source, library).context("emotions")?;
     crate::cook_ui_location_titles(source, library, None).context("location titles")?;
     crate::cook_credits_screen(source, library).context("credits")?;

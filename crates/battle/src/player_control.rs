@@ -43,6 +43,7 @@ impl Battle {
         self.runtime[index].control.as_mut().unwrap().run_ticks = 0;
         let commands = !self.actors[index].airborne() || self.actors[index].movement.flying;
         let jump = commands
+            && input.assigned_arte.is_none()
             && self.runtime[index]
                 .control
                 .as_mut()

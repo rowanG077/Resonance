@@ -239,3 +239,6 @@ pub use world_terrain_directory::cook_world_terrain;
 pub use world_terrain_directory::cook_world_terrain_directory;
 pub use world_terrain_tile::cook_world_terrain_tile;
 pub use world_texture::cook_world_terrain_texture;
+
+mod input_prompts;
+pub use input_prompts::cook_input_prompts;

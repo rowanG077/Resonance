@@ -115,9 +115,9 @@ mod target;
 mod taunt;
 mod unison;
 pub use unison::{
-    UnisonArte, UnisonArteId, UnisonCombination, UnisonCombinationFrame, UnisonCompletion,
-    UnisonDefinition, UnisonFeedback, UnisonFrame, UnisonInput, UnisonMember, UnisonPhase,
-    UnisonPlacement, UnisonPrelude, UnisonRecipe, UnisonRecipeId, UnisonRole,
+    UnisonArte, UnisonArteEdit, UnisonArteId, UnisonCombination, UnisonCombinationFrame,
+    UnisonCompletion, UnisonDefinition, UnisonFeedback, UnisonFrame, UnisonInput, UnisonMember,
+    UnisonPhase, UnisonPlacement, UnisonPrelude, UnisonRecipe, UnisonRecipeId, UnisonRole,
 };
 mod tp;
 pub use taunt::MAX_UNISON_GAUGE;

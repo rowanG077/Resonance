@@ -165,7 +165,15 @@ pub(crate) fn sprites(extracted: &Path, exe: &[u8]) -> Result<(MenuTexture, Menu
         (Sprite::ItemTabs, 0x8024_7d40, 0x1a40),
         (Sprite::Buttons, 0x8023_9380, 0x4060),
     ] {
-        rects.insert(kind, atlas.add_all(bank(exe, address, length)?)?);
+        let mut images = bank(exe, address, length)?;
+        if kind == Sprite::Buttons {
+            for (index, (_, _, pixels)) in images.iter_mut().enumerate() {
+                if !resonance_content::input_prompts::PANEL_GLYPHS.contains(&index) {
+                    pixels.fill(0);
+                }
+            }
+        }
+        rects.insert(kind, atlas.add_all(images)?);
     }
     let mut item_rects = Vec::with_capacity(528);
     for id in 0..528 {

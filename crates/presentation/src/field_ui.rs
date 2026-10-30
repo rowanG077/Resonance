@@ -27,6 +27,11 @@ pub(super) use menu::MenuDraws;
 pub(super) fn install(app: &mut App) {
     app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
     bevy::asset::embedded_asset!(app, "field_ui.wgsl");
+    crate::input_icons::install(app);
+    app.add_systems(
+        PreUpdate,
+        crate::input_icons::track_device.after(bevy::input::InputSystems),
+    );
     menu::install(app);
 }
 #[path = "field_ui_overlay.rs"]
@@ -269,6 +274,9 @@ pub(super) struct MenuOverlay {
     artwork: menu::MenuArtwork,
 }
 impl MenuOverlay {
+    pub(crate) fn set_prompt_device(&mut self, device: crate::input_icons::PromptDevice) {
+        self.artwork.set_prompt_device(device);
+    }
     pub fn load_with(
         read: impl Fn(&str) -> Result<Vec<u8>>,
         server: &AssetServer,
@@ -291,6 +299,7 @@ impl MenuOverlay {
             texture_effect: Default::default(),
             opaque: false,
         });
+        let inputs = crate::input_icons::prepare(&read, server)?;
         let artwork = menu::MenuArtwork::load(
             read,
             Default::default(),
@@ -299,6 +308,7 @@ impl MenuOverlay {
             (&surface, [font.width, font.height]),
             &dialogue.cursor,
             diagnostics,
+            inputs,
         )?;
         Ok(Self {
             font,
@@ -411,6 +421,9 @@ fn subtitle_cues(
 }
 
 impl Artwork {
+    pub(crate) fn set_prompt_device(&mut self, device: crate::input_icons::PromptDevice) {
+        self.menu.set_prompt_device(device);
+    }
     pub fn despawn(&mut self, world: &mut World) {
         self.overlays.despawn(world);
         for layer in std::mem::take(&mut self.layers)
@@ -539,6 +552,7 @@ impl Artwork {
                 })
             })
             .collect();
+        let inputs = crate::input_icons::prepare(&read, server)?;
         let menu = menu::MenuArtwork::load(
             read,
             experience,
@@ -547,10 +561,12 @@ impl Artwork {
             (&surfaces[9], [font.width, font.height]),
             &spec.cursor,
             files.diagnostics(),
+            inputs.clone(),
         )?;
         let skits = skit::Artwork::load(skits, server, materials, &surfaces[9], image_assets)?;
         let (fade_image, fade_surface) = fade::surface(materials, image_assets);
         images.push(fade_image);
+        images.push(menu.input_image());
         Ok(Self {
             skits,
             credits: None,
@@ -567,7 +583,14 @@ impl Artwork {
             subtitle_layer: None,
             fade_surface,
             fade_layer: None,
-            overlays: overlay::Artwork::load(overlays, read, server, materials, image_assets)?,
+            overlays: overlay::Artwork::load(
+                overlays,
+                read,
+                server,
+                materials,
+                image_assets,
+                &inputs,
+            )?,
             menu,
             prompt_layers: Vec::new(),
             damage_layer: None,
@@ -765,7 +788,8 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<Vec<i32>> {
-        self.overlays.render(world, commands, meshes)
+        self.overlays
+            .render(world, commands, meshes, self.menu.prompt_device())
     }
     pub fn render(
         &mut self,

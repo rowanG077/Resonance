@@ -236,61 +236,43 @@ pub(super) fn controls(
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
     dungeons: Option<Res<super::dungeons::Menu>>,
+    session: Option<Res<super::new_game::Session>>,
+    preferences: Option<Res<super::config::Preferences>>,
+    mut previous_inputs: Local<std::collections::BTreeSet<resonance_content::input::PhysicalInput>>,
 ) {
     if dungeons.is_some_and(|menu| menu.blocked()) {
         *controls = Controls::default();
         return;
     }
-    use GamepadButton::*;
-    let held = |keys_: &[KeyCode], button| {
-        keys_.iter().any(|k| keys.pressed(*k)) || pads.iter().any(|p| p.pressed(button))
-    };
-    let edge = |keys_: &[KeyCode], button| {
-        keys_.iter().any(|k| keys.just_pressed(*k)) || pads.iter().any(|p| p.just_pressed(button))
-    };
-    let axis = |positive: &[KeyCode], negative: &[KeyCode]| {
-        f32::from(positive.iter().any(|k| keys.pressed(*k)))
-            - f32::from(negative.iter().any(|k| keys.pressed(*k)))
-    };
-    let mut direction = Vec2::new(
-        axis(
-            &[KeyCode::KeyD, KeyCode::ArrowRight],
-            &[KeyCode::KeyA, KeyCode::ArrowLeft],
-        ),
-        axis(
-            &[KeyCode::KeyW, KeyCode::ArrowUp],
-            &[KeyCode::KeyS, KeyCode::ArrowDown],
-        ),
-    );
-    let mut secondary = Vec2::ZERO;
+    use resonance_content::input::StandardAction as A;
+    let settings = crate::input::settings(session.as_deref(), preferences.as_deref());
+    let map = &settings.keymap;
+    let mut physical = crate::input::PhysicalState::keyboard(&keys);
     for pad in &pads {
-        if pad.left_stick().length() > 0.2 {
-            direction += pad.left_stick();
-        }
-        if pad.right_stick().length() > 0.2 {
-            secondary += pad.right_stick();
-        }
-        direction += Vec2::new(
-            f32::from(pad.pressed(DPadRight)) - f32::from(pad.pressed(DPadLeft)),
-            f32::from(pad.pressed(DPadUp)) - f32::from(pad.pressed(DPadDown)),
-        );
+        physical.merge(&crate::input::PhysicalState::gamepad(pad));
     }
+    physical.track_edges(&mut previous_inputs);
+    let direction = physical.movement(map)
+        + Vec2::new(
+            f32::from(physical.down(map, A::OrderRight))
+                - f32::from(physical.down(map, A::OrderLeft)),
+            f32::from(physical.down(map, A::OrderUp))
+                - f32::from(physical.down(map, A::OrderCancel)),
+        );
     let input = &mut controls.0;
     input.travel.stick = direction.clamp_length_max(1.).to_array();
-    input.travel.secondary = secondary.clamp_length_max(1.).to_array();
-    input.travel.throttle = held(&[KeyCode::Space, KeyCode::Enter], South);
-    input.travel.toggle_noishe |= edge(&[KeyCode::KeyX], West);
-    input.travel.vehicle |= edge(&[KeyCode::KeyB, KeyCode::Escape], East);
-    input.travel.toggle_perspective |= edge(&[KeyCode::KeyC], RightThumb);
-    input.travel.cycle_map |= edge(&[KeyCode::KeyM], Start);
-    input.travel.rotate_camera = axis(&[KeyCode::KeyE], &[KeyCode::KeyQ])
-        + f32::from(pads.iter().any(|p| p.pressed(RightTrigger)))
-        - f32::from(pads.iter().any(|p| p.pressed(LeftTrigger)));
-    input.travel.rotate_camera = input.travel.rotate_camera.clamp(-1., 1.);
-    input.confirm |= edge(&[KeyCode::Space, KeyCode::Enter], South);
-    input.cancel |= edge(&[KeyCode::Escape, KeyCode::KeyB], East);
-    input.skit |= edge(&[KeyCode::KeyZ], Z);
-    input.skip_skit |= edge(&[KeyCode::Home], Start);
+    input.travel.walk = physical.down(map, A::Walk);
+    input.travel.secondary = physical.camera(map).to_array();
+    input.travel.throttle = physical.down(map, A::Confirm);
+    input.travel.toggle_noishe |= physical.edge(map, A::Alternate);
+    input.travel.vehicle |= physical.edge(map, A::Cancel);
+    input.travel.toggle_perspective |= physical.edge(map, A::Perspective);
+    input.travel.cycle_map |= physical.edge(map, A::Start);
+    input.travel.rotate_camera = physical.value(map, A::Next) - physical.value(map, A::Previous);
+    input.confirm |= physical.edge(map, A::Confirm);
+    input.cancel |= physical.edge(map, A::Cancel);
+    input.skit |= physical.edge(map, A::Skit);
+    input.skip_skit |= physical.edge(map, A::Start);
     input.accelerate_dialogue = input.travel.throttle;
 }
 #[allow(clippy::too_many_arguments)] // Acknowledge replay input only after the world can consume it.
@@ -1419,6 +1401,7 @@ fn ui(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
     mut exit: MessageWriter<AppExit>,
+    prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -1429,6 +1412,7 @@ fn ui(
     if !ui.ready(&images) {
         return;
     }
+    ui.set_prompt_device(prompt_device.device());
     if let Err(error) = ui.render(
         &scene.session,
         &scene.package.resources.text,
@@ -1479,5 +1463,48 @@ mod tests {
                 "bank must not pitch the nose"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod keymap_tests {
+    use super::*;
+    use resonance_content::input::{AxisDirection, PhysicalInput, StandardAction};
+    #[test]
+    fn a_remapped_stick_direction_can_start_skits_without_repeating_while_held() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Controls>()
+            .init_resource::<crate::config::Preferences>()
+            .add_systems(Update, controls);
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .assign(
+                StandardAction::Skit,
+                PhysicalInput::Axis(AxisDirection::RightUp),
+            );
+        let mut pad = Gamepad::default();
+        pad.analog_mut().set(GamepadAxis::RightStickY, 0.9);
+        let entity = app.world_mut().spawn(pad).id();
+        app.update();
+        assert!(app.world().resource::<Controls>().0.skit);
+        app.world_mut().resource_mut::<Controls>().0.skit = false;
+        app.update();
+        assert!(!app.world().resource::<Controls>().0.skit);
+        app.world_mut()
+            .get_mut::<Gamepad>(entity)
+            .unwrap()
+            .analog_mut()
+            .set(GamepadAxis::RightStickY, 0.);
+        app.update();
+        app.world_mut()
+            .get_mut::<Gamepad>(entity)
+            .unwrap()
+            .analog_mut()
+            .set(GamepadAxis::RightStickY, 0.9);
+        app.update();
+        assert!(app.world().resource::<Controls>().0.skit);
     }
 }

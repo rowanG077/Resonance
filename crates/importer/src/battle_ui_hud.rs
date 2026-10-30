@@ -90,7 +90,12 @@ fn page(tpl: &[u8], palette_page: usize) -> Result<Vec<u8>> {
 
 /// Shared with the battle font owner; page zero is the HUD glyph sheet.
 pub(crate) fn hud_page(disc: &Path, palette_page: usize) -> Result<Vec<u8>> {
-    let pixels = page(&hud_tpl(disc)?, palette_page)?;
+    let mut pixels = page(&hud_tpl(disc)?, palette_page)?;
+    // Every palette page shares the same tile sheet. These eight face-button
+    // cells are obsolete; all live prompts use the configurable input atlas.
+    for row in 64..128 {
+        pixels[(row * 512 + 384) * 4..(row * 512 + 512) * 4].fill(0);
+    }
     Ok(resonance_asset_writer::ktx2::encode_rgba8(
         512, 512, &pixels,
     )?)
@@ -342,8 +347,16 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             image!(92, "ui/battle/status/down")?,
         ],
         unison_buttons: [
-            image!(25, "ui/battle/unison/a-b")?,
-            image!(24, "ui/battle/unison/x-y")?,
+            UiTexture {
+                path: resonance_content::input_prompts::IMAGE_PATH.into(),
+                width: 0,
+                height: 0,
+            },
+            UiTexture {
+                path: resonance_content::input_prompts::IMAGE_PATH.into(),
+                width: 0,
+                height: 0,
+            },
         ],
         commands: commands(&module)?,
         feedback: FeedbackArt {

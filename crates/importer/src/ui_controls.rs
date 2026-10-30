@@ -1,4 +1,4 @@
-//! The GameCube controller pictures from the field that presents the help screen.
+//! Preserve the help-screen script slots and window ornaments; prompts use the shared input atlas.
 use crate::{compression, dol, field_core, menu_sprites};
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
@@ -71,16 +71,19 @@ pub fn cook_ui_controls(extracted: &Path, library: &Path) -> Result<()> {
         dol::u32(&atlas, 4)? as usize == NAMES.len(),
         "controller image count differs"
     );
-    let mut paths = Vec::with_capacity(NAMES.len());
-    for (index, name) in NAMES.iter().enumerate() {
-        let (width, height, rgba) = menu_sprites::decode_image(&atlas, index)
-            .with_context(|| format!("controller-help image {name}"))?;
-        let path = format!("ui/controls/gamecube/{name}.ktx2");
+    let mut paths: Vec<Option<String>> = vec![None; NAMES.len()];
+    for index in resonance_content::input_prompts::PANEL_GLYPHS {
+        let name = NAMES[index];
+        let (width, height, rgba) = menu_sprites::decode_image(&atlas, index)?;
+        let path = format!("ui/controls/{name}.ktx2");
         crate::output::write(
             &library.join(&path),
             &resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
         )?;
-        paths.push(path);
+        paths[index] = Some(path);
     }
-    crate::output::json(&library.join("ui/controls/gamecube.json"), &paths)
+    crate::output::json(
+        &library.join(resonance_content::input_prompts::FIELD_BANK_PATH),
+        &paths,
+    )
 }

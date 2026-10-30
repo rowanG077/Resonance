@@ -1,4 +1,4 @@
-//! Physical prompts and accepted arte rows accompany the shared shortcut editor.
+//! Timed character confirmations execute the independent Unison loadout.
 use super::*;
 use resonance_battle::{ActionKey, ActorId, UnisonFrame, UnisonPhase, UnisonRecipeId};
 use resonance_game::menu::unison::Page;
@@ -35,23 +35,20 @@ fn rows_visible(frame: &UnisonFrame) -> bool {
 }
 
 pub(super) fn layers(
-    art: &Art,
+    input_image: Handle<Image>,
+    size: [u32; 2],
     palette: &Palette,
     notices: &[HudLayer],
     materials: &mut Assets<Surface>,
-    mut load: impl FnMut(&resonance_content::font::UiTexture, bool, bool) -> Handle<Image>,
 ) -> Vec<HudLayer> {
     let mut definitions = vec![
         palette.solid.clone().at(Depth::Unison),
         palette.solid.clone().at(Depth::Unison).offset_depth(1.),
         palette.main_font.clone().at(Depth::Unison).offset_depth(3.),
     ];
-    for texture in &art.unison_buttons {
-        let image = load(texture, false, true);
-        definitions.push(
-            LayerDefinition::new(image, [texture.width, texture.height], Depth::Unison)
-                .offset_depth(2.),
-        );
+    for _ in 0..2 {
+        definitions
+            .push(LayerDefinition::new(input_image.clone(), size, Depth::Unison).offset_depth(2.));
     }
     definitions.extend(
         notice::face_layers(notices)
@@ -204,11 +201,23 @@ impl Artwork {
                         176. + (48. * (((tick % 360 * 8) % 360) as f32).to_radians().sin()).trunc()
                     } / 128.;
                     let tint = [intensity, intensity, intensity, 1.];
-                    let frame = ((tick >> 4) & 1) ^ 1;
-                    let [u, v] = [384. + slot as f32 * 32., 64. + frame as f32 * 32.];
+                    let action = [
+                        resonance_content::input::StandardAction::Confirm,
+                        resonance_content::input::StandardAction::Cancel,
+                        resonance_content::input::StandardAction::Alternate,
+                        resonance_content::input::StandardAction::Menu,
+                    ][slot];
+                    let [u, v, w, h] = crate::input_icons::action_rect_state(
+                        self.windows.input_atlas(),
+                        &self.settings.keymap,
+                        action,
+                        (tick >> 4) & 1 == 0,
+                        self.windows.prompt_device(),
+                    )
+                    .map(|v| v as f32);
                     batches[BUTTON_ART + slot / 2].quad(
                         [x, y, x + 32., y + 32.],
-                        [u, v, u + 32., v + 32.],
+                        [u, v, u + w, v + h],
                         tint,
                     );
                     if let Some(&character) = party.characters.get(slot) {

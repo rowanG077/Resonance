@@ -309,8 +309,8 @@ impl Artwork {
             state.advance(elapsed);
         }
     }
-    fn draw_results(&self) -> Result<[Batch; 3]> {
-        let mut batches: [Batch; 3] = Default::default();
+    fn draw_results(&self) -> Result<[Batch; 4]> {
+        let mut batches: [Batch; 4] = Default::default();
         let Some(state) = &self.results else {
             return Ok(batches);
         };
@@ -408,7 +408,14 @@ impl Artwork {
             }
         }
         if state.chef.is_some() {
-            batches[2].quad([508., 418., 532., 450.], [456., 64., 476., 96.], [1.; 4]);
+            let rect = crate::input_icons::action_rect_state(
+                self.windows.input_atlas(),
+                &self.settings.keymap,
+                resonance_content::input::StandardAction::Alternate,
+                false,
+                self.windows.prompt_device(),
+            );
+            batches[3].quad([512., 420., 536., 444.], glyph_uv(rect), [1.; 4]);
             text::fit(
                 &mut batches[1],
                 &self.font,
@@ -630,6 +637,28 @@ mod tests {
         assert_eq!(hud.results.as_ref().unwrap().rows[1].text, "Learned Mirage");
         assert!(hud.results.as_ref().unwrap().rows[0].overflow);
         assert!(!hud.results_on_last_page());
+        let default_prompts = hud.draw_results()?;
+        assert_eq!(default_prompts[3].positions.len(), 4);
+        hud.settings.keymap.assign(
+            resonance_content::input::StandardAction::Alternate,
+            resonance_content::input::PhysicalInput::Key("F11".into()),
+        );
+        hud.settings.keymap.assign(
+            resonance_content::input::StandardAction::Alternate,
+            resonance_content::input::PhysicalInput::Button("RightTrigger2".into()),
+        );
+        let remapped_prompts = hud.draw_results()?;
+        assert_ne!(
+            default_prompts[3].uv, remapped_prompts[3].uv,
+            "Cook must follow the configured input"
+        );
+        assert!(
+            remapped_prompts[2]
+                .uv
+                .iter()
+                .all(|uv| !(uv[0] >= 384. && uv[0] < 512. && uv[1] >= 64. && uv[1] < 128.)),
+            "no native face-button UVs in result font batch"
+        );
         let pages = hud.results.as_ref().unwrap().pages();
         for _ in 1..pages {
             hud.next_result_page();
@@ -667,7 +696,7 @@ mod tests {
         for page in 0..hud.results.as_ref().unwrap().pages() {
             hud.results.as_mut().unwrap().page = page;
             let draw = hud.draw_results()?;
-            assert!(draw.iter().all(|b| !b.indices.is_empty()));
+            assert!(draw[..3].iter().all(|b| !b.indices.is_empty()));
             assert!(
                 draw.iter()
                     .flat_map(|b| &b.positions)

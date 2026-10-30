@@ -5,7 +5,7 @@ use resonance_battle::BattlePhase;
 
 impl Candidate {
     pub fn unison_page<'a>(&'a self, state: &'a Unison) -> Page<'a> {
-        state.page(&self.party, &self.session, &self.menus)
+        state.page(self.menu_party(), &self.session, &self.menus)
     }
 
     pub(in crate::battle) fn begin_unison(
@@ -21,9 +21,8 @@ impl Candidate {
             self.setup.story >= UNLOCK_STORY as u32,
             "U. Attack is story locked"
         );
-        let state = Unison::opening(remembered, &self.party)?;
-        self.sync_party(battle)?;
-        Ok(state)
+        self.begin_menu(battle)?;
+        Unison::opening(remembered, self.menu_party())
     }
 
     pub(in crate::battle) fn step_unison(
@@ -53,12 +52,18 @@ impl Candidate {
             });
         }
         let setup = &self.setup;
-        state.step_with_edit(
+        let visit = state.step_with_edit(
             input,
-            &mut self.party,
+            self.menu_party
+                .as_mut()
+                .context("Unison page has no party")?,
             &self.session,
             &self.menus,
             |party, edit| Self::apply_tech_edit(setup, battle, party, edit),
-        )
+        )?;
+        if visit.changed {
+            self.publish_menu_edits();
+        }
+        Ok(visit)
     }
 }

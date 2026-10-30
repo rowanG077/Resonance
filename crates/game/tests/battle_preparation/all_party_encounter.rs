@@ -878,6 +878,7 @@ fn execute_combination(
         let member = &mut party.members[usize::from(character - 1)];
         member.techniques = [arte].into();
         member.shortcuts = [arte; 4];
+        member.unison_arte = Some(arte);
     }
     let slots = participants.map(|(character, _)| {
         party
@@ -922,7 +923,6 @@ fn execute_combination(
             selected += 1;
             Some(UnisonInput::Select {
                 pressed_slots: 1 << slot,
-                shortcut: resonance_battle::ShortcutSlot::Neutral,
             })
         } else {
             None
