@@ -93,6 +93,17 @@ pub struct Member {
     pub recent_compound_ex_skills: BTreeSet<u8>,
 }
 
+impl Member {
+    /// Owned title that unlocks the selected outfit, independent of equipped title.
+    pub fn costume_title(&self, titles: &[resonance_content::menu_data::Title]) -> Option<u8> {
+        self.titles.iter().copied().find(|&id| {
+            titles[usize::from(id - 1)]
+                .costume
+                .is_some_and(|costume| costume as u8 == self.costume)
+        })
+    }
+}
+
 /// Preserve every learned arte, but display only the last one learned at each level.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExperienceGain {
@@ -471,6 +482,28 @@ pub(crate) mod tests {
                 "characters": vec![serde_json::json!({"levels": ([[31; 4]; 4]), "compounds": []}); 9],
                 "gem_items": [1, 2, 3, 1, 2]}
         })).unwrap()
+    }
+
+    #[test]
+    fn costume_unlock_depends_on_owned_titles_and_selected_outfit() {
+        use resonance_content::menu_data::{Costume, Title};
+        let titles =
+            [None, Some(Costume::Variant2), Some(Costume::Variant1)].map(|costume| Title {
+                growth: [0; 7],
+                costume,
+            });
+        let mut party = Party::new(&data(), Default::default()).unwrap();
+        let member = &mut party.members[0];
+        member.titles = [1, 2].into();
+        member.costume = 2;
+        member.title = 1;
+        assert_eq!(member.costume_title(&titles), Some(2));
+        member.title = 3; // Scripts can temporarily equip an unlearned title.
+        assert_eq!(member.costume_title(&titles), Some(2));
+        member.costume = 1;
+        assert_eq!(member.costume_title(&titles), None, "title 3 is not owned");
+        member.costume = 0;
+        assert_eq!(member.costume_title(&titles), None, "default has no unlock");
     }
 
     #[test]

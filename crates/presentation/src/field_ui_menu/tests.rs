@@ -2,6 +2,239 @@ use super::test_support::Fixture;
 use super::*;
 
 #[test]
+#[ignore = "requires cooked menus; verifies equipped costume markers and story defaults"]
+fn status_costume_selector_distinguishes_default_owned_and_unavailable_outfits() -> Result<()> {
+    use resonance_game::menu::status::Focus;
+    let fixture = Fixture::load()?;
+    for (character, angel_progress, recovered, default) in [
+        (0, 0, false, 0),
+        (1, 0, false, 0),
+        (1, 1000, false, 3),
+        (6, 0, false, 3),
+        (6, 0, true, 0),
+    ] {
+        let costume_title = fixture.data.titles[character]
+            .iter()
+            .position(|title| {
+                title.costume == Some(resonance_content::menu_data::Costume::Variant2)
+            })
+            .context("fixture has no variant 2 title")? as u8
+            + 1;
+        let mut menu = fixture.field_menu();
+        menu.page = Page::Status;
+        menu.status.focus = Focus::Costume;
+        let progress = menu.checkpoint.as_mut().unwrap().progress_mut();
+        progress.party.formation = vec![character as u8 + 1];
+        progress.party.field_leader = character as u8 + 1;
+        progress.script_globals[usize::from(resonance_content::appearance::ANGEL_PROGRESS / 4)] =
+            angel_progress;
+        if recovered {
+            progress.event_flags.insert(28);
+        }
+        let member = &mut progress.party.members[character];
+        member.titles = [1].into();
+        member.costume = 2;
+        progress.party.validate(&fixture.session)?;
+        assert_eq!(
+            menu.status_choices(),
+            (vec![0], None),
+            "unowned outfit must not mark Default equipped"
+        );
+
+        let progress = menu.checkpoint.as_mut().unwrap().progress_mut();
+        progress.party.members[character].costume = default;
+        assert_eq!(
+            menu.status_choices(),
+            (vec![0], Some(0)),
+            "story default must be marked equipped"
+        );
+
+        let progress = menu.checkpoint.as_mut().unwrap().progress_mut();
+        let member = &mut progress.party.members[character];
+        member.titles.insert(costume_title);
+        member.costume = 2;
+        assert_eq!(
+            menu.status_choices(),
+            (vec![0, costume_title], Some(costume_title))
+        );
+        menu.status.focus = Focus::Title;
+        assert_eq!(menu.status_choices().1, Some(menu.member().title));
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires cooked menus; checks dense effects with all resistance row counts"]
+fn status_effects_keep_previous_capacity_and_complete_rows_inside_the_panel() -> Result<()> {
+    use resonance_content::menu_data::Element;
+    use resonance_events::party::{Poison, StatBuff::*};
+    let mut fixture = Fixture::load()?;
+    let member = &mut fixture.party.members[0];
+    let weapon = usize::from(member.equipment[0]);
+    assert_ne!(weapon, 0);
+    member.equipment[1..].fill(0);
+    member.hp = 0;
+    member.ailments.poison = Poison::Both;
+    member.ailments.paralysis = true;
+    member.ailments.petrified = true;
+    member.ailments.curse = true;
+    member.queued_buffs = [
+        AttackUp,
+        AttackDown,
+        DefenseUp,
+        DefenseDown,
+        AccuracyUp,
+        AccuracyDown,
+        MagicAttackUp,
+        MagicAttackDown,
+        MagicDefenseUp,
+    ]
+    .into();
+    fixture.party.validate(&fixture.session)?;
+    for resistance_count in 0usize..=8 {
+        let properties = &mut std::sync::Arc::make_mut(&mut fixture.data).items[weapon].properties;
+        properties.descriptions.clear();
+        properties.resistance = Element::ALL
+            .into_iter()
+            .take(resistance_count)
+            .map(|element| (element, 2))
+            .collect();
+        let mut menu = fixture.field_menu();
+        menu.page = Page::Status;
+        menu.status.details = true;
+        let mut drawing = fixture.drawing(0);
+        drawing.status(&menu)?;
+        let mut rows = std::collections::BTreeSet::new();
+        let start = 162 + resistance_count.max(1).div_ceil(2) * 26;
+        for ((plane, role, _), batch) in &drawing.batches {
+            if *plane == 2 && *role == DrawRole::Text {
+                for quad in batch.positions.chunks_exact(4) {
+                    let top = ((240. - quad[0][1]) * 448. / 480.).round() as usize;
+                    if top >= start {
+                        rows.insert(top);
+                        let bottom = ((240. - quad[2][1]) * 448. / 480.).round();
+                        assert!(bottom <= 424., "effect text clips the frame at {bottom}");
+                    }
+                }
+            }
+        }
+        let previous_start = 142 + resistance_count.max(1).div_ceil(2) * 26;
+        let previous_capacity = (398usize - previous_start).div_ceil(22);
+        assert!(
+            rows.len() >= previous_capacity,
+            "{resistance_count} resistances: {} effect rows, previously {previous_capacity}",
+            rows.len()
+        );
+        if resistance_count == 4 {
+            fixture.export_drawing(&drawing, "RESONANCE_STATUS_EFFECTS_PREVIEW")?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires cooked menus; checks every title and independent costume selector"]
+fn status_titles_and_costumes_draw_with_numeric_growth_and_fit_the_panels() -> Result<()> {
+    use resonance_game::menu::status::{Focus, VISIBLE_TITLES};
+    let mut fixture = Fixture::load()?;
+    let costume_title = fixture.data.titles[0]
+        .iter()
+        .position(|title| title.costume == Some(resonance_content::menu_data::Costume::Variant2))
+        .context("fixture has no variant 2 title")? as u8
+        + 1;
+    fixture.party.members[0].costume = 2;
+    let status_drawing = |fixture: &Fixture| -> Result<_> {
+        let mut menu = fixture.field_menu();
+        menu.page = Page::Status;
+        let mut drawing = fixture.drawing(0);
+        drawing.status(&menu)?;
+        Ok(drawing.batches)
+    };
+    let before = status_drawing(&fixture)?;
+    fixture.party.members[0].titles.insert(costume_title);
+    assert!(
+        before == status_drawing(&fixture)?,
+        "learning an outfit's title must not change the current outfit caption"
+    );
+    fixture.party.members[0].costume = 0;
+    for (index, member) in fixture.party.members.iter_mut().enumerate() {
+        member.titles = (1..=fixture.data.titles[index].len() as u8).collect();
+    }
+    let mut count = 0;
+    for index in 0..9 {
+        let mut menu = fixture.field_menu();
+        let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
+        party.formation = vec![index as u8 + 1];
+        party.field_leader = index as u8 + 1;
+        menu.page = Page::Status;
+        for details in [false, true] {
+            menu.status.details = details;
+            for focus in [Focus::Name, Focus::Title, Focus::Costume] {
+                menu.status.focus = focus;
+                fixture.drawing(0).status(&menu)?;
+            }
+        }
+        if index == 0 {
+            menu.status.details = false;
+            let mut drawing = fixture.drawing(0);
+            let anchor = drawing.status(&menu)?;
+            drawing.cursor(anchor, 255);
+            fixture.export_drawing(&drawing, "RESONANCE_STATUS_PREVIEW")?;
+        }
+        menu.page = Page::Titles;
+        menu.status.title_opacity = 255;
+        for focus in [Focus::Title, Focus::Costume] {
+            menu.status.focus = focus;
+            let (choices, _) = menu.status_choices();
+            for row in 0..choices.len() {
+                menu.status.row = row;
+                menu.status.title_first = row.saturating_sub(VISIBLE_TITLES - 1);
+                let mut drawing = fixture.drawing(0);
+                let anchor = drawing.status(&menu)?;
+                drawing.cursor(anchor, 255);
+                for ((plane, role, _), batch) in &drawing.batches {
+                    if *plane <= 2 {
+                        for (position, color) in batch.positions.iter().zip(&batch.colors) {
+                            if (240. - position[1]) * 448. / 480. >= 60. {
+                                assert_eq!(
+                                    color[3], 0.,
+                                    "status content shows through the selector"
+                                );
+                            }
+                        }
+                    }
+                    if *plane == 4 && *role == DrawRole::Text {
+                        for p in &batch.positions {
+                            let [x, y] = [p[0] + 320., (240. - p[1]) * 448. / 480.];
+                            assert!(
+                                (16. ..=624.).contains(&x) && (60. ..=428.).contains(&y),
+                                "text outside selector: character {}, row {row}, {focus:?}, ({x}, {y})",
+                                index + 1
+                            );
+                        }
+                    }
+                }
+                if index == 0 && row == 1 {
+                    fixture.export_drawing(
+                        &drawing,
+                        if focus == Focus::Costume {
+                            "RESONANCE_COSTUMES_PREVIEW"
+                        } else {
+                            "RESONANCE_TITLES_PREVIEW"
+                        },
+                    )?;
+                }
+                if focus == Focus::Title {
+                    count += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(count, 159);
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires current menu assets; CPU world-map drawing only"]
 fn world_map_draws_shared_location_names_positions_and_visibility() -> Result<()> {
     let mut fixture = Fixture::load()?;

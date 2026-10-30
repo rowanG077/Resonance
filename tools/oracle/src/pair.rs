@@ -1292,7 +1292,7 @@ fn status_state(native: &Value, source: &Value) -> Result<Value> {
     let previous = (portrait >> 16) as u16 as i16;
     let expected = json!({
         "details":word("status_menu_page_word")? & 0xff00 != 0,
-        "title_focus":selection & 255 != 0,
+        "focus":if selection & 255 != 0 { "Title" } else { "Name" },
         "row":word("status_menu_08_word")? >> 24,
         "page_fade":transition >> 24,
         "closing":matches!((transition >> 16) & 255, 2 | 4),
@@ -1307,7 +1307,7 @@ fn status_state(native: &Value, source: &Value) -> Result<Value> {
     } else {
         "Titles"
     };
-    let passed = actual == &expected
+    let passed = matching_fields(actual, &expected)
         && native["menu"]["page"] == page
         && native["menu"]["character"] == (selection >> 16) & 255
         && native["presentation_counter"] == source["ui_clock"];
@@ -2509,6 +2509,29 @@ fn run_logged(command: &mut Process, log: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_observations_compare_focus_without_requiring_the_list_window() {
+        for (selection, focus, page, opacity) in
+            [(0, "Name", "Status", 0), (0x101, "Title", "Titles", 255)]
+        {
+            let source = json!({
+                "status_menu_00_word":selection, "status_menu_page_word":0,
+                "status_menu_08_word":3 << 24, "status_menu_50_word":opacity << 8,
+                "status_menu_60_word":0xffff0000u32, "ui_clock":17,
+            });
+            let mut native = json!({"presentation_counter":17,"menu":{
+                "page":page,"character":0,"status":{
+                    "details":false,"focus":focus,"row":3,"title_first":1,
+                    "page_fade":0,"closing":false,"previous":null,"portrait_fade":0,
+                    "title_opacity":opacity,"title_closing":false,
+                }
+            }});
+            assert_eq!(status_state(&native, &source).unwrap()["passed"], true);
+            native["menu"]["status"]["focus"] = json!("Costume");
+            assert_eq!(status_state(&native, &source).unwrap()["passed"], false);
+        }
+    }
 
     #[test]
     fn cooking_observations_do_not_require_a_restartable_checkpoint() {
