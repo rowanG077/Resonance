@@ -242,7 +242,7 @@ pub(super) fn install(app: &mut App) {
         .add_systems(Core2d, capture.after(upscaling));
 }
 
-#[allow(clippy::too_many_arguments)] // Allocate once, then only update the held-frame request.
+#[allow(clippy::too_many_arguments)] // Retained images, drawing resources and field ownership.
 fn sync(
     mut commands: Commands,
     state: State,
@@ -272,9 +272,9 @@ fn sync(
         let entity = commands
             .spawn((
                 Quad,
-                Mesh2d(meshes.add(Rectangle::from_size(display.0.ui_size()))),
+                Mesh2d(meshes.add(Rectangle::new(1., 1.))),
                 MeshMaterial2d(material.clone()),
-                Transform::from_xyz(0., 0., 90.),
+                Transform::from_xyz(0., 0., 90.).with_scale(display.0.ui_size().extend(1.)),
             ))
             .id();
         Backdrop {
@@ -285,6 +285,27 @@ fn sync(
             field: None,
         }
     });
+    if display.is_changed() {
+        commands
+            .entity(backdrop.entity)
+            .insert(Transform::from_xyz(0., 0., 90.).with_scale(display.0.ui_size().extend(1.)));
+    }
+    // Keep the frozen background while a menu is open. Before the next capture,
+    // its destination must match the resized scene texture exactly.
+    if !backdrop.held {
+        let size = images
+            .get(&backdrop.capture.source)
+            .expect("retained field output")
+            .texture_descriptor
+            .size;
+        let mut target = images
+            .get_mut(&backdrop.capture.target)
+            .expect("retained menu image");
+        if target.texture_descriptor.size != size {
+            target.resize(size);
+            materials.get_mut(&backdrop.material).unwrap().image = backdrop.capture.target.clone();
+        }
+    }
     let field = state
         .live
         .as_ref()
@@ -397,6 +418,67 @@ mod tests {
         );
         queue.apply(world);
         result
+    }
+
+    #[test]
+    fn field_backdrop_follows_render_size_changes_before_the_next_capture() {
+        let mut app = App::new();
+        app.init_resource::<super::super::display::Display>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<Material>>()
+            .init_resource::<Assets<TitleOutput>>()
+            .add_systems(Update, sync);
+        let source =
+            app.world_mut()
+                .resource_mut::<Assets<Image>>()
+                .add(Image::new_target_texture(
+                    640,
+                    448,
+                    TextureFormat::Bgra8Unorm,
+                    None,
+                ));
+        app.world_mut()
+            .resource_mut::<Assets<TitleOutput>>()
+            .add(TitleOutput {
+                source: source.clone(),
+                brightness: Vec4::ONE,
+            });
+        app.update();
+        for resolution in ["1920x1080", "640x480"] {
+            let size: crate::Resolution = resolution.parse().unwrap();
+            app.world_mut()
+                .resource_mut::<super::super::display::Display>()
+                .0 = size;
+            app.world_mut()
+                .resource_mut::<Assets<Image>>()
+                .get_mut(&source)
+                .unwrap()
+                .resize(Extent3d {
+                    width: size.width,
+                    height: size.scene_height(),
+                    depth_or_array_layers: 1,
+                });
+            app.update();
+            let world = app.world_mut();
+            let mut quads =
+                world.query_filtered::<(&MeshMaterial2d<Material>, &Transform), With<Quad>>();
+            let (material, transform) = quads.single(world).unwrap();
+            let material = world
+                .resource::<Assets<Material>>()
+                .get(&material.0)
+                .unwrap();
+            let target = world
+                .resource::<Assets<Image>>()
+                .get(&material.image)
+                .unwrap();
+            assert_eq!(
+                target.size(),
+                UVec2::new(size.width, size.scene_height()),
+                "retained menu texture must fit the next GPU copy"
+            );
+            assert_eq!(transform.scale.truncate(), size.ui_size());
+        }
     }
 
     #[test]
