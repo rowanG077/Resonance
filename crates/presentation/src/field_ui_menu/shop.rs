@@ -142,6 +142,10 @@ impl Drawing<'_> {
             _ => {
                 self.shop_description(
                     &shop.resources,
+                    party
+                        .formation
+                        .get(shop.character)
+                        .map(|&id| usize::from(id - 1)),
                     [shop.description_previous, shop.description()],
                     shop.description_opacity,
                     opacity,
@@ -170,6 +174,7 @@ impl Drawing<'_> {
     pub(super) fn shop_description(
         &mut self,
         resources: &resonance_game::menu::Resources,
+        character: Option<usize>,
         descriptions: [Description; 2],
         fade: u8,
         opacity: u8,
@@ -198,7 +203,7 @@ impl Drawing<'_> {
                             .equipment_kind
                             .is_some() =>
                 {
-                    self.item_statistics_data(resources, id)?
+                    self.item_statistics_data(resources, character, id)?
                 }
                 Description::Item(id) => self.item_description_data(data, id)?,
             }
@@ -363,7 +368,7 @@ impl Drawing<'_> {
         let data = &resources.data;
         let member = usize::from(party.formation[shop.character] - 1);
         let character = &party.members[member];
-        let stats = character.stats(data);
+        let stats = self.stats.member(data, character, member);
         let item = shop
             .selected_item()
             .context("shop status has no selected item")?;
@@ -400,7 +405,9 @@ impl Drawing<'_> {
             .and_then(|kind| character.preferred_equipment_slot(kind))
             .filter(|_| definition.allowed_characters & (1 << member) != 0)
         {
-            let next = character.preview_equipment(data, slot, item);
+            let next = self
+                .stats
+                .preview_equipment(data, character, member, slot, item);
             for (row, (key, old, new)) in [
                 (
                     if member == 0 {
@@ -505,9 +512,13 @@ impl Drawing<'_> {
     pub(super) fn item_statistics_data(
         &mut self,
         resources: &resonance_game::menu::Resources,
+        character: Option<usize>,
         id: u16,
     ) -> Result<()> {
         let item = &resources.data.items[usize::from(id)];
+        let allowed = resources.session.items[usize::from(id)].allowed_characters;
+        let character = character.filter(|&character| allowed & (1 << character) != 0);
+        let stats = self.stats.equipment(item, character);
         let lloyd_swords = resources.session.items[usize::from(id)].equipment_kind == Some(0)
             && resources.session.items[usize::from(id)].allowed_characters & 1 != 0;
         self.sprite_rect(
@@ -524,25 +535,15 @@ impl Drawing<'_> {
                 },
                 104.,
                 372.,
-                Some(item.equipment_stats[0]),
+                Some(stats[0]),
             ),
-            ("shop_defense", 200., 372., Some(item.equipment_stats[2])),
-            ("shop_accuracy", 296., 372., Some(item.equipment_stats[4])),
+            ("shop_defense", 200., 372., Some(stats[2])),
+            ("shop_accuracy", 296., 372., Some(stats[4])),
             ("shop_defense", 392., 372., None),
-            (
-                "shop_thrust",
-                104.,
-                398.,
-                lloyd_swords.then_some(item.equipment_stats[1]),
-            ),
-            (
-                "shop_intelligence",
-                200.,
-                398.,
-                Some(item.equipment_stats[3]),
-            ),
-            ("shop_evasion", 296., 398., Some(item.equipment_stats[5])),
-            ("shop_luck", 392., 398., Some(item.equipment_stats[6])),
+            ("shop_thrust", 104., 398., lloyd_swords.then_some(stats[1])),
+            ("shop_intelligence", 200., 398., Some(stats[3])),
+            ("shop_evasion", 296., 398., Some(stats[5])),
+            ("shop_luck", 392., 398., Some(stats[6])),
             ("shop_attack", 488., 398., None),
         ] {
             if key == "shop_thrust" && !lloyd_swords {

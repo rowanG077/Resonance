@@ -445,7 +445,7 @@ impl Drawing<'_> {
         };
         let member_index = usize::from(party.formation[slot] - 1);
         let target = &party.members[member_index];
-        let stats = target.stats(data);
+        let stats = self.stats.member(data, target, member_index);
         let opacity = visual.target_opacity;
         let base_opacity = self.opacity;
         self.opacity = opacity;
@@ -460,7 +460,10 @@ impl Drawing<'_> {
             .equipment_kind
             .and_then(|kind| target.preferred_equipment_slot(kind))
             .filter(|_| definition.allowed_characters & (1 << member_index) != 0)
-            .map(|slot| target.preview_equipment(data, slot, id));
+            .map(|slot| {
+                self.stats
+                    .preview_equipment(data, target, member_index, slot, id)
+            });
         let values = if let Some(next) = preview {
             [
                 (
@@ -670,8 +673,9 @@ impl Drawing<'_> {
                 15..21 => 1,
                 _ => 2,
             };
-            let (marker, duration) = match new.equipment_stats[stat].cmp(&old.equipment_stats[stat])
-            {
+            let old = self.stats.equipment(old, Some(member))[stat];
+            let new = self.stats.equipment(new, Some(member))[stat];
+            let (marker, duration) = match new.cmp(&old) {
                 std::cmp::Ordering::Greater => (frame, 18),
                 std::cmp::Ordering::Less => (frame + 3, 18),
                 std::cmp::Ordering::Equal => (6, 20),

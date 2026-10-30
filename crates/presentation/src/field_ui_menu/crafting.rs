@@ -123,6 +123,7 @@ impl Drawing<'_> {
             Focus::Recipes => {
                 self.shop_description(
                     &crafting.resources,
+                    None,
                     [crafting.description_previous, crafting.selected_item()]
                         .map(|item| item.map_or(Description::None, Description::Item)),
                     crafting.description_opacity,
