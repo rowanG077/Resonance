@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 
 #[derive(Component)]
 pub(super) struct Rig {
+    binding_key: std::sync::Arc<()>,
     /// At least one animated pose has been evaluated.
     pub(super) sampled: bool,
     bones: Vec<(Entity, Transform)>,
@@ -190,6 +191,15 @@ impl Rig {
         Ok(rig)
     }
 
+    /// Identity of the skeleton binding, independent of sampled animation.
+    pub(super) fn binding_key(&self) -> &std::sync::Arc<()> {
+        &self.binding_key
+    }
+
+    pub(super) fn bones(&self) -> &[(Entity, Transform)] {
+        &self.bones
+    }
+
     pub(super) fn bind_scale(&self, entity: Entity) -> Option<Vec3> {
         self.bones
             .iter()
@@ -206,6 +216,7 @@ impl Rig {
     pub(super) fn new(bones: Vec<(Entity, Transform)>) -> Self {
         let previous: Vec<_> = bones.iter().map(|(_, t)| Frame::from(*t)).collect();
         Self {
+            binding_key: Default::default(),
             sampled: false,
             authored_channels: vec![0; bones.len()],
             bones,
