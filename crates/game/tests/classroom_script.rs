@@ -121,6 +121,7 @@ fn menu_in_motion(menu: &resonance_game::menu::Menu) -> bool {
                     || map.items_opacity != if map.focus == Focus::Items { 255 } else { 0 }
             }
             Page::Equip => menu.equipment.transition.animating() || menu.equipment.scroll != 0,
+            Page::Status | Page::Titles => menu.status.animating(),
             Page::ExSkills => menu.ex_skills.animating(),
             Page::Cooking => menu.cooking.transition.animating() || menu.cooking.scroll != 0,
             Page::Strategy => menu.strategy.transition.animating() || menu.strategy.scroll != 0,
@@ -2563,20 +2564,6 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     let field_tick = session.events.world.tick;
     let effect_tick = session.effect_clock.tick();
     let played = session.play_time.total();
-    let press = |session: &mut FieldSession, input| {
-        session.step(input).unwrap();
-        session.step(FieldInput::default()).unwrap();
-        for _ in 0..32 {
-            settle_menu_motion(session);
-            if session.menu.as_ref().is_none_or(|m| {
-                !matches!(m.page, Page::Status | Page::Titles) || !m.status.animating()
-            }) {
-                return;
-            }
-            session.step(FieldInput::default()).unwrap();
-        }
-        panic!("Status transition did not finish");
-    };
     let confirm = Accept.input();
     let down = Down.input();
     let cancel = Cancel.input();
@@ -2650,7 +2637,7 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     );
     let mut party = loaded.events.world.party.clone().unwrap();
     assert_eq!(party.members[0].title, 2);
-    assert_eq!(party.members[0].costume, 0);
+    assert_eq!(party.members[0].costume, 2);
     let before = party.members[0].base_stats;
     let growth = menus.titles[0][1].growth;
     party
@@ -2664,8 +2651,8 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     }
     party.validate(&data).unwrap();
 
-    // Selecting a title replaces the previous outfit, including when the same
-    // title is selected again to repair an older mismatched save.
+    // Every title preserves the independent outfit, even across story variants.
+    // Costume selection changes only appearance, and Default follows the story.
     for (angel_progress, presea_recovered) in [(0, false), (1000, true)] {
         let mut checkpoint = saved.clone();
         checkpoint.progress.script_globals
@@ -2674,7 +2661,8 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
         if presea_recovered {
             checkpoint.progress.event_flags.insert(28);
         }
-        checkpoint.progress.party.formation = (1..=9).collect();
+        checkpoint.progress.party.formation = vec![1];
+        checkpoint.progress.party.field_leader = 1;
         let mut menu = resonance_game::menu::Menu::new(
             Page::Titles,
             Some(resonance_game::Checkpoint::Field(checkpoint)),
@@ -2686,7 +2674,9 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
             files: menu_files(),
         }));
         for (index, titles) in menus.titles.iter().enumerate() {
-            menu.character = index;
+            let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
+            party.formation[0] = index as u8 + 1;
+            party.field_leader = index as u8 + 1;
             for (row, title) in titles.iter().enumerate() {
                 let id = (row + 1) as u8;
                 let member = &mut menu
@@ -2704,21 +2694,59 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
                     title_opacity: 255,
                     ..Default::default()
                 };
-                assert_eq!(menu.step(Accept.input()), Some(2));
-                let expected = title.costume.map_or(
-                    if index == 1 && angel_progress != 0 || index == 6 && !presea_recovered {
-                        3
-                    } else {
-                        0
-                    },
-                    |costume| costume as u8,
-                );
+                assert_eq!(press_menu(&mut menu, Accept.input()), Some(2));
+                assert_eq!(menu.member().costume, 2, "member {}, title {id}", index + 1);
+
+                // Open the separate selector from the status header.
+                menu.status.focus = resonance_game::menu::status::Focus::Title;
+                menu.step(Down.input());
+                menu.step(Default::default());
                 assert_eq!(
-                    menu.member().costume,
-                    expected,
-                    "member {}, title {id}",
-                    index + 1
+                    menu.status.focus,
+                    resonance_game::menu::status::Focus::Costume
                 );
+                assert_eq!(press_menu(&mut menu, Accept.input()), Some(2));
+                let choices = menu.costumes();
+                assert_eq!(choices.len(), 1 + usize::from(title.costume.is_some()));
+                let original_party = serde_json::to_value(menu.party()).unwrap();
+                menu.step(Down.input());
+                menu.step(Default::default());
+                assert_eq!(press_menu(&mut menu, Cancel.input()), Some(3));
+                assert_eq!(menu.page, Page::Status);
+                assert_eq!(
+                    serde_json::to_value(menu.party()).unwrap(),
+                    original_party,
+                    "browsing and cancelling costumes must not change the party"
+                );
+                assert_eq!(press_menu(&mut menu, Accept.input()), Some(2));
+                let original_stats = menu.member().base_stats;
+                for (choice, &unlocked) in choices.iter().enumerate().rev() {
+                    menu.page = Page::Titles;
+                    menu.status.row = choice;
+                    menu.status.title_opacity = 255;
+                    menu.status.title_closing = false;
+                    assert_eq!(press_menu(&mut menu, Accept.input()), Some(2));
+                    let expected = if unlocked == 0 {
+                        if index == 1 && angel_progress != 0 || index == 6 && !presea_recovered {
+                            3
+                        } else {
+                            0
+                        }
+                    } else {
+                        title.costume.unwrap() as u8
+                    };
+                    assert_eq!(
+                        menu.member().costume,
+                        expected,
+                        "member {}, costume {choice}",
+                        index + 1
+                    );
+                    assert_eq!(menu.member().title, id);
+                    assert_eq!(menu.member().base_stats, original_stats);
+                    let restored: Party = roundtrip(menu.party());
+                    assert_eq!(restored.members[index].costume, expected);
+                    assert_eq!(restored.members[index].title, id);
+                }
             }
         }
     }
