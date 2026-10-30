@@ -395,6 +395,7 @@ impl Drawing<'_> {
                 Some(yes),
                 menu.ex_skills.popup_opacity,
                 Some([284., 72., 28.]),
+                None,
             );
         }
         Ok(None)

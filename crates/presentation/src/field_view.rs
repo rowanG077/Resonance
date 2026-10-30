@@ -1230,10 +1230,9 @@ pub(super) fn fog(state: State, mut views: Query<&mut DistanceFog, With<super::F
 )]
 fn camera(
     state: State,
-    display: Option<Res<super::display::Display>>,
-    output_stage: Res<super::display::OutputStage>,
-    mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
+    display: Option<Res<super::display::Display>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut clear: ResMut<ClearColor>,
     mut applied: ResMut<Applied>,
     credits: Option<Res<super::credits::Playback>>,
@@ -1245,24 +1244,6 @@ fn camera(
     let Some(camera) = &state.get().events.world.field_camera else {
         return;
     };
-    let field = state.get();
-    let preferences = field
-        .menu
-        .as_ref()
-        .and_then(resonance_game::menu::Menu::preferences)
-        .or_else(|| {
-            field
-                .events
-                .world
-                .party
-                .as_ref()
-                .map(|p| &p.settings.preferences)
-        });
-    TitleOutput::position(
-        &mut outputs,
-        preferences.map_or([0; 2], |p| p.screen_position),
-        *output_stage,
-    );
     for (mut transform, mut projection) in &mut cameras {
         *transform = camera_transform(camera);
         *projection = Projection::custom(TitleProjection(PerspectiveProjection {
@@ -2806,7 +2787,6 @@ fn setup(
         MeshMaterial2d(outputs.add(TitleOutput {
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
-            screen_offset: Vec2::ZERO,
         })),
         RenderLayers::layer(2),
         super::display::OutputQuad,

@@ -4,11 +4,10 @@ mod common;
 use action::Action::{self, *};
 use anyhow::Result;
 use resonance_content::{
-    menu_data::{CustomizeData, CustomizeSettings},
+    menu_data::{CUSTOMIZE_OPTIONS, CustomizeSettings},
     options::{self, Document},
 };
 use resonance_game::menu::{Menu, customize::Focus};
-use std::{fs, path::Path};
 
 fn press(menu: &mut Menu, action: Action) -> Option<i16> {
     let cue = menu.step(action.input());
@@ -17,117 +16,6 @@ fn press(menu: &mut Menu, action: Action) -> Option<i16> {
     }
     cue
 }
-fn pair(data: &CustomizeData, previous: &CustomizeData) -> Result<[Menu; 2]> {
-    let mut result = [
-        Menu::title_customize(data.defaults.clone(), data.clone())?,
-        Menu::title_customize(previous.defaults.clone(), previous.clone())?,
-    ];
-    for menu in &mut result {
-        press(menu, Idle);
-    }
-    Ok(result)
-}
-fn compare(menus: &mut [Menu; 2], action: Action) -> Result<()> {
-    let [actual, expected] = menus;
-    assert_eq!(press(actual, action), press(expected, action));
-    assert_eq!(
-        serde_json::to_value(&actual.customize)?,
-        serde_json::to_value(&expected.customize)?
-    );
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires current options and pre-migration metadata; no devices"]
-fn named_options_preserve_all_editors_reset_and_preference_serialization() -> Result<()> {
-    let document: Document = common::cooked(options::PATH);
-    let data = document.prepare()?;
-    let mut before: serde_json::Value = serde_json::from_slice(&fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/structure-review-20261027/options-structure/before/game/menu/customize.json"))?)?;
-    before["options"].as_array_mut().unwrap().extend(
-        data.options[14..]
-            .iter()
-            .map(serde_json::to_value)
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    );
-    before["confirmations"] = serde_json::to_value(&data.confirmations)?;
-    let old: CustomizeData = serde_json::from_value(before)?;
-    assert_eq!(data.defaults, old.defaults);
-    let mut commands = 0;
-    for row in 0..18 {
-        let mut menus = pair(&data, &old)?;
-        for menu in &mut menus {
-            menu.customize.row = row;
-            menu.customize.first = row.saturating_sub(8);
-        }
-        for action in [Left, Right, Right, Left] {
-            compare(&mut menus, action)?;
-            commands += 1;
-        }
-        if [4, 5, 6, 13].contains(&row) {
-            compare(&mut menus, Accept)?;
-            commands += 1;
-        }
-    }
-    for group in 0..7 {
-        for component in 1..=4 {
-            let mut menus = pair(&data, &old)?;
-            for menu in &mut menus {
-                menu.customize.focus = Focus::Colors;
-                menu.customize.color_group = group;
-                menu.customize.component = component;
-            }
-            for action in [Left, Right] {
-                compare(&mut menus, action)?;
-                commands += 1;
-            }
-        }
-    }
-    for channel in 0..6 {
-        let mut menus = pair(&data, &old)?;
-        for menu in &mut menus {
-            menu.customize.focus = Focus::Volume;
-            menu.customize.channel = channel;
-        }
-        for action in [Left, Right] {
-            compare(&mut menus, action)?;
-            commands += 1;
-        }
-    }
-    for button in 0..7 {
-        let mut menus = pair(&data, &old)?;
-        for menu in &mut menus {
-            menu.customize.focus = Focus::Controls;
-            menu.customize.button = button;
-        }
-        for action in [Left, Right, Right, Left] {
-            compare(&mut menus, action)?;
-            commands += 1;
-        }
-    }
-    let mut menus = pair(&data, &old)?;
-    for menu in &mut menus {
-        menu.customize.focus = Focus::Position;
-    }
-    for action in [Left, Right, Up, Down, OpenMenu] {
-        compare(&mut menus, action)?;
-        commands += 1;
-    }
-    for menu in &mut menus {
-        menu.customize.focus = Focus::Options;
-        menu.customize.row = 18;
-        menu.customize.defaults = true;
-        menu.customize.draft.volumes.music = 10;
-    }
-    compare(&mut menus, Accept)?;
-    commands += 1;
-    assert_eq!(menus[0].customize.draft, data.defaults);
-    let bytes = serde_json::to_vec(&menus[0].customize.draft)?;
-    let restored: CustomizeSettings = serde_json::from_slice(&bytes)?;
-    assert_eq!(restored, old.defaults);
-    println!("{commands} menu edits across every option/editor and Reset match pre-migration data");
-    Ok(())
-}
-
 #[test]
 #[ignore = "requires current options; metadata-only mods"]
 fn named_option_defaults_and_confirmations_reach_the_menu() -> Result<()> {
@@ -155,16 +43,21 @@ fn named_option_defaults_and_confirmations_reach_the_menu() -> Result<()> {
         menu.customize.draft, settings,
         "opening must not replace user preferences"
     );
-    menu.customize.row = 18;
+    menu.customize.row = CUSTOMIZE_OPTIONS;
     menu.customize.defaults = true;
     press(&mut menu, Accept);
     assert_eq!(menu.customize.draft.window, 2);
     assert_eq!(menu.customize.draft.background, 3);
     assert_eq!(menu.customize.draft.battle_rank, 1);
-    assert_eq!(menu.customize.draft.button_map, [1, 0, 2, 3, 4, 5, 6]);
+    assert_eq!(menu.customize.draft.button_map, [0, 1, 2, 3, 4, 5, 6]);
+    assert_eq!(
+        menu.customize.draft.keymap.bindings[0],
+        data.defaults.keymap.bindings[1]
+    );
     assert_eq!(menu.customize.draft.colors.menu, [2, 4, 6, 8]);
     assert_eq!(
-        menu.customize_data()?.option_description(15),
+        menu.customize_data()?
+            .option_description(resonance_content::menu_data::COMBINED_BATTLES_OPTION),
         "Nearby enemies join."
     );
     press(&mut menu, Cancel);

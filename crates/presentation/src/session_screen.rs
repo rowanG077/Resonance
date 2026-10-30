@@ -351,7 +351,6 @@ mod tests {
             .add(TitleOutput {
                 source: Handle::default(),
                 brightness: Vec4::X,
-                screen_offset: Vec2::ZERO,
             });
         let title = world
             .spawn((

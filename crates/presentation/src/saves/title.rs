@@ -198,8 +198,6 @@ fn preview(
     session: Option<Res<new_game::Session>>,
     preferences: Res<Preferences>,
     sounds: Res<audio::MenuSounds>,
-    stage: Res<crate::display::OutputStage>,
-    mut outputs: ResMut<Assets<crate::materials::TitleOutput>>,
 ) {
     if session.is_some() {
         return;
@@ -208,7 +206,6 @@ fn preview(
         .as_ref()
         .and_then(|m| m.0.preferences())
         .unwrap_or(&preferences.settings);
-    crate::materials::TitleOutput::position(&mut outputs, draft.screen_position, *stage);
     if let Some(control) = &sounds.control {
         control.settings(
             draft.volumes.music,
@@ -562,7 +559,13 @@ mod options_tests {
             serde_json::to_value(title.0.customize_data()?)?,
             serde_json::to_value(&field)?
         );
-        assert_eq!(title.0.customize_data()?.option_name(15), "Nearby Battles");
+        assert_eq!(
+            title
+                .0
+                .customize_data()?
+                .option_name(resonance_content::menu_data::COMBINED_BATTLES_OPTION),
+            "Nearby Battles"
+        );
         assert_eq!(
             title
                 .0

@@ -74,30 +74,8 @@ pub struct TitleOutput {
     pub source: Handle<Image>,
     #[uniform(2)]
     pub brightness: Vec4,
-    #[uniform(3)]
-    pub screen_offset: Vec2,
 }
 impl TitleOutput {
-    pub(super) fn position(
-        outputs: &mut Assets<Self>,
-        position: [i16; 2],
-        stage: super::display::OutputStage,
-    ) {
-        let offset = match stage {
-            super::display::OutputStage::Framebuffer => Vec2::ZERO,
-            super::display::OutputStage::Scanout => Vec2::new(
-                f32::from(position[0]) / resonance_content::WIDTH as f32,
-                f32::from(position[1]) / resonance_content::HEIGHT as f32,
-            ),
-        };
-        let changed: Vec<_> = outputs
-            .iter()
-            .filter_map(|(id, output)| (output.screen_offset != offset).then_some(id))
-            .collect();
-        for id in changed {
-            outputs.get_mut(id).unwrap().screen_offset = offset;
-        }
-    }
     /// Assets::iter_mut marks every visited material as modified, even if its
     /// bytes are unchanged. Avoid rebuilding bindings for unchanged output.
     pub fn update(outputs: &mut Assets<Self>, edit: impl Fn(&mut Vec4)) {
