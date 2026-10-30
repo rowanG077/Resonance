@@ -357,6 +357,18 @@ fn customization_drafts_commit_and_confirm_destructive_changes() {
     use resonance_content::{arte::elemental, menu_data::CUSTOMIZE_PATH};
     use resonance_events::party::TechniqueShortcut;
     use resonance_game::menu::{Menu, Page, customize::Focus};
+    // Dedicated display tests cover Keep/Revert. Accept previews here while
+    // exercising gameplay preferences and destructive-change confirmations.
+    fn press(session: &mut FieldSession, action: Action) {
+        crate::press(session, action);
+        if session
+            .menu
+            .as_ref()
+            .is_some_and(|menu| matches!(menu.customize.focus, Focus::DisplayConfirmation { .. }))
+        {
+            crate::press(session, Accept);
+        }
+    }
     let data = session_data();
     let party = Party::new(&data, Default::default()).unwrap();
     let original = party.settings.preferences.clone();
@@ -384,14 +396,17 @@ fn customization_drafts_commit_and_confirm_destructive_changes() {
         Down, Right, Down, Right, Down, Right, Down, Left, Down, Accept, Accept, Right, Cancel,
         Down, Accept, Left, Down, Left, Down, Left, Down, Down, Down, Right, Cancel, Down, Accept,
         Right, Cancel, Down, Right, Down, Right, Down, Right, Down, Right, Down, Right, Down,
-        Right, Down, Accept, Right, Up,
+        Right, Down, Right,
     ] {
         press(&mut session, key);
     }
     let menu = session.menu.as_ref().unwrap();
-    assert_eq!(menu.customize.focus, Focus::Position);
-    assert_eq!(menu.customize.draft.screen_position, [1, -1]);
-    for key in [Start, Left, Down, Cancel] {
+    assert_eq!(menu.customize.focus, Focus::Options);
+    assert_eq!(
+        menu.customize.draft.display_mode,
+        resonance_content::menu_data::DisplayMode::Borderless
+    );
+    for key in [Left, Right, Down, Down] {
         press(&mut session, key);
     }
     for key in [Down, Left] {
@@ -433,7 +448,8 @@ fn customization_drafts_commit_and_confirm_destructive_changes() {
     assert_eq!((expected.window, expected.background), (2, 4));
     assert_eq!(expected.colors.menu, [88, 72, 64, 216]);
     assert_eq!(expected.volumes.channels(), [120, 120, 120, 127, 127]);
-    assert_eq!(expected.button_map, [1, 0, 2, 3, 4, 5, 6]);
+    assert_eq!(expected.button_map, original.button_map);
+    assert_eq!(expected.keymap, original.keymap);
     assert!(
         !expected.stereo
             && !expected.skit_notifications
@@ -443,7 +459,10 @@ fn customization_drafts_commit_and_confirm_destructive_changes() {
             && !expected.rumble
             && !expected.battle_auto_zoom
     );
-    assert_eq!(expected.screen_position, [-1, 1]);
+    assert_eq!(
+        expected.display_mode,
+        resonance_content::menu_data::DisplayMode::Borderless
+    );
     let settings = &session.events.world.party.as_ref().unwrap().settings;
     assert_eq!(
         settings.preferences, original,

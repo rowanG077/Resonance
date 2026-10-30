@@ -1122,10 +1122,7 @@ impl MenuArtwork {
                         Page::Monsters => 255 - menu.monsters.view.page_fade,
                         Page::Figurines => 255 - menu.figurines.view.page_fade,
                         Page::Equip => 255 - menu.equipment.transition.page_fade,
-                        Page::Customize => {
-                            (255 - menu.customize.transition.page_fade)
-                                >> u8::from(menu.customize.focus == CustomizeFocus::Position)
-                        }
+                        Page::Customize => 255 - menu.customize.transition.page_fade,
                         Page::System => menu.system_opacity,
                         Page::Cooking => {
                             (255 - menu.cooking.transition.page_fade) >> u8::from(modal)
@@ -1464,7 +1461,7 @@ impl Drawing<'_> {
         choice: Option<bool>,
         opacity: u8,
     ) -> Result<Option<[f32; 2]>> {
-        self.popup_layout(message, choice, opacity, None)
+        self.popup_layout(message, choice, opacity, None, None)
     }
     fn popup_layout(
         &mut self,
@@ -1472,6 +1469,7 @@ impl Drawing<'_> {
         choice: Option<bool>,
         opacity: u8,
         choice_layout: Option<[f32; 3]>,
+        choice_labels: Option<[&str; 2]>,
     ) -> Result<Option<[f32; 2]>> {
         const FONT_SIZE: f32 = 24.;
         const PADDING: f32 = 12.;
@@ -1483,10 +1481,10 @@ impl Drawing<'_> {
             height += FONT_SIZE + 2.;
         }
         let choices = if choice.is_some() {
-            [
+            choice_labels.unwrap_or([
                 menu_label(&self.spec.labels, "yes")?,
                 menu_label(&self.spec.labels, "no")?,
-            ]
+            ])
         } else {
             [""; 2]
         };

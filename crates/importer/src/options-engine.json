@@ -15,6 +15,18 @@
     "learn_both_arte_paths": {
       "name": "Both T/S Arte Paths",
       "description": "Learn both T and S arte paths.\nLevel and use requirements remain.\nTurning this off forgets artes\nopposite each character's T/S type."
+    },
+    "display_mode": {
+      "name": "Display Mode",
+      "description": "Choose Windowed, Borderless or Fullscreen.\nChanges apply immediately.\nConfirm within 15 seconds to keep them."
+    },
+    "resolution": {
+      "name": "Resolution",
+      "description": "Set the render resolution and window size.\nNative matches your monitor's pixel resolution.\nPreview changes; confirm within 15 seconds.\nBorderless uses the desktop size."
+    },
+    "anti_aliasing": {
+      "name": "Anti-Aliasing",
+      "description": "Smooth edges without temporal blur.\nSMAA smooths texture and geometry edges.\nMSAA and SMAA S2x depend on GPU support.\nApplies when you exit Customize."
     }
   },
   "confirmations": {

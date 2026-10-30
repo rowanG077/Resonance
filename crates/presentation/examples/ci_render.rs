@@ -273,7 +273,6 @@ fn setup(
         MeshMaterial2d(output_materials.add(TitleOutput {
             source: movie_source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
-            screen_offset: Vec2::ZERO,
         })),
         RenderLayers::layer(3),
     ));
