@@ -29,6 +29,7 @@ mod battle;
 mod battle_view;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
+pub mod anti_aliasing;
 mod camera;
 mod config;
 mod debug_font;
@@ -222,13 +223,13 @@ pub fn run(options: RunOptions) -> Result<()> {
 }
 
 pub fn run_with_performance(options: RunOptions, performance: PerformanceOptions) -> Result<()> {
-    run_with_display(options, performance, Resolution::default())
+    run_with_display(options, performance, None)
 }
 
 pub fn run_with_display(
     options: RunOptions,
     performance: PerformanceOptions,
-    resolution: Resolution,
+    resolution: Option<Resolution>,
 ) -> Result<()> {
     let checkpoint = options
         .capture_at
@@ -236,10 +237,10 @@ pub fn run_with_display(
         .zip(options.capture.clone());
     let headless = options.headless();
     anyhow::ensure!(
-        !headless || resolution == Resolution::default(),
+        !headless || resolution.unwrap_or_default() == Resolution::default(),
         "oracle recordings require native resolution"
     );
-    let (mut app, recording) = build_app_with_display(options, resolution)?;
+    let (mut app, recording) = build_app(options, DisplaySource::Player(resolution))?;
     performance::install(&mut app, performance, headless)?;
     if let Some((at, output)) = checkpoint {
         return playthrough::capture(app, at, &output);
@@ -254,9 +255,21 @@ pub fn run_with_display(
     Ok(())
 }
 
+enum DisplaySource {
+    Player(Option<Resolution>),
+    Fixed(Resolution),
+}
+
 fn build_app_with_display(
-    mut options: RunOptions,
+    options: RunOptions,
     resolution: Resolution,
+) -> Result<(App, Option<PathBuf>)> {
+    build_app(options, DisplaySource::Fixed(resolution))
+}
+
+fn build_app(
+    mut options: RunOptions,
+    display_source: DisplaySource,
 ) -> Result<(App, Option<PathBuf>)> {
     let diagnostics = resonance_content::diagnostics::Diagnostics::new(options.paranoid);
     anyhow::ensure!(
@@ -308,11 +321,32 @@ fn build_app_with_display(
     });
     app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(TitleActive);
-    saves::install(
-        &mut app,
-        &options.saves,
-        !options.headless() && options.replay.is_none(),
-    )?;
+    let interactive_display = matches!(display_source, DisplaySource::Player(_))
+        && !options.headless()
+        && options.replay.is_none();
+    saves::install(&mut app, &options.saves, interactive_display)?;
+    let resolution = match display_source {
+        DisplaySource::Fixed(size) => size,
+        DisplaySource::Player(override_size) if !interactive_display => {
+            override_size.unwrap_or_default()
+        }
+        DisplaySource::Player(override_size) => {
+            let mut preferences = app.world_mut().resource_mut::<config::Preferences>();
+            let size = override_size.unwrap_or(Resolution {
+                width: preferences.settings.resolution[0],
+                height: preferences.settings.resolution[1],
+            });
+            preferences.settings.resolution = [size.width, size.height];
+            preferences
+                .settings
+                .validate()
+                .context("invalid startup display settings")?;
+            let aa = preferences.settings.anti_aliasing;
+            app.insert_resource(anti_aliasing::AntiAliasingSettings(aa));
+            app.insert_resource(display::InteractiveDisplay::default());
+            size
+        }
+    };
     loading::install(&mut app, &assets);
     *app.world()
         .resource::<loading::Resident>()
@@ -413,6 +447,16 @@ fn build_app_with_display(
                 .run_if(resource_exists::<saves::ScenarioInput>),
         )
         .add_systems(Startup, (setup, glow::setup, display::initialize).chain())
+        .add_systems(
+            PreUpdate,
+            (
+                display::preview_preferences,
+                display::apply_preferences,
+                display::initialize.run_if(resource_changed::<display::Display>),
+            )
+                .chain()
+                .run_if(resource_exists::<display::InteractiveDisplay>),
+        )
         .add_systems(PostUpdate, loading::black_hold)
         .add_systems(Update, audio::check)
         .add_systems(
@@ -570,7 +614,6 @@ fn setup(
         MeshMaterial2d(outputs.add(TitleOutput {
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
-            screen_offset: Vec2::ZERO,
         })),
         RenderLayers::layer(2),
         display::OutputQuad,

@@ -145,6 +145,8 @@ pub(super) struct Surface {
     color_mask: Handle<Image>,
     #[uniform(6)]
     coverage: Coverage,
+    /// Keep frame textures and clipping masks on the same MSAA samples.
+    sample_coverage: bool,
     opaque: bool,
     additive: bool,
     texture_effect: TextureEffect,
@@ -172,10 +174,15 @@ impl Surface {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct SurfaceKey(bool, bool, TextureEffect);
+pub(super) struct SurfaceKey(bool, bool, TextureEffect, bool);
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
-        Self(surface.opaque, surface.additive, surface.texture_effect)
+        Self(
+            surface.opaque,
+            surface.additive,
+            surface.texture_effect,
+            surface.sample_coverage,
+        )
     }
 }
 impl Material2d for Surface {
@@ -194,6 +201,14 @@ impl Material2d for Surface {
         key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
+        if descriptor.multisample.count > 1 && key.bind_group_data.3 {
+            // Masks and the slices they replace must cover the same samples.
+            // Evaluating their join only at the pixel center leaves MSAA holes.
+            descriptor.vertex.shader_defs.push("MULTISAMPLED_UI".into());
+            if let Some(fragment) = &mut descriptor.fragment {
+                fragment.shader_defs.push("MULTISAMPLED_UI".into());
+            }
+        }
         if key.bind_group_data.2 == TextureEffect::RedChannel
             && let Some(fragment) = &mut descriptor.fragment
         {
@@ -295,6 +310,7 @@ impl MenuOverlay {
             frame_mask: image.clone(),
             color_mask: image,
             coverage: Coverage::default(),
+            sample_coverage: false,
             additive: false,
             texture_effect: Default::default(),
             opaque: false,
@@ -546,6 +562,7 @@ impl Artwork {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
+                    sample_coverage: false,
                     additive: false,
                     texture_effect: Default::default(),
                     opaque: false,
@@ -905,6 +922,7 @@ impl DialogueOverlay {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
+                    sample_coverage: false,
                     opaque: false,
                     additive: false,
                     texture_effect: Default::default(),
@@ -965,7 +983,10 @@ fn prepare_dialogue(
             let mut batch = Batch::default();
             batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
             let mesh = meshes.add(batch.mesh([1, 1]));
-            let template = materials.get(&surfaces[texture]).unwrap().clone();
+            let mut template = materials.get(&surfaces[texture]).unwrap().clone();
+            // Only sliced windows need sample-frequency masking. Bitmap text
+            // and cursors retain pixel-center sampling, even on MSAA UI cameras.
+            template.sample_coverage = index < layer::FONT;
             let material = materials.add(template);
             let order = index as f32;
             let entity = commands
@@ -2664,13 +2685,14 @@ mod tests {
             frame_mask: image.clone(),
             color_mask: image,
             coverage: Coverage::default(),
+            sample_coverage: false,
             opaque: false,
             additive: false,
             texture_effect: Default::default(),
         };
         assert_eq!(
             SurfaceKey::from(&surface),
-            SurfaceKey(false, false, TextureEffect::Plain)
+            SurfaceKey(false, false, TextureEffect::Plain, false)
         );
     }
 

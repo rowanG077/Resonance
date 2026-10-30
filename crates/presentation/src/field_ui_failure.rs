@@ -45,6 +45,7 @@ pub(crate) fn update(world: &mut World) {
             frame_mask: image.clone(),
             color_mask: image,
             coverage: Coverage::default(),
+            sample_coverage: false,
             opaque: false,
             additive: false,
             texture_effect: Default::default(),

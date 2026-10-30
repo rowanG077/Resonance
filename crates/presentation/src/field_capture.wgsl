@@ -1,3 +1,5 @@
+#import resonance::effect_depth::depth_coverage
+
 struct Settings { clip_from_world: mat4x4<f32> };
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
@@ -14,5 +16,10 @@ fn vertex(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>, @locatio
 }
 @fragment
 fn fragment(in: Vertex) -> @location(0) vec4<f32> {
-    return textureSample(scene, linear_sampler, in.uv) * in.color;
+    // The post-processing color target is single-sampled. Read visibility
+    // from every scene depth sample instead of attaching that MSAA texture.
+    let coverage = depth_coverage(vec2<i32>(in.position.xy), in.position.z, 0u);
+    if coverage == 0. { discard; }
+    let color = textureSampleLevel(scene, linear_sampler, in.uv, 0.) * in.color;
+    return vec4<f32>(color.rgb, color.a * coverage);
 }

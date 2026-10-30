@@ -68,6 +68,10 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
         include_str!("effect_color.wgsl"),
         "effect_color.wgsl",
     ));
+    sources.push(Shader::from_wgsl(
+        include_str!("effect_depth.wgsl"),
+        "effect_depth.wgsl",
+    ));
     let mut assets = Assets::<Shader>::default();
     let mut cache = ShaderCache::new((), WgpuFeatures::all(), DownlevelFlags::all(), |_, _, _| {
         Ok(())
@@ -76,10 +80,33 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
         let handle = assets.add(shader.clone());
         cache.set_shader(handle.id(), shader);
     }
+    let ui = Shader::from_wgsl(include_str!("field_ui.wgsl"), "field_ui.wgsl");
+    let ui_handle = assets.add(ui.clone());
+    cache.set_shader(ui_handle.id(), ui);
+    for multisampled in [false, true] {
+        for effect in [
+            None,
+            Some("RED_CHANNEL"),
+            Some("GLYPH_PATTERN"),
+            Some("OPAQUE_IMAGE"),
+        ] {
+            let mut defs = vec![ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2)];
+            if multisampled {
+                defs.push("MULTISAMPLED_UI".into());
+            }
+            if let Some(effect) = effect {
+                defs.push(effect.into());
+            }
+            cache.get(0, ui_handle.id(), &defs).map_err(|error| {
+                anyhow::anyhow!("UI multisampled={multisampled}, effect={effect:?}: {error:?}")
+            })?;
+        }
+    }
     let shaders = [
         ("fragment", include_str!("title_surface.wgsl")),
         ("vertex", include_str!("title_surface_vertex.wgsl")),
         ("refraction", include_str!("field_refraction.wgsl")),
+        ("captured_mesh", include_str!("field_capture.wgsl")),
         (
             "battle_scene_sample",
             include_str!("battle_view/scene_sample.wgsl"),
@@ -132,6 +159,13 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
                     }
                 }
                 for (name, handle) in &shaders {
+                    if matches!(*name, "refraction" | "captured_mesh") {
+                        let mut multisampled = defs.clone();
+                        multisampled.push("MULTISAMPLED_DEPTH".into());
+                        cache
+                            .get(0, handle.id(), &multisampled)
+                            .map_err(|error| anyhow::anyhow!("multisampled {name}: {error:?}"))?;
+                    }
                     if let Err(error) = cache.get(0, handle.id(), &defs) {
                         let message = match error {
                             ShaderCacheError::ProcessShaderError(error) => {

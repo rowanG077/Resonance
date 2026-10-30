@@ -1,12 +1,15 @@
 //! Named menu options and reset defaults; saved preferences keep their own values.
-use crate::menu_data::{CustomizeData, CustomizeOption, CustomizeSettings, Volumes, WindowColors};
+use crate::menu_data::{
+    AntiAliasing, CustomizeData, CustomizeOption, CustomizeSettings, DisplayMode, Volumes,
+    WindowColors,
+};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const PATH: &str = "game/options.json";
 /// Fixed engine meanings and menu order.
-pub const OPTIONS: [&str; 18] = [
+pub const OPTIONS: [&str; 20] = [
     "message_speed",
     "difficulty",
     "window",
@@ -20,7 +23,9 @@ pub const OPTIONS: [&str; 18] = [
     "movie_subtitles",
     "battle_auto_zoom",
     "rumble",
-    "screen_position",
+    "display_mode",
+    "resolution",
+    "anti_aliasing",
     "flexible_battle_party",
     "combined_battles",
     "learn_elemental_artes",
@@ -108,7 +113,9 @@ pub struct Defaults {
     pub combined_battles: bool,
     pub learn_elemental_artes: bool,
     pub learn_both_arte_paths: bool,
-    pub screen_position: [i16; 2],
+    pub anti_aliasing: AntiAliasing,
+    pub display_mode: DisplayMode,
+    pub resolution: [u32; 2],
 }
 
 fn ordered<T: Clone, const N: usize>(
@@ -179,7 +186,9 @@ impl Defaults {
             combined_battles: self.combined_battles,
             learn_elemental_artes: self.learn_elemental_artes,
             learn_both_arte_paths: self.learn_both_arte_paths,
-            screen_position: self.screen_position,
+            anti_aliasing: self.anti_aliasing,
+            display_mode: self.display_mode,
+            resolution: self.resolution,
         };
         settings.validate()?;
         Ok(settings)
@@ -211,7 +220,9 @@ impl Defaults {
             combined_battles: settings.combined_battles,
             learn_elemental_artes: settings.learn_elemental_artes,
             learn_both_arte_paths: settings.learn_both_arte_paths,
-            screen_position: settings.screen_position,
+            anti_aliasing: settings.anti_aliasing,
+            display_mode: settings.display_mode,
+            resolution: settings.resolution,
         })
     }
 }

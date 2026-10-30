@@ -154,6 +154,9 @@ pub(super) fn battle(
     ));
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct Pass;
+
 pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "field_dissolve.wgsl");
     app.add_plugins((
@@ -169,6 +172,7 @@ pub(super) fn install(app: &mut App) {
             Core3d,
             render
                 .in_set(Core3dSystems::PostProcess)
+                .in_set(Pass)
                 .after(super::field_refraction::Pass),
         );
 }

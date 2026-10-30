@@ -725,6 +725,10 @@ impl Menu {
         let [left, right, up, down, page_up, page_down] = std::array::from_fn(|i| {
             self.repeat[i].step(held[i], held[i] && !self.held[i], self.tick)
         });
+        // Block only an uninterrupted horizontal hold across display confirmation.
+        // Quiet repeat ticks are still held; a fresh press after neutral is allowed.
+        self.customize.display_input_blocked &=
+            (self.held[0] || self.held[1]) && (held[0] || held[1]);
         self.held = held;
         let preview_direction = input.preview_direction;
         let input = resolve_input(input, [left, right, up, down, page_up, page_down]);

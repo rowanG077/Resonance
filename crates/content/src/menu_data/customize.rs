@@ -1,10 +1,122 @@
 use super::*;
 
-pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 14;
-pub const COMBINED_BATTLES_OPTION: usize = 15;
-pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 16;
-pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 17;
-pub const CUSTOMIZE_OPTIONS: usize = 18;
+pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 16;
+pub const COMBINED_BATTLES_OPTION: usize = 17;
+pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 18;
+pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 19;
+pub const DISPLAY_MODE_OPTION: usize = 13;
+pub const RESOLUTION_OPTION: usize = 14;
+pub const ANTI_ALIASING_OPTION: usize = 15;
+pub const CUSTOMIZE_OPTIONS: usize = 20;
+
+/// Spatial techniques only: no history, reprojection or projection jitter.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AntiAliasing {
+    Off,
+    SmaaLow,
+    SmaaMedium,
+    SmaaHigh,
+    SmaaUltra,
+    Msaa2,
+    #[default]
+    Msaa4,
+    Msaa8,
+    SmaaS2x,
+}
+impl AntiAliasing {
+    pub const ALL: [Self; 9] = [
+        Self::Off,
+        Self::SmaaLow,
+        Self::SmaaMedium,
+        Self::SmaaHigh,
+        Self::SmaaUltra,
+        Self::Msaa2,
+        Self::Msaa4,
+        Self::Msaa8,
+        Self::SmaaS2x,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::SmaaLow => "SMAA Low",
+            Self::SmaaMedium => "SMAA Medium",
+            Self::SmaaHigh => "SMAA High",
+            Self::SmaaUltra => "SMAA Ultra",
+            Self::Msaa2 => "2x MSAA",
+            Self::Msaa4 => "4x MSAA",
+            Self::Msaa8 => "8x MSAA",
+            Self::SmaaS2x => "SMAA S2x",
+        }
+    }
+    /// Preserve the selected technique when available, otherwise use a
+    /// supported spatial fallback. The renderer always offers Off and SMAA.
+    pub fn supported_or_fallback(self, supported: &[Self]) -> Self {
+        if supported.contains(&self) {
+            self
+        } else if matches!(self, Self::Msaa2 | Self::Msaa4 | Self::Msaa8)
+            && supported.contains(&Self::Msaa4)
+        {
+            Self::Msaa4
+        } else if supported.contains(&Self::SmaaUltra) {
+            Self::SmaaUltra
+        } else {
+            Self::Off
+        }
+    }
+    pub fn samples(self) -> u32 {
+        match self {
+            Self::Msaa2 | Self::SmaaS2x => 2,
+            Self::Msaa4 => 4,
+            Self::Msaa8 => 8,
+            _ => 1,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DisplayMode {
+    #[default]
+    Windowed,
+    Borderless,
+    Fullscreen,
+}
+impl DisplayMode {
+    pub const ALL: [Self; 3] = [Self::Windowed, Self::Borderless, Self::Fullscreen];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Windowed => "Windowed",
+            Self::Borderless => "Borderless",
+            Self::Fullscreen => "Fullscreen",
+        }
+    }
+}
+
+/// Physical render sizes, also used for the window size in windowed mode.
+pub const DISPLAY_RESOLUTIONS: [[u32; 2]; 18] = [
+    [640, 480],
+    [800, 600],
+    [960, 720],
+    [1024, 768],
+    [1280, 720],
+    [1280, 960],
+    [1366, 768],
+    [1600, 900],
+    [1920, 1080],
+    [1920, 1200],
+    [1920, 1440],
+    [2560, 1080],
+    [2560, 1440],
+    [2560, 1600],
+    [3440, 1440],
+    [3840, 1600],
+    [3840, 2160],
+    [5120, 1440],
+];
+pub fn default_display_resolution() -> [u32; 2] {
+    [640, 480]
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomizeOption {
@@ -100,7 +212,9 @@ pub struct CustomizeSettings {
     pub combined_battles: bool,
     pub learn_elemental_artes: bool,
     pub learn_both_arte_paths: bool,
-    pub screen_position: [i16; 2],
+    pub anti_aliasing: AntiAliasing,
+    pub display_mode: DisplayMode,
+    pub resolution: [u32; 2],
 }
 impl Default for CustomizeSettings {
     fn default() -> Self {
@@ -138,7 +252,9 @@ impl Default for CustomizeSettings {
             combined_battles: false,
             learn_elemental_artes: false,
             learn_both_arte_paths: false,
-            screen_position: [0; 2],
+            anti_aliasing: Default::default(),
+            display_mode: Default::default(),
+            resolution: default_display_resolution(),
         }
     }
 }
@@ -163,8 +279,7 @@ impl CustomizeSettings {
                 && self.window < 3
                 && self.background < 6
                 && self.volumes.channels().iter().all(|&v| v <= 127)
-                && (-12..=32).contains(&self.screen_position[0])
-                && (-32..=32).contains(&self.screen_position[1])
+                && self.resolution.iter().all(|v| (1..=8192).contains(v))
                 && self
                     .button_map
                     .iter()
@@ -214,8 +329,6 @@ impl CustomizeData {
             "mono",
             "color",
             "volume",
-            "position",
-            "position_help",
         ] {
             ensure!(
                 self.labels.get(key).is_some_and(|s| !s.is_empty()),

@@ -67,6 +67,7 @@ impl Artwork {
                 frame_mask: image.clone(),
                 color_mask: image.clone(),
                 coverage: default(),
+                sample_coverage: false,
                 opaque: false,
                 additive: false,
                 texture_effect: Default::default(),

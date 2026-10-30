@@ -119,6 +119,30 @@ mod input_tests {
     use super::*;
     use resonance_content::input::{AxisDirection, PhysicalInput, StandardAction};
     #[test]
+    fn desktop_settings_persist() -> Result<()> {
+        use resonance_content::menu_data::DisplayMode;
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("config.toml");
+        let mut preferences = Preferences::load(path.clone())?;
+        assert_eq!(preferences.settings.display_mode, DisplayMode::Windowed);
+        assert_eq!(preferences.settings.resolution, [640, 480]);
+        for (index, anti_aliasing) in resonance_content::menu_data::AntiAliasing::ALL
+            .into_iter()
+            .enumerate()
+        {
+            let settings = CustomizeSettings {
+                display_mode: DisplayMode::ALL[index % DisplayMode::ALL.len()],
+                anti_aliasing,
+                resolution: [1920, 1080],
+                ..preferences.settings.clone()
+            };
+            preferences.commit(settings.clone())?;
+            assert_eq!(Preferences::load(path.clone())?.settings, settings);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn physical_keymap_survives_config_toml_and_migrates_legacy_permutations() -> Result<()> {
         let root = tempfile::tempdir()?;
         let path = root.path().join("config.toml");

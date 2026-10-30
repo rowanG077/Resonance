@@ -15,7 +15,10 @@ use bevy::{
         },
         render_asset::RenderAssets,
         render_resource::{
-            binding_types::{sampler, storage_buffer_read_only, texture_2d, uniform_buffer},
+            binding_types::{
+                sampler, storage_buffer_read_only, texture_2d, texture_2d_multisampled,
+                uniform_buffer,
+            },
             *,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
@@ -215,9 +218,12 @@ fn sync(
 
 #[derive(Resource)]
 struct Pipeline {
-    layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     repeating_sampler: Sampler,
+    passes: [PassPipelines; 2],
+}
+struct PassPipelines {
+    layout: BindGroupLayoutDescriptor,
     id: CachedRenderPipelineId,
     ripple: CachedRenderPipelineId,
     mesh: CachedRenderPipelineId,
@@ -229,6 +235,30 @@ fn prepare(
     fullscreen: Res<FullscreenShader>,
     cache: Res<PipelineCache>,
 ) {
+    commands.insert_resource(Pipeline {
+        passes: [false, true]
+            .map(|multisampled| prepare_passes(multisampled, &server, &fullscreen, &cache)),
+        sampler: device.create_sampler(&SamplerDescriptor {
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..default()
+        }),
+        repeating_sampler: device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..default()
+        }),
+    });
+}
+
+fn prepare_passes(
+    multisampled: bool,
+    server: &AssetServer,
+    fullscreen: &FullscreenShader,
+    cache: &PipelineCache,
+) -> PassPipelines {
     let layout = BindGroupLayoutDescriptor::new(
         "resonance/refraction",
         &BindGroupLayoutEntries::sequential(
@@ -238,7 +268,11 @@ fn prepare(
                 sampler(SamplerBindingType::Filtering),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 uniform_buffer::<Settings>(true),
-                texture_2d(TextureSampleType::Depth),
+                if multisampled {
+                    texture_2d_multisampled(TextureSampleType::Depth)
+                } else {
+                    texture_2d(TextureSampleType::Depth)
+                },
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 storage_buffer_read_only::<Vec<Pulse>>(false),
                 texture_2d(TextureSampleType::Float { filterable: true }),
@@ -266,7 +300,11 @@ fn prepare(
             vertex,
             fragment: Some(FragmentState {
                 shader: shader.clone(),
-                shader_defs: Vec::new(),
+                shader_defs: if multisampled {
+                    vec!["MULTISAMPLED_DEPTH".into()]
+                } else {
+                    Vec::new()
+                },
                 entry_point: Some(entry_point.into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
@@ -280,25 +318,14 @@ fn prepare(
     let mesh = cache.queue_render_pipeline(super::field_capture::pipeline(
         layout.clone(),
         server.load("embedded://resonance_presentation/field_capture.wgsl"),
+        multisampled,
     ));
-    commands.insert_resource(Pipeline {
+    PassPipelines {
         layout,
-        sampler: device.create_sampler(&SamplerDescriptor {
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        }),
-        repeating_sampler: device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::Repeat,
-            address_mode_v: AddressMode::Repeat,
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        }),
         id,
         ripple,
         mesh,
-    });
+    }
 }
 
 #[derive(Default)]
@@ -311,6 +338,7 @@ fn render(
     view: ViewQuery<(
         &ViewTarget,
         &ViewDepthTexture,
+        &Msaa,
         &Settings,
         &Atlas,
         &Pulses,
@@ -329,17 +357,18 @@ fn render(
     mut pulse_buffer: Local<StorageBuffer<Vec<Pulse>>>,
     mut context: RenderContext,
 ) {
-    let (target, depth, settings, atlas, pulses, index, meshes) = view.into_inner();
+    let (target, depth, msaa, settings, atlas, pulses, index, meshes) = view.into_inner();
+    let passes = &pipeline.passes[usize::from(msaa.samples() > 1)];
     if !dissolve.ready(&cache) {
         return;
     }
-    let Some(gpu_pipeline) = cache.get_render_pipeline(pipeline.id) else {
+    let Some(gpu_pipeline) = cache.get_render_pipeline(passes.id) else {
         return;
     };
-    let Some(mesh_pipeline) = cache.get_render_pipeline(pipeline.mesh) else {
+    let Some(mesh_pipeline) = cache.get_render_pipeline(passes.mesh) else {
         return;
     };
-    let Some(ripple_pipeline) = cache.get_render_pipeline(pipeline.ripple) else {
+    let Some(ripple_pipeline) = cache.get_render_pipeline(passes.ripple) else {
         return;
     };
     let [Some(atlas), Some(air), Some(heat)] = atlas.0.each_ref().map(|handle| images.get(handle))
@@ -385,7 +414,7 @@ fn render(
         bindings.views.entry(source.id()).or_insert_with(|| {
             context.render_device().create_bind_group(
                 "resonance/refraction",
-                &cache.get_bind_group_layout(&pipeline.layout),
+                &cache.get_bind_group_layout(&passes.layout),
                 &BindGroupEntries::sequential((
                     source,
                     &pipeline.sampler,
@@ -399,6 +428,12 @@ fn render(
                 )),
             )
         });
+    }
+    if !meshes.0.is_empty() {
+        let buffer = mesh_buffer.get_or_insert_with(|| RawBufferVec::new(BufferUsages::VERTEX));
+        buffer.clear();
+        buffer.extend(meshes.0.iter().copied());
+        buffer.write_buffer(context.render_device(), &queue);
     }
     let mut pass = context
         .command_encoder()
@@ -420,36 +455,17 @@ fn render(
     pass.draw(0..3, 0..1);
     pass.set_pipeline(ripple_pipeline);
     pass.draw(0..6, 0..settings.parameters.x as u32);
-    drop(pass);
     if !meshes.0.is_empty() {
-        let buffer = mesh_buffer.get_or_insert_with(|| RawBufferVec::new(BufferUsages::VERTEX));
-        buffer.clear();
-        buffer.extend(meshes.0.iter().copied());
-        buffer.write_buffer(context.render_device(), &queue);
-        let mut pass = context
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("resonance/captured-mesh"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: post.destination,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Load,
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                    view: depth.view(),
-                    depth_ops: None,
-                    stencil_ops: None,
-                }),
-                ..default()
-            });
+        // All effects use the same single-sample color target and sampled
+        // scene depth. Draw captured meshes after ripples in this pass.
         pass.set_pipeline(mesh_pipeline);
-        pass.set_bind_group(0, &bindings.views[&post.source.id()], &[index.index()]);
+        let buffer = mesh_buffer.as_ref().unwrap();
         pass.set_vertex_buffer(0, *buffer.buffer().unwrap().slice(..));
         pass.draw(0..super::field_capture::vertex_count(meshes), 0..1);
     }
+    drop(pass);
     ready.0.store(true, Ordering::Release);
 }
+
+#[cfg(test)]
+mod tests;
