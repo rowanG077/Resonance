@@ -1220,6 +1220,7 @@ impl NativeHost<'_> {
                         .and_then(|model| model.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("attachment bone is not cooked")?
                         .clone();
+                    let weapon = crate::FieldWeapon::from_attachment(owner.resource, &bone);
                     let mut ancestor = Some(parent);
                     for _ in 0..=self.world.actors.len() {
                         let Some(id) = ancestor else {
@@ -1234,6 +1235,9 @@ impl NativeHost<'_> {
                             .map(|a| a.actor);
                     }
                     if let Some(actor) = self.world.actors.get_mut(&child) {
+                        // Record at the script boundary: a prop can be attached
+                        // and thrown again before a render frame observes it.
+                        actor.field_weapon = actor.field_weapon.or(weapon);
                         actor.attachment = Some(Attachment {
                             actor: parent,
                             bone,
