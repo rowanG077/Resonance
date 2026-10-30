@@ -426,8 +426,11 @@ fn capture(
     mut recording: ResMut<Recording>,
     session: Res<Session>,
     art: Res<Art>,
-    ready: Res<crate::RenderReady>,
-    refraction: Res<crate::field_refraction::Ready>,
+    (weapons, ready, refraction): (
+        crate::field_weapons::Readiness,
+        Res<crate::RenderReady>,
+        Res<crate::field_refraction::Ready>,
+    ),
     applied: Res<crate::field_audit::Applied>,
     target: Res<crate::Framebuffer>,
     roots: Query<(Entity, &ActorPart)>,
@@ -445,6 +448,7 @@ fn capture(
     }
     if recording.settled < 20 {
         if art.ready
+            && weapons.ready(&session.0.events.world)
             && !roots.is_empty()
             && roots.iter().all(|(_, p)| p.prepared)
             && ready.0.load(std::sync::atomic::Ordering::Acquire)
@@ -478,6 +482,7 @@ fn capture(
         return;
     }
     if !recording.presenting
+        || !weapons.ready(&session.0.events.world)
         || !ready.0.load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)

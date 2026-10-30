@@ -19,6 +19,19 @@ pub(super) struct Prepared {
     resources: ResourceLibrary,
     changed: Vec<u32>,
 }
+impl Prepared {
+    fn preserve_resident_files(&mut self, resident: &Resident) {
+        // Equipment and script resources can finish in either order.
+        if let Some(current) = resident.files.read().unwrap().as_ref() {
+            let files = Arc::make_mut(&mut self.files);
+            for (path, bytes) in current.iter() {
+                if !files.contains_key(path) {
+                    files.insert(path.clone(), bytes.clone());
+                }
+            }
+        }
+    }
+}
 pub(super) enum Pending {
     Capturing(ResourceRequest, Task<Prepared>),
     Loading(ResourceRequest, Prepared),
@@ -116,10 +129,11 @@ pub(super) fn update(
             let Some(prepared) = task.poll()? else {
                 return Ok(());
             };
-            let prepared = prepared?;
+            let mut prepared = prepared?;
             let Some(Pending::Capturing(request, _)) = pending.take() else {
                 unreachable!()
             };
+            prepared.preserve_resident_files(&resident);
             // Publish bytes before AssetServer starts its selected GLB/image loads.
             *resident.files.write().unwrap() = Some(prepared.files.clone());
             for &resource in &prepared.changed {
@@ -142,9 +156,10 @@ pub(super) fn update(
             *pending = Some(Pending::Loading(request, prepared));
         }
         if matches!(pending.as_ref(), Some(Pending::Loading(_, _))) && art.ready {
-            let Some(Pending::Loading(request, prepared)) = pending.take() else {
+            let Some(Pending::Loading(request, mut prepared)) = pending.take() else {
                 unreachable!()
             };
+            prepared.preserve_resident_files(&resident);
             ensure!(
                 prepared
                     .changed

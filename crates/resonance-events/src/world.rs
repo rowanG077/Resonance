@@ -120,6 +120,8 @@ pub struct Actor {
     pub(crate) emitter: Option<crate::emitter::Emitter>,
     pub ring_station: bool,
     pub attachment: Option<Attachment>,
+    /// Identity of a carried prop, retained when a scene throws or hands it off.
+    pub field_weapon: Option<FieldWeapon>,
     pub motion: Option<ActorMotion>,
     /// Native movement rate remains readable after a scripted destination ends.
     pub(crate) movement_speed: f32,
@@ -410,6 +412,7 @@ impl Actor {
             emitter: None,
             ring_station: false,
             attachment: None,
+            field_weapon: None,
             motion: None,
             movement_speed: 0.,
             autonomy: None,
@@ -510,6 +513,25 @@ pub struct ActorMotion {
 pub struct Attachment {
     pub actor: i32,
     pub bone: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldWeapon {
+    pub character: u8,
+    pub slot: u8,
+}
+
+impl FieldWeapon {
+    pub fn from_attachment(character: u32, bone: &str) -> Option<Self> {
+        if !(1..=9).contains(&character) {
+            return None;
+        }
+        let slot = bone.strip_prefix("kk")?.parse::<u8>().ok()?;
+        (slot < 8).then_some(Self {
+            character: character as u8,
+            slot,
+        })
+    }
 }
 #[derive(Debug, Clone, Default)]
 pub struct Appearance {
