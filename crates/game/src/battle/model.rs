@@ -4,7 +4,7 @@ mod body_tests;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{Actor, ModelDefinition, Playback, ReactionMotions, Side};
 use resonance_content::{animation::Motion, battle_model, prepared::Files};
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSource {
@@ -14,78 +14,6 @@ pub enum ModelSource {
     Weapon(u16),
     /// Independent models and textures owned by a stored spell scene.
     Scene(u16),
-}
-
-/// Load selected model resources into an owned candidate. The descriptors
-/// themselves must already belong to the verified snapshot.
-pub fn load_files(
-    root: &Path,
-    files: Files,
-    models: &[ModelSource],
-    cache: &mut resonance_content::prepared::Cache,
-    cancelled: impl Fn() -> bool,
-) -> Result<Files> {
-    let mut inventory = BTreeMap::new();
-    for &source in models {
-        let dependencies = match source {
-            ModelSource::Party(character) => {
-                files
-                    .json::<battle_model::Party>(&battle_model::party_path(character as u8))?
-                    .files
-            }
-            ModelSource::Enemy(id) => {
-                files
-                    .json::<battle_model::Enemy>(&battle_model::enemy_path(id))?
-                    .files
-            }
-            ModelSource::Weapon(item) => weapon(&files, item)?.files,
-            ModelSource::Scene(technique) => {
-                files
-                    .json::<resonance_content::battle_scene::Scene>(
-                        &resonance_content::battle_scene::path(technique),
-                    )?
-                    .files
-            }
-        };
-        merge_dependencies(&mut inventory, dependencies)?;
-    }
-    files.with_dependencies(root, inventory, cache, cancelled)
-}
-
-/// Models that share a path must agree on its bytes and retain all its uses.
-pub(crate) fn merge_dependencies(
-    inventory: &mut BTreeMap<String, resonance_content::field_preload::File>,
-    dependencies: impl IntoIterator<Item = (String, resonance_content::field_preload::File)>,
-) -> Result<()> {
-    for (path, file) in dependencies {
-        if let Some(previous) = inventory.get_mut(&path) {
-            ensure!(
-                previous.sha256 == file.sha256 && previous.bytes == file.bytes,
-                "inconsistent model dependency {path}"
-            );
-            previous.roles.extend(file.roles);
-        } else {
-            inventory.insert(path, file);
-        }
-    }
-    Ok(())
-}
-
-/// Resolve the weapon resource before loading its dependencies.
-pub fn weapon(files: &Files, item: u16) -> Result<battle_model::Weapon> {
-    let mut bank: battle_model::Weapons = files.json(battle_model::WEAPONS_PATH)?;
-    match bank
-        .records
-        .remove(&item)
-        .with_context(|| format!("missing weapon resource {item}"))?
-    {
-        battle_model::Attachment::Weapon(source) | battle_model::Attachment::Shield(source) => {
-            Ok(source)
-        }
-        battle_model::Attachment::Nonvisual => {
-            anyhow::bail!("equipment {item} has no attachment model")
-        }
-    }
 }
 
 /// Prepared presentation ID, entry playback and controller root-axis policy.
@@ -177,7 +105,7 @@ pub(super) fn motions(
     let mut motions = BTreeMap::new();
     for clip in &scene.clips {
         let decoded = (|| -> Result<Motion> {
-            let motion = Motion::decode(&files.read(&clip.motion)?)?;
+            let motion = clip.decode_for_skeleton(&files.read(&clip.motion)?, skeleton)?;
             motion.validate(skeleton)?;
             Ok(motion)
         })();
@@ -231,12 +159,13 @@ pub(super) fn body(
             walk: clip(MotionRole::Walk.id()),
             run: clip(MotionRole::Run.id()),
             chant: clip(MotionRole::Chant.id()).or_else(|| clip(MotionRole::Cast.id())),
-            chant_once: profile.chant_once,
-            chant_rate: profile.cast_poses.release.rate,
-            chant_loop_start: profile.chant_loop_start,
+            chant_once: profile.casting.chant_once,
+            chant_rate: profile.casting.release_rate,
+            chant_loop_start: profile.casting.chant_loop_start,
             cast: clip(MotionRole::Cast.id()),
             cast_recovery: profile
-                .cast_recovery_motion
+                .casting
+                .recovery_motion
                 .and_then(|id| clip(u16::from(id))),
             jump: clip(MotionRole::Jump.id()),
             backstep: clip(MotionRole::Backstep.id()),
@@ -256,7 +185,11 @@ pub(super) fn body(
             rising: clip(5),
             rising_blend: 4,
             falling: clip(6),
-            falling_blend: if matches!(profile.weight, 2 | 3) {
+            falling_blend: if matches!(
+                profile.recoil_weight,
+                resonance_content::battle_profile::RecoilWeight::Heavy
+                    | resonance_content::battle_profile::RecoilWeight::Grounded
+            ) {
                 12
             } else {
                 16
@@ -277,20 +210,14 @@ pub(super) fn body(
                 }),
         }
     };
-    let blink = if let Some(blink) = &profile.blink {
-        files.diagnostics().attempt(
-            "battle blink",
-            blink
-                .validate(&profile.texture_channels)
-                .map(|()| blink.clone()),
-        )?
-    } else {
-        None
-    };
+    let blinks = files
+        .diagnostics()
+        .attempt("battle blink", profile.blinks())?
+        .unwrap_or_default();
     let model = ModelDefinition {
         tint: [64, 64, 64, profile.body_alpha],
         fade_on_defeat: profile.death_motion == 0 && !profile.traits.retain_defeated_body,
-        secondary_motion: scene.secondary_motion.chains.clone(),
+        secondary_motion: scene.secondary_motion.prepare(&scene.bone_names)?,
         resource: setup.resource,
         initial: setup.initial,
         suppress_root_translation: setup.suppress_root_translation,
@@ -307,18 +234,16 @@ pub(super) fn body(
                 },
             ]
         },
-        idle_expression: profile.idle_expression,
-        active_expression: profile.active_expression,
+        idle_expression: profile.expression_frames(|e| e.idle),
+        active_expression: profile.expression_frames(|e| e.active),
         forced_eye_frame: None,
-        blink,
-        shadow: if actor.side == resonance_battle::Side::Enemy && profile.traits.hide_enemy_shadow {
-            None
-        } else {
-            Some(resonance_battle::ShadowDefinition {
-                scale: profile.shadow_scale,
-                color: profile.shadow_color,
-            })
-        },
+        blinks,
+        shadow: profile
+            .shadow
+            .map(|shadow| resonance_battle::ShadowDefinition {
+                scale: shadow.scale,
+                color: shadow.color,
+            }),
         weapons: vec![],
         skeleton: rig.skeleton.clone(),
         body_spheres: marker_spheres(&rig.skeleton, actor.body.scale, &[b"mo"])?,
@@ -393,7 +318,7 @@ pub fn effect(
                 motions
                     .insert(
                         clip.resource_slot,
-                        Motion::decode(&files.read(&clip.motion)?)?
+                        clip.decode_for_skeleton(&files.read(&clip.motion)?, skeleton)?
                     )
                     .is_none(),
                 "duplicate effect motion slot"
@@ -404,7 +329,7 @@ pub fn effect(
                 resource,
                 skeleton: skeleton.clone(),
                 motions,
-                secondary_motion: scene.secondary_motion.chains.clone(),
+                secondary_motion: scene.secondary_motion.prepare(&scene.bone_names)?,
             },
         ))?;
         if animate_layers && let Some((_, clip)) = layer.selected_clip()? {
@@ -440,17 +365,20 @@ pub fn effect(
             );
             independent.push(prepare(layer, expected)?);
         } else {
+            // Shared layers consume the primary indexed pose. Their GLBs can
+            // differ because body and outline rigs use different joint names;
+            // the playback slots and timing must still agree.
             ensure!(
                 primary
                     .clips
                     .iter()
-                    .map(|clip| (clip.resource_slot, &clip.motion))
+                    .map(|clip| (clip.resource_slot, clip.duration_ticks()))
                     .eq(layer
                         .scene
                         .clips
                         .iter()
-                        .map(|clip| (clip.resource_slot, &clip.motion))),
-                "shared effect layer motions differ"
+                        .map(|clip| (clip.resource_slot, clip.duration_ticks()))),
+                "shared effect layer playback differs"
             );
         }
     }

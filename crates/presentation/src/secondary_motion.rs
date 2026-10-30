@@ -13,12 +13,19 @@ pub(super) struct Rig {
     root: Entity,
     bones: BTreeMap<u16, Bone>,
     authored_nodes: Vec<u16>,
-    chains: Vec<(Chain, Simulation)>,
+    chains: Vec<DrivenChain>,
     tick: Option<u32>,
     pose: BTreeMap<u16, GlobalTransform>,
     impulses: BTreeMap<u32, Vec3>,
     disabled: bool,
 }
+struct DrivenChain {
+    name: String,
+    pose_attraction: f32,
+    chain: Chain,
+    simulation: Simulation,
+}
+
 struct Bone {
     entity: Entity,
     parent: Entity,
@@ -63,7 +70,7 @@ impl Rig {
                 ))
             })
             .collect();
-        let chains = spec.secondary_motion.chains.clone();
+        let chains = spec.secondary_motion.prepare(&spec.bone_names).ok()?;
         if chains.iter().any(|chain| {
             chain.joints.iter().any(|j| !bones.contains_key(&j.node))
                 || chain
@@ -93,9 +100,17 @@ impl Rig {
             root,
             bones,
             authored_nodes,
-            chains: chains
-                .into_iter()
-                .map(|chain| (chain, Simulation::default()))
+            chains: spec
+                .secondary_motion
+                .chains
+                .iter()
+                .zip(chains)
+                .map(|(definition, chain)| DrivenChain {
+                    name: definition.name.clone(),
+                    pose_attraction: definition.pose_attraction,
+                    chain,
+                    simulation: Simulation::default(),
+                })
                 .collect(),
             tick: None,
             pose: BTreeMap::new(),
@@ -110,7 +125,7 @@ impl Rig {
         yaw: f32,
         tick: u32,
         settle: bool,
-        animated_roots: &[u16],
+        pose_chains: &[String],
     ) -> Option<BTreeMap<u16, GlobalTransform>> {
         let Pose::Trs(actor) = helper.local(self.root).ok()? else {
             panic!("secondary-motion actor root must expose its scale")
@@ -132,7 +147,7 @@ impl Rig {
                     .unwrap_or_default()
             })
             .collect();
-        let output = self.evaluate(&authored, actor.scale, yaw, animated_roots, &forces);
+        let output = self.evaluate(&authored, actor.scale, yaw, pose_chains, &forces);
         self.tick = Some(tick);
         self.pose.clone_from(&output);
         Some(output)
@@ -159,12 +174,14 @@ impl Rig {
         authored: &BTreeMap<u16, Authored>,
         actor_scale: Vec3,
         yaw: f32,
-        animated_roots: &[u16],
+        pose_chains: &[String],
         forces: &[Vec3],
     ) -> BTreeMap<u16, GlobalTransform> {
         let actor_rotation = Quat::from_rotation_z(yaw.to_radians());
         let mut output = BTreeMap::new();
-        for (chain, simulation) in &mut self.chains {
+        for driven in &mut self.chains {
+            let chain = &driven.chain;
+            let simulation = &mut driven.simulation;
             let targets: Vec<_> = chain
                 .joints
                 .iter()
@@ -191,8 +208,8 @@ impl Rig {
                     p.strength,
                 )
             });
-            let attraction = if animated_roots.contains(&chain.joints[0].node) {
-                0.2
+            let attraction = if pose_chains.contains(&driven.name) {
+                driven.pose_attraction
             } else {
                 chain.attraction
             };
@@ -335,7 +352,9 @@ pub(super) fn diagnostic(world: &mut World) -> serde_json::Value {
     serde_json::json!(query.iter(world).filter(|(part, _)| part.part == 0).map(|(part, rig)| {
         serde_json::json!({"actor":part.actor,"tick":rig.tick,
             "nodes":rig.bones.iter().filter_map(|(node,bone)|world.get::<GlobalTransform>(bone.entity).map(|pose|serde_json::json!({"node":node,"world":pose.to_matrix().to_cols_array()}))).collect::<Vec<_>>(),
-            "chains":rig.chains.iter().map(|(chain, simulation)| {
+            "chains":rig.chains.iter().map(|driven| {
+            let chain = &driven.chain;
+            let simulation = &driven.simulation;
             serde_json::json!({"root":chain.joints[0].node,"positions":simulation.positions.iter().map(|p|p.to_array()).collect::<Vec<_>>(),
                 "targets":simulation.targets.iter().map(|p|p.to_array()).collect::<Vec<_>>(),
                 "velocity":simulation.velocity.iter().map(|p|p.to_array()).collect::<Vec<_>>()})
@@ -367,7 +386,8 @@ pub(super) fn bind(
 /// feeding yesterday's deformation back into the authored pose causes drift.
 pub(super) fn restore(rigs: Query<&Rig>, mut transforms: Query<&mut Transform>) {
     for rig in &rigs {
-        for (chain, _) in &rig.chains {
+        for driven in &rig.chains {
+            let chain = &driven.chain;
             for joint in chain.joints.iter().take(chain.joints.len() - 1) {
                 let bone = &rig.bones[&joint.node];
                 if let Ok(mut transform) = transforms.get_mut(bone.entity) {
@@ -406,10 +426,10 @@ pub(super) fn apply(
             if culled {
                 rig.tick = Some(tick);
             }
-            let animated_roots = part
+            let pose_chains = part
                 .active_clip
                 .and_then(|index| art.models[&part.resource][part.part].spec.clips.get(index))
-                .map(|clip| clip.secondary_pose_nodes.as_slice())
+                .map(|clip| clip.pose_chains.as_slice())
                 .unwrap_or_default();
             rig.impulses = actor
                 .chain_impulses
@@ -426,13 +446,7 @@ pub(super) fn apply(
             let output = if culled {
                 Some(rig.pose.clone())
             } else {
-                rig.advance(
-                    &helper,
-                    yaw,
-                    tick,
-                    state.checkpoint.is_some(),
-                    animated_roots,
-                )
+                rig.advance(&helper, yaw, tick, state.checkpoint.is_some(), pose_chains)
             };
             if let Some(output) = output {
                 poses.insert(part.actor, output);
@@ -593,8 +607,10 @@ mod tests {
             ]
             .into(),
             authored_nodes: vec![0, 1],
-            chains: vec![(
-                Chain {
+            chains: vec![DrivenChain {
+                name: "hair".into(),
+                pose_attraction: 0.2,
+                chain: Chain {
                     joints: (0..2)
                         .map(|node| Joint {
                             node,
@@ -607,8 +623,8 @@ mod tests {
                     rotation_locks: [false; 2],
                     collision_plane: None,
                 },
-                Simulation::default(),
-            )],
+                simulation: Simulation::default(),
+            }],
             tick: None,
             pose: BTreeMap::new(),
             impulses: BTreeMap::new(),
@@ -790,4 +806,73 @@ mod tests {
         assert_eq!(simulation.positions, moved);
         assert!(simulation.velocity.iter().all(|v| *v == Vec3::ZERO));
     }
+}
+
+#[test]
+fn named_pose_selection_uses_the_chain_setting_without_changing_the_solver() {
+    use resonance_content::secondary_motion::Joint;
+    let chain = Chain {
+        joints: [7, 9, 13]
+            .map(|node| Joint {
+                node,
+                gravity: 0.333,
+                damping: 0.766,
+            })
+            .to_vec(),
+        attraction: 0.03,
+        preserve_rotation: true,
+        rotation_locks: [false; 2],
+        collision_plane: None,
+    };
+    let targets = [
+        Vec3::new(0., 0., 40.),
+        Vec3::new(8., 0., 40.),
+        Vec3::new(16., 0., 40.),
+    ];
+    let authored = chain
+        .joints
+        .iter()
+        .zip(targets)
+        .map(|(joint, p)| {
+            (
+                joint.node,
+                Authored {
+                    world: GlobalTransform::from_translation(p),
+                    affine: false,
+                },
+            )
+        })
+        .collect();
+    let forces = [Vec3::X; 30];
+    let mut results = Vec::new();
+    for selected in [vec![], vec!["cape-left".into()]] {
+        let mut rig = Rig {
+            root: Entity::PLACEHOLDER,
+            bones: BTreeMap::new(),
+            authored_nodes: vec![],
+            chains: vec![DrivenChain {
+                name: "cape-left".into(),
+                pose_attraction: 0.7,
+                chain: chain.clone(),
+                simulation: Simulation::default(),
+            }],
+            tick: None,
+            pose: BTreeMap::new(),
+            impulses: BTreeMap::new(),
+            disabled: false,
+        };
+        rig.evaluate(&authored, Vec3::ONE, 0., &selected, &forces);
+        let mut direct = Simulation::default();
+        direct.advance(
+            &chain,
+            &targets,
+            None,
+            if selected.is_empty() { 0.03 } else { 0.7 },
+            &forces,
+        );
+        assert_eq!(rig.chains[0].simulation.positions, direct.positions);
+        assert_eq!(rig.chains[0].simulation.velocity, direct.velocity);
+        results.push(direct.positions);
+    }
+    assert_ne!(results[0], results[1]);
 }

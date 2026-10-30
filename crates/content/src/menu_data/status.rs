@@ -64,62 +64,92 @@ pub enum EquipmentRescue {
     Consumable,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EquipmentProperties {
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub attack_element: Option<Element>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub neutral_resistance: i8,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub resistance: BTreeMap<Element, i8>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub critical_chance_bonus: u8,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub technique_drift: i8,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub species_bonus: Option<crate::battle_profile::Species>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub stat_bonuses: Vec<ExStatBonus>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub tp_discount: TpDiscount,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub rescue: Option<EquipmentRescue>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub immunities: std::collections::BTreeSet<EquipmentAilment>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub ailments: std::collections::BTreeSet<EquipmentAilment>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub hp_regeneration: u8,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub tp_regeneration: u8,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub movement_bonus: i16,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub experience_percent: u8,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub ailment_resistance: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub short_stun: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub faster_casting: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub kill_hp_recovery: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub kill_tp_recovery: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub physical_damage_boost: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub physical_damage_reduction: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub magic_damage_boost: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub gald_one_and_a_half: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub gald_double: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub defense_halved: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub quick_escape: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub kills_damage: bool,
-    /// Only presentation uses these identifiers and their suppression rules.
-    pub caption_ids: Vec<u8>,
+    /// Named status-page descriptions; these never select gameplay effects.
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub descriptions: Vec<String>,
     /// A selected item whose behavior is unavailable cannot enter battle.
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub unsupported_modifier: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EquipmentEffect {
-    pub suppresses: Vec<u8>,
+    pub suppresses: Vec<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StatusData {
-    pub equipment_effects: BTreeMap<u8, EquipmentEffect>,
+    pub equipment_effects: BTreeMap<String, EquipmentEffect>,
 }
 impl StatusData {
     pub fn validate(&self, items: &[Item]) -> Result<()> {
         ensure!(
             self.equipment_effects
                 .iter()
-                .all(|(&id, e)| !e.suppresses.contains(&id)
+                .all(|(id, e)| !e.suppresses.contains(id)
                     && e.suppresses
                         .iter()
                         .all(|i| self.equipment_effects.contains_key(i)))
                 && items.iter().all(|i| i
                     .properties
-                    .caption_ids
+                    .descriptions
                     .iter()
                     .all(|id| self.equipment_effects.contains_key(id))),
             "invalid equipment effects"

@@ -12,6 +12,10 @@ fn is_zero(value: &u16) -> bool {
     *value == 0
 }
 
+fn default_number<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Variable {
@@ -67,12 +71,56 @@ pub enum Comparison {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
+    #[serde(rename = "program")]
     pub macro_id: u16,
+    #[serde(default = "note_key", skip_serializing_if = "default_key")]
     pub key: u8,
+    #[serde(default = "note_velocity", skip_serializing_if = "default_velocity")]
     pub velocity: u8,
+    #[serde(default = "note_pan", skip_serializing_if = "default_pan")]
     pub pan: u8,
+    #[serde(default = "note_priority", skip_serializing_if = "default_priority")]
     pub priority: u8,
+    #[serde(
+        default = "note_max_voices",
+        skip_serializing_if = "default_max_voices"
+    )]
     pub max_voices: u8,
+}
+
+fn note_key() -> u8 {
+    60
+}
+fn default_key(value: &u8) -> bool {
+    *value == 60
+}
+
+fn note_velocity() -> u8 {
+    127
+}
+fn default_velocity(value: &u8) -> bool {
+    *value == 127
+}
+
+fn note_pan() -> u8 {
+    64
+}
+fn default_pan(value: &u8) -> bool {
+    *value == 64
+}
+
+fn note_priority() -> u8 {
+    10
+}
+fn default_priority(value: &u8) -> bool {
+    *value == 10
+}
+
+fn note_max_voices() -> u8 {
+    255
+}
+fn default_max_voices(value: &u8) -> bool {
+    *value == 255
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -161,6 +209,7 @@ pub enum MessageTarget {
 pub enum Command {
     VoiceHandle {
         destination: Variable,
+        #[serde(default, skip_serializing_if = "is_false")]
         child: bool,
     },
     SendMessage {
@@ -192,6 +241,7 @@ pub enum Command {
         comparison: Comparison,
         left: Variable,
         right: Variable,
+        #[serde(default, skip_serializing_if = "is_false")]
         invert: bool,
         instruction: usize,
     },
@@ -202,6 +252,7 @@ pub enum Command {
     SpawnMacro {
         program: u16,
         instruction: u16,
+        #[serde(default, skip_serializing_if = "default_number")]
         key_offset: i8,
         priority: u8,
         max_voices: u8,
@@ -214,14 +265,18 @@ pub enum Command {
     Loop {
         instruction: usize,
         count: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
         key_off: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         sample_end: bool,
     },
     RandomLoop {
         instruction: usize,
         /// Exclusive upper bound, sampled only when entering the loop.
         count: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
         key_off: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         sample_end: bool,
     },
     Envelope {
@@ -238,8 +293,10 @@ pub enum Command {
     StopSample,
     Release,
     PitchOffset {
+        #[serde(default, skip_serializing_if = "is_false")]
         from_original: bool,
         semitones: i8,
+        #[serde(default, skip_serializing_if = "default_number")]
         cents: i8,
         #[serde(default, skip_serializing_if = "is_zero")]
         wait_ms: u16,
@@ -248,6 +305,7 @@ pub enum Command {
     },
     SetNote {
         key: u8,
+        #[serde(default, skip_serializing_if = "default_number")]
         cents: i8,
         #[serde(default, skip_serializing_if = "is_zero")]
         wait_ms: u16,
@@ -257,8 +315,11 @@ pub enum Command {
     RandomNote {
         low: u8,
         high: u8,
+        #[serde(default, skip_serializing_if = "default_number")]
         cents: i8,
+        #[serde(default, skip_serializing_if = "is_false")]
         random_cents: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         relative: bool,
     },
     PanRamp {
@@ -268,18 +329,24 @@ pub enum Command {
         milliseconds: u16,
     },
     ScaleVolume {
+        #[serde(default, skip_serializing_if = "is_false")]
         from_velocity: bool,
         factor: u16,
     },
     SetVolume {
         factor: u8,
+        #[serde(default, skip_serializing_if = "default_number")]
         offset: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         curve: Option<VolumeCurve>,
+        #[serde(default, skip_serializing_if = "is_false")]
         from_velocity: bool,
     },
     FadeVolume {
         factor: u8,
+        #[serde(default, skip_serializing_if = "default_number")]
         offset: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         curve: Option<VolumeCurve>,
         milliseconds: u16,
         #[serde(default, skip_serializing_if = "is_false")]
@@ -320,19 +387,27 @@ pub enum Command {
     },
     ClearKeyOffTrap,
     Wait {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         milliseconds: Option<u16>,
+        #[serde(default, skip_serializing_if = "is_false")]
         from_start: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         key_off: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         sample_end: bool,
     },
     BeatWait {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ticks: Option<u16>,
+        #[serde(default, skip_serializing_if = "is_false")]
         key_off: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         sample_end: bool,
     },
     /// Uniform duration below the authored bound, drawn from the shared synthesizer.
     RandomWait {
         upper_ms: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
         key_off: bool,
         #[serde(default, skip_serializing_if = "is_false")]
         sample_end: bool,
@@ -343,9 +418,11 @@ pub enum Command {
     /// Starting this group ends or releases older voices in the same group.
     ExclusiveGroup {
         group: u8,
+        #[serde(default, skip_serializing_if = "is_false")]
         kill: bool,
     },
     VolumeCurve {
+        #[serde(default, skip_serializing_if = "is_false")]
         alternate: bool,
         #[serde(default, skip_serializing_if = "is_false")]
         interaural_delay: bool,
@@ -356,6 +433,7 @@ pub enum Command {
     },
     ModulationDepth {
         semitones: i8,
+        #[serde(default, skip_serializing_if = "default_number")]
         cents: i8,
     },
     Vibrato {
@@ -363,7 +441,9 @@ pub enum Command {
         /// Unsigned 8.8 semitones after authored sign normalization.
         depth_8: u16,
         /// Start half a cycle ahead.
+        #[serde(default, skip_serializing_if = "is_false")]
         reverse: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
         scale_by_modulation: bool,
     },
     Lfo {

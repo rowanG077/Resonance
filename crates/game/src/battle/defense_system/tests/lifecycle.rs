@@ -14,18 +14,19 @@ pub(super) fn check_repeated_contact_deaths(
 ) -> Result<()> {
     let run = || -> Result<Vec<BattleFrame>> {
         let leader = ActorId::from_index(0)?;
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut assets
+                .files
+                .library()
+                .context("named library required")?
+                .snapshot(),
+            &|| false,
+        )?;
         let mut selected = resonance_content::battle_audio::Selection::default();
-        let mut prepared = assets.inputs.prepare_fixture(
+        let mut prepared = assets.prepare_fixture(
             menus,
             options(),
-            |sound| {
-                crate::battle::audio::collect(
-                    assets.audio.as_ref(),
-                    &mut selected,
-                    assets.files.diagnostics(),
-                    sound,
-                )
-            },
+            |sound| catalogue.collect(&mut selected, assets.files.diagnostics(), sound),
             |actors| {
                 actors[leader.index()].0.equipment.max_tp = 999;
                 actors[leader.index()].0.tp = 999;

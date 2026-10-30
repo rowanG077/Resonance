@@ -15,6 +15,7 @@ import subprocess
 
 import arte_equivalence as capture
 from battle_fixture import enemy_package
+from named_content import Snapshot as ContentSnapshot, same_evidence
 
 
 def require(condition, message):
@@ -82,12 +83,24 @@ def derive(reference, assets, usual, packages=None):
                 == setup["initial_battle"],
                 "ready state differs from trace admission")
     memory = None if state is None else bytes(state.ram)
-    archive = list(capture.sections(usual.read_bytes()))
+    evidence_directory = reference.parent / "content-evidence"
+    original = usual.read_bytes()
+    archive = list(capture.sections(original))
     templates = archive[7]
     metadata_path = assets / "battle/projectiles.json"
-    metadata = capture.read(metadata_path)
-    require(metadata["source_sha256"] == capture.digest(usual),
-            "projectile metadata belongs to another archive")
+    content = ContentSnapshot(assets, evidence_directory)
+    metadata = content.document("battle/projectiles.json",
+        ("records", "resident_spells", "support_durations", "fire_ball"))
+    template_inputs = {metadata_path: dict(kind="projectiles",
+        content=content.evidence("battle/projectiles.json", original))}
+
+    def effect_input(raw, path):
+        bank = capture.effect_bank(raw, path, assets, evidence_directory)
+        observed = setup.get("effect_inputs", {}).get(bank["entry"])
+        require(observed is not None and same_evidence(observed, bank["evidence"]),
+                f"effect input differs from the observed current content: {bank['entry']}")
+        template_inputs[path] = dict(kind="effects", content=bank["evidence"])
+        return bank
     address = None if memory is None else memory.find(templates)
     require(memory is None or address >= 0 and memory.find(templates, address + 1) == -1,
             "authored projectile table is not uniquely loaded")
@@ -96,13 +109,13 @@ def derive(reference, assets, usual, packages=None):
     banks, effect_metadata = {}, {}
     for bank, section, name in ((0, 2, "common"), (1, 3, "techniques")):
         raw = archive[section]
-        path = assets / f"battle/effects/{name}.json"
+        path = assets / f"battle/effects/{name}/effects.json"
         signature = hashlib.sha256(raw).hexdigest()
-        require(capture.read(path)["source_sha256"] == signature
-                and (memory is None or memory.find(raw) >= 0),
+        require(memory is None or memory.find(raw) >= 0,
                 f"{name} effect table is not loaded from the authored bytes")
+        evidence = effect_input(raw, path)
         banks[bank] = signature
-        effect_metadata[signature] = (path, capture.read(path))
+        effect_metadata[signature] = (path, evidence["metadata"])
     tables = [(templates, metadata_path, metadata["records"],
                None if address is None else address + 0x80000000, banks)]
     sources = [capture.pin(usual)]
@@ -113,12 +126,18 @@ def derive(reference, assets, usual, packages=None):
         package_path = packages / f"{enemy:03}.bin"
         package = package_path.read_bytes()
         base = None if state is None else enemy_package(state, package)[0]
-        path = assets / f"battle/enemies/{enemy:03}/definition.json"
-        definition = capture.read(path)
-        require(definition["source_sha256"] == capture.digest(package_path),
-                "enemy metadata belongs to another package")
+        content = ContentSnapshot(assets, evidence_directory)
+        entry, definition, _ = content.enemy(enemy)
+        path = assets / entry
+        package_proofs = setup.get("detached_contacts", {}).get("enemy_packages", [])
+        require(any(proof["enemy"] == enemy
+                    and proof["package"]["sha256"] == hashlib.sha256(package).hexdigest()
+                    for proof in package_proofs),
+                "enemy package differs from independently captured evidence")
+        evidence = content.evidence(entry, package)
+        template_inputs[path] = dict(kind={"enemy": enemy}, content=evidence)
         action = definition["actions"]["rows"][int(trace["case"].split(":")[2])]
-        action_template = dict(**capture.pin(path), index=int(trace["case"].split(":")[2]))
+        action_template = dict(enemy=enemy, content=evidence, index=int(trace["case"].split(":")[2]))
         action_projectiles = [(clock, event["projectile"])
                              for clock, event in (action.get("execution") or {}).get("attack", {}).get("events", [])
                              if "projectile" in event]
@@ -130,14 +149,13 @@ def derive(reference, assets, usual, packages=None):
             require(memory is None or memory[(base & 0x1ffffff) + start:(base & 0x1ffffff) + start + len(raw)] == raw,
                     "enemy projectile table differs from loaded bytes")
             require(len(raw) // 400 == len(definition["projectiles"]), "enemy projectile table length differs")
-            effect_path = assets / f"battle/enemies/{enemy:03}/effects.json"
-            effects = capture.read(effect_path)
+            effect_path = assets / content.document(entry, ("rules", "artwork", "effects"))["effects"]
             effect_bytes = member(struct.unpack_from(">I", package, 0x1cc)[0])
             signature = hashlib.sha256(effect_bytes).hexdigest()
-            require(effects["source_sha256"] == signature
-                    and (memory is None or memory.find(effect_bytes) >= 0),
+            require(memory is None or memory.find(effect_bytes) >= 0,
                     "enemy effect table differs from loaded bytes")
-            effect_metadata[signature] = (effect_path, effects)
+            effects = effect_input(effect_bytes, effect_path)
+            effect_metadata[signature] = (effect_path, effects["metadata"])
             tables.append((raw, path, [record["definition"] for record in definition["projectiles"]],
                            None if base is None else base + start, {**banks, 2: signature}))
             sources.append(capture.pin(package_path))
@@ -293,7 +311,7 @@ def derive(reference, assets, usual, packages=None):
             initial_velocity = [value - change for value, change in zip(shot["velocity"], acceleration)]
             origin = [position - velocity for position, velocity in zip(shot["position"], initial_velocity)]
             launches.append(dict(projectile=shot["id"],
-                template=dict(**capture.pin(metadata_path), index=index),
+                template=dict(**template_inputs[metadata_path], index=index),
                 source_initial_age=shot["age"], origin=origin, heading=actor["heading"],
                 survives_contact=bool((definition.get("contact") or {}).get("survives_contact")),
                 contact=contact,
@@ -305,14 +323,14 @@ def derive(reference, assets, usual, packages=None):
                 bank = bank_map[definition["trail_effect"]["bank"]]
                 path, _ = effect_metadata[bank]
                 launches[-1]["trail"] = dict(bank=bank,
-                    template=dict(**capture.pin(path), index=definition["trail_effect"]["member"]),
+                    template=dict(**template_inputs[path], index=definition["trail_effect"]["member"]),
                     interval=definition["trail_interval"])
             if definition["ground_effect"]["member"]:
                 bank_map = next(table[4] for table in tables if table[1] == metadata_path)
                 bank = bank_map[definition["ground_effect"]["bank"]]
                 path, _ = effect_metadata[bank]
                 launches[-1]["ground"] = dict(bank=bank,
-                    template=dict(**capture.pin(path), index=definition["ground_effect"]["member"]))
+                    template=dict(**template_inputs[path], index=definition["ground_effect"]["member"]))
             witnesses.append(dict(projectile=shot["id"], frame=frame_index,
                 combat_tick=frame["combat_tick"], vi_sample=None if row is None else row["vi_sample"], node=node,
                 birth_program=None if program is None else program["id"],
@@ -338,7 +356,7 @@ def derive(reference, assets, usual, packages=None):
                 require(definition["kind"] == "model_particle" and template["follow_origin"],
                         "randomized projectile model has unsupported authored attachment")
                 following[(model["bank"], member)] = dict(bank=model["bank"], member=member,
-                    template=dict(**capture.pin(path), index=member),
+                    template=dict(**template_inputs[path], index=member),
                     follow_origin=True, follow_orientation=template["follow_orientation"])
                 launch = next(item for item in launches
                               if item["projectile"] == model["attachment"]["projectile"])
@@ -354,7 +372,7 @@ def derive(reference, assets, usual, packages=None):
                                                                  velocity=[0, 0, 0], acceleration=[0, 0, 0])}),
                             "ricochet model has unsupported authored motion or scale")
                     binding = dict(bank=model["bank"], member=member,
-                                   template=dict(**capture.pin(path), index=member))
+                                   template=dict(**template_inputs[path], index=member))
                     require(launch.get("model", binding) == binding,
                             "ricochet projectile has multiple model bindings")
                     launch["model"] = binding
@@ -372,8 +390,8 @@ def derive(reference, assets, usual, packages=None):
         source=capture.pin(reference),
         observations=capture.observation_pin(observations) if raw_available else None,
         capture=setup["capture"], ready_state=setup["ready_state"], ready_movie=setup["ready_movie"],
-        sources=sources, metadata=[capture.pin(table[1]) for table in tables],
-        effects=[capture.pin(path) for path, _ in effect_metadata.values()],
+        sources=sources, metadata=[template_inputs[table[1]] for table in tables],
+        effects=[template_inputs[path] for path, _ in effect_metadata.values()],
         script=capture.pin(__file__), adapter=capture.pin(capture.__file__), witnesses=witnesses)
     return trace, provenance
 

@@ -21,6 +21,20 @@ pub struct EnemyStatistics {
     pub level: u8,
 }
 
+impl EnemyStatistics {
+    pub(super) fn with_fixed_hp(mut self, hp: Option<u32>) -> Result<Self> {
+        if let Some(hp) = hp {
+            anyhow::ensure!(
+                hp > 0 && hp <= i32::MAX as u32,
+                "invalid fixed enemy health"
+            );
+            self.hp = hp as i32;
+            self.initial_hp = self.hp;
+        }
+        Ok(self)
+    }
+}
+
 /// Difficulty increases health, TP and offensive statistics. Imported storage
 /// widths never limit combat arithmetic; only the actor's vital bounds apply.
 pub fn statistics(source: &MonsterStats, difficulty: Difficulty) -> EnemyStatistics {
@@ -131,9 +145,7 @@ pub(super) fn catalogue_id(
     catalogue
         .placements
         .iter()
-        .enumerate()
-        .skip(1)
-        .find_map(|(id, placement)| (placement.native_id == native).then_some(id as u16))
+        .find_map(|(&id, placement)| (placement.native_id == native).then_some(id))
 }
 
 pub(super) fn technique_ids(source: &battle_enemy::Definition) -> std::collections::BTreeSet<u16> {
@@ -244,7 +256,7 @@ impl super::encounter::resources::Resources<'_> {
                             Arc::make_mut(&mut cast).release_pose =
                                 super::encounter::resources::stored_cast_pose(
                                     model.context("stored spell requires its caster model")?,
-                                    source.profile.cast_poses,
+                                    source.profile.casting,
                                     &source.null_motions,
                                     cast.release.transition_ticks,
                                 )?;
@@ -253,7 +265,7 @@ impl super::encounter::resources::Resources<'_> {
                         Arc::make_mut(&mut cast).release_pose =
                             super::encounter::resources::anticipated_cast_pose(
                                 model,
-                                source.profile.cast_poses,
+                                source.profile.casting,
                                 body_motion,
                             )?;
                     }
@@ -907,6 +919,9 @@ mod statistics_tests {
                 .all(|s| s.defense == 30 && s.luck == 25 && s.level == 10)
         );
         assert_eq!(source, before);
+        let fixed = scaled[2].with_fixed_hp(Some(255)).unwrap();
+        assert_eq!((fixed.hp, fixed.initial_hp), (255, 255));
+        assert_eq!((fixed.tp, fixed.attack), (scaled[2].tp, scaled[2].attack));
         source.initial_hp = 0;
         source.initial_tp = 0;
         let full = statistics(&source, Difficulty::Hard);

@@ -1,27 +1,22 @@
 use super::prepare_party_fixture;
 use super::*;
-use resonance_content::{menu_data::MenuData, prepared::Cache, session::SessionData};
+use resonance_content::{menu_data::MenuData, session::SessionData};
 use resonance_events::party::Party;
 
 #[test]
 #[ignore = "requires current party and equipment publications; CPU only"]
 fn equipped_rescue_traits_arm_angel_tear() -> Result<()> {
     let root = common::asset_root();
-    let mut cache = Cache::default();
-    let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let files = battle::model::load_files(
-        &root,
-        files,
-        &[battle::model::ModelSource::Party(
-            battle::party::Character::Colette,
-        )],
-        &mut cache,
+
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
         || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
     )?;
-    let menus: MenuData = files.json("game/menu-data.json")?;
-    let mut data: SessionData = files.json("game/session-data.json")?;
+
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
+    let mut data: SessionData = resonance_content::session::SessionData::load(&files)?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default())?;
     party.formation = vec![2];

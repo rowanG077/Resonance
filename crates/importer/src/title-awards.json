@@ -1,0 +1,186 @@
+{
+  "levels": [
+    {
+      "character": 1,
+      "minimum": 20,
+      "title": 15
+    },
+    {
+      "character": 1,
+      "minimum": 40,
+      "title": 16
+    },
+    {
+      "character": 1,
+      "minimum": 100,
+      "title": 17
+    },
+    {
+      "character": 2,
+      "minimum": 20,
+      "title": 13
+    },
+    {
+      "character": 2,
+      "minimum": 40,
+      "title": 14
+    },
+    {
+      "character": 2,
+      "minimum": 100,
+      "title": 15
+    },
+    {
+      "character": 3,
+      "minimum": 20,
+      "title": 14
+    },
+    {
+      "character": 3,
+      "minimum": 40,
+      "title": 15
+    },
+    {
+      "character": 4,
+      "minimum": 20,
+      "title": 11
+    },
+    {
+      "character": 4,
+      "minimum": 40,
+      "title": 12
+    },
+    {
+      "character": 4,
+      "minimum": 100,
+      "title": 13
+    },
+    {
+      "character": 5,
+      "minimum": 40,
+      "title": 12
+    },
+    {
+      "character": 5,
+      "minimum": 100,
+      "title": 13
+    },
+    {
+      "character": 6,
+      "minimum": 40,
+      "title": 10
+    },
+    {
+      "character": 6,
+      "minimum": 100,
+      "title": 11
+    },
+    {
+      "character": 7,
+      "minimum": 40,
+      "title": 10
+    },
+    {
+      "character": 7,
+      "minimum": 100,
+      "title": 11
+    },
+    {
+      "character": 8,
+      "minimum": 40,
+      "title": 10
+    },
+    {
+      "character": 8,
+      "minimum": 100,
+      "title": 11
+    },
+    {
+      "character": 9,
+      "minimum": 20,
+      "title": 7
+    },
+    {
+      "character": 9,
+      "minimum": 40,
+      "title": 8
+    },
+    {
+      "character": 9,
+      "minimum": 100,
+      "title": 9
+    }
+  ],
+  "combos": [
+    {
+      "character": 1,
+      "minimum": 10,
+      "title": 18
+    },
+    {
+      "character": 1,
+      "minimum": 30,
+      "title": 19
+    },
+    {
+      "character": 1,
+      "minimum": 60,
+      "title": 20
+    },
+    {
+      "character": 1,
+      "minimum": 100,
+      "title": 21
+    }
+  ],
+  "equipment": [
+    {
+      "character": 6,
+      "title": 14,
+      "requirements": [
+        {
+          "slots": [
+            0
+          ],
+          "items": [
+            238
+          ]
+        },
+        {
+          "slots": [
+            1
+          ],
+          "items": [
+            288
+          ]
+        },
+        {
+          "slots": [
+            2
+          ],
+          "items": [
+            330
+          ]
+        },
+        {
+          "slots": [
+            3,
+            4
+          ],
+          "items": [
+            444
+          ]
+        },
+        {
+          "slots": [
+            5
+          ],
+          "items": [
+            375,
+            366
+          ]
+        }
+      ]
+    }
+  ]
+}

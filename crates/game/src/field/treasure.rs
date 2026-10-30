@@ -73,11 +73,7 @@ mod tests {
                 Ok(())
             }
         }
-        let sources = symphonia_script_tools::SourceTree::load(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts"
-        ))
-        .unwrap();
+        let sources = resonance_script_content::modules();
         let event = crate::authored::PreparedEvent::prepare(
             &mut Default::default(),
             &sources,
@@ -96,7 +92,7 @@ mod tests {
 
     fn fixture(full: bool) -> EventRuntime {
         let data = Arc::new(serde_json::from_value(serde_json::json!({
-            "version":1,"executable_sha256":"0".repeat(64),"experience":[0,0,10],
+            "version":1,"experience":[0,0,10],
             "items":[{"equipment_kind":null,"allowed_characters":511,"stack_limit":20}],
             "characters":vec![serde_json::json!({"level":1,"experience":0,"affinity":0,
                 "base_stats":[100,20,30,40,50,60,70],"luck":10,"overlimit":0,
@@ -122,7 +118,7 @@ mod tests {
             actor: 2,
             flag: 9,
             reward: resonance_events::TreasureReward::Item(0),
-            kind: resonance_events::TreasureKind::UnknownId0,
+            kind: resonance_events::TreasureKind::Chest,
         });
         let program = Arc::new(
             symphonia_script::Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap(),

@@ -31,7 +31,7 @@ mod world;
 pub use animation::Animation;
 pub use resources::{
     AnimationClip, AttachmentPose, MemoryCircleText, ModelAttachments, ModelResource, ParticleKind,
-    ResourceKind, ResourceLibrary,
+    ResourceKind, ResourceLibrary, ResourceRequest,
 };
 pub use scheduler::EventRuntime;
 pub use world::random as libc_random;

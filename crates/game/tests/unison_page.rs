@@ -3,7 +3,6 @@
 mod common;
 #[path = "common/menu_fixture.rs"]
 mod menu_fixture;
-use common::cooked;
 use resonance_content::{menu_data::MenuData, prepared::Files, session::SessionData};
 use resonance_events::{SavedProgress, party::Party};
 use resonance_game::{
@@ -545,8 +544,8 @@ fn field_unison_unlocks_prioritizes_inputs_and_shares_saved_shortcuts() {
 #[test]
 #[ignore = "requires locally cooked character technique catalogues"]
 fn cooked_unison_uses_learned_techniques_in_catalogue_order() {
-    let session = cooked::<SessionData>("game/session-data.json");
-    let data = cooked::<MenuData>("game/menu-data.json");
+    let session = common::session();
+    let data = common::menu();
     let mut party = Party::new(&session, Default::default()).unwrap();
     let expected = &session.characters[0].allowed_techniques[..12];
     party.members[0].techniques = expected.iter().copied().collect();

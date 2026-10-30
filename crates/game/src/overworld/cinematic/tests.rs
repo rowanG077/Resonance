@@ -4,18 +4,11 @@ use resonance_content::overworld::*;
 fn fixture() -> Cinematic {
     Cinematic {
         world: World::Sylvarant,
-        camera: vec![
-            CameraKey {
-                time: 0.,
-                position: [0.; 3],
-                target: [0.; 3],
-            },
-            CameraKey {
-                time: 2.,
-                position: [4.; 3],
-                target: [2.; 3],
-            },
-        ],
+        camera: resonance_content::camera_motion::CameraMotion::from_keys(&[
+            CameraKey::looking_at(0., [0.; 3], [0.; 3]),
+            CameraKey::looking_at(2., [4.; 3], [2.; 3]),
+        ])
+        .unwrap(),
         actors: Default::default(),
         dialogue: vec![CinematicDialogue {
             tick: 2,
@@ -25,7 +18,6 @@ fn fixture() -> Cinematic {
             text: "fixture".into(),
         }],
         presentation: CinematicPresentation {
-            provenance: "synthetic changed-parameter fixture".into(),
             fade: CinematicFade {
                 white: true,
                 end_rate: 128,
@@ -111,9 +103,9 @@ fn prepared_audio_preserves_phase_order_duplicates_and_owned_end_stop() -> Resul
         }]
     ));
     let mut audio = vec![];
-    assert!(!playback.step(&mut audio));
+    assert!(!playback.step(&mut audio)?);
     assert!(audio.is_empty());
-    assert!(!playback.step(&mut audio));
+    assert!(!playback.step(&mut audio)?);
     assert!(matches!(
         audio.as_slice(),
         [
@@ -129,14 +121,14 @@ fn prepared_audio_preserves_phase_order_duplicates_and_owned_end_stop() -> Resul
     ));
     assert_eq!(playback.camera().position, [2.; 3]);
     audio.clear();
-    assert!(!playback.step(&mut audio));
-    assert!(!playback.step(&mut audio));
+    assert!(!playback.step(&mut audio)?);
+    assert!(!playback.step(&mut audio)?);
     assert!(matches!(audio.as_slice(), [AudioCommand::StopSound(7)]));
     assert_eq!(playback.fade(), (0., true));
     audio.clear();
-    assert!(!playback.step(&mut audio));
+    assert!(!playback.step(&mut audio)?);
     assert_eq!(playback.fade(), (128. / 255., true));
-    assert!(playback.step(&mut audio));
+    assert!(playback.step(&mut audio)?);
     assert_eq!(playback.fade(), (1., true));
     assert_eq!(playback.ticks(), 4);
     assert!(audio.is_empty());
@@ -150,10 +142,10 @@ fn changed_fade_rate_controls_completion_without_a_scene_id_override() -> Result
     let mut playback = playback(definition)?;
     let mut audio = vec![];
     for _ in 0..18 {
-        assert!(!playback.step(&mut audio));
+        assert!(!playback.step(&mut audio)?);
     }
     assert_eq!(playback.fade(), (238. / 255., true));
-    assert!(playback.step(&mut audio));
+    assert!(playback.step(&mut audio)?);
     assert_eq!(playback.fade(), (1., true));
     Ok(())
 }

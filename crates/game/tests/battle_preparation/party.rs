@@ -1,6 +1,6 @@
 use super::*;
 use battle::{
-    model::{ModelSetup, ModelSource},
+    model::ModelSetup,
     party::{Character, Setup},
 };
 use resonance_battle::{Affinity, Control, Element, Playback, PreparedBattle};
@@ -9,32 +9,19 @@ use resonance_events::party::Party;
 
 fn snapshot() -> Result<(Files, MenuData, Party)> {
     let root = common::asset_root();
-    let mut cache = resonance_content::prepared::Cache::default();
-    let files = Files::load(&root, &["fields/map-340.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: MenuData = files.json("game/menu-data.json")?;
+
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: MenuData = resonance_content::menu_data::MenuData::load(&files)?;
     menus.validate()?;
-    let mut session: SessionData = files.json("game/session-data.json")?;
+    let mut session: SessionData = resonance_content::session::SessionData::load(&files)?;
     session.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&session, Default::default()).map_err(anyhow::Error::msg)?;
     party.formation = vec![1, 2, 3, 4, 9];
-    let sources: Vec<_> = [
-        battle::party::Character::Lloyd,
-        battle::party::Character::Colette,
-        battle::party::Character::Genis,
-        battle::party::Character::Raine,
-        battle::party::Character::Kratos,
-    ]
-    .into_iter()
-    .map(ModelSource::Party)
-    .chain(
-        [135, 143, 159, 175, 190, 228, 357]
-            .into_iter()
-            .map(ModelSource::Weapon),
-    )
-    .collect();
-    let files = battle::model::load_files(&root, files, &sources, &mut cache, || false)?;
     Ok((files, menus, party))
 }
 
@@ -233,12 +220,12 @@ fn cold_party_projects_starting_stats_models_and_controller_slots() -> Result<()
     let reordered = prepare_party_fixture(&files, &menus, &session, setups(3))?;
     assert_eq!(
         reordered[0].actor.equipment.damage.weapon_species,
-        Some(resonance_battle::Species(6))
+        Some(resonance_battle::Species::Human)
     );
-    assert_eq!(reordered[0].actor.species, resonance_battle::Species(6));
+    assert_eq!(reordered[0].actor.species, resonance_battle::Species::Human);
 
     // The same saved knockout state governs field actions and battle admission.
-    let mut data: SessionData = files.json("game/session-data.json")?;
+    let mut data: SessionData = resonance_content::session::SessionData::load(&files)?;
     data.rules = Some(Arc::new(menus.clone()));
     session.formation = vec![1, 4];
     session.field_leader = 1;

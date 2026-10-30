@@ -2,6 +2,7 @@
 mod authored;
 mod calculator;
 mod memory;
+pub mod message;
 mod native;
 pub use memory::Memory;
 pub use native::{
@@ -473,6 +474,44 @@ impl Vm {
         }
         self.values.pop().ok_or(Fault::ValueUnderflow)
     }
+    /// The retail interpreter puts its value depth immediately before the value
+    /// array. Two native instruction sequences briefly address that depth as a
+    /// value. Model their observable result while keeping other underflows fatal.
+    fn native_stack_alias(&mut self, op: u8, next: u32) -> bool {
+        if self.program.authored().is_some() {
+            return false;
+        }
+        if op == 0 && self.values.is_empty() {
+            // At depth zero, expression-end decrements depth to -1. The next
+            // argument reads that depth word, then a push restores depth zero.
+            if let Some((Op::Argument, after_argument)) = self.program.instruction(next)
+                && let Some((Op::Push(_), after_push)) = self.program.instruction(after_argument)
+                && matches!(
+                    self.program.instruction(after_push),
+                    Some((Op::Calculate(0), _))
+                )
+            {
+                self.expression = Some(-1);
+                return true;
+            }
+        }
+        if op == 0x20 && self.values.len() == 1 && self.values[0].number == 0 {
+            // Equality reads depth zero as its left operand and writes true
+            // into that depth word. It is now a value for expression-end to
+            // pop; the next push replaces the unused expression.
+            if let Some((Op::Calculate(0), after_end)) = self.program.instruction(next)
+                && let Some((Op::Push(_), after_push)) = self.program.instruction(after_end)
+                && matches!(
+                    self.program.instruction(after_push),
+                    Some((Op::Calculate(0), _))
+                )
+            {
+                self.values[0] = Value::scalar(1);
+                return true;
+            }
+        }
+        false
+    }
     fn step<H: Host>(
         &mut self,
         host: &mut H,
@@ -505,7 +544,11 @@ impl Vm {
                 self.arguments
                     .push(self.expression.ok_or(Fault::ValueUnderflow)?);
             }
-            Op::Calculate(op) => self.calculate(op, memory)?,
+            Op::Calculate(op) => {
+                if !self.native_stack_alias(op, next) {
+                    self.calculate(op, memory)?;
+                }
+            }
             Op::Jump(target) => self.pc = target,
             Op::Call(target) => {
                 if self.calls.len() == 16 {

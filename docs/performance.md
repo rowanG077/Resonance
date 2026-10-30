@@ -33,10 +33,14 @@ Movies wake at audio-clock deadlines; extra input/window events can cause update
 All commands below are silent or device-free. Use a new output directory per run.
 
 ```sh
-# Full New Game, classroom interaction, doorway event and restart.
-cargo run -p resonance-presentation --example new_game_capture -- local/checks/new-game
-# High-resolution capture; independent of native-resolution oracle APIs.
-cargo run -p resonance-presentation --example display_capture -- local/checks/1080 1920x1080 raine-question-oracle
+# New Game, opening movie and classroom interaction through player control.
+cargo run -p resonance-presentation --example new_game_capture -- \
+  crates/presentation/examples/scenarios/new-game.json \
+  local/checks/new-game local/cooked --paranoid
+# The same route at a fixed high resolution.
+cargo run -p resonance-presentation --example new_game_capture -- \
+  crates/presentation/examples/scenarios/new-game.json \
+  local/checks/1080 local/cooked 1920x1080 --paranoid
 # Real window, field preparation and forced window-size changes.
 cargo run --release -p resonance-presentation --example window_probe -- local/checks/window 1920x1080
 # Five-minute classroom throughput run at a fixed render resolution.

@@ -4,6 +4,7 @@ use crate::overworld::{
     TileCoordinate,
     collision::tests::{rectangle, tables},
 };
+use resonance_content::overworld::TerrainSurface;
 
 pub(crate) fn parameters() -> Arc<MovementParameters> {
     Arc::new(
@@ -25,10 +26,10 @@ pub(crate) fn state(mount: Mount) -> State {
         altitude: if mount.airborne() { 300. } else { 0. },
     }
 }
-pub(crate) fn terrain(surface: u32) -> collision::Terrain {
+pub(crate) fn terrain(surface: TerrainSurface) -> collision::Terrain {
     terrain_at_height(surface, 0.)
 }
-pub(crate) fn terrain_at_height(surface: u32, height: f32) -> collision::Terrain {
+pub(crate) fn terrain_at_height(surface: TerrainSurface, height: f32) -> collision::Terrain {
     let mut groups = Vec::new();
     for x in 0..16 {
         for z in 0..16 {
@@ -56,7 +57,7 @@ fn rules() -> Rules {
 
 #[test]
 fn compass_steering_follows_camera_input_instead_of_accumulating() -> Result<()> {
-    let terrain = terrain(1);
+    let terrain = terrain(TerrainSurface::Grassland);
     let rules = rules();
     let context = Context {
         event_flags: &Default::default(),
@@ -94,7 +95,11 @@ fn world_views_cycle_fade_and_survive_restore_for_every_mount() -> Result<()> {
         landing_clear: true,
     };
     for mount in [Mount::Foot, Mount::Noishe, Mount::Rheairds, Mount::Ship] {
-        let terrain = terrain(if mount == Mount::Ship { 0 } else { 1 });
+        let terrain = terrain(if mount == Mount::Ship {
+            TerrainSurface::Barrier
+        } else {
+            TerrainSurface::Grassland
+        });
         let mut travel = Travel::new(state(mount), parameters())?;
         let position = travel.state.position;
         let original_distance = travel.camera_distance();
@@ -165,7 +170,7 @@ fn finish(travel: &mut Travel, context: &Context<'_>, terrain: &collision::Terra
 #[test]
 fn noishe_waits_for_both_zoom_and_its_own_animation() -> Result<()> {
     let mut travel = Travel::new(state(Mount::Foot), parameters())?;
-    let terrain = terrain(1);
+    let terrain = terrain(TerrainSurface::Grassland);
     let rules = rules();
     let context = Context {
         event_flags: &[903].into(),
@@ -273,7 +278,7 @@ fn noishe_waits_for_both_zoom_and_its_own_animation() -> Result<()> {
 #[test]
 fn rheairds_require_ownership_and_permission_and_land_only_on_clear_ground() -> Result<()> {
     let mut travel = Travel::new(state(Mount::Foot), parameters())?;
-    let ground = terrain(1);
+    let ground = terrain(TerrainSurface::Grassland);
     let rules = rules();
     let flags = [22].into();
     let mut context = Context {
@@ -309,7 +314,7 @@ fn rheairds_require_ownership_and_permission_and_land_only_on_clear_ground() -> 
     );
     context.landing_clear = true;
     assert_eq!(
-        travel.step(board, &context, &terrain(11), &rules)?,
+        travel.step(board, &context, &terrain(TerrainSurface::Water), &rules)?,
         [Cue::Denied]
     );
     travel.step(board, &context, &ground, &rules)?;
@@ -336,7 +341,7 @@ fn rheairds_require_ownership_and_permission_and_land_only_on_clear_ground() -> 
 #[test]
 fn flight_inertia_is_separate_from_direct_motion_and_turning_caps_speed() -> Result<()> {
     let mut travel = Travel::new(state(Mount::Rheairds), parameters())?;
-    let terrain = terrain(11); // Flight can traverse ocean, without a landing response.
+    let terrain = terrain(TerrainSurface::Water); // Flight can traverse ocean, without a landing response.
     let rules = rules();
     let context = Context {
         event_flags: &BTreeSet::new(),
@@ -411,7 +416,7 @@ fn ship_transfers_at_boarding_completion_and_disembarks_only_at_paired_docks() -
         rheairds_owned: false,
         landing_clear: true,
     };
-    let ground = terrain_at_height(15, 120.);
+    let ground = terrain_at_height(TerrainSurface::Pier, 120.);
     let board = Input {
         vehicle: true,
         ..Default::default()
@@ -453,7 +458,7 @@ fn ship_transfers_at_boarding_completion_and_disembarks_only_at_paired_docks() -
     assert_eq!(travel.state.position.map()[0], 3200.);
     travel.step(Input::default(), &context, &ground, &rules)?;
     assert_eq!(travel.state.position.map()[0], 3800.);
-    let water = terrain(11);
+    let water = terrain(TerrainSurface::Water);
     finish(&mut travel, &context, &water, &rules);
     assert_eq!(travel.state.mount, Mount::Ship);
     assert_eq!(
@@ -489,7 +494,7 @@ fn invalid_input_or_missing_tiles_cannot_partly_commit_an_update() -> Result<()>
         landing_clear: true,
     };
     let rules = rules();
-    let ground = terrain(1);
+    let ground = terrain(TerrainSurface::Grassland);
     let before = travel.checkpoint()?;
     assert!(
         travel

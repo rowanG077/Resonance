@@ -1,11 +1,6 @@
 script library;
+use std::story::StoryFlag;
 use game::world;
-pub enum Flag {
-    UnknownId1150 = 1150,
-    UnknownId1151 = 1151,
-    CaravanRoaming = 1152,
-    UnknownId1287 = 1287,
-}
-pub fn enabled(flag: Flag) -> bool {
+pub fn enabled(flag: StoryFlag) -> bool {
     return world::flag(i32(flag));
 }

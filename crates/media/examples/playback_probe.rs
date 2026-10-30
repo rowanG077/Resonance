@@ -1,5 +1,5 @@
 //! Real device stress test, unconditionally muted. Never writes to speakers.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use resonance_media::{MovieDecoder, MovieStream};
 use resonance_playback::{Mixer, Worker};
 use std::{
@@ -12,6 +12,7 @@ use std::{
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().unwrap_or_else(|| "local/all-assets".into()));
+    let library = resonance_content::library::Library::open(&root, &[])?;
     let seconds: f64 = args.next().unwrap_or_else(|| "640".into()).parse()?;
     let stall: u64 = args.next().unwrap_or_else(|| "200".into()).parse()?;
     let period: u32 = args.next().unwrap_or_else(|| "512".into()).parse()?;
@@ -40,19 +41,13 @@ fn main() -> Result<()> {
     let mut rounds = 0;
     while began.elapsed().as_secs_f64() < seconds {
         let id = rounds % 2;
-        let manifest = root.join(resonance_content::movie::metadata_path(id));
-        let asset: resonance_content::MovieAsset = serde_json::from_slice(
-            &std::fs::read(&manifest).with_context(|| format!("reading {}", manifest.display()))?,
-        )?;
-        let stream = MovieStream::start(
-            MovieDecoder::open(&root.join(&asset.path), asset.clone())?,
-            VecDeque::new(),
-            asset.sample_rate,
-        )?;
+        let decoder = MovieDecoder::load(&mut library.snapshot(), id)?;
+        let sample_rate = decoder.format().sample_rate;
+        let stream = MovieStream::start(decoder, VecDeque::new(), sample_rate)?;
         let pcm = stream.audio();
         let mut frames = VecDeque::new();
         let started = Instant::now();
-        while pcm.buffered() < u64::from(asset.sample_rate) / 2
+        while pcm.buffered() < u64::from(sample_rate) / 2
             || frames.len() < resonance_media::VIDEO_LOOKAHEAD
         {
             stream.check()?;

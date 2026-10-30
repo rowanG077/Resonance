@@ -28,16 +28,11 @@ fn fixture() -> App {
             .unwrap(),
         )))
         .insert_resource(Art {
-            manifest: TitleAssets {
-                version: resonance_content::CONTENT_VERSION,
-                game_id: "GQSEAF".into(),
-                revision: 0,
-                source_sha256: String::new(),
-                textures: Vec::new(),
-            },
+            manifest: Vec::new(),
             images: Vec::new(),
         })
         .insert_resource(RunOptions {
+            mods: Vec::new(),
             script_root: None,
             saves: Default::default(),
             assets: PathBuf::new(),
@@ -83,7 +78,7 @@ fn assert_frozen(app: &mut App, ticks: usize) {
 }
 
 #[test]
-fn loading_duration_does_not_change_replay_or_blink_phase() {
+fn loading_duration_does_not_change_replay_or_presentation_clock() {
     for delay in [1, 75, 260] {
         let mut app = fixture();
         assert_frozen(&mut app, delay);
@@ -116,7 +111,6 @@ fn loading_duration_does_not_change_replay_or_blink_phase() {
             assert_eq!(state.tick, tick);
             let clock = app.world().resource::<Clock>().0;
             assert_eq!(clock.tick(), 2365 + tick);
-            assert_eq!(state.disc_label_visible(clock), (2365 + tick) & 0x40 != 0);
         }
         // These changes and final state are independently observed in Dolphin.
         assert_eq!(changes, [912, 943, 947]);
@@ -143,14 +137,15 @@ fn recorder_preparation_and_static_readbacks_consume_no_ticks() {
 fn startup_counts_authored_frames_and_releases_title_input_after_completion() {
     let mut app = fixture();
     app.world_mut().resource_mut::<Ready>().0 = true;
-    app.world_mut().resource_mut::<boot::Playback>().logos = Some(Default::default());
+    app.world_mut().resource_mut::<boot::Playback>().logos =
+        Some(crate::test_support::boot_logos());
     app.world_mut().resource_mut::<movie::Playback>().active = true;
     // An earlier press must not remain queued until the Namco skip window.
     app.world_mut()
         .resource_mut::<PendingInput>()
         .pressed
         .accept = true;
-    for _ in 0..resonance_game::boot::LOGO_TICKS {
+    for _ in 0..976 {
         app.world_mut().run_schedule(FixedUpdate);
         assert_eq!(app.world().resource::<Menu>().0.tick, 0);
     }

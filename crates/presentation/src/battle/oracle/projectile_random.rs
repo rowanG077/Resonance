@@ -6,19 +6,37 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TemplateKind {
+    Projectiles,
+    Scene,
+    Enemy(u8),
+    Effects,
+}
+
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Template {
-    path: String,
-    sha256: String,
+    kind: TemplateKind,
+    content: super::content_evidence::Evidence,
     index: u32,
 }
 
 impl Template {
     fn has_provenance(&self) -> bool {
-        !self.path.is_empty()
-            && self.sha256.len() == 64
-            && self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        self.content.is_declared()
     }
+}
+
+#[cfg(test)]
+pub(super) fn test_evidence(entry: &str, digest: &str) -> Value {
+    serde_json::json!({
+        "version": 1,
+        "entry": entry,
+        "files": {(entry): {"path": "unused-current-input", "sha256": digest}},
+        "source": {"path": "unused-original-input", "sha256": digest}
+    })
 }
 
 #[derive(Deserialize)]
@@ -66,9 +84,10 @@ struct Contact {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AuthoredAction {
-    path: String,
-    sha256: String,
+    enemy: u8,
+    content: super::content_evidence::Evidence,
     index: usize,
     clock: u64,
 }
@@ -141,12 +160,7 @@ pub(super) fn stationary_area_targets(source: &Trace, native: &Trace) -> Result<
         source.setup["stored_scenes"] == native.setup["stored_scenes"],
         "stationary scene registration differs"
     );
-    let pin: super::random_inputs::Pin = serde_json::from_value(registration["scene"].clone())?;
-    let scene: resonance_content::battle_scene::Scene = serde_json::from_slice(&pin.read_bytes()?)?;
-    ensure!(
-        registration["package_sha256"] == scene.source_sha256,
-        "stationary scene package differs"
-    );
+    let (scene, _) = super::content_evidence::registered_scene(registration)?;
     if scene.projectiles.is_empty()
         || !scene.projectiles.iter().all(|entry| {
             let definition = &entry.projectile;
@@ -325,9 +339,11 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<Validated> {
                     && launch.contact.is_none(),
                 "deterministic flight requires an unmodified registered scene template"
             );
-            let pin = serde_json::json!({
-                "path": launch.template.path, "sha256": launch.template.sha256
-            });
+            ensure!(
+                matches!(launch.template.kind, TemplateKind::Scene),
+                "deterministic flight requires scene evidence"
+            );
+            let pin = serde_json::to_value(&launch.template.content)?;
             for trace in [source, native] {
                 ensure!(
                     trace.setup["stored_scenes"]["registrations"]
@@ -366,7 +382,7 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<Validated> {
             boundary |= validate_flight(trace, &launch, label == "Dolphin").with_context(|| {
                 format!(
                     "{label} projectile {} ({} record {})",
-                    launch.projectile, launch.template.path, launch.template.index
+                    launch.projectile, launch.template.content.entry, launch.template.index
                 )
             })?;
         }
@@ -631,10 +647,8 @@ fn validate_authored_action(launch: &Launch) -> Result<()> {
         );
         return Ok(());
     };
-    let pin: super::random_inputs::Pin = serde_json::from_value(serde_json::json!({
-        "path": action.path, "sha256": action.sha256,
-    }))?;
-    let definition: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    action.content.source_digest()?;
+    let definition = serde_json::to_value(action.content.enemy(action.enemy)?.0)?;
     let events = definition["actions"]["rows"][action.index]["execution"]["attack"]["events"]
         .as_array()
         .context("launch has no authored attack events")?;
@@ -901,7 +915,7 @@ mod contact_tests {
             incomplete_observations: vec![],
         };
         let launch = serde_json::from_value(json!({"projectile":1,
-            "template":{"path":"unused","sha256":"unused","index":0},
+            "template":{"kind":"projectiles","content":test_evidence("unused", "unused"),"index":0},
             "origin":[0.,0.,0.],"heading":0.,"velocity":[0.,0.,1.],
             "acceleration":[0.,0.,0.],"motion":ProjectileMotion::default(),"clamp_ground":false,"lifetime":5,
             "contact":{"cooldown":2,"repeat_limit":2,"active":[1,3]}}))
@@ -1458,7 +1472,7 @@ mod response_contract_tests {
     }
 
     fn model_binding(orientation: bool) -> Value {
-        json!([{"bank":"bank","member":0,"template":{"path":"model","sha256":"a".repeat(64),"index":0},
+        json!([{"bank":"bank","member":0,"template":{"kind":"effects","content":test_evidence("model", &"a".repeat(64)),"index":0},
             "follow_origin":true,"follow_orientation":orientation}])
     }
 
@@ -1545,10 +1559,13 @@ mod response_contract_tests {
 }
 
 fn pinned_json(template: &Template) -> Result<Value> {
-    let pin: super::random_inputs::Pin = serde_json::from_value(serde_json::json!({
-        "path":template.path,"sha256":template.sha256,
-    }))?;
-    Ok(serde_json::from_slice(&pin.read_bytes()?)?)
+    template.content.source_digest()?;
+    match template.kind {
+        TemplateKind::Projectiles => template.content.projectiles(),
+        TemplateKind::Scene => Ok(serde_json::to_value(template.content.scene()?.0)?),
+        TemplateKind::Enemy(id) => Ok(serde_json::to_value(template.content.enemy(id)?.0)?),
+        TemplateKind::Effects => super::content_evidence::effect_value(template.content.effects()?),
+    }
 }
 
 fn validate_static_model_lifetime(
@@ -1584,34 +1601,38 @@ fn validate_static_model_lifetime(
     };
     let bank = pinned_json(&binding.template)?;
     ensure!(
-        bank["source_sha256"] == binding.bank
+        binding.template.content.source_digest()? == binding.bank
             && binding.member == u64::from(binding.template.index),
         "model lifetime has inconsistent authored bank"
     );
     let declaration = &bank["actors"][binding.template.index as usize];
-    let template = &declaration["template"];
-    let state = &template["state"];
-    let zero = serde_json::json!([0., 0., 0.]);
-    if declaration["kind"] != "model_particle"
-        || !declaration["binding"]["animation"].is_null()
-        || !template["lifetime"].is_null()
-        || template["follow_origin"] != true
-        || template["follow_orientation"] != true
+    if declaration["kind"] != "model_particle" {
+        return Ok(false);
+    }
+    let template: resonance_content::battle_effect::ParticleTemplate =
+        serde_json::from_value(declaration["template"].clone())?;
+    let state = &template.state;
+    let geometry_still = matches!(&state.geometry,
+        resonance_content::battle_effect::ParticleGeometry::Size {velocity,acceleration,..}
+        if *velocity==[0.;3] && *acceleration==[0.;3]);
+    if !declaration["binding"]["animation"].is_null()
+        || template.lifetime.is_some()
+        || !template.follow_origin
+        || !template.follow_orientation
         || !binding.follow_origin
         || !binding.follow_orientation
         || [
-            "offset",
-            "velocity",
-            "acceleration",
-            "angular_velocity",
-            "orbit",
+            state.offset,
+            state.velocity,
+            state.acceleration,
+            state.angular_velocity,
+            state.orbit,
         ]
         .iter()
-        .any(|field| state[*field] != zero)
-        || template["jerk"] != zero
-        || template["orbit_velocity"] != zero
-        || state["geometry"]["Size"]["velocity"] != zero
-        || state["geometry"]["Size"]["acceleration"] != zero
+        .any(|value| *value != [0.; 3])
+        || template.jerk != [0.; 3]
+        || template.orbit_velocity != [0.; 3]
+        || !geometry_still
     {
         return Ok(false);
     }
@@ -1678,11 +1699,8 @@ fn validate_static_model_samples(
 
 fn launch_definition(launch: &Launch) -> Result<Value> {
     if let Some(action) = &launch.authored_action {
-        let bank = pinned_json(&Template {
-            path: action.path.clone(),
-            sha256: action.sha256.clone(),
-            index: 0,
-        })?;
+        action.content.source_digest()?;
+        let bank = serde_json::to_value(action.content.enemy(action.enemy)?.0)?;
         let events = bank["actions"]["rows"][action.index]["execution"]["attack"]["events"]
             .as_array()
             .context("missing authored launch events")?;
@@ -1807,7 +1825,7 @@ fn validate_trail(
     );
     let bank = pinned_json(&trail.template)?;
     ensure!(
-        bank["source_sha256"] == trail.bank,
+        trail.template.content.source_digest()? == trail.bank,
         "trail bank differs from its source bytes"
     );
     let program = bank["programs"][trail.template.index as usize]
@@ -1823,17 +1841,18 @@ fn validate_trail(
         .as_u64()
         .context("missing trail declaration")?;
     let declaration = &bank["actors"][member as usize];
-    let template = &declaration["template"];
-    let Some(lifetime) = template["lifetime"].as_u64().filter(|value| *value > 0) else {
+    if !matches!(
+        declaration["kind"].as_str(),
+        Some("particle" | "model_particle")
+    ) {
+        return Ok(());
+    }
+    let template: resonance_content::battle_effect::ParticleTemplate =
+        serde_json::from_value(declaration["template"].clone())?;
+    let Some(lifetime) = template.lifetime.filter(|value| *value > 0).map(u64::from) else {
         return Ok(());
     };
-    if template["follow_origin"] != false
-        || template["follow_orientation"] != false
-        || !matches!(
-            declaration["kind"].as_str(),
-            Some("particle" | "model_particle")
-        )
-    {
+    if template.follow_origin || template.follow_orientation {
         return Ok(());
     }
     for (side, trace) in [source, native].into_iter().enumerate() {
@@ -1999,7 +2018,7 @@ mod lifecycle_contract_tests {
         let mut native: Trace = source.clone();
         native.frames[0] = frame(2.);
         native.frames[1] = frame(4.);
-        let descriptors = json!([{"bank":"bank","member":0,"template":{"path":"model","sha256":"a".repeat(64),"index":0},"follow_origin":true,"follow_orientation":true}]);
+        let descriptors = json!([{"bank":"bank","member":0,"template":{"kind":"effects","content":test_evidence("model", &"a".repeat(64)),"index":0},"follow_origin":true,"follow_orientation":true}]);
         let bindings: Vec<FollowModel> = serde_json::from_value(descriptors.clone()).unwrap();
         let validated = Validated {
             ids: BTreeSet::from([1]),
@@ -2129,11 +2148,11 @@ mod steering_contract_tests {
             incomplete_observations: vec![],
         };
         let launch = serde_json::from_value(json!({"projectile":1,
-            "template":{"path":"unused","sha256":"a".repeat(64),"index":0},
+            "template":{"kind":"projectiles","content":test_evidence("unused", &"a".repeat(64)),"index":0},
             "origin":[0.,0.,0.],"heading":0.,"velocity":[0.,0.,0.],"acceleration":[0.,0.,0.],
             "motion":{"velocity_jitter":[0.,0.,0.],"speed":4.,"steering":{"blend":90.,"start":0,"end":null,"planar":true}},
             "clamp_ground":false,"lifetime":90,
-            "authored_action":{"path":"unused","sha256":"a".repeat(64),"index":0,"clock":1}
+            "authored_action":{"enemy":0,"content":test_evidence("unused", &"a".repeat(64)),"index":0,"clock":1}
         }))
         .unwrap();
         (trace, launch)

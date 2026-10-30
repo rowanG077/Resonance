@@ -135,12 +135,13 @@ mod tests {
             .unwrap_or_else(|| {
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
             });
-        let menus: MenuData =
-            serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json")).unwrap())
-                .unwrap();
-        let session: SessionData =
-            serde_json::from_slice(&std::fs::read(root.join("game/session-data.json")).unwrap())
-                .unwrap();
+        let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+        let files =
+            resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
+        let menus = MenuData::load(&files)?;
+        let session = SessionData::load(&files)?;
         let mut party = Party::new(&session, Default::default()).unwrap();
         for (character, skills, percent) in [
             (Character::Colette, [18, 21, 14, 0], 10),

@@ -4,12 +4,13 @@ use super::*;
 #[ignore = "requires prepared field/menu assets; no output devices"]
 fn offline_restore_preserves_artes_while_user_config_applies_explicit_preferences() -> Result<()> {
     let root = asset_root();
-    let files = Arc::new(Files::load(
+    let package = Arc::new(FieldPackage::prepare(
         &root,
-        &["fields/map-332.preload.json"],
+        332,
         &mut Default::default(),
         || false,
     )?);
+    let files = package.files.clone();
     let data = resonance_content::session::SessionData::load(&files)?;
     let mut checkpoint = field_checkpoint(&files)?;
     let party = &mut checkpoint.progress.party;
@@ -30,13 +31,7 @@ fn offline_restore_preserves_artes_while_user_config_applies_explicit_preference
     party.members[0].disabled_techniques.insert(opposite);
     party.members[0].technique_uses.insert(opposite, 37);
 
-    let mut session = Session::load_prepared(
-        &root,
-        files,
-        Some(checkpoint.clone()),
-        None,
-        &mut Default::default(),
-    )?;
+    let mut session = Session::load_prepared(package, Some(checkpoint.clone()), None)?;
     session.field_mut().menu = Some(resonance_game::menu::Menu::new(
         resonance_game::menu::Page::Main,
         Some(resonance_game::Checkpoint::Field(checkpoint)),

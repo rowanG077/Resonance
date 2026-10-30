@@ -1,9 +1,67 @@
 //! Helpers shared by presentation tests.
 use resonance_battle::{Actor, PreparedBattle, Side};
 
+/// Independent editable copies of a complete current library. Fixtures use the
+/// same content reader as production and never translate an old cooked tree.
+fn named_fixture() -> anyhow::Result<tempfile::TempDir> {
+    use anyhow::{Context, ensure};
+    let source = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .context("set RESONANCE_TEST_ASSETS to a complete current named library")?;
+    resonance_content::library::Library::open(&source, &[])?;
+    let work = tempfile::tempdir()?;
+    let mut pending = vec![std::path::PathBuf::new()];
+    while let Some(relative) = pending.pop() {
+        std::fs::create_dir_all(work.path().join(&relative))?;
+        for entry in std::fs::read_dir(source.join(&relative))? {
+            let entry = entry?;
+            let path = relative.join(entry.file_name());
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                pending.push(path);
+            } else {
+                ensure!(
+                    kind.is_file(),
+                    "fixture contains a non-regular file: {}",
+                    path.display()
+                );
+                // Independent copies allow in-place edits without modifying base
+                // content. Do not use hard links for these authoring fixtures.
+                std::fs::copy(entry.path(), work.path().join(path))?;
+            }
+        }
+    }
+    Ok(work)
+}
+
+pub(crate) fn named_opening_fixture() -> anyhow::Result<tempfile::TempDir> {
+    named_fixture()
+}
+
+pub(crate) fn named_world_fixture() -> anyhow::Result<tempfile::TempDir> {
+    named_fixture()
+}
+
+pub(crate) fn await_preparation<T: Send + 'static>(
+    pending: &crate::loading::Task<T>,
+) -> anyhow::Result<T> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    loop {
+        if let Some(result) = pending.poll()? {
+            return result;
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "scene preparation timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOptions {
     crate::RunOptions {
         assets: assets.into(),
+        mods: Vec::new(),
         script_root: None,
         saves: Default::default(),
         presentation_start: None,
@@ -75,4 +133,16 @@ pub(crate) fn prepare_battle(
         Default::default(),
         1,
     )
+}
+
+/// Representative authored startup used by timing and replay tests.
+pub(crate) fn boot_logos() -> resonance_game::boot::Logos {
+    let sequence = serde_json::from_value(serde_json::json!([
+        {"image":"nintendo.ktx2","fade_out_at":180},
+        {"image":"namco.ktx2","fade_out_at":240,"skip_after":120},
+        {"image":"tales-studio.ktx2","fade_out_at":180},
+        {"image":"adx.ktx2","fade_out_at":120}
+    ]))
+    .unwrap();
+    resonance_game::boot::Logos::new(sequence).unwrap()
 }

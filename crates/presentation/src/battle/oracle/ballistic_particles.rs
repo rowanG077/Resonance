@@ -21,8 +21,7 @@ pub(super) struct Lifetime {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Descriptor {
-    metadata: Pin,
-    bank: Option<Pin>,
+    metadata: super::content_evidence::Evidence,
     scheduler: Option<Pin>,
     member: u64,
     program: u64,
@@ -33,40 +32,25 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<[Validated; 2]>
         optional_field(&source.setup, "effect_ballistic_particles")?.unwrap_or_default();
     let mut result = [BTreeMap::new(), BTreeMap::new()];
     for descriptor in descriptors {
-        let metadata: Value = serde_json::from_slice(&descriptor.metadata.read_bytes()?)?;
-        let bank = metadata["source_sha256"]
-            .as_str()
-            .context("missing debris bank")?;
-        let raw_bank = descriptor
-            .bank
-            .as_ref()
-            .map(|pin| {
-                ensure!(pin.sha256 == bank, "particle bank evidence differs");
-                pin.read_bytes()
-            })
-            .transpose()?;
-        if raw_bank.is_none() {
+        let metadata = super::content_evidence::effect_value(descriptor.metadata.effects()?)?;
+        let bank = descriptor.metadata.source_digest()?;
+        let raw_bank = descriptor.metadata.source()?;
+        if descriptor.scheduler.is_none() {
             for trace in [source, native] {
                 let registration = trace.setup["stored_scenes"]["registrations"]
                     .as_array()
                     .context("missing debris scene registrations")?
                     .iter()
-                    .find(|r| {
-                        r["bank_sha256"] == bank
-                            && r["effects"]["sha256"] == descriptor.metadata.sha256
-                    })
+                    .find(|r| r["bank_sha256"] == bank)
                     .context("debris metadata is not registered")?;
-                let scene: Value = serde_json::from_slice(
-                    &serde_json::from_value::<Pin>(registration["scene"].clone())?.read_bytes()?,
-                )?;
-                let path = scene["effects"]
-                    .as_str()
-                    .context("missing registered effects")?;
+                super::content_evidence::registered_scene(registration)?;
+                let effects = super::content_evidence::Evidence::parse(&registration["effects"])?;
                 ensure!(
-                    scene["source_sha256"] == registration["package_sha256"]
-                        && scene["files"][path]["sha256"] == descriptor.metadata.sha256,
-                    "debris metadata does not belong to its scene"
+                    effects.entry == descriptor.metadata.entry,
+                    "debris effect entry differs"
                 );
+                effects.includes(&descriptor.metadata)?;
+                descriptor.metadata.includes(&effects)?;
             }
         }
         let declaration = &metadata["actors"][descriptor.member as usize];
@@ -112,15 +96,7 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<[Validated; 2]>
             .scheduler
             .as_ref()
             .map(|observations| {
-                embedded_epoch(
-                    source,
-                    &descriptor,
-                    observations,
-                    raw_bank
-                        .as_deref()
-                        .context("embedded scheduler requires original bank bytes")?,
-                    &spawns,
-                )
+                embedded_epoch(source, &descriptor, observations, &raw_bank, &spawns)
             })
             .transpose()?;
         for (side, trace) in [source, native].into_iter().enumerate() {
@@ -189,12 +165,7 @@ fn embedded_epoch(
     let table = usize::from(word(16)?);
     let root =
         i64::from(word(10)?) + i64::from(word(table + descriptor.program as usize * 2)? as i16);
-    let signature = descriptor
-        .bank
-        .as_ref()
-        .context("scheduler has no bank binding")?
-        .sha256
-        .as_str();
+    let signature = descriptor.metadata.source_digest()?;
     let parent = exactly_one(source.events.iter().filter(|event| {
         event["kind"] == "program_started"
             && event["owner"] == owner

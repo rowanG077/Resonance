@@ -42,7 +42,7 @@ use resonance_events::{Face, effect::LightPosition};
 use resonance_game::field::{FieldInput, FieldSession};
 pub use sequence::{CaptureMoment, FieldControls, FieldScene, FieldSequence};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     time::Instant,
@@ -174,7 +174,12 @@ impl Plugin for FieldPlugin {
             .add_systems(
                 Update,
                 (
-                    (retire_live, load_live, recover)
+                    (
+                        retire_live,
+                        load_live,
+                        super::field_resources::update,
+                        recover,
+                    )
                         .chain()
                         .run_if(super::battle::field_running)
                         .run_if(super::dungeons::running),
@@ -320,8 +325,8 @@ pub(super) struct Art {
     texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
-    loads: super::loading::LoadTasks,
-    loading_since: Instant,
+    pub(super) loads: super::loading::LoadTasks,
+    pub(super) loading_since: Instant,
     shadows: shadows::Artwork,
     pub(super) toon_ramp: Handle<Image>,
     unlit: bool,
@@ -337,6 +342,7 @@ pub(super) struct Part {
     resolved: bool,
     pub(super) scene: Handle<WorldAsset>,
     pub(super) clips: Vec<Handle<super::sparse_animation::Clip>>,
+    pub(super) motions: Vec<std::sync::Arc<resonance_content::animation::Motion>>,
     pub(super) materials: Vec<Surface>,
     /// Physical GLB meshes can remain uninstanced; only scene draws are required.
     scene_materials: std::collections::BTreeSet<usize>,
@@ -387,6 +393,7 @@ impl Part {
                         .load(clip.motion.clone())
                 })
                 .collect(),
+            motions: Vec::new(),
             materials,
             scene_materials: Default::default(),
             spec,
@@ -409,20 +416,21 @@ impl Part {
         if !self.clips.iter().all(|clip| clips.contains(clip)) {
             return Ok(false);
         }
-        for clip in &self.clips {
-            clips
-                .get(clip)
-                .unwrap()
-                .0
-                .validate_bones(self.spec.bone_names.len())?;
+        if !self.resolved {
+            self.motions = self
+                .clips
+                .iter()
+                .zip(&self.spec.clips)
+                .map(|(handle, spec)| clips.get(handle).unwrap().bind(&self.spec.bone_names, spec))
+                .collect::<Result<_>>()?;
+            ensure!(
+                gltf.meshes.len() == self.materials.len(),
+                "model material recipe differs: {}",
+                self.spec.mesh
+            );
+            self.scene = gltf.scenes.first().context("model has no scene")?.clone();
+            self.resolved = true;
         }
-        ensure!(
-            gltf.meshes.len() == self.materials.len(),
-            "model material recipe differs: {}",
-            self.spec.mesh
-        );
-        self.scene = gltf.scenes.first().context("model has no scene")?.clone();
-        self.resolved = true;
         Ok(server.is_loaded_with_dependencies(self.scene.id())
             && self.materials.iter().all(|m| {
                 m.color
@@ -654,8 +662,12 @@ pub(super) fn reset_live(world: &mut World) {
 }
 
 pub(super) fn camera_transform(camera: &resonance_events::camera::CameraRig) -> Transform {
-    let mut transform = Transform::from_translation(Vec3::from_array(camera.position))
-        .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+    let mut transform = Transform::from_translation(Vec3::from_array(camera.position));
+    transform.rotation = camera.orientation.map(Quat::from_array).unwrap_or_else(|| {
+        transform
+            .looking_at(Vec3::from_array(camera.target), Vec3::from_array(camera.up))
+            .rotation
+    });
     let [right, up] = camera.shake.offset;
     transform.translation -= transform.rotation * Vec3::new(right, up, 0.);
     transform
@@ -774,6 +786,7 @@ fn load_live(
     let mut ui = match super::field_ui::Artwork::load_with(
         session.field_assets(),
         session.data().clone(),
+        session.field_package().skits.clone(),
         &server,
         &mut materials,
         &mut images,
@@ -786,13 +799,12 @@ fn load_live(
         }
     };
     ui.prepare(&mut commands, &mut meshes, &mut materials);
-    let effects = match super::field_effects::Artwork::load_with(
-        &std::path::PathBuf::new(),
+    let effects = match super::field_effects::Artwork::load(
         session.field_assets(),
         &server,
         &mut meshes,
         &mut surfaces,
-        Some(&files),
+        &files,
     ) {
         Ok(effects) => effects,
         Err(error) => {
@@ -980,6 +992,7 @@ pub(super) fn advance_live(
         || session.audio.is_some()
         || session.field().events.world.field_transition.is_some()
         || session.field().events.battle_pending()
+        || !session.field().events.world.resource_requests.is_empty()
     {
         controls.clear_actions();
         return;
@@ -1215,7 +1228,7 @@ fn ui(
                 .find(|&entity| {
                     names
                         .get(entity)
-                        .is_ok_and(|name| name.as_str().starts_with("Bone_atama"))
+                        .is_ok_and(|name| name.as_str().starts_with("head"))
                 })
                 .and_then(|entity| {
                     transforms
@@ -1417,13 +1430,17 @@ fn prepare_part(
             gltf.meshes.len() == part.materials.len(),
             "field material count differs from its recipe"
         );
-        for handle in &part.clips {
-            clips
-                .get(handle)
-                .context("loaded field clip is missing")?
-                .0
-                .validate_bones(part.spec.bone_names.len())?;
-        }
+        part.motions = part
+            .clips
+            .iter()
+            .zip(&part.spec.clips)
+            .map(|(handle, spec)| {
+                clips
+                    .get(handle)
+                    .context("loaded field clip is missing")?
+                    .bind(&part.spec.bone_names, spec)
+            })
+            .collect::<Result<_>>()?;
         part.scene = scene.clone();
         part.resolved = true;
     }
@@ -1567,6 +1584,7 @@ fn instances(
     mut images: ResMut<Assets<Image>>,
     mut sampled: ResMut<super::scene::SampledImages>,
     instances: Query<&ActorPart>,
+    mut missing_models: Local<BTreeSet<(u32, u32)>>,
 ) {
     if !art.ready {
         return;
@@ -1586,7 +1604,17 @@ fn instances(
                 commands.entity(entity).despawn();
             }
         }
-        let Some(parts) = art.models.get(&actor.model_resource()) else {
+        let resource = actor.model_resource();
+        let Some(parts) = art.models.get(&resource) else {
+            if !actor.interaction_anchor
+                && !(actor.is_model_less_emitter() && !actor.visible)
+                && missing_models.insert((art.map, resource))
+            {
+                warn!(
+                    "Field {} actor {} requested unavailable model resource {}",
+                    art.map, id, resource
+                );
+            }
             continue;
         };
         let entities = parts
@@ -2294,13 +2322,17 @@ fn capture_field_cached(
     let root = fs::canonicalize(root)?;
     let checkpoint = target.scene.checkpoint();
     let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
-    let (mut assets, mut session) = if setup_prompt {
+    let (mut assets, mut session, files) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
         {
             let super::new_game::Scene::Field(field) = entry.scene else {
                 unreachable!()
             };
-            (field.package.assets.clone(), field.session)
+            (
+                field.package.assets.clone(),
+                field.session,
+                field.package.files.clone(),
+            )
         }
     } else {
         let map = checkpoint.map_or(340, |c| c.map_id);
@@ -2367,7 +2399,7 @@ fn capture_field_cached(
                 .context("capture session data missing")?;
             super::new_game::initialize_checkpoint(&mut session, checkpoint, &data)?;
         }
-        (assets, session)
+        (assets, session, package.files.clone())
     };
     session.events.world.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
         package.audio.voice_durations()
@@ -2436,7 +2468,12 @@ fn capture_field_cached(
         .or_else(|| probe.and_then(|p| p.preferences.as_ref()));
     if let Some(preferences) = preferences {
         preferences.validate()?;
-        let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
+        let data = session
+            .events
+            .resources()
+            .session_data
+            .clone()
+            .context("capture session data missing")?;
         let party = session
             .events
             .world
@@ -2455,7 +2492,16 @@ fn capture_field_cached(
         assets.water = None;
     }
     let mut app = App::new();
-    super::model_preview::register(&mut app, &root);
+    super::loading::install(&mut app, &root);
+    *app.world()
+        .resource::<super::loading::Resident>()
+        .files
+        .write()
+        .unwrap() = Some(files.clone());
+    app.world()
+        .resource::<super::loading::Resident>()
+        .active
+        .store(true, std::sync::atomic::Ordering::Release);
     app.add_plugins(
         DefaultPlugins
             .set(bevy::pbr::PbrPlugin {
@@ -2488,7 +2534,7 @@ fn capture_field_cached(
     .init_resource::<super::scene::SampledImages>()
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
-    .insert_resource(Root { assets: root })
+    .insert_resource(Root { files })
     .insert_resource(super::display::OutputStage::Framebuffer)
     .insert_resource(super::display::Display(resolution))
     .insert_resource(Checkpoint {
@@ -2557,21 +2603,14 @@ fn setup(
         }
     };
     let effects = super::field_effects::Artwork::load(
-        &root.assets,
         &manifest.0,
         &server,
         &mut meshes,
         &mut surfaces,
+        &root.files,
     )
     .expect("validated cooked field effects");
     commands.insert_resource(effects);
-    let files = resonance_content::prepared::Files::load(
-        &root.assets,
-        &[&super::new_game::manifest_path(manifest.0.map_id)],
-        &mut Default::default(),
-        || false,
-    )
-    .expect("capture UI files");
     let data = session
         .0
         .events
@@ -2582,10 +2621,17 @@ fn setup(
     let mut ui = super::field_ui::Artwork::load_with(
         &manifest.0,
         data,
+        session
+            .0
+            .events
+            .resources()
+            .skits
+            .clone()
+            .expect("capture skit data"),
         &server,
         &mut ui_materials,
         &mut images,
-        &files,
+        &root.files,
     )
     .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
@@ -2778,5 +2824,5 @@ struct Checkpoint {
 struct Manifest(FieldAssets);
 #[derive(Resource)]
 struct Root {
-    assets: PathBuf,
+    files: std::sync::Arc<resonance_content::prepared::Files>,
 }

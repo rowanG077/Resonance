@@ -1,21 +1,21 @@
 script library;
 use game::world;
-use world::travel::World;
+use std::world::WorldId;
 use world::locations;
-use world::locations::Location;
+use std::locations::WorldLocationId;
 use world::story;
-use world::story::Stage;
+use std::story::StoryStage;
 use world::quests;
-use world::quests::Quest;
-use world::quests::Step;
+use std::story::GlobalId;
+use std::story::QuestStep;
 struct LandmarkTile {
-    location: Location,
+    location: WorldLocationId,
     column: i32,
     row: i32,
 }
-pub fn select(realm: World) {
-    if realm == World::TetheAlla {
-        if story::reached(Stage::UnknownId22601000) {
+pub fn select(realm: WorldId) {
+    if realm == WorldId::TetheAlla {
+        if story::reached(StoryStage::UnknownId22601000) {
             world::alternate_tile(5, 5);
             world::alternate_tile(6, 5);
         }
@@ -23,21 +23,21 @@ pub fn select(realm: World) {
     }
     // Cooked tile coordinates share the access state of their landmark.
     let tiles = [LandmarkTile {
-        location: Location::ThodaGeyser, column: 10, row: 8 }, LandmarkTile {
-        location: Location::TrietRuins, column: 0, row: 6 }, LandmarkTile {
-        location: Location::TrietRuins, column: 0, row: 7 }, LandmarkTile {
-        location: Location::Palmacosta, column: 5, row: 7 }, LandmarkTile {
-        location: Location::Palmacosta, column: 6, row: 7 }, LandmarkTile {
-        location: Location::BalacrufMausoleum, column: 10, row: 2 }, LandmarkTile {
-        location: Location::BalacrufMausoleum, column: 11, row: 2 }, LandmarkTile {
-        location: Location::TowerOfMana, column: 6, row: 0 }, LandmarkTile {
-        location: Location::AsgardRanch, column: 7, row: 0 },];
+        location: WorldLocationId::ThodaGeyser, column: 10, row: 8 }, LandmarkTile {
+        location: WorldLocationId::TrietRuins, column: 0, row: 6 }, LandmarkTile {
+        location: WorldLocationId::TrietRuins, column: 0, row: 7 }, LandmarkTile {
+        location: WorldLocationId::Palmacosta, column: 5, row: 7 }, LandmarkTile {
+        location: WorldLocationId::Palmacosta, column: 6, row: 7 }, LandmarkTile {
+        location: WorldLocationId::BalacrufMausoleum, column: 10, row: 2 }, LandmarkTile {
+        location: WorldLocationId::BalacrufMausoleum, column: 11, row: 2 }, LandmarkTile {
+        location: WorldLocationId::TowerOfMana, column: 6, row: 0 }, LandmarkTile {
+        location: WorldLocationId::AsgardRanch, column: 7, row: 0 },];
     for tile in tiles {
         if locations::blocked(tile.location) {
             world::alternate_tile(tile.column, tile.row);
         }
     }
-    if quests::reached(Quest::UnknownId30, Step::UnknownId10000) || quests::reached(Quest::PalmacostaRanch, Step::UnknownId15000) {
+    if quests::reached(GlobalId::PalmacostaRanchAssaultRoute, QuestStep::UnknownId10000) || quests::reached(GlobalId::PalmacostaRanchDorrRoute, QuestStep::PalmacostaDorrRouteComplete) {
         world::alternate_tile(9, 6);
     }
 }

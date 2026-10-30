@@ -1,26 +1,19 @@
-//! Runtime world inventory. Original archives and relocations stay in the importer.
+//! Assembled world resources. Original archives and relocations stay in the importer.
 use super::*;
-use crate::{ScenePart, ScriptAsset, field::CollisionGroup, field_preload::File};
+use crate::{ScenePart, field::CollisionGroup};
 use std::collections::BTreeMap;
 
-pub const PACKAGE_PATH: &str = "worlds/world.json";
-pub const PACKAGE_VERSION: u32 = 4;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Package {
-    pub version: u32,
-    pub script: ScriptAsset,
-    pub messages: String,
+    pub script: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<String>,
     pub movement: MovementParameters,
-    pub collision: CollisionTables,
     pub encounters: EncounterTables,
     pub landmarks: Landmarks,
-    pub guideposts: Vec<Guidepost>,
     /// Row-major terrain, both variants prepared even before their story trigger.
     pub worlds: [Vec<TerrainTile>; 2],
     pub visuals: Visuals,
-    pub files: BTreeMap<String, File>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -45,7 +38,7 @@ pub struct Cinematic {
     pub presentation: CinematicPresentation,
     /// Resource frames at 30 Hz. The native camera advances twice by 0.25
     /// on each 60 Hz world update; actor clips use the same authored clock.
-    pub camera: Vec<crate::CameraKey>,
+    pub camera: crate::camera_motion::CameraMotion,
     /// Original archive indices, including gaps and non-actor members.
     pub actors: BTreeMap<u8, Vec<ScenePart>>,
     #[serde(default)]
@@ -64,27 +57,10 @@ pub struct CinematicDialogue {
 impl Cinematic {
     pub fn validate(&self, contains: impl Fn(&str) -> bool + Copy) -> Result<()> {
         self.presentation.validate(&self.actors)?;
-        ensure!(self.camera.len() >= 2, "empty world cinematic camera");
+        self.camera.validate()?;
         ensure!(
-            self.camera[0].time == 0.,
-            "world cinematic camera starts late"
-        );
-        for key in &self.camera {
-            ensure!(
-                key.time.is_finite()
-                    && key.time >= 0.
-                    && key.time <= 18000.
-                    && key
-                        .position
-                        .iter()
-                        .chain(&key.target)
-                        .all(|v| v.is_finite()),
-                "invalid world cinematic camera"
-            );
-        }
-        ensure!(
-            self.camera.windows(2).all(|k| k[0].time < k[1].time),
-            "unordered world cinematic camera"
+            self.camera.duration_frames() > 0. && self.camera.duration_frames() <= 18000.,
+            "invalid world cinematic duration"
         );
         ensure!(!self.actors.is_empty(), "empty world cinematic actors");
         for (&index, parts) in &self.actors {
@@ -103,7 +79,7 @@ impl Cinematic {
         for line in &self.dialogue {
             ensure!(
                 line.tick > 0
-                    && line.tick as f32 <= self.camera.last().unwrap().time * 2.
+                    && line.tick as f32 <= self.camera.duration_frames() * 2.
                     && (1..=255).contains(&line.duration)
                     && (1..=9).contains(&line.speaker)
                     && !line.text.is_empty()
@@ -115,8 +91,7 @@ impl Cinematic {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TerrainTile {
     pub column: u8,
     pub row: u8,
@@ -124,57 +99,38 @@ pub struct TerrainTile {
     pub alternate: Option<TileResources>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TileResources {
-    pub source_sha256: String,
     pub ground: Vec<CollisionGroup>,
     /// Local world plane; the renderer supplies wrapped tile placement.
     pub parts: Vec<ScenePart>,
 }
 
 impl Package {
-    pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == PACKAGE_VERSION, "unsupported world package");
-        self.movement.validate()?;
-        self.collision.validate()?;
-        self.encounters.validate()?;
-        self.landmarks.validate()?;
-        let mut posts = BTreeSet::new();
-        for post in &self.guideposts {
-            post.validate(&self.landmarks)?;
-            ensure!(posts.insert(post.location), "duplicate world guidepost");
-        }
-        for (path, file) in &self.files {
-            crate::validate_asset_path(path)?;
-            ensure!(
-                path != PACKAGE_PATH
-                    && file.sha256.len() == 64
-                    && file.sha256.bytes().all(|c| c.is_ascii_hexdigit())
-                    && !file.roles.is_empty(),
-                "invalid world dependency"
-            );
+    /// Validate gameplay and presentation semantics against the current prepared
+    /// resources. Named documents have no cooker inventory or provenance gate.
+    pub fn validate_content(&self, contains: impl Fn(&str) -> bool + Copy) -> Result<()> {
+        crate::library::validate_path(&self.script)?;
+        if let Some(path) = &self.messages {
+            crate::library::validate_path(path)?;
         }
         ensure!(
-            self.files
-                .get(&self.script.path)
-                .is_some_and(|file| file.sha256 == self.script.sha256)
-                && self.files.contains_key(&self.messages),
+            contains(&self.script) && self.messages.as_deref().is_none_or(contains),
             "world event dependencies are incomplete"
         );
-        for path in [
-            "game/session-data.json",
-            "game/text.json",
-            "game/skits.json",
-            "game/menu-data.json",
-            "fonts/dialogue.json",
-            "ui/dialogue.json",
-            "ui/menu.json",
-            "worlds/audio.json",
-        ] {
+        self.movement.validate()?;
+        self.encounters.validate()?;
+        self.landmarks.validate()?;
+        for floor in self
+            .landmarks
+            .worlds
+            .iter()
+            .flatten()
+            .filter_map(|l| l.flight_floor)
+        {
             ensure!(
-                self.files.contains_key(path),
-                "world dependency {path} is missing"
+                floor.height + self.movement.flight_clearance <= self.movement.maximum_altitude,
+                "landmark flight floor exceeds the maximum altitude"
             );
         }
         for world in &self.worlds {
@@ -189,20 +145,15 @@ impl Package {
                 );
                 for variant in std::iter::once(&tile.base).chain(&tile.alternate) {
                     ensure!(
-                        variant.source_sha256.len() == 64
-                            && variant.source_sha256.bytes().all(|c| c.is_ascii_hexdigit()),
-                        "invalid terrain source digest"
-                    );
-                    ensure!(
                         !variant.ground.is_empty() && !variant.parts.is_empty(),
                         "empty world terrain"
                     );
                     for group in &variant.ground {
                         group.validate()?;
-                        ensure!(group.surface < 16, "invalid terrain surface");
+                        TerrainSurface::from_index(group.surface)?;
                     }
                     for part in &variant.parts {
-                        part.validate(|path| self.files.contains_key(path))?;
+                        part.validate(contains)?;
                     }
                 }
             }
@@ -222,10 +173,7 @@ impl Package {
         );
         for path in &self.visuals.dust {
             crate::validate_asset_path(path)?;
-            ensure!(
-                self.files.contains_key(path),
-                "world dust texture is missing"
-            );
+            ensure!(contains(path), "world dust texture is missing");
         }
         for part in self
             .visuals
@@ -235,20 +183,16 @@ impl Package {
             .flatten()
             .chain(self.visuals.skies.iter().flatten())
         {
-            part.validate(|path| self.files.contains_key(path))?;
+            part.validate(contains)?;
         }
         ensure!(
             self.visuals.cinematics.len() == 14
                 && (513..=526).all(|id| self.visuals.cinematics.contains_key(&id)),
             "incomplete world cinematics"
         );
-        ensure!(
-            self.visuals.cinematics[&517].dialogue.len() == 9,
-            "missing world cinematic dialogue"
-        );
         for (&id, scene) in &self.visuals.cinematics {
             ensure!((513..=526).contains(&id), "invalid world cinematic ID");
-            scene.validate(|path| self.files.contains_key(path))?;
+            scene.validate(contains)?;
         }
         Ok(())
     }

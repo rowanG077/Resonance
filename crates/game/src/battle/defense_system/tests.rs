@@ -6,11 +6,8 @@ mod lifecycle;
 #[test]
 #[ignore = "requires a full current cook at RESONANCE_TEST_ASSETS; CPU only"]
 fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Result<()> {
-    use crate::battle::encounter::{Assets, PrepareOptions};
-    use resonance_content::{
-        prepared::{Cache, Files},
-        session::SessionData,
-    };
+    use crate::battle::encounter::PrepareOptions;
+    use resonance_content::session::SessionData;
     use resonance_events::{
         battle::{DefeatPolicy, Encounter, Setup},
         party::Party,
@@ -20,10 +17,13 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
         .unwrap_or_else(|| {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
         });
-    let mut cache = Cache::default();
-    let files = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
+
+    let files = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
     let session = SessionData::load(&files)?;
     let menus = session.rules.as_deref().unwrap();
     let party = Party::new(&session, Default::default())?;
@@ -39,24 +39,34 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
         victory_story_flags: [false; 2],
         overlimit_boost: false,
     };
-    let (assets, prepared) = Assets::load(
-        &root,
-        &files,
-        menus,
-        &session,
-        &party,
-        Setup {
-            route: [0; 5],
-            encounter: Encounter::Formation(43),
-            arena: 13,
-            music: None,
-            defeat: DefeatPolicy::ResumeEvent,
-        },
-        options(),
-        &mut cache,
-        || false,
-    )?;
-    let content: Definition = files.json(resonance_content::battle_defense_system::PATH)?;
+    let (assets, prepared) = {
+        let mut snapshot = (&files)
+            .library()
+            .context("named library is required")?
+            .snapshot();
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut snapshot,
+            &(|| false),
+        )?;
+        let inputs = crate::battle::encounter::Assets::capture(
+            &mut snapshot,
+            menus,
+            &session,
+            &party,
+            Setup {
+                route: [0; 5],
+                encounter: Encounter::Formation(43),
+                arena: 13,
+                music: None,
+                defeat: DefeatPolicy::ResumeEvent,
+            },
+            (&files).diagnostics().clone(),
+            &(|| false),
+        )?;
+        let (assets, prepared, _) = inputs.prepare_named(menus, options(), &catalogue)?;
+        Ok::<_, anyhow::Error>((assets, prepared))
+    }?;
+    let content: Definition = resonance_content::battle_rules::defense(&files)?;
     let first_enemy = prepared.characters.len();
     let members: Vec<_> = assets
         .enemies
@@ -96,7 +106,7 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
     changed.arm = 12;
     changed.orbit = 13;
     changed.repair.enemy = 14;
-    changed.arm_slots.reverse();
+    changed.arm_joints.reverse();
     changed.repair.position = [300., 20., -50.];
     changed.repair.heading = 27.;
     changed.deployment.clip = 0;
@@ -142,13 +152,13 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
     assert!(definition(&changed, &members, core_model, audio).is_err());
     assert!(definition(&changed, &renamed[1..], core_model, audio).is_err());
     let mut missing = changed.clone();
-    missing.arm_slots[0] = 9;
+    missing.arm_joints[0] = "absent-joint".into();
     assert!(definition(&missing, &renamed, core_model, audio).is_err());
     missing = changed.clone();
     missing.deployment.clip = u16::MAX;
     assert!(definition(&missing, &renamed, core_model, audio).is_err());
     let mut ambiguous = (**core_model).clone();
-    ambiguous.skeleton.bones[0].name = "pa03_duplicate".into();
+    ambiguous.skeleton.bones[0].name = changed.arm_joints[0].clone();
     assert!(definition(&changed, &renamed, &ambiguous, audio).is_err());
     assert!(!assets.files.diagnostics().has_errors() && !prepared.core.is_diagnostic());
     #[cfg(feature = "test-support")]
@@ -164,19 +174,20 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
         recipe.messages.automatic = "Prepared repair".into();
         recipe.repair.heading = 27.;
         recipe.camera_yaw_limits = [145., 190.];
-        assets.inputs.defense_system = recipe.clone();
+        assets.defense_system = recipe.clone();
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut assets
+                .files
+                .library()
+                .context("named library required")?
+                .snapshot(),
+            &|| false,
+        )?;
         let mut selected = resonance_content::battle_audio::Selection::default();
-        let mut live = assets.inputs.prepare_fixture(
+        let mut live = assets.prepare_fixture(
             menus,
             options(),
-            |sound| {
-                crate::battle::audio::collect(
-                    assets.audio.as_ref(),
-                    &mut selected,
-                    assets.files.diagnostics(),
-                    sound,
-                )
-            },
+            |sound| catalogue.collect(&mut selected, assets.files.diagnostics(), sound),
             |actors| {
                 actors[core.index()].0.hp = actors[core.index()].0.equipment.max_hp / 2;
                 for id in std::iter::once(native.repair.0).chain(native.orbits.iter().copied()) {
@@ -264,8 +275,8 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
         assert_eq!(notices, ["Alert", "Prepared repair", "Repair", "Repair"]);
         assert!(live.core.actors().iter().all(|actor| actor.available()));
         assert!(!assets.files.diagnostics().has_errors() && !live.core.is_diagnostic());
-        assets.inputs.defense_system.repair_cycle.self_ticks = 60;
-        assets.inputs.defense_system.repair_cycle.repeat_ticks = 20;
+        assets.defense_system.repair_cycle.self_ticks = 60;
+        assets.defense_system.repair_cycle.repeat_ticks = 20;
         lifecycle::check_repeated_contact_deaths(&assets, menus, options, &native)?;
     }
     Ok(())

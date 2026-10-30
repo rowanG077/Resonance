@@ -163,7 +163,7 @@ impl Host for NativeHost<'_> {
         ActorExists(1) -> i32 = dispatch;
         IsSkitViewed(1) -> i32 = party;
         GetScenarioTimerValue(1) -> i32 = field;
-        Unknown92(2) -> i32 = field;
+        FieldSystem(2) -> i32 = field;
         ResolveScriptResource(1) -> i32 = field;
         ReleaseScriptResource(1) -> i32 = field;
         ConfigureActorAnimation(5) -> () = dispatch;
@@ -201,7 +201,7 @@ impl Host for NativeHost<'_> {
         ReadCoordinateRegister(1) -> i32 = dispatch;
         ReadActorLocalOffset(9) -> () = dispatch;
         ReadActorOffset(5) -> () = dispatch;
-        Unknown37(3) -> i32 = request_battle;
+        StartBattleSimple(3) -> i32 = request_battle;
         StartEnemyBattle(2) -> i32 = request_enemy_battle;
         GetCurrentField(0) -> i32 = field;
         ReadMappedInput(2) -> i32 = field;

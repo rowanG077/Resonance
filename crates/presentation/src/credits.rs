@@ -1,7 +1,10 @@
 //! Prepared credit pages scroll against the music clock while the field waits.
 use super::*;
 use crate::audio_output::{Player, Sink};
-use resonance_content::credits::{Manifest, Operation};
+use resonance_content::{
+    HEIGHT, WIDTH,
+    credits::{Manifest, Operation},
+};
 use resonance_events::session_screen::{Request, Target};
 use resonance_game::clock::UPDATE_HZ;
 use resonance_playback::{ChannelCount, Decodable, SOURCE_RATE, SampleRate, Source};
@@ -9,6 +12,9 @@ use std::sync::Arc;
 
 const UI_DEPTH: f32 = 500.;
 
+#[cfg(test)]
+#[path = "credits_named_tests.rs"]
+mod named_tests;
 #[cfg(test)]
 #[path = "credits_tests.rs"]
 mod tests;
@@ -35,11 +41,10 @@ impl Artwork {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
     ) -> Result<Self> {
-        let manifest: Manifest = files.json(resonance_content::credits::PATH)?;
-        manifest.validate()?;
+        let manifest = Manifest::load(files)?;
         let audio = Audio {
             clip: Arc::new(crate::field_audio::Clip::prepare(
-                files.read(&manifest.music.asset.path)?,
+                files.read(&manifest.music.path)?,
                 &manifest.music,
             )?),
             rate: manifest.music.sample_rate,
@@ -168,12 +173,7 @@ fn layout(manifest: &Manifest, font: &BitmapFont) -> Result<Vec<Batch>> {
     };
     let mut batches = vec![Batch::default(); 2 + manifest.pictures.len()];
     batches[0].quad(
-        [
-            0.,
-            0.,
-            f32::from(program.canvas[0]),
-            f32::from(program.canvas[1]),
-        ],
+        [0., 0., WIDTH as f32, HEIGHT as f32],
         [0.5; 4],
         [0., 0., 0., 1.],
     );
@@ -210,13 +210,14 @@ fn layout(manifest: &Manifest, font: &BitmapFont) -> Result<Vec<Batch>> {
                         _ => {}
                     }
                 }
-                x = (f32::from(program.canvas[0]) - length) / 2.;
+                x = (WIDTH as f32 - length) / 2.;
             }
             Operation::Newline => {
                 x = 0.;
                 y += f32::from(program.style.line_height);
             }
             Operation::Tab => x += f32::from(program.style.tab_width),
+            Operation::PositionX { pixels } => x = *pixels,
             Operation::VerticalSpace { pixels } => {
                 x = 0.;
                 y += *pixels as f32;

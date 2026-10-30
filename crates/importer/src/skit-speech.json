@@ -1,0 +1,4725 @@
+{
+  "1": {
+    "skit": 1,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "colette",
+      "4": "genis",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "genis"
+    }
+  },
+  "2": {
+    "skit": 600,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "genis",
+      "5": "lloyd"
+    }
+  },
+  "3": {
+    "skit": 250,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "genis",
+      "8": "lloyd"
+    }
+  },
+  "4": {
+    "skit": 2,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis"
+    }
+  },
+  "5": {
+    "skit": 602,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis"
+    }
+  },
+  "6": {
+    "skit": 603,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis"
+    }
+  },
+  "7": {
+    "skit": 604,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis"
+    }
+  },
+  "8": {
+    "skit": 605,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis"
+    }
+  },
+  "9": {
+    "skit": 606,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis-and-lloyd",
+      "8": "genis",
+      "9": "lloyd"
+    }
+  },
+  "11": {
+    "skit": 601,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "genis",
+      "8": "lloyd"
+    }
+  },
+  "12": {
+    "skit": 3,
+    "speakers": {
+      "1": "lloyd",
+      "2": "noishe",
+      "3": "lloyd",
+      "4": "noishe-and-lloyd",
+      "8": "noishe"
+    }
+  },
+  "13": {
+    "skit": 4,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd"
+    }
+  },
+  "14": {
+    "skit": 252,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis"
+    }
+  },
+  "15": {
+    "skit": 608,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "genis",
+      "8": "lloyd",
+      "9": "genis"
+    }
+  },
+  "16": {
+    "skit": 607,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis"
+    }
+  },
+  "17": {
+    "skit": 609,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis"
+    }
+  },
+  "18": {
+    "skit": 450,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd-and-genis"
+    }
+  },
+  "19": {
+    "skit": 611,
+    "speakers": {
+      "1": "lloyd"
+    }
+  },
+  "20": {
+    "skit": 253,
+    "speakers": {
+      "1": "lloyd"
+    }
+  },
+  "21": {
+    "skit": 613,
+    "speakers": {
+      "1": "lloyd"
+    }
+  },
+  "22": {
+    "skit": 612,
+    "speakers": {
+      "1": "kratos",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "kratos",
+      "8": "lloyd",
+      "9": "raine"
+    }
+  },
+  "23": {
+    "skit": 614,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "noishe",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "noishe",
+      "7": "kratos",
+      "8": "lloyd"
+    }
+  },
+  "24": {
+    "skit": 615,
+    "speakers": {
+      "2": "kratos",
+      "3": "raine",
+      "4": "kratos",
+      "5": "raine",
+      "6": "kratos"
+    }
+  },
+  "25": {
+    "skit": 616,
+    "speakers": {
+      "1": "genis",
+      "2": "colette",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "genis",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "colette",
+      "12": "genis"
+    }
+  },
+  "27": {
+    "skit": 620,
+    "speakers": {
+      "1": "lloyd-and-kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd"
+    }
+  },
+  "28": {
+    "skit": 617,
+    "speakers": {
+      "1": "noishe",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "colette",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "kratos",
+      "9": "noishe"
+    }
+  },
+  "29": {
+    "skit": 263,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "raine",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette"
+    }
+  },
+  "30": {
+    "skit": 8,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette",
+      "9": "lloyd"
+    }
+  },
+  "31": {
+    "skit": 623,
+    "speakers": {
+      "1": "raine",
+      "2": "kratos",
+      "3": "raine",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "kratos"
+    }
+  },
+  "32": {
+    "skit": 10,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd"
+    }
+  },
+  "33": {
+    "skit": 625,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "genis",
+      "4": "raine",
+      "5": "genis",
+      "6": "colette",
+      "7": "genis",
+      "8": "kratos"
+    }
+  },
+  "35": {
+    "skit": 11,
+    "speakers": {
+      "1": "colette",
+      "2": "genis",
+      "3": "raine",
+      "4": "genis",
+      "5": "colette",
+      "6": "genis",
+      "7": "colette",
+      "8": "genis",
+      "9": "raine"
+    }
+  },
+  "36": {
+    "skit": 626,
+    "speakers": {
+      "1": "kratos",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "kratos",
+      "8": "lloyd-and-raine",
+      "10": "lloyd",
+      "11": "raine",
+      "12": "genis"
+    }
+  },
+  "37": {
+    "skit": 72,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd-and-raine",
+      "7": "lloyd-and-raine",
+      "10": "genis-and-lloyd"
+    }
+  },
+  "38": {
+    "skit": 781,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "raine",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "raine",
+      "9": "kratos",
+      "10": "lloyd",
+      "11": "colette"
+    }
+  },
+  "39": {
+    "skit": 782,
+    "speakers": {
+      "1": "lloyd-and-raine",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd-and-raine",
+      "7": "lloyd",
+      "8": "raine",
+      "9": "lloyd",
+      "10": "raine",
+      "11": "lloyd",
+      "12": "kratos",
+      "13": "lloyd"
+    }
+  },
+  "40": {
+    "skit": 73,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "lloyd",
+      "7": "kratos",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd"
+    }
+  },
+  "41": {
+    "skit": 74,
+    "speakers": {
+      "1": "genis",
+      "2": "colette",
+      "3": "genis",
+      "4": "colette",
+      "5": "genis",
+      "6": "kratos",
+      "7": "colette",
+      "8": "kratos",
+      "9": "genis"
+    }
+  },
+  "42": {
+    "skit": 783,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "kratos"
+    }
+  },
+  "43": {
+    "skit": 75,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd"
+    }
+  },
+  "44": {
+    "skit": 76,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "kratos"
+    }
+  },
+  "45": {
+    "skit": 77,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd"
+    }
+  },
+  "46": {
+    "skit": 78,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "lloyd"
+    }
+  },
+  "47": {
+    "skit": 79,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette"
+    }
+  },
+  "48": {
+    "skit": 80,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd"
+    }
+  },
+  "49": {
+    "skit": 784,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "lloyd"
+    }
+  },
+  "50": {
+    "skit": 785,
+    "speakers": {
+      "1": "genis",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "kratos",
+      "9": "lloyd",
+      "10": "kratos",
+      "11": "lloyd",
+      "12": "kratos"
+    }
+  },
+  "51": {
+    "skit": 786,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "raine"
+    }
+  },
+  "52": {
+    "skit": 490,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette"
+    }
+  },
+  "53": {
+    "skit": 787,
+    "speakers": {
+      "1": "colette",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "raine",
+      "7": "colette"
+    }
+  },
+  "54": {
+    "skit": 770,
+    "speakers": {
+      "1": "corrine",
+      "2": "sheena",
+      "3": "corrine",
+      "4": "sheena"
+    }
+  },
+  "55": {
+    "skit": 81,
+    "speakers": {
+      "1": "colette",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "raine"
+    }
+  },
+  "56": {
+    "skit": 67,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "kratos",
+      "10": "raine",
+      "11": "lloyd"
+    }
+  },
+  "57": {
+    "skit": 768,
+    "speakers": {
+      "1": "sheena",
+      "2": "kratos",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "lloyd",
+      "7": "kratos",
+      "8": "sheena",
+      "9": "lloyd"
+    }
+  },
+  "58": {
+    "skit": 66,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "kratos"
+    }
+  },
+  "59": {
+    "skit": 484,
+    "speakers": {
+      "1": "kratos",
+      "2": "colette",
+      "3": "kratos",
+      "4": "colette"
+    }
+  },
+  "60": {
+    "skit": 764,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette"
+    }
+  },
+  "61": {
+    "skit": 68,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena-and-lloyd",
+      "8": "sheena",
+      "9": "lloyd",
+      "10": "sheena",
+      "11": "lloyd"
+    }
+  },
+  "62": {
+    "skit": 491,
+    "speakers": {
+      "1": "sheena",
+      "2": "corrine",
+      "3": "sheena",
+      "4": "corrine",
+      "5": "sheena",
+      "6": "corrine",
+      "7": "sheena",
+      "8": "corrine",
+      "9": "sheena"
+    }
+  },
+  "63": {
+    "skit": 82,
+    "speakers": {
+      "1": "genis",
+      "2": "sheena-and-genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd",
+      "9": "genis"
+    }
+  },
+  "64": {
+    "skit": 766,
+    "speakers": {
+      "1": "genis",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "colette"
+    }
+  },
+  "65": {
+    "skit": 485,
+    "speakers": {
+      "1": "sheena",
+      "2": "raine",
+      "3": "sheena",
+      "4": "raine",
+      "5": "sheena",
+      "6": "raine",
+      "7": "sheena",
+      "8": "raine",
+      "9": "sheena",
+      "10": "raine",
+      "11": "sheena",
+      "12": "raine"
+    }
+  },
+  "66": {
+    "skit": 767,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "kratos",
+      "9": "lloyd",
+      "10": "kratos",
+      "11": "lloyd",
+      "12": "kratos",
+      "13": "lloyd"
+    }
+  },
+  "67": {
+    "skit": 486,
+    "speakers": {
+      "1": "noishe",
+      "2": "kratos",
+      "3": "noishe",
+      "4": "kratos",
+      "5": "noishe"
+    }
+  },
+  "69": {
+    "skit": 12,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "genis",
+      "4": "sheena",
+      "5": "genis",
+      "6": "sheena",
+      "7": "lloyd",
+      "8": "sheena",
+      "9": "lloyd",
+      "10": "genis"
+    }
+  },
+  "70": {
+    "skit": 13,
+    "speakers": {
+      "1": "lloyd",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd-and-colette",
+      "9": "genis",
+      "10": "lloyd-and-genis"
+    }
+  },
+  "71": {
+    "skit": 631,
+    "speakers": {
+      "1": "raine",
+      "2": "sheena",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd",
+      "9": "raine",
+      "10": "lloyd",
+      "11": "sheena"
+    }
+  },
+  "72": {
+    "skit": 628,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "raine",
+      "9": "lloyd",
+      "10": "raine"
+    }
+  },
+  "73": {
+    "skit": 632,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "lloyd",
+      "5": "zelos",
+      "6": "lloyd",
+      "7": "zelos",
+      "8": "lloyd-and-zelos",
+      "10": "presea",
+      "11": "zelos"
+    }
+  },
+  "74": {
+    "skit": 633,
+    "speakers": {
+      "1": "genis",
+      "2": "presea",
+      "3": "genis",
+      "5": "lloyd"
+    }
+  },
+  "75": {
+    "skit": 639,
+    "speakers": {
+      "1": "zelos-and-genis",
+      "3": "lloyd",
+      "4": "presea",
+      "5": "lloyd",
+      "7": "zelos",
+      "8": "lloyd",
+      "9": "genis",
+      "10": "zelos",
+      "11": "presea"
+    }
+  },
+  "76": {
+    "skit": 640,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "lloyd",
+      "7": "lloyd"
+    }
+  },
+  "77": {
+    "skit": 17,
+    "speakers": {
+      "3": "zelos",
+      "4": "lloyd",
+      "5": "zelos",
+      "6": "lloyd",
+      "7": "zelos"
+    }
+  },
+  "78": {
+    "skit": 641,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "zelos",
+      "4": "raine",
+      "5": "zelos",
+      "6": "raine",
+      "7": "lloyd",
+      "8": "genis"
+    }
+  },
+  "79": {
+    "skit": 634,
+    "speakers": {
+      "1": "genis",
+      "2": "presea",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "presea",
+      "6": "lloyd",
+      "8": "presea",
+      "9": "zelos",
+      "10": "lloyd"
+    }
+  },
+  "80": {
+    "skit": 458,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "zelos",
+      "7": "raine",
+      "8": "lloyd"
+    }
+  },
+  "81": {
+    "skit": 18,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "presea",
+      "4": "lloyd"
+    }
+  },
+  "82": {
+    "skit": 19,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos-and-lloyd",
+      "5": "zelos",
+      "6": "lloyd",
+      "7": "zelos"
+    }
+  },
+  "83": {
+    "skit": 645,
+    "speakers": {
+      "1": "genis",
+      "2": "zelos",
+      "3": "genis",
+      "4": "zelos",
+      "5": "genis",
+      "6": "zelos",
+      "7": "genis"
+    }
+  },
+  "84": {
+    "skit": 644,
+    "speakers": {
+      "1": "sheena",
+      "2": "genis",
+      "3": "presea",
+      "4": "sheena",
+      "5": "presea",
+      "6": "sheena",
+      "7": "presea",
+      "8": "genis",
+      "9": "sheena"
+    }
+  },
+  "85": {
+    "skit": 643,
+    "speakers": {
+      "1": "zelos",
+      "3": "zelos",
+      "4": "sheena-and-zelos",
+      "6": "sheena",
+      "7": "zelos",
+      "8": "sheena",
+      "9": "zelos",
+      "10": "sheena",
+      "11": "zelos"
+    }
+  },
+  "86": {
+    "skit": 642,
+    "speakers": {
+      "1": "sheena",
+      "2": "colette",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd"
+    }
+  },
+  "87": {
+    "skit": 267,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette"
+    }
+  },
+  "88": {
+    "skit": 646,
+    "speakers": {
+      "1": "colette-and-presea",
+      "2": "colette"
+    }
+  },
+  "89": {
+    "skit": 20,
+    "speakers": {
+      "1": "raine",
+      "2": "sheena",
+      "3": "raine",
+      "4": "corrine",
+      "5": "raine",
+      "6": "corrine",
+      "7": "sheena",
+      "8": "raine",
+      "9": "corrine",
+      "10": "sheena",
+      "11": "raine"
+    }
+  },
+  "90": {
+    "skit": 647,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "raine",
+      "4": "genis",
+      "5": "zelos",
+      "6": "raine"
+    }
+  },
+  "92": {
+    "skit": 824,
+    "speakers": {
+      "1": "zelos",
+      "2": "genis",
+      "3": "zelos",
+      "4": "lloyd",
+      "5": "zelos",
+      "6": "genis",
+      "7": "zelos",
+      "8": "lloyd",
+      "9": "genis",
+      "10": "zelos",
+      "11": "lloyd",
+      "13": "zelos"
+    }
+  },
+  "93": {
+    "skit": 21,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "zelos",
+      "6": "presea",
+      "7": "zelos",
+      "8": "lloyd",
+      "10": "sheena",
+      "11": "zelos",
+      "12": "presea",
+      "13": "zelos"
+    }
+  },
+  "94": {
+    "skit": 652,
+    "speakers": {
+      "1": "genis",
+      "2": "zelos",
+      "3": "colette",
+      "4": "zelos",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "zelos",
+      "8": "colette",
+      "9": "lloyd"
+    }
+  },
+  "95": {
+    "skit": 653,
+    "speakers": {
+      "1": "colette",
+      "2": "sheena",
+      "3": "lloyd",
+      "4": "sheena",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "genis",
+      "12": "sheena"
+    }
+  },
+  "96": {
+    "skit": 657,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "sheena"
+    }
+  },
+  "97": {
+    "skit": 658,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal",
+      "7": "lloyd",
+      "8": "regal"
+    }
+  },
+  "98": {
+    "skit": 659,
+    "speakers": {
+      "1": "colette",
+      "2": "regal",
+      "3": "colette",
+      "4": "regal",
+      "5": "colette",
+      "6": "regal",
+      "7": "colette",
+      "8": "regal",
+      "9": "colette"
+    }
+  },
+  "99": {
+    "skit": 660,
+    "speakers": {
+      "1": "regal",
+      "2": "presea",
+      "3": "genis",
+      "4": "regal",
+      "5": "genis",
+      "6": "presea",
+      "7": "genis",
+      "8": "presea",
+      "9": "genis",
+      "10": "presea",
+      "11": "genis"
+    }
+  },
+  "100": {
+    "skit": 22,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "raine"
+    }
+  },
+  "102": {
+    "skit": 23,
+    "speakers": {
+      "1": "zelos",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "zelos",
+      "6": "sheena",
+      "7": "zelos-and-sheena"
+    }
+  },
+  "103": {
+    "skit": 663,
+    "speakers": {
+      "1": "sheena",
+      "2": "regal",
+      "3": "sheena",
+      "4": "regal",
+      "5": "sheena",
+      "6": "regal",
+      "7": "sheena",
+      "8": "regal",
+      "9": "sheena"
+    }
+  },
+  "104": {
+    "skit": 667,
+    "speakers": {
+      "1": "genis",
+      "2": "regal",
+      "3": "genis",
+      "4": "regal",
+      "5": "genis",
+      "6": "regal",
+      "7": "genis",
+      "8": "regal",
+      "9": "genis",
+      "10": "regal",
+      "11": "genis",
+      "12": "regal",
+      "13": "genis",
+      "14": "regal"
+    }
+  },
+  "106": {
+    "skit": 27,
+    "speakers": {
+      "1": "corrine",
+      "2": "sheena",
+      "3": "corrine",
+      "4": "sheena",
+      "5": "corrine",
+      "6": "sheena"
+    }
+  },
+  "107": {
+    "skit": 682,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "zelos-and-lloyd",
+      "5": "zelos",
+      "6": "genis",
+      "7": "zelos",
+      "8": "lloyd",
+      "9": "zelos"
+    }
+  },
+  "108": {
+    "skit": 681,
+    "speakers": {
+      "1": "raine",
+      "2": "presea",
+      "3": "raine",
+      "4": "regal",
+      "5": "raine"
+    }
+  },
+  "109": {
+    "skit": 28,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "lloyd",
+      "4": "sheena",
+      "5": "lloyd",
+      "6": "sheena",
+      "7": "lloyd",
+      "8": "sheena",
+      "9": "lloyd",
+      "10": "sheena"
+    }
+  },
+  "110": {
+    "skit": 685,
+    "speakers": {
+      "1": "zelos",
+      "2": "genis",
+      "3": "zelos",
+      "4": "presea",
+      "5": "regal",
+      "6": "genis",
+      "7": "zelos"
+    }
+  },
+  "112": {
+    "skit": 687,
+    "speakers": {
+      "1": "regal",
+      "2": "lloyd",
+      "3": "regal",
+      "4": "lloyd",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "genis",
+      "8": "lloyd",
+      "9": "regal"
+    }
+  },
+  "115": {
+    "skit": 30,
+    "speakers": {
+      "1": "genis",
+      "2": "mithos",
+      "3": "genis",
+      "4": "mithos",
+      "5": "genis",
+      "6": "mithos",
+      "7": "genis",
+      "8": "mithos",
+      "9": "genis",
+      "10": "mithos"
+    }
+  },
+  "116": {
+    "skit": 697,
+    "speakers": {
+      "1": "presea",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal",
+      "7": "raine"
+    }
+  },
+  "118": {
+    "skit": 35,
+    "speakers": {
+      "1": "zelos",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "zelos",
+      "6": "sheena",
+      "7": "zelos-and-sheena",
+      "9": "zelos",
+      "10": "sheena",
+      "11": "zelos",
+      "12": "sheena"
+    }
+  },
+  "119": {
+    "skit": 39,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos"
+    }
+  },
+  "120": {
+    "skit": 83,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "regal",
+      "4": "sheena",
+      "5": "lloyd",
+      "6": "sheena",
+      "7": "lloyd",
+      "8": "sheena",
+      "9": "zelos-and-lloyd",
+      "11": "sheena",
+      "12": "zelos",
+      "13": "lloyd",
+      "14": "regal"
+    }
+  },
+  "121": {
+    "skit": 43,
+    "speakers": {
+      "1": "regal",
+      "2": "presea",
+      "3": "regal",
+      "4": "presea",
+      "5": "regal",
+      "6": "presea",
+      "7": "regal"
+    }
+  },
+  "122": {
+    "skit": 471,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "lloyd",
+      "5": "zelos-and-lloyd",
+      "7": "zelos"
+    }
+  },
+  "123": {
+    "skit": 84,
+    "speakers": {
+      "1": "zelos",
+      "2": "regal",
+      "3": "sheena",
+      "4": "zelos",
+      "5": "sheena",
+      "6": "regal"
+    }
+  },
+  "124": {
+    "skit": 85,
+    "speakers": {
+      "1": "presea",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "raine",
+      "7": "raine",
+      "8": "lloyd",
+      "9": "raine"
+    }
+  },
+  "125": {
+    "skit": 492,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "lloyd"
+    }
+  },
+  "126": {
+    "skit": 832,
+    "speakers": {
+      "1": "raine",
+      "2": "genis",
+      "3": "raine",
+      "4": "genis"
+    }
+  },
+  "127": {
+    "skit": 494,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd-and-raine",
+      "4": "colette",
+      "5": "lloyd-and-raine",
+      "7": "regal",
+      "8": "lloyd"
+    }
+  },
+  "128": {
+    "skit": 719,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "zelos",
+      "6": "lloyd"
+    }
+  },
+  "129": {
+    "skit": 50,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "regal",
+      "4": "lloyd"
+    }
+  },
+  "130": {
+    "skit": 51,
+    "speakers": {
+      "1": "genis",
+      "2": "raine",
+      "3": "genis-and-raine",
+      "5": "genis"
+    }
+  },
+  "131": {
+    "skit": 724,
+    "speakers": {
+      "1": "lloyd-and-genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd"
+    }
+  },
+  "132": {
+    "skit": 56,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena-and-lloyd",
+      "4": "genis",
+      "5": "sheena"
+    }
+  },
+  "133": {
+    "skit": 735,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "presea",
+      "5": "sheena",
+      "6": "lloyd",
+      "7": "genis"
+    }
+  },
+  "134": {
+    "skit": 736,
+    "speakers": {
+      "1": "raine",
+      "2": "regal",
+      "3": "raine",
+      "4": "regal",
+      "5": "raine",
+      "6": "regal",
+      "7": "raine",
+      "8": "regal"
+    }
+  },
+  "135": {
+    "skit": 59,
+    "speakers": {
+      "1": "lloyd"
+    }
+  },
+  "136": {
+    "skit": 57,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "lloyd-and-zelos",
+      "5": "lloyd",
+      "6": "zelos",
+      "7": "lloyd-and-zelos",
+      "10": "zelos",
+      "11": "lloyd",
+      "12": "zelos",
+      "13": "lloyd"
+    }
+  },
+  "137": {
+    "skit": 60,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "colette",
+      "5": "lloyd"
+    }
+  },
+  "138": {
+    "skit": 744,
+    "speakers": {
+      "1": "presea",
+      "2": "genis-and-sheena",
+      "4": "genis",
+      "5": "presea",
+      "6": "sheena",
+      "7": "genis",
+      "8": "regal",
+      "9": "presea",
+      "10": "regal",
+      "11": "genis"
+    }
+  },
+  "139": {
+    "skit": 756,
+    "speakers": {
+      "1": "raine",
+      "2": "zelos",
+      "3": "lloyd"
+    }
+  },
+  "140": {
+    "skit": 61,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "genis",
+      "4": "lloyd"
+    }
+  },
+  "141": {
+    "skit": 62,
+    "speakers": {
+      "1": "presea",
+      "2": "sheena",
+      "3": "presea",
+      "4": "sheena",
+      "5": "regal",
+      "6": "sheena",
+      "7": "presea"
+    }
+  },
+  "142": {
+    "skit": 476,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette",
+      "9": "lloyd",
+      "10": "colette"
+    }
+  },
+  "143": {
+    "skit": 63,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "genis",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "zelos",
+      "7": "genis",
+      "8": "lloyd"
+    }
+  },
+  "144": {
+    "skit": 64,
+    "speakers": {
+      "1": "sheena",
+      "2": "raine",
+      "3": "presea",
+      "4": "colette",
+      "5": "sheena",
+      "6": "raine",
+      "7": "colette",
+      "8": "raine"
+    }
+  },
+  "145": {
+    "skit": 65,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos",
+      "4": "genis",
+      "5": "kratos",
+      "6": "regal",
+      "7": "lloyd",
+      "8": "kratos",
+      "9": "lloyd"
+    }
+  },
+  "146": {
+    "skit": 452,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos-and-lloyd",
+      "5": "kratos",
+      "6": "lloyd",
+      "7": "kratos",
+      "8": "kratos",
+      "9": "kratos",
+      "10": "lloyd",
+      "11": "kratos"
+    }
+  },
+  "147": {
+    "skit": 618,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "kratos",
+      "6": "lloyd",
+      "7": "kratos"
+    }
+  },
+  "148": {
+    "skit": 827,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "kratos",
+      "9": "kratos",
+      "10": "lloyd",
+      "11": "kratos"
+    }
+  },
+  "149": {
+    "skit": 833,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "kratos",
+      "9": "lloyd",
+      "10": "kratos",
+      "11": "lloyd",
+      "12": "kratos"
+    }
+  },
+  "150": {
+    "skit": 771,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "genis-and-sheena",
+      "7": "raine"
+    }
+  },
+  "151": {
+    "skit": 472,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd"
+    }
+  },
+  "152": {
+    "skit": 765,
+    "speakers": {
+      "1": "genis",
+      "2": "colette",
+      "3": "genis",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "colette"
+    }
+  },
+  "153": {
+    "skit": 769,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena"
+    }
+  },
+  "154": {
+    "skit": 788,
+    "speakers": {
+      "1": "corrine",
+      "2": "sheena",
+      "3": "corrine",
+      "4": "sheena",
+      "5": "corrine",
+      "6": "sheena"
+    }
+  },
+  "155": {
+    "skit": 621,
+    "speakers": {
+      "1": "lloyd-and-kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "kratos"
+    }
+  },
+  "156": {
+    "skit": 86,
+    "speakers": {
+      "1": "zelos",
+      "2": "colette",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "zelos-and-lloyd"
+    }
+  },
+  "157": {
+    "skit": 44,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "raine",
+      "4": "sheena",
+      "5": "raine",
+      "6": "lloyd"
+    }
+  },
+  "158": {
+    "skit": 834,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "zelos"
+    }
+  },
+  "159": {
+    "skit": 87,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd"
+    }
+  },
+  "160": {
+    "skit": 88,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd"
+    }
+  },
+  "161": {
+    "skit": 89,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd",
+      "3": "presea",
+      "4": "raine",
+      "5": "lloyd-and-raine",
+      "11": "presea"
+    }
+  },
+  "162": {
+    "skit": 271,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "colette",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "colette",
+      "12": "regal",
+      "13": "lloyd"
+    }
+  },
+  "163": {
+    "skit": 45,
+    "speakers": {
+      "1": "zelos-and-genis",
+      "6": "sheena-and-zelos",
+      "10": "presea",
+      "11": "zelos",
+      "12": "presea",
+      "13": "zelos"
+    }
+  },
+  "164": {
+    "skit": 648,
+    "speakers": {
+      "1": "zelos",
+      "2": "sheena",
+      "3": "colette",
+      "4": "genis",
+      "5": "zelos",
+      "6": "presea",
+      "7": "zelos",
+      "8": "raine",
+      "9": "zelos",
+      "10": "lloyd-and-zelos"
+    }
+  },
+  "165": {
+    "skit": 25,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis-and-lloyd",
+      "5": "regal",
+      "6": "lloyd"
+    }
+  },
+  "166": {
+    "skit": 90,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal",
+      "7": "lloyd",
+      "8": "regal",
+      "9": "lloyd",
+      "10": "regal",
+      "11": "genis"
+    }
+  },
+  "170": {
+    "skit": 649,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "4": "lloyd-and-zelos"
+    }
+  },
+  "171": {
+    "skit": 757,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "lloyd"
+    }
+  },
+  "173": {
+    "skit": 254,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette"
+    }
+  },
+  "174": {
+    "skit": 255,
+    "speakers": {
+      "1": "genis-and-lloyd"
+    }
+  },
+  "175": {
+    "skit": 256,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd"
+    }
+  },
+  "176": {
+    "skit": 257,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd"
+    }
+  },
+  "177": {
+    "skit": 258,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "lloyd"
+    }
+  },
+  "178": {
+    "skit": 259,
+    "speakers": {
+      "1": "lloyd-and-zelos-and-genis"
+    }
+  },
+  "179": {
+    "skit": 826,
+    "speakers": {
+      "1": "genis",
+      "2": "raine",
+      "3": "genis",
+      "4": "raine",
+      "5": "genis",
+      "6": "raine-and-genis",
+      "8": "raine"
+    }
+  },
+  "180": {
+    "skit": 672,
+    "speakers": {
+      "1": "presea",
+      "2": "genis",
+      "3": "presea",
+      "4": "genis",
+      "5": "presea",
+      "6": "genis",
+      "7": "presea",
+      "8": "genis",
+      "9": "presea"
+    }
+  },
+  "181": {
+    "skit": 260,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal"
+    }
+  },
+  "182": {
+    "skit": 261,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "lloyd"
+    }
+  },
+  "183": {
+    "skit": 262,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "lloyd",
+      "4": "presea",
+      "5": "lloyd"
+    }
+  },
+  "184": {
+    "skit": 650,
+    "speakers": {
+      "1": "colette",
+      "2": "presea",
+      "3": "colette",
+      "4": "presea",
+      "5": "colette"
+    }
+  },
+  "185": {
+    "skit": 693,
+    "speakers": {
+      "1": "colette",
+      "2": "presea",
+      "3": "colette",
+      "4": "presea",
+      "5": "colette",
+      "6": "presea",
+      "7": "colette",
+      "8": "genis",
+      "9": "presea",
+      "10": "genis"
+    }
+  },
+  "186": {
+    "skit": 270,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "sheena",
+      "4": "genis"
+    }
+  },
+  "187": {
+    "skit": 251,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis"
+    }
+  },
+  "188": {
+    "skit": 264,
+    "speakers": {
+      "1": "raine",
+      "2": "genis",
+      "3": "kratos",
+      "4": "raine",
+      "5": "kratos"
+    }
+  },
+  "189": {
+    "skit": 269,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "presea",
+      "6": "lloyd",
+      "7": "presea"
+    }
+  },
+  "190": {
+    "skit": 265,
+    "speakers": {
+      "1": "kratos",
+      "2": "colette",
+      "3": "kratos",
+      "4": "colette"
+    }
+  },
+  "191": {
+    "skit": 268,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal",
+      "7": "lloyd",
+      "8": "regal",
+      "9": "lloyd"
+    }
+  },
+  "192": {
+    "skit": 46,
+    "speakers": {
+      "1": "genis",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "genis",
+      "6": "zelos",
+      "7": "sheena-and-zelos",
+      "9": "genis",
+      "10": "zelos"
+    }
+  },
+  "193": {
+    "skit": 683,
+    "speakers": {
+      "1": "raine",
+      "2": "raine"
+    }
+  },
+  "194": {
+    "skit": 467,
+    "speakers": {
+      "1": "genis",
+      "2": "regal",
+      "3": "genis",
+      "4": "regal",
+      "5": "genis"
+    }
+  },
+  "195": {
+    "skit": 702,
+    "speakers": {
+      "1": "genis",
+      "2": "raine-and-genis"
+    }
+  },
+  "196": {
+    "skit": 468,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "genis"
+    }
+  },
+  "197": {
+    "skit": 703,
+    "speakers": {
+      "1": "genis",
+      "2": "colette",
+      "3": "genis"
+    }
+  },
+  "198": {
+    "skit": 33,
+    "speakers": {
+      "1": "genis",
+      "2": "zelos",
+      "3": "genis",
+      "4": "zelos-and-genis"
+    }
+  },
+  "199": {
+    "skit": 34,
+    "speakers": {
+      "1": "genis",
+      "2": "sheena",
+      "3": "genis",
+      "4": "sheena",
+      "5": "genis"
+    }
+  },
+  "200": {
+    "skit": 266,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette"
+    }
+  },
+  "201": {
+    "skit": 454,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd"
+    }
+  },
+  "202": {
+    "skit": 69,
+    "speakers": {
+      "1": "zelos",
+      "2": "zelos-and-genis",
+      "4": "zelos-and-genis",
+      "6": "zelos",
+      "7": "genis",
+      "9": "zelos",
+      "10": "lloyd",
+      "11": "genis"
+    }
+  },
+  "203": {
+    "skit": 70,
+    "speakers": {
+      "1": "raine",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "zelos",
+      "5": "genis",
+      "6": "zelos-and-genis"
+    }
+  },
+  "204": {
+    "skit": 772,
+    "speakers": {
+      "1": "zelos",
+      "2": "genis-and-zelos",
+      "4": "zelos",
+      "5": "genis",
+      "6": "zelos"
+    }
+  },
+  "205": {
+    "skit": 673,
+    "speakers": {
+      "1": "genis",
+      "2": "presea",
+      "3": "genis",
+      "4": "presea",
+      "5": "genis",
+      "6": "presea",
+      "7": "genis",
+      "8": "presea",
+      "9": "genis",
+      "10": "presea",
+      "11": "zelos",
+      "12": "genis",
+      "13": "zelos"
+    }
+  },
+  "206": {
+    "skit": 455,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "kratos",
+      "6": "lloyd",
+      "7": "kratos",
+      "8": "lloyd"
+    }
+  },
+  "207": {
+    "skit": 635,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "lloyd",
+      "4": "sheena",
+      "5": "lloyd",
+      "6": "sheena"
+    }
+  },
+  "208": {
+    "skit": 451,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd-and-genis"
+    }
+  },
+  "209": {
+    "skit": 762,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "genis",
+      "4": "colette",
+      "5": "genis",
+      "6": "genis-and-lloyd-and-raine",
+      "9": "lloyd",
+      "10": "colette",
+      "11": "lloyd",
+      "12": "colette"
+    }
+  },
+  "210": {
+    "skit": 789,
+    "speakers": {
+      "1": "genis",
+      "2": "colette",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "colette",
+      "7": "kratos"
+    }
+  },
+  "211": {
+    "skit": 91,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis"
+    }
+  },
+  "212": {
+    "skit": 6,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "genis",
+      "4": "kratos",
+      "5": "lloyd"
+    }
+  },
+  "213": {
+    "skit": 694,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "zelos",
+      "8": "lloyd-and-zelos-and-sheena",
+      "12": "genis-and-lloyd",
+      "13": "raine",
+      "14": "lloyd"
+    }
+  },
+  "214": {
+    "skit": 695,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "zelos",
+      "7": "genis",
+      "8": "zelos",
+      "9": "genis"
+    }
+  },
+  "215": {
+    "skit": 31,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "mithos-and-genis",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "genis",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "mithos",
+      "12": "genis",
+      "13": "lloyd",
+      "14": "colette",
+      "15": "zelos",
+      "16": "colette",
+      "17": "genis",
+      "18": "mithos",
+      "19": "zelos"
+    }
+  },
+  "216": {
+    "skit": 610,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd"
+    }
+  },
+  "217": {
+    "skit": 497,
+    "speakers": {
+      "1": "sheena",
+      "2": "sheena",
+      "3": "colette",
+      "4": "sheena",
+      "5": "colette",
+      "6": "sheena",
+      "7": "colette",
+      "8": "sheena"
+    }
+  },
+  "218": {
+    "skit": 619,
+    "speakers": {
+      "1": "raine",
+      "2": "kratos",
+      "3": "raine",
+      "4": "kratos",
+      "5": "raine",
+      "6": "kratos",
+      "7": "raine",
+      "8": "kratos"
+    }
+  },
+  "219": {
+    "skit": 654,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "lloyd-and-sheena",
+      "6": "sheena"
+    }
+  },
+  "220": {
+    "skit": 661,
+    "speakers": {
+      "1": "genis",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "genis",
+      "6": "zelos",
+      "7": "sheena"
+    }
+  },
+  "221": {
+    "skit": 651,
+    "speakers": {
+      "1": "zelos",
+      "2": "colette",
+      "3": "zelos",
+      "4": "colette",
+      "5": "zelos",
+      "6": "colette",
+      "7": "zelos",
+      "8": "colette",
+      "9": "zelos"
+    }
+  },
+  "222": {
+    "skit": 674,
+    "speakers": {
+      "1": "presea",
+      "2": "regal",
+      "3": "presea",
+      "4": "regal"
+    }
+  },
+  "223": {
+    "skit": 32,
+    "speakers": {
+      "1": "presea",
+      "2": "genis",
+      "3": "presea",
+      "4": "genis",
+      "5": "presea",
+      "6": "genis",
+      "7": "presea"
+    }
+  },
+  "224": {
+    "skit": 698,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd"
+    }
+  },
+  "225": {
+    "skit": 498,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd"
+    }
+  },
+  "226": {
+    "skit": 92,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd"
+    }
+  },
+  "227": {
+    "skit": 790,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "kratos-and-genis",
+      "5": "kratos",
+      "6": "genis-and-lloyd",
+      "7": "kratos"
+    }
+  },
+  "228": {
+    "skit": 763,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd-and-kratos",
+      "8": "lloyd"
+    }
+  },
+  "229": {
+    "skit": 9,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "colette",
+      "5": "raine"
+    }
+  },
+  "230": {
+    "skit": 624,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd"
+    }
+  },
+  "231": {
+    "skit": 71,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette"
+    }
+  },
+  "232": {
+    "skit": 629,
+    "speakers": {
+      "1": "genis",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "genis"
+    }
+  },
+  "233": {
+    "skit": 630,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd"
+    }
+  },
+  "234": {
+    "skit": 636,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "sheena",
+      "4": "raine",
+      "5": "lloyd"
+    }
+  },
+  "235": {
+    "skit": 637,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "raine"
+    }
+  },
+  "236": {
+    "skit": 638,
+    "speakers": {
+      "1": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "lloyd"
+    }
+  },
+  "237": {
+    "skit": 14,
+    "speakers": {
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd"
+    }
+  },
+  "238": {
+    "skit": 16,
+    "speakers": {
+      "1": "genis",
+      "2": "raine-and-genis",
+      "3": "genis",
+      "4": "raine"
+    }
+  },
+  "239": {
+    "skit": 24,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "regal",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "regal"
+    }
+  },
+  "240": {
+    "skit": 664,
+    "speakers": {
+      "1": "presea",
+      "2": "genis",
+      "3": "presea",
+      "4": "lloyd",
+      "5": "presea",
+      "6": "regal",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "regal",
+      "10": "presea",
+      "11": "regal",
+      "12": "presea",
+      "13": "genis",
+      "14": "lloyd",
+      "15": "genis",
+      "16": "presea"
+    }
+  },
+  "241": {
+    "skit": 461,
+    "speakers": {
+      "2": "regal",
+      "3": "presea",
+      "4": "regal",
+      "5": "presea",
+      "6": "regal",
+      "7": "presea"
+    }
+  },
+  "242": {
+    "skit": 675,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "sheena",
+      "4": "lloyd"
+    }
+  },
+  "243": {
+    "skit": 676,
+    "speakers": {
+      "1": "raine",
+      "2": "zelos",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "zelos-and-raine",
+      "7": "lloyd"
+    }
+  },
+  "244": {
+    "skit": 677,
+    "speakers": {
+      "1": "sheena",
+      "2": "presea",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "presea",
+      "6": "sheena",
+      "7": "presea",
+      "8": "sheena",
+      "9": "presea",
+      "10": "lloyd"
+    }
+  },
+  "245": {
+    "skit": 678,
+    "speakers": {
+      "1": "genis",
+      "2": "presea",
+      "3": "zelos",
+      "4": "presea",
+      "5": "zelos",
+      "6": "presea",
+      "7": "genis",
+      "8": "zelos"
+    }
+  },
+  "246": {
+    "skit": 688,
+    "speakers": {
+      "1": "colette",
+      "2": "presea",
+      "3": "colette",
+      "4": "presea",
+      "5": "colette",
+      "6": "presea",
+      "7": "colette",
+      "8": "presea"
+    }
+  },
+  "247": {
+    "skit": 679,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "lloyd",
+      "4": "sheena",
+      "5": "presea",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd",
+      "9": "sheena",
+      "10": "lloyd"
+    }
+  },
+  "248": {
+    "skit": 689,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "presea",
+      "4": "lloyd",
+      "5": "presea",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd-and-sheena",
+      "10": "lloyd"
+    }
+  },
+  "249": {
+    "skit": 47,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "4": "lloyd",
+      "5": "presea",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "presea"
+    }
+  },
+  "250": {
+    "skit": 48,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "genis",
+      "4": "presea",
+      "5": "lloyd",
+      "6": "presea",
+      "7": "colette",
+      "8": "presea",
+      "9": "lloyd",
+      "10": "genis",
+      "11": "presea"
+    }
+  },
+  "251": {
+    "skit": 791,
+    "speakers": {
+      "1": "genis",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd-and-kratos",
+      "7": "lloyd",
+      "8": "raine-and-genis-and-lloyd"
+    }
+  },
+  "252": {
+    "skit": 713,
+    "speakers": {
+      "1": "regal",
+      "2": "raine",
+      "3": "regal",
+      "4": "raine",
+      "5": "regal"
+    }
+  },
+  "253": {
+    "skit": 36,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "regal",
+      "4": "presea",
+      "5": "regal",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "presea",
+      "9": "colette",
+      "10": "regal"
+    }
+  },
+  "254": {
+    "skit": 93,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "colette",
+      "6": "raine",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "raine",
+      "12": "kratos",
+      "13": "lloyd"
+    }
+  },
+  "255": {
+    "skit": 792,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd"
+    }
+  },
+  "256": {
+    "skit": 793,
+    "speakers": {
+      "1": "colette",
+      "2": "raine",
+      "3": "kratos",
+      "4": "genis",
+      "5": "kratos",
+      "6": "genis",
+      "9": "kratos"
+    }
+  },
+  "257": {
+    "skit": 94,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd"
+    }
+  },
+  "258": {
+    "skit": 706,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "regal",
+      "4": "presea-and-lloyd",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "regal",
+      "8": "presea"
+    }
+  },
+  "259": {
+    "skit": 470,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos",
+      "7": "lloyd",
+      "8": "kratos"
+    }
+  },
+  "260": {
+    "skit": 741,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "zelos",
+      "4": "genis",
+      "5": "zelos",
+      "6": "lloyd",
+      "7": "genis",
+      "8": "raine"
+    }
+  },
+  "261": {
+    "skit": 52,
+    "speakers": {
+      "1": "sheena",
+      "2": "presea",
+      "3": "colette",
+      "4": "sheena",
+      "5": "presea",
+      "6": "sheena",
+      "7": "zelos-and-sheena"
+    }
+  },
+  "262": {
+    "skit": 745,
+    "speakers": {
+      "1": "lloyd-and-raine"
+    }
+  },
+  "263": {
+    "skit": 746,
+    "speakers": {
+      "1": "lloyd-and-colette",
+      "2": "lloyd"
+    }
+  },
+  "264": {
+    "skit": 747,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis"
+    }
+  },
+  "265": {
+    "skit": 748,
+    "speakers": {
+      "1": "lloyd-and-zelos",
+      "4": "zelos"
+    }
+  },
+  "266": {
+    "skit": 749,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "lloyd"
+    }
+  },
+  "267": {
+    "skit": 750,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal"
+    }
+  },
+  "268": {
+    "skit": 751,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "lloyd",
+      "4": "presea"
+    }
+  },
+  "269": {
+    "skit": 752,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "kratos",
+      "5": "lloyd",
+      "6": "kratos"
+    }
+  },
+  "270": {
+    "skit": 690,
+    "speakers": {
+      "1": "presea",
+      "2": "genis",
+      "3": "presea",
+      "4": "genis",
+      "5": "presea",
+      "6": "genis",
+      "7": "presea",
+      "8": "genis",
+      "9": "presea",
+      "10": "genis"
+    }
+  },
+  "271": {
+    "skit": 58,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena-and-lloyd",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd"
+    }
+  },
+  "272": {
+    "skit": 737,
+    "speakers": {
+      "1": "colette",
+      "2": "raine",
+      "3": "colette",
+      "4": "raine",
+      "5": "colette",
+      "6": "raine",
+      "7": "colette",
+      "8": "raine"
+    }
+  },
+  "273": {
+    "skit": 753,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "lloyd",
+      "10": "genis",
+      "11": "lloyd"
+    }
+  },
+  "274": {
+    "skit": 754,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "lloyd",
+      "4": "zelos-and-lloyd",
+      "7": "lloyd",
+      "8": "zelos",
+      "9": "lloyd",
+      "10": "zelos",
+      "11": "lloyd"
+    }
+  },
+  "275": {
+    "skit": 15,
+    "speakers": {
+      "1": "noishe",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "lloyd-and-noishe",
+      "8": "lloyd",
+      "9": "noishe"
+    }
+  },
+  "276": {
+    "skit": 709,
+    "speakers": {
+      "1": "colette",
+      "2": "sheena",
+      "3": "regal",
+      "4": "sheena",
+      "5": "colette-and-regal",
+      "7": "zelos",
+      "8": "colette",
+      "9": "regal",
+      "10": "zelos",
+      "11": "colette",
+      "12": "regal",
+      "13": "zelos",
+      "14": "sheena"
+    }
+  },
+  "277": {
+    "skit": 710,
+    "speakers": {
+      "1": "genis",
+      "2": "presea",
+      "3": "regal",
+      "4": "presea",
+      "5": "zelos",
+      "6": "presea",
+      "7": "colette",
+      "8": "presea",
+      "9": "regal",
+      "10": "presea"
+    }
+  },
+  "278": {
+    "skit": 725,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd-and-noishe",
+      "5": "raine-and-lloyd-and-noishe"
+    }
+  },
+  "279": {
+    "skit": 755,
+    "speakers": {
+      "1": "kratos",
+      "2": "noishe",
+      "3": "kratos",
+      "4": "noishe",
+      "5": "kratos",
+      "6": "noishe",
+      "7": "kratos"
+    }
+  },
+  "280": {
+    "skit": 699,
+    "speakers": {
+      "1": "mithos",
+      "2": "lloyd",
+      "3": "noishe",
+      "4": "mithos",
+      "5": "genis",
+      "6": "mithos",
+      "7": "lloyd",
+      "8": "noishe"
+    }
+  },
+  "281": {
+    "skit": 700,
+    "speakers": {
+      "1": "noishe",
+      "2": "mithos",
+      "3": "noishe",
+      "4": "mithos",
+      "5": "noishe",
+      "6": "mithos",
+      "7": "noishe",
+      "8": "mithos",
+      "9": "noishe",
+      "10": "mithos",
+      "11": "noishe",
+      "12": "mithos"
+    }
+  },
+  "282": {
+    "skit": 622,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "genis",
+      "6": "colette",
+      "7": "genis",
+      "8": "raine",
+      "9": "kratos"
+    }
+  },
+  "283": {
+    "skit": 7,
+    "speakers": {
+      "1": "raine",
+      "2": "colette",
+      "3": "raine",
+      "4": "colette",
+      "5": "raine"
+    }
+  },
+  "284": {
+    "skit": 794,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "raine",
+      "4": "lloyd"
+    }
+  },
+  "285": {
+    "skit": 795,
+    "speakers": {
+      "1": "genis-and-kratos",
+      "3": "colette",
+      "4": "genis",
+      "5": "kratos",
+      "6": "lloyd",
+      "7": "genis"
+    }
+  },
+  "286": {
+    "skit": 796,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "lloyd-and-raine",
+      "6": "lloyd",
+      "7": "raine",
+      "8": "lloyd",
+      "9": "raine",
+      "10": "lloyd"
+    }
+  },
+  "287": {
+    "skit": 797,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine-and-lloyd",
+      "6": "raine",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "raine",
+      "10": "lloyd",
+      "12": "genis",
+      "13": "kratos"
+    }
+  },
+  "288": {
+    "skit": 798,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis"
+    }
+  },
+  "289": {
+    "skit": 799,
+    "speakers": {
+      "1": "lloyd",
+      "2": "kratos",
+      "3": "raine",
+      "4": "lloyd-and-kratos-and-raine",
+      "7": "kratos",
+      "9": "lloyd",
+      "10": "kratos",
+      "11": "raine"
+    }
+  },
+  "290": {
+    "skit": 800,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd"
+    }
+  },
+  "291": {
+    "skit": 801,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd"
+    }
+  },
+  "292": {
+    "skit": 802,
+    "speakers": {
+      "1": "raine",
+      "2": "lloyd-and-raine",
+      "5": "raine"
+    }
+  },
+  "293": {
+    "skit": 803,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos-and-lloyd"
+    }
+  },
+  "294": {
+    "skit": 804,
+    "speakers": {
+      "1": "kratos-and-sheena",
+      "4": "sheena"
+    }
+  },
+  "297": {
+    "skit": 655,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd-and-zelos",
+      "5": "lloyd",
+      "6": "zelos",
+      "7": "colette",
+      "8": "zelos",
+      "9": "genis",
+      "10": "zelos",
+      "11": "lloyd",
+      "14": "presea"
+    }
+  },
+  "298": {
+    "skit": 656,
+    "speakers": {
+      "1": "sheena",
+      "2": "presea",
+      "3": "sheena",
+      "4": "presea",
+      "5": "sheena",
+      "6": "presea",
+      "7": "sheena"
+    }
+  },
+  "299": {
+    "skit": 668,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "regal",
+      "8": "lloyd"
+    }
+  },
+  "300": {
+    "skit": 684,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "regal"
+    }
+  },
+  "301": {
+    "skit": 758,
+    "speakers": {
+      "1": "genis",
+      "2": "sheena",
+      "3": "genis",
+      "4": "sheena"
+    }
+  },
+  "302": {
+    "skit": 759,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "lloyd",
+      "4": "presea",
+      "5": "lloyd",
+      "6": "presea",
+      "7": "presea",
+      "8": "lloyd",
+      "9": "presea",
+      "10": "lloyd"
+    }
+  },
+  "303": {
+    "skit": 807,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "presea",
+      "6": "lloyd",
+      "7": "presea",
+      "8": "lloyd"
+    }
+  },
+  "304": {
+    "skit": 808,
+    "speakers": {
+      "1": "raine",
+      "2": "regal",
+      "3": "raine",
+      "4": "regal",
+      "5": "raine",
+      "6": "regal"
+    }
+  },
+  "305": {
+    "skit": 809,
+    "speakers": {
+      "1": "lloyd-and-genis",
+      "3": "lloyd",
+      "4": "genis"
+    }
+  },
+  "306": {
+    "skit": 810,
+    "speakers": {
+      "1": "sheena",
+      "2": "genis",
+      "3": "sheena-and-genis",
+      "5": "sheena",
+      "6": "genis",
+      "7": "sheena"
+    }
+  },
+  "307": {
+    "skit": 811,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "sheena",
+      "5": "regal",
+      "6": "sheena",
+      "7": "zelos-and-sheena",
+      "9": "regal",
+      "10": "raine"
+    }
+  },
+  "308": {
+    "skit": 707,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd"
+    }
+  },
+  "309": {
+    "skit": 812,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "raine-and-lloyd",
+      "6": "raine",
+      "7": "lloyd-and-raine-and-colette"
+    }
+  },
+  "310": {
+    "skit": 773,
+    "speakers": {
+      "1": "regal",
+      "2": "raine",
+      "3": "lloyd-and-raine",
+      "5": "lloyd",
+      "6": "raine",
+      "7": "regal",
+      "8": "lloyd"
+    }
+  },
+  "311": {
+    "skit": 774,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "genis"
+    }
+  },
+  "312": {
+    "skit": 775,
+    "speakers": {
+      "1": "regal",
+      "2": "presea",
+      "3": "regal",
+      "4": "zelos",
+      "5": "presea",
+      "6": "regal",
+      "7": "presea",
+      "8": "regal-and-zelos",
+      "10": "regal",
+      "11": "zelos",
+      "12": "presea",
+      "13": "zelos",
+      "14": "regal"
+    }
+  },
+  "313": {
+    "skit": 776,
+    "speakers": {
+      "1": "lloyd-and-genis",
+      "3": "lloyd",
+      "4": "zelos",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "zelos",
+      "8": "lloyd",
+      "9": "genis-and-presea",
+      "11": "regal",
+      "12": "zelos"
+    }
+  },
+  "314": {
+    "skit": 777,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "presea",
+      "4": "regal",
+      "5": "genis-and-lloyd",
+      "7": "zelos-and-lloyd"
+    }
+  },
+  "315": {
+    "skit": 813,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "zelos",
+      "8": "genis-and-zelos",
+      "10": "genis-and-zelos",
+      "12": "genis",
+      "13": "lloyd"
+    }
+  },
+  "316": {
+    "skit": 814,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "raine",
+      "4": "genis",
+      "5": "regal",
+      "6": "lloyd"
+    }
+  },
+  "317": {
+    "skit": 717,
+    "speakers": {
+      "1": "raine",
+      "2": "colette",
+      "3": "lloyd"
+    }
+  },
+  "318": {
+    "skit": 718,
+    "speakers": {
+      "1": "sheena",
+      "2": "regal",
+      "3": "sheena",
+      "4": "regal",
+      "5": "sheena"
+    }
+  },
+  "319": {
+    "skit": 281,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "genis",
+      "6": "raine",
+      "7": "lloyd",
+      "8": "genis"
+    }
+  },
+  "320": {
+    "skit": 282,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "raine",
+      "6": "lloyd"
+    }
+  },
+  "321": {
+    "skit": 283,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "raine",
+      "8": "colette",
+      "9": "raine",
+      "10": "lloyd",
+      "11": "colette",
+      "12": "lloyd",
+      "13": "colette",
+      "14": "lloyd",
+      "15": "raine"
+    }
+  },
+  "322": {
+    "skit": 280,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "raine-and-lloyd",
+      "9": "lloyd",
+      "10": "raine",
+      "11": "lloyd",
+      "12": "raine"
+    }
+  },
+  "340": {
+    "skit": 816,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "colette"
+    }
+  },
+  "341": {
+    "skit": 817,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "raine",
+      "7": "lloyd"
+    }
+  },
+  "342": {
+    "skit": 726,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd"
+    }
+  },
+  "343": {
+    "skit": 727,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "sheena",
+      "7": "raine"
+    }
+  },
+  "344": {
+    "skit": 728,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "raine",
+      "4": "sheena",
+      "5": "lloyd",
+      "6": "raine"
+    }
+  },
+  "345": {
+    "skit": 729,
+    "speakers": {
+      "1": "zelos",
+      "2": "regal",
+      "3": "presea",
+      "4": "lloyd",
+      "5": "zelos",
+      "6": "lloyd",
+      "7": "presea",
+      "8": "regal",
+      "9": "zelos"
+    }
+  },
+  "346": {
+    "skit": 730,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "raine",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd"
+    }
+  },
+  "347": {
+    "skit": 731,
+    "speakers": {
+      "1": "lloyd-and-genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd-and-genis"
+    }
+  },
+  "348": {
+    "skit": 732,
+    "speakers": {
+      "1": "sheena",
+      "2": "zelos-and-sheena"
+    }
+  },
+  "349": {
+    "skit": 733,
+    "speakers": {
+      "1": "raine",
+      "2": "colette",
+      "3": "raine",
+      "4": "colette",
+      "5": "raine",
+      "6": "colette",
+      "7": "raine"
+    }
+  },
+  "351": {
+    "skit": 473,
+    "speakers": {
+      "1": "sheena",
+      "2": "presea",
+      "3": "sheena",
+      "4": "presea",
+      "5": "sheena",
+      "6": "presea",
+      "7": "sheena",
+      "8": "presea",
+      "9": "sheena",
+      "10": "presea",
+      "11": "sheena",
+      "12": "presea",
+      "13": "sheena",
+      "14": "presea"
+    }
+  },
+  "352": {
+    "skit": 830,
+    "speakers": {
+      "1": "sheena",
+      "2": "genis",
+      "3": "sheena-and-genis"
+    }
+  },
+  "353": {
+    "skit": 55,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd"
+    }
+  },
+  "354": {
+    "skit": 53,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "lloyd",
+      "7": "sheena",
+      "8": "lloyd"
+    }
+  },
+  "356": {
+    "skit": 665,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis"
+    }
+  },
+  "357": {
+    "skit": 278,
+    "speakers": {
+      "1": "lloyd-and-genis",
+      "3": "raine",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "genis",
+      "7": "sheena",
+      "8": "lloyd"
+    }
+  },
+  "358": {
+    "skit": 738,
+    "speakers": {
+      "1": "lloyd"
+    }
+  },
+  "359": {
+    "skit": 102,
+    "speakers": {
+      "1": "raine",
+      "2": "genis-and-raine"
+    }
+  },
+  "360": {
+    "skit": 103,
+    "speakers": {
+      "1": "sheena",
+      "2": "regal",
+      "3": "presea",
+      "4": "sheena-and-zelos-and-raine",
+      "9": "sheena",
+      "10": "presea",
+      "11": "regal"
+    }
+  },
+  "361": {
+    "skit": 828,
+    "speakers": {
+      "1": "mithos",
+      "2": "genis",
+      "3": "mithos",
+      "4": "genis",
+      "5": "mithos",
+      "6": "genis",
+      "7": "mithos",
+      "8": "genis",
+      "9": "mithos",
+      "10": "genis",
+      "11": "mithos",
+      "12": "genis"
+    }
+  },
+  "362": {
+    "skit": 829,
+    "speakers": {
+      "1": "colette",
+      "2": "raine",
+      "3": "colette",
+      "4": "raine",
+      "5": "colette",
+      "6": "raine",
+      "7": "colette",
+      "8": "raine",
+      "9": "colette"
+    }
+  },
+  "363": {
+    "skit": 708,
+    "speakers": {
+      "1": "sheena",
+      "2": "raine",
+      "3": "sheena",
+      "4": "raine",
+      "5": "sheena",
+      "6": "raine",
+      "7": "sheena"
+    }
+  },
+  "364": {
+    "skit": 95,
+    "speakers": {
+      "1": "raine",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "zelos",
+      "6": "sheena"
+    }
+  },
+  "365": {
+    "skit": 761,
+    "speakers": {
+      "1": "regal",
+      "2": "presea"
+    }
+  },
+  "366": {
+    "skit": 760,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis-and-lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "raine",
+      "7": "lloyd",
+      "8": "raine"
+    }
+  },
+  "367": {
+    "skit": 778,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "lloyd",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "zelos"
+    }
+  },
+  "368": {
+    "skit": 716,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "lloyd"
+    }
+  },
+  "369": {
+    "skit": 711,
+    "speakers": {
+      "1": "lloyd",
+      "2": "colette",
+      "3": "lloyd",
+      "4": "colette",
+      "5": "lloyd",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette"
+    }
+  },
+  "370": {
+    "skit": 714,
+    "speakers": {
+      "1": "genis",
+      "2": "raine",
+      "3": "genis",
+      "4": "zelos"
+    }
+  },
+  "371": {
+    "skit": 815,
+    "speakers": {
+      "1": "lloyd-and-raine-and-zelos"
+    }
+  },
+  "372": {
+    "skit": 715,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "regal",
+      "4": "lloyd-and-zelos",
+      "5": "regal",
+      "6": "zelos",
+      "7": "regal"
+    }
+  },
+  "373": {
+    "skit": 779,
+    "speakers": {
+      "1": "zelos",
+      "2": "sheena",
+      "3": "zelos",
+      "4": "sheena",
+      "5": "zelos-and-sheena"
+    }
+  },
+  "374": {
+    "skit": 739,
+    "speakers": {
+      "2": "zelos",
+      "3": "sheena",
+      "4": "zelos",
+      "5": "sheena",
+      "6": "zelos-and-sheena",
+      "9": "sheena",
+      "10": "zelos",
+      "11": "sheena",
+      "12": "zelos",
+      "13": "sheena",
+      "14": "zelos",
+      "15": "sheena-and-zelos",
+      "17": "sheena",
+      "18": "zelos",
+      "19": "sheena"
+    }
+  },
+  "375": {
+    "skit": 740,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd-and-genis",
+      "4": "lloyd",
+      "5": "genis-and-lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "lloyd",
+      "10": "genis-and-lloyd",
+      "12": "genis"
+    }
+  },
+  "376": {
+    "skit": 742,
+    "speakers": {
+      "1": "genis",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd"
+    }
+  },
+  "377": {
+    "skit": 743,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "colette"
+    }
+  },
+  "378": {
+    "skit": 669,
+    "speakers": {
+      "1": "genis",
+      "2": "regal",
+      "3": "genis",
+      "4": "zelos",
+      "5": "genis",
+      "6": "zelos"
+    }
+  },
+  "379": {
+    "skit": 670,
+    "speakers": {
+      "1": "lloyd",
+      "2": "regal",
+      "3": "lloyd",
+      "4": "raine-and-lloyd",
+      "6": "regal"
+    }
+  },
+  "380": {
+    "skit": 720,
+    "speakers": {
+      "1": "lloyd",
+      "2": "zelos",
+      "3": "lloyd",
+      "4": "zelos"
+    }
+  },
+  "381": {
+    "skit": 721,
+    "speakers": {
+      "1": "regal",
+      "2": "presea",
+      "3": "regal",
+      "4": "presea",
+      "5": "regal",
+      "6": "presea"
+    }
+  },
+  "382": {
+    "skit": 722,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "raine",
+      "4": "presea"
+    }
+  },
+  "383": {
+    "skit": 489,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "regal",
+      "4": "raine"
+    }
+  },
+  "384": {
+    "skit": 680,
+    "speakers": {
+      "1": "corrine",
+      "2": "presea",
+      "3": "corrine",
+      "4": "presea",
+      "5": "corrine",
+      "6": "presea",
+      "7": "corrine",
+      "8": "presea",
+      "9": "corrine",
+      "10": "presea",
+      "11": "corrine-and-presea",
+      "13": "corrine",
+      "14": "presea",
+      "15": "corrine",
+      "16": "sheena-and-corrine"
+    }
+  },
+  "385": {
+    "skit": 696,
+    "speakers": {
+      "1": "noishe",
+      "2": "presea",
+      "3": "noishe",
+      "4": "regal",
+      "5": "presea",
+      "6": "regal",
+      "7": "presea",
+      "8": "presea",
+      "9": "regal",
+      "10": "noishe-and-lloyd",
+      "12": "regal",
+      "13": "lloyd-and-noishe"
+    }
+  },
+  "386": {
+    "skit": 37,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "genis",
+      "4": "regal",
+      "5": "lloyd",
+      "6": "regal"
+    }
+  },
+  "387": {
+    "skit": 38,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "zelos-and-raine",
+      "6": "lloyd",
+      "7": "zelos",
+      "8": "raine",
+      "9": "zelos",
+      "10": "raine",
+      "11": "zelos"
+    }
+  },
+  "388": {
+    "skit": 40,
+    "speakers": {
+      "1": "genis",
+      "2": "mithos",
+      "3": "genis",
+      "4": "mithos",
+      "5": "genis",
+      "6": "mithos",
+      "7": "genis",
+      "8": "mithos"
+    }
+  },
+  "389": {
+    "skit": 41,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "lloyd",
+      "8": "colette",
+      "9": "lloyd",
+      "10": "colette",
+      "11": "lloyd"
+    }
+  },
+  "390": {
+    "skit": 42,
+    "speakers": {
+      "1": "presea",
+      "2": "genis",
+      "3": "presea",
+      "4": "genis",
+      "5": "presea",
+      "6": "genis",
+      "7": "presea",
+      "8": "genis",
+      "9": "presea"
+    }
+  },
+  "391": {
+    "skit": 96,
+    "speakers": {
+      "1": "zelos-and-lloyd",
+      "4": "lloyd",
+      "5": "zelos",
+      "6": "lloyd",
+      "7": "zelos",
+      "8": "lloyd",
+      "9": "sheena-and-zelos"
+    }
+  },
+  "392": {
+    "skit": 831,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "kratos",
+      "6": "lloyd"
+    }
+  },
+  "393": {
+    "skit": 49,
+    "speakers": {
+      "1": "lloyd",
+      "2": "presea",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "presea",
+      "6": "lloyd",
+      "8": "presea",
+      "9": "lloyd",
+      "10": "genis",
+      "11": "presea"
+    }
+  },
+  "394": {
+    "skit": 26,
+    "speakers": {
+      "1": "lloyd",
+      "2": "sheena",
+      "3": "presea",
+      "4": "sheena",
+      "5": "lloyd",
+      "6": "sheena",
+      "7": "presea",
+      "8": "sheena",
+      "9": "zelos-and-sheena",
+      "11": "zelos",
+      "12": "sheena",
+      "13": "zelos"
+    }
+  },
+  "395": {
+    "skit": 29,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "colette"
+    }
+  },
+  "396": {
+    "skit": 836,
+    "speakers": {
+      "1": "zelos",
+      "2": "raine",
+      "3": "sheena-and-zelos",
+      "7": "sheena",
+      "8": "zelos",
+      "9": "lloyd",
+      "10": "raine",
+      "11": "presea",
+      "12": "lloyd",
+      "13": "zelos"
+    }
+  },
+  "397": {
+    "skit": 835,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "genis",
+      "5": "presea",
+      "6": "genis",
+      "7": "lloyd"
+    }
+  },
+  "398": {
+    "skit": 701,
+    "speakers": {
+      "1": "mithos",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "mithos",
+      "5": "genis"
+    }
+  },
+  "399": {
+    "skit": 704,
+    "speakers": {
+      "1": "zelos",
+      "2": "regal",
+      "3": "zelos",
+      "4": "regal",
+      "5": "zelos",
+      "6": "regal",
+      "7": "zelos",
+      "8": "regal",
+      "9": "zelos"
+    }
+  },
+  "400": {
+    "skit": 691,
+    "speakers": {
+      "2": "genis",
+      "3": "presea",
+      "4": "genis",
+      "5": "mithos",
+      "6": "presea",
+      "7": "mithos",
+      "8": "presea",
+      "9": "genis",
+      "10": "mithos",
+      "11": "presea"
+    }
+  },
+  "401": {
+    "skit": 692,
+    "speakers": {
+      "1": "presea"
+    }
+  },
+  "402": {
+    "skit": 97,
+    "speakers": {
+      "1": "sheena",
+      "2": "raine-and-sheena",
+      "5": "sheena"
+    }
+  },
+  "403": {
+    "skit": 98,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd-and-genis",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "genis"
+    }
+  },
+  "404": {
+    "skit": 477,
+    "speakers": {
+      "1": "lloyd",
+      "2": "genis",
+      "3": "lloyd",
+      "4": "genis",
+      "5": "lloyd",
+      "6": "genis",
+      "7": "lloyd",
+      "8": "genis",
+      "9": "lloyd",
+      "10": "genis",
+      "11": "lloyd",
+      "12": "genis"
+    }
+  },
+  "405": {
+    "skit": 99,
+    "speakers": {
+      "1": "presea",
+      "2": "colette",
+      "3": "presea",
+      "4": "colette",
+      "5": "presea",
+      "6": "colette",
+      "7": "presea"
+    }
+  },
+  "406": {
+    "skit": 100,
+    "speakers": {
+      "1": "sheena",
+      "2": "regal",
+      "3": "zelos",
+      "4": "presea",
+      "5": "sheena",
+      "6": "zelos",
+      "7": "zelos",
+      "8": "regal",
+      "9": "sheena",
+      "10": "zelos"
+    }
+  },
+  "407": {
+    "skit": 101,
+    "speakers": {
+      "1": "raine",
+      "2": "genis",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "raine",
+      "7": "genis",
+      "8": "raine",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "raine"
+    }
+  },
+  "408": {
+    "skit": 478,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine-and-lloyd",
+      "6": "raine",
+      "7": "lloyd"
+    }
+  },
+  "409": {
+    "skit": 479,
+    "speakers": {
+      "1": "presea",
+      "2": "lloyd",
+      "3": "presea",
+      "4": "lloyd",
+      "5": "presea",
+      "6": "lloyd",
+      "7": "presea",
+      "8": "lloyd",
+      "9": "presea",
+      "10": "lloyd",
+      "11": "presea",
+      "12": "lloyd",
+      "13": "presea"
+    }
+  },
+  "410": {
+    "skit": 480,
+    "speakers": {
+      "1": "sheena",
+      "2": "lloyd",
+      "3": "sheena",
+      "4": "lloyd",
+      "5": "sheena",
+      "6": "lloyd",
+      "7": "sheena",
+      "9": "sheena",
+      "10": "lloyd",
+      "11": "sheena",
+      "12": "lloyd",
+      "13": "sheena"
+    }
+  },
+  "411": {
+    "skit": 481,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "lloyd",
+      "5": "zelos",
+      "6": "lloyd-and-zelos",
+      "8": "lloyd",
+      "9": "zelos"
+    }
+  },
+  "412": {
+    "skit": 482,
+    "speakers": {
+      "1": "regal",
+      "2": "lloyd",
+      "3": "regal",
+      "4": "lloyd",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "regal",
+      "8": "lloyd",
+      "9": "regal",
+      "10": "lloyd"
+    }
+  },
+  "413": {
+    "skit": 483,
+    "speakers": {
+      "1": "kratos",
+      "2": "lloyd",
+      "3": "kratos",
+      "4": "lloyd",
+      "5": "kratos",
+      "6": "lloyd",
+      "7": "kratos",
+      "8": "lloyd",
+      "9": "kratos"
+    }
+  },
+  "414": {
+    "skit": 463,
+    "speakers": {
+      "1": "lloyd"
+    }
+  },
+  "415": {
+    "skit": 825,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "zelos",
+      "4": "colette",
+      "5": "zelos-and-raine",
+      "8": "colette",
+      "9": "zelos",
+      "10": "lloyd",
+      "11": "zelos",
+      "12": "raine-and-zelos-and-lloyd",
+      "16": "colette",
+      "17": "zelos"
+    }
+  },
+  "416": {
+    "skit": 666,
+    "speakers": {
+      "1": "genis",
+      "2": "sheena",
+      "3": "genis",
+      "4": "lloyd",
+      "5": "genis",
+      "6": "lloyd",
+      "7": "genis-and-lloyd"
+    }
+  },
+  "417": {
+    "skit": 818,
+    "speakers": {
+      "1": "genis",
+      "2": "raine",
+      "3": "genis",
+      "4": "raine",
+      "5": "genis",
+      "6": "raine",
+      "7": "genis",
+      "8": "raine"
+    }
+  },
+  "418": {
+    "skit": 780,
+    "speakers": {
+      "1": "sheena",
+      "2": "zelos-and-sheena",
+      "4": "zelos",
+      "5": "sheena",
+      "6": "zelos-and-sheena",
+      "8": "zelos",
+      "9": "sheena"
+    }
+  },
+  "419": {
+    "skit": 712,
+    "speakers": {
+      "1": "lloyd",
+      "2": "raine",
+      "3": "lloyd",
+      "4": "raine",
+      "5": "lloyd",
+      "6": "raine",
+      "7": "lloyd",
+      "8": "raine"
+    }
+  },
+  "420": {
+    "skit": 671,
+    "speakers": {
+      "1": "raine",
+      "2": "regal",
+      "3": "raine",
+      "4": "regal-and-raine",
+      "6": "regal"
+    }
+  },
+  "421": {
+    "skit": 723,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "colette",
+      "7": "lloyd",
+      "8": "colette",
+      "9": "lloyd",
+      "10": "colette"
+    }
+  },
+  "422": {
+    "skit": 819,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "regal",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "colette",
+      "12": "lloyd",
+      "13": "colette",
+      "14": "regal",
+      "15": "colette",
+      "16": "lloyd",
+      "17": "regal"
+    }
+  },
+  "423": {
+    "skit": 820,
+    "speakers": {
+      "1": "colette",
+      "2": "zelos",
+      "3": "zelos",
+      "4": "colette",
+      "5": "zelos",
+      "6": "colette",
+      "7": "genis-and-zelos",
+      "9": "genis"
+    }
+  },
+  "424": {
+    "skit": 821,
+    "speakers": {
+      "1": "colette",
+      "2": "lloyd",
+      "3": "colette",
+      "4": "lloyd",
+      "5": "colette",
+      "6": "lloyd",
+      "7": "colette",
+      "8": "lloyd",
+      "9": "colette",
+      "10": "lloyd",
+      "11": "colette",
+      "12": "zelos"
+    }
+  },
+  "425": {
+    "skit": 822,
+    "speakers": {
+      "1": "zelos",
+      "2": "lloyd",
+      "3": "zelos-and-genis",
+      "5": "zelos-and-raine",
+      "8": "raine",
+      "9": "lloyd",
+      "10": "zelos-and-raine",
+      "13": "raine"
+    }
+  },
+  "426": {
+    "skit": 823,
+    "speakers": {
+      "1": "colette",
+      "2": "raine",
+      "3": "colette",
+      "4": "raine",
+      "5": "colette",
+      "6": "raine",
+      "7": "colette-and-raine",
+      "9": "colette",
+      "10": "raine",
+      "11": "colette",
+      "12": "raine",
+      "13": "colette",
+      "14": "raine",
+      "15": "regal",
+      "16": "sheena"
+    }
+  },
+  "427": {
+    "skit": 104,
+    "speakers": {
+      "1": "lloyd"
+    }
+  }
+}

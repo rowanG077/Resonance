@@ -429,7 +429,7 @@ fn stun_interrupts_work_and_recovers_without_resuming_it() {
             )))
             .unwrap()
             .with_head_anchors(vec![
-                resonance_content::battle_profile::HeadAnchor {
+                crate::HeadAnchor {
                     bone: 0,
                     offset: [0., 1., 0.],
                 };

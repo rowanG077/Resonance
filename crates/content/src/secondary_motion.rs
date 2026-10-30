@@ -5,16 +5,8 @@ pub use simulation::{Environment, Simulation, UpAxis};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Definition {
-    pub chains: Vec<Chain>,
-}
-
-impl Definition {
-    pub fn is_empty(&self) -> bool {
-        self.chains.is_empty()
-    }
-}
+mod document;
+pub use document::{ChainDefinition, Definition, Parameter, PlaneDefinition};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chain {

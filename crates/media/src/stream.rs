@@ -42,6 +42,7 @@ impl MovieStream {
         let MovieDecoder {
             audio: decoder_audio,
             video: decoder_video,
+            ..
         } = decoder;
         thread::Builder::new()
             .name("resonance-movie-feed".into())
@@ -97,6 +98,9 @@ impl MovieStream {
     }
     pub fn complete(&self) -> bool {
         self.shared.audio.finished() && self.video.complete()
+    }
+    pub fn video_complete(&self) -> bool {
+        self.video.complete()
     }
     /// Offline consumers can outrun decoding after loading or GPU stalls. Wait
     /// before pulling PCM; live mixer and device callbacks must never call this.

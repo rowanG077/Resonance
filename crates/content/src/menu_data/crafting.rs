@@ -2,6 +2,7 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+pub mod document;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Data {

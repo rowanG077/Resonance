@@ -1,0 +1,133 @@
+{
+  "513": {
+    "name": "izoold-to-palmacosta",
+    "actors": {
+      "1": "ship"
+    }
+  },
+  "514": {
+    "name": "thoda-geyser-outbound",
+    "actors": {
+      "1": "lloyd-and-washtub"
+    }
+  },
+  "515": {
+    "name": "thoda-geyser-return",
+    "actors": {
+      "1": "lloyd-and-washtub"
+    }
+  },
+  "516": {
+    "name": "escape-from-sylvarant-base",
+    "actors": {
+      "1": "lloyd-rheaird",
+      "2": "genis-rheaird",
+      "3": "raine-rheaird",
+      "4": "sheena-rheaird",
+      "5": "exhaust-1",
+      "6": "exhaust-2",
+      "7": "exhaust-3",
+      "8": "exhaust-4",
+      "9": "portal"
+    }
+  },
+  "517": {
+    "name": "rheairds-run-out-of-mana",
+    "actors": {
+      "1": "raine-rheaird",
+      "2": "sheena-rheaird",
+      "3": "lloyd-rheaird",
+      "4": "genis-rheaird",
+      "5": "exhaust-1",
+      "6": "exhaust-2",
+      "7": "exhaust-3",
+      "8": "exhaust-4"
+    }
+  },
+  "518": {
+    "name": "departure-from-tethealla-base",
+    "actors": {
+      "1": "lloyd-rheaird",
+      "2": "raine-rheaird",
+      "3": "genis-rheaird",
+      "4": "sheena-rheaird",
+      "5": "exhaust-1",
+      "6": "exhaust-2",
+      "7": "exhaust-3",
+      "8": "exhaust-4"
+    }
+  },
+  "519": {
+    "name": "dragons-over-ozette",
+    "actors": {
+      "1": "dragon-1",
+      "2": "dragon-2"
+    }
+  },
+  "520": {
+    "name": "flying-dragon-explosion",
+    "actors": {
+      "1": "explosion",
+      "2": "fire"
+    }
+  },
+  "521": {
+    "name": "mana-link-severance",
+    "actors": {
+      "1": "beam",
+      "2": "cloud",
+      "3": "lightning-1",
+      "4": "lightning-2"
+    }
+  },
+  "522": {
+    "name": "palmacosta-ranch-explosion",
+    "actors": {
+      "1": "explosion-1",
+      "2": "explosion-2",
+      "3": "explosion-3",
+      "4": "smoke-1",
+      "5": "smoke-2",
+      "6": "smoke-3",
+      "7": "smoke-4"
+    }
+  },
+  "523": {
+    "name": "asgard-ranch-explosion",
+    "actors": {
+      "1": "explosion-1",
+      "2": "explosion-2",
+      "3": "explosion-3",
+      "4": "smoke-1",
+      "5": "smoke-2",
+      "6": "smoke-3",
+      "7": "smoke-4"
+    }
+  },
+  "524": {
+    "name": "unassigned-ranch-explosion",
+    "actors": {
+      "1": "explosion-1",
+      "2": "explosion-2",
+      "3": "explosion-3",
+      "4": "smoke-1",
+      "5": "smoke-2",
+      "6": "smoke-3",
+      "7": "smoke-4"
+    }
+  },
+  "525": {
+    "name": "otherworldly-gate-light",
+    "actors": {
+      "1": "particles",
+      "2": "light"
+    }
+  },
+  "526": {
+    "name": "journey-to-derris-kharlan",
+    "actors": {
+      "1": "barrier",
+      "2": "light"
+    }
+  }
+}

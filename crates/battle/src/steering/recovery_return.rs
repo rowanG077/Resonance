@@ -94,7 +94,11 @@ impl Battle {
                 .and_then(|enemy| enemy.choices.get(selected.0))
         });
         let row_disabled = row.is_some_and(|row| !row.return_to_formation);
-        let returning = row.map(|row| (row.returning, row.return_speed));
+        let returning = if self.runtime[index].enemy_walk_override.is_some() {
+            None
+        } else {
+            row.map(|row| (row.returning, row.return_speed))
+        };
         let actor = &self.actors[index];
         let home = if actor.side == Side::Party {
             if self.companion_position(owner)? == crate::companion::PositionStrategy::Melee {
@@ -154,7 +158,11 @@ impl Battle {
                 });
             }
             let actor = &mut self.actors[index];
-            actor.movement.locomotion = crate::Locomotion::Run;
+            actor.movement.locomotion = if self.runtime[index].enemy_walk_override.is_some() {
+                crate::Locomotion::Walk
+            } else {
+                crate::Locomotion::Run
+            };
             actor.movement.steering.home = home;
         }
         let actor = &mut self.actors[index];
@@ -255,11 +263,10 @@ impl Battle {
             actor.facing_direction = actor.movement.direction;
             let facing = actor.facing_direction;
             crate::control::face(actor, facing, 180. / f32::from(definition.turn_ticks));
-            let speed = state.speed.unwrap_or_else(|| {
-                self.runtime[index]
-                    .enemy_walk_override
-                    .unwrap_or(definition.speed)
-            });
+            let speed = self.runtime[index]
+                .enemy_walk_override
+                .or(state.speed)
+                .unwrap_or(definition.speed);
             let limit = actor.run_limit(speed, actor.conditions.effective());
             actor.movement.forward =
                 (actor.movement.forward + crate::movement::RUN_ACCELERATION).min(limit);

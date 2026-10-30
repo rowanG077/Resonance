@@ -7,9 +7,12 @@ pub struct NamedText {
     pub description: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ItemText {
     pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub details: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +66,12 @@ impl ItemCaptions {
         mut value: serde_json::Value,
         diagnostics: &crate::diagnostics::Diagnostics,
     ) -> Result<Option<Self>> {
-        let rows = decode_rows::<ItemText>(take(&mut value, "items"), "item caption", diagnostics)?;
+        let rows = take(&mut value, "items");
+        let rows = if rows.is_null() {
+            Vec::new()
+        } else {
+            decode_rows::<ItemText>(rows, "item caption", diagnostics)?
+        };
         let [prompt, count] = ["item_group_prompt", "item_bottle_count"].map(|key| {
             value
                 .as_object_mut()
@@ -81,38 +89,6 @@ impl ItemCaptions {
     }
 }
 impl StrategyText {
-    fn decode(
-        mut value: serde_json::Value,
-        diagnostics: &crate::diagnostics::Diagnostics,
-    ) -> Result<Option<Self>> {
-        let groups = decode_caption::<[serde_json::Value; 3]>(
-            take(&mut value, "groups"),
-            "Strategy groups",
-            diagnostics,
-        )?
-        .unwrap_or_default();
-        let groups = groups
-            .into_iter()
-            .map(|group| decode_rows::<ItemText>(group, "Strategy option", diagnostics))
-            .collect::<Result<Vec<_>>>()?;
-        let [presets, keyboard, keys, labels] =
-            ["presets", "keyboard", "keys", "labels"].map(|key| {
-                value
-                    .as_object_mut()
-                    .and_then(|object| object.remove(key))
-                    .unwrap_or_default()
-            });
-        let Some(mut text) = decode_caption::<Self>(value, "Strategy captions", diagnostics)?
-        else {
-            return Ok(None);
-        };
-        text.groups = groups.try_into().unwrap();
-        text.presets = decode_caption(presets, "Strategy presets", diagnostics)?;
-        text.keyboard = decode_caption(keyboard, "Strategy keyboard", diagnostics)?;
-        text.keys = decode_caption(keys, "Strategy keyboard labels", diagnostics)?;
-        text.labels = decode_caption(labels, "Strategy group labels", diagnostics)?;
-        Ok(Some(text))
-    }
     pub fn keyboard(&self) -> Result<&str> {
         self.keyboard
             .as_deref()
@@ -133,20 +109,6 @@ pub struct CookingText {
     pub labels: BTreeMap<String, String>,
 }
 impl CookingText {
-    fn decode(
-        mut value: serde_json::Value,
-        diagnostics: &crate::diagnostics::Diagnostics,
-    ) -> Result<Option<Self>> {
-        let rows =
-            decode_rows::<NamedText>(take(&mut value, "recipes"), "recipe caption", diagnostics)?;
-        let effects = take(&mut value, "effects");
-        let Some(mut text) = decode_caption::<Self>(value, "Cooking captions", diagnostics)? else {
-            return Ok(None);
-        };
-        text.recipes = rows;
-        text.effects = decode_caption(effects, "Cooking effect captions", diagnostics)?;
-        Ok(Some(text))
-    }
     pub fn recipe(&self, id: usize) -> Result<&NamedText> {
         self.recipes
             .get(id)
@@ -166,7 +128,8 @@ impl CookingText {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusText {
     pub conditions: Option<ConditionText>,
-    pub equipment_effects: BTreeMap<u8, String>,
+    #[serde(default)]
+    pub equipment_effects: BTreeMap<String, String>,
     pub technical_type: String,
     pub strike_type: String,
 }
@@ -223,16 +186,10 @@ impl ConditionText {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorldMapText {
+    #[serde(with = "crate::ui_art::worlds")]
     pub names: [String; 2],
-    pub locations: BTreeMap<u16, MapLocationText>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MapLocationText {
-    pub name: String,
-    /// Position on the 384 × 288 map image.
-    pub point: [i16; 2],
-    pub listed: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExCaption {
@@ -262,26 +219,18 @@ pub struct MenuPresentation {
     pub monsters: Option<crate::monster::MonsterBook>,
 }
 impl MenuPresentation {
-    pub(super) fn decode(
-        value: serde_json::Value,
-        diagnostics: &crate::diagnostics::Diagnostics,
-    ) -> Result<Self> {
+    pub(super) fn decode(value: serde_json::Value, files: &crate::prepared::Files) -> Result<Self> {
         #[derive(Deserialize, Default)]
         #[serde(default)]
         struct Source {
             labels: serde_json::Value,
             items: serde_json::Value,
-            titles: serde_json::Value,
-            techniques: serde_json::Value,
-            names: serde_json::Value,
-            strategy: serde_json::Value,
-            cooking: serde_json::Value,
             status: serde_json::Value,
             world_map: serde_json::Value,
             shops: serde_json::Value,
-            ex_skills: serde_json::Value,
             monsters: serde_json::Value,
         }
+        let diagnostics = files.diagnostics();
         let source: Source = diagnostics
             .attempt(
                 "menu presentation",
@@ -291,46 +240,14 @@ impl MenuPresentation {
         Ok(Self {
             labels: crate::menu::decode_labels(source.labels, diagnostics, "menu label")?,
             items: ItemCaptions::decode(source.items, diagnostics)?,
-            titles: decode_caption::<Vec<serde_json::Value>>(
-                source.titles,
-                "title catalogues",
-                diagnostics,
-            )?
-            .map(|characters| {
-                characters
-                    .into_iter()
-                    .map(|rows| decode_rows(rows, "title caption", diagnostics))
-                    .collect::<Result<_>>()
-            })
-            .transpose()?,
-            techniques: Some(decode_rows(
-                source.techniques,
-                "technique caption",
-                diagnostics,
-            )?),
-            names: diagnostics.attempt(
-                "menu names captions",
-                serde_json::from_value(source.names).map_err(anyhow::Error::from),
-            )?,
-            strategy: StrategyText::decode(source.strategy, diagnostics)?,
-            cooking: CookingText::decode(source.cooking, diagnostics)?,
             status: StatusText::decode(source.status, diagnostics)?,
-            world_map: diagnostics.attempt(
-                "world map captions",
-                serde_json::from_value(source.world_map).map_err(anyhow::Error::from),
-            )?,
-            shops: diagnostics.attempt(
-                "shop captions",
-                serde_json::from_value(source.shops).map_err(anyhow::Error::from),
-            )?,
-            ex_skills: diagnostics.attempt(
-                "EX captions",
-                serde_json::from_value(source.ex_skills).map_err(anyhow::Error::from),
-            )?,
+            world_map: decode_caption(source.world_map, "world map captions", diagnostics)?,
+            shops: decode_caption(source.shops, "shop captions", diagnostics)?,
             monsters: diagnostics.attempt(
                 "monster directory",
-                serde_json::from_value(source.monsters).map_err(anyhow::Error::from),
+                crate::monster::MonsterBook::decode_named(source.monsters, files),
             )?,
+            ..Self::default()
         })
     }
     pub(super) fn validate(&self, data: &MenuData) -> Result<()> {
@@ -415,12 +332,7 @@ impl MenuPresentation {
             );
         }
         if let Some(data) = &self.world_map {
-            texts.extend(
-                data.names
-                    .iter()
-                    .chain(data.locations.values().map(|location| &location.name))
-                    .map(String::as_str),
-            );
+            texts.extend(data.names.iter().map(String::as_str));
         }
         texts.extend(self.shops.iter().flatten().map(String::as_str));
         if let Some(data) = &self.ex_skills {
@@ -654,7 +566,7 @@ impl MenuData {
             MenuPage::Techniques | MenuPage::Unison => {
                 let text = self.technique_texts()?;
                 ensure!(
-                    text.len() == self.techniques.len() && text.iter().all(Option::is_some),
+                    text.len() == self.techniques.len() && text.iter().skip(1).all(Option::is_some),
                     "invalid technique caption bindings"
                 );
             }
@@ -781,21 +693,9 @@ impl MenuData {
                 self.world_map.validate(self.items.len())?;
                 let text = self.world_map_text()?;
                 ensure!(
-                    text.names.iter().all(|name| !name.is_empty())
-                        && self
-                            .world_map
-                            .locations
-                            .keys()
-                            .all(|key| text.locations.contains_key(key)),
-                    "invalid world map caption bindings"
+                    text.names.iter().all(|name| !name.is_empty()),
+                    "invalid world map names"
                 );
-                for (&id, location) in &text.locations {
-                    ensure!(
-                        (0..384).contains(&location.point[0])
-                            && (0..288).contains(&location.point[1]),
-                        "invalid world map position {id}"
-                    );
-                }
             }
             MenuPage::Monsters => {
                 self.monsters()?.validate(self.items.len())?;
@@ -991,76 +891,59 @@ mod tests {
             serde_json::json!({"name":"name", "description":"description", "details":"details"});
         let mut healthy = serde_json::json!({
             "labels": {"healthy": "text"},
-            "items": {"items":[row], "item_categories":[], "inventory_categories":[], "item_group_prompt":{"lines":[]}, "item_bottle_count":{"lines":[]}},
-            "titles": [[{"name":"title", "description":"title description"}]], "techniques":[{"name":"technique", "description":"technique description"}], "names":["name"],
-            "strategy": {"groups":[[row],[],[]], "presets":["A","B","C"], "keyboard":"A".repeat(90), "keys":vec!["key";9], "labels":["A","B","C"]},
-            "cooking": {"recipes":[{"name":"meal", "description":"food"}], "groups":[], "effects":vec!["effect";12], "labels":{}},
+            "items": {"items":[row], "item_categories":[], "inventory_categories":[], "item_group_prompt":"Use on whom?", "item_bottle_count":"Remaining: %d"},
             "status": {"conditions":{
                 "poison":"condition", "severe_poison":"condition", "paralysis":"condition", "petrified":"condition", "curse":"condition",
                 "attack_up":"condition", "attack_down":"condition", "defense_up":"condition", "defense_down":"condition", "accuracy_up":"condition", "accuracy_down":"condition",
                 "magic_attack_up":"condition", "magic_attack_down":"condition", "magic_defense_up":"condition", "knockout":"condition"
             }, "equipment_effects":{}, "technical_type":"T", "strike_type":"S"},
-            "world_map": {"names":["one","two"], "locations":{}}, "shops":["shop"],
-            "ex_skills": {"skills":{}, "labels":{}, "activation_labels":{}},
+            "world_map": {"names":{"sylvarant":"one","tethe_alla":"two"}}, "shops":["shop"],
             "monsters": {"records":[], "labels":{}}
         });
         // Preserve catalogue IDs after a failed entry; the next record stays at index 1.
-        for pointer in [
-            "/items/items",
-            "/titles/0",
-            "/techniques",
-            "/strategy/groups/0",
-            "/cooking/recipes",
+        let rows = healthy["items"]["items"].as_array_mut().unwrap();
+        rows.push(rows[0].clone());
+        let decode = |value, diagnostics: &Diagnostics| {
+            MenuPresentation::decode(value, &crate::prepared::Files::new(diagnostics.clone()))
+        };
+        let mut expected_healthy = healthy.clone();
+        for key in [
+            "titles",
+            "techniques",
+            "names",
+            "strategy",
+            "cooking",
+            "ex_skills",
         ] {
-            let rows = healthy
-                .pointer_mut(pointer)
-                .unwrap()
-                .as_array_mut()
-                .unwrap();
-            rows.push(rows[0].clone());
+            expected_healthy[key] = serde_json::Value::Null;
         }
         assert_eq!(
-            serde_json::to_value(MenuPresentation::decode(
-                healthy.clone(),
-                &Diagnostics::new(true)
-            )?)?,
-            healthy
+            serde_json::to_value(decode(healthy.clone(), &Diagnostics::new(true))?)?,
+            expected_healthy
         );
         for (section, pointer) in [
             ("/items/items/0", "/items/items/0/description"),
-            ("/titles/0/0", "/titles/0/0/description"),
-            ("/techniques/0", "/techniques/0/description"),
-            ("/names", "/names/0"),
-            ("/strategy/groups/0/0", "/strategy/groups/0/0/details"),
-            ("/cooking/recipes/0", "/cooking/recipes/0/description"),
             ("/status/conditions", "/status/conditions/poison"),
             ("/world_map", "/world_map/names"),
             ("/shops", "/shops/0"),
-            ("/ex_skills", "/ex_skills/labels"),
             ("/monsters", "/monsters/records"),
         ] {
             let mut malformed = healthy.clone();
             *malformed.pointer_mut(pointer).unwrap() = false.into();
             let diagnostics = Diagnostics::new(false);
-            let admitted =
-                serde_json::to_value(MenuPresentation::decode(malformed.clone(), &diagnostics)?)?;
-            let mut expected = healthy.clone();
+            let admitted = serde_json::to_value(decode(malformed.clone(), &diagnostics)?)?;
+            let mut expected = expected_healthy.clone();
             *expected.pointer_mut(section).unwrap() = serde_json::Value::Null;
             assert_eq!(admitted, expected, "{section}");
             assert_eq!(diagnostics.entries().len(), 1, "{section}");
             assert!(
-                MenuPresentation::decode(malformed, &Diagnostics::new(true)).is_err(),
+                decode(malformed, &Diagnostics::new(true)).is_err(),
                 "{section}"
             );
         }
         for pointer in [
             "/items/item_group_prompt",
             "/items/item_bottle_count",
-            "/strategy/keyboard",
-            "/strategy/presets",
-            "/strategy/keys",
-            "/strategy/labels",
-            "/cooking/effects",
             "/status/conditions",
         ] {
             for malformed in [None, Some(serde_json::Value::Bool(false))] {
@@ -1075,15 +958,13 @@ mod tests {
                 if let Some(value) = malformed {
                     document.pointer_mut(parent).unwrap()[key] = value;
                 }
-                let admitted = serde_json::to_value(MenuPresentation::decode(
-                    document.clone(),
-                    &Diagnostics::new(false),
-                )?)?;
-                let mut expected = healthy.clone();
+                let admitted =
+                    serde_json::to_value(decode(document.clone(), &Diagnostics::new(false))?)?;
+                let mut expected = expected_healthy.clone();
                 *expected.pointer_mut(pointer).unwrap() = serde_json::Value::Null;
                 assert_eq!(admitted, expected, "{pointer}");
                 assert!(
-                    MenuPresentation::decode(document, &Diagnostics::new(true)).is_err(),
+                    decode(document, &Diagnostics::new(true)).is_err(),
                     "{pointer}"
                 );
             }

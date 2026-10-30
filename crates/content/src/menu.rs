@@ -2,6 +2,8 @@
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod document;
+mod sprites;
 
 pub const SHOP_LABELS: [&str; 25] = [
     "shop_buy",
@@ -56,16 +58,14 @@ pub(crate) fn decode_labels(
     Ok(labels)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct MenuArt {
-    pub version: u32,
     pub textures: BTreeMap<usize, MenuTexture>,
     pub windows: BTreeMap<usize, WindowArt>,
     pub fill: [u8; 4],
     pub popup_fill: [u8; 4],
     pub shade: [[u8; 4]; 2],
     pub palette: Vec<[u8; 4]>,
-    #[serde(default)]
     pub labels: BTreeMap<String, String>,
     pub sprites: MenuSprites,
 }
@@ -104,13 +104,15 @@ pub enum Sprite {
     Leader,
     WorldHud,
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Default)]
 pub struct MenuSprites {
     pub rects: BTreeMap<Sprite, Vec<[u32; 4]>>,
     pub number_colors: Vec<[[u8; 4]; 2]>,
     pub bar_colors: Vec<[[u8; 4]; 4]>,
     pub names: Vec<String>,
+    /// Named item/recipe artwork resolves through their existing catalogues.
+    pub named_rects: BTreeMap<Sprite, BTreeMap<String, [u32; 4]>>,
+    pub name_overrides: BTreeMap<String, String>,
 }
 impl MenuSprites {
     pub fn group(&self, group: Sprite) -> Result<&[[u32; 4]]> {
@@ -164,59 +166,9 @@ pub struct MenuTexture {
     pub opaque: bool,
 }
 impl MenuArt {
-    pub const VERSION: u32 = 19;
     pub const ATLAS_TEXTURE: usize = 18;
     pub const PORTRAIT_TEXTURES: std::ops::Range<usize> = 19..28;
     pub const WORLD_MAP_TEXTURES: std::ops::Range<usize> = 28..30;
-
-    pub fn decode(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {
-        #[derive(Deserialize)]
-        struct Source {
-            version: u32,
-            fill: [u8; 4],
-            popup_fill: [u8; 4],
-            shade: [[u8; 4]; 2],
-            palette: Vec<[u8; 4]>,
-            #[serde(default)]
-            textures: serde_json::Value,
-            #[serde(default)]
-            windows: serde_json::Value,
-            #[serde(default)]
-            labels: serde_json::Value,
-            #[serde(default)]
-            sprites: serde_json::Value,
-        }
-        #[derive(Deserialize, Default)]
-        #[serde(default)]
-        struct Sprites {
-            rects: serde_json::Value,
-            number_colors: serde_json::Value,
-            bar_colors: serde_json::Value,
-            names: serde_json::Value,
-        }
-        let source: Source = serde_json::from_slice(bytes)?;
-        let sprites: Sprites = decode_art_group(source.sprites, diagnostics, "menu sprite groups")?;
-        Ok(Self {
-            version: source.version,
-            fill: source.fill,
-            popup_fill: source.popup_fill,
-            shade: source.shade,
-            palette: source.palette,
-            textures: decode_art_rows(source.textures, diagnostics, "menu texture")?,
-            windows: decode_art_rows(source.windows, diagnostics, "menu window")?,
-            labels: decode_labels(source.labels, diagnostics, "menu artwork label")?,
-            sprites: MenuSprites {
-                rects: decode_art_rows(sprites.rects, diagnostics, "menu sprites")?,
-                number_colors: decode_art_group(
-                    sprites.number_colors,
-                    diagnostics,
-                    "menu number colors",
-                )?,
-                bar_colors: decode_art_group(sprites.bar_colors, diagnostics, "menu bar colors")?,
-                names: decode_art_group(sprites.names, diagnostics, "menu party names")?,
-            },
-        })
-    }
 
     pub fn validate(&self, item_count: usize) -> Result<()> {
         self.validate_layout(item_count)?;
@@ -231,10 +183,7 @@ impl MenuArt {
 
     /// Shared drawing invariants; page-specific resources are checked when selected.
     pub fn validate_structure(&self) -> Result<()> {
-        ensure!(
-            self.version == Self::VERSION && self.palette.len() == 11,
-            "unsupported menu artwork"
-        );
+        ensure!(self.palette.len() == 11, "unsupported menu artwork");
         Ok(())
     }
 
@@ -265,7 +214,8 @@ impl MenuArt {
         crate::validate_asset_path(&texture.path)?;
         ensure!(
             texture.width > 0 && texture.height > 0,
-            "empty menu texture"
+            "unavailable menu image dimensions: {}",
+            texture.path
         );
         Ok(texture)
     }
@@ -338,76 +288,6 @@ impl MenuArt {
                 && self.sprites.names.len() == 9
                 && self.sprites.names.iter().all(|name| !name.is_empty()),
             "incomplete menu glyph styles"
-        );
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn optional_art_groups_are_admitted_independently() -> Result<()> {
-        let document = serde_json::json!({
-            "version": MenuArt::VERSION, "fill": vec![0;4], "popup_fill": vec![0;4],
-            "shade": vec![[0;4];2], "palette": vec![[0;4];11], "labels": {},
-            "textures": {
-                "0": {"path":"ui/frame.png", "width":32, "height":32, "repeat":true, "opaque":false},
-                "18": {"path":"ui/atlas.png", "width":32, "height":32, "repeat":false, "opaque":false}
-            },
-            "windows": {"1": {"patterns":vec![0;6], "heading":null, "slices":null,
-                "cursor":null, "cursor_motion":[0.,0.],
-                "outset":0, "flourish_outset":[0,0], "foot_outset":0, "left_joins":[0,0], "left_strip":[0,0]}},
-            "sprites": {"rects": {"buttons": [[0,0,8,8]]}}
-        });
-        let clean = MenuArt::decode(
-            &serde_json::to_vec(&document)?,
-            &crate::diagnostics::Diagnostics::new(true),
-        )?;
-        clean.validate_structure()?;
-        clean.validate_window(1, 5)?;
-        assert_eq!(clean.sprite(Sprite::Buttons, 0)?, [0, 0, 8, 8]);
-        assert!(clean.sprite(Sprite::Recipes, 0).is_err());
-        assert!(
-            clean.sprites.names.is_empty()
-                && clean.sprites.number_colors.is_empty()
-                && clean.sprites.bar_colors.is_empty()
-        );
-        for rect in [
-            [0, 0, 0, 8],
-            [0, 0, 8, 0],
-            [31, 0, 8, 8],
-            [u32::MAX, 0, 8, 8],
-        ] {
-            let mut invalid = clean.clone();
-            invalid.sprites.rects.get_mut(&Sprite::Buttons).unwrap()[0] = rect;
-            assert!(invalid.sprite(Sprite::Buttons, 0).is_err());
-            invalid.validate_window(1, 5)?;
-        }
-        let mut invalid = clean.clone();
-        invalid
-            .textures
-            .get_mut(&MenuArt::ATLAS_TEXTURE)
-            .unwrap()
-            .path = "../bad.png".into();
-        assert!(invalid.sprite(Sprite::Buttons, 0).is_err());
-        invalid.validate_window(1, 5)?;
-        let mut damaged = document;
-        damaged["sprites"]["rects"]["recipes"] = serde_json::json!("invalid rectangle group");
-        damaged["windows"]["2"] = serde_json::json!({"patterns":false});
-        let diagnostics = crate::diagnostics::Diagnostics::new(false);
-        let art = MenuArt::decode(&serde_json::to_vec(&damaged)?, &diagnostics)?;
-        art.validate_window(1, 5)?;
-        assert_eq!(art.sprite(Sprite::Buttons, 0)?, [0, 0, 8, 8]);
-        assert!(art.validate_window(2, 0).is_err());
-        assert!(art.sprite(Sprite::Recipes, 0).is_err());
-        assert_eq!(diagnostics.entries().len(), 2);
-        assert!(
-            MenuArt::decode(
-                &serde_json::to_vec(&damaged)?,
-                &crate::diagnostics::Diagnostics::new(true)
-            )
-            .is_err()
         );
         Ok(())
     }

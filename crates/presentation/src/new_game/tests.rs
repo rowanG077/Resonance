@@ -10,14 +10,8 @@ mod ending_movie;
 mod replay_preferences;
 
 impl Session {
-    pub(crate) fn reload(&mut self, root: &Path, checkpoint: FieldCheckpoint) -> Result<()> {
-        let candidate = Self::load_prepared(
-            root,
-            self.files(),
-            Some(checkpoint),
-            None,
-            &mut Default::default(),
-        )?;
+    pub(crate) fn reload(&mut self, _root: &Path, checkpoint: FieldCheckpoint) -> Result<()> {
+        let candidate = Self::load_prepared(self.field_package().clone(), Some(checkpoint), None)?;
         self.replace_loaded(candidate);
         Ok(())
     }
@@ -51,12 +45,7 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
     };
     use resonance_game::menu::{Menu, Page, Resources};
     let root = asset_root();
-    let healthy = Files::load(
-        &root,
-        &["fields/map-332.preload.json"],
-        &mut Default::default(),
-        || false,
-    )?;
+    let healthy = FieldPackage::prepare(&root, 332, &mut Default::default(), || false)?.files;
     let mut checkpoint = field_checkpoint(&healthy)?;
     let original = MenuData::load(&healthy)?;
     let item = original
@@ -65,43 +54,65 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         .position(|item| matches!(item.field_use, Some(ItemUse::EncounterRate { rate: 1 })))
         .context("fixture has no Holy Bottle")?;
     checkpoint.progress.party.items = [(u16::try_from(item)?, 1)].into();
-    let mut document: serde_json::Value = healthy.json("game/menu-data.json")?;
-    document["presentation"]["labels"]["holy_aura"] = serde_json::json!({"unexpected": "object"});
-    let location = document["presentation"]["world_map"]["locations"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .next()
-        .unwrap()
-        .clone();
-    document["presentation"]["world_map"]["locations"][&location]["point"] =
-        serde_json::json!(false);
-    document["presentation"]["titles"][0][0]["description"] = false.into();
-    document["presentation"]["strategy"]["keyboard"] = serde_json::json!([1, 2]);
-    document["presentation"]["ex_skills"]["labels"]["title"] =
-        serde_json::json!({"unexpected": "object"});
-    document["presentation"]["status"]["technical_type"] = false.into();
-    document["presentation"]["cooking"]["recipes"][0]["description"] = false.into();
+    let mut document: serde_json::Value =
+        healthy.json(resonance_content::menu_data::PRESENTATION_PATH)?;
+    document["labels"]["holy_aura"] = serde_json::json!({"unexpected": "object"});
+    let mut world_map: serde_json::Value =
+        healthy.json(resonance_content::menu_data::WORLD_MAP_PATH)?;
+    world_map["names"]["sylvarant"] = serde_json::json!(false);
+    let mut titles: serde_json::Value = healthy.json(resonance_content::titles::PATH)?;
+    titles["titles"]["swordsman"]["text"]["description"] = false.into();
+    let mut strategy: serde_json::Value = healthy.json(resonance_content::strategy::PATH)?;
+    strategy["keyboard"]["rows"] = serde_json::json!([1, 2]);
+    let mut ex: serde_json::Value = healthy.json(resonance_content::ex_skills::PATH)?;
+    ex["labels"]["title"] = serde_json::json!({"unexpected": "object"});
+    document["status"]["technical_type"] = false.into();
+    let mut cooking: serde_json::Value = healthy.json(resonance_content::cooking::PATH)?;
+    cooking["recipes"]["sandwich"]["text"]["description"] = false.into();
+    let overrides = tempfile::tempdir()?;
+    std::fs::create_dir_all(overrides.path().join("game/menu"))?;
+    std::fs::write(
+        overrides
+            .path()
+            .join(resonance_content::menu_data::PRESENTATION_PATH),
+        serde_json::to_vec(&document)?,
+    )?;
+    std::fs::write(
+        overrides
+            .path()
+            .join(resonance_content::menu_data::WORLD_MAP_PATH),
+        serde_json::to_vec(&world_map)?,
+    )?;
+    std::fs::write(
+        overrides.path().join(resonance_content::titles::PATH),
+        serde_json::to_vec(&titles)?,
+    )?;
+    std::fs::write(
+        overrides.path().join(resonance_content::cooking::PATH),
+        serde_json::to_vec(&cooking)?,
+    )?;
+    std::fs::write(
+        overrides.path().join(resonance_content::ex_skills::PATH),
+        serde_json::to_vec(&ex)?,
+    )?;
+    std::fs::write(
+        overrides.path().join(resonance_content::strategy::PATH),
+        serde_json::to_vec(&strategy)?,
+    )?;
+    let library =
+        resonance_content::library::Library::open_paths(&root, &[overrides.path().to_owned()])?;
     for paranoid in [false, true] {
         let diagnostics = Diagnostics::new(paranoid);
-        let mut files = Files::load_with_diagnostics(
-            &root,
-            &["fields/map-332.preload.json"],
+        let loaded = FieldPackage::capture(
+            &library,
+            332,
             &mut Default::default(),
             || false,
             diagnostics.clone(),
-        )?;
-        files.insert(
-            "game/menu-data.json".into(),
-            serde_json::to_vec(&document)?.into(),
-        );
-        let loaded = Session::load_prepared(
-            &root,
-            Arc::new(files),
-            Some(checkpoint.clone()),
-            None,
-            &mut Default::default(),
-        );
+        )
+        .and_then(|package| {
+            Session::load_prepared(Arc::new(package), Some(checkpoint.clone()), None)
+        });
         assert!(
             diagnostics
                 .entries()
@@ -262,13 +273,11 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         assert_eq!(menu.page, Page::Main);
 
         let mut invalid_gameplay = (*session.files()).clone();
-        document["items"] = serde_json::json!("malformed gameplay records");
         invalid_gameplay.insert(
-            "game/menu-data.json".into(),
-            serde_json::to_vec(&document)?.into(),
+            resonance_content::items::PATH.into(),
+            serde_json::to_vec(&"malformed gameplay records")?.into(),
         );
         assert!(MenuData::load(&invalid_gameplay).is_err());
-        document["items"] = serde_json::to_value(&original.items)?;
     }
     Ok(())
 }
@@ -303,16 +312,12 @@ fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
     let source = "script field; use game::story; use game::field; pub task run() { await field::wait_ticks(ticks(2)); story::set_flag(2000, true); }";
     fs::write(source_root.path().join("entry.sym"), source).unwrap();
     let root = asset_root();
-    let files = Files::load(
-        &root,
-        &[manifest_path(332).as_str()],
-        &mut Default::default(),
-        || false,
-    )
-    .unwrap();
+    let files = FieldPackage::prepare(&root, 332, &mut Default::default(), || false)
+        .unwrap()
+        .files;
     let mut saved = field_checkpoint(&files).unwrap();
     let header = resonance_persistence::Header {
-        identity: resonance_persistence::Identity::load(&files).unwrap(),
+        version: resonance_persistence::VERSION,
         label: "Authored entry fixture".into(),
         location: "Iselia".into(),
         played_ticks: saved.played_ticks,
@@ -352,7 +357,7 @@ fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
         source.replace("2000", "2001"),
     )
     .unwrap();
-    let candidate = finish(
+    let rejected = finish(
         Pending::start(
             root.clone(),
             Some(source_root.path().to_path_buf()),
@@ -361,15 +366,17 @@ fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
             &resident,
         )
         .unwrap(),
-    )
-    .unwrap();
-    session.replace_loaded(candidate);
-    assert_shared_definitions(&session);
-    for _ in 0..3 {
-        session.field_mut().step(Default::default()).unwrap();
-    }
-    assert!(session.field().events.world.event_flags.contains(&2001));
-    assert!(!session.field().events.world.event_flags.contains(&2000));
+    );
+    assert!(
+        rejected
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("incompatible save")
+    );
+    assert!(session.field().events.world.event_flags.contains(&2000));
+    assert!(!session.field().events.world.event_flags.contains(&2001));
+    assert!(session.field().player_has_control());
 
     fs::write(
         source_root.path().join("entry.sym"),
@@ -518,7 +525,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     assert_eq!(resumed.progress.tick, checkpoint.progress.tick);
     assert_eq!(resumed.played_ticks, checkpoint.played_ticks + menu_updates);
     let header = resonance_persistence::Header {
-        identity: session.identity.clone(),
+        version: resonance_persistence::VERSION,
         label: "Classroom exploration".into(),
         location: "Iselia school".into(),
         played_ticks: checkpoint.played_ticks,
@@ -543,15 +550,12 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     let mut cold_cache = super::super::loading::Cache::default();
     let package =
         FieldPackage::prepare(&root, checkpoint.map_id, &mut cold_cache, || false).unwrap();
-    let (_, crate::saves::SceneCheckpoint::Field(saved)) = resonance_persistence::decode(&bytes)
-        .unwrap()
-        .admit(&session.identity)
-        .unwrap()
+    let (_, crate::saves::SceneCheckpoint::Field(saved)) =
+        resonance_persistence::decode(&bytes).unwrap().into_parts()
     else {
         panic!("expected field save")
     };
-    let cold =
-        Session::load_prepared(&root, package.files, Some(saved), None, &mut cold_cache).unwrap();
+    let cold = Session::load_prepared(Arc::new(package), Some(saved), None).unwrap();
     assert_restored(&cold);
     session.replace_loaded(cold);
     assert_restored(&session);
@@ -733,11 +737,9 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
             assert!(at_circle.progress.event_flags.contains(&0x208));
             session.reload(&root, at_circle.clone()).unwrap();
             let mut cold = Session::load_prepared(
-                &root,
-                session.files(),
+                session.field_package().clone(),
                 Some(at_circle.clone()),
                 None,
-                &mut cache,
             )
             .unwrap();
             for field in [session.field_mut(), cold.field_mut()] {
@@ -911,14 +913,8 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             break;
         }
     }
-    let mut session = Session::load_prepared(
-        &root,
-        package.files,
-        Some(field.checkpoint().unwrap()),
-        None,
-        &mut cache,
-    )
-    .unwrap();
+    let mut session =
+        Session::load_prepared(Arc::new(package), Some(field.checkpoint().unwrap()), None).unwrap();
     let mut visited = BTreeSet::from([340]);
     macro_rules! hop {
         ($key:expr, $confirmed:expr, $map:expr, $choice:expr) => {{
@@ -1087,20 +1083,33 @@ fn failed_entry_leaves_title_usable_in_diagnostic_mode_and_exits_in_paranoid_mod
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; exercises original cinematics without a window or audio device"]
-fn original_world_cinematics_prepare_chain_and_return_without_resuming_the_caller() -> Result<()> {
+#[ignore = "requires RESONANCE_TEST_ASSETS; publishes and runs every named world cinematic without output devices"]
+fn named_world_cinematics_prepare_chain_and_return_without_resuming_the_caller() -> Result<()> {
     use resonance_content::overworld::{Mount, Position, TravelState, World};
-    let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
-    );
+    let work = crate::test_support::named_world_fixture()?;
+    let root = work.path().to_path_buf();
     let mut cache = super::super::loading::Cache::default();
-    let prepared = resonance_game::overworld::Prepared::load(
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    let package = Arc::new(crate::overworld::Package::prepare(
         &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut cache.bytes, || false)?,
-        &mut cache.bytes,
-        available_fields(&root)?,
+        &mut cache,
         || false,
-    )?;
+        diagnostics.clone(),
+    )?);
+    let prepared = package.world.clone();
+    assert!(
+        prepared
+            .files
+            .keys()
+            .all(|path| !path.ends_with(".preload.json"))
+    );
+    assert!(
+        prepared
+            .files
+            .keys()
+            .all(|p| !p.starts_with("assets/") && !p.ends_with(".preload.json"))
+    );
+    assert!(diagnostics.entries().is_empty());
     let mut persistent = resonance_events::PersistentState {
         party: Some(resonance_events::party::Party::new(
             prepared.resources.session_data.as_ref().unwrap(),
@@ -1128,9 +1137,7 @@ fn original_world_cinematics_prepare_chain_and_return_without_resuming_the_calle
         Default::default(),
     )?;
     let saved = world.checkpoint()?;
-    let files = Arc::new(Files::load(&root, &[], &mut cache.bytes, || false)?);
-    let mut owner = Session::load_world_prepared(&root, files, saved, &mut cache, || false)?;
-    let package = owner.world_package.clone().unwrap();
+    let mut owner = Session::load_world_prepared(package.clone(), saved)?;
     for id in 513..=526 {
         let position = owner.overworld().unwrap().session.travel.state().position;
         let request = owner
@@ -1227,13 +1234,13 @@ fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
     );
     let fields = available_fields(&root)?;
     ensure!(fields.len() > 490, "full field catalogue required");
-    let prepared = resonance_game::overworld::Prepared::load(
+    let prepared = crate::overworld::Package::prepare(
         &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
         &mut Default::default(),
-        fields,
         || false,
-    )?;
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?
+    .world;
     let selected: Option<BTreeSet<u16>> = std::env::var("RESONANCE_WORLD_LANDMARKS")
         .ok()
         .map(|s| s.split(',').map(|v| v.parse().unwrap()).collect());
@@ -1473,11 +1480,9 @@ fn original_all_fields_have_complete_preparation_inventories() -> Result<()> {
                 println!("Map {map} has no room geometry or collision; checked its inventory only");
                 return Ok(());
             }
-            let data = Arc::new(
-                package
-                    .files
-                    .json::<resonance_content::session::SessionData>("game/session-data.json")?,
-            );
+            let data = Arc::new(resonance_content::session::SessionData::load(
+                &package.files,
+            )?);
             let mut party = resonance_events::party::Party::new(&data, Default::default())?;
             party.formation = vec![1, 2, 3, 4];
             party.travel.saved_formation = party.formation.clone();
@@ -1577,13 +1582,13 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
     let root = std::path::PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    let prepared = resonance_game::overworld::Prepared::load(
+    let prepared = crate::overworld::Package::prepare(
         &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
         &mut Default::default(),
-        available_fields(&root)?,
         || false,
-    )?;
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?
+    .world;
     let data = prepared.resources.session_data.as_ref().unwrap();
     let mut world = resonance_events::GameWorld::default();
     world.party = Some(resonance_events::party::Party::new(
@@ -1592,7 +1597,7 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
     )?);
     world.input_enabled = true;
     let program = Arc::new(symphonia_script::Program::decode(
-        &prepared.files.read(&prepared.definition.script.path)?,
+        &prepared.files.read(&prepared.definition.script)?,
     )?);
     let mut parent = resonance_events::EventRuntime::with_state(
         program,
@@ -1607,7 +1612,8 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
     )?;
     const STATE: &str = "test::skit::visits";
     parent.world.script_state.insert(STATE.into(), 0);
-    for (&id, skit) in skits.range(502..=534) {
+    assert_eq!(skits.range(502..=541).count(), 40);
+    for (&id, skit) in skits.range(502..=541) {
         let before = parent.world.script_state[STATE];
         let mut playback =
             resonance_game::skit::Playback::start(skit, &mut parent, true, false, None)?;
@@ -1840,24 +1846,15 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
     let root = app.world().resource::<RunOptions>().assets.clone();
     app.world_mut().resource_mut::<movie::Playback>().active = false;
     let session = Session::load(&root)?;
-    let mut package = FieldPackage::prepare(&root, 80, &mut Default::default(), || false)?;
+    let package = FieldPackage::prepare(&root, 80, &mut Default::default(), || false)?;
     app.insert_resource(session);
-    let mut resources = std::fs::read_dir(root.join("movies"))?
-        .map(|entry| {
-            let path = entry?.path();
-            path.file_stem()
-                .and_then(|s| s.to_str())
-                .context("invalid movie metadata path")?
-                .parse::<u32>()
-                .context("invalid movie resource")
-        })
-        .collect::<Result<Vec<_>>>()?;
-    resources.sort_unstable();
-    for &resource in &resources {
-        let path = resonance_content::movie::metadata_path(resource);
-        Arc::make_mut(&mut package.files)
-            .insert(path.clone(), std::fs::read(root.join(path))?.into());
-    }
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let mut snapshot = library.snapshot();
+    let mut resources = snapshot
+        .mappings(resonance_content::library::MOVIES)?
+        .iter()
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
     let package = Arc::new(package);
     // Let the scene's own movie and the ending movie finish naturally, check
     // every format on this request path, then return to the original format.
@@ -1965,10 +1962,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
         if playback < 2 {
             let movie = app.world().resource::<movie::Playback>();
             assert!(movie.completed_naturally);
-            assert_eq!(
-                movie.presented_frame,
-                Some(movie.asset.as_ref().unwrap().frames - 1)
-            );
+            assert_eq!(movie.presented_frame, movie.final_frame);
         } else {
             assert!(operation.is_pending());
             app.world_mut()
@@ -1995,29 +1989,38 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS with current field inventories; no window or audio device"]
-fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -> Result<()> {
+#[ignore = "requires RESONANCE_TEST_ASSETS; named save admission, all mounts, menu save and Iselia round trip"]
+fn named_world_checkpoint_restores_all_mounts_without_running_field_entry() -> Result<()> {
     use super::super::saves::SceneCheckpoint;
     use resonance_content::overworld::{Mount, Position, TravelState, World};
-    let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
-    );
-    let identity = save_context(
-        &root,
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?
-    .0;
+    let work = crate::test_support::named_world_fixture()?;
+    let root = work.path().to_path_buf();
     let mut cache = super::super::loading::Cache::default();
-    let prepared = resonance_game::overworld::Prepared::load(
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    let package = Arc::new(crate::overworld::Package::prepare(
         &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut cache.bytes, || false)?,
-        &mut cache.bytes,
-        available_fields(&root)?,
+        &mut cache,
         || false,
-    )?;
+        diagnostics.clone(),
+    )?);
+    let prepared = package.world.clone();
+    assert!(
+        prepared
+            .files
+            .keys()
+            .all(|path| !path.ends_with(".preload.json"))
+    );
+    assert!(
+        prepared
+            .files
+            .keys()
+            .all(|p| !p.starts_with("assets/") && !p.ends_with(".preload.json"))
+    );
+    assert!(diagnostics.entries().is_empty());
+    let resident = crate::loading::Resident::default();
     let data = prepared.resources.session_data.as_ref().unwrap();
     let header = resonance_persistence::Header {
-        identity,
+        version: resonance_persistence::VERSION,
         label: "World test".into(),
         location: "Sylvarant".into(),
         played_ticks: 12345,
@@ -2054,12 +2057,17 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
         let saved = SceneCheckpoint::World(session.checkpoint()?);
         let bytes = resonance_persistence::encode(&header, &saved)?;
         let (_, decoded): (_, SceneCheckpoint) =
-            resonance_persistence::decode(&bytes)?.admit(&header.identity)?;
+            resonance_persistence::decode(&bytes)?.into_parts();
         let SceneCheckpoint::World(saved) = decoded else {
             panic!("world save decoded as a field")
         };
-        let files = Arc::new(Files::load(&root, &[], &mut cache.bytes, || false)?);
-        let mut restored = Session::load_world_prepared(&root, files, saved, &mut cache, || false)?;
+        let mut restored = if mount == Mount::Foot {
+            let pending =
+                crate::loading::Pending::start(root.clone(), None, Some(bytes), None, &resident)?;
+            crate::test_support::await_preparation(&pending)?
+        } else {
+            Session::load_world_prepared(package.clone(), saved)?
+        };
         let scene = restored.overworld().unwrap();
         assert_eq!(scene.session.travel.state(), &state);
         assert_eq!(scene.session.play_time.total(), 12345);
@@ -2096,7 +2104,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
         let menu_save = world.menu.as_ref().unwrap().checkpoint.clone().unwrap();
         let menu_bytes = resonance_persistence::encode(&header, &menu_save)?;
         let (_, saved): (_, SceneCheckpoint) =
-            resonance_persistence::decode(&menu_bytes)?.admit(&header.identity)?;
+            resonance_persistence::decode(&menu_bytes)?.into_parts();
         let SceneCheckpoint::World(saved) = saved else {
             panic!("world menu wrote a field save")
         };
@@ -2197,8 +2205,14 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
                 .world_transition
                 .clone()
                 .context("Iselia exit did not request the world")?;
-            let package = restored.world_package.clone().unwrap();
-            restored.change_world(package)?;
+            assert!(
+                restored.world_package.is_none(),
+                "field entry drops the previous world preparation"
+            );
+            let pending = crate::loading::WorldPending::overworld(root.clone(), &resident)?;
+            let current = Arc::new(crate::test_support::await_preparation(&pending)?);
+            assert!(!Arc::ptr_eq(&current.world, &prepared));
+            restored.change_world(current)?;
             assert!(!request.operation.is_pending());
             assert!(restored.overworld().is_some());
         }

@@ -198,6 +198,8 @@ pub struct CameraRig {
     pub cameras: [FieldCamera; 4],
     pub position: [f32; 3],
     pub target: [f32; 3],
+    pub up: [f32; 3],
+    pub orientation: Option<[f32; 4]>,
     pub position_rate: f32,
     pub target_rate: f32,
     pub angles: [f32; 3],
@@ -216,6 +218,8 @@ impl Default for CameraRig {
             cameras: std::array::from_fn(|_| FieldCamera::default()),
             position: [0.; 3],
             target: [0.; 3],
+            up: [0., 0., 1.],
+            orientation: None,
             position_rate: 1.,
             target_rate: 1.,
             angles: [0.; 3],
@@ -337,6 +341,8 @@ impl CameraRig {
     }
 
     pub(crate) fn step_positions(&mut self, position: impl Fn(i32) -> Option<[f32; 3]>) {
+        self.up = [0., 0., 1.];
+        self.orientation = None;
         if let Some(motion) = &mut self.motion {
             (self.position, self.target) = motion.step(position);
             return;
@@ -440,19 +446,33 @@ impl CameraRig {
         const NEAR: f32 = 100.;
         const FAR: f32 = 40000.;
         let dot = |a: [f32; 3], b: [f32; 3]| a.into_iter().zip(b).map(|(a, b)| a * b).sum::<f32>();
-        let direction = std::array::from_fn(|i| self.target[i] - self.position[i]);
-        let length = dot(direction, direction).sqrt();
-        let horizontal = direction[0].hypot(direction[1]);
-        if length == 0. || horizontal == 0. {
-            return None;
-        }
-        let forward = direction.map(|v| v / length);
-        let right = [direction[1] / horizontal, -direction[0] / horizontal, 0.];
-        let up = [
-            right[1] * forward[2],
-            -right[0] * forward[2],
-            horizontal / length,
-        ];
+        let (forward, right, up) = if let Some(rotation) = self.orientation {
+            let matrix = resonance_content::animation::Transform {
+                rotation,
+                ..Default::default()
+            }
+            .matrix();
+            (
+                std::array::from_fn(|i| -matrix[2][i]),
+                std::array::from_fn(|i| matrix[0][i]),
+                std::array::from_fn(|i| matrix[1][i]),
+            )
+        } else {
+            let cross = |a: [f32; 3], b: [f32; 3]| {
+                [
+                    a[1] * b[2] - a[2] * b[1],
+                    a[2] * b[0] - a[0] * b[2],
+                    a[0] * b[1] - a[1] * b[0],
+                ]
+            };
+            let normalize = |v: [f32; 3]| {
+                let length = dot(v, v).sqrt();
+                (length > 0.).then(|| v.map(|x| x / length))
+            };
+            let forward = normalize(std::array::from_fn(|i| self.target[i] - self.position[i]))?;
+            let right = normalize(cross(forward, self.up))?;
+            (forward, right, cross(right, forward))
+        };
         let offset = std::array::from_fn(|i| position[i] - self.position[i]);
         let depth = dot(offset, forward);
         let z = FAR / (FAR - NEAR) * (1. - NEAR / depth);
@@ -514,6 +534,12 @@ mod tests {
         };
         assert!(wide.animates([400., 1000., 0.]));
         assert!(!wide.animates([600., 1000., 0.]));
+        let authored = CameraRig {
+            orientation: Some([0., 0., 0., 1.]),
+            ..wide
+        };
+        assert!(authored.animates([0., 0., -1000.]));
+        assert!(!authored.animates([0., 0., 1000.]));
     }
 
     #[test]

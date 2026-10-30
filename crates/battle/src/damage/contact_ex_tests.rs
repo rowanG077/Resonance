@@ -96,9 +96,9 @@ fn late_physical_bonuses_compound_without_consuming_charge() {
     owner.equipment.contact.technique_balance = 100;
     owner.control_ex_state.charge = crate::ChargeLevel::Strong;
     owner.equipment.damage.elemental_physical_boost = true;
-    owner.equipment.damage.weapon_species = Some(crate::Species(6));
+    owner.equipment.damage.weapon_species = Some(crate::Species::Human);
     let mut recipient = target();
-    recipient.species = crate::Species(6);
+    recipient.species = crate::Species::Human;
     let mut hit_rule = rule(DamageKind::Slash, Power::Normal);
     hit_rule.element = HitElement::Element(Element::Fire);
     // Each stage truncates: 100 -> 105 -> 147 -> 161 -> 181.

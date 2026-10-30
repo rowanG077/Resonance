@@ -1,53 +1,5 @@
 use super::*;
 use resonance_battle::BattleClock;
-use resonance_content::battle_model;
-
-#[test]
-fn weapon_selection_uses_item_keys_and_rejects_nonvisual_items() -> Result<()> {
-    let mut files = files();
-    let mut bank = battle_model::Weapons {
-        source_sha256: "a".repeat(64),
-        table_sha256: "b".repeat(64),
-        owner_motion_sha256: "c".repeat(64),
-        records: Default::default(),
-    };
-    for (item, source, shield) in [(777, "weapon", false), (778, "shield", true)] {
-        let model = battle_model::Weapon {
-            trails: Default::default(),
-            uv_animation: Default::default(),
-            source_sha256: source.into(),
-            parts: Default::default(),
-            files: Default::default(),
-        };
-        bank.records.insert(
-            item,
-            if shield {
-                battle_model::Attachment::Shield(model)
-            } else {
-                battle_model::Attachment::Weapon(model)
-            },
-        );
-    }
-    bank.records
-        .insert(367, battle_model::Attachment::Nonvisual);
-    files.insert(
-        battle_model::WEAPONS_PATH.into(),
-        serde_json::to_vec(&bank)?.into(),
-    );
-    for (&id, attachment) in &bank.records {
-        let (battle_model::Attachment::Weapon(expected)
-        | battle_model::Attachment::Shield(expected)) = attachment
-        else {
-            continue;
-        };
-        let selected = battle::model::weapon(&files, id)?;
-        assert_eq!(selected.source_sha256, expected.source_sha256);
-    }
-    for id in [0, 367] {
-        assert!(battle::model::weapon(&files, id).is_err(), "weapon {id}");
-    }
-    Ok(())
-}
 
 #[test]
 #[ignore = "requires current party and equipment publications; CPU only"]

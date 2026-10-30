@@ -447,10 +447,10 @@ mod tests {
     #[test]
     #[ignore = "requires locally cooked Thoda scenery; no devices"]
     fn thoda_platform_and_teleporter_bones_rise_by_the_same_amount() -> anyhow::Result<()> {
-        use resonance_content::{animation::Skeleton, field::FieldAssets};
+        use resonance_content::{animation::Skeleton, field::document, library::Library};
         let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
-        let field: FieldAssets =
-            serde_json::from_slice(&std::fs::read(root.join("fields/map-9.json"))?)?;
+        let library = Library::open(&root, &[])?;
+        let (_, field) = document::capture_scene(&mut library.snapshot(), 9, || false)?;
         let skeleton = Skeleton::from_glb(&std::fs::read(root.join(&field.parts[0].mesh))?)?;
         // The platform and both teleporters must rise together.
         let targets = ["aqu_d03_base00", "aqu_d03_po00", "aqu_d03_po01"]
@@ -616,19 +616,142 @@ mod tests {
     #[test]
     #[allow(clippy::type_complexity)] // Exercise the same separated read/write queries as attachments.
     fn matrix_keys_preserve_shear_through_hierarchy_and_attachment() {
-        let motion: Motion = serde_json::from_value(serde_json::json!({
-            "duration_frames":2., "tracks":[
-                {"bone":0,"bind_channels":0,"period_frames":2.,"times":[0.,1.],
-                 "translation":null,"scale":null,"rotation":null,
-                 "matrices":[[1.,0.5,0.,3.,0.,1.,0.,4.,0.,0.,1.,5.],
-                             [1.,-0.5,0.,6.,0.,1.,0.,7.,0.,0.,1.,8.]]},
-                {"bone":1,"bind_channels":0,"period_frames":2.,"times":[0.],
-                 "translation":null,"scale":null,"rotation":null,
-                 "matrices":[[1.,0.,0.,1.,0.2,1.,0.,2.,0.,0.,1.,3.]]}
-            ]
-        }))
-        .unwrap();
-        let motion = Motion::decode(&motion.encode().unwrap()).unwrap();
+        use resonance_content::animation::{Channel, Interpolation, NodeTrack, Track};
+        let motion = Motion {
+            duration_frames: 2.0,
+            tracks: vec![
+                Track {
+                    bone: 0,
+                    nodes: vec![
+                        NodeTrack {
+                            bind: Default::default(),
+                            translation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0, 0.03333333333333333],
+                                values: vec![[3.0, 4.0, 5.0], [6.0, 7.0, 8.0]],
+                            }),
+                            rotation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0, 0.03333333333333333],
+                                values: vec![
+                                    [
+                                        0.6686189942740389,
+                                        0.23010571591330087,
+                                        0.23010571591330087,
+                                        0.6686189942740389,
+                                    ],
+                                    [
+                                        0.6686189942740389,
+                                        -0.23010571591330087,
+                                        -0.23010571591330087,
+                                        0.6686189942740389,
+                                    ],
+                                ],
+                            }),
+                            scale: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0, 0.03333333333333333],
+                                values: vec![
+                                    [1.2807764064044151, 1.0, 0.7807764064044151],
+                                    [1.2807764064044151, 1.0, 0.7807764064044151],
+                                ],
+                            }),
+                        },
+                        NodeTrack {
+                            bind: Default::default(),
+                            translation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0, 0.03333333333333333],
+                                values: vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                            }),
+                            rotation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0, 0.03333333333333333],
+                                values: vec![
+                                    [
+                                        -0.6354943369933826,
+                                        -0.3100757127692221,
+                                        -0.3100757127692221,
+                                        0.6354943369933828,
+                                    ],
+                                    [
+                                        -0.6354943369933826,
+                                        0.3100757127692221,
+                                        0.3100757127692221,
+                                        0.6354943369933828,
+                                    ],
+                                ],
+                            }),
+                            scale: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0, 0.03333333333333333],
+                                values: vec![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
+                            }),
+                        },
+                    ],
+                },
+                Track {
+                    bone: 1,
+                    nodes: vec![
+                        NodeTrack {
+                            bind: Default::default(),
+                            translation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0],
+                                values: vec![[1.0, 2.0, 3.0]],
+                            }),
+                            rotation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0],
+                                values: vec![[
+                                    -0.2867902889042155,
+                                    0.6463368550455998,
+                                    0.6463368550455998,
+                                    -0.28679028890421554,
+                                ]],
+                            }),
+                            scale: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0],
+                                values: vec![[1.104987562112089, 1.0, 0.9049875621120891]],
+                            }),
+                        },
+                        NodeTrack {
+                            bind: Default::default(),
+                            translation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0],
+                                values: vec![[0.0, 0.0, 0.0]],
+                            }),
+                            rotation: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0],
+                                values: vec![[
+                                    -0.2542378150709102,
+                                    0.6598205311961501,
+                                    0.65982053119615,
+                                    0.2542378150709102,
+                                ]],
+                            }),
+                            scale: Some(Channel {
+                                interpolation: Interpolation::Step,
+                                times: vec![0.0],
+                                values: vec![[1.0, 1.0, 1.0]],
+                            }),
+                        },
+                    ],
+                },
+            ],
+        };
+        let mut skeleton = resonance_content::animation::Skeleton::single("parent");
+        skeleton.bones.push(resonance_content::animation::Bone {
+            name: "child".into(),
+            parent: Some(0),
+            parent_transform: None,
+            shadow_bounds: true,
+            bind: resonance_content::animation::Transform::default(),
+        });
+        let motion = Motion::decode(&motion.encode(&skeleton).unwrap()).unwrap();
         let mut app = App::new();
         app.add_plugins(bevy::transform::TransformPlugin);
         install(&mut app);

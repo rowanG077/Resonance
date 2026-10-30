@@ -116,7 +116,9 @@ fn location_menu_checkpoints_are_playable() -> Result<()> {
             let package =
                 new_game::FieldPackage::prepare(&root, destination.map, &mut cache, || false)?;
             let entry = destination.entry(
-                Arc::new(package.files.json("game/session-data.json")?),
+                Arc::new(resonance_content::session::SessionData::load(
+                    &package.files,
+                )?),
                 new_game::available_fields(&root)?,
             )?;
             let mut field = Scene::enter(&package, entry)?;
@@ -162,7 +164,9 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
         let map = destination.map;
         let package = new_game::FieldPackage::prepare(&root, map, &mut cache, || false)?;
         let entry = destination.entry(
-            Arc::new(package.files.json("game/session-data.json")?),
+            Arc::new(resonance_content::session::SessionData::load(
+                &package.files,
+            )?),
             new_game::available_fields(&root)?,
         )?;
         let mut field = Scene::enter(&package, entry)?;
@@ -291,7 +295,9 @@ fn configured(
 ) -> Result<Scene> {
     let root = assets_root()?;
     let package = new_game::FieldPackage::prepare(&root, map, &mut Default::default(), || false)?;
-    let data = Arc::new(package.files.json("game/session-data.json")?);
+    let data = Arc::new(resonance_content::session::SessionData::load(
+        &package.files,
+    )?);
     let mut entry = destination.entry(data, new_game::available_fields(&root)?)?;
     configure(&mut entry)?;
     Scene::enter(&package, entry)
@@ -625,14 +631,15 @@ fn rheaird_crash_runs_the_debris_effect_and_restores_control() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked Mana lamps and Thoda bridge; no devices"]
 fn scenery_materials_animate_on_the_visible_objects() -> Result<()> {
-    use resonance_content::field::{FieldAssets, SCENERY_RESOURCE_BASE, TextureMotion};
+    use resonance_content::field::{SCENERY_RESOURCE_BASE, TextureMotion, document};
     let root = assets_root()?;
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let mut snapshot = library.snapshot();
     for (destination, map, target, mission) in [
         (MANA_START, 362, 999998, None),
         (THODA_START, 6, 6000, Some((0xc4, 13_000))),
     ] {
-        let assets: FieldAssets =
-            serde_json::from_slice(&std::fs::read(root.join(format!("fields/map-{map}.json")))?)?;
+        let (_, assets) = document::capture_scene(&mut snapshot, map, || false)?;
         let mut field = configured(destination, map, |entry| {
             if let Some((address, value)) = mission {
                 entry
@@ -723,7 +730,9 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
         &package,
         resonance_game::field::FieldEntry {
             persistent,
-            data: Some(Arc::new(package.files.json("game/session-data.json")?)),
+            data: Some(Arc::new(resonance_content::session::SessionData::load(
+                &package.files,
+            )?)),
             available_fields: new_game::available_fields(&root)?,
             position: [-400., 2600., 913.],
             ..Default::default()
@@ -1170,14 +1179,13 @@ fn iselia_first_tutorial_skips_both_battles_and_enters_the_overworld() -> Result
     let request = field.events.world.world_transition.as_ref().unwrap();
     assert_eq!((request.location, request.direction), (2, 6));
     let root = assets_root()?;
-    let mut cache = Default::default();
-    let package = resonance_game::overworld::Prepared::load(
+    let package = crate::overworld::Package::prepare(
         &root,
-        resonance_content::prepared::Files::load(&root, &[], &mut cache, || false)?,
-        &mut cache,
-        new_game::available_fields(&root)?,
+        &mut Default::default(),
         || false,
-    )?;
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?
+    .world;
     let progress = field.events.persistent_state()?;
     let formation = progress.party.as_ref().unwrap().formation.clone();
     let mut world = resonance_game::overworld::Session::return_from_field(

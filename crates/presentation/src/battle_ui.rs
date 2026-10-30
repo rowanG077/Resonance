@@ -171,7 +171,8 @@ impl Artwork {
         nearest.sampler = ImageSampler::nearest();
         let nearest = image_assets.add(nearest);
         let white = image_assets.add(white);
-        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        let mut dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        dialogue.prepare_images(&read)?;
         dialogue.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
         font.validate()?;
@@ -781,6 +782,7 @@ impl Artwork {
 #[cfg(test)]
 fn test_artwork() -> Result<(Artwork, Assets<Surface>, App)> {
     test_artwork_with(
+        resonance_content::battle_ui::document::PATH,
         |_| {},
         &resonance_content::diagnostics::Diagnostics::new(true),
     )
@@ -788,30 +790,33 @@ fn test_artwork() -> Result<(Artwork, Assets<Surface>, App)> {
 
 #[cfg(test)]
 fn test_artwork_with(
+    document_path: &str,
     edit: impl FnOnce(&mut serde_json::Value),
     diagnostics: &resonance_content::diagnostics::Diagnostics,
 ) -> Result<(Artwork, Assets<Surface>, App)> {
     let root = fixtures::asset_root();
-    let mut document: serde_json::Value = serde_json::from_slice(&std::fs::read(
-        root.join(resonance_content::battle_ui::PATH),
-    )?)?;
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join(document_path))?)?;
     edit(&mut document);
-    let mut files = resonance_content::prepared::Files::new(diagnostics.clone());
-    files.insert(
-        resonance_content::battle_ui::PATH.into(),
-        serde_json::to_vec(&document)?.into(),
-    );
-    for portrait in document["portraits"].as_array().into_iter().flatten() {
-        if let Some(path) = portrait["path"].as_str()
-            && let Ok(bytes) = std::fs::read(root.join(path))
-        {
-            files.insert(path.into(), bytes.into());
-        }
-    }
-    let art = Art::load(&files)?;
-    let menu_data: std::sync::Arc<resonance_content::menu_data::MenuData> = std::sync::Arc::new(
-        serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json"))?)?,
-    );
+    let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+    resonance_content::preparation::gameplay(&mut snapshot, diagnostics, &|| false)?;
+    let files =
+        resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics.clone())?;
+    let art = resonance_content::battle_ui::document::read(
+        &mut |path| {
+            if path == document_path {
+                return Ok(serde_json::to_vec(&document)?.into());
+            }
+            Ok(std::fs::read(root.join(path))?.into())
+        },
+        diagnostics,
+    )?;
+    let session = std::sync::Arc::new(resonance_content::session::SessionData::load(&files)?);
+    let menu_data = session
+        .rules
+        .as_ref()
+        .context("missing session rules")?
+        .clone();
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
@@ -829,15 +834,18 @@ fn test_artwork_with(
     let mut artwork = Artwork::load(
         art,
         menu_data,
-        std::sync::Arc::new(serde_json::from_slice(&std::fs::read(
-            root.join("game/session-data.json"),
-        )?)?),
+        session,
         |path| {
             ensure!(
                 ![
-                    resonance_content::battle_ui::PATH,
-                    "game/menu-data.json",
-                    "game/session-data.json",
+                    resonance_content::battle_ui::document::PATH,
+                    resonance_content::menu_data::GRADE_SHOP_PATH,
+                    resonance_content::menu_data::CRAFTING_PATH,
+                    resonance_content::menu_data::WORLD_MAP_PATH,
+                    resonance_content::menu_data::PRESENTATION_PATH,
+                    resonance_content::menu_data::MONSTER_BOOK_PATH,
+                    resonance_content::characters::PATH,
+                    resonance_content::items::PATH,
                 ]
                 .contains(&path),
                 "HUD reread a prepared descriptor"
@@ -899,15 +907,16 @@ fn required_fonts_decode_before_hud_activation() -> Result<()> {
     let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
     assert!(
         test_artwork_with(
-            |art| art["font"]["texture"] = serde_json::json!("ui/dialogue.json"),
+            resonance_content::battle_ui::document::FONT,
+            |font| font["texture"] = serde_json::json!("ui/dialogue.json"),
             &diagnostics
         )
         .is_err()
     );
     assert!(
         test_artwork_with(
-            |art| art["font"]["width"] =
-                serde_json::json!(art["font"]["width"].as_u64().unwrap() + 1),
+            resonance_content::battle_ui::document::FONT,
+            |font| font["width"] = serde_json::json!(font["width"].as_u64().unwrap() + 1),
             &diagnostics
         )
         .is_err()

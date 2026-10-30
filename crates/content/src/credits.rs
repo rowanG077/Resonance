@@ -2,9 +2,9 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-pub const PATH: &str = "game/credits.json";
+pub mod document;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Manifest {
     pub program: Credits,
     pub pictures: Vec<crate::font::UiTexture>,
@@ -13,12 +13,17 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    pub fn load(files: &crate::prepared::Files) -> Result<Self> {
+        let definition: document::Definition = files.json(document::PATH)?;
+        definition.prepare(|path| files.read(path))
+    }
+
+    pub fn captured(files: &crate::prepared::Files) -> bool {
+        files.contains_key(document::PATH)
+    }
+
     pub fn validate(&self) -> Result<()> {
         let p = &self.program;
-        ensure!(
-            p.version == 1 && p.canvas == [640, 480],
-            "invalid credits canvas"
-        );
         ensure!(
             p.style.glyph_size.iter().all(|&v| v > 0) && p.style.line_height > 0,
             "invalid credits text size"
@@ -46,8 +51,6 @@ impl Manifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credits {
-    pub version: u8,
-    pub canvas: [u16; 2],
     pub style: Style,
     pub scroll: Scroll,
     pub operations: Vec<Operation>,
@@ -87,6 +90,10 @@ pub enum Operation {
     /// Draw at the current cursor without advancing it.
     Picture {
         index: u8,
+    },
+    /// Horizontal image placement in the prepared layout, measured in pixels.
+    PositionX {
+        pixels: f32,
     },
     /// Reserved controls without a layout operation.
     IgnoredControl {

@@ -479,7 +479,8 @@ impl CastRun {
                 let resumed = memory.interrupted.filter(|&(action, remaining)| {
                     traits.spell_save && action == sequence.action && remaining > 0
                 });
-                let profile_ticks = i64::from(definition.profile_ticks);
+                let cast_base = battle.runtime[actor.index()].enemy_cast_base_ticks;
+                let profile_ticks = i64::from(cast_base.unwrap_or(definition.profile_ticks));
                 let mut reduction = 0;
                 if owner.overlimit.is_active() {
                     reduction += profile_ticks.div_euclid(2);
@@ -493,7 +494,10 @@ impl CastRun {
                 if traits.reprise && memory.previous_spell == Some(sequence.action) {
                     reduction += profile_ticks.div_euclid(2);
                 }
-                let mut duration = i64::from(definition.duration) - reduction;
+                let duration = cast_base.map_or(i64::from(definition.duration), |base| {
+                    (i64::from(base) + i64::from(definition.spell_ticks)).max(0)
+                });
+                let mut duration = duration - reduction;
                 if duration != 0
                     && owner
                         .conditions

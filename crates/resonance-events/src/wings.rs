@@ -45,7 +45,7 @@ impl Wings {
     pub const LAYERS: u8 = 3;
     pub const FLIGHT_RATE: f32 = 0.002;
     pub const FLIGHT_TILT: [i32; 2] = [-180, -90];
-    pub const ATTACHMENT_BONE: &'static str = "Bone_sebone03";
+    pub const ATTACHMENT_BONE: &'static str = "spine-03";
 
     pub fn new(style: WingStyle) -> Self {
         Self {

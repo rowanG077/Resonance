@@ -14,7 +14,7 @@ pub(crate) struct Resources<'a> {
     pub unison: &'a resonance_content::battle_unison::Catalogue,
     pub recoil: &'a battle::recoil::Parameters,
     pub party_null_motions: BTreeMap<battle::party::Character, &'a BTreeSet<u16>>,
-    pub projectiles: resonance_content::battle_projectile::Table,
+    pub projectiles: &'a resonance_content::battle_projectile::Table,
     pub tints: Option<&'a battle_effect::Tints>,
     pub voices: &'a battle::voice::Resolver<'a>,
     pub common: EffectResource,
@@ -128,7 +128,7 @@ impl Resources<'_> {
                     let cast = Arc::make_mut(&mut cast);
                     cast.release_pose = stored_cast_pose(
                         model,
-                        self.voices.profile(source)?.cast_poses,
+                        self.voices.profile(source)?.casting,
                         null_motions,
                         cast.release.transition_ticks,
                     )?;
@@ -138,7 +138,7 @@ impl Resources<'_> {
                     let profile = self.voices.profile(source)?;
                     Arc::make_mut(&mut cast).release_pose = anticipated_cast_pose(
                         model,
-                        profile.cast_poses,
+                        profile.casting,
                         !profile.traits.body_motion_disabled,
                     )?;
                 }
@@ -177,7 +177,7 @@ impl Resources<'_> {
                 battle::fire_ball::CATALOGUE | battle::fire_ball::KNIGHT_CATALOGUE => {
                     battle::fire_ball::prepare(
                         self.files,
-                        &self.projectiles,
+                        self.projectiles,
                         &self.techniques,
                         &mut self.prepared,
                         (self.sound)(battle::voice::Sound::Cue(81))?,
@@ -186,7 +186,7 @@ impl Resources<'_> {
                 _ if battle::support_spells::native(technique).is_some() => {
                     battle::support_spells::prepare(
                         technique,
-                        &self.projectiles,
+                        self.projectiles,
                         &self.techniques,
                         &mut self.prepared,
                     )?
@@ -226,7 +226,7 @@ impl Resources<'_> {
                 _ if battle::resident_spells::source_spell(technique).is_some() => {
                     battle::resident_spells::prepare(
                         self.files,
-                        &self.projectiles,
+                        self.projectiles,
                         technique,
                         &self.techniques,
                         &mut self.prepared,
@@ -343,10 +343,10 @@ impl Resources<'_> {
                 incantation_lead,
                 chant: vec![],
                 duration: cast_ticks.unwrap_or_else(|| {
-                    (i64::from(profile.cast_ticks) + i64::from(rule.cast_time_adjustment)).max(0)
-                        as u32
+                    (i64::from(profile.casting.base_ticks) + i64::from(rule.cast_time_adjustment))
+                        .max(0) as u32
                 }),
-                profile_ticks: profile.cast_ticks,
+                profile_ticks: profile.casting.base_ticks,
                 spell_ticks: rule.cast_time_adjustment,
                 fixed_timing: rule.casting.fixed_timing,
                 recovery: u32::try_from(rule.recovery_ticks)
@@ -403,7 +403,7 @@ pub(super) struct PartyActions {
 /// Automatic casters begin their resident release gesture before payment.
 pub(crate) fn anticipated_cast_pose(
     model: Option<&ModelDefinition>,
-    poses: resonance_content::battle_profile::CastPoses,
+    poses: resonance_content::battle_profile::Casting,
     body_motion: bool,
 ) -> Result<resonance_battle::CastReleasePose> {
     let release = if let Some(model) = model
@@ -411,7 +411,7 @@ pub(crate) fn anticipated_cast_pose(
         && model.reactions.cast.is_some()
     {
         const RELEASE_START_UPDATES: f32 = 4.;
-        let pose = poses.release;
+        let pose = poses.release();
         anyhow::ensure!(
             pose.rate.is_finite() && pose.rate > 0.,
             "casting release rate must be positive"
@@ -432,12 +432,12 @@ pub(crate) fn anticipated_cast_pose(
 /// Both actor kinds use the same opening-to-release schedule for stored spells.
 pub(crate) fn stored_cast_pose(
     model: &ModelDefinition,
-    poses: resonance_content::battle_profile::CastPoses,
+    poses: resonance_content::battle_profile::Casting,
     null_motions: &BTreeSet<u16>,
     transition_ticks: u16,
 ) -> Result<resonance_battle::CastReleasePose> {
     // Empty poses retain ownership so the current animation keeps advancing.
-    if null_motions.contains(&poses.opening.clip) && null_motions.contains(&poses.release.clip) {
+    if null_motions.contains(&poses.opening_clip) && null_motions.contains(&poses.release_clip) {
         return Ok(resonance_battle::CastReleasePose::Scene {
             opening: None,
             release: None,
@@ -448,10 +448,10 @@ pub(crate) fn stored_cast_pose(
     let bind = |pose: resonance_content::battle_action::ActionPose| -> Result<_> {
         battle::model::action_pose(Some(model), pose).context("stored spell pose is not prepared")
     };
-    let opening = (!null_motions.contains(&poses.opening.clip))
-        .then(|| bind(poses.opening))
+    let opening = (!null_motions.contains(&poses.opening_clip))
+        .then(|| bind(poses.opening()))
         .transpose()?;
-    let release = bind(poses.release)?;
+    let release = bind(poses.release())?;
     let duration = model.motions[&release.motion.clip].duration_frames;
     anyhow::ensure!(
         poses.release_loop_start.is_finite()

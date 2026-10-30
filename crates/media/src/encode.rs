@@ -12,6 +12,16 @@ use std::{io::Write, time::Duration};
 
 pub const AUDIO_BLOCK: usize = 1024;
 
+/// Playback selects the first soundtrack. Other tracks retain their order;
+/// their language or mix cannot be inferred from that order.
+pub fn soundtrack_name(index: usize) -> String {
+    if index == 0 {
+        "Main soundtrack".into()
+    } else {
+        format!("Alternate {index}")
+    }
+}
+
 // Definite-length EBML elements; only the outer streaming Segment has unknown
 // size. Each packet gets a Cluster, so block timecodes never overflow i16.
 fn element(id: u32, bytes: &[u8]) -> Vec<u8> {
@@ -142,7 +152,7 @@ impl<W: Write> MovieWriter<W> {
                     uint(0x73c5, id),
                     uint(0x83, 2),
                     uint(0x9c, 0),
-                    element(0x536e, format!("Source stream {}", index + 1).as_bytes()),
+                    element(0x536e, soundtrack_name(index).as_bytes()),
                     element(0x86, b"A_FLAC"),
                     element(0x63a2, &private),
                     master(

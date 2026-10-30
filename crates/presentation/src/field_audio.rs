@@ -1,9 +1,13 @@
-//! Field audio adapter: cooked scores, live cue lifetimes and spoken lines.
+//! Field audio adapter: recorded music, live cue lifetimes and spoken lines.
 //! The same source feeds Bevy and the device-free recorder.
 use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
 #[path = "battle_audio.rs"]
 pub(crate) mod battle;
+mod music;
+#[cfg(test)]
+mod named_tests;
+use music::MusicPlayer;
 #[path = "field_audio_record.rs"]
 mod record;
 #[path = "field_audio_validation.rs"]
@@ -14,28 +18,25 @@ mod voice_tests;
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
 pub use record::record_field_audio;
+#[cfg(test)]
+use resonance_audio::package::Loaded;
 use resonance_audio::{
     BLOCK_FRAMES, CONTROL_FRAMES, CONTROLS_PER_BLOCK,
-    package::{Loaded, Package},
+    effect::{Definition as EffectDefinition, Prepared as PreparedEffect, Stream},
     reverb::Studio,
-    sequence::{BusFrame, LiveControls, shared::Synthesizer, stream::Stream},
+    sequence::{BusFrame, LiveControls, shared::Synthesizer},
     volume::Fade,
 };
-use resonance_content::{
-    diagnostics::Diagnostics,
-    field_audio::{
-        Asset as Reference, DecodedBank, FieldAudio,
-        MAX_MANIFEST_BYTES as MAX_AUDIO_MANIFEST_BYTES, MusicReverbs,
-    },
-    field_preload::Role as AudioRole,
-};
+use resonance_content::{diagnostics::Diagnostics, field_audio::MusicReverbs};
 use resonance_events::{AudioCommand, MusicCommand};
 use resonance_game::clock::{UPDATE_RATE_DENOMINATOR, UPDATE_RATE_NUMERATOR};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::fs;
 use std::{
     collections::{BTreeMap, VecDeque},
-    fs,
-    io::{Cursor, Read},
+    io::Cursor,
     path::Path,
     sync::{
         Arc, Mutex,
@@ -59,6 +60,33 @@ pub(super) struct Clip {
     channels: usize,
 }
 impl Clip {
+    fn capture(
+        voice: &resonance_content::field_audio::Voice,
+        read: &mut impl FnMut(&str, usize) -> Result<Arc<[u8]>>,
+    ) -> Result<Arc<Self>> {
+        voice.validate()?;
+        let count = voice.frames as usize * usize::from(voice.channels);
+        let bytes = read(&voice.path, count * 2 + 1024 * 1024)?;
+        Ok(Arc::new(Self::prepare(bytes, voice)?))
+    }
+
+    fn silence(
+        clock: resonance_content::field_audio::speech::Clock,
+        rate: Option<u32>,
+    ) -> Result<Self> {
+        clock.validate()?;
+        let rate = rate.unwrap_or(clock.sample_rate);
+        ensure!(
+            (8000..=96000).contains(&rate),
+            "invalid silence playback rate"
+        );
+        Ok(Self {
+            bytes: Arc::from([]),
+            data: 0..clock.frames as usize * usize::from(clock.channels) * 2,
+            rate,
+            channels: usize::from(clock.channels),
+        })
+    }
     pub(super) fn prepare(
         bytes: Arc<[u8]>,
         voice: &resonance_content::field_audio::Voice,
@@ -100,6 +128,9 @@ impl Clip {
     }
 
     fn value(&self, sample: usize) -> i16 {
+        if self.bytes.is_empty() {
+            return 0;
+        }
         let index = self.data.start + sample * 2;
         i16::from_le_bytes([self.bytes[index], self.bytes[index + 1]])
     }
@@ -135,17 +166,23 @@ fn test_clip(samples: impl IntoIterator<Item = i16>, rate: u32, channels: usize)
     }
 }
 #[cfg(test)]
-pub(crate) fn test_score() -> Arc<Loaded> {
+pub(crate) fn test_score() -> Arc<PreparedEffect> {
     test_score_kind(resonance_audio::data::ScoreOrigin::SoundEffect)
 }
 #[cfg(test)]
-pub(crate) fn test_music() -> Arc<Loaded> {
-    test_score_kind(resonance_audio::data::ScoreOrigin::Sequence)
+pub(crate) fn test_music() -> Arc<crate::audio::Recording> {
+    crate::audio::Recording::test(&[[12000; 2]; 160], Some(0..160))
+        .unwrap()
+        .0
 }
 #[cfg(test)]
-fn test_score_kind(origin: resonance_audio::data::ScoreOrigin) -> Arc<Loaded> {
+fn test_score_kind(origin: resonance_audio::data::ScoreOrigin) -> Arc<PreparedEffect> {
     let (resources, score, tables) = test_score_data(origin);
-    Arc::new(Loaded::new(resources, score, tables, [[0.5, 0.5, 1., 0.5, 0.]; 2]).unwrap())
+    Arc::new(
+        Loaded::new(resources, score, tables, [[0.5, 0.5, 1., 0.5, 0.]; 2])
+            .unwrap()
+            .into(),
+    )
 }
 #[cfg(test)]
 pub(crate) fn test_score_data(
@@ -203,8 +240,8 @@ pub(crate) fn test_score_data(
 #[derive(Clone)]
 pub(super) struct Assets {
     diagnostics: Diagnostics,
-    music: BTreeMap<i16, Arc<Loaded>>,
-    sounds: BTreeMap<i16, Arc<Loaded>>,
+    recordings: BTreeMap<i16, Arc<crate::audio::Recording>>,
+    sounds: BTreeMap<i16, Arc<PreparedEffect>>,
     voices: BTreeMap<u32, Arc<Clip>>,
     voice_gains: [f32; 128],
     reverbs: [[f32; 5]; 2],
@@ -213,168 +250,158 @@ pub(super) struct Assets {
 
 #[derive(Default)]
 pub(super) struct Cache {
-    manifests: Option<(String, Arc<DecodedBank>)>,
-    skits: Option<(String, Arc<resonance_content::skit::SkitCatalog>)>,
-    packages: BTreeMap<String, CachedPackage>,
-    voices: BTreeMap<(String, u32, u32, u32, u16), std::sync::Weak<Clip>>,
     samples: resonance_audio::package::SampleCache,
 }
 
-struct CachedPackage {
-    loaded: std::sync::Weak<Loaded>,
-    samples: Vec<(Reference, usize)>,
-}
-fn prepared_json<T: serde::de::DeserializeOwned>(
-    files: &resonance_content::prepared::Files,
-    path: &str,
-    cache: &mut Option<(String, Arc<T>)>,
-) -> Result<Arc<T>> {
-    let digest = files.digest(path)?;
-    let bytes = files.read_verified(path, digest, MAX_AUDIO_MANIFEST_BYTES)?;
-    if let Some((cached_digest, value)) = cache
-        && cached_digest.as_str() == digest
-    {
-        return Ok(Arc::clone(value));
-    }
-    let value = Arc::new(serde_json::from_slice(&bytes).with_context(|| format!("decode {path}"))?);
-    *cache = Some((digest.to_owned(), Arc::clone(&value)));
-    Ok(value)
-}
 impl Cache {
-    fn prune(&mut self) {
-        self.packages
-            .retain(|_, package| package.loaded.strong_count() != 0);
-        self.voices.retain(|_, voice| voice.strong_count() != 0);
-        self.samples.prune();
+    /// Prepare an editable bank from the same snapshot as its field. All nested
+    /// program/sample paths are discovered here; no persisted inventory or
+    /// declared digest is consulted.
+    pub(crate) fn capture_named(
+        &mut self,
+        definition: &resonance_content::field_audio::document::Definition,
+        snapshot: &mut resonance_content::library::Snapshot,
+        diagnostics: Diagnostics,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Arc<Assets>> {
+        ensure!(!cancelled(), "audio preparation cancelled");
+        let environment = definition.environment(snapshot)?;
+        let resolved = definition.resolve(snapshot).context("audio choices")?;
+        self.capture_resolved(&environment, resolved, snapshot, diagnostics, &cancelled)
     }
 
-    pub fn load(
+    pub(crate) fn capture_resolved(
         &mut self,
-        manifest: &str,
-        files: &resonance_content::prepared::Files,
+        definition: &resonance_content::field_audio::mix::Environment,
+        resolved: resonance_content::field_audio::document::Resolved,
+        snapshot: &mut resonance_content::library::Snapshot,
+        diagnostics: Diagnostics,
+        cancelled: &impl Fn() -> bool,
     ) -> Result<Arc<Assets>> {
-        self.prune();
-        let diagnostics = files.diagnostics().clone();
-        let Some(manifest) = diagnostics.attempt(
-            "field audio manifest",
-            prepared_json(files, manifest, &mut self.manifests),
-        )?
-        else {
-            return Ok(Arc::new(Assets::silent(diagnostics)));
+        ensure!(!cancelled(), "audio preparation cancelled");
+        self.samples.prune();
+        let mut assets = Assets {
+            voice_gains: definition.voice_gains,
+            reverbs: definition.reverbs,
+            music_reverbs: Some(definition.music_reverbs.clone()),
+            ..Assets::silent(diagnostics.clone())
         };
-        let manifest = manifest.checked(&diagnostics)?;
-        let skits = diagnostics.attempt(
-            "field skit voices",
-            prepared_json(files, "game/skits.json", &mut self.skits),
-        )?;
-        let mut read =
-            |asset: &Reference, limit, _| files.read_verified(&asset.path, &asset.sha256, limit);
-        let mut assets = Assets::load_contents(manifest, diagnostics, self, &mut read)?;
-        if let Some(skits) = skits {
-            assets.load_voices(
-                skits
-                    .media
-                    .iter()
-                    .filter_map(|(&id, media)| media.voice.as_ref().map(|voice| (id, voice))),
-                self,
-                &mut read,
-            )?;
+        for (id, path) in resolved.music {
+            ensure!(!cancelled(), "audio preparation cancelled");
+            let prepared = crate::audio::Recording::capture(snapshot, &path, cancelled)
+                .with_context(|| format!("music resource {id}: {path}"));
+            ensure!(!cancelled(), "audio preparation cancelled");
+            if let Some(recording) = diagnostics.attempt("music resource", prepared)? {
+                assets.recordings.insert(id, recording);
+            }
+        }
+        let mut effects_by_path = BTreeMap::<String, Arc<PreparedEffect>>::new();
+        for (id, path) in resolved.effects {
+            if let Some(effect) = effects_by_path.get(&path) {
+                assets.sounds.insert(id, effect.clone());
+                continue;
+            }
+            ensure!(!cancelled(), "audio preparation cancelled");
+            let prepared = (|| -> Result<_> {
+                let program =
+                    EffectDefinition::read(&path, &mut |path, limit| snapshot.read(path, limit))?;
+                Ok(Arc::new(program.prepare_in(
+                    Some(definition.reverbs),
+                    &mut |path, limit| {
+                        ensure!(!cancelled(), "audio preparation cancelled");
+                        snapshot.read(path, limit)
+                    },
+                    &mut self.samples,
+                )?))
+            })()
+            .with_context(|| format!("audio resource {id}: {path}"));
+            ensure!(!cancelled(), "audio preparation cancelled");
+            if let Some(package) = diagnostics.attempt("audio resource", prepared)? {
+                effects_by_path.insert(path, package.clone());
+                assets.sounds.insert(id, package);
+            }
+        }
+        let mut voices_by_path = BTreeMap::<(String, Option<u32>), Arc<Clip>>::new();
+        for (id, voice) in resolved.voices {
+            use resonance_content::field_audio::speech::Source;
+            let path = match &voice.source {
+                Source::Wave(path) => path,
+                Source::Silence { silence, .. } => {
+                    assets
+                        .voices
+                        .insert(id, Arc::new(Clip::silence(*silence, voice.sample_rate)?));
+                    continue;
+                }
+            };
+            let key = (path.clone(), voice.sample_rate);
+            if let Some(clip) = voices_by_path.get(&key) {
+                assets.voices.insert(id, clip.clone());
+                continue;
+            }
+            ensure!(!cancelled(), "audio preparation cancelled");
+            let prepared = (|| -> Result<_> {
+                let bytes = snapshot.read(path, 129 * 1024 * 1024)?;
+                let metadata = resonance_content::field_audio::Voice::from_wave(
+                    path,
+                    voice.sample_rate,
+                    &bytes,
+                )?;
+                Clip::capture(&metadata, &mut |reference, limit| {
+                    snapshot.read(reference, limit)
+                })
+            })()
+            .with_context(|| format!("speech {id}: {path}"));
+            ensure!(!cancelled(), "audio preparation cancelled");
+            if let Some(clip) = diagnostics.attempt("speech", prepared)? {
+                voices_by_path.insert(key, clip.clone());
+                assets.voices.insert(id, clip);
+            }
         }
         Ok(Arc::new(assets))
     }
-    fn package(
-        &mut self,
-        asset: &Reference,
-        read: &mut impl FnMut(&Reference, usize, AudioRole) -> Result<Arc<[u8]>>,
-    ) -> Result<Arc<Loaded>> {
-        asset.validate()?;
-        let bytes = read(asset, MAX_AUDIO_MANIFEST_BYTES, AudioRole::AudioPackage)?;
-        if let Some(cached) = self.packages.get(&asset.sha256)
-            && let Some(loaded) = cached.loaded.upgrade()
-        {
-            for (sample, limit) in &cached.samples {
-                read(sample, *limit, AudioRole::InstrumentSample)?;
-            }
-            return Ok(loaded);
-        }
-        let package: Package = serde_json::from_slice(&bytes)?;
-        let mut samples = Vec::new();
-        let loaded = Arc::new(package.prepare(
-            &mut |sample, limit| {
-                let reference = Reference {
-                    path: sample.path.clone(),
-                    sha256: sample.sha256.clone(),
-                };
-                let bytes = read(&reference, limit, AudioRole::InstrumentSample)?;
-                samples.push((reference, limit));
-                Ok(bytes)
-            },
-            &mut self.samples,
-        )?);
-        self.packages.insert(
-            asset.sha256.clone(),
-            CachedPackage {
-                loaded: Arc::downgrade(&loaded),
-                samples,
-            },
-        );
-        Ok(loaded)
-    }
-    fn voice(
-        &mut self,
-        voice: &resonance_content::field_audio::Voice,
-        read: &mut impl FnMut(&Reference, usize, AudioRole) -> Result<Arc<[u8]>>,
-    ) -> Result<Arc<Clip>> {
-        voice.validate()?;
-        let count = voice.frames as usize * usize::from(voice.channels);
-        let bytes = read(&voice.asset, count * 2 + 1024 * 1024, AudioRole::Voice)?;
-        let key = (
-            voice.asset.sha256.clone(),
-            voice.frames,
-            voice.sample_rate,
-            voice.source_sample_rate,
-            voice.channels,
-        );
-        if let Some(clip) = self.voices.get(&key).and_then(std::sync::Weak::upgrade) {
-            return Ok(clip);
-        }
-        let clip = Arc::new(Clip::prepare(bytes, voice)?);
-        self.voices.insert(key, Arc::downgrade(&clip));
-        Ok(clip)
-    }
 }
-fn disk_bytes(path: &Path, limit: usize) -> Result<Vec<u8>> {
-    let file = fs::File::open(path)?;
-    ensure!(
-        file.metadata()?.len() <= limit as u64,
-        "audio resource exceeds read budget"
-    );
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= limit, "audio resource exceeds read budget");
-    Ok(bytes)
-}
-fn disk_asset(root: &Path, asset: &Reference, limit: usize) -> Result<Arc<[u8]>> {
-    asset.validate()?;
-    let bytes = disk_bytes(&root.join(&asset.path), limit)?;
-    ensure!(
-        format!("{:x}", Sha256::digest(&bytes)) == asset.sha256,
-        "audio resource digest differs: {}",
-        asset.path
-    );
-    Ok(bytes.into())
-}
+
 impl Assets {
+    /// Skit clocks and voices have already been resolved from this snapshot.
+    /// Decode the current bytes into the same bank used by ordinary dialogue.
+    pub(crate) fn capture_skits(
+        &mut self,
+        skits: &resonance_content::skit::SkitCatalog,
+        snapshot: &mut resonance_content::library::Snapshot,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<()> {
+        for (&id, voice) in skits
+            .media
+            .iter()
+            .filter_map(|(id, media)| media.voice.as_ref().map(|voice| (id, voice)))
+        {
+            ensure!(!cancelled(), "skit audio preparation cancelled");
+            let result = Clip::capture(voice, &mut |reference, limit| {
+                snapshot.read(reference, limit)
+            })
+            .with_context(|| format!("skit speech {id}: {}", voice.path));
+            ensure!(!cancelled(), "skit audio preparation cancelled");
+            if let Some(clip) = self.diagnostics.attempt("skit speech", result)? {
+                self.voices.insert(id, clip);
+            }
+        }
+        ensure!(!cancelled(), "skit audio preparation cancelled");
+        Ok(())
+    }
+
     fn silent(diagnostics: Diagnostics) -> Self {
         Self {
             diagnostics,
-            music: BTreeMap::new(),
+            recordings: BTreeMap::new(),
             sounds: BTreeMap::new(),
             voices: BTreeMap::new(),
             voice_gains: [0.; 128],
             reverbs: [[0., 0., 0.01, 0., 0.]; 2],
             music_reverbs: None,
         }
+    }
+    fn contains_music(&self, id: &i16) -> bool {
+        self.recordings.contains_key(id)
     }
     pub fn voice_durations(&self) -> Arc<BTreeMap<u32, u32>> {
         Arc::new(
@@ -392,113 +419,18 @@ impl Assets {
         )
     }
     pub fn load(root: &Path, map: u32) -> Result<Self> {
-        Self::load_disk(
-            root,
-            &resonance_content::field::audio_path(map),
-            &mut Cache::default(),
-        )
-    }
-    fn load_disk(root: &Path, manifest: &str, cache: &mut Cache) -> Result<Self> {
-        resonance_content::validate_asset_path(manifest)?;
-        let manifest: DecodedBank =
-            serde_json::from_slice(&disk_bytes(&root.join(manifest), MAX_AUDIO_MANIFEST_BYTES)?)?;
-        let diagnostics = Diagnostics::new(true);
-        Self::load_contents(
-            manifest.checked(&diagnostics)?,
-            diagnostics,
-            cache,
-            &mut |asset, limit, _| disk_asset(root, asset, limit),
-        )
-    }
-    fn load_contents(
-        manifest: &FieldAudio,
-        diagnostics: Diagnostics,
-        cache: &mut Cache,
-        read: &mut impl FnMut(&Reference, usize, AudioRole) -> Result<Arc<[u8]>>,
-    ) -> Result<Self> {
-        cache.prune();
-        if diagnostics
-            .attempt("field audio schema", manifest.validate_header())?
-            .is_none()
-        {
-            return Ok(Self::silent(diagnostics));
-        }
-        let voice_gains = diagnostics
-            .attempt("audio voice levels", manifest.validated_voice_gains())?
-            .unwrap_or_else(|| std::array::from_fn(|level| level as f32 / 127.));
-        let mut reverbs: Option<[[f32; 5]; 2]> = None;
-        let mut packages = |references: &BTreeMap<i16, Reference>,
-                            music: bool|
-         -> Result<BTreeMap<i16, Arc<Loaded>>> {
-            let mut loaded = BTreeMap::new();
-            for (&id, asset) in references {
-                let result = (|| -> Result<_> {
-                    let package = cache.package(asset, read)?;
-                    ensure!(
-                        !music
-                            || package.score().origin
-                                == resonance_audio::data::ScoreOrigin::Sequence,
-                        "music requires a sequence score"
-                    );
-                    ensure!(
-                        reverbs.is_none_or(|reverbs| package.reverbs()[1] == reverbs[1]),
-                        "field packages disagree on the initial auxiliary B effect"
-                    );
-                    reverbs = Some(package.reverbs());
-                    Ok(package)
-                })()
-                .with_context(|| format!("audio package {id}: {}", asset.path));
-                if let Some(package) = diagnostics.attempt("audio package", result)? {
-                    loaded.insert(id, package);
-                }
-            }
-            Ok(loaded)
-        };
-        let expects_scores = !manifest.music.is_empty() || !manifest.sounds.is_empty();
-        let music = packages(&manifest.music, true)?;
-        let sounds = packages(&manifest.sounds, false)?;
-        let reverbs = if expects_scores {
-            diagnostics.attempt(
-                "audio studio",
-                reverbs.context("field audio packages are missing"),
-            )?
-        } else {
-            reverbs
-        };
-        // A missing initial B configuration cannot establish a valid Studio.
-        let music_reverbs = reverbs.is_some().then(|| manifest.music_reverbs.clone());
-        let reverbs = reverbs.unwrap_or([[0., 0., 0.01, 0., 0.]; 2]);
-        let mut assets = Self {
-            diagnostics,
-            music,
-            sounds,
-            voices: BTreeMap::new(),
-            voice_gains,
-            reverbs,
-            music_reverbs,
-        };
-        assets.load_voices(
-            manifest.voices.iter().map(|(&id, voice)| (id, voice)),
-            cache,
-            read,
+        let mut snapshot = resonance_content::library::Library::open(root, &[])?.snapshot();
+        let path = snapshot.field(map)?;
+        let field: resonance_content::field::document::Definition =
+            snapshot.json(&path, 1024 * 1024)?;
+        field.validate()?;
+        let assets = Cache::default().capture_named(
+            &field.audio,
+            &mut snapshot,
+            Diagnostics::new(true),
+            || false,
         )?;
-        Ok(assets)
-    }
-    fn load_voices<'a>(
-        &mut self,
-        voices: impl IntoIterator<Item = (u32, &'a resonance_content::field_audio::Voice)>,
-        cache: &mut Cache,
-        read: &mut impl FnMut(&Reference, usize, AudioRole) -> Result<Arc<[u8]>>,
-    ) -> Result<()> {
-        for (id, voice) in voices {
-            let result = cache
-                .voice(voice, read)
-                .with_context(|| format!("spoken line {id}: {}", voice.asset.path));
-            if let Some(clip) = self.diagnostics.attempt("audio stream", result)? {
-                self.voices.insert(id, clip);
-            }
-        }
-        Ok(())
+        Ok((*assets).clone())
     }
     fn session(self: Arc<Self>) -> (FieldSource, Control) {
         let (send, receive) = mpsc::sync_channel(512);
@@ -629,7 +561,7 @@ impl Control {
     }
     fn movie(&mut self, active: bool) -> Result<()> {
         if active != self.movie_active {
-            // Scores keep advancing while muted; movie completion restores their gain over two seconds.
+            // Music keeps advancing while muted; movie completion restores its gain over two seconds.
             self.enqueue(Message::Movie(active))?;
             self.movie_active = active;
         }
@@ -683,14 +615,12 @@ struct ScorePlayer {
     controls: LiveControls,
     slot: Option<u16>,
     volume: f32,
-    repeat: Option<Arc<Loaded>>,
+    repeat: Option<Arc<PreparedEffect>>,
 }
 impl ScorePlayer {
-    fn new(package: Arc<Loaded>, looping: bool, synth: &Synthesizer) -> Result<Self> {
-        // One-shot music has no repeat traversal, just like a sound cue.
-        let looping = looping && !package.score().loop_events.is_empty();
+    fn new(package: Arc<PreparedEffect>, synth: &Synthesizer) -> Result<Self> {
         Ok(Self {
-            stream: Stream::in_synthesizer(package, looping, synth)?,
+            stream: Stream::in_synthesizer(package, synth)?,
             cue: None,
             controls: LiveControls::default(),
             slot: None,
@@ -720,7 +650,7 @@ impl ScorePlayer {
     }
 }
 struct Music {
-    player: ScorePlayer,
+    player: MusicPlayer,
     id: i16,
     fade: Fade,
 }
@@ -759,6 +689,7 @@ pub(super) struct Frames {
     studio: Studio,
     studio_initialized: bool,
     stream_block: [BusFrame; BLOCK_FRAMES],
+    music_block: [[f32; 2]; BLOCK_FRAMES],
     voice: Option<Spoken>,
     master: Fade,
     movie_active: bool,
@@ -854,14 +785,9 @@ impl Frames {
                     MusicCommand::Resume => self.background_music,
                     MusicCommand::Stop | MusicCommand::Suspend => None,
                 };
-                let package = selected
-                    .map(|id| {
-                        self.assets
-                            .music
-                            .get(&id)
-                            .with_context(|| format!("uncooked field music {id}"))
-                    })
-                    .transpose()?;
+                if let Some(id) = selected {
+                    ensure!(self.assets.contains_music(&id), "uncooked field music {id}");
+                }
                 match command {
                     MusicCommand::Play(_) | MusicCommand::Stop => self.background_music = selected,
                     MusicCommand::PlayJingle(_) | MusicCommand::Suspend | MusicCommand::Resume => {}
@@ -884,11 +810,12 @@ impl Frames {
                 } else {
                     None
                 };
-                let music = package
-                    .zip(selected)
-                    .map(|(package, id)| -> Result<_> {
+                let music = selected
+                    .map(|id| -> Result<_> {
+                        let recording = &self.assets.recordings[&id];
+                        let player = MusicPlayer::recording(recording)?;
                         Ok(Music {
-                            player: ScorePlayer::new(package.clone(), true, &self.synth)?,
+                            player,
                             id,
                             fade: Fade::new(0.0, 1.0, 100)?,
                         })
@@ -925,7 +852,6 @@ impl Frames {
                         .get(&id)
                         .with_context(|| format!("uncooked field sound {id}"))?
                         .clone(),
-                    false,
                     &self.synth,
                 )?;
                 sound.volume = f32::from(volume) / 127.0;
@@ -1038,6 +964,7 @@ impl Frames {
         }
         if self.frame.is_multiple_of(BLOCK_FRAMES as u64) {
             self.stream_block.fill([[0; 2]; 3]);
+            self.music_block.fill([0.; 2]);
             if let Some(battle) = &mut self.battle {
                 battle.prepare_stream_block(&mut self.stream_block, self.frame, &self.synth);
             }
@@ -1048,22 +975,26 @@ impl Frames {
         if let Some(battle) = &self.battle {
             levels[1..].copy_from_slice(&battle.event_audio_levels());
         }
-        let [music_level, effects_level, _] = levels.map(|v| f32::from(v) * (1. / 127.));
+        let effects_level = f32::from(levels[1]) / 127.;
         let voice_level = self.assets.voice_gains[usize::from(levels[2])];
         let diagnostics = self.assets.diagnostics.clone();
-        if let Some(music) = &mut self.music {
-            music.player.controls.mono = !self.stereo;
-            if diagnostics
+        if let Some(music) = &mut self.music
+            && diagnostics
                 .attempt(
                     "music playback",
-                    music.player.prepare_shared(|| {
-                        block_gains(master, Some(music.fade)).map(|v| v * music_level)
-                    }),
+                    music
+                        .player
+                        .prepare(
+                            block_gains(master, Some(music.fade))
+                                .map(|v| v * music.player.gain(levels[0])),
+                            self.frame,
+                            &mut self.music_block,
+                        )
+                        .with_context(|| format!("music {}", music.id)),
                 )?
                 .is_none()
-            {
-                self.music = None;
-            }
+        {
+            self.music = None;
         }
         let mut index = 0;
         while index < self.sounds.len() {
@@ -1087,12 +1018,12 @@ impl Frames {
         // The synthesizer has already retired only failed entries and prepared
         // the healthy players' current frame before reporting its errors.
         diagnostics.attempt("audio synthesizer", self.synth.advance())?;
-        if let Some(music) = &mut self.music {
-            music.player.controls.mono = !self.stereo;
-            match music.player.frame() {
-                Some(frame) => buses = frame,
-                None => self.music = None,
-            }
+        if self
+            .music
+            .as_ref()
+            .is_some_and(|music| music.player.finished(self.frame))
+        {
+            self.music = None;
         }
         if let Some(music) = &mut self.music {
             music.fade.advance(1);
@@ -1115,7 +1046,7 @@ impl Frames {
                 }
             } else {
                 if let Some(package) = &sound.repeat {
-                    let mut restarted = ScorePlayer::new(package.clone(), false, &self.synth)?;
+                    let mut restarted = ScorePlayer::new(package.clone(), &self.synth)?;
                     restarted.repeat = Some(package.clone());
                     restarted.cue = sound.cue;
                     restarted.slot = sound.slot;
@@ -1156,6 +1087,14 @@ impl Frames {
             .studio
             .process(buses)
             .map(|value| value as f32 / 32768.);
+        // Recorded music already contains its effects. A prepared block remains
+        // audible after a mid-block handoff, like the synthesizer's queued PCM.
+        for (target, music) in output
+            .iter_mut()
+            .zip(self.music_block[self.frame as usize % BLOCK_FRAMES])
+        {
+            *target += music;
+        }
         if let Some(voice) = &mut self.voice {
             if let Some(frame) = voice.next() {
                 for (target, value) in output.iter_mut().zip(frame) {
@@ -1245,6 +1184,7 @@ impl Decodable for FieldSource {
             studio: Studio::new(self.assets.reverbs).expect("validated field studio effects"),
             studio_initialized: self.assets.music_reverbs.is_some(),
             stream_block: [[[0; 2]; 3]; BLOCK_FRAMES],
+            music_block: [[0.; 2]; BLOCK_FRAMES],
             voice: None,
             master: Fade::new(1.0, 1.0, 0).unwrap(),
             movie_active: false,
@@ -1479,21 +1419,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires RESONANCE_WORLD_ASSETS; synthesizes native world music and vehicles without a device"]
+    #[ignore = "requires named RESONANCE_WORLD_ASSETS; plays recorded world music and native vehicle cues without a device"]
     fn original_world_music_and_vehicle_sounds_render_from_verified_assets() -> Result<()> {
         let root = std::path::PathBuf::from(
             std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
         );
-        let prepared = resonance_game::overworld::Prepared::load(
+        let package = crate::overworld::Package::prepare(
             &root,
-            resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || {
-                false
-            })?,
             &mut Default::default(),
-            (0..547).collect(),
             || false,
+            Diagnostics::new(true),
         )?;
-        let bank = Cache::default().load("worlds/audio.json", &prepared.files)?;
+        let bank = package.audio;
         for id in [2, 3, 4, 5] {
             let (source, control) = bank.clone().session();
             let mut frames = source.decoder();
@@ -1543,39 +1480,15 @@ mod tests {
         Ok(())
     }
 
-    pub(super) fn empty_prepared_files(
-        diagnostics: Diagnostics,
-    ) -> resonance_content::prepared::Files {
-        use resonance_content::field_preload::{SHARED_PATH, Shared, VERSION};
-        let root = tempfile::tempdir().unwrap();
-        std::fs::write(
-            root.path().join(SHARED_PATH),
-            serde_json::to_vec(&Shared::<resonance_content::field_preload::File> {
-                version: VERSION,
-                files: BTreeMap::new(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        let files = resonance_content::prepared::Files::load_with_diagnostics(
-            root.path(),
-            &[],
-            &mut Default::default(),
-            || false,
-            diagnostics,
-        );
-        files.unwrap()
-    }
-
     fn synthetic_assets() -> Assets {
         Assets {
             diagnostics: Diagnostics::new(true),
+            recordings: BTreeMap::new(),
             reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
             music_reverbs: Some(MusicReverbs {
-                presets: [[0.5, 0.5, 1., 0.5, 0.]; 2],
+                presets: vec![[0.5, 0.5, 1., 0.5, 0.]; 2],
                 selectors: vec![1; 112],
             }),
-            music: BTreeMap::new(),
             sounds: BTreeMap::new(),
             voices: BTreeMap::new(),
             voice_gains: [1.; 128],
@@ -1589,7 +1502,7 @@ mod tests {
             let mut assets = synthetic_assets();
             assets.diagnostics = Diagnostics::new(paranoid);
             let diagnostics = assets.diagnostics.clone();
-            assets.music.insert(0, test_music());
+            assets.recordings.insert(0, test_music());
             let (mut resources, mut score, tables) = test_score_data(ScoreOrigin::SoundEffect);
             resources.programs.insert(
                 1,
@@ -1604,7 +1517,7 @@ mod tests {
             *source = VoiceSource::SoundEffect { id: 9 };
             assets.sounds.insert(
                 9,
-                Arc::new(Loaded::new(resources, score, tables, assets.reverbs)?),
+                Arc::new(Loaded::new(resources, score, tables, assets.reverbs)?.into()),
             );
             let (source, control) = Arc::new(assets.clone()).session();
             let (reference, reference_control) = Arc::new(assets).session();
@@ -1637,31 +1550,6 @@ mod tests {
             assert_eq!(entries[0].occurrences, 1);
             assert!(entries[0].message.contains("instruction budget exhausted"));
         }
-        Ok(())
-    }
-
-    #[test]
-    fn descriptor_cache_shares_current_data_and_releases_replaced_data() -> Result<()> {
-        #[derive(serde::Deserialize)]
-        struct Descriptor {
-            value: u32,
-        }
-        let mut files = resonance_content::prepared::Files::default();
-        let path = "audio/descriptor.json";
-        files.insert(path.into(), br#"{"value":1}"#.as_slice().into());
-        let mut cached = None;
-        let first = prepared_json::<Descriptor>(&files, path, &mut cached)?;
-        let second = prepared_json(&files, path, &mut cached)?;
-        assert!(Arc::ptr_eq(&first, &second));
-        let previous = Arc::downgrade(&first);
-        drop(first);
-        drop(second);
-        files.insert(path.into(), br#"{"value":2}"#.as_slice().into());
-        let current = prepared_json(&files, path, &mut cached)?;
-        assert_eq!(current.value, 2);
-        assert!(previous.upgrade().is_none());
-        files.remove(path);
-        assert!(prepared_json(&files, path, &mut cached).is_err());
         Ok(())
     }
 
@@ -1849,7 +1737,7 @@ mod tests {
     #[test]
     fn music_replacement_does_not_compete_with_cue_wrappers() -> Result<()> {
         let mut assets = synthetic_assets();
-        assets.music = [(1, test_music()), (2, test_music())].into();
+        assets.recordings = [(1, test_music()), (2, test_music())].into();
         let presets = assets.music_reverbs.as_mut().unwrap();
         presets.presets[1] = [0.8, 0.7, 2., 0.4, 0.02];
         presets.selectors[2] = 2;
@@ -1861,7 +1749,7 @@ mod tests {
             frames.frame()?;
         }
         let held = (0..64)
-            .map(|_| ScorePlayer::new(test_score(), false, &frames.synth))
+            .map(|_| ScorePlayer::new(test_score(), &frames.synth))
             .collect::<Result<Vec<_>>>()?;
         control.send(AudioCommand::Music(resonance_events::MusicCommand::Play(2)))?;
         frames.frame()?;
@@ -1892,10 +1780,7 @@ mod tests {
         let bytes: Arc<[u8]> = wave.into_inner().into();
         (
             resonance_content::field_audio::Voice {
-                asset: Reference {
-                    path: "audio/valid.wav".into(),
-                    sha256: format!("{:x}", Sha256::digest(&bytes)),
-                },
+                path: "audio/valid.wav".into(),
                 frames: 1,
                 sample_rate: RATE,
                 source_sample_rate: RATE,
@@ -1971,121 +1856,94 @@ mod tests {
     }
 
     #[test]
-    fn missing_music_catalog_is_diagnosed_without_schema_fallback() {
-        for paranoid in [false, true] {
-            let diagnostics = Diagnostics::new(paranoid);
-            let mut files = empty_prepared_files(diagnostics.clone());
-            let value = serde_json::json!({"version":FieldAudio::VERSION,
-                "music":{},"sounds":{},"voices":{},
-                "voice_gains":(0..128).map(|v| v as f32 / 127.).collect::<Vec<_>>()});
-            files.insert(
-                "audio/missing-catalog.json".into(),
-                serde_json::to_vec(&value).unwrap().into(),
-            );
-            let loaded = Cache::default().load("audio/missing-catalog.json", &files);
-            if paranoid {
-                assert!(loaded.is_err());
-            } else {
-                let loaded = loaded.unwrap();
-                assert!(loaded.music.is_empty());
-                assert!(loaded.music_reverbs.is_none());
+    fn invalid_audio_headers_fail_before_loading_media() -> Result<()> {
+        use super::named_tests::{fixture, write};
+        let root = fixture()?;
+        let path = resonance_content::field_audio::mix::PATH;
+        let original: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.path().join(path))?)?;
+        // Header admission is structural, independent of optional media policy.
+        for defect in ["missing_catalogue", "invalid_reverb", "voice_gains"] {
+            let mut value = original.clone();
+            match defect {
+                "missing_catalogue" => {
+                    value.as_object_mut().unwrap().remove("music_reverbs");
+                }
+                "invalid_reverb" => value["reverbs"]["field"]["decay_seconds"] = (-1).into(),
+                _ => value["voice_gains"] = serde_json::json!([]),
             }
-            assert!(diagnostics.has_errors());
-        }
-    }
-
-    #[test]
-    fn music_binding_rejects_sound_effect_scores_without_discarding_other_audio() -> Result<()> {
-        let mut files = resonance_content::prepared::Files::default();
-        let mut references = Vec::new();
-        for (name, loaded) in [("music", test_music()), ("sound", test_score())] {
-            let path = format!("audio/{name}.json");
-            files.insert(
-                path.clone(),
-                serde_json::to_vec(&serde_json::json!({
-                    "version": resonance_audio::package::VERSION,
-                    "programs": {"1": [resonance_audio::data::Command::End]},
-                    "samples": {}, "score": loaded.score(), "tables": loaded.tables(),
-                    "reverbs": loaded.reverbs(),
-                }))?
-                .into(),
-            );
-            references.push(Reference {
-                sha256: files.digest(&path)?.into(),
-                path,
-            });
-        }
-        let manifest = FieldAudio {
-            version: FieldAudio::VERSION,
-            music_reverbs: synthetic_assets().music_reverbs.unwrap(),
-            music: [(1, references[0].clone()), (2, references[1].clone())].into(),
-            sounds: [(3, references[1].clone())].into(),
-            voices: BTreeMap::new(),
-            voice_gains: (0..128).map(|level| level as f32 / 127.).collect(),
-        };
-        for paranoid in [false, true] {
-            let diagnostics = Diagnostics::new(paranoid);
-            let loaded = Assets::load_contents(
-                &manifest,
-                diagnostics.clone(),
-                &mut Cache::default(),
-                &mut |asset, limit, _| files.read_verified(&asset.path, &asset.sha256, limit),
-            );
-            assert!(diagnostics.has_errors());
-            if paranoid {
-                assert!(loaded.is_err());
-            } else {
-                let loaded = loaded?;
-                assert_eq!(loaded.music.keys().copied().collect::<Vec<_>>(), [1]);
-                assert_eq!(loaded.sounds.keys().copied().collect::<Vec<_>>(), [3]);
+            write(root.path(), path, &serde_json::to_vec(&value)?)?;
+            for paranoid in [false, true] {
+                assert!(
+                    Cache::default()
+                        .capture_test_field(
+                            "fields/iselia/field.json",
+                            &mut resonance_content::library::Library::open(root.path(), &[])?
+                                .snapshot(),
+                            Diagnostics::new(paranoid),
+                            || false
+                        )
+                        .is_err()
+                );
             }
         }
         Ok(())
     }
 
     #[test]
+    fn invalid_music_does_not_discard_healthy_effects_and_speech() -> Result<()> {
+        use super::named_tests::{fixture, write};
+        let root = fixture()?;
+        write(root.path(), "audio/music/test-song.wav", b"not a WAV")?;
+        let library = resonance_content::library::Library::open(root.path(), &[])?;
+        for paranoid in [false, true] {
+            let diagnostics = Diagnostics::new(paranoid);
+            let result = Cache::default().capture_test_field(
+                "fields/iselia/field.json",
+                &mut library.snapshot(),
+                diagnostics.clone(),
+                || false,
+            );
+            if paranoid {
+                assert!(result.is_err());
+            } else {
+                let loaded = result?;
+                assert!(loaded.recordings.is_empty());
+                assert_eq!(loaded.sounds.keys().copied().collect::<Vec<_>>(), [3]);
+                assert_eq!(loaded.voices.len(), 2);
+            }
+            assert!(diagnostics.has_errors());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn optional_reverb_errors_preserve_valid_music_and_the_current_effect() -> Result<()> {
-        let score = test_music();
-        let mut files = resonance_content::prepared::Files::default();
-        let path = "audio/settings-test.json";
-        files.insert(
-            path.into(),
-            serde_json::to_vec(&serde_json::json!({
-                "version": resonance_audio::package::VERSION,
-                "programs": {"1": [resonance_audio::data::Command::End]},
-                "samples": {}, "score": score.score(), "tables": score.tables(),
-                "reverbs": score.reverbs(),
-            }))?
-            .into(),
-        );
-        let package = Reference {
-            path: path.into(),
-            sha256: files.digest(path)?.into(),
-        };
-        let manifest = FieldAudio {
-            version: FieldAudio::VERSION,
-            music_reverbs: MusicReverbs {
-                presets: [[0.8, 0.7, 2., 0.4, 0.02], [2., 0., 1., 0., 0.]],
-                selectors: vec![0, 1, 2, 7],
-            },
-            music: (0..=4).map(|id| (id, package.clone())).collect(),
-            sounds: BTreeMap::new(),
-            voices: BTreeMap::new(),
-            voice_gains: (0..128).map(|level| level as f32 / 127.).collect(),
+        let root = super::named_tests::fixture()?;
+        let library = resonance_content::library::Library::open(root.path(), &[])?;
+        let base = Cache::default().capture_test_field(
+            "fields/iselia/field.json",
+            &mut library.snapshot(),
+            Diagnostics::new(true),
+            || false,
+        )?;
+        let reverb_choices = MusicReverbs {
+            presets: vec![[0.8, 0.7, 2., 0.4, 0.02], [2., 0., 1., 0., 0.]],
+            selectors: vec![0, 1, 2, 7],
         };
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
-            let assets = Assets::load_contents(
-                &manifest,
-                diagnostics.clone(),
-                &mut Cache::default(),
-                &mut |asset, limit, _| files.read_verified(&asset.path, &asset.sha256, limit),
-            )?;
+            let mut assets = (*base).clone();
+            assets.diagnostics = diagnostics.clone();
+            assets.recordings = (0..=4)
+                .map(|id| (id, base.recordings[&7].clone()))
+                .collect();
+            assets.music_reverbs = Some(reverb_choices.clone());
             let (source, _control) = Arc::new(assets).session();
             let mut frames = source.decoder();
             frames.command(AudioCommand::Music(resonance_events::MusicCommand::Play(1)))?;
             let effect = frames.studio.music_reverb();
-            assert_eq!(effect, manifest.music_reverbs.presets[0]);
+            assert_eq!(effect, reverb_choices.presets[0]);
             assert!(
                 !diagnostics.has_errors(),
                 "unused invalid settings are irrelevant"
@@ -2112,44 +1970,27 @@ mod tests {
     }
 
     #[test]
-    fn invalid_voice_curve_uses_native_volume_in_tolerant_mode() -> Result<()> {
-        let (voice, bytes) = prepared_voice();
-        let mut files = resonance_content::prepared::Files::default();
-        files.insert(voice.asset.path.clone(), bytes);
-        let manifest = FieldAudio {
-            version: FieldAudio::VERSION,
-            music_reverbs: synthetic_assets().music_reverbs.unwrap(),
-            music: BTreeMap::new(),
-            sounds: BTreeMap::new(),
-            voices: [(7, voice)].into(),
-            voice_gains: Vec::new(),
+    fn named_voice_curve_controls_native_volume() -> Result<()> {
+        let root = super::named_tests::fixture()?;
+        let library = resonance_content::library::Library::open(root.path(), &[])?;
+        let loaded = Cache::default().capture_test_field(
+            "fields/iselia/field.json",
+            &mut library.snapshot(),
+            Diagnostics::new(true),
+            || false,
+        )?;
+        let (source, mut control) = loaded.session();
+        let mut frames = source.decoder();
+        let mut sample_at = |level| -> Result<[f32; 2]> {
+            control.levels([127, 127, level])?;
+            control.send(AudioCommand::voice(65543))?;
+            frames.frame()?.context("voice mixer stopped")
         };
-        for paranoid in [false, true] {
-            let diagnostics = Diagnostics::new(paranoid);
-            let loaded = Assets::load_contents(
-                &manifest,
-                diagnostics.clone(),
-                &mut Cache::default(),
-                &mut |asset, limit, _| files.read_verified(&asset.path, &asset.sha256, limit),
-            );
-            assert!(diagnostics.has_errors());
-            if paranoid {
-                assert!(loaded.is_err());
-                continue;
-            }
-            let (source, mut control) = Arc::new(loaded?).session();
-            let mut frames = source.decoder();
-            let mut sample_at = |level| -> Result<[f32; 2]> {
-                control.levels([127, 127, level])?;
-                control.send(AudioCommand::voice(7))?;
-                frames.frame()?.context("voice mixer stopped")
-            };
-            let full = sample_at(127)?;
-            assert!(full.into_iter().any(|sample| sample != 0.));
-            assert_eq!(sample_at(0)?, [0.; 2]);
-            for (sample, full) in sample_at(64)?.into_iter().zip(full) {
-                assert!((sample - full * 64. / 127.).abs() < 0.000001);
-            }
+        let full = sample_at(127)?;
+        assert!(full.into_iter().any(|sample| sample != 0.));
+        assert_eq!(sample_at(0)?, [0.; 2]);
+        for (sample, full) in sample_at(64)?.into_iter().zip(full) {
+            assert!((sample - full * 64. / 127.).abs() < 0.000001);
         }
         Ok(())
     }
@@ -2517,80 +2358,34 @@ mod tests {
     }
 
     #[test]
-    fn tolerant_audio_loading_keeps_valid_stream_after_missing_stream() {
-        let (valid, bytes) = prepared_voice();
-        let mut missing = valid.clone();
-        missing.asset.path = "audio/missing.wav".into();
-        for paranoid in [false, true] {
-            let diagnostics = Diagnostics::new(paranoid);
-            let mut files = empty_prepared_files(diagnostics.clone());
-            files.insert(valid.asset.path.clone(), bytes.clone());
-            let mut cache = Cache::default();
-            cache
-                .voice(&valid, &mut |asset, limit, _| {
-                    files.read_verified(&asset.path, &asset.sha256, limit)
-                })
-                .unwrap();
-            let manifest = FieldAudio {
-                version: FieldAudio::VERSION,
-                music_reverbs: synthetic_assets().music_reverbs.unwrap(),
-                music: BTreeMap::new(),
-                sounds: BTreeMap::new(),
-                voices: [(1, missing.clone()), (2, valid.clone())].into(),
-                voice_gains: (0..128).map(|v| v as f32 / 127.).collect(),
-            };
-            let result = Assets::load_contents(
-                &manifest,
-                diagnostics.clone(),
-                &mut cache,
-                &mut |asset, limit, _| files.read_verified(&asset.path, &asset.sha256, limit),
-            );
-            if paranoid {
-                assert!(result.is_err());
-            } else {
-                let assets = result.unwrap();
-                assert!(!assets.voices.contains_key(&1));
-                assert_eq!(assets.voices[&2].value(0), 16384);
-                assert!(diagnostics.has_errors());
-            }
-        }
-    }
-
-    #[test]
-    fn voice_cache_observes_metadata_missing_files_and_replaced_pcm() {
+    fn voice_loader_handles_metadata_missing_files_and_replaced_pcm() {
         let (mut voice, mut bytes) = prepared_voice();
         let mut files = resonance_content::prepared::Files::default();
-        files.insert(voice.asset.path.clone(), bytes.clone());
-        let mut cache = Cache::default();
-        let load = |cache: &mut Cache,
-                    voice: &resonance_content::field_audio::Voice,
+        files.insert(voice.path.clone(), bytes.clone());
+        let load = |voice: &resonance_content::field_audio::Voice,
                     files: &resonance_content::prepared::Files| {
-            cache.voice(voice, &mut |asset, limit, _| {
-                files.read_verified(&asset.path, &asset.sha256, limit)
+            Clip::capture(voice, &mut |asset, limit| {
+                let bytes = files.read(asset)?;
+                ensure!(bytes.len() <= limit, "voice exceeds size limit");
+                Ok(bytes)
             })
         };
-        let first = load(&mut cache, &voice, &files).unwrap();
-        assert!(Arc::ptr_eq(
-            &first,
-            &load(&mut cache, &voice, &files).unwrap()
-        ));
+        let first = load(&voice, &files).unwrap();
         voice.sample_rate = 48000;
-        let faster = load(&mut cache, &voice, &files).unwrap();
+        let faster = load(&voice, &files).unwrap();
         assert!(!Arc::ptr_eq(&first, &faster));
         assert!(Arc::ptr_eq(&first.bytes, &faster.bytes));
         assert_eq!(faster.rate, 48000);
         voice.frames = 2;
-        assert!(load(&mut cache, &voice, &files).is_err());
+        assert!(load(&voice, &files).is_err());
         voice.frames = 1;
-        files.remove(&voice.asset.path);
-        assert!(load(&mut cache, &voice, &files).is_err());
+        files.remove(&voice.path);
+        assert!(load(&voice, &files).is_err());
 
-        // Same valid WAV header and size, but new PCM: old bindings cannot reuse it.
+        // Same valid WAV header and size, but new PCM is accepted directly.
         *Arc::make_mut(&mut bytes).last_mut().unwrap() = 0x20;
-        files.insert(voice.asset.path.clone(), bytes);
-        assert!(load(&mut cache, &voice, &files).is_err());
-        voice.asset.sha256 = files.digest(&voice.asset.path).unwrap().to_owned();
-        let replaced = load(&mut cache, &voice, &files).unwrap();
+        files.insert(voice.path.clone(), bytes);
+        let replaced = load(&voice, &files).unwrap();
         assert_eq!(replaced.value(0), 8192);
         assert_eq!(first.value(0), 16384);
         let released = Arc::downgrade(&first);
@@ -2598,373 +2393,68 @@ mod tests {
         drop((first, faster, replaced));
         assert!(released.upgrade().is_none());
         assert!(replacement.upgrade().is_none());
-        cache.prune();
-        assert!(cache.voices.is_empty());
-        assert_eq!(load(&mut cache, &voice, &files).unwrap().value(0), 8192);
+        assert_eq!(load(&voice, &files).unwrap().value(0), 8192);
     }
 
     #[test]
-    fn warm_package_cache_keeps_dependency_failures_isolated() {
-        use resonance_audio::{
-            data::{Score, ScoreOrigin},
-            music_voice::Controls,
-        };
-        let (voice, mut bytes) = prepared_voice();
-        let mut files = resonance_content::prepared::Files::default();
-        files.insert(voice.asset.path.clone(), bytes.clone());
-        files.insert("audio/independent.wav".into(), bytes.clone());
-        let mut package = serde_json::json!({
-            "version": resonance_audio::package::VERSION,
-            "programs": {"1": [resonance_audio::data::Command::End]},
-            "samples": {"1": {"path": voice.asset.path, "sha256": voice.asset.sha256,
-                "key": 60, "rate": RATE, "first_frames": 1, "loop_start": 0, "loop_length": 0}},
-            "score": Score {
-                origin: ScoreOrigin::Sequence, initial_bpm_1024: 120 * 1024,
-                loop_start_tick: 0, end_tick: 100,
-                tempos: vec![], controls: [Controls::default(); 16],
-                first_events: vec![], loop_events: vec![],
-            },
-            "tables": {
-                "mix": {"volume": vec![1.; 129], "alternate_volume": vec![1.; 129],
-                    "pan": vec![1.; 4], "volume_16_scale": 1., "controller_14_scale": 1., "pan_16_scale": 1.},
-                "dls": {"attenuation": vec![0; 194], "inverse": vec![0; 1024], "sustain": vec![0.; 128]},
-                "modulation": {"sine": vec![0; 1024], "tremolo": vec![1.; 5]},
-                "coefficients": vec![0; 2048],
-            },
-            "reverbs": vec![[0.5, 0.5, 1., 0.5, 0.]; 2],
-        });
-        let mut manifest = FieldAudio {
-            version: FieldAudio::VERSION,
-            music_reverbs: synthetic_assets().music_reverbs.unwrap(),
-            music: BTreeMap::new(),
-            sounds: BTreeMap::new(),
-            voices: BTreeMap::new(),
-            voice_gains: (0..128).map(|v| v as f32 / 127.).collect(),
-        };
-        for (id, sample) in [(1, voice.asset.path.as_str()), (2, "audio/independent.wav")] {
-            package["samples"]["1"]["path"] = sample.into();
-            let path = format!("audio/package-{id}.json");
-            files.insert(path.clone(), serde_json::to_vec(&package).unwrap().into());
-            manifest.sounds.insert(
-                id,
-                Reference {
-                    sha256: files.digest(&path).unwrap().to_owned(),
-                    path,
-                },
-            );
-        }
-        let mut cache = Cache::default();
-        let load = |cache: &mut Cache, files: &resonance_content::prepared::Files, diagnostics| {
-            Assets::load_contents(&manifest, diagnostics, cache, &mut |asset, limit, _| {
-                files.read_verified(&asset.path, &asset.sha256, limit)
-            })
-        };
-        let first = load(&mut cache, &files, Diagnostics::new(true)).unwrap();
-        let reused = load(&mut cache, &files, Diagnostics::new(true)).unwrap();
-        assert!(Arc::ptr_eq(&first.sounds[&1], &reused.sounds[&1]));
-        assert!(Arc::ptr_eq(
-            &first.sounds[&1].resources().samples[&1],
-            &first.sounds[&2].resources().samples[&1]
-        ));
-        let mut missing = files.clone();
-        missing.remove(&voice.asset.path);
-        *Arc::make_mut(&mut bytes).last_mut().unwrap() ^= 1;
-        files.insert(voice.asset.path, bytes);
-        for invalid in [&missing, &files] {
-            let diagnostics = Diagnostics::default();
-            let loaded = load(&mut cache, invalid, diagnostics.clone()).unwrap();
-            assert!(!loaded.sounds.contains_key(&1));
-            assert!(Arc::ptr_eq(&first.sounds[&2], &loaded.sounds[&2]));
-            assert_eq!(diagnostics.entries().len(), 1);
-            assert!(load(&mut cache, invalid, Diagnostics::new(true)).is_err());
-        }
-        let package = Arc::downgrade(&first.sounds[&2]);
-        let sample = Arc::downgrade(&first.sounds[&2].resources().samples[&1]);
-        let live_sample = first.sounds[&2].resources().samples[&1].clone();
-        drop((first, reused));
-        assert!(package.upgrade().is_none());
-        assert!(sample.upgrade().is_some());
-        drop(live_sample);
-        assert!(sample.upgrade().is_none());
-        cache.prune();
-        assert!(cache.packages.is_empty());
-        let prepared = load(&mut cache, &files, Diagnostics::default()).unwrap();
-        assert!(!prepared.sounds.contains_key(&1));
-        assert_eq!(prepared.sounds[&2].resources().samples[&1].pcm, [16384]);
-    }
-
-    #[test]
-    fn standalone_audio_rejects_oversized_manifest_before_decoding() {
-        let path = format!("resonance-audio-manifest-{}.json", std::process::id());
-        let root = std::env::temp_dir();
-        fs::File::create(root.join(&path))
-            .unwrap()
-            .set_len(MAX_AUDIO_MANIFEST_BYTES as u64 + 1)
-            .unwrap();
-        let result = Assets::load_disk(&root, &path, &mut Cache::default());
-        fs::remove_file(root.join(path)).unwrap();
-        assert!(result.err().unwrap().to_string().contains("read budget"));
-    }
-
-    fn prepared_bank(diagnostics: Diagnostics) -> (resonance_content::prepared::Files, FieldAudio) {
-        let mut files = empty_prepared_files(diagnostics);
-        let (voice, pcm) = prepared_voice();
-        files.insert(voice.asset.path.clone(), pcm);
-        let score = test_music();
-        let path = "audio/entry-test.json";
-        files.insert(
-            path.into(),
-            serde_json::to_vec(&serde_json::json!({
-                "version": resonance_audio::package::VERSION,
-                "programs": {"1": [resonance_audio::data::Command::End]},
-                "samples": {}, "score": score.score(), "tables": score.tables(),
-                "reverbs": score.reverbs(),
-            }))
-            .unwrap()
-            .into(),
-        );
-        let package = Reference {
-            path: path.into(),
-            sha256: files.digest(path).unwrap().into(),
-        };
-        files.insert(
-            "game/skits.json".into(),
-            br#"{"version":3,"skits":[],"portrait_recipes":[]}"#.as_slice().into(),
-        );
-        (
-            files,
-            FieldAudio {
-                version: FieldAudio::VERSION,
-                music_reverbs: synthetic_assets().music_reverbs.unwrap(),
-                music: [(1, package.clone())].into(),
-                sounds: [(2, package)].into(),
-                voices: [(7, voice)].into(),
-                voice_gains: (0..128).map(|level| level as f32 / 127.).collect(),
-            },
-        )
-    }
-
-    #[test]
-    fn cached_audio_applies_the_current_policy_to_bad_rows() -> Result<()> {
-        let mut fixtures = [false, true].map(|paranoid| prepared_bank(Diagnostics::new(paranoid)));
-        let mut manifest = serde_json::to_value(&fixtures[0].1)?;
-        manifest["voices"]["8"] = serde_json::json!(false);
-        let bytes: Arc<[u8]> = serde_json::to_vec(&manifest)?.into();
-        let mut cache = Cache::default();
-        for (files, _) in &mut fixtures {
-            files.insert("audio/mixed.json".into(), bytes.clone());
-            let loaded = cache.load("audio/mixed.json", files);
-            if files.diagnostics().paranoid() {
-                assert!(loaded.is_err());
-            } else {
-                let loaded = loaded?;
-                assert_eq!(loaded.voices.keys().copied().collect::<Vec<_>>(), [7]);
-                assert_eq!(loaded.voices[&7].value(0), 16384);
-                assert!(loaded.music.contains_key(&1));
-                assert!(loaded.sounds.contains_key(&2));
-            }
-            assert!(files.diagnostics().has_errors());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn battle_audio_preparation_skips_unavailable_descriptors_and_independent_bad_entries()
-    -> Result<()> {
-        use resonance_content::{battle_audio, field_preload::File};
-        let (base_files, base) = prepared_bank(Diagnostics::default());
-        let inventory = [
-            (base.music[&1].clone(), AudioRole::AudioPackage),
-            (base.voices[&7].asset.clone(), AudioRole::Voice),
-        ]
-        .into_iter()
-        .map(|(asset, role)| {
-            let bytes = base_files.read(&asset.path).unwrap().len() as u64;
-            (
-                asset.path,
-                File {
-                    sha256: asset.sha256,
-                    bytes,
-                    roles: [role].into(),
-                },
+    fn field_audio_rejects_oversized_owner_before_decoding() -> Result<()> {
+        let root = super::named_tests::fixture()?;
+        let path = "fields/iselia/field.json";
+        fs::File::create(root.path().join(path))?
+            .set_len(resonance_content::preparation::JSON_LIMIT as u64 + 1)?;
+        let error = Cache::default()
+            .capture_test_field(
+                path,
+                &mut resonance_content::library::Library::open(root.path(), &[])?.snapshot(),
+                Diagnostics::new(true),
+                || false,
             )
-        })
-        .collect::<BTreeMap<_, _>>();
-        let descriptor = serde_json::to_value(battle_audio::Audio {
-            assets: base,
-            files: inventory,
-            effect_spatial: [320., 5., 64., 0., 127.],
-            voice_spatial: [320., 5., 64., 24., 104.],
-        })?;
-        // An unrequested, well-formed binding must not load its absent PCM.
-        let mut unselected = descriptor.clone();
-        unselected["assets"]["voices"]["8"] = unselected["assets"]["voices"]["7"].clone();
-        let voice_path = unselected["assets"]["voices"]["7"]["path"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        unselected["assets"]["voices"]["8"]["path"] = "audio/unselected.wav".into();
-        unselected["files"]["audio/unselected.wav"] = unselected["files"][&voice_path].clone();
-        let (mut selected_files, _) = prepared_bank(Diagnostics::new(true));
-        selected_files.insert(
-            battle_audio::PATH.into(),
-            serde_json::to_vec(&unselected)?.into(),
-        );
-        let selected_descriptor = resonance_game::battle::audio::read(&selected_files)?;
-        let (selected_files, selected_descriptor) = resonance_game::battle::audio::prepare(
-            &std::env::temp_dir(),
-            selected_files,
-            selected_descriptor,
-            &battle_audio::Selection {
-                streams: [7].into(),
-                ..Default::default()
-            },
-            &mut resonance_content::prepared::Cache::default(),
-            || false,
-        )?;
-        let selected_descriptor = selected_descriptor.unwrap();
-        assert_eq!(
-            selected_descriptor
-                .assets
-                .voices
-                .keys()
-                .copied()
-                .collect::<Vec<_>>(),
-            [7]
-        );
-        assert!(selected_descriptor.assets.music.is_empty());
-        assert!(selected_descriptor.assets.sounds.is_empty());
-        assert!(selected_files.read("audio/unselected.wav").is_err());
-        assert!(!selected_files.diagnostics().has_errors());
-
-        let mut bad_header = descriptor.clone();
-        bad_header["assets"]["version"] = 0.into();
-        let mut bad_entry = descriptor;
-        bad_entry["assets"]["voices"]["8"] = bad_entry["assets"]["voices"]["7"].clone();
-        bad_entry["assets"]["voices"]["8"]["path"] = "audio/broken.wav".into();
-        bad_entry["files"]["audio/broken.wav"] = serde_json::json!(false);
-        for (bytes, available) in [
-            (None, false),
-            (Some(b"invalid JSON".to_vec()), false),
-            (Some(serde_json::to_vec(&bad_header)?), false),
-            (Some(serde_json::to_vec(&bad_entry)?), true),
-        ] {
-            for paranoid in [false, true] {
-                let (mut files, _) = prepared_bank(Diagnostics::new(paranoid));
-                if let Some(bytes) = &bytes {
-                    files.insert(battle_audio::PATH.into(), bytes.clone().into());
-                }
-                let prepared = (|| {
-                    let descriptor = resonance_game::battle::audio::read(&files)?;
-                    resonance_game::battle::audio::prepare(
-                        &std::env::temp_dir(),
-                        files,
-                        descriptor,
-                        &battle_audio::Selection {
-                            music: [1].into(),
-                            sounds: [2].into(),
-                            streams: [7].into(),
-                            ..Default::default()
-                        },
-                        &mut resonance_content::prepared::Cache::default(),
-                        || false,
-                    )
-                })();
-                if paranoid {
-                    assert!(prepared.is_err());
-                    continue;
-                }
-                let (mut files, descriptor) = prepared?;
-                assert_eq!(descriptor.is_some(), available);
-                assert!(files.diagnostics().has_errors());
-                // Playback uses the admitted descriptor; it does not decode it again.
-                files.remove(battle_audio::PATH);
-                let previous = files.diagnostics().entries();
-                let _loaded =
-                    battle::Assets::load(&files, descriptor.as_ref(), &mut Cache::default())?;
-                if let Some(descriptor) = descriptor {
-                    assert_eq!(
-                        descriptor.assets.voices.keys().copied().collect::<Vec<_>>(),
-                        [7]
-                    );
-                    assert_eq!(files.diagnostics().entries(), previous);
-                }
-            }
-        }
-        assert!(
-            resonance_game::battle::audio::prepare(
-                &std::env::temp_dir(),
-                base_files,
-                None,
-                &battle_audio::Selection::default(),
-                &mut resonance_content::prepared::Cache::default(),
-                || true,
-            )
-            .is_err()
-        );
+            .err()
+            .context("oversized document was accepted")?;
+        assert!(format!("{error:#}").contains("content resource exceeds"));
         Ok(())
     }
 
     #[test]
     fn valid_audio_banks_admit_entries_beyond_former_count_limits() -> Result<()> {
-        let (files, mut manifest) = prepared_bank(Diagnostics::new(true));
-        let package = manifest.music[&1].clone();
-        let voice = manifest.voices[&7].clone();
-        manifest.music = (0..257).map(|id| (id, package.clone())).collect();
-        manifest.sounds = (0..1025).map(|id| (id, package.clone())).collect();
-        manifest.voices = (0..4097).map(|id| (id, voice.clone())).collect();
-        manifest.music_reverbs.selectors.resize(257, 0);
-        manifest.validate()?;
-        let loaded = Assets::load_contents(
-            &manifest,
+        let root = super::named_tests::fixture()?;
+        let mut snapshot = resonance_content::library::Library::open(root.path(), &[])?.snapshot();
+        let definition = snapshot
+            .json::<resonance_content::field::document::Definition>(
+                "fields/iselia/field.json",
+                resonance_content::preparation::JSON_LIMIT,
+            )?
+            .audio;
+        let mut resolved = definition.resolve(&mut snapshot)?;
+        resolved.music = (0..257)
+            .map(|id| (id, resolved.music[&7].clone()))
+            .collect();
+        resolved.effects = (0..1025)
+            .map(|id| (id, resolved.effects[&3].clone()))
+            .collect();
+        resolved.voices = (0..4097)
+            .map(|id| (id, resolved.voices[&65543].clone()))
+            .collect();
+        let mut environment = definition.environment(&mut snapshot)?;
+        environment.music_reverbs.selectors.resize(257, 0);
+        let loaded = Cache::default().capture_resolved(
+            &environment,
+            resolved,
+            &mut snapshot,
             Diagnostics::new(true),
-            &mut Cache::default(),
-            &mut |asset, limit, _| files.read_verified(&asset.path, &asset.sha256, limit),
+            &|| false,
         )?;
         assert_eq!(
-            (loaded.music.len(), loaded.sounds.len(), loaded.voices.len()),
+            (
+                loaded.recordings.len(),
+                loaded.sounds.len(),
+                loaded.voices.len()
+            ),
             (257, 1025, 4097)
         );
-        assert!(Arc::ptr_eq(&loaded.music[&0], &loaded.sounds[&1024]));
+        assert!(Arc::ptr_eq(&loaded.sounds[&0], &loaded.sounds[&1024]));
         assert!(Arc::ptr_eq(&loaded.voices[&0], &loaded.voices[&4096]));
         Ok(())
-    }
-
-    #[test]
-    fn invalid_audio_header_is_rejected_before_reading_individual_entries() {
-        let (voice, _) = prepared_voice();
-        let manifest = FieldAudio {
-            version: FieldAudio::VERSION + 1,
-            music_reverbs: synthetic_assets().music_reverbs.unwrap(),
-            music: BTreeMap::new(),
-            sounds: BTreeMap::new(),
-            voices: [(1, voice)].into(),
-            voice_gains: (0..128).map(|v| v as f32 / 127.).collect(),
-        };
-        for paranoid in [false, true] {
-            let diagnostics = Diagnostics::new(paranoid);
-            let loaded = Assets::load_contents(
-                &manifest,
-                diagnostics.clone(),
-                &mut Cache::default(),
-                &mut |_, _, _| panic!("invalid manifest must not start resource loading"),
-            );
-            if paranoid {
-                assert!(loaded.is_err());
-            } else {
-                assert!(loaded.unwrap().voices.is_empty());
-            }
-            assert_eq!(diagnostics.entries().len(), 1);
-        }
-        let mut valid = manifest;
-        valid.version = FieldAudio::VERSION;
-        valid.validate().unwrap();
-        assert_eq!(valid.validated_voice_gains().unwrap()[127], 1.);
-        valid.voice_gains[1] = f32::NAN;
-        assert!(valid.validated_voice_gains().is_err());
-        assert!(valid.validate().is_err());
-        valid.voice_gains.clear();
-        assert!(valid.validated_voice_gains().is_err());
     }
 
     #[test]
@@ -2974,15 +2464,10 @@ mod tests {
             || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
             Into::into,
         );
-        let mut cache = Cache::default();
-        let mut banks = [
-            "fields/map-332-audio.json",
-            "fields/map-330-audio.json",
-            "fields/map-340-audio.json",
-        ]
-        .into_iter()
-        .map(|manifest| Assets::load_disk(&root, manifest, &mut cache).unwrap())
-        .collect::<Vec<_>>();
+        let mut banks = [332, 330, 340]
+            .into_iter()
+            .map(|id| Assets::load(&root, id).unwrap())
+            .collect::<Vec<_>>();
         // A pending line belongs to the old scene even when its ID is reused.
         banks[0]
             .voices
@@ -3115,7 +2600,9 @@ mod tests {
             .write(0x40, symphonia_script::Width::S32, 1_203_000)?;
         let field = package.enter(FieldEntry {
             persistent,
-            data: Some(Arc::new(package.files.json("game/session-data.json")?)),
+            data: Some(Arc::new(resonance_content::session::SessionData::load(
+                &package.files,
+            )?)),
             available_fields: crate::new_game::available_fields(&root)?,
             ..Default::default()
         })?;
@@ -3172,7 +2659,9 @@ mod tests {
             .persistent_state()?;
         let field = package.enter(FieldEntry {
             persistent,
-            data: Some(Arc::new(package.files.json("game/session-data.json")?)),
+            data: Some(Arc::new(resonance_content::session::SessionData::load(
+                &package.files,
+            )?)),
             available_fields: crate::new_game::available_fields(&root)?,
             ..Default::default()
         })?;
@@ -3213,21 +2702,8 @@ mod tests {
             || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
             Into::into,
         );
-        let manifest: FieldAudio = serde_json::from_slice(
-            &std::fs::read(root.join(resonance_content::field::audio_path(332))).unwrap(),
-        )
-        .unwrap();
-        let music = Arc::new(Package::load(&root, &manifest.music[&77].path).unwrap());
-        assert!(music.score().loop_events.is_empty());
-        let assets = Assets {
-            diagnostics: Diagnostics::new(true),
-            reverbs: music.reverbs(),
-            music_reverbs: Some(manifest.music_reverbs),
-            music: [(77, music)].into(),
-            sounds: BTreeMap::new(),
-            voices: BTreeMap::new(),
-            voice_gains: [1.; 128],
-        };
+        let assets = Assets::load(&root, 332).unwrap();
+        assert!(assets.recordings.contains_key(&77));
         let (source, _control) = Arc::new(assets).session();
         let mut frames = source.decoder();
         frames
@@ -3287,7 +2763,7 @@ mod tests {
     #[test]
     fn field_entry_clears_scripted_music_fades_before_destination_commands() -> Result<()> {
         let mut assets = synthetic_assets();
-        assets.music.insert(0, test_music());
+        assets.recordings.insert(0, test_music());
         let assets = Arc::new(assets);
         let (source, mut control) = assets.clone().session();
         let mut frames = source.decoder();
@@ -3324,7 +2800,7 @@ mod tests {
     #[test]
     fn script_volume_uses_the_game_clock_and_accepts_long_fades() -> Result<()> {
         let mut assets = synthetic_assets();
-        assets.music.insert(0, test_music());
+        assets.recordings.insert(0, test_music());
         let (source, _control) = Arc::new(assets).session();
         let mut frames = source.decoder();
         frames.command(AudioCommand::Music(resonance_events::MusicCommand::Play(0)))?;
@@ -3416,4 +2892,22 @@ mod tests {
         assert_eq!(frames.next(), None);
         assert!(frames.voice.is_none());
     }
+}
+
+#[test]
+fn explicit_silence_preserves_clock_without_allocating_pcm() -> Result<()> {
+    let clock = resonance_content::field_audio::speech::Clock {
+        frames: 64000,
+        sample_rate: 32000,
+        channels: 2,
+    };
+    let clip = Clip::silence(clock, Some(32028))?;
+    assert_eq!(
+        (clip.sample_count(), clip.rate, clip.channels),
+        (128000, 32028, 2)
+    );
+    assert!(clip.bytes.is_empty());
+    assert_eq!((clip.value(0), clip.value(127999)), (0, 0));
+    assert!(Clip::silence(clock, Some(0)).is_err());
+    Ok(())
 }

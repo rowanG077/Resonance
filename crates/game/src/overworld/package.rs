@@ -5,11 +5,11 @@ use super::{
 };
 use anyhow::{Context, Result};
 use resonance_content::{
-    overworld::{PACKAGE_PATH, Package, TileResources},
-    prepared::{Cache, Files},
+    overworld::{Package, TileResources},
+    prepared::Files,
 };
 use resonance_events::{PersistentState, ResourceLibrary};
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 use symphonia_script::Program;
 
 pub struct Prepared {
@@ -22,43 +22,27 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn load(
-        root: &Path,
-        shared: Files,
-        cache: &mut Cache,
+    pub fn from_prepared(
+        definition: Package,
+        files: Arc<Files>,
+        skits: Arc<resonance_content::skit::SkitCatalog>,
         mut available_fields: BTreeSet<u32>,
-        cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let definition: Package = serde_json::from_slice(&std::fs::read(root.join(PACKAGE_PATH))?)?;
-        definition.validate()?;
-        let files =
-            Arc::new(shared.with_dependencies(root, definition.files.clone(), cache, cancelled)?);
-        let audio: resonance_content::field_audio::FieldAudio = files.json("worlds/audio.json")?;
-        audio.validate()?;
-        for scene in definition.visuals.cinematics.values() {
-            scene.presentation.validate_audio(&audio)?;
-            for line in &scene.dialogue {
-                anyhow::ensure!(
-                    audio.voices.contains_key(&line.voice),
-                    "cinematic voice is not prepared"
-                );
-            }
-        }
+        definition.validate_content(|path| files.contains_key(path))?;
         let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
-        let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
         skits.validate()?;
         available_fields.insert(3000);
         let resources = Arc::new(ResourceLibrary {
             menu_data: data.rules.clone(),
             session_data: Some(data),
-            text: Arc::new(files.json("game/text.json")?),
-            skits: Some(Arc::new(skits)),
-            messages: files.json(&definition.messages)?,
+            text: Arc::new(resonance_content::session::GameText::load(&files)?),
+            skits: Some(skits),
+            messages: files.json_or_default(definition.messages.as_deref())?,
             actor_names: ResourceLibrary::character_names(),
             fields: available_fields,
             ..Default::default()
         });
-        let program = Arc::new(Program::decode(&files.read(&definition.script.path)?)?);
+        let program = Arc::new(Program::decode(&files.read(&definition.script)?)?);
         let skits = Arc::new(crate::skit::Prepared::load(
             resources.skits.clone().unwrap(),
             &files,
@@ -85,7 +69,6 @@ impl Prepared {
     ) -> Result<Vec<(TileCoordinate, &'a TileResources)>> {
         let mut locations = Locations::new(
             Arc::new(self.definition.landmarks.clone()),
-            Arc::new(self.definition.guideposts.clone()),
             self.story_rules.clone(),
         )?;
         let party = persistent.party.as_ref().context("world party missing")?;
@@ -128,12 +111,11 @@ impl Prepared {
             world,
             terrain: Arc::new(collision::Terrain::new(
                 terrain,
-                self.definition.collision.clone(),
+                self.definition.movement.collision,
             )?),
             rules: Arc::new(super::Rules::new(self.definition.encounters.clone())?),
             movement: Arc::new(self.definition.movement.clone()),
             landmarks: Arc::new(self.definition.landmarks.clone()),
-            guideposts: Arc::new(self.definition.guideposts.clone()),
             program: self.program.clone(),
             story_rules: self.story_rules.clone(),
             resources: self.resources.clone(),
@@ -152,7 +134,6 @@ mod tests {
         let selected = |world: World, story, ranch, blocked| {
             let mut locations = Locations::new(
                 Arc::new(super::super::landmarks::tests::definitions()),
-                Default::default(),
                 super::super::scripts::fixture(),
             )
             .unwrap();
@@ -161,7 +142,10 @@ mod tests {
             }
             let mut progress = super::super::landmarks::tests::progress();
             progress.set(Global::Story, story);
-            progress.set(Global::UnknownId30, if ranch { 10_000 } else { 0 });
+            progress.set(
+                Global::PalmacostaRanchAssaultRoute,
+                if ranch { 10_000 } else { 0 },
+            );
             locations
                 .story_rules
                 .terrain_variants(&locations, &progress.view(), world)

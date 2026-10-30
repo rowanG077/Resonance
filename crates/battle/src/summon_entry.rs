@@ -405,7 +405,7 @@ mod tests {
         BattleClock, BattleInput, ModelDefinition, Models, Playback,
         tests::{actor, prepared},
     };
-    use resonance_content::animation::{Bone, Motion, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Motion, Skeleton, Transform};
     use std::collections::BTreeMap;
 
     #[test]
@@ -437,7 +437,8 @@ mod tests {
                 bones: vec![Bone {
                     name: "root".into(),
                     parent: None,
-                    bind_channels: TransformChannels(8),
+                    parent_transform: None,
+                    shadow_bounds: true,
                     bind: Transform::default(),
                 }],
             },
@@ -465,7 +466,7 @@ mod tests {
             idle_expression: [0; 4],
             active_expression: [0; 4],
             forced_eye_frame: None,
-            blink: None,
+            blinks: vec![],
             weapons: vec![],
             shadow: None,
             suppress_root_translation: [false; 3],

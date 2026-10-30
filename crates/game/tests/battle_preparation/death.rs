@@ -19,8 +19,6 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         record.overlimit_gain = [15, 11, 12][index % 3];
     }
     let table = battle_profile::Table {
-        version: battle_profile::PARTY_VERSION,
-        collider_recipe_sha256: "a".repeat(64),
         body_colliders: [battle_profile::StandingCollider {
             radius: 30.,
             height: 150.,
@@ -34,9 +32,8 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
             .map(str::to_owned),
         overlimit_voices: [None; 9],
         item_use_offsets: [[0.; 3]; 9],
-        default_strategy: [[0; 3]; 10],
+        default_strategy: [[0; 3]; 9],
         companion_policy: Default::default(),
-        source_sha256: "a".repeat(64),
         entry: Default::default(),
         chant_sequences: Default::default(),
         voice_sequences: vec![Default::default(); 3],

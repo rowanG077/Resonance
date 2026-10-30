@@ -891,6 +891,7 @@ pub(crate) struct ActorRuntime {
     pub(crate) body_bypass_ticks: u8,
     pub(crate) used_enemy_choices: BTreeSet<EnemyChoiceId>,
     pub(crate) enemy_walk_override: Option<f32>,
+    pub(crate) enemy_cast_base_ticks: Option<i16>,
     pub(crate) enemy_behavior: crate::enemy_policy::State,
     pub(crate) capture: crate::capture::State,
     task: ActorTask,
@@ -1049,7 +1050,7 @@ impl EquipmentAttributes {
         ensure!(
             self.damage
                 .weapon_species
-                .is_none_or(|species| (1..=12).contains(&species.0)),
+                .is_none_or(|species| species != Species::Unknown),
             "invalid weapon species bonus"
         );
         ensure!(
@@ -1121,6 +1122,7 @@ impl Battle {
                         body_bypass_ticks: 0,
                         used_enemy_choices: BTreeSet::new(),
                         enemy_walk_override: None,
+                        enemy_cast_base_ticks: None,
                         enemy_behavior: Default::default(),
                         capture: Default::default(),
                         task: ActorTask::None,

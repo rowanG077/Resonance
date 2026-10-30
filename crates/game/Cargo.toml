@@ -4,9 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [features]
-test-support = ["resonance-battle/test-support"]
+test-support = ["resonance-battle/test-support", "resonance-content/test-support"]
 
 [dependencies]
+symphonia-constants.workspace = true
 resonance-battle.workspace = true
 serde.workspace = true
 anyhow.workspace = true
@@ -20,4 +21,7 @@ symphonia-script-tools.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+resonance-script-content.workspace = true
+resonance-asset-writer.workspace = true
 resonance-content = { workspace = true, features = ["test-support"] }
+tempfile = "3"

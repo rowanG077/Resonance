@@ -3,8 +3,8 @@ use crate::{
     EffectBank, EffectFollow, EffectModelDefinition, PreparedEffectModel, ProjectileId, ResourceId,
 };
 use resonance_content::{
-    animation::{Bone, Skeleton, Transform, TransformChannels},
-    battle_effect::{SourceBank, declaration::Declaration},
+    animation::{Bone, Skeleton, Transform},
+    battle_effect::declaration::Declaration,
 };
 
 fn definition() -> ParticleDefinition {
@@ -12,10 +12,11 @@ fn definition() -> ParticleDefinition {
         "../../../content/tests/fixtures/projectile-model-follow.json"
     ))
     .unwrap();
-    let mut source: SourceBank = serde_json::from_value(fixture["bank"].clone()).unwrap();
+    let mut actors: Vec<Declaration> =
+        serde_json::from_value(fixture["files"]["effects/throw/actors.json"].clone()).unwrap();
     let Declaration::ModelParticle {
         template, binding, ..
-    } = source.actors.remove(1)
+    } = actors.remove(1)
     else {
         panic!("fixture needs model particle")
     };
@@ -34,7 +35,8 @@ fn model(resource: u32) -> Result<PreparedEffectModel> {
             bones: vec![Bone {
                 name: "root".into(),
                 parent: None,
-                bind_channels: TransformChannels(0),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform::default(),
             }],
         },
@@ -175,7 +177,8 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
             bones: vec![Bone {
                 name: "kk00_attachment".into(),
                 parent: None,
-                bind_channels: TransformChannels(4),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     rotation: glam::Quat::from_rotation_z(0.7).to_array(),
                     ..Default::default()

@@ -14,6 +14,14 @@ pub struct Prepared {
 }
 
 impl Prepared {
+    /// Bind the already captured event script, dialogue and actor motion banks.
+    pub fn load(
+        files: &resonance_content::prepared::Files,
+        scene: Arc<resonance_content::battle_event::Scene>,
+    ) -> Result<Self> {
+        super::encounter::event_assets::load(files, scene)
+    }
+
     pub fn new(program: Arc<Program>, resources: Arc<ResourceLibrary>) -> Self {
         Self {
             program,

@@ -4,16 +4,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const PATH: &str = "battle/projectiles.json";
+pub const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Table {
-    pub source_sha256: String,
+    pub version: u32,
     pub records: Vec<Projectile>,
-    #[serde(default)]
     pub resident_spells: BTreeMap<u16, ResidentSpell>,
-    #[serde(default)]
     pub support_durations: BTreeMap<u16, u16>,
-    #[serde(default)]
     pub fire_ball: Option<FireBall>,
 }
 
@@ -71,15 +70,20 @@ pub enum RecoilDirection {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ProjectileSteering {
     pub blend: f32,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub start: u32,
     /// Exclusive; None leaves steering active indefinitely.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub end: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub planar: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ProjectileResponse {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bounce: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ricochet: bool,
     /// Rebound on guarded or guard-broken contacts and attack clashes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -153,10 +157,14 @@ pub struct ProjectileMotion {
     /// Three-phase water-blade motion, prepared by the Aqua Edge binding.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub aqua_edge: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub velocity_jitter: [f32; 3],
     /// Direction-times-speed integration; None uses ballistic velocity.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub steering: Option<ProjectileSteering>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub response: Option<ProjectileResponse>,
 }
 
@@ -175,38 +183,52 @@ impl ProjectileMotion {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ProjectileShadow {
     pub color: [u8; 4],
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub additive: bool,
     pub radius: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Contact {
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub repeat_limit: u8,
     pub shape: HitShape,
     pub recoil_direction: RecoilDirection,
     pub radius: f32,
     pub height: f32,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub growth: [f32; 2],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub offset: [f32; 3],
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub survives_contact: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clashes: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Projectile {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lifetime: Option<u32>,
     pub velocity: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub acceleration: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub spawn_offset: [f32; 3],
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clamp_ground: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<[u32; 2]>,
     pub motion: ProjectileMotion,
     pub contact: Contact,
     pub birth_effect: Effect,
     pub ground_effect: Effect,
     pub trail_effect: Effect,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trail_interval: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shadow: Option<ProjectileShadow>,
     /// Unsupported templates stay available for diagnostics without blocking import.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub unsupported_reason: Option<String>,
 }

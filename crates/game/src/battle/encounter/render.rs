@@ -4,7 +4,7 @@ use resonance_battle::ResourceId;
 use resonance_content::{
     animation::Skeleton,
     battle_effect::{SourceBank, Tints},
-    battle_model::{TrailMaterial, TrailTexture},
+    battle_model::{Trail, TrailMaterial, TrailTexture},
     diagnostics::Diagnostics,
     font::UiTexture,
     model_preview::PreviewPart,
@@ -28,7 +28,7 @@ pub struct RenderModel {
     pub parts: Vec<PreviewPart>,
     pub instances: RenderInstances,
     pub lit: bool,
-    pub texture_channels: Vec<resonance_content::battle_profile::TextureChannel>,
+    pub texture_channels: Vec<resonance_content::AtlasChannel>,
     pub weapon_style: Option<resonance_content::battle_profile::WeaponStyle>,
     /// Hide only the named mesh, preserving its transform.
     pub suppressed_nodes: BTreeSet<usize>,
@@ -43,18 +43,23 @@ pub struct TargetAnchor {
 
 impl TargetAnchor {
     pub(super) fn prepare(
-        anchor: &resonance_content::battle_profile::TargetAnchor,
+        target: &resonance_content::battle_profile::TargetAnchor,
+        head: &resonance_content::battle_profile::HeadAnchor,
         skeleton: &Skeleton,
-    ) -> Self {
-        Self {
-            bone: (anchor.bone != 0).then_some(
-                if usize::from(anchor.bone) < skeleton.bones.len() {
-                    u16::from(anchor.bone)
-                } else {
-                    0
-                },
-            ),
-            offset: anchor.offset,
+    ) -> Result<Self> {
+        match target.joint(head) {
+            Some(anchor) => Ok(Self {
+                bone: Some(
+                    skeleton
+                        .bone(&anchor.bone)
+                        .with_context(|| format!("target joint {:?} is missing", anchor.bone))?,
+                ),
+                offset: anchor.offset,
+            }),
+            None => Ok(Self {
+                bone: None,
+                offset: [0.; 3],
+            }),
         }
     }
 }
@@ -186,7 +191,7 @@ pub(super) fn prepare_accessory(
                     clip.animation_resource.is_none() && clip.resource_slot == u16::from(slot)
                 })
                 .context("attached model motion is missing")?;
-            let motion = resonance_content::animation::Motion::decode(&files.read(&clip.motion)?)?;
+            let motion = clip.decode_for_skeleton(&files.read(&clip.motion)?, &skeleton)?;
             motion.validate(&skeleton)?;
             ensure!(
                 motion.duration_frames > 0.,
@@ -249,7 +254,7 @@ pub(super) fn prepare_accessory(
 /// Select a persistent body-atlas row without replacing textures or expression channels.
 pub(super) fn enemy_body_parts(
     parts: &[PreviewPart],
-    channel: Option<resonance_content::battle_profile::TextureChannel>,
+    channel: Option<resonance_content::AtlasChannel>,
     row: u8,
 ) -> Result<Vec<PreviewPart>> {
     let mut parts = parts
@@ -269,7 +274,7 @@ pub(super) fn enemy_body_parts(
         .first_mut()
         .context("enemy has no primary body artwork")?;
     ensure!(
-        usize::from(channel.texture) < primary.scene.textures.len(),
+        channel.texture < primary.scene.textures.len(),
         "enemy body atlas texture is absent"
     );
     primary
@@ -283,7 +288,7 @@ pub(super) fn enemy_body_parts(
         {
             if binding
                 .as_ref()
-                .is_some_and(|binding| binding.texture == usize::from(channel.texture))
+                .is_some_and(|binding| binding.texture == channel.texture)
             {
                 offset[stage * 2 + 1] += y;
             }
@@ -388,29 +393,20 @@ pub(super) fn suppressed_body_nodes(
         .collect()
 }
 
-/// Use facial texture selectors from the primary body appearance, retaining profile frame counts.
-pub(super) fn party_texture_channels(
-    channels: &[resonance_content::battle_profile::TextureChannel],
+/// Resolve explicit profile selections against the selected costume's facial roles.
+pub(super) fn texture_channels(
+    channels: &[resonance_content::battle_profile::Expression],
     primary: &resonance_content::ScenePart,
-) -> Result<Vec<resonance_content::battle_profile::TextureChannel>> {
-    let mut channels = channels.to_vec();
-    if channels.is_empty() {
-        return Ok(channels);
-    }
-    let appearance = primary
-        .appearance
-        .as_ref()
-        .context("party body has no expression selectors")?;
-    for (channel, texture) in channels.iter_mut().zip([appearance.eyes, appearance.mouth]) {
-        let texture = texture.context("party body has no expression texture")?;
-        ensure!(
-            texture < primary.textures.len(),
-            "party expression texture is outside the body palette"
-        );
-        channel.texture =
-            u8::try_from(texture).context("party expression texture exceeds source byte")?;
-    }
-    Ok(channels)
+) -> Result<Vec<resonance_content::AtlasChannel>> {
+    channels
+        .iter()
+        .map(|channel| {
+            Ok(resonance_content::AtlasChannel {
+                texture: channel.texture.resolve(primary)?,
+                frames: channel.frames,
+            })
+        })
+        .collect()
 }
 
 pub struct RenderEffect {
@@ -523,17 +519,14 @@ pub(super) fn effects(
 /// Geometry and material form one optional cosmetic resource.
 pub(super) fn weapon_trail(
     diagnostics: &Diagnostics,
-    skeleton: &Skeleton,
     resource: ResourceId,
-    material: TrailMaterial,
+    trail: &Trail,
     party_weapon: bool,
     common: Option<&SourceBank>,
     enemy: Option<&SourceBank>,
 ) -> Result<Option<RenderTrail>> {
     let prepared = (|| {
-        let Some(bones) = crate::battle::trail::weapon_endpoints(skeleton)? else {
-            return Ok(None);
-        };
+        let material = trail.material;
         let mut palettes = vec![material.palette];
         if party_weapon {
             palettes.push(1);
@@ -562,7 +555,7 @@ pub(super) fn weapon_trail(
         };
         Ok(Some(RenderTrail {
             resource,
-            bones,
+            bones: trail.bones.clone(),
             material,
             textures,
         }))
@@ -606,22 +599,22 @@ mod tests {
 
     #[test]
     fn enemy_atlas_rows_offset_only_the_primary_body_and_reject_invalid_rows() -> Result<()> {
-        use resonance_content::battle_profile::TextureChannel;
+        use resonance_content::AtlasChannel;
         let part: PreviewPart = serde_json::from_value(serde_json::json!({
-            "scene": {
+
                 "resource": 0, "mesh": "body.glb", "textures": ["face", "body"],
                 "materials": [{
+                    "meshes": [0],
                     "color": {"texture": 1, "wrap_u": "repeat", "wrap_v": "repeat", "nearest_min": false, "nearest_mag": false},
                     "multiply": {"texture": 0, "wrap_u": "repeat", "wrap_v": "repeat", "nearest_min": false, "nearest_mag": false},
-                    "vertex_color": true, "blend": false, "depth_write": true, "draw_order": 0
+                    "vertex_color": true, "blend": false, "depth_write": true
                 }],
-                "translation": [0.,0.,0.], "clips": [], "autoplay": false, "texture_animations": []
-            },
+                "translation": [0.,0.,0.], "clips": [], "autoplay": false, "texture_animations": [],
             "animation": null, "attached_to": null, "additive": false,
             "uv_offsets": [[0.125, 0., 0.25, 0.5]]
         }))?;
         let parts = [part.clone(), part];
-        let channel = Some(TextureChannel {
+        let channel = Some(AtlasChannel {
             texture: 1,
             frames: 4,
         });
@@ -633,7 +626,7 @@ mod tests {
         assert!(
             enemy_body_parts(
                 &parts,
-                Some(TextureChannel {
+                Some(AtlasChannel {
                     texture: 1,
                     frames: 0
                 }),
@@ -644,7 +637,7 @@ mod tests {
         assert!(
             enemy_body_parts(
                 &parts,
-                Some(TextureChannel {
+                Some(AtlasChannel {
                     texture: 2,
                     frames: 4
                 }),
@@ -659,7 +652,7 @@ mod tests {
     #[test]
     fn invalid_effect_models_leave_other_resources_usable() -> Result<()> {
         use resonance_content::{
-            animation::{Bone, Transform, TransformChannels},
+            animation::{Bone, Transform},
             battle_model::{ModelPart, Rig},
             prepared::Files,
         };
@@ -669,7 +662,8 @@ mod tests {
                     bones: vec![Bone {
                         name: "root".into(),
                         parent: None,
-                        bind_channels: TransformChannels(0),
+                        parent_transform: None,
+                        shadow_bounds: true,
                         bind: Transform::default(),
                     }],
                 },
@@ -728,7 +722,8 @@ mod tests {
     fn unavailable_programs_do_not_block_nonvisual_programs() {
         use resonance_content::battle_effect::{EffectOperation, ScheduledEvent};
         let source = Arc::new(SourceBank {
-            source_sha256: String::new(),
+            template_names: Vec::new(),
+            document: None,
             programs: vec![vec![ScheduledEvent {
                 at: 0,
                 operation: EffectOperation::Shake {
@@ -758,17 +753,13 @@ mod tests {
 
     #[test]
     fn genis_expression_channels_use_eyes_without_animating_the_body_atlas() -> Result<()> {
-        use resonance_content::battle_profile::TextureChannel;
-        let channels = [
-            TextureChannel {
-                texture: 0,
-                frames: 16,
-            },
-            TextureChannel {
-                texture: 2,
-                frames: 8,
-            },
-        ];
+        use resonance_content::battle_profile::{Expression, ExpressionTexture, FacialTexture};
+        let channels: Vec<Expression> = serde_json::from_str(
+            r#"[
+            {"texture":"eyes","frames":16,"active":4,"rescue":10,"blink":[1,2]},
+            {"texture":"mouth","frames":8,"active":6,"rescue":5}
+        ]"#,
+        )?;
         let mut primary: resonance_content::ScenePart = serde_json::from_value(
             serde_json::json!({
                 "resource": 0, "mesh": "body.glb", "textures": ["body", "mouth", "hair", "eyes"],
@@ -776,7 +767,7 @@ mod tests {
                 "translation": [0.,0.,0.], "clips": [], "autoplay": false, "texture_animations": []
             }),
         )?;
-        let selected = party_texture_channels(&channels, &primary)?;
+        let selected = texture_channels(&channels, &primary)?;
         assert_eq!(
             selected
                 .iter()
@@ -784,18 +775,40 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(3, 16), (1, 8)]
         );
-        assert_eq!(channels[0].texture, 0, "the shared profile stays unchanged");
-        assert!(party_texture_channels(&[], &primary)?.is_empty());
+        assert_eq!(
+            channels[0].texture,
+            ExpressionTexture::Role(FacialTexture::Eyes)
+        );
+        assert!(texture_channels(&[], &primary)?.is_empty());
+        // Explicit mod selections are honored, even for the first party channel.
+        let mut edited = channels.clone();
+        edited[0].texture = ExpressionTexture::Slot(0);
+        assert_eq!(texture_channels(&edited, &primary)?[0].texture, 0);
         primary.appearance.as_mut().unwrap().eyes = Some(primary.textures.len());
-        assert!(party_texture_channels(&channels, &primary).is_err());
+        assert!(texture_channels(&channels, &primary).is_err());
         primary.appearance = None;
-        assert!(party_texture_channels(&channels, &primary).is_err());
+        assert!(texture_channels(&channels, &primary).is_err());
+        // An enemy can animate two independently driven slots sharing one image,
+        // and another channel can target a slot only present on a later body part.
+        primary.textures = vec!["shared.ktx2".into(), "shared.ktx2".into()];
+        let enemy: Vec<Expression> = serde_json::from_str(
+            r#"[
+            {"texture":0,"frames":8}, {"texture":1,"frames":8}, {"texture":2,"frames":4}
+        ]"#,
+        )?;
+        assert_eq!(
+            texture_channels(&enemy, &primary)?
+                .iter()
+                .map(|c| c.texture)
+                .collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
         Ok(())
     }
 
     #[test]
     fn body_attachment_suppression_keeps_transforms_and_respects_profile_flag() {
-        use resonance_content::animation::{Bone, Transform, TransformChannels};
+        use resonance_content::animation::{Bone, Transform};
         let skeleton = Skeleton {
             bones: [
                 "root",
@@ -812,7 +825,8 @@ mod tests {
             .map(|(index, name)| Bone {
                 name: name.into(),
                 parent: (index != 0).then_some(0),
-                bind_channels: TransformChannels(8),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform::default(),
             })
             .collect(),
@@ -868,57 +882,106 @@ mod tests {
 
     fn bank(textures: BTreeMap<u8, Vec<EffectTexture>>) -> SourceBank {
         SourceBank {
-            source_sha256: String::new(),
+            template_names: Vec::new(),
+            document: None,
             programs: vec![],
             actors: vec![],
             art: Some(Art {
-                source_sha256: String::new(),
                 textures,
                 models: BTreeMap::new(),
-                files: BTreeMap::new(),
             }),
         }
     }
 
     #[test]
     fn weapon_trails_require_a_complete_optional_resource() -> Result<()> {
-        use resonance_content::animation::{Bone, Transform, TransformChannels};
-        let skeleton = Skeleton {
-            bones: ["KI00", "KI01"]
-                .map(|name| Bone {
-                    name: name.into(),
-                    parent: None,
-                    bind_channels: TransformChannels(0),
-                    bind: Transform::default(),
-                })
-                .into(),
-        };
         let common = bank(BTreeMap::from([(2, vec![texture("common", true, 2)])]));
         let enemy = bank(BTreeMap::from([(2, vec![texture("owner", true, 2)])]));
         let material = TrailMaterial {
             texture: Some(TrailTexture::Enemy { slot: 2 }),
             palette: 1,
             additive: true,
-            color: [64; 3],
+            color: [0.5; 3],
             uv: [0, 0, 64, 64],
+        };
+        let trail = Trail {
+            bones: vec![1, 0],
+            material,
         };
         let diagnostics = Diagnostics::default();
         let prepare = |diagnostics: &Diagnostics, enemy| {
             weapon_trail(
                 diagnostics,
-                &skeleton,
                 ResourceId(1),
-                material,
+                &trail,
                 false,
                 Some(&common),
                 enemy,
             )
         };
         let render = prepare(&diagnostics, Some(&enemy))?.unwrap();
+        assert_eq!(render.bones, [1, 0]);
         assert_eq!(render.textures[0].as_ref().unwrap().0.path, "owner-1.ktx2");
         assert!(prepare(&diagnostics, None)?.is_none());
         assert_eq!(diagnostics.entries().len(), 1);
         assert!(prepare(&Diagnostics::new(true), None).is_err());
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod profile_anchor_tests {
+    use super::*;
+    use resonance_content::battle_profile::{HeadAnchor, TargetAnchor as Target, TargetOrigin};
+
+    #[test]
+    fn target_joints_follow_shared_head_edits_and_model_names() -> Result<()> {
+        let mut skeleton = Skeleton::single("head");
+        let mut head = HeadAnchor {
+            bone: "head".into(),
+            offset: [2., 40., 3.],
+        };
+        let shared = Target::default();
+        let prepared = TargetAnchor::prepare(&shared, &head, &skeleton)?;
+        assert_eq!(prepared.bone, Some(0)); // Joint zero is not body-center targeting.
+        assert_eq!(prepared.offset, head.offset);
+        let mut root = skeleton.bones[0].clone();
+        root.name = "root".into();
+        skeleton.bones.insert(0, root);
+        head.offset[1] += 12.;
+        let prepared = TargetAnchor::prepare(&shared, &head, &skeleton)?;
+        assert_eq!(prepared.bone, Some(1));
+        assert_eq!(prepared.offset, [2., 52., 3.]);
+        let independent = Target::Joint(HeadAnchor {
+            bone: "root".into(),
+            offset: [0.; 3],
+        });
+        assert_eq!(
+            TargetAnchor::prepare(&independent, &head, &skeleton)?.bone,
+            Some(0)
+        );
+        let center = Target::Reference(TargetOrigin::Center);
+        assert_eq!(TargetAnchor::prepare(&center, &head, &skeleton)?.bone, None);
+        head.bone = "missing".into();
+        assert!(TargetAnchor::prepare(&shared, &head, &skeleton).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn target_documents_distinguish_named_joints_from_center_and_reject_indices() -> Result<()> {
+        for text in [
+            r#""head""#,
+            r#""center""#,
+            r#"{"bone":"root","offset":[1.0,2.0,3.0]}"#,
+        ] {
+            let anchor: Target = serde_json::from_str(text)?;
+            assert_eq!(
+                serde_json::to_value(anchor)?,
+                serde_json::from_str::<serde_json::Value>(text)?
+            );
+        }
+        assert!(serde_json::from_str::<Target>(r#"{"bone":0}"#).is_err());
+        assert!(serde_json::from_str::<Target>(r#"{"bone":"head","unused":true}"#).is_err());
         Ok(())
     }
 }

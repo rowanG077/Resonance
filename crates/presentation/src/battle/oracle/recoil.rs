@@ -1,7 +1,7 @@
 //! Compare a single grounded travel recoil in the independently observed shot basis.
 //! Unsupported or unproved inputs retain ordinary world-position comparison.
 use super::{Trace, exactly_one, projectile_random};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 
 #[derive(Default)]
@@ -89,11 +89,21 @@ fn qualify(
         return decline();
     };
     let authored = &launch["authored_action"];
-    let action_pin = json!({"path": authored["path"], "sha256": authored["sha256"]});
-    if source.setup["catalogue"] != action_pin || native.setup["catalogue"] != action_pin {
+    if source.setup["catalogue"] != native.setup["catalogue"] {
         return decline();
     }
-    let catalogue = read_pin(&action_pin)?;
+    let enemy = u8::try_from(
+        authored["enemy"]
+            .as_u64()
+            .context("missing authored enemy")?,
+    )?;
+    let content = super::content_evidence::Evidence::parse(&authored["content"])?;
+    content.source_digest()?;
+    let catalogue = super::content_evidence::action_catalogue(source)?;
+    ensure!(
+        catalogue == serde_json::to_value(content.enemy(enemy)?.0)?,
+        "projectile action differs from its current enemy rules"
+    );
     let row = authored["index"].as_u64().context("missing action row")? as usize;
     let events = catalogue["actions"]["rows"][row]["execution"]["attack"]["events"]
         .as_array()
@@ -131,10 +141,11 @@ fn qualify(
     {
         return decline();
     }
-    let recoil = read_pin(pin)?;
+    let evidence = super::content_evidence::Evidence::parse(pin)?;
+    let recoil = evidence.recoil()?;
     let module: super::random_inputs::Pin = serde_json::from_value(module_pin.clone())?;
     module.read_bytes()?;
-    if recoil["source_sha256"] != module_pin["sha256"] {
+    if module_pin["sha256"] != evidence.source_digest()? {
         return decline();
     }
     let impulse_row = hit["recoil"].as_u64().context("missing recoil rule")? as usize;
@@ -156,16 +167,25 @@ fn qualify(
     }) || stun
         .iter()
         .any(|entry| entry["target"] == target && entry["stunned"] != false)
-        || source.events.iter().chain(&native.events).any(|event| {
-            event["kind"] == "declaration_started"
-                && event["owner"] == target
-                && event["member"] == 19
-                && event["bank"]
-                    == "2c72d54fcdf809b93f10d0c9213790710b4f0144a4f55253ebab415f4e69a48b"
-        })
     {
         return decline();
     }
+    let common = "2c72d54fcdf809b93f10d0c9213790710b4f0144a4f55253ebab415f4e69a48b";
+    for trace in [source, native] {
+        for event in trace.events.iter().filter(|event| {
+            event["kind"] == "declaration_started"
+                && event["owner"] == target
+                && event["bank"] == common
+        }) {
+            let Ok(member) = super::content_evidence::template_member(trace, common, 19) else {
+                return decline();
+            };
+            if event["member"] == member {
+                return decline();
+            }
+        }
+    }
+
     let clock = source_hit["presentation_clock"]
         .as_u64()
         .context("missing contact clock")?;
@@ -226,11 +246,6 @@ fn qualify(
         }
     }
     Ok(Some(result))
-}
-
-fn read_pin(value: &Value) -> Result<Value> {
-    let pin: super::random_inputs::Pin = serde_json::from_value(value.clone())?;
-    Ok(serde_json::from_slice(&pin.read_bytes()?)?)
 }
 
 fn vector(value: &Value) -> Option<[f64; 3]> {

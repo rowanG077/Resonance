@@ -1,76 +1,18 @@
 //! Field service bindings. Scene setup supplies all asset and event mappings.
-use super::{NativeHost, NativeResult, require};
+use super::{NativeHost, NativeResult, Wait, require};
 use crate::{
     Actor, Animation, ResourceKind,
     animation::slot,
     camera::CameraRig,
     world::{Attachment, AudioCommand, BoneAdjustment, Emote, EventRecord, Face, Trigger},
 };
+use symphonia_constants::FieldSystemCommand;
 use symphonia_script::NativeCall;
 use symphonia_script_vm::Memory;
 
 const MAIN_SCENERY: i32 = 999_996;
 const SECOND_SCENERY: i32 = 999_997;
 const THIRD_SCENERY: i32 = 999_998;
-
-#[derive(Clone, Copy)]
-#[repr(i32)]
-enum FieldSystemCommand {
-    PlayTime = 1,
-    UndiscoveredMonsters = 2,
-    CheckCollectorsBook = 3,
-    CheckMonsterBook = 4,
-    CheckFigurineBook = 5,
-    CollectorsBookComplete = 6,
-    MonsterBookComplete = 7,
-    FigurineBookComplete = 8,
-    SetCollectorsBookComplete = 9,
-    SetMonsterBookComplete = 10,
-    SetFigurineBookComplete = 11,
-    LastBattleDuration = 12,
-    LastBattleFormationCount = resonance_content::field::BATTLE_FORMATION_COUNT_QUERY as i32,
-    FieldLeader = 13,
-    SetFieldLeader = 14,
-    SuppressTransitionFade = 15,
-    SelectExitDoor = 16,
-    BattleCount = 17,
-    FrameFeedback = 18,
-    SetDoorInteractionRadius = 19,
-    SetSkitPrompts = 21,
-}
-
-impl TryFrom<i32> for FieldSystemCommand {
-    type Error = &'static str;
-
-    fn try_from(id: i32) -> Result<Self, Self::Error> {
-        match id {
-            1 => Ok(Self::PlayTime),
-            2 => Ok(Self::UndiscoveredMonsters),
-            3 => Ok(Self::CheckCollectorsBook),
-            4 => Ok(Self::CheckMonsterBook),
-            5 => Ok(Self::CheckFigurineBook),
-            6 => Ok(Self::CollectorsBookComplete),
-            7 => Ok(Self::MonsterBookComplete),
-            8 => Ok(Self::FigurineBookComplete),
-            9 => Ok(Self::SetCollectorsBookComplete),
-            10 => Ok(Self::SetMonsterBookComplete),
-            11 => Ok(Self::SetFigurineBookComplete),
-            12 => Ok(Self::LastBattleDuration),
-            n if n == i32::from(resonance_content::field::BATTLE_FORMATION_COUNT_QUERY) => {
-                Ok(Self::LastBattleFormationCount)
-            }
-            13 => Ok(Self::FieldLeader),
-            14 => Ok(Self::SetFieldLeader),
-            15 => Ok(Self::SuppressTransitionFade),
-            16 => Ok(Self::SelectExitDoor),
-            17 => Ok(Self::BattleCount),
-            18 => Ok(Self::FrameFeedback),
-            19 => Ok(Self::SetDoorInteractionRadius),
-            21 => Ok(Self::SetSkitPrompts),
-            _ => Err("field system command is not implemented"),
-        }
-    }
-}
 
 impl NativeHost<'_> {
     pub(super) fn field(
@@ -154,7 +96,7 @@ impl NativeHost<'_> {
                     "field treasure limit exceeded",
                 )?;
                 use crate::TreasureKind;
-                let kind = TreasureKind::try_from(a[2]).unwrap_or(TreasureKind::UnknownId0);
+                let kind = TreasureKind::try_from(a[2]).unwrap_or(TreasureKind::Chest);
                 let resource = match kind {
                     TreasureKind::CustomModel0 | TreasureKind::CustomModel1 => {
                         let index = usize::from(kind as u8 - TreasureKind::CustomModel0 as u8);
@@ -376,8 +318,12 @@ impl NativeHost<'_> {
                     glow_scale: 0.08,
                 });
             }
-            NativeCall::Unknown92 => {
-                match FieldSystemCommand::try_from(a[0])? {
+            NativeCall::FieldSystem => {
+                match u16::try_from(a[0])
+                    .ok()
+                    .and_then(|id| FieldSystemCommand::try_from(id).ok())
+                    .ok_or("field system command is not implemented")?
+                {
                     FieldSystemCommand::FrameFeedback => {
                         value = Some(i32::from(std::mem::replace(
                             &mut self.world.frame_feedback,
@@ -1088,7 +1034,7 @@ impl NativeHost<'_> {
                         })?;
                         return Ok(NativeResult::Continue(Some(handle)));
                     }
-                    _ if resonance_content::effect::sprite::ALL.contains(&kind) => {}
+                    _ if resonance_content::effect::sprite::name(kind).is_some() => {}
                     _ => return Err("effect recipe is not implemented".into()),
                 }
                 value = Some(self.world.emit_billboard(particle)?);
@@ -1156,33 +1102,32 @@ impl NativeHost<'_> {
             NativeCall::FindActorBodyPart => {
                 // Map script bone selectors to model node names.
                 const NAMES: [&str; 17] = [
-                    "Bone_kubi",
-                    "Bone_atama",
-                    "Bone_sebone01",
-                    "Bone_sebone02",
-                    "Bone_sebone03",
-                    "Bone_ude01_L",
-                    "Bone_ude02_L",
-                    "Bone_ude01_R",
-                    "Bone_ude02_R",
-                    "Bone_ashi01_L",
-                    "Bone_ashi02_L",
-                    "Bone_ashi03_L",
-                    "Bone_ashi04_L",
-                    "Bone_ashi01_R",
-                    "Bone_ashi02_R",
-                    "Bone_ashi03_R",
-                    "Bone_ashi04_R",
+                    "neck",
+                    "head",
+                    "spine-01",
+                    "spine-02",
+                    "spine-03",
+                    "arm-01-left",
+                    "arm-02-left",
+                    "arm-01-right",
+                    "arm-02-right",
+                    "leg-01-left",
+                    "leg-02-left",
+                    "leg-03-left",
+                    "leg-04-left",
+                    "leg-01-right",
+                    "leg-02-right",
+                    "leg-03-right",
+                    "leg-04-right",
                 ];
+                let unknown = format!("<body part {}>", a[1]);
+                let name = usize::try_from(a[1])
+                    .ok()
+                    .and_then(|i| NAMES.get(i))
+                    .copied()
+                    .unwrap_or(&unknown);
                 value = Some(
-                    self.world
-                        .actors
-                        .get(&a[0])
-                        .and_then(|actor| self.resources.model(actor.model_resource()))
-                        .and_then(|model| {
-                            let name = NAMES.get(usize::try_from(a[1]).ok()?)?;
-                            model.names.iter().position(|n| n == name)
-                        })
+                    self.find_actor_node(a[0], name)
                         .map_or(-1, |index| index as i32),
                 );
             }
@@ -1369,11 +1314,11 @@ impl NativeHost<'_> {
                         .model(actor.model_resource())
                         .ok_or("actor model missing")?
                         .names;
-                    if ["Bone_kubi", "Bone_atama"]
+                    if ["neck", "head"]
                         .iter()
                         .all(|name| names.iter().any(|n| n == name))
                     {
-                        for (slot, bone) in [(a[1], "Bone_kubi"), (a[2], "Bone_atama")] {
+                        for (slot, bone) in [(a[1], "neck"), (a[2], "head")] {
                             require((0..8).contains(&slot), "invalid bone controller slot")?;
                             require(duration >= 0, "negative bone adjustment duration")?;
                             adjust_bone(
@@ -1785,14 +1730,24 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::ResolveScriptResource => {
-                let binding = self
-                    .resources
-                    .binding(a[0])
-                    .ok_or("requested resource is not cooked")?;
                 let handle = (0..128)
                     .map(|i| (0xffff0000u32 | i) as i32)
-                    .find(|h| !self.world.loaded_resources.contains_key(h))
+                    .find(|h| {
+                        !self.world.loaded_resources.contains_key(h)
+                            && !self.world.resource_requests.iter().any(|r| r.handle == *h)
+                    })
                     .ok_or("resource handle pool exhausted")?;
+                if self.resources.binding(a[0]).is_none() && self.resources.dynamic_resources {
+                    let operation = self.world.operations.begin()?;
+                    self.world.resource_requests.push(crate::ResourceRequest {
+                        id: a[0] as u32,
+                        handle,
+                        operation: operation.clone(),
+                    });
+                    *self.wait = Some(Wait::Result(operation));
+                    return Ok(NativeResult::Suspend);
+                }
+                let binding = self.resources.request(a[0])?;
                 self.world.loaded_resources.insert(handle, binding);
                 value = Some(handle);
             }

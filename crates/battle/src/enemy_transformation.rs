@@ -63,6 +63,7 @@ impl Battle {
         if let Some(EnemyBehavior::HealthStage {
             hp_percent,
             initial_station,
+            motion_aliases,
             ..
         }) = &decision.behavior
         {
@@ -74,6 +75,12 @@ impl Battle {
                 && self.actors[index].hp_percent() <= i16::from(*hp_percent)
             {
                 self.runtime[index].enemy_behavior.health_stage_shifted = true;
+                if !motion_aliases.is_empty() {
+                    self.model_requests.push(ModelRequest::MotionAliases {
+                        actor: ActorId(index as u8),
+                        aliases: motion_aliases.iter().copied().collect(),
+                    });
+                }
                 self.actors[index].movement.turning_disabled = false;
                 self.actors[index].movement.steering.push_immovable = false;
                 self.unison.release_immunity(ActorId(index as u8));
@@ -84,7 +91,9 @@ impl Battle {
         let Some(EnemyBehavior::Transformation {
             reveal_hp_percent,
             revealed_bones,
+            reveal_armor,
             airborne_hp_percent,
+            airborne_recover_in_air,
             airborne_walk_speed,
             airborne_motions,
             hover_height,
@@ -93,6 +102,21 @@ impl Battle {
         else {
             return Ok(());
         };
+        // Native neutral state 3 includes walking approaches, while running
+        // approaches and recovery returns have separate coarse controllers.
+        let walking_approach = matches!(
+            self.runtime[index].task(),
+            crate::state::ActorTask::Approach(_)
+        ) && (self.runtime[index].enemy_walk_override.is_some()
+            || self.runtime[index]
+                .enemy_choice
+                .and_then(|choice| decision.choices.get(choice.0))
+                .is_some_and(|choice| choice.approach.is_none()));
+        if !self.actors[index].available()
+            || !(self.activity(ActorId(index as u8)) == crate::Activity::Idle || walking_approach)
+        {
+            return Ok(());
+        }
         let health = self.actors[index].hp_percent();
         match self.runtime[index].enemy_behavior.transformation {
             State::Grounded if health <= i16::from(*reveal_hp_percent) => {
@@ -100,6 +124,10 @@ impl Battle {
                     actor: ActorId(index as u8),
                     scales: revealed_bones.iter().map(|&bone| (bone, [1.; 3])).collect(),
                 });
+                if let Some(threshold) = reveal_armor {
+                    self.actors[index].reaction.armor.base = *threshold;
+                    self.actors[index].reaction.armor.threshold = *threshold;
+                }
                 self.runtime[index].enemy_behavior.transformation = State::Revealed;
             }
             State::Revealed if health <= i16::from(*airborne_hp_percent) => {
@@ -109,6 +137,9 @@ impl Battle {
                     actor: ActorId(index as u8),
                     aliases: airborne_motions.iter().copied().collect(),
                 });
+                if *airborne_recover_in_air {
+                    self.actors[index].reaction.recover_in_air = true;
+                }
                 let movement = &mut self.actors[index].movement;
                 movement.flying = true;
                 movement.hover_height = *hover_height;
@@ -145,6 +176,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .behavior = Some(EnemyBehavior::HealthStage {
+            motion_aliases: vec![],
             hp_percent: 25,
             initial_station: station,
             initial_actions: EnemyChoiceId(0)..EnemyChoiceId(1),
@@ -200,6 +232,7 @@ mod tests {
                 .as_mut()
                 .unwrap()
                 .behavior = Some(EnemyBehavior::HealthStage {
+                motion_aliases: vec![(0, Some(30)), (1, None)],
                 hp_percent: 50,
                 initial_station: resonance_content::battle_action::EnemyStation {
                     position: [850., 0., 0.],
@@ -238,6 +271,10 @@ mod tests {
             assert!(!actor.movement.turning_disabled);
             assert!(!actor.movement.steering.push_immovable);
             assert!(!actor.reaction.profile.can_knock_down);
+            assert!(battle.model_requests.iter().any(|request| matches!(request,
+                ModelRequest::MotionAliases { actor, aliases }
+                    if *actor == owner && aliases.get(&0) == Some(&Some(30)) && aliases.get(&1) == Some(&None)
+            )));
 
             battle.actors[owner.index()].hp = maximum_hp;
             battle.actors[owner.index()].position = [200., 0., 30.];
@@ -247,6 +284,37 @@ mod tests {
             assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
             assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(1)));
         }
+        let mut enemy = crate::tests::actor(Side::Enemy);
+        enemy.equipment.max_hp = 1000;
+        enemy.hp = 510;
+        enemy.reaction.profile.can_knock_down = true;
+        enemy.reaction.profile.can_launch = true;
+        enemy.reaction.profile.clear_pending = false;
+        let mut prepared =
+            crate::tests::prepared(vec![crate::tests::actor(Side::Party), enemy], 30);
+        crate::tests::assign_action(&mut prepared, 1, ActionKey(0));
+        prepared.resources.actor_setup[1]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
+            .behavior = Some(EnemyBehavior::HealthRecoil {
+            hp_percent: 50,
+            knockdown_immune: true,
+            clear_pending_on_hit: true,
+        });
+        let mut battle = prepared.finish()?;
+        battle.advance_enemy_behavior(1, false)?;
+        assert!(battle.actors[1].reaction.profile.can_knock_down);
+        assert!(!battle.actors[1].reaction.profile.clear_pending);
+        battle.actors[1].hp = 500;
+        battle.advance_enemy_behavior(1, false)?;
+        assert!(!battle.actors[1].reaction.profile.can_knock_down);
+        assert!(!battle.actors[1].reaction.profile.can_launch);
+        assert!(battle.actors[1].reaction.profile.clear_pending);
+        battle.actors[1].hp = 1000;
+        battle.advance_enemy_behavior(1, false)?;
+        assert!(!battle.actors[1].reaction.profile.can_knock_down);
+        assert!(battle.actors[1].reaction.profile.clear_pending);
         Ok(())
     }
 
@@ -272,6 +340,8 @@ mod tests {
             decision.behavior = Some(EnemyBehavior::Transformation {
                 reveal_hp_percent: 75,
                 revealed_bones: vec![0],
+                reveal_armor: Some(1),
+                airborne_recover_in_air: true,
                 airborne_hp_percent: 50,
                 airborne_walk_speed: 6.5,
                 airborne_motions: vec![(0, Some(1))],
@@ -298,6 +368,16 @@ mod tests {
             battle.model_requests.clear();
             battle.actors[owner.index()].hp = 50;
             battle.advance_enemy_transformation(owner.index())?;
+            if running {
+                assert_eq!(
+                    battle.runtime[owner.index()].enemy_behavior.transformation,
+                    State::Grounded
+                );
+                assert_eq!(battle.activity(owner), Activity::Action);
+                assert_eq!(battle.actors[owner.index()].reaction.armor.threshold, 0);
+                battle.set_task(owner.index(), crate::state::ActorTask::None);
+                battle.advance_enemy_transformation(owner.index())?;
+            }
             let scales: Vec<_> = battle
                 .model_requests
                 .iter()
@@ -309,6 +389,8 @@ mod tests {
                 })
                 .collect();
             assert_eq!(scales, vec![vec![(0, [0.; 3])], vec![(0, [1.; 3])]]);
+            assert_eq!(battle.actors[owner.index()].reaction.armor.threshold, 1);
+            assert_eq!(battle.actors[owner.index()].reaction.armor.base, 1);
             assert!(!battle.actors[owner.index()].movement.flying);
             assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
 
@@ -317,12 +399,9 @@ mod tests {
             assert_eq!(battle.actors[owner.index()].movement.hover_height, 25.);
             assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
             assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(1)));
-            if running {
-                assert_eq!(battle.activity(owner), Activity::Action);
-            } else {
-                assert_eq!(battle.activity(owner), Activity::Idle);
-                assert_eq!(battle.runtime[owner.index()].enemy_choice, None);
-            }
+            assert_eq!(battle.activity(owner), Activity::Idle);
+            assert_eq!(battle.runtime[owner.index()].enemy_choice, None);
+            assert!(battle.actors[owner.index()].reaction.recover_in_air);
 
             battle.actors[owner.index()].hp = 100;
             battle.advance_enemy_transformation(owner.index())?;

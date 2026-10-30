@@ -156,7 +156,7 @@ impl Technique {
                 .skeleton
                 .bones
                 .iter()
-                .position(|bone| bone.name == "Bone_kata_R")
+                .position(|bone| bone.name == "shoulder-right")
                 .context("martial right shoulder is missing")?
                 .try_into()
                 .context("martial shoulder index exceeds limit")?;

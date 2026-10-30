@@ -1,0 +1,40 @@
+{
+  "groups": {
+    "action": {
+      "0": "attack-freely",
+      "1": "attack-close",
+      "2": "attack-far",
+      "3": "attack-same",
+      "4": "scatter",
+      "5": "aim-high",
+      "6": "block-magic",
+      "7": "reduce",
+      "8": "protect-friend"
+    },
+    "skill_magic": {
+      "0": "use-skills-freely",
+      "1": "at-once",
+      "2": "keep-reserve",
+      "3": "retain",
+      "4": "save",
+      "5": "do-not-use",
+      "6": "moderation",
+      "7": "heal",
+      "8": "support"
+    },
+    "position": {
+      "0": "move-freely",
+      "1": "frontlines",
+      "2": "don-t-pursue",
+      "3": "hold-position",
+      "4": "l-range-skills",
+      "5": "l-range-magic",
+      "6": "skills-magic"
+    }
+  },
+  "presets": {
+    "0": "reserve",
+    "1": "guard",
+    "2": "all-out"
+  }
+}

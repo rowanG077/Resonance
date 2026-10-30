@@ -18,7 +18,6 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
     path::Path,
-    sync::Arc,
 };
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
@@ -33,15 +32,15 @@ const EVENT_LIMIT: u32 = (600 * UPDATE_RATE_NUMERATOR / UPDATE_RATE_DENOMINATOR)
 const STALL_LIMIT: u32 = (30 * UPDATE_RATE_NUMERATOR / UPDATE_RATE_DENOMINATOR) as u32;
 
 pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> Result<()> {
-    let manifest = resonance_content::field::preload_path(map);
-    let files = Arc::new(Files::load(
-        root,
-        &[&manifest],
-        &mut Default::default(),
-        || false,
-    )?);
-    let package = new_game::FieldPackage::load(files.clone(), map, &mut Default::default())?;
-    let effects: FieldEffects = files.json(&package.assets.effects)?;
+    let package = new_game::FieldPackage::prepare(root, map, &mut Default::default(), || false)?;
+    let files = package.files.clone();
+    let mappings: resonance_content::library::Mappings =
+        files.json(resonance_content::library::FIELDS)?;
+    let entry = mappings.resolve(resonance_content::library::FIELDS, map, Some("field.json"))?;
+    let definition: resonance_content::field::document::Definition = files.json(&entry)?;
+    let effects: FieldEffects = files
+        .json::<resonance_content::field::settings::Settings>(&package.assets.effects)?
+        .effects;
     effects.validate()?;
     let data = &package.data;
     let art: DialogueArt = files.json("ui/dialogue.json")?;
@@ -337,10 +336,10 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
         output,
         serde_json::to_vec_pretty(
             &serde_json::json!({"map":map,"story":story,"branches":reports,"failures":failures,
-        "preload":manifest,"audio_banks":files.manifests[&map].inputs.audio,
+        "field":entry,"audio":definition.audio,
         "budgets":{"event_updates":EVENT_LIMIT,"stalled_updates":STALL_LIMIT},
         "dialogue_policy":"Wait for complete text and voice before confirming; enumerate every choice; cancel menus through normal input.",
-        "scope":"All entry choices, then active actors/triggers from the default completed entry and their discovered choices. Real field initialization, native services, dialogue glyphs, emitted effect recipes/textures and PCM synthesis against the active verified preload. Registry invocation; does not establish natural navigation, destination entry or image/audio equivalence."}),
+        "scope":"All entry choices, then active actors/triggers from the default completed entry and their discovered choices. Real field initialization, native services, dialogue glyphs, emitted effect recipes/textures and PCM synthesis against the captured named content. Registry invocation; does not establish natural navigation, destination entry or image/audio equivalence."}),
         )?,
     )?;
     ensure!(

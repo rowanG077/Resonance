@@ -176,7 +176,9 @@ impl EffectDefinition {
                         .checked_add(birth.random_draws)
                         .context("too many particle random draws")?;
                     ensure!(
-                        birth.draw_references().all(|draw| draw < draws),
+                        birth
+                            .draw_references()
+                            .all(|draw| draw >= 0 && draw < i64::from(draws)),
                         "unbound particle random draw"
                     );
                     ensure!(blend.is_none_or(|v| v <= 1), "invalid particle blend");

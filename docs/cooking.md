@@ -1,170 +1,163 @@
 # Asset cooking
 
-`resonance-import cook-all` builds one shared asset library from the two extracted
-North American GQSEAF revision 0 discs. It recovers general models, textures,
-animations, audio, movies, fields, scripts and databases, including unused content
-in supported formats. Battle-specific preparation is a separate change. Deferred
-battle resources are reported explicitly; a successful general cook is not a
-claim of complete battle coverage.
+`resonance-import DISC_1 DISC_2` converts the supported North American
+GameCube GQSEAF revision 0 disc images into one editable asset library. The
+command uses `crates/importer`; it has no legacy fallback.
 
 ```sh
-resonance-import cook-all --jobs 6 \
-  --extracted local/extracted/disc1 local/extracted/disc2 \
-  --output local/all-assets
+cargo run --release -p resonance-import-cli -- /path/to/Disc1.rvz /path/to/Disc2.rvz
 ```
 
-Extraction happens once. Cooking reads the extracted filesystem and processes
-everything from the supplied discs. There are no field lists, category
-selectors or partial-cook commands. Output location and worker count change where
-and how cooking runs, never which resources it includes. Conversion uses Rust
-codecs without invoking FFmpeg, vgmstream or KTX tools. Reusable GLB, KTX2 and PCM
-WAV writers live in `resonance-asset-writer`; original formats and game-specific
-conversion belong in `resonance-import`.
+Output defaults to `local/all-assets`, matching the engine's default asset path.
+Use `--output DIRECTORY` for another fresh destination. There is no prerequisite
+`local/extracted` directory. Existing nonempty output is rejected before reading
+the discs, so an accidental retry does not redo extraction or overwrite mods.
 
-Format conversion uses signatures, archive layouts and source declarations, not
-individual field or model recipes. Native table addresses and layout profiles
-remain specific to the supported game revision. Runtime preparation also retains
-original native presentation rules such as title composition and story-dependent
-menu data. Figurine placement and conditional monster node scales are maintained
-as SymphoniaScript content. A typed manifest selects named catalogue records and
-parameterless entries; ordinary string/integer constants pass directly to native calls.
-The engine applies only generic
-instance-local transforms and flag queries. These rules never change shared
-geometry or animation clips. Other native preparation remains game-specific;
-the entire importer is not independent of the original game's organization.
+Disc 1 is primary. Only five additional event-speech archives and four story
+movies are read from disc 2. Shared assets cook once and the
+disc-1 opening wins. Disc order and the supported edition are checked.
 
-## Audio interpolation
+The command temporarily extracts native files because the current decoders use
+ordinary file paths, with seekable archives for speech and movies. This is source
+input, not an intermediate cooked format. A temporary directory owns these
+files and removes them on success or failure; nothing is retained under
+`local/extracted` and no extraction cache or freshness check is introduced.
 
-Cooking generates Resonance's interpolation filters in Rust and includes their
-bytes in the cooked audio tables. No external coefficient file is required.
-Diagnostic previews use the same generated filters. Their hash is part of audio
-package identities, so changing the generator invalidates cached audio recipes.
+For focused development work, explicit extraction and `cook-all` remain available:
 
-## Jobs and publication
+```sh
+target/release/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
+target/release/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
+target/release/resonance-import cook-all
+```
 
-The scheduler is a typed dependency DAG. A job receives immutable `Arc<T>` inputs
-through a resolver restricted to its declared dependencies. Transformations use
-copy-on-write; writers publish completed assets. Decoded intermediate models,
-palettes and tables are not serialized and reopened between computations.
+`cook-all` uses `--extracted local/extracted` and `--output local/all-assets` by
+default. Category commands in `resonance-importer` can reuse that extraction
+without reading disc images again.
 
-Invalid dependencies fail before execution. A failed producer blocks its
-consumers while independent jobs continue. Ready consumers take priority,
-and decoded payloads retire after their last consumer. Model preparation uses
-ordinary sequential functions inside each package job; only the main graph
-schedules parallel conversion.
-The scheduler also supports estimated scratch and retained-output budgets; these
-estimates are admission controls, not process RSS limits. `--memory-budget-mib`
-sets that budget (2048 MiB by default), independently of `--jobs`. If a complete
-library's retained dependencies exhaust the budget, rerun the full cook with a
-larger budget suited to the machine, for example `--memory-budget-mib 8192`.
-The budget changes scheduling admission, never which resources are cooked.
+Progress is always written to stderr, with a numbered asset-type heading,
+indented `i/N jobs` lines and further-indented counters within each job:
 
-An output session coordinates final publication across workers and holds an
-exclusive lock against independent cooks targeting the same directory. Equal
-content shares a destination; different content at the same path fails. Atomic
-installation prevents partial final files. The coordinator retains identities
-and status, not decoded payloads.
+```text
+[asset type 48/64] Cooking Movies
+  Using 10 worker threads for 10 jobs
+  [1/10 jobs] Movie: opening
+    [300/1500 frames] opening: decoding
+```
 
-Every invocation cooks the complete input again, including media. There are no
-incremental receipts, persistent caches or existing-file shortcuts. Identical
-inputs and outputs share work within the current invocation. Movies run serially
-to bound temporary disk use.
+Each job retains its name and number when running concurrently; log lines can
+arrive out of order. Speech counts lines within an archive, field rigs count
+models within a field, and movies report decode/encode frames at roughly
+ten-second intervals while frames are processed. No verbosity flag is needed.
+Each completed pass prints a wall-clock duration with the same asset-type
+number and name, for example:
 
-Each distinct executable is parsed into one set of catalogues. Embedded table
-publication, menus and session data consume those same values. Field actors,
-figurines and monster previews bind typed decoded packages through the same
-model path.
+```text
+[asset type 39/64] Field scenery and actors took 42.318 seconds
+```
+
+A failed pass also prints its elapsed time before the error. Timings include
+waiting for that pass's workers. A successful full cook additionally prints its
+total elapsed time. To capture your run and extract the timing lines:
+
+```sh
+cargo run --release -p resonance-import-cli -- cook-all 2>&1 | tee /tmp/resonance-cook.log
+rg 'took .* seconds' /tmp/resonance-cook.log
+```
+
+Independent work within a pass uses `std::thread::available_parallelism()` to
+detect the CPU allowance and start at most that many workers. Each pass finishes
+before the next starts. Parallel passes include field scripts/collision, battle
+party characters (each character's costumes remain ordered), arenas, scenes,
+skills, enemy rules, field definitions, music tracks and movies. Field source and
+scenery conversion, field-local rigs, enemy media and enemy effects also run in
+CPU-sized batches. Each batch converts concurrently and applies shared-owner
+updates in the original order. Field actor finalization stays ordered, and field
+141's shared scenery motion is published before its consumers are prepared.
+Opened field archives are reused for actor finalization. Only one batch is held
+in memory; there is no temporary cooked library.
+
+Music/movie aliases are resolved before dispatch. Enemy motion and effect media
+retain the same first owner as the sequential converter. Native animation
+binding caches and other shared-owner passes keep their required ordering.
+On failure, new work stops and active workers finish before the error returns.
+
+## Conversion and publication
+
+Each ordinary category function reads its native input, constructs the final
+document or standard media and writes its named output. The coordinator calls
+owners in explicit dependency order. Structured documents use their final editable
+types; media use the existing Rust readers and encoders. No job graph, publication
+registry, hashes, receipts or intermediate asset library is involved.
+
+Use a fresh destination. Files are created without overwriting existing files.
+On failure, completed files remain available for inspection and focused recovery;
+the command reports the failing owner. A partial output is not a playable library.
+Keep an existing working library and mod edits separately. The command does not
+stage and automatically install another generation.
+
+Focused development conversions use the replacement owner's CLI:
+
+```sh
+cargo run -p resonance-importer -- field-core local/extracted local/field-review 330
+```
+
+That writes one field's script, messages and collision. It needs the appropriate
+shared dependencies for other selected owners. Do not rerun completed music,
+speech or movie conversion to check an unrelated fix.
+
+Temporary disk data is allowed only when a converter needs it. Movie decoding
+retains reordered video frames and audio locally for the Rust MKV encoder, then
+removes the scratch directory. It does not publish an intermediate movie format.
+Cooking uses in-process codecs; FFmpeg, vgmstream and KTX command-line tools are
+not required. Audio interpolation filters are generated in Rust.
 
 ## Library and field preparation
 
-- `assets/<hash>/` holds converted source packages.
-- `meshes/`, `textures/` and `clips/` share final geometry, images and motion clips.
-- `audio/` holds decoded samples and playback packages.
-- `fields/map-{id}.json`, `fields/map-{id}-audio.json` and
-  `fields/map-{id}.preload.json` bind each field's scene, audio and dependencies.
-- `movies/{id}.json` binds the movie catalogue to shared converted streams.
-- `title.json` contains the title menu artwork. The day and night backgrounds use
-  ordinary field packages 474 and 531, including their native UV animation tracks.
-  The player selects the background using local time.
-- `scripts/` contains immutable authored SymphoniaScript published from embedded sources.
-- `data/` and `embedded/` hold parsed records and their provenance.
-- The `overworld-tiles` catalogue binds every terrain coordinate and available
-  alternate to its converted package using the original path templates and axis
-  labels. Runtime story state selects between those alternatives.
-- `sources.json` maps source identities to completed publications. Disc labels
-  appear in provenance, not in separate asset trees.
-- `coverage.json` accounts for processed, failed and intentionally excluded
-  resources. Unknown formats remain errors.
+The [asset guide](cooked-library.md) describes the editable contract:
 
-The previous source index and coverage report are invalidated before discovery.
-The source index is published only after success. Field finalization uses the
-current run's successful field jobs, never a scan of old output directories.
+- `content.json` carries the format version and semantic game name.
+- Category `mappings.json` files connect machine IDs to named resources.
+- `fields/` contains named field definitions, scenery, actors, collision,
+  messages and scenario bytecode. Shared meshes and animation GLBs live once
+  under their natural owners; fields select and bind them.
+- `audio/music/` contains shared WAVs with exact loop boundaries. Speech uses
+  named WAVs; effects use WAVs or compact programmable definitions.
+- `movies/mappings.json` points directly to named MKVs.
+- Models and animations use GLB; textures use KTX2, including authored mip levels.
+- `battle/`, `game/`, `ui/` and `world/` hold their own editable definitions.
+- `scripts/` contains maintained behaviors and generated known-ID definitions.
 
-The same `cook-all` run prepares startup, menus, skits and the complete field
-catalogue. Field IDs select source records, not different cooking implementations.
-The source declarations determine models, animation banks, voices, sound banks
-and movies to bind and preload; they never limit which assets are converted.
-Script-only fields use the same path with empty scenery; setup does
-not borrow the classroom's assets. Final media descriptors may be read for
-validation and timing. Menu icons and symbols share decoded banks; Monster List
-and figurine previews use the same model preparation as field actors. Executable
-data is parsed into named records, not retained as executable slices for the
-player to interpret.
+References inside documents are relative to the library root. Neither paths nor
+documents carry source/disc ownership, content fingerprints or source inventories.
+Diagnostics and independent comparison evidence stay outside the library.
 
-Every AFS member, physical movie audio track, discoverable sound bank and song
-arrangement is converted independently of field references. Missing dependencies
-in the original sound data remain explicit unavailable records; they are not
-replaced with silence. Enemy archives and their embedded sound banks remain under
-the battle exclusion. Native executable code, build metadata and disc headers are
-accounted for separately from assets; known embedded tables and artwork are
-recovered without publishing executable slices.
+Native bytecode keeps its machine IDs. Resource requests resolve through mappings.
+The explicitly maintained gameplay corrections (Shadow following, Gnomette fade,
+wood cleanup, boulder retries and Niflheim bookkeeping/visibility) are preserved as
+small authored corrections after native extraction. These corrections do not
+rewrite resource IDs or modify modded cooked scripts at runtime. The two obsolete
+checked-VM workarounds are replaced by source-neutral VM semantics.
 
-Table readers produce semantic records directly, including inactive entries and
-meaningful unresolved fields. Fixed-size text slots use the same text references
-as pointer tables, with their source bounds checked during parsing. Source
-alignment padding and list terminators serve parsing rather than becoming cooked
-fields. Validation compares semantic catalogues and prepared menu data with the
-original sources and existing baseline.
+The runtime reads current cooked formats directly. Original-format asset readers
+and compatibility adapters are not runtime fallbacks. Later numbered mod layers
+and Steam input support are recorded requirements, not a new cooker framework.
 
-After a format change, rerun `cook-all`. There is no
-compatibility layer for obsolete cooked formats: version mismatches request a
-recook.
+### Saves after format changes
 
-### Repairing a stale saved-state fingerprint
+The current save format is version 10. Asset and gameplay edits do not invalidate
+saves. Loading checks the save version and prepares the resources needed by the
+saved state from the current library. No asset fingerprint, global compatibility
+scan, save repair or migration tool exists.
 
-If a save belongs to an older library whose stored fingerprint is stale, an
-explicit tool can create a separate copy for a freshly cooked library:
-
-```sh
-cargo run -p resonance-presentation --example repair_checkpoint_identity -- \
-  path/to/original-save.json path/to/old-library path/to/current-library \
-  path/to/new-save.json
-```
-
-For a read-only check, put `--check` before the save path and omit the new-save
-path. This performs the same comparison, admission and scene preparation, then
-reports the proposed output hash without writing it.
-
-Supply the old library used with that save. The tool requires the save's header
-to match that library, compares the actual saved-gameplay definitions and every
-field/battle/standard script in both libraries, and verifies the target's stored
-fingerprint against a fresh computation. Any semantic difference rejects the
-repair. Support is bounded to save schema 5 and source menu formats 34–37; normal
-gameplay still requires the current cooked format.
-
-The copy preserves the checkpoint payload and metadata except for its identity.
-Before writing, it must pass normal target admission and strict native scene
-preparation. The output must be a new file; the original is never replaced. The
-JSON report records both identities and file hashes. Scene preparation does not
-replace a replay of the resulting copy through restoration and resumed play.
 Offline checkpoint replay preserves saved preferences; interactive loads apply
 the user's `config.toml` preferences.
 
 Stored battle scenes now require scene format 1. The Ray fixed-pattern recipe in
-`crates/import/src/battle_scene/spell_recipes.json` translates its verified native
+`crates/importer/src/battle_scene_package.rs::ray_recipe` translates its verified native
 schedule and extracts heading, strike points, camera and color from the original
 REL tables. Cooking includes the resulting typed recipe in the scene descriptor
-and its normal preparation identity. Preparation resolves the declared contacts
+and its normal resource preparation. Preparation resolves the declared contacts
 and effects into `PreparedSpell`; transition clocks, TP payment, interruption and
 released-effect ownership remain native. Changing this representation requires a
 complete cook, including scenes that retain their existing native controllers.
@@ -172,34 +165,39 @@ complete cook, including scenes that retain their existing native controllers.
 ## Authored events
 
 The SymphoniaScript DSL and compiler ship with the cooking system. Authored code
-is checked in as readable source and embedded with `include_str!`. Cooking writes
-the maintained model-behavior sources and the entire checked-in `scripts/std`
-library verbatim. It checks entry types without executing behavior. String node
-constants and integer catalogue constants carry native values directly.
-`scripts/std/README.md` links catalogues and shared model node libraries.
-Unknown model interfaces remain cookable without a standard-library entry.
-These are immutable cooked resources;
-their hashes and bytes enter the normal field preload inventory.
+is checked in as readable source and embedded with `include_str!`. Cooking copies
+those behaviors and generates their standard definitions from the explicit enums
+in `symphonia-constants`. The same declarations supply initial resource names;
+there are no checked-in generated `.sym` files or parallel ID/name catalogues.
+Model node names live in the GLBs; `resonance-script nodes MODEL.glb` generates
+optional reference modules. Cooking generates only the few reviewed behavior
+aliases stored alongside the ID declarations, with no skeleton hash registry. See [the standard definitions](../scripts/std/README.md).
+Cooking checks entry types without executing behavior. Unknown resource IDs
+remain usable through raw numeric service boundaries.
+These sources are ordinary editable content. Edit them directly in the library or
+replace the same paths in an enabled mod, then restart the application.
 
-Runtime compiles the verified source snapshot during preview preparation and
-caches immutable programs. Missing or modified cooked sources fail the normal
-integrity checks; runtime never substitutes embedded defaults. Change the
-checked-in sources, rebuild and recook to publish updates. Mod overlays are
-out of scope for now. See
+Runtime compiles the effective captured sources during preparation and caches
+the resulting programs. Current sources are compiled for use; they do not determine save compatibility.
+No stored hash or preload inventory must be repaired. Missing or invalid sources
+fail with a source diagnostic; runtime never substitutes embedded defaults. See
 the [language guide](symphonia-script.md) for the CLI, project layout and field
 entry bindings. Battle-specific programs and preparation remain separate.
 
 ## Models and animations
 
-Geometry remains GLB. Texture conversion writes KTX2 directly from decoded pixels,
-preserving original mip levels. Bound animation clips use content-addressed
-`.motion` files and the generic `resonance_content::animation` schema.
+Geometry remains GLB. Published textures use KTX2, including their authored mip levels. Animation clips use standard glTF 2.0
+animation in GLB, with named rigs and one action per file. The publisher shares
+converted clips through direct readable paths; fields keep their own selections.
+Generic animation banks contain target bindings and GLB paths, not native curves.
 
-Motion clips preserve source times, controls, easing, rotation modes and matrix
-channels. Playback evaluates these curves rather than storing sampled animation
-frames in GLB. The affine evaluator preserves shear through model hierarchies
-and attachments. Secondary motion retains distinct drawing and attachment poses.
-Clip paths participate in preload dependencies, so missing clips fail admission.
+Source-specific curve decoding, easing and time conversion stay in the importer.
+Adaptive LINEAR/STEP keys preserve source curves through Blender's ordinary
+importer; runtime also accepts standard CUBICSPLINE channels. Affine source keys
+use a hierarchy of two standard TRS nodes to preserve shear. Rendering and
+attachment queries use the same standard animation reader. See the
+[animation authoring guide](motion-format.md) for the verified editor workflow.
+Old motion JSON and its runtime reader are removed; the current version is declared by `resonance_content::library::VERSION`.
 
 Fields use named, disjoint draw stages for scenery and actor body/outline passes.
 Missing scenery sections retain their stage instead of shifting later materials
@@ -211,36 +209,37 @@ Use checked parsers and named fields for asset layouts. Keep binary decoding in
 the importer and define gameplay behavior in the runtime. Validate input data
 without reproducing implementation quirks from another engine.
 
-Validate changed readers on representative original content before a full cook.
-At integration checkpoints, exercise both discs and the supported field, menu,
+Finish the coordinated implementation before running final validation. Exercise
+the complete cook and the supported field, battle, world, menu,
 skit, save, movie and audio routes. Compare fresh native output with verified
 Dolphin captures at native resolution, preserving existing thresholds. All
 unattended playback stays silent. See the [oracle guide](../tools/oracle/README.md).
 
-Successful conversion establishes coverage only for the declared general scope.
+Successful conversion establishes coverage only for the declared supported scope.
 It does not prove every native controller is implemented or every scene renders
 correctly; native late-actor phases remain unsupported by the runtime. Continue
 recovery when a concrete failure or original consumer proves
-a gap; battle preparation has its own implementation and validation boundary.
+a gap. Preserve the independent battle and field fidelity evidence.
 
-The current data-driven migration requires menu format 37, skit catalogue format 3,
-world package format 4 and battle scene format 1. Shop visit groups retain saved
+Current authoring documents carry explicit schema versions; old aggregate
+packages and inventories are not supported inputs. Shop visit groups retain saved
 shop IDs; skit resources carry authored skip permission; world landmarks carry
 validated entry overrides. Skit exceptions are extracted from checked original
 instructions. Shop groups and world entry selection are translated recipes with
-source provenance; entry angles and heights come from the original REL constants.
+external source evidence; entry angles and heights come from the original REL constants.
 Runtime callers still constrain skit skipping, and native placement, save admission
 and battle lifecycle rules remain authoritative. Recook the complete library when
 updating to these formats.
 
-Party profiles now require format 1 and contain validated standing-capsule dimensions.
+Party profiles contain validated standing-capsule dimensions.
 The collider recipe preserves Resonance's maintained body envelopes; these are not
 extracted original values, and authored MO/DM reception geometry remains separate.
-The new required `battle/defense-system.json` format 2 declares composition, PA slots,
+The required `battle/defense-system.json` declares composition, PA slots,
 placement, deployment, repair/revival cycles, messages, sound and camera parameters
 for the existing native controller. Repair cycles retain independent orbit counters,
 increasing self-revival delays and the core defense ratio; native recovery owns
 revival, protection, health caps and feedback.
 Its placement/rate constants are extracted from the original REL, while the camera
-restriction is an explicitly maintained Resonance setting. Both records include
-their recipe hashes and enter the shared preload inventory. A full recook is required.
+restriction is an explicitly maintained Resonance setting. Source evidence and
+source comparison evidence belongs outside the cooked library. Runtime reads the current named
+rules and discovers their dependencies without a stored preload inventory.

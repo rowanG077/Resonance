@@ -1,17 +1,21 @@
 //! Resolve shared recoil parameters from the encounter snapshot.
 use anyhow::{Context, Result};
 use resonance_battle::{Character, RecoilProfile, VerticalRecoil};
-use resonance_content::{battle_recoil, prepared::Files};
+use resonance_content::{battle_profile::RecoilWeight, battle_recoil, prepared::Files};
 
 pub struct Parameters {
     source: battle_recoil::Table,
 }
 
 impl Parameters {
+    pub fn from_table(source: battle_recoil::Table) -> Self {
+        Self { source }
+    }
+
     pub fn load(files: &Files) -> Result<Self> {
-        Ok(Self {
-            source: files.json(battle_recoil::PATH)?,
-        })
+        Ok(Self::from_table(resonance_content::battle_rules::recoil(
+            files,
+        )?))
     }
 
     pub(super) fn hit(
@@ -38,7 +42,7 @@ impl Parameters {
         if position == 0 {
             self.source
                 .default_guard_recovery_bonuses
-                .get(character as usize)
+                .get(&(character as u8))
                 .copied()
                 .context("missing actor guard recovery bonus")
         } else {
@@ -49,18 +53,20 @@ impl Parameters {
     /// Translate actor weight and defensive traits into recoil behavior.
     pub fn profile(
         &self,
-        weight: u8,
+        weight: RecoilWeight,
         traits: &resonance_content::battle_profile::ProfileTraits,
     ) -> RecoilProfile {
         RecoilProfile {
             vertical: match weight {
-                1 => VerticalRecoil::Scale(self.source.light_vertical_scale),
-                2 => VerticalRecoil::Scale(self.source.heavy_vertical_scale),
-                3 => VerticalRecoil::Grounded,
-                _ => VerticalRecoil::Unchanged,
+                RecoilWeight::Light => VerticalRecoil::Scale(self.source.light_vertical_scale),
+                RecoilWeight::Heavy => VerticalRecoil::Scale(self.source.heavy_vertical_scale),
+                RecoilWeight::Grounded => VerticalRecoil::Grounded,
+                RecoilWeight::Normal => VerticalRecoil::Unchanged,
             },
             can_knock_down: !traits.knockdown_immune,
-            can_launch: !traits.knockdown_immune && !traits.launch_immune && weight != 3,
+            can_launch: !traits.knockdown_immune
+                && !traits.launch_immune
+                && weight != RecoilWeight::Grounded,
             clear_pending: traits.clear_pending_on_hit,
         }
     }

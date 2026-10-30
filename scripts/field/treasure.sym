@@ -7,7 +7,7 @@ use game::text;
 use field::treasure_types;
 use game::treasure::Kind;
 use game::treasure::Reward;
-use field::treasure_types::Cue;
+use std::effects::EffectId;
 const OpeningSpeed: f32 = 0.4;
 const ClosingSpeed: f32 = - 0.8;
 message received_item(item: text::Item) = "Received {item}.";
@@ -25,7 +25,7 @@ task give_reward(reward: Reward) -> bool {
         Reward::Item(item) => {
             received = party::give_item(item, 1);
             if received {
-                treasure_types::play(Cue::ReceivedItem);
+                treasure_types::play(EffectId::ReceivedItem);
                 await field::instant_notice(received_item(item));
             } else {
                 await field::instant_notice(full_item(item));
@@ -34,7 +34,7 @@ task give_reward(reward: Reward) -> bool {
         Reward::Gald(amount) => {
             received = party::give_gald(amount);
             if received {
-                treasure_types::play(Cue::ReceivedItem);
+                treasure_types::play(EffectId::ReceivedItem);
                 await field::instant_notice(received_gald(amount));
             } else {
                 await field::instant_notice(full_gald(amount));
@@ -47,22 +47,22 @@ pub task open(chest: treasure::Chest) {
     let actor = treasure::actor(chest);
     let kind = treasure::kind(chest);
     actors::animate(actor, OpeningSpeed, false);
-    if kind != Kind::UnknownId2 {
-        treasure_types::play(Cue::OpenChest);
+    if kind != Kind::Bag {
+        treasure_types::play(EffectId::OpenChest);
     }
     await finish_animation(actor);
-    if kind == Kind::UnknownId2 {
-        treasure_types::play(Cue::OpenAlternateChest);
+    if kind == Kind::Bag {
+        treasure_types::play(EffectId::OpenAlternateChest);
     }
     if await give_reward(treasure::reward(chest)) {
         treasure::mark_opened(chest);
         return;
     }
     actors::animate(actor, ClosingSpeed, true);
-    if kind == Kind::UnknownId2 {
-        treasure_types::play(Cue::OpenAlternateChest);
+    if kind == Kind::Bag {
+        treasure_types::play(EffectId::OpenAlternateChest);
     } else {
-        treasure_types::play(Cue::OpenChest);
+        treasure_types::play(EffectId::OpenChest);
     }
     await finish_animation(actor);
     actors::stop_animation(actor);

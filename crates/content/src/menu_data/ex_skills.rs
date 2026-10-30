@@ -180,7 +180,7 @@ pub enum ExStat {
     Intelligence,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExStatBonus {
     pub stat: ExStat,
     /// Each bonus is rounded independently from the character's base statistic.
@@ -224,7 +224,7 @@ impl CharacterExSkills {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExSkillData {
     pub skills: BTreeMap<u8, ExSkill>,
     pub characters: Vec<CharacterExSkills>,

@@ -258,7 +258,7 @@ The command menu owns one active page. Cooking commits in the game layer, then
 presents a completed result. Battle PCM starts from prepared clips when the scene
 is ready, and confirmation waits for actual playback completion where required.
 
-Cooked assets and saves use the current schemas only; saves require schema 5.
+Cooked assets and saves use the current schemas only; saves require format version 10. Asset edits do not invalidate saves.
 Checkpoints require
 explicit technique and battle history; it does not infer missing history from
 older saves. Regenerate development fixtures when changing these contracts.
@@ -326,7 +326,7 @@ and substitutes GPU completion; it establishes ownership and input behavior, not
 rendering fidelity. Current results belong in the simplification plan.
 
 For presentation changes, capture ordinary inputs through the supported route.
-The library must include the current save identity and field-media publications;
+The library must include the required named field and media resources;
 `refresh_battle` alone does not establish that readiness.
 
 ```sh

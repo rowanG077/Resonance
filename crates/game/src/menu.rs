@@ -244,6 +244,7 @@ pub enum Slot {
         location: String,
         played_ticks: u64,
         party: Box<resonance_events::party::Party>,
+        vitals: std::collections::BTreeMap<u8, [u16; 2]>,
     },
     Invalid(String),
 }
@@ -349,8 +350,7 @@ impl Menu {
                     self.manual_data = Some(data);
                 }
                 Page::Figurines if self.figurines_data.is_none() => {
-                    let data: resonance_content::figurine::FigurineBook =
-                        resources.files.json(menu_data::FIGURINES_PATH)?;
+                    let data = resonance_content::figurine::FigurineBook::load(&resources.files)?;
                     data.validate()?;
                     self.figurines_data = Some(data);
                 }
@@ -361,8 +361,7 @@ impl Menu {
                     self.synopsis_data = Some(data);
                 }
                 Page::Customize if self.customize_data.is_none() => {
-                    let data: menu_data::CustomizeData =
-                        resources.files.json(menu_data::CUSTOMIZE_PATH)?;
+                    let data = resonance_content::options::load(&resources.files)?;
                     data.validate()?;
                     self.customize_data = Some(data);
                 }
@@ -1046,8 +1045,12 @@ mod tests {
             .unwrap_or_else(|| {
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
             });
-        let mut data: menu_data::MenuData =
-            serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json"))?)?;
+        let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+        let files =
+            resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
+        let mut data = menu_data::MenuData::load(&files)?;
         data.validate()?;
         let labels = data.presentation.labels.clone();
         data.presentation = menu_data::MenuPresentation {
@@ -1057,14 +1060,12 @@ mod tests {
         data.validate_gameplay()?;
         assert!(data.validate().is_err());
         let data = Arc::new(data);
-        let session: Arc<resonance_content::session::SessionData> = Arc::new(
-            serde_json::from_slice(&std::fs::read(root.join("game/session-data.json"))?)?,
-        );
+        let session: Arc<resonance_content::session::SessionData> =
+            Arc::new(resonance_content::session::SessionData::load(&files)?);
         for paranoid in [false, true] {
-            let files = Files::load_with_diagnostics(
-                &root,
+            let files = resonance_content::preparation::capture(
+                &resonance_content::library::Library::open(&root, &[])?,
                 &[],
-                &mut Default::default(),
                 || false,
                 resonance_content::diagnostics::Diagnostics::new(paranoid),
             )?;

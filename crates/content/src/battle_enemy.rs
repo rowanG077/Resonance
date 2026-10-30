@@ -5,9 +5,8 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-pub fn path(id: u8) -> String {
-    format!("battle/enemies/{id:03}/definition.json")
-}
+pub mod document;
+pub mod rules;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,9 +17,8 @@ pub enum EntryRow {
     Back,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Definition {
-    pub source_sha256: String,
     /// Empty visual slots in the authored body motion table.
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub null_motions: std::collections::BTreeSet<u16>,
@@ -28,8 +26,6 @@ pub struct Definition {
     /// Initial visibility overrides, indexed by carried component slot.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub weapon_visibility: std::collections::BTreeMap<u8, WeaponVisibility>,
-    /// Every decoded projectile row, including unsupported rows, in authored order.
-    pub projectiles: Vec<Projectile>,
     pub actions: EnemyActions,
     pub target_strategy: Option<TargetPolicy>,
     pub entry_row: EntryRow,
@@ -147,9 +143,18 @@ pub enum EntranceCue {
     Height(f32),
     Vertical(f32),
     Pose {
+        #[serde(with = "crate::battle_motion")]
         clip: u16,
+        #[serde(
+            default = "crate::battle_action::pose_rate",
+            skip_serializing_if = "crate::battle_action::ordinary_pose_rate"
+        )]
         rate: f32,
         repeat: bool,
+        #[serde(
+            default = "crate::battle_action::pose_blend",
+            skip_serializing_if = "crate::battle_action::ordinary_pose_blend"
+        )]
         blend: u8,
     },
     StageTint {
@@ -169,9 +174,18 @@ pub enum EntranceCue {
     PartyVoice(crate::battle_voice::Sound),
     PartyActiveExpression,
     PartyPose {
+        #[serde(with = "crate::battle_motion")]
         clip: u16,
+        #[serde(
+            default = "crate::battle_action::pose_rate",
+            skip_serializing_if = "crate::battle_action::ordinary_pose_rate"
+        )]
         rate: f32,
         repeat: bool,
+        #[serde(
+            default = "crate::battle_action::pose_blend",
+            skip_serializing_if = "crate::battle_action::ordinary_pose_blend"
+        )]
         blend: u8,
     },
     Dissolve,
