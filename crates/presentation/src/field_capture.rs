@@ -27,6 +27,7 @@ const VERTEX_FLOATS: u64 = 9;
 
 pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "field_capture.wgsl");
+    bevy::shader::load_shader_library!(app, "effect_depth.wgsl");
     app.add_plugins(ExtractComponentPlugin::<Meshes>::default())
         .add_systems(
             PostUpdate,
@@ -137,12 +138,19 @@ fn sync(
 pub(super) fn pipeline(
     layout: BindGroupLayoutDescriptor,
     shader: Handle<Shader>,
+    multisampled_depth: bool,
 ) -> RenderPipelineDescriptor {
+    let shader_defs = if multisampled_depth {
+        vec!["MULTISAMPLED_DEPTH".into()]
+    } else {
+        vec![]
+    };
     RenderPipelineDescriptor {
         label: Some("resonance/captured-mesh".into()),
         layout: vec![layout],
         vertex: VertexState {
             shader: shader.clone(),
+            shader_defs: shader_defs.clone(),
             entry_point: Some("vertex".into()),
             buffers: vec![VertexBufferLayout {
                 array_stride: VERTEX_FLOATS * 4,
@@ -169,6 +177,7 @@ pub(super) fn pipeline(
         },
         fragment: Some(FragmentState {
             shader,
+            shader_defs,
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
                 format: TextureFormat::Bgra8Unorm,
@@ -181,14 +190,6 @@ pub(super) fn pipeline(
             cull_mode: Some(Face::Back),
             ..default()
         },
-        depth_stencil: Some(DepthStencilState {
-            format: TextureFormat::Depth32Float,
-            depth_write_enabled: Some(false),
-            // Captured meshes test scene depth without occluding later transparent layers.
-            depth_compare: Some(CompareFunction::Greater),
-            stencil: default(),
-            bias: default(),
-        }),
         ..default()
     }
 }

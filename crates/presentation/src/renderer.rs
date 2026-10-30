@@ -19,6 +19,7 @@ pub(super) const COMPOSITED_OUTPUT: CameraOutputMode = CameraOutputMode::Write {
 };
 
 pub(super) fn configure(app: &mut App) {
+    app.add_plugins(crate::anti_aliasing::AntiAliasingPlugin);
     // Our modest, mostly transparent scenes cost less with direct draws than
     // GPU indirect culling. Keep GPU mesh preparation and visibility checks.
     // Require this at spawn: changing a warm-up camera's mode after its first
