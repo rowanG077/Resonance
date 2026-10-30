@@ -124,6 +124,7 @@ pub fn ui(
     cancelled: &impl Fn() -> bool,
 ) -> Result<()> {
     ensure!(!cancelled(), "UI preparation cancelled");
+    crate::input_prompts::capture(snapshot)?;
     let mut dialogue: DialogueArt = snapshot.json("ui/dialogue.json", JSON_LIMIT)?;
     dialogue.validate()?;
     font(snapshot, &dialogue.font)?;

@@ -101,6 +101,8 @@ pub struct ControlInput {
     pub vertical_pressed: i8,
     pub attack: ButtonInput,
     pub technique: ButtonInput,
+    /// A physical arte assignment, independent of the legacy direction slots.
+    pub assigned_arte: Option<TechniqueId>,
     /// Mapped logical action 4 (Delay Spell), sampled by the caster's
     /// controller slot even when that caster is Auto-controlled.
     pub delay_spell: ButtonInput,
@@ -121,6 +123,7 @@ impl ControlInput {
             vertical_pressed: 0,
             attack: Default::default(),
             technique: Default::default(),
+            assigned_arte: None,
             delay_spell: Default::default(),
             taunt: Default::default(),
             guard: Default::default(),
@@ -933,6 +936,11 @@ impl Battle {
             self.actors[index].input = InputIntent::default();
         }
         if self.actors[index].control == Control::Auto {
+            if let Some(id) = input.assigned_arte
+                && let Some(action) = self.shortcut_action(actor, id)
+            {
+                self.queue_technique(actor, action)?;
+            }
             return Ok(());
         }
         if stopping || ordinary {
@@ -1081,7 +1089,10 @@ impl Battle {
         let owner = &self.actors[index];
         let input = control.combo_input;
         let combo = self.runtime[index].combo;
-        let buffered = if input.attack.pressed {
+        let buffered = if let Some(id) = input.assigned_arte {
+            self.shortcut_action(actor, id)
+                .map(BufferedAction::Technique)
+        } else if input.attack.pressed {
             let Some(normal) = &sequence.normal else {
                 return;
             };

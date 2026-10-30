@@ -67,6 +67,10 @@ pub struct Member {
     pub equipment: [u16; 6],
     pub techniques: BTreeSet<u16>,
     pub shortcuts: [u16; 4],
+    #[serde(default)]
+    pub unison_arte: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arte_bindings: Vec<resonance_content::input::ArteBinding>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub disabled_techniques: BTreeSet<u16>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1293,12 +1297,27 @@ impl Party {
                 && self.recent_items.len() <= 32,
             "invalid saved inventory"
         );
+        let mut assigned_combos = BTreeSet::new();
         for (index, (member, definition)) in self.members.iter().zip(&data.characters).enumerate() {
             ensure!(
                 member.overlimit <= 100,
                 "saved Over Limit percentage exceeds 100"
             );
             member.validate_ex(data.rules.as_ref().map(|rules| &rules.ex_skills), index)?;
+            let mut assigned_artes = BTreeSet::new();
+            ensure!(
+                member.arte_bindings.iter().all(|binding| member
+                    .techniques
+                    .contains(&binding.technique)
+                    && binding.chord.validate_shape().is_ok()
+                    && assigned_artes.insert(binding.technique)
+                    && {
+                        let mut inputs = binding.chord.0.clone();
+                        inputs.sort();
+                        assigned_combos.insert(inputs)
+                    }),
+                "invalid saved arte assignment"
+            );
             ensure!(
                 member
                     .equipment
@@ -1354,6 +1373,13 @@ impl Party {
                         .all(|id| *id == 0 || member.techniques.contains(id))
                     && member.disabled_techniques.is_subset(&member.techniques)
                     && member
+                        .unison_arte
+                        .is_none_or(|id| member.techniques.contains(&id)
+                            && data.rules.as_ref().is_none_or(|rules| rules
+                                .techniques
+                                .get(usize::from(id))
+                                .is_some_and(|t| t.unison_usable)))
+                    && member
                         .technique_uses
                         .iter()
                         .all(|(id, count)| definition.allowed_techniques.contains(id)
@@ -1405,6 +1431,16 @@ impl Party {
                     equipment: character.equipment,
                     techniques: character.techniques.iter().copied().collect(),
                     shortcuts: character.shortcuts,
+                    unison_arte: data.rules.as_ref().and_then(|rules| {
+                        character.allowed_techniques.iter().copied().find(|id| {
+                            character.techniques.contains(id)
+                                && rules
+                                    .techniques
+                                    .get(usize::from(*id))
+                                    .is_some_and(|tech| tech.unison_usable)
+                        })
+                    }),
+                    arte_bindings: Vec::new(),
                     disabled_techniques: BTreeSet::new(),
                     technique_uses: BTreeMap::new(),
                     assist_shortcuts: [None; 2],

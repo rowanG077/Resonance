@@ -273,6 +273,14 @@ impl Lifecycle {
     }
 
     /// Pending and visible command visits keep the admitted controller slot.
+    pub fn capture_arte_binding(
+        &mut self,
+        candidate: &mut Candidate,
+        held: &std::collections::BTreeSet<resonance_content::input::PhysicalInput>,
+    ) -> bool {
+        self.command.capture_arte_binding(candidate, held)
+    }
+
     pub fn command_controller(&self) -> Option<resonance_battle::ControllerPort> {
         self.command.controller()
     }

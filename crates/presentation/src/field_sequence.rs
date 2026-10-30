@@ -557,7 +557,6 @@ mod tests {
     #[test]
     #[ignore = "requires locally cooked Dirk scenes and a graphics device"]
     fn fireplace_window_stays_visible_during_the_key_crest_conversation() -> Result<()> {
-        use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
         let root = PathBuf::from(std::env::var("RESONANCE_WORLD_ASSETS")?);
         let field = crate::field_test::Scene::story(&root, 374, 501_000, |_| Ok(()))?;
         let checkpoint = resonance_game::field::FieldCheckpoint {
@@ -589,22 +588,19 @@ mod tests {
         let output = directory.path().join("frames");
         crate::capture_effect_sequence(&root, &output, &sequence)?;
         for frame in sequence.capture_frames {
-            let image = Image::from_buffer(
-                &fs::read(output.join(format!("frame-{frame:04}.png")))?,
-                ImageType::Extension("png"),
-                CompressedImageFormats::NONE,
-                true,
-                ImageSampler::default(),
-                default(),
-            )?
-            .try_into_dynamic()?
-            .to_rgb8();
+            let image = resonance_asset_writer::texture::png(&fs::read(
+                output.join(format!("frame-{frame:04}.png")),
+            )?)?;
             // The right window pane should show greenery throughout the light animation.
             // Check its area, allowing smoke and small shading differences.
             let green = (125..155)
                 .flat_map(|y| (300..330).map(move |x| (x, y)))
                 .filter(|&(x, y)| {
-                    let [r, g, b] = image.get_pixel(x, y).0.map(u16::from);
+                    let index = (y * image.width as usize + x) * 4;
+                    let [r, g, b] = image.rgba[index..index + 3]
+                        .try_into()
+                        .unwrap_or([0; 3])
+                        .map(u16::from);
                     g > 30 && g > r && g > b
                 })
                 .count();

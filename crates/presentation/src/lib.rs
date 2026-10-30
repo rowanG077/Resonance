@@ -35,6 +35,8 @@ mod debug_font;
 mod display;
 mod dungeons;
 mod field_warm;
+mod input;
+mod input_icons;
 mod loading;
 mod renderer;
 mod testing;
@@ -749,6 +751,7 @@ fn gather_input(
     mut pending: ResMut<PendingInput>,
     replay: Option<Res<Replay>>,
     dungeons: Option<Res<dungeons::Menu>>,
+    preferences: Option<Res<config::Preferences>>,
 ) {
     if dungeons.is_some_and(|menu| menu.blocked()) {
         *pending = PendingInput::default();
@@ -759,35 +762,26 @@ fn gather_input(
     }
     // Preserve presses across render frames with no fixed update; consume them
     // only once if the next render frame contains several fixed updates.
-    let up = input.pressed(KeyCode::ArrowUp)
-        || gamepads
-            .iter()
-            .any(|p| p.pressed(GamepadButton::DPadUp) || p.left_stick().y > 0.75);
-    let down = input.pressed(KeyCode::ArrowDown)
-        || gamepads
-            .iter()
-            .any(|p| p.pressed(GamepadButton::DPadDown) || p.left_stick().y < -0.75);
-    let accept = input.pressed(KeyCode::Enter)
-        || gamepads
-            .iter()
-            .any(|p| p.pressed(GamepadButton::South) || p.pressed(GamepadButton::Start));
-    // A press and release can both arrive before this frame. Bevy retains the
-    // press event even when `pressed` is already false; do not lose that tap.
-    pending.pressed.up |= (up && !pending.held.up)
-        || input.just_pressed(KeyCode::ArrowUp)
-        || gamepads
-            .iter()
-            .any(|p| p.just_pressed(GamepadButton::DPadUp));
-    pending.pressed.down |= (down && !pending.held.down)
-        || input.just_pressed(KeyCode::ArrowDown)
-        || gamepads
-            .iter()
-            .any(|p| p.just_pressed(GamepadButton::DPadDown));
-    pending.pressed.accept |= (accept && !pending.held.accept)
-        || input.just_pressed(KeyCode::Enter)
-        || gamepads
-            .iter()
-            .any(|p| p.just_pressed(GamepadButton::South) || p.just_pressed(GamepadButton::Start));
+    use resonance_content::input::StandardAction as A;
+    let map = preferences
+        .as_ref()
+        .map(|p| p.settings.keymap.clone())
+        .unwrap_or_default();
+    let mut physical = crate::input::PhysicalState::keyboard(&input);
+    for pad in &gamepads {
+        physical.merge(&crate::input::PhysicalState::gamepad(pad));
+    }
+    let up = physical.down(&map, A::MoveUp) || physical.down(&map, A::OrderUp);
+    let down = physical.down(&map, A::MoveDown) || physical.down(&map, A::OrderCancel);
+    let accept = physical.down(&map, A::Confirm) || physical.down(&map, A::Start);
+    pending.pressed.up |=
+        up && !pending.held.up || physical.edge(&map, A::MoveUp) || physical.edge(&map, A::OrderUp);
+    pending.pressed.down |= down && !pending.held.down
+        || physical.edge(&map, A::MoveDown)
+        || physical.edge(&map, A::OrderCancel);
+    pending.pressed.accept |= accept && !pending.held.accept
+        || physical.edge(&map, A::Confirm)
+        || physical.edge(&map, A::Start);
     pending.pressed.reveal |= pending.pressed.up || pending.pressed.down || pending.pressed.accept;
     pending.held = MenuInput {
         up,

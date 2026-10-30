@@ -2,197 +2,158 @@ use super::*;
 use anyhow::ensure;
 use resonance_game::menu::unison::{Focus, Page as UnisonPage, Unison, VISIBLE_TECHNIQUES};
 
-fn slot_cursor(state: &Unison) -> [f32; 2] {
-    let x = 32 + (state.character / 2) as i32 * 312;
-    [
-        (x + 40) as f32,
-        90. + (state.character % 2) as f32 * 130. + state.slot as f32 * 24.,
-    ]
+fn loadout_cursor(state: &Unison) -> [f32; 2] {
+    [32., 88. + state.character as f32 * 54.]
 }
-
+fn main_anchor(state: &Unison) -> Result<[f32; 2]> {
+    ensure!(
+        state.character < 4 && state.first <= state.row,
+        "invalid Unison loadout pose"
+    );
+    Ok(if state.focus == Focus::Loadout {
+        loadout_cursor(state)
+    } else {
+        [280., 92. + (state.row - state.first) as f32 * 26.]
+    })
+}
 impl Drawing<'_> {
-    pub(super) fn unison(&mut self, page: UnisonPage<'_>, at_save_point: bool) -> Result<[f32; 2]> {
-        let data = page.data;
-        let party = page.party;
-        let state = page.state;
-        let count = page.party_count();
-        let anchor = main_anchor(state)?;
+    pub(super) fn unison(
+        &mut self,
+        page: UnisonPage<'_>,
+        _at_save_point: bool,
+    ) -> Result<[f32; 2]> {
+        use resonance_content::input::StandardAction as A;
         self.opacity = 255;
         self.offset = [0.; 2];
-        self.heading(
-            data.presentation
-                .labels
-                .get("unison_title")
-                .context("U. Attack title was not prepared")?,
-        )?;
-        self.framed([16., 320., 604., 108.], true)?;
-        if let Some(selected) = page.selection() {
-            self.plane = 3;
-            self.technique_description(party, data, selected, at_save_point)?;
-        }
-        self.plane = 4;
-        self.opacity = 255;
-        for (index, &id) in party.formation.iter().take(count).enumerate() {
+        let title = page
+            .data
+            .presentation
+            .labels
+            .get("unison_title")
+            .context("Unison title was not prepared")?;
+        self.heading(&format!("{title} Loadout"))?;
+        self.framed([16., 60., 604., 242.], true)?;
+        for (index, &id) in page
+            .party
+            .formation
+            .iter()
+            .take(page.party_count())
+            .enumerate()
+        {
             let member = usize::from(id - 1);
-            let selected = index == state.character;
-            let x = 16. + (index / 2) as f32 * 308.;
-            let y = 60. + (index % 2) as f32 * 130.;
-            self.frame([x, y, 296., 120.])?;
-            if selected {
+            let y = 72. + index as f32 * 54.;
+            if index == page.state.character {
                 self.highlight(
-                    [x + 80., y + 22. + state.slot as f32 * 24., 200., 24.],
-                    if state.focus == Focus::Slots {
+                    [
+                        28.,
+                        y,
+                        if page.state.focus == Focus::List {
+                            216.
+                        } else {
+                            580.
+                        },
+                        44.,
+                    ],
+                    if page.state.focus == Focus::Loadout {
                         255
                     } else {
                         127
                     },
                 );
             }
-            self.button(6 + index * 2 - usize::from(!selected), [x + 6., y])?;
-            self.text_size(
+            self.fitted_text(
                 page.character_name(member)
-                    .context("U. Attack character name was not prepared")?,
-                [x + 30., y + 2.],
-                [20.; 2],
-                WHITE,
+                    .context("Unison character name is missing")?,
+                [40., y + 8.],
+                [20., 24.],
+                204.,
+                GOLD,
             )?;
-            let number = (index + 1).to_string();
-            self.text(&number, [x, y + 40.], 16., WHITE)?;
-            self.text(
-                &data
-                    .presentation
-                    .labels
-                    .get("unison_player")
-                    .context("U. Attack player label was not prepared")?
-                    .replace("%d", &number),
-                [x, y + 40.],
-                16.,
-                WHITE,
-            )?;
-            for (slot, &id) in party.members[member].shortcuts.iter().enumerate() {
-                let y = y + 22. + slot as f32 * 24.;
-                let active = selected && slot == state.slot;
-                if id != 0 {
-                    let tech = &data.techniques[usize::from(id)];
-                    let tech_text = data.technique_text(id)?;
-                    self.text(
-                        &tech_text.name,
-                        [x + 64., y],
-                        16.,
-                        if tech.unison_usable { WHITE } else { DISABLED },
-                    )?;
-                }
-                if slot == 3 {
-                    self.button(if active { 35 } else { 4 }, [x + 16., y])?;
-                    self.button(if active { 36 } else { 3 }, [x + 40., y])?;
-                } else {
-                    self.button(if active { [0, 33, 34][slot] } else { slot }, [x + 28., y])?;
-                }
+            if page.state.focus == Focus::Loadout {
+                let name = page.party.members[member]
+                    .unison_arte
+                    .map(|id| page.data.technique_text(id).map(|t| t.name.as_str()))
+                    .transpose()?
+                    .unwrap_or("-");
+                self.fitted_text(name, [272., y + 8.], [20., 24.], 328., WHITE)?;
             }
         }
-        // Draw the controller legend after the slot cursor.
-        self.plane = 5;
-        self.offset = [0.; 2];
-        for (index, (button_position, label_position)) in [
-            ([404., 24.], [408., 40.]),
-            ([380., 30.], [352., 40.]),
-            ([428., 20.], [448., 24.]),
-            ([396., 8.], [364., 12.]),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            self.button(
-                5 + index * 2 + usize::from(index == state.character),
-                button_position,
-            )?;
-            self.text_size(
-                &data
-                    .presentation
-                    .labels
-                    .get("unison_player")
-                    .context("U. Attack player label was not prepared")?
-                    .replace("%d", &(index + 1).to_string()),
-                label_position,
-                [16.; 2],
-                if index < count { WHITE } else { DISABLED },
-            )?;
-        }
-        self.offset = [0.; 2];
-        self.opacity = 255;
-        if state.focus == Focus::Slots {
-            return Ok(anchor);
-        }
-        let x = if state.character < 2 { 388. } else { 16. };
-        let choices = page.techniques();
-        self.plane = 6;
-        self.opacity = 255;
-        self.shade([x, 60., x + 232., 310.]);
-        self.plane = 7;
-        self.frame([x, 60., 232., 250.])?;
-        self.text_size(
-            &format!(
-                "{}/{}",
-                if choices.is_empty() { 0 } else { state.row + 1 },
-                choices.len()
+        self.framed([16., 312., 604., 116.], true)?;
+        let map = &page.party.settings.preferences.keymap;
+        for (action, label, x, right) in [
+            (
+                A::Confirm,
+                if page.state.focus == Focus::List {
+                    "Assign"
+                } else {
+                    "Select arte"
+                },
+                28.,
+                222.,
             ),
-            [x + 8., 62.],
-            [16.; 2],
-            WHITE,
-        )?;
-        let selected_y = 84. + (state.row - state.first) as f32 * 28.;
-        if !choices.is_empty() {
-            self.highlight([x + 8., selected_y, 208., 24.], 255);
+            (A::Alternate, "Clear", 254., 420.),
+            (A::Cancel, "Back", 474., 608.),
+        ] {
+            if action != A::Alternate || page.state.focus == Focus::Loadout {
+                self.input_hint(map, action, label, [x, 326.], right)?;
+            }
         }
-        let starts = self.vertex_counts();
-        for (row, &id) in choices
-            .iter()
-            .skip(state.first)
-            .take(VISIBLE_TECHNIQUES)
-            .enumerate()
-        {
-            let tech = &data.techniques[usize::from(id)];
-            let tech_text = data.technique_text(id)?;
-            self.text(
-                &tech_text.name,
-                [x + 8., 84. + row as f32 * 28.],
-                16.,
-                if tech.unison_usable { WHITE } else { DISABLED },
+        if let Some(selected) = page.selection() {
+            let description = &page.data.technique_text(selected.technique)?.description;
+            for (line, text) in self
+                .wrap_notice(description, 16., 576.)?
+                .iter()
+                .take(2)
+                .enumerate()
+            {
+                self.text_size(text, [28., 364. + line as f32 * 22.], [16., 20.], WHITE)?;
+            }
+        } else {
+            self.text_size(
+                "Select one Unison arte for this character.",
+                [28., 364.],
+                [16., 20.],
+                WHITE,
             )?;
         }
-        self.clip_rows(starts, [84., 308.]);
-        self.opacity = 255;
-        if state.first > 0 {
-            self.scroll_arrow(SCROLL_UP, [x + 104., 66.])?;
-        }
-        if state.first + VISIBLE_TECHNIQUES < choices.len() {
-            self.scroll_arrow(SCROLL_DOWN, [x + 104., 300.])?;
-        }
-        self.opacity = 255;
-        Ok(anchor)
-    }
-
-    pub(super) fn unison_cursors(&mut self, page: UnisonPage<'_>) {
-        // Draw the slot cursor before the controller legend and list backing.
-        self.plane = 4;
         if page.state.focus == Focus::List {
-            self.cursor(slot_cursor(page.state), 127);
-            self.plane = 7;
+            self.plane += 2;
+            self.shade([260., 64., 612., 302.]);
+            self.frame([260., 64., 352., 238.])?;
+            let choices = page.techniques();
+            self.text_size(
+                &format!("{}/{}", page.state.row + 1, choices.len()),
+                [276., 66.],
+                [12., 16.],
+                GOLD,
+            )?;
+            for (offset, &id) in choices
+                .iter()
+                .skip(page.state.first)
+                .take(VISIBLE_TECHNIQUES)
+                .enumerate()
+            {
+                let y = 84. + offset as f32 * 26.;
+                if page.state.first + offset == page.state.row {
+                    self.highlight([272., y, 328., 24.], 255);
+                }
+                self.fitted_text(
+                    &page.data.technique_text(id)?.name,
+                    [288., y],
+                    [18., 22.],
+                    312.,
+                    WHITE,
+                )?;
+            }
+            if page.state.first > 0 {
+                self.scroll_arrow(SCROLL_UP, [580., 58.])?;
+            }
+            if page.state.first + VISIBLE_TECHNIQUES < choices.len() {
+                self.scroll_arrow(SCROLL_DOWN, [580., 286.])?;
+            }
         }
+        main_anchor(page.state)
     }
-}
-
-fn main_anchor(state: &Unison) -> Result<[f32; 2]> {
-    ensure!(
-        state.character < 4 && state.slot < 4 && state.first <= state.row,
-        "invalid U. Attack drawing pose"
-    );
-    Ok(if state.focus == Focus::Slots {
-        slot_cursor(state)
-    } else {
-        let x = if state.character < 2 { 388. } else { 16. };
-        [x + 8., 92. + (state.row - state.first) as f32 * 28.]
-    })
 }
 impl MenuArtwork {
     #[allow(clippy::too_many_arguments)] // One borrowed page and its prepared drawing resources.
@@ -222,7 +183,6 @@ impl MenuArtwork {
 impl Drawing<'_> {
     fn unison_page(&mut self, page: UnisonPage<'_>) -> Result<()> {
         let anchor = self.unison(page, false)?;
-        self.unison_cursors(page);
         self.cursor(anchor, 255);
         Ok(())
     }

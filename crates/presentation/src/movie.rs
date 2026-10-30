@@ -290,6 +290,9 @@ pub(super) fn controls(
     ready: Res<super::timing::Ready>,
     boot: Res<super::boot::Playback>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
+    session: Option<Res<crate::new_game::Session>>,
+    preferences: Option<Res<crate::config::Preferences>>,
+    mut previous_inputs: Local<std::collections::BTreeSet<resonance_content::input::PhysicalInput>>,
 ) {
     if !ready.0 || !movie.active || boot.active() {
         return;
@@ -297,11 +300,16 @@ pub(super) fn controls(
     if let Some(mut scenario) = scenario {
         scenario.acknowledge_input();
     }
-    let skip_pressed = input.just_pressed(KeyCode::Enter)
-        || input.just_pressed(KeyCode::Escape)
-        || gamepads
-            .iter()
-            .any(|pad| pad.just_pressed(GamepadButton::Start));
+    use resonance_content::input::StandardAction as A;
+    let settings = crate::input::settings(session.as_deref(), preferences.as_deref());
+    let mut physical = crate::input::PhysicalState::keyboard(&input);
+    for pad in &gamepads {
+        physical.merge(&crate::input::PhysicalState::gamepad(pad));
+    }
+    physical.track_edges(&mut previous_inputs);
+    let skip_pressed = [A::Confirm, A::Cancel, A::Start]
+        .into_iter()
+        .any(|a| physical.edge(&settings.keymap, a));
     let ignore_skip = std::mem::take(&mut movie.ignore_initial_skip);
     let skip = skip_pressed && !ignore_skip;
     if skip {
@@ -312,7 +320,7 @@ pub(super) fn controls(
         }
         return;
     }
-    if input.just_pressed(KeyCode::Space) {
+    if physical.edge(&settings.keymap, A::Menu) {
         movie.paused = !movie.paused;
     }
 }

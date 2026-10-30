@@ -278,6 +278,17 @@ pub struct Owner {
     escape_requested: bool,
 }
 impl Owner {
+    pub(in crate::battle) fn capture_arte_binding(
+        &mut self,
+        candidate: &mut super::results::Candidate,
+        held: &std::collections::BTreeSet<resonance_content::input::PhysicalInput>,
+    ) -> bool {
+        match self.session.as_mut().map(|s| &mut s.page) {
+            Some(Page::Tech(page)) => candidate.capture_arte_binding(page, held),
+            _ => false,
+        }
+    }
+
     /// Failed shared-page drawing returns input to the retained command strip.
     /// The caller completes or discards the departed page's edits.
     pub(super) fn return_to_strip(&mut self) -> Option<View> {

@@ -62,10 +62,10 @@ fn tech_page_uses_live_cost_and_rejects_unaffordable_confirmation() -> Result<()
     assert!(view.ready(2, 66));
     assert_eq!(view.technique_cost(2, u16::MAX), None);
     assert!(!view.ready(2, u16::MAX));
-    let confirm = Some(MenuAction::Confirm);
+    let execute = Some(MenuAction::Menu);
     let visit = f
         .candidate
-        .step_tech(&mut f.battle, &mut page, actor, confirm)?;
+        .step_tech(&mut f.battle, &mut page, actor, execute)?;
     assert_eq!(visit.exit.and_then(|exit| exit.technique), Some(66));
     assert_eq!(
         f.battle.actors()[actor.index()].tp,
@@ -90,7 +90,7 @@ fn tech_page_uses_live_cost_and_rejects_unaffordable_confirmation() -> Result<()
     let before = page.state.clone();
     let visit = f
         .candidate
-        .step_tech(&mut f.battle, &mut page, actor, confirm)?;
+        .step_tech(&mut f.battle, &mut page, actor, execute)?;
     assert_eq!(visit.cue, Some(4));
     assert_eq!(visit.exit, None);
     assert_eq!(page.state, before);
@@ -325,5 +325,194 @@ fn battle_target_navigation_stays_within_the_active_roster() -> Result<()> {
     }
     assert_eq!(page.state.target, 3);
     assert_eq!(f.battle.pending_technique(actor), None);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked battle assets; exercises live recording, execution and save projection"]
+fn recorded_auto_arte_combo_replacement_survives_casting_and_save_projection() -> Result<()> {
+    use resonance_battle::{BattleInput, ControlInput, TechniqueId};
+    use resonance_content::input::{InputChord, PhysicalInput};
+    let mut f = fixture()?;
+    let actor = Candidate::tech_actor(&f.candidate.setup, 2)?;
+    let action = f
+        .battle
+        .prepared_technique(actor, TechniqueId(66))
+        .unwrap()
+        .action;
+    let original_shortcuts = *f.battle.shortcuts(actor).unwrap();
+    f.candidate
+        .party
+        .assign_arte_binding(0, 1, InputChord(vec![PhysicalInput::Key("F11".into())]))
+        .map_err(anyhow::Error::msg)?;
+    open_character(&mut f, NO_PADS)?;
+    let (state, _) = page_visit(&mut f, NO_PADS, Some(MenuAction::Down))?;
+    let row = f
+        .candidate
+        .battle_tech_view(&state, &NO_PADS, &f.battle)
+        .technique_list()
+        .iter()
+        .position(|&id| id == 66)
+        .unwrap();
+    for _ in 0..row {
+        page_visit(&mut f, NO_PADS, Some(MenuAction::Down))?;
+    }
+    // Disable autonomous Fire Ball use so its eventual cast proves the recorded command path.
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Alternate))?;
+    assert!(!f.battle.technique_enabled(actor, action));
+    let record = |f: &mut PreparedFixture, inputs: Vec<PhysicalInput>| -> Result<Tech> {
+        page_visit(f, NO_PADS, Some(MenuAction::Confirm))?;
+        assert!(
+            f.lifecycle
+                .capture_arte_binding(&mut f.candidate, &Default::default())
+        );
+        assert!(
+            f.lifecycle
+                .capture_arte_binding(&mut f.candidate, &inputs.into_iter().collect())
+        );
+        assert!(
+            f.lifecycle
+                .capture_arte_binding(&mut f.candidate, &Default::default())
+        );
+        let command::View::Tech(state) = f.lifecycle.command_frame().unwrap().view else {
+            anyhow::bail!("recording left the arte page");
+        };
+        Ok(state)
+    };
+    let accepted = record(&mut f, vec![PhysicalInput::Key("Escape".into())])?;
+    assert_eq!(accepted.binding_message.as_deref(), Some("Combo assigned."));
+    let protected = record(&mut f, vec![PhysicalInput::Key("Space".into())])?;
+    assert_eq!(protected.focus, Focus::BindingError);
+    assert!(
+        protected
+            .binding_error
+            .as_deref()
+            .unwrap()
+            .contains("Attack")
+    );
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Cancel))?;
+    let rejected = record(
+        &mut f,
+        vec![
+            PhysicalInput::Key("ShiftLeft".into()),
+            PhysicalInput::Key("Tab".into()),
+        ],
+    )?;
+    assert_eq!(rejected.focus, Focus::BindingError);
+    assert!(
+        rejected
+            .binding_error
+            .as_deref()
+            .unwrap()
+            .contains("overlay")
+    );
+    assert_eq!(
+        f.candidate.persistent_party().members[2]
+            .arte_bindings
+            .len(),
+        1
+    );
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Cancel))?;
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Details))?;
+    let pending = record(&mut f, vec![PhysicalInput::Key("F11".into())])?;
+    assert_eq!(pending.focus, Focus::ReplaceBinding { yes: false });
+    assert_eq!(pending.pending_binding.unwrap().previous.character, 0);
+    assert!(
+        f.candidate.persistent_party().members[2]
+            .arte_bindings
+            .is_empty()
+    );
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Confirm))?;
+    assert_eq!(
+        f.candidate.persistent_party().members[0]
+            .arte_bindings
+            .len(),
+        1
+    );
+    record(&mut f, vec![PhysicalInput::Key("F11".into())])?;
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Right))?;
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Confirm))?;
+    assert!(
+        f.candidate.persistent_party().members[0]
+            .arte_bindings
+            .is_empty()
+    );
+    assert_eq!(
+        f.candidate.persistent_party().members[2]
+            .arte_bindings
+            .len(),
+        1
+    );
+    record(
+        &mut f,
+        vec![
+            PhysicalInput::Key("Enter".into()),
+            PhysicalInput::Key("KeyW".into()),
+        ],
+    )?;
+    assert_eq!(
+        f.candidate.persistent_party().members[2]
+            .arte_bindings
+            .len(),
+        1
+    );
+    page_visit(&mut f, NO_PADS, Some(MenuAction::Details))?;
+    assert!(
+        f.candidate.persistent_party().members[2]
+            .arte_bindings
+            .is_empty()
+    );
+    record(&mut f, vec![PhysicalInput::Key("Escape".into())])?;
+    let frame = command(
+        &mut f,
+        command::Input {
+            shared_menu: Some(MenuAction::Cancel),
+            ..Default::default()
+        },
+    )?;
+    assert!(matches!(frame.view, command::View::Strip));
+    f.lifecycle.step(
+        &mut f.battle,
+        lifecycle::Input {
+            command: command::Input {
+                cancel_b: edge(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut Display,
+    )?;
+    assert!(f.lifecycle.command_frame().is_none());
+    assert_eq!(*f.battle.shortcuts(actor).unwrap(), original_shortcuts);
+    let prior_uses = f.battle.technique_uses(actor, TechniqueId(66)).unwrap();
+    f.candidate.world_update(
+        &mut f.battle,
+        BattleInput::from(ControlInput {
+            assigned_arte: Some(TechniqueId(66)),
+            ..ControlInput::neutral(actor)
+        }),
+    )?;
+    for _ in 0..600 {
+        if f.battle.technique_uses(actor, TechniqueId(66)).unwrap() > prior_uses {
+            break;
+        }
+        f.candidate
+            .world_update(&mut f.battle, BattleInput::default())?;
+    }
+    assert_eq!(
+        f.battle.technique_uses(actor, TechniqueId(66)),
+        Some(prior_uses + 1)
+    );
+    let saved = f.candidate.snapshot_party(&f.battle)?;
+    let loaded: Party = serde_json::from_slice(&serde_json::to_vec(&saved)?)?;
+    assert_eq!(loaded.members[2].arte_bindings.len(), 1);
+    assert!(
+        loaded.members[2]
+            .arte_bindings
+            .iter()
+            .any(|b| b.technique == 66
+                && b.chord == InputChord(vec![PhysicalInput::Key("Escape".into())]))
+    );
     Ok(())
 }

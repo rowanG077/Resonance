@@ -377,12 +377,15 @@ impl Artwork {
                 && !actor.cast_releasing
             {
                 let top = TOP + 48.;
-                let v = 64. + (self.numbers.presentation_tick / 8 % 2) as f32 * 32.;
-                rhythm_prompt.quad(
-                    [x, top, x + 32., top + 32.],
-                    [384., v, 416., v + 32.],
-                    [1.; 4],
-                );
+                let [u, v, w, h] = crate::input_icons::action_rect_state(
+                    self.windows.input_atlas(),
+                    &self.settings.keymap,
+                    resonance_content::input::StandardAction::Confirm,
+                    self.numbers.presentation_tick / 8 % 2 != 0,
+                    self.windows.prompt_device(),
+                )
+                .map(|v| v as f32);
+                rhythm_prompt.quad([x, top, x + 32., top + 32.], [u, v, u + w, v + h], [1.; 4]);
             }
             let numbers = self.numbers.actors.get(id);
             let values = numbers

@@ -97,6 +97,7 @@ fn fixture(combination: bool) -> Battle {
             members: (0..2)
                 .map(|index| UnisonMember {
                     actor: ActorId(index),
+                    selected: Some(TechniqueId(1)),
                     opener: crate::tests::attack(8),
                     opener_contact_ticks: 3,
                     windup_motion: MotionBinding {
@@ -200,10 +201,7 @@ fn advance_to_phase(battle: &mut Battle, phase: UnisonPhase, max_ticks: u32) {
 
 fn select(pressed_slots: u8) -> BattleInput {
     BattleInput {
-        unison: Some(UnisonInput::Select {
-            pressed_slots,
-            shortcut: crate::ShortcutSlot::Neutral,
-        }),
+        unison: Some(UnisonInput::Select { pressed_slots }),
         ..Default::default()
     }
 }
@@ -238,7 +236,7 @@ fn unison_elemental_conversion_keeps_base_counts_and_recipe_identity() {
             &[(variant.base, 199), (variant.id, 49)],
         );
         battle
-            .prepare_shortcut(ActorId(0), crate::ShortcutSlot::Neutral, Some(ActionKey(0)))
+            .prepare_unison_arte(ActorId(0), Some(TechniqueId(variant.base)))
             .unwrap()
             .commit();
         let opener = opening(&mut battle);
@@ -784,11 +782,20 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
             .commit();
         assert!(
             battle.unison.definition.as_ref().unwrap().members[1]
-                .selected_arte(&battle, crate::ShortcutSlot::Neutral)
+                .selected_arte(&battle)
+                .is_some()
+        );
+        battle
+            .prepare_unison_arte(ActorId(1), None)
+            .unwrap()
+            .commit();
+        assert!(
+            battle.unison.definition.as_ref().unwrap().members[1]
+                .selected_arte(&battle)
                 .is_none()
         );
         battle
-            .prepare_shortcut(ActorId(1), crate::ShortcutSlot::Neutral, Some(ActionKey(0)))
+            .prepare_unison_arte(ActorId(1), Some(TechniqueId(1)))
             .unwrap()
             .commit();
         let action = opening(&mut battle);

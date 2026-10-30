@@ -38,7 +38,7 @@ pub struct Art<Font = BitmapFont> {
     /// accuracy/curse, reduced item effect, Holy Song, down arrow.
     #[serde(with = "crate::ui_art::status_images")]
     pub stat_icons: [UiTexture; 10],
-    /// Physical Unison buttons: A/B palette, then X/Y palette.
+    /// Source bank roles retained in the art document; runtime prompts use the shared input atlas.
     #[serde(with = "crate::ui_art::unison_images")]
     pub unison_buttons: [UiTexture; 2],
     pub commands: CommandArt,
@@ -258,7 +258,6 @@ impl Art {
                 .chain(&self.notices.icons)
                 .chain(&self.notices.faces)
                 .chain(&self.stat_icons)
-                .chain(&self.unison_buttons)
                 .chain(&self.feedback.scan_icons)
                 .chain([&self.feedback.unison_frame])
                 .chain(&self.feedback.escape)
@@ -285,7 +284,6 @@ impl Art {
             .chain(&mut self.notices.icons)
             .chain(&mut self.notices.faces)
             .chain(&mut self.stat_icons)
-            .chain(&mut self.unison_buttons)
             .chain(&mut self.feedback.scan_icons)
             .chain([&mut self.feedback.unison_frame])
             .chain(&mut self.feedback.escape)
@@ -312,7 +310,6 @@ impl Art {
             .chain(&self.notices.icons)
             .chain(&self.notices.faces)
             .chain(&self.stat_icons)
-            .chain(&self.unison_buttons)
             .chain(&self.feedback.scan_icons)
             .chain([&self.feedback.unison_frame])
             .chain(&self.feedback.escape)

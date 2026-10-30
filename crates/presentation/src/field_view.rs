@@ -824,98 +824,163 @@ pub(super) fn gather_controls(
     mut controls: ResMut<Controls>,
     dungeons: Option<Res<super::dungeons::Menu>>,
     testing: Option<Res<super::testing::Controls>>,
+    mut session: Option<ResMut<super::new_game::Session>>,
+    mut title: Option<ResMut<super::saves::title::TitleMenu>>,
+    preferences: Option<Res<super::config::Preferences>>,
+    mut previous_inputs: Local<std::collections::BTreeSet<resonance_content::input::PhysicalInput>>,
 ) {
+    use resonance_content::input::StandardAction as A;
+    let mut physical = crate::input::PhysicalState::keyboard(&input);
+    for pad in &pads {
+        physical.merge(&crate::input::PhysicalState::gamepad(pad));
+    }
+    physical.track_edges(&mut previous_inputs);
     if dungeons.is_some_and(|menu| menu.blocked())
         || testing.is_some_and(|c| c.paused || c.skipping)
     {
         *controls = Controls::default();
         return;
     }
-    use GamepadButton::*;
-    let axis = |positive: [KeyCode; 2], negative: [KeyCode; 2]| {
-        f32::from(positive.into_iter().any(|key| input.pressed(key)))
-            - f32::from(negative.into_iter().any(|key| input.pressed(key)))
+    let captured = if let Some(menu) = title.as_mut() {
+        menu.0.capture_physical(&physical.capture_inputs())
+    } else if let Some(menu) = session.as_mut().and_then(|s| s.menu_mut()) {
+        menu.capture_physical(&physical.capture_inputs())
+    } else {
+        false
     };
-    controls.input.scroll_direction = i8::from(
-        input.pressed(KeyCode::PageUp) || pads.iter().any(|pad| pad.right_stick().y > 0.5),
-    ) - i8::from(
-        input.pressed(KeyCode::PageDown) || pads.iter().any(|pad| pad.right_stick().y < -0.5),
-    );
-    let mut preview = Vec2::new(
-        axis([KeyCode::BracketRight; 2], [KeyCode::BracketLeft; 2]),
-        axis([KeyCode::PageUp; 2], [KeyCode::PageDown; 2]),
-    );
-    for pad in &pads {
-        preview += pad.right_stick();
+    if captured {
+        *controls = Controls::default();
+        return;
     }
-    controls.input.preview_direction = preview.clamp(Vec2::NEG_ONE, Vec2::ONE).to_array();
-    let mut direction = Vec2::new(
-        axis(
-            [KeyCode::ArrowRight, KeyCode::KeyD],
-            [KeyCode::ArrowLeft, KeyCode::KeyA],
-        ),
-        axis(
-            [KeyCode::ArrowUp, KeyCode::KeyW],
-            [KeyCode::ArrowDown, KeyCode::KeyS],
-        ),
+    let menu = title
+        .as_ref()
+        .map(|title| &title.0)
+        .or_else(|| session.as_ref().and_then(|session| session.menu()));
+    let party = session
+        .as_ref()
+        .and_then(|session| session.events().world.party.as_ref());
+    let map = crate::input::active_keymap(menu, party, preferences.as_deref());
+    let preview = physical.camera(&map);
+    controls.input.scroll_direction = i8::from(preview.y > 0.5) - i8::from(preview.y < -0.5);
+    controls.input.preview_direction = preview.to_array();
+    let digital = Vec2::new(
+        f32::from(physical.down(&map, A::OrderRight))
+            - f32::from(physical.down(&map, A::OrderLeft)),
+        f32::from(physical.down(&map, A::OrderUp)) - f32::from(physical.down(&map, A::OrderCancel)),
     );
-    for pad in &pads {
-        let stick = pad.left_stick();
-        if stick.length() > 0.2 {
-            direction += stick;
-        }
-        direction += Vec2::new(
-            f32::from(pad.pressed(DPadRight)) - f32::from(pad.pressed(DPadLeft)),
-            f32::from(pad.pressed(DPadUp)) - f32::from(pad.pressed(DPadDown)),
-        );
-    }
-    controls.input.direction = direction.clamp_length_max(1.).to_array();
-    let bindings: &[(Button, &[KeyCode], GamepadButton)] = &[
-        (Button::Accept, &[KeyCode::Enter, KeyCode::Space], South),
-        (Button::Cancel, &[KeyCode::Escape], East),
-        (Button::Skit, &[KeyCode::KeyZ], Z),
-        (Button::Menu, &[KeyCode::Tab], North),
-        (Button::Start, &[KeyCode::Home], Start),
-        (Button::Ring, &[KeyCode::KeyX], West),
-        (Button::PreviousPage, &[KeyCode::KeyQ], LeftTrigger),
-        (Button::NextPage, &[KeyCode::KeyE], RightTrigger),
-        (Button::Left, &[KeyCode::ArrowLeft, KeyCode::KeyA], DPadLeft),
-        (
-            Button::Right,
-            &[KeyCode::ArrowRight, KeyCode::KeyD],
-            DPadRight,
-        ),
-        (Button::Down, &[KeyCode::ArrowDown, KeyCode::KeyS], DPadDown),
-        (Button::Up, &[KeyCode::ArrowUp, KeyCode::KeyW], DPadUp),
-    ];
+    controls.input.direction = (physical.movement(&map) + digital)
+        .clamp_length_max(1.)
+        .to_array();
     let mut held = Buttons::default();
     let mut tapped = Buttons::default();
-    for &(button, keys, pad_button) in bindings {
-        let mut keys = keys.iter().copied().filter(|&key| {
-            key != KeyCode::Tab || !input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
-        });
-        held = held.with(
-            button,
-            keys.clone().any(|key| input.pressed(key))
-                || pads.iter().any(|pad| pad.pressed(pad_button)),
-        );
+    for (button, action) in [
+        (Button::Accept, A::Confirm),
+        (Button::Cancel, A::Cancel),
+        (Button::Skit, A::Skit),
+        (Button::Menu, A::Menu),
+        (Button::Start, A::Start),
+        (Button::Ring, A::Alternate),
+        (Button::PreviousPage, A::Previous),
+        (Button::NextPage, A::Next),
+        (Button::Left, A::MoveLeft),
+        (Button::Right, A::MoveRight),
+        (Button::Down, A::MoveDown),
+        (Button::Up, A::MoveUp),
+    ] {
+        let digital = match action {
+            A::MoveLeft => Some(A::OrderLeft),
+            A::MoveRight => Some(A::OrderRight),
+            A::MoveDown => Some(A::OrderCancel),
+            A::MoveUp => Some(A::OrderUp),
+            _ => None,
+        };
+        let down = physical.down(&map, action) || digital.is_some_and(|a| physical.down(&map, a));
+        held = held.with(button, down);
         tapped = tapped.with(
             button,
-            keys.any(|key| input.just_pressed(key))
-                || pads.iter().any(|pad| pad.just_pressed(pad_button)),
+            physical.edge(&map, action) || digital.is_some_and(|a| physical.edge(&map, a)),
         );
     }
-    // Retain taps until the simulation consumes them, even across a press and release.
     controls.input.pressed_buttons = controls.input.pressed_buttons.union(tapped);
     controls.input.held_buttons = held;
-    controls.input.run = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
-        || pads.iter().any(|pad| pad.pressed(East));
+    controls.input.run = physical.running(&map, Vec2::from_array(controls.input.direction));
 }
 
 #[cfg(test)]
 mod control_tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn movement_runs_by_default_and_walks_with_a_modifier_or_half_stick() {
+        let mut world = World::new();
+        world.init_resource::<Controls>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ArrowRight);
+        world.run_system_once(gather_controls).unwrap();
+        assert!(world.resource::<Controls>().input.run);
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftLeft);
+        world.run_system_once(gather_controls).unwrap();
+        assert!(!world.resource::<Controls>().input.run);
+        world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        let pad = world.spawn(Gamepad::default()).id();
+        for (x, y, running) in [
+            (0.5, 0., false),
+            (0.3, 0.4, false),
+            (0.51, 0., true),
+            (1., 0., true),
+            (-0.4, 0., false),
+        ] {
+            let mut gamepad = world.get_mut::<Gamepad>(pad).unwrap();
+            gamepad.analog_mut().set(GamepadAxis::LeftStickX, x);
+            gamepad.analog_mut().set(GamepadAxis::LeftStickY, y);
+            drop(gamepad);
+            world.run_system_once(gather_controls).unwrap();
+            assert_eq!(
+                world.resource::<Controls>().input.run,
+                running,
+                "stick {x}, {y}"
+            );
+        }
+        world
+            .get_mut::<Gamepad>(pad)
+            .unwrap()
+            .analog_mut()
+            .set(GamepadAxis::LeftStickX, 1.);
+        world
+            .get_mut::<Gamepad>(pad)
+            .unwrap()
+            .digital_mut()
+            .press(GamepadButton::LeftTrigger2);
+        world.run_system_once(gather_controls).unwrap();
+        assert!(!world.resource::<Controls>().input.run);
+        world
+            .get_mut::<Gamepad>(pad)
+            .unwrap()
+            .digital_mut()
+            .reset_all();
+        world.init_resource::<crate::config::Preferences>();
+        world
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .assign(
+                resonance_content::input::StandardAction::Walk,
+                resonance_content::input::PhysicalInput::Key("KeyM".into()),
+            );
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyM);
+        world.run_system_once(gather_controls).unwrap();
+        assert!(!world.resource::<Controls>().input.run);
+        world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        world.run_system_once(gather_controls).unwrap();
+        assert!(world.resource::<Controls>().input.run);
+    }
 
     #[test]
     fn field_buttons_survive_short_taps_without_repeating_after_pause() {
@@ -1165,8 +1230,12 @@ fn ui(
     transforms: super::sparse_animation::affine::Helper,
     mut failures: Failures,
     mut applied: ResMut<Applied>,
-    clock: Option<Res<super::Clock>>,
+    (clock, prompt_device): (
+        Option<Res<super::Clock>>,
+        Res<crate::input_icons::DeviceTracker>,
+    ),
 ) {
+    art.set_prompt_device(prompt_device.device());
     art.resolution = display.map_or(super::Resolution::default(), |d| d.0);
     if live
         .as_ref()

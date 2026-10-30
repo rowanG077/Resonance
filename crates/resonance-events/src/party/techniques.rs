@@ -53,6 +53,27 @@ impl Member {
 }
 
 impl Party {
+    pub fn assign_unison_arte(
+        &mut self,
+        data: &MenuData,
+        member: usize,
+        technique: Option<u16>,
+    ) -> Result<bool, String> {
+        let target = self.members.get_mut(member).ok_or("Unknown character.")?;
+        if let Some(id) = technique {
+            if !target.techniques.contains(&id)
+                || !data
+                    .techniques
+                    .get(usize::from(id))
+                    .is_some_and(|tech| tech.unison_usable)
+            {
+                return Err("Choose a learned arte available for Unison.".into());
+            }
+        }
+        let changed = target.unison_arte != technique;
+        target.unison_arte = technique;
+        Ok(changed)
+    }
     /// Forget optional elemental variants across the whole roster, including
     /// reserve members and shortcuts assigned by other characters.
     pub fn forget_elemental_artes(&mut self) {
@@ -153,6 +174,12 @@ impl Party {
     pub(crate) fn remove_technique(&mut self, member: usize, id: u16) {
         let target = &mut self.members[member];
         target.techniques.remove(&id);
+        if target.unison_arte == Some(id) {
+            target.unison_arte = None;
+        }
+        target
+            .arte_bindings
+            .retain(|binding| binding.technique != id);
         target.disabled_techniques.remove(&id);
         for slot in &mut target.shortcuts {
             if *slot == id {
@@ -232,5 +259,230 @@ impl Party {
                 REMEDY_CUE
             }),
         )
+    }
+}
+
+impl Party {
+    pub fn arte_binding_owner(
+        &self,
+        chord: &resonance_content::input::InputChord,
+    ) -> Option<TechniqueShortcut> {
+        self.members
+            .iter()
+            .enumerate()
+            .find_map(|(character, member)| {
+                member
+                    .arte_bindings
+                    .iter()
+                    .find(|binding| binding.chord.same_inputs(chord))
+                    .map(|binding| TechniqueShortcut {
+                        character,
+                        technique: binding.technique,
+                    })
+            })
+    }
+    pub fn assign_arte_binding(
+        &mut self,
+        member: usize,
+        technique: u16,
+        chord: resonance_content::input::InputChord,
+    ) -> Result<bool, String> {
+        self.write_arte_binding(member, technique, chord, None)
+    }
+    pub fn transfer_arte_binding(
+        &mut self,
+        member: usize,
+        technique: u16,
+        chord: resonance_content::input::InputChord,
+        previous: TechniqueShortcut,
+    ) -> Result<bool, String> {
+        if self.arte_binding_owner(&chord) != Some(previous) {
+            return Err("The combo changed. Record it again.".into());
+        }
+        self.write_arte_binding(member, technique, chord, Some(previous))
+    }
+    fn write_arte_binding(
+        &mut self,
+        member: usize,
+        technique: u16,
+        mut chord: resonance_content::input::InputChord,
+        replace: Option<TechniqueShortcut>,
+    ) -> Result<bool, String> {
+        chord.validate(&self.settings.preferences.keymap)?;
+        chord.0.sort();
+        let target = self.members.get(member).ok_or("Unknown character.")?;
+        if technique == 0 || !target.techniques.contains(&technique) {
+            return Err("Learn this arte before assigning a combo.".into());
+        }
+        let destination = TechniqueShortcut {
+            character: member,
+            technique,
+        };
+        if let Some(owner) = self.arte_binding_owner(&chord) {
+            if owner != destination && Some(owner) != replace {
+                return Err("This combo is assigned to another arte.".into());
+            }
+        }
+        if target
+            .arte_bindings
+            .iter()
+            .any(|b| b.technique == technique && b.chord.same_inputs(&chord))
+        {
+            return Ok(false);
+        }
+        // Every validation precedes mutation. One arte owns one combo, and a
+        // confirmed transfer removes the old owner before installing the new one.
+        for (index, target) in self.members.iter_mut().enumerate() {
+            target.arte_bindings.retain(|b| {
+                !(index == member && b.technique == technique) && !b.chord.same_inputs(&chord)
+            });
+        }
+        self.members[member]
+            .arte_bindings
+            .push(resonance_content::input::ArteBinding { technique, chord });
+        Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    use resonance_content::input::{InputChord, PhysicalInput, StandardAction};
+    #[test]
+    fn one_combo_per_arte_replaces_roundtrips_and_is_cleared_when_forgotten() {
+        let mut party = Party::new(&super::super::tests::data(), Default::default()).unwrap();
+        party.members[0].techniques.insert(10);
+        let map = party.settings.preferences.keymap.clone();
+        for action in StandardAction::ALL {
+            for input in map.get(action) {
+                let result = party.assign_arte_binding(0, 10, InputChord(vec![input.clone()]));
+                assert_eq!(result.is_err(), action.combat_action().is_some());
+            }
+        }
+        for n in 0..32 {
+            assert!(
+                party
+                    .assign_arte_binding(
+                        0,
+                        10,
+                        InputChord(vec![PhysicalInput::Button(format!("Other({n})"))])
+                    )
+                    .unwrap()
+            );
+        }
+        assert_eq!(party.members[0].arte_bindings.len(), 1);
+        let mut restored: Party =
+            serde_json::from_slice(&serde_json::to_vec(&party).unwrap()).unwrap();
+        assert_eq!(
+            restored.members[0].arte_bindings,
+            party.members[0].arte_bindings
+        );
+        assert_eq!(party.settings.preferences.keymap, map);
+        // Remapping a free input onto a combat action protects that action immediately.
+        restored.settings.preferences.keymap.assign(
+            StandardAction::Confirm,
+            PhysicalInput::Button("Other(31)".into()),
+        );
+        assert!(
+            restored.members[0].arte_bindings[0]
+                .chord
+                .validate(&restored.settings.preferences.keymap)
+                .is_err()
+        );
+        restored.members[0].unison_arte = Some(10);
+        restored.remove_technique(0, 10);
+        assert_eq!(restored.members[0].unison_arte, None);
+        assert!(restored.members[0].arte_bindings.is_empty());
+    }
+    #[test]
+    fn global_combo_transfer_requires_the_current_owner_and_is_atomic() {
+        let mut party = Party::new(&super::super::tests::data(), Default::default()).unwrap();
+        party.members[0].techniques.extend([10, 11]);
+        party.members[2].techniques.insert(66);
+        let map = party.settings.preferences.keymap.clone();
+        let chord = InputChord(vec![
+            PhysicalInput::Key("Enter".into()),
+            PhysicalInput::Key("KeyW".into()),
+        ]);
+        let reverse = InputChord(chord.0.iter().cloned().rev().collect());
+        let other = InputChord(vec![PhysicalInput::Key("F11".into())]);
+        assert!(party.assign_arte_binding(0, 10, chord.clone()).unwrap());
+        assert!(!party.assign_arte_binding(0, 10, reverse.clone()).unwrap());
+        party.assign_arte_binding(2, 66, other.clone()).unwrap();
+        let before = serde_json::to_value(&party).unwrap();
+        for (member, arte) in [(0, 11), (2, 66)] {
+            assert!(
+                party
+                    .assign_arte_binding(member, arte, reverse.clone())
+                    .is_err()
+            );
+            assert_eq!(serde_json::to_value(&party).unwrap(), before);
+        }
+        let previous = TechniqueShortcut {
+            character: 0,
+            technique: 10,
+        };
+        assert!(
+            party
+                .transfer_arte_binding(2, 999, chord.clone(), previous)
+                .is_err()
+        );
+        assert_eq!(serde_json::to_value(&party).unwrap(), before);
+        assert!(
+            party
+                .transfer_arte_binding(2, 66, reverse, previous)
+                .unwrap()
+        );
+        assert!(party.members[0].arte_bindings.is_empty());
+        assert_eq!(party.members[2].arte_bindings.len(), 1);
+        assert_eq!(
+            party.arte_binding_owner(&chord),
+            Some(TechniqueShortcut {
+                character: 2,
+                technique: 66
+            })
+        );
+        assert_eq!(party.arte_binding_owner(&other), None);
+        let before = serde_json::to_value(&party).unwrap();
+        assert!(party.transfer_arte_binding(0, 11, chord, previous).is_err());
+        assert_eq!(serde_json::to_value(&party).unwrap(), before);
+        assert_eq!(party.settings.preferences.keymap, map);
+    }
+    #[test]
+    fn saved_assignments_require_one_combo_per_arte_and_one_owner_per_combo() {
+        use resonance_content::input::ArteBinding;
+        let data = super::super::tests::data();
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        party.members[0].techniques.insert(10);
+        party.members[1].techniques.insert(10);
+        let chord = InputChord(vec![
+            PhysicalInput::Key("Enter".into()),
+            PhysicalInput::Key("KeyW".into()),
+        ]);
+        party.assign_arte_binding(0, 10, chord.clone()).unwrap();
+        party.validate(&data).unwrap();
+        party.members[0].arte_bindings.push(ArteBinding {
+            technique: 10,
+            chord: InputChord(vec![PhysicalInput::Key("F11".into())]),
+        });
+        assert!(
+            party
+                .validate(&data)
+                .unwrap_err()
+                .to_string()
+                .contains("arte assignment")
+        );
+        party.members[0].arte_bindings.pop();
+        party.members[1].arte_bindings.push(ArteBinding {
+            technique: 10,
+            chord: InputChord(chord.0.into_iter().rev().collect()),
+        });
+        assert!(
+            party
+                .validate(&data)
+                .unwrap_err()
+                .to_string()
+                .contains("arte assignment")
+        );
     }
 }

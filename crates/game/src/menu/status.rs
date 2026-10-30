@@ -1,12 +1,14 @@
 use super::*;
 use resonance_content::appearance;
 use resonance_events::party::Member;
+pub const VISIBLE_TITLES: usize = 9;
 
 #[derive(Debug, Default, serde::Serialize)]
 pub struct Status {
     pub details: bool,
     pub title_focus: bool,
     pub row: usize,
+    pub title_first: usize,
     pub page_fade: u8,
     pub closing: bool,
     pub previous: Option<usize>,
@@ -18,6 +20,12 @@ pub struct Status {
 const PORTRAIT_FADE: u8 = 240;
 
 impl Status {
+    pub fn title_list_first(&self) -> usize {
+        self.title_first
+            .min(self.row)
+            .max(self.row.saturating_sub(VISIBLE_TITLES - 1))
+    }
+
     pub(super) fn opening() -> Self {
         Self {
             page_fade: 231 - MAIN_SLIDE_STEP,
@@ -121,6 +129,7 @@ impl Menu {
                         .iter()
                         .position(|id| *id == self.member().title)
                         .unwrap();
+                    self.status.title_first = self.status.row.saturating_sub(VISIBLE_TITLES - 1);
                     self.page = Page::Titles;
                     self.status.title_closing = false;
                     return Some(2);
@@ -145,6 +154,7 @@ impl Menu {
                 if down {
                     self.status.row = (self.status.row + 1).min(titles.len() - 1);
                 }
+                self.status.title_first = self.status.title_list_first();
                 if input == Some(Confirm) {
                     let index = self.member_index();
                     let title = titles[self.status.row];

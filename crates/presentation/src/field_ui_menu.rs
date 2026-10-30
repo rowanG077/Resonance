@@ -74,6 +74,7 @@ pub(super) enum MaterialKey {
     Texture(usize),
     Font,
     Cursor,
+    InputIcons,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum DrawRole {
@@ -263,6 +264,8 @@ pub(super) struct MenuArtwork {
     draws: MenuDraws,
     experience: std::sync::Arc<[u32]>,
     materials: BTreeMap<MaterialKey, MenuMaterial>,
+    input_atlas: std::sync::Arc<crate::input_icons::Atlas>,
+    prompt_device: crate::input_icons::PromptDevice,
     pub layers: BTreeMap<(usize, DrawRole, MaterialKey), Layer>,
     band: DepthBand,
     active_page: Option<ActivePage>,
@@ -393,6 +396,7 @@ impl MenuArtwork {
         font: (&Handle<Surface>, [u32; 2]),
         cursor: &resonance_content::font::UiTexture,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
+        inputs: crate::input_icons::Prepared,
     ) -> Result<Self> {
         let mut spec = MenuArt::decode(&read("ui/menu.json")?, diagnostics)?;
         spec.prepare_resources(&read);
@@ -422,6 +426,30 @@ impl MenuArtwork {
                 },
             );
         }
+        let crate::input_icons::Prepared {
+            atlas: input_atlas,
+            image: prompt_image,
+        } = inputs;
+        let prompt_material = materials.add(Surface {
+            source: prompt_image.clone(),
+            sampling: prompt_image.clone(),
+            frame_mask: prompt_image.clone(),
+            color_mask: prompt_image.clone(),
+            coverage: Coverage::default(),
+            additive: false,
+            texture_effect: Default::default(),
+            opaque: false,
+        });
+        prepared.insert(
+            MaterialKey::InputIcons,
+            MenuMaterial {
+                image: prompt_image,
+                size: input_atlas.size,
+                material: prompt_material,
+                repeat: false,
+                pending: None,
+            },
+        );
         let cursor_image = menu_image(server, cursor.path.clone(), true);
         let cursor_material = materials.add(Surface {
             source: cursor_image.clone(),
@@ -481,6 +509,8 @@ impl MenuArtwork {
             draws: MenuDraws::default(),
             experience,
             materials: prepared,
+            input_atlas,
+            prompt_device: Default::default(),
             layers: BTreeMap::new(),
             band: DepthBand::Field,
             active_page: None,
@@ -601,6 +631,23 @@ impl MenuArtwork {
         self.resolution = resolution;
         self.band = DepthBand::Battle;
     }
+    pub(super) fn input_atlas(&self) -> &crate::input_icons::Atlas {
+        &self.input_atlas
+    }
+    pub(super) fn prompt_device(&self) -> crate::input_icons::PromptDevice {
+        self.prompt_device
+    }
+    pub(super) fn set_prompt_device(&mut self, device: crate::input_icons::PromptDevice) -> bool {
+        let changed = self.prompt_device != device;
+        self.prompt_device = device;
+        changed
+    }
+    pub(super) fn input_material(&self) -> Handle<Surface> {
+        self.materials[&MaterialKey::InputIcons].material.clone()
+    }
+    pub(super) fn input_image(&self) -> Handle<Image> {
+        self.materials[&MaterialKey::InputIcons].image.clone()
+    }
     #[cfg(test)]
     pub(super) fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
         self.materials.values().map(|material| &material.image)
@@ -645,6 +692,8 @@ impl MenuArtwork {
             cursor_texture: &dialogue.cursor,
             trail: self.trail,
             preferences,
+            input_atlas: &self.input_atlas,
+            prompt_device: self.prompt_device,
             experience: &self.experience,
             tick,
             plane: 0,
@@ -1015,7 +1064,6 @@ impl MenuArtwork {
                         draw.plane = 3;
                     }
                     Page::Tech => draw.tech_cursors(menu),
-                    Page::Unison => draw.unison_cursors(menu.unison_page()),
                     Page::ExSkills => draw.ex_cursors(menu),
                     Page::Strategy => draw.strategy_cursors(menu.strategy_page()),
                     Page::Cooking if menu.cooking.focus != CookingFocus::Header => draw.cursor(
@@ -1025,9 +1073,7 @@ impl MenuArtwork {
                     Page::Customize
                         if matches!(
                             menu.customize.focus,
-                            CustomizeFocus::Colors
-                                | CustomizeFocus::Volume
-                                | CustomizeFocus::Controls
+                            CustomizeFocus::Colors | CustomizeFocus::Volume
                         ) =>
                     {
                         draw.cursor(
@@ -1214,6 +1260,8 @@ struct Drawing<'a> {
     cursor_texture: &'a resonance_content::font::UiTexture,
     trail: super::super::choice_cursor::Trail,
     preferences: Option<&'a resonance_content::menu_data::CustomizeSettings>,
+    input_atlas: &'a crate::input_icons::Atlas,
+    prompt_device: crate::input_icons::PromptDevice,
     experience: &'a [u32],
     tick: u32,
     plane: usize,
@@ -1672,35 +1720,145 @@ impl Drawing<'_> {
         }
         Ok(())
     }
-    fn button(&mut self, id: usize, position: [f32; 2]) -> Result<()> {
-        let tick = self.tick;
-        let index = match id {
-            32 => {
-                if tick % 60 < 30 {
-                    4
-                } else {
-                    3
-                }
+    fn physical_icon(
+        &mut self,
+        input: &resonance_content::input::PhysicalInput,
+        [x, y]: [f32; 2],
+        size: f32,
+    ) -> Result<()> {
+        self.physical_icon_state(input, [x, y], size, false)
+    }
+    fn physical_icon_state(
+        &mut self,
+        input: &resonance_content::input::PhysicalInput,
+        [x, y]: [f32; 2],
+        size: f32,
+        pressed: bool,
+    ) -> Result<()> {
+        let rect = crate::input_icons::rect_state(self.input_atlas, input, pressed);
+        self.quad_role(
+            DrawRole::Content,
+            MaterialKey::InputIcons,
+            [x, y, x + size, y + size],
+            glyph_uv(rect),
+            [1.; 4],
+        );
+        if !crate::input_icons::has_specific_icon(self.input_atlas, input) {
+            self.plane += 1;
+            let label = crate::input_icons::short_label(input);
+            let width = (size / label.len().max(1) as f32).min(12.);
+            self.text_size(
+                &label,
+                [x + 3., y + size * 0.3],
+                [width, size * 0.4],
+                if pressed { 0 } else { WHITE },
+            )?;
+            self.plane -= 1;
+        }
+        Ok(())
+    }
+    fn chord_icons(
+        &mut self,
+        chord: &resonance_content::input::InputChord,
+        [x, y]: [f32; 2],
+        size: f32,
+        right: f32,
+    ) -> Result<()> {
+        self.binding_icons(chord.0.iter(), "+", [x, y], size, right)
+    }
+    fn binding_icons<'b>(
+        &mut self,
+        inputs: impl IntoIterator<Item = &'b resonance_content::input::PhysicalInput>,
+        separator: &str,
+        [mut x, y]: [f32; 2],
+        maximum_size: f32,
+        right: f32,
+    ) -> Result<()> {
+        let inputs: Vec<_> = inputs.into_iter().collect();
+        if inputs.is_empty() {
+            return self.text_size("-", [x, y + 3.], [14., 20.], WHITE);
+        }
+        let n = inputs.len() as f32;
+        let size = maximum_size.min((right - x) / (n + (n - 1.) * 0.5));
+        let top = y + (maximum_size - size) / 2.;
+        for (i, input) in inputs.into_iter().enumerate() {
+            if i != 0 {
+                self.text_size(
+                    separator,
+                    [x + size * 0.1, top + size * 0.2],
+                    [size * 0.3, size * 0.65],
+                    GOLD,
+                )?;
+                x += size * 0.5;
             }
-            6 | 8 | 10 | 12 | 14 | 16 | 18 | 23 => id - usize::from(tick % 40 >= 20),
-            33..=36 => {
-                if tick % 40 < 20 {
-                    [1, 2, 4, 3][id - 33]
-                } else {
-                    0
-                }
+            self.physical_icon(input, [x, top], size)?;
+            x += size;
+        }
+        Ok(())
+    }
+    fn input_hint(
+        &mut self,
+        map: &resonance_content::input::Keymap,
+        action: resonance_content::input::StandardAction,
+        label: &str,
+        [x, y]: [f32; 2],
+        right: f32,
+    ) -> Result<()> {
+        if let Some(input) = crate::input_icons::action_input(map, action, self.prompt_device) {
+            self.physical_icon(input, [x, y], 24.)?;
+        }
+        self.fitted_text(label, [x + 26., y + 2.], [14., 20.], right - x - 26., GOLD)
+    }
+    fn fitted_text(
+        &mut self,
+        text: &str,
+        position: [f32; 2],
+        [width, height]: [f32; 2],
+        maximum: f32,
+        color: usize,
+    ) -> Result<()> {
+        let measured = self.text_width(text, width)? + width;
+        self.text_size(
+            text,
+            position,
+            [width * (maximum / measured.max(1.)).min(1.), height],
+            color,
+        )
+    }
+    fn button(&mut self, id: usize, [x, y]: [f32; 2]) -> Result<()> {
+        if resonance_content::input_prompts::PANEL_GLYPHS.contains(&id) {
+            self.sprite(self.spec.sprite(Sprite::Buttons, id)?, [x, y]);
+            return Ok(());
+        }
+        let map = self
+            .preferences
+            .map(|p| p.keymap.clone())
+            .unwrap_or_default();
+        for prompt in crate::input_icons::controller_quads(
+            self.input_atlas,
+            &map,
+            id,
+            [x, y, x + 24., y + 24.],
+            self.tick % 40 < 20,
+            self.prompt_device,
+        )? {
+            if let Some(input) = prompt.input {
+                self.physical_icon_state(
+                    &input,
+                    [prompt.rect[0], prompt.rect[1]],
+                    prompt.rect[2] - prompt.rect[0],
+                    prompt.pressed,
+                )?;
+            } else {
+                self.quad_role(
+                    DrawRole::Content,
+                    MaterialKey::InputIcons,
+                    prompt.rect,
+                    glyph_uv(prompt.uv),
+                    [1.; 4],
+                );
             }
-            37 | 38 => {
-                if tick % 40 < 20 {
-                    id - 12
-                } else {
-                    24
-                }
-            }
-            _ => id,
-        };
-        let sprite = self.spec.sprite(Sprite::Buttons, index)?;
-        self.sprite(sprite, position);
+        }
         Ok(())
     }
     fn world_button(&mut self, button: usize, label: &str, [x, y]: [f32; 2]) -> Result<()> {
@@ -2674,7 +2832,7 @@ impl Drawing<'_> {
                 ),
                 ("party_swap", 12, 48., WHITE),
             ] {
-                self.sprite(self.spec.sprite(Sprite::Buttons, button)?, [x, y]);
+                self.button(button, [x, y])?;
                 self.text(menu_label(labels, label)?, [x + 24., y], 24., color)?;
             }
         }
