@@ -1,77 +1,65 @@
 use super::super::test_support::Fixture;
 use super::*;
-use resonance_events::party::TechniqueShortcut;
 
 #[test]
-fn unison_cursor_follows_current_slot_and_list_viewport() -> Result<()> {
+fn unison_cursor_follows_the_character_and_arte_list() -> Result<()> {
     let mut state = Unison::default();
-    assert_eq!(main_anchor(&state)?, [72., 90.]);
+    assert_eq!(main_anchor(&state)?, [32., 88.]);
     state.character = 3;
-    state.slot = 3;
-    assert_eq!(main_anchor(&state)?, [384., 292.]);
+    assert_eq!(main_anchor(&state)?, [32., 250.]);
     state.focus = Focus::List;
     state.row = 9;
     state.first = 3;
-    assert_eq!(main_anchor(&state)?, [24., 260.]);
+    assert_eq!(main_anchor(&state)?, [280., 248.]);
     state.first = 10;
     assert!(main_anchor(&state).is_err());
     Ok(())
 }
 #[test]
-#[ignore = "requires locally cooked menus; CPU drawing only"]
-fn description_uses_current_shortcut_and_tp_context() -> Result<()> {
+#[ignore = "requires locally cooked menus; verifies independent loadout drawing"]
+fn loadout_has_one_arte_per_character_and_no_button_or_stick_slots() -> Result<()> {
     let mut fixture = Fixture::load()?;
-    let state = Unison {
-        slot: 1,
-        ..Default::default()
-    };
-    let current = state
+    let state = Unison::default();
+    let chosen = state
         .page(&fixture.party, &fixture.session, &fixture.data)
-        .selection()
-        .unwrap();
-    let mut page = fixture.drawing(7);
-    page.unison(
+        .techniques()[0];
+    fixture.party.members[0].unison_arte = Some(chosen);
+    let mut first = fixture.drawing(0);
+    let anchor = first.unison(
         state.page(&fixture.party, &fixture.session, &fixture.data),
         false,
     )?;
-    let mut description = fixture.drawing(7);
-    description.plane = 3;
-    description.technique_description(&fixture.party, &fixture.data, current, false)?;
-    assert!(
-        description.batches[&(3, DrawRole::Text, FONT)] == page.batches[&(3, DrawRole::Text, FONT)]
-    );
-    // Battle mode excludes the save-point TP reduction.
-    fixture.party.members[3].ex_skills = [31, 0, 0, 0];
-    let heal = TechniqueShortcut {
-        character: 3,
-        technique: 98,
-    };
-    assert_eq!(
-        fixture.party.members[3].technique_cost(&fixture.data, 98, false),
-        8
-    );
-    assert_eq!(
-        fixture.party.members[3].technique_cost(&fixture.data, 98, true),
-        1
-    );
-    for (save_point, value) in [(false, "8"), (true, "1")] {
-        let mut actual = fixture.drawing(8);
-        actual.technique_description(&fixture.party, &fixture.data, heal, save_point)?;
-        let mut expected = fixture.drawing(8);
-        let x = 488. + expected.text_width("TP : ", 16.)?;
-        expected.text(value, [x, 336.], 16., WHITE)?;
-        let needle = &expected.batches[&(1, DrawRole::Text, FONT)];
-        let haystack = &actual.batches[&(1, DrawRole::Text, FONT)];
-        let index = haystack
-            .positions
-            .windows(needle.positions.len())
-            .position(|window| window == needle.positions)
-            .unwrap();
-        assert_eq!(&haystack.uv[index..index + needle.uv.len()], &needle.uv);
-        assert_eq!(
-            &haystack.colors[index..index + needle.colors.len()],
-            &needle.colors
-        );
+    first.cursor(anchor, 255);
+    fixture.export_drawing(&first, "RESONANCE_UNISON_PREVIEW")?;
+    let first = first.batches;
+    // Changing regular assignments cannot change this page's chosen arte.
+    fixture.party.members[0].shortcuts = [0; 4];
+    fixture.party.members[0].arte_bindings.clear();
+    let mut second = fixture.drawing(0);
+    let anchor = second.unison(
+        state.page(&fixture.party, &fixture.session, &fixture.data),
+        false,
+    )?;
+    second.cursor(anchor, 255);
+    assert!(first == second.batches);
+    for ((_, _, material), batch) in &second.batches {
+        if *material == MaterialKey::InputIcons {
+            for p in &batch.positions {
+                assert!(
+                    (240. - p[1]) * 448. / 480. >= 312.,
+                    "physical input icon leaked into loadout rows"
+                );
+            }
+        }
     }
+    let mut list = state.clone();
+    list.focus = Focus::List;
+    let mut drawing = fixture.drawing(0);
+    let anchor = drawing.unison(
+        list.page(&fixture.party, &fixture.session, &fixture.data),
+        false,
+    )?;
+    drawing.cursor(anchor, 255);
+    fixture.export_drawing(&drawing, "RESONANCE_UNISON_LIST_PREVIEW")?;
     Ok(())
 }

@@ -31,7 +31,43 @@ The importer writes to `local/all-assets`, which must be empty before importing.
 The game loads that directory by default.
 
 Move with WASD or the arrow keys, confirm with Enter, and open the field menu
-with Tab. Gamepads are also supported.
+with Tab. Gamepads are also supported. Movement runs by default; hold Walk
+(Shift or L2 by default), or tilt the movement stick halfway or less, to walk.
 
 See the [cooking guide](docs/cooking.md) for import options and
 [editing guide](docs/editable-content.md) for modding.
+
+Customize → Keymap assigns keyboard keys, controller buttons, D-pad and stick
+motions to standard actions. Select an action, confirm, release the opener,
+then press and release the new input. The editor uses default menu controls so
+remapping navigation cannot strand its cursor.
+
+The Artes page lists each character's artes with one combo per arte. Confirm
+records inputs held together and then released; recording again replaces that
+arte's combo. Stick directions include moderate tilts and can be combined with
+standard keymap inputs. If a combo belongs to another arte or character, a popup
+names its owner and asks whether to transfer it. Cancel or No preserves both
+assignments. Details clears a combo, Guard toggles AI use, and Menu executes an
+arte. Auto characters use controller one's assignments. Single inputs used by
+normal combat (Attack, Guard, movement, targeting, orders, etc.) are protected.
+Cancel and field/menu-only inputs can be assigned on their own. A rejected
+assignment opens a popup explaining the conflict or unsupported combo. Combos
+can include combat inputs: the complete combo consumes its action buttons until
+release while preserving movement modifiers and unrelated controls. More specific
+overlapping combos take priority, including across characters. Menus, target
+selection, and Unison confirmation retain their contextual controls. Existing
+singles that conflict after a keymap edit are marked and inactive until corrected.
+
+Configured prompts show the keyboard or controller assignment for the last
+configured device input used. Unassigned inputs, held buttons, stick jitter and
+stick release do not change the displayed device. Before the first valid keyboard
+input, controller icons are preferred; actions assigned on only one device use
+that assignment. If both devices register input in the same frame, the current
+icons are retained. Cooking exports the high-resolution input atlas and layout;
+the viewer requires these editable assets. Defaults are bundled only with the
+importer; see [input icons](docs/cooking.md#input-icons).
+
+The Unison menu selects one learned, Unison-eligible arte for each character.
+This loadout is saved separately from regular arte combos and key mappings.
+Timed character confirmation uses that character's selected Unison arte;
+stick directions do not change it.

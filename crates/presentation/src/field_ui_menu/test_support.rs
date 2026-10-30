@@ -42,6 +42,11 @@ impl Fixture {
                 .collect();
             member.shortcuts =
                 std::array::from_fn(|slot| session.characters[index].allowed_techniques[slot]);
+            member.unison_arte = session.characters[index]
+                .allowed_techniques
+                .iter()
+                .copied()
+                .find(|id| data.techniques[usize::from(*id)].unison_usable);
             for &technique in &member.shortcuts {
                 member.technique_uses.insert(technique, 17);
             }
@@ -86,6 +91,10 @@ impl Fixture {
             (&shared, [self.font.width, self.font.height]),
             &self.dialogue.cursor,
             &resonance_content::diagnostics::Diagnostics::new(true),
+            crate::input_icons::prepare(
+                &|path| Ok(std::fs::read(self.root.join(path))?),
+                app.world().resource::<AssetServer>(),
+            )?,
         )?;
         world.insert_resource(app.world_mut().remove_resource::<Assets<Image>>().unwrap());
         world.insert_resource(materials);
@@ -101,12 +110,29 @@ impl Fixture {
             trail: Default::default(),
             preferences: Some(&self.party.settings.preferences),
             experience: &self.session.experience,
+            input_atlas: crate::input_icons::default_atlas(),
+            prompt_device: Default::default(),
             tick,
             plane: 1,
             opacity: 255,
             offset: [0.; 2],
             batches: BTreeMap::new(),
         }
+    }
+    pub(super) fn export_drawing(&self, drawing: &Drawing<'_>, variable: &str) -> Result<()> {
+        if let Ok(output) = std::env::var(variable) {
+            let batches: Vec<_> = drawing.batches.iter().map(|((plane, role, key), batch)| {
+                let texture = match key {
+                    MaterialKey::Font => self.font.texture.clone(),
+                    MaterialKey::Cursor => self.dialogue.cursor.path.clone(),
+                    MaterialKey::InputIcons => resonance_content::input_prompts::IMAGE_PATH.into(),
+                    MaterialKey::Texture(i) => self.art.textures[i].path.clone(),
+                };
+                serde_json::json!({"plane":plane,"role":format!("{role:?}"),"texture":texture,"positions":batch.positions,"uv":batch.uv,"colors":batch.colors})
+            }).collect();
+            std::fs::write(output, serde_json::to_vec(&batches)?)?;
+        }
+        Ok(())
     }
     pub(super) fn field_menu(&self) -> Menu {
         let mut menu = Menu::new(

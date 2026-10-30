@@ -1,37 +1,32 @@
+//! One independent Unison arte per party member; no physical shortcut slots.
 pub use super::Input;
-use super::techniques::{Edit, EditResult, shortcut_choice, shortcut_selection};
+use super::techniques::{Edit, EditResult};
 use super::{MenuAction, VISIBLE_PARTY};
 use anyhow::{Result, ensure};
 use resonance_content::{menu_data::MenuData, session::SessionData};
 use resonance_events::party::{Party, TechniqueShortcut};
 
 pub const UNLOCK_STORY: i32 = 1_403_000;
-pub use super::techniques::VISIBLE_SHORTCUT_CHOICES as VISIBLE_TECHNIQUES;
-
+pub const VISIBLE_TECHNIQUES: usize = 8;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
     #[default]
-    Slots,
+    Loadout,
     List,
 }
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Unison {
     pub focus: Focus,
     pub character: usize,
-    pub slot: usize,
     pub row: usize,
     pub first: usize,
 }
-
-/// Outcome of a Unison page update.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Visit {
     pub cue: Option<u16>,
     pub changed: bool,
     pub closed: bool,
 }
-
 #[derive(Clone, Copy)]
 pub struct Page<'a> {
     pub state: &'a Unison,
@@ -47,38 +42,45 @@ impl<'a> Page<'a> {
         if self.state.character >= self.party_count() {
             return None;
         }
-        let id = *self.party.formation.get(self.state.character)?;
-        let member = usize::from(id.checked_sub(1)?);
+        let member = usize::from(
+            self.party
+                .formation
+                .get(self.state.character)?
+                .checked_sub(1)?,
+        );
         self.party.members.get(member)?;
         Some(member)
     }
-    /// Learned techniques in catalogue order; availability controls display colour.
     pub fn techniques(self) -> Vec<u16> {
         let Some(member) = self.member_index() else {
             return Vec::new();
         };
-        let Some(definition) = self.session.characters.get(member) else {
-            return Vec::new();
-        };
-        definition
-            .allowed_techniques
-            .iter()
-            .copied()
-            .filter(|id| self.party.members[member].techniques.contains(id))
+        self.session
+            .characters
+            .get(member)
+            .into_iter()
+            .flat_map(|c| c.allowed_techniques.iter().copied())
+            .filter(|id| {
+                self.party.members[member].techniques.contains(id)
+                    && self
+                        .data
+                        .techniques
+                        .get(usize::from(*id))
+                        .is_some_and(|t| t.unison_usable)
+            })
             .collect()
     }
     pub fn selection(self) -> Option<TechniqueShortcut> {
         let character = self.member_index()?;
-        if self.state.focus == Focus::List {
-            self.techniques()
-                .get(self.state.row)
-                .map(|&technique| TechniqueShortcut {
-                    character,
-                    technique,
-                })
+        let technique = if self.state.focus == Focus::List {
+            *self.techniques().get(self.state.row)?
         } else {
-            shortcut_selection(self.party, character, self.state.slot)
-        }
+            self.party.members[character].unison_arte?
+        };
+        Some(TechniqueShortcut {
+            character,
+            technique,
+        })
     }
     pub fn character_name(self, member: usize) -> Option<&'a str> {
         self.party
@@ -89,10 +91,8 @@ impl<'a> Page<'a> {
             .or_else(|| self.data.initial_names.get(member).map(String::as_str))
     }
 }
-
 impl Unison {
-    /// Open the page and retain a valid active-party selection.
-    pub fn opening(remembered_character: usize, party: &Party) -> Result<Self> {
+    pub fn opening(remembered: usize, party: &Party) -> Result<Self> {
         let count = party.formation.len().min(VISIBLE_PARTY);
         ensure!(
             count != 0
@@ -100,15 +100,11 @@ impl Unison {
                 && party.formation[..count]
                     .iter()
                     .all(|id| (1..=9).contains(id)),
-            "invalid U. Attack formation"
+            "invalid Unison formation"
         );
         Ok(Self {
-            character: if remembered_character < count {
-                remembered_character
-            } else {
-                0
-            },
-            ..Self::default()
+            character: if remembered < count { remembered } else { 0 },
+            ..Default::default()
         })
     }
     pub fn page<'a>(
@@ -124,7 +120,6 @@ impl Unison {
             data,
         }
     }
-    /// Field convenience path; battle supplies its own prevalidated binding commit.
     pub fn step(
         &mut self,
         input: Input,
@@ -136,9 +131,6 @@ impl Unison {
             edit.apply_field(party, data)
         })
     }
-    /// The caller retains its own repeat owner.
-    /// The callback is called at most once and must validate before mutation.
-    /// It owns the only Party/live-binding commit. This page never reapplies it.
     pub fn step_with_edit(
         &mut self,
         input: Input,
@@ -147,169 +139,109 @@ impl Unison {
         data: &MenuData,
         mut edit: impl FnMut(&mut Party, Edit) -> Result<EditResult>,
     ) -> Result<Visit> {
-        let (cue, changed, closed) = self.advance(input, party, session, data, &mut edit)?;
-        Ok(Visit {
-            cue,
-            changed,
-            closed,
-        })
-    }
-    fn advance(
-        &mut self,
-        input: Input,
-        party: &mut Party,
-        session: &SessionData,
-        data: &MenuData,
-        edit: &mut impl FnMut(&mut Party, Edit) -> Result<EditResult>,
-    ) -> Result<(Option<u16>, bool, bool)> {
-        let action = input;
-        if action.is_none() {
-            return Ok((None, false, false));
-        }
-        if action == Some(MenuAction::Cancel) {
+        let mut visit = Visit {
+            cue: None,
+            changed: false,
+            closed: false,
+        };
+        let Some(action) = input else {
+            return Ok(visit);
+        };
+        if action == MenuAction::Cancel {
             if self.focus == Focus::List {
-                self.focus = Focus::Slots;
-                return Ok((Some(3), false, false));
+                self.focus = Focus::Loadout;
+            } else {
+                visit.closed = true;
             }
-            return Ok((Some(3), false, true));
+            visit.cue = Some(3);
+            return Ok(visit);
         }
-        if self.focus == Focus::Slots {
-            let count = party.formation.len().min(VISIBLE_PARTY);
-            let before = (self.character, self.slot);
+        if self.focus == Focus::Loadout {
+            let count = self.page(party, session, data).party_count();
             match action {
-                Some(MenuAction::Up) if self.slot != 0 => self.slot -= 1,
-                Some(MenuAction::Up) if self.character != 0 => {
-                    self.character -= 1;
-                    self.slot = 3;
+                MenuAction::Up | MenuAction::Left | MenuAction::PreviousTab => {
+                    self.character = (self.character + count - 1) % count;
+                    visit.cue = Some(1);
                 }
-                Some(MenuAction::Down) if self.slot < 3 => self.slot += 1,
-                Some(MenuAction::Down) if self.character + 1 < count => {
-                    self.character += 1;
-                    self.slot = 0;
+                MenuAction::Down | MenuAction::Right | MenuAction::NextTab => {
+                    self.character = (self.character + 1) % count;
+                    visit.cue = Some(1);
                 }
-                Some(MenuAction::Left) if self.character >= 2 => self.character -= 2,
-                Some(MenuAction::Right) if self.character + 2 < count => self.character += 2,
-                Some(MenuAction::Left | MenuAction::Right | MenuAction::Up | MenuAction::Down) => {}
-                _ if action == Some(MenuAction::Alternate) => {
-                    let page = self.page(party, session, data);
-                    if page.selection().is_some() {
-                        let member = page.member_index().unwrap();
-                        let changed = edit(
-                            party,
-                            Edit::Shortcut {
-                                member,
-                                slot: self.slot,
-                                selected: None,
-                            },
-                        )?
-                        .changed;
-                        return Ok((Some(1), changed, false));
-                    }
+                MenuAction::Alternate => {
+                    let member = self.page(party, session, data).member_index().unwrap();
+                    visit.changed = edit(
+                        party,
+                        Edit::Unison {
+                            member,
+                            technique: None,
+                        },
+                    )?
+                    .changed;
+                    visit.cue = Some(1);
                 }
-                _ if action == Some(MenuAction::Confirm) => {
+                MenuAction::Confirm => {
                     let page = self.page(party, session, data);
                     let choices = page.techniques();
-                    let Some((row, first)) = shortcut_choice(&choices, page.selection()) else {
-                        return Ok((Some(4), false, false));
-                    };
-                    self.row = row;
-                    self.first = first;
+                    if choices.is_empty() {
+                        visit.cue = Some(4);
+                        return Ok(visit);
+                    }
+                    self.row = page
+                        .selection()
+                        .and_then(|s| choices.iter().position(|&id| id == s.technique))
+                        .unwrap_or(0);
+                    self.first = self.row.saturating_sub(VISIBLE_TECHNIQUES - 1);
                     self.focus = Focus::List;
-                    return Ok((Some(1), false, false));
+                    visit.cue = Some(1);
                 }
                 _ => {}
             }
-            return Ok((
-                (before != (self.character, self.slot)).then_some(1),
-                false,
-                false,
-            ));
+            return Ok(visit);
         }
-        if action == Some(MenuAction::Confirm) {
-            let page = self.page(party, session, data);
-            let Some(selected) = page.selection() else {
-                return Ok((Some(4), false, false));
+        if action == MenuAction::Confirm {
+            let Some(selected) = self.page(party, session, data).selection() else {
+                visit.cue = Some(4);
+                return Ok(visit);
             };
-            ensure!(
-                selected.technique != 0
-                    && data
-                        .techniques
-                        .get(usize::from(selected.technique))
-                        .is_some(),
-                "selected U. Attack technique description is missing"
-            );
-            let changed = edit(
+            visit.changed = edit(
                 party,
-                Edit::Shortcut {
+                Edit::Unison {
                     member: selected.character,
-                    slot: self.slot,
-                    selected: Some(selected),
+                    technique: Some(selected.technique),
                 },
             )?
             .changed;
-            self.focus = Focus::Slots;
-            return Ok((Some(2), changed, false));
+            self.focus = Focus::Loadout;
+            visit.cue = Some(2);
+            return Ok(visit);
         }
         let count = self.page(party, session, data).techniques().len();
         if count == 0 {
             self.row = 0;
             self.first = 0;
-            return Ok((None, false, false));
+            return Ok(visit);
         }
-        self.row = self.row.min(count - 1);
-        self.first = self.first.min(self.row);
+        let delta = match action {
+            MenuAction::Up => -1,
+            MenuAction::Down => 1,
+            MenuAction::PageUp | MenuAction::PreviousTab => -(VISIBLE_TECHNIQUES as isize),
+            MenuAction::PageDown | MenuAction::NextTab => VISIBLE_TECHNIQUES as isize,
+            _ => return Ok(visit),
+        };
         let before = (self.row, self.first);
-        match action {
-            Some(MenuAction::Up) if self.row != 0 => {
-                self.row -= 1;
-                if self.first > self.row {
-                    self.first -= 1;
-                }
-            }
-            Some(MenuAction::Down) if self.row + 1 < count => {
-                self.row += 1;
-                if self.first + VISIBLE_TECHNIQUES <= self.row {
-                    self.first += 1;
-                }
-            }
-            Some(MenuAction::PageUp | MenuAction::PreviousTab) => {
-                let first = self.first.saturating_sub(VISIBLE_TECHNIQUES);
-                self.row = if self.first == 0 {
-                    0
-                } else {
-                    self.row - (self.first - first)
-                };
-                self.first = first;
-            }
-            Some(MenuAction::PageDown | MenuAction::NextTab) => {
-                if self.first + VISIBLE_TECHNIQUES < count {
-                    self.first += VISIBLE_TECHNIQUES;
-                    self.row = (self.row + VISIBLE_TECHNIQUES).min(count - 1);
-                } else {
-                    self.row = count - 1;
-                }
-            }
-            _ => {}
-        }
-        Ok((
-            (before != (self.row, self.first)).then_some(
-                if matches!(
-                    action,
-                    Some(
-                        MenuAction::PageDown
-                            | MenuAction::PageUp
-                            | MenuAction::PreviousTab
-                            | MenuAction::NextTab
-                    )
-                ) {
-                    38
-                } else {
-                    1
-                },
-            ),
-            false,
-            false,
-        ))
+        super::move_list(
+            &mut self.row,
+            &mut self.first,
+            count,
+            VISIBLE_TECHNIQUES,
+            delta,
+        );
+        visit.cue = (before != (self.row, self.first)).then_some(if delta.unsigned_abs() > 1 {
+            38
+        } else {
+            1
+        });
+        Ok(visit)
     }
 }
 

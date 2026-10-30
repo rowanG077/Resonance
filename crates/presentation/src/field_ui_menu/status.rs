@@ -305,7 +305,7 @@ impl Drawing<'_> {
             .title_texts()?
             .get(menu.member_index())
             .context("unknown title character")?;
-        let first = menu.status.row.saturating_sub(8);
+        let first = menu.status.title_list_first();
         let fade = u32::from(255 - menu.status.title_opacity);
         let list_offset = ((fade * 304) / 256) as f32;
         let card_offset = ((fade * 116) / 256) as f32;

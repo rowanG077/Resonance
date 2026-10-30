@@ -162,10 +162,12 @@ fn optional_battle_menu_text_is_admitted_when_drawn() -> Result<()> {
         ..strategy
     };
     let other = Unison {
-        slot: fixture.party.members[0]
-            .shortcuts
+        focus: resonance_game::menu::unison::Focus::List,
+        row: unison
+            .page(&fixture.party, &fixture.session, &fixture.data)
+            .techniques()
             .iter()
-            .position(|&id| id != 0 && id != selected)
+            .position(|&id| id != selected)
             .unwrap(),
         ..unison
     };
@@ -649,9 +651,9 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
             .contains("ItemImages")
     );
     fixture.art.sprites.rects.get_mut(&Sprite::Buttons).unwrap()[0] = [0; 4];
-    assert!(fixture.drawing(0).button(0, [0., 0.]).is_err());
+    assert!(fixture.drawing(0).button(0, [0., 0.]).is_ok());
     fixture.art.sprites.rects.remove(&Sprite::Buttons);
-    assert!(fixture.drawing(0).button(0, [0., 0.]).is_err());
+    assert!(fixture.drawing(0).button(0, [0., 0.]).is_ok());
     fixture.art.sprites.rects.remove(&Sprite::ConditionIcons);
     fixture
         .art
@@ -705,5 +707,30 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
             .begin_drawing(&fixture.font, &fixture.dialogue, None, 1)
             .is_err()
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires cooked menu artwork; audits all inline controller glyphs"]
+fn every_controller_glyph_uses_configured_input_art_without_native_button_sprites() -> Result<()> {
+    let mut fixture = Fixture::load()?;
+    fixture.art.sprites.rects.remove(&Sprite::Buttons);
+    let mut drawing = fixture.drawing(0);
+    for id in 0..39 {
+        if resonance_content::input_prompts::PANEL_GLYPHS.contains(&id) {
+            continue;
+        }
+        drawing.button(
+            id,
+            [24. + (id % 8) as f32 * 74., 64. + (id / 8) as f32 * 64.],
+        )?;
+    }
+    assert!(
+        drawing
+            .batches
+            .keys()
+            .all(|(_, _, key)| *key == MaterialKey::InputIcons)
+    );
+    fixture.export_drawing(&drawing, "RESONANCE_ALL_BUTTONS_PREVIEW")?;
     Ok(())
 }

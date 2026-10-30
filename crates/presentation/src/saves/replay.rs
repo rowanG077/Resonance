@@ -541,7 +541,8 @@ pub enum Key {
     Right,
     Up,
     Down,
-    Run,
+    #[serde(alias = "run")]
+    Walk,
     Interact,
     Skit,
     Cancel,
@@ -569,7 +570,7 @@ impl Key {
             Self::Right => (KeyCode::ArrowRight, Logical::ArrowRight),
             Self::Up => (KeyCode::ArrowUp, Logical::ArrowUp),
             Self::Down => (KeyCode::ArrowDown, Logical::ArrowDown),
-            Self::Run => (KeyCode::ShiftLeft, Logical::Shift),
+            Self::Walk => (KeyCode::ShiftLeft, Logical::Shift),
             Self::Interact => (KeyCode::Enter, Logical::Enter),
             Self::Skit => (KeyCode::KeyZ, Logical::Character("z".into())),
             Self::Cancel => (KeyCode::Escape, Logical::Escape),

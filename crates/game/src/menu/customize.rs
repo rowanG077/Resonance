@@ -5,6 +5,7 @@ use resonance_content::menu_data::{
 };
 
 pub const VISIBLE_OPTIONS: usize = 9;
+pub const VISIBLE_KEYMAP_ACTIONS: usize = 9;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
@@ -37,12 +38,51 @@ pub struct Customize {
     pub component: usize,
     pub channel: usize,
     pub button: usize,
+    pub button_first: usize,
+    pub capture: Option<super::input_capture::Capture>,
+    pub binding_message: Option<String>,
+    pub binding_error: Option<String>,
     pub preview_wait: u8,
     pub preview_shown: u8,
     #[serde(skip)]
     pub preview_opacity: u8,
 }
 impl Customize {
+    pub fn keymap_first(&self) -> usize {
+        self.button_first
+            .min(self.button)
+            .max(self.button.saturating_sub(VISIBLE_KEYMAP_ACTIONS - 1))
+    }
+
+    /// Returns true while physical input belongs to the recorder.
+    pub fn capture_input(
+        &mut self,
+        held: &std::collections::BTreeSet<resonance_content::input::PhysicalInput>,
+    ) -> bool {
+        let Some(capture) = &mut self.capture else {
+            return false;
+        };
+        if let Some(chord) = capture.sample(held) {
+            let error = if chord.0.len() != 1 {
+                Some("Choose one key, button or stick direction for a standard action.".to_string())
+            } else {
+                chord.validate_shape().err()
+            };
+            if let Some(error) = error {
+                self.binding_message = Some(error.clone());
+                self.binding_error = Some(error);
+            } else {
+                self.draft.keymap.assign(
+                    resonance_content::input::StandardAction::ALL[self.button],
+                    chord.0[0].clone(),
+                );
+                self.binding_message = Some("Binding assigned.".into());
+            }
+            self.capture = None;
+        }
+        true
+    }
+
     pub fn forget_confirmation_key(&self) -> Option<&'static str> {
         match (
             self.original.learn_elemental_artes && !self.draft.learn_elemental_artes,
@@ -61,7 +101,8 @@ impl Customize {
         self.focus = Focus::Options;
     }
 
-    fn opening(preferences: CustomizeSettings) -> Self {
+    fn opening(mut preferences: CustomizeSettings) -> Self {
+        preferences.migrate_button_map();
         Self {
             transition: super::Transition::opening(),
             preview_shown: 1,
@@ -158,6 +199,9 @@ impl Menu {
     }
     pub(super) fn step_customize(&mut self, input: Input) -> Option<i16> {
         use MenuAction::*;
+        if self.customize.capture.is_some() {
+            return None;
+        }
         let [left, right, up, down, page_up, page_down] =
             [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));
         let data = match self
@@ -245,6 +289,7 @@ impl Menu {
                         } else {
                             state.original.clone()
                         };
+                        state.draft.migrate_button_map();
                         return Some(2);
                     }
                 } else if input == Some(Confirm) {
@@ -256,6 +301,7 @@ impl Menu {
                         5 => Focus::Volume,
                         6 => {
                             state.button = 0;
+                            state.button_first = 0;
                             Focus::Controls
                         }
                         13 => Focus::Position,
@@ -347,18 +393,34 @@ impl Menu {
                 }
             }
             Focus::Controls => {
+                use resonance_content::input::StandardAction;
                 if vertical {
-                    state.button = cycle(state.button, up, 7);
+                    state.button = cycle(state.button, up, StandardAction::ALL.len());
+                    state.button_first = state.keymap_first();
+                    state.binding_message = None;
                     return Some(1);
                 }
-                if horizontal {
-                    let map = &mut state.draft.button_map;
-                    let action = step(map[state.button], left, 6);
-                    if action != map[state.button] {
-                        let other = map.iter().position(|&v| v == action).unwrap();
-                        map.swap(state.button, other);
-                        return Some(1);
-                    }
+                if input == Some(Confirm) {
+                    state.capture = Some(super::input_capture::Capture::after_opening(
+                        resonance_content::input::Keymap::default()
+                            .get(StandardAction::Confirm)
+                            .iter()
+                            .cloned(),
+                    ));
+                    state.binding_message = None;
+                    return Some(2);
+                }
+                if input == Some(Alternate) {
+                    let result = state.draft.keymap.clear(StandardAction::ALL[state.button]);
+                    state.binding_message = result.as_ref().err().cloned();
+                    self.notice = result.as_ref().err().cloned();
+                    return Some(if result.is_ok() { 1 } else { 4 });
+                }
+                if input == Some(Menu) {
+                    state.draft.keymap = Default::default();
+                    state.draft.button_map = [0, 1, 2, 3, 4, 5, 6];
+                    state.binding_message = Some("Default keymap restored.".into());
+                    return Some(2);
                 }
             }
             Focus::Position => {

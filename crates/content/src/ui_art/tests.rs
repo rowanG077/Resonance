@@ -99,7 +99,6 @@ fn named_ui_preserves_all_menu_selectors_battle_roles_and_screen_timing() -> Res
         (json!(art.stat_colors), "/stat_colors"),
         (json!(art.stat_backdrops), "/stat_backdrops"),
         (json!(art.stat_icons), "/stat_icons"),
-        (json!(art.unison_buttons), "/unison_buttons"),
         (json!(art.feedback.scan_vitals), "/feedback/scan_vitals"),
         (json!(art.feedback.scan_icons), "/feedback/scan_icons"),
         (json!(art.feedback.unison_frame), "/feedback/unison_frame"),
@@ -167,12 +166,13 @@ fn named_ui_preserves_all_menu_selectors_battle_roles_and_screen_timing() -> Res
             )
         );
     }
-    assert_eq!(
-        fs::read(root.join("ui/controls/gamecube.json"))?,
-        fs::read(before.join("ui/controls/gamecube.json"))?
-    );
+    let controls =
+        crate::effect::OverlayArt::load(crate::input_prompts::FIELD_BANK_PATH, |path| {
+            Ok(fs::read(root.join(path))?)
+        })?;
+    assert_eq!(controls.textures.len(), crate::input_prompts::FIELD_GLYPHS);
     eprintln!(
-        "Every menu selector/color/name, 32 battle role groups, image size, subtitle cue and game-over choice matches its previous prepared value; controller bank unchanged"
+        "Named UI roles retain their layout; controller prompts resolve through the shared input atlas"
     );
     Ok(())
 }

@@ -89,6 +89,7 @@ pub struct CustomizeSettings {
     pub volumes: Volumes,
     pub stereo: bool,
     pub button_map: [u8; 7],
+    pub keymap: crate::input::Keymap,
     pub battle_voiceover: bool,
     pub event_voiceover: bool,
     pub skit_notifications: bool,
@@ -126,6 +127,7 @@ impl Default for CustomizeSettings {
             },
             stereo: true,
             button_map: [0, 1, 2, 3, 4, 5, 6],
+            keymap: Default::default(),
             battle_voiceover: true,
             event_voiceover: true,
             skit_notifications: true,
@@ -141,7 +143,20 @@ impl Default for CustomizeSettings {
     }
 }
 impl CustomizeSettings {
+    /// Import the former seven-action permutation into the physical keymap.
+    pub fn migrate_button_map(&mut self) {
+        if self.button_map == [0, 1, 2, 3, 4, 5, 6] {
+            return;
+        }
+        let old = self.keymap.bindings.clone();
+        for (physical, &logical) in self.button_map.iter().enumerate() {
+            self.keymap.bindings[usize::from(logical)] = old[physical].clone();
+        }
+        self.button_map = [0, 1, 2, 3, 4, 5, 6];
+    }
+
     pub fn validate(&self) -> Result<()> {
+        self.keymap.validate()?;
         ensure!(
             self.message_speed <= 9
                 && self.battle_rank <= 2
@@ -223,10 +238,18 @@ impl CustomizeData {
     }
 
     pub fn option_name(&self, row: usize) -> &str {
-        &self.options[row].name
+        if row == 6 {
+            "Keymap"
+        } else {
+            &self.options[row].name
+        }
     }
     pub fn option_description(&self, row: usize) -> &str {
-        &self.options[row].description
+        if row == 6 {
+            "Map keyboard keys, controller buttons, D-pad and sticks to standard actions."
+        } else {
+            &self.options[row].description
+        }
     }
     pub fn confirmation(&self, key: &str) -> Result<&str> {
         self.confirmations

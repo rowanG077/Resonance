@@ -279,7 +279,7 @@ fn local_overlay_path(id: u32, section: usize) -> Option<String> {
         return Some(path);
     }
     match (id, section) {
-        (77, 16) => Some("ui/controls/gamecube.json".into()),
+        (77, 16) => Some(resonance_content::input_prompts::FIELD_BANK_PATH.into()),
         (354, 20..=29) => ui_emotions::picture_path(section),
         (171, 23) => Some("effects/overlays/flames.json".into()),
         (474 | 531, 19) => Some("ui/title/title-screen.ktx2".into()),

@@ -53,12 +53,13 @@ impl Battle {
                 intent.motion = self.locomotion_intent(index, input.stick[0], stopping);
             }
             let control = self.runtime[index].control.as_mut().unwrap();
-            intent.jump = control.jump_charge.sample(
-                self.actors[index].control,
-                input.stick[1],
-                input.guard.held,
-                false,
-            );
+            intent.jump = input.assigned_arte.is_none()
+                && control.jump_charge.sample(
+                    self.actors[index].control,
+                    input.stick[1],
+                    input.guard.held,
+                    false,
+                );
         }
         self.actors[index].input = intent;
     }
@@ -78,7 +79,11 @@ impl Battle {
             input.horizontal_pressed < 0
         };
         let mut intent = InputIntent::default();
-        if input.guard.held {
+        if let Some(id) = input.assigned_arte {
+            intent.action = self
+                .shortcut_action(actor, id)
+                .and_then(|action| self.project_local_technique(actor, action, cues));
+        } else if input.guard.held {
             intent.motion = GroundMotion::Guard;
         } else if away {
             intent.motion = GroundMotion::Stop;
@@ -95,15 +100,16 @@ impl Battle {
                 };
         }
         let control = self.runtime[index].control.as_mut().unwrap();
-        intent.jump = control.jump_charge.sample(
-            self.actors[index].control,
-            input.stick[1],
-            input.guard.held,
-            self.actors[index]
-                .conditions
-                .effective()
-                .contains(Condition::Heavy),
-        );
+        intent.jump = input.assigned_arte.is_none()
+            && control.jump_charge.sample(
+                self.actors[index].control,
+                input.stick[1],
+                input.guard.held,
+                self.actors[index]
+                    .conditions
+                    .effective()
+                    .contains(Condition::Heavy),
+            );
         self.actors[index].input = intent;
     }
 
@@ -117,7 +123,9 @@ impl Battle {
         let actor = input.actor;
         let control = self.runtime[actor.index()].control.as_ref().unwrap();
         let direction = crate::ShortcutSlot::from_input(input.stick).index();
-        let technique = if input.technique.pressed {
+        let technique = if let Some(id) = input.assigned_arte {
+            self.shortcut_action(actor, id)
+        } else if input.technique.pressed {
             control.shortcuts[direction].and_then(|id| self.shortcut_action(actor, id))
         } else {
             input
@@ -133,7 +141,11 @@ impl Battle {
         };
         if let Some(action) = technique {
             self.project_local_technique(actor, action, cues)
-        } else if input.attack.pressed && !input.technique.pressed && allow_normal {
+        } else if input.attack.pressed
+            && !input.technique.pressed
+            && input.assigned_arte.is_none()
+            && allow_normal
+        {
             let direction =
                 NormalAttack::from_input(input.stick, self.actors[actor.index()].airborne())
                     as usize;

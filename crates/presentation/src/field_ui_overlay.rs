@@ -12,6 +12,7 @@ use resonance_events::{GameWorld, OverlayKind};
 struct Bank {
     sizes: Vec<[u32; 2]>,
     surfaces: Vec<Option<Handle<Surface>>>,
+    controls: bool,
 }
 
 pub(super) struct Artwork {
@@ -20,6 +21,7 @@ pub(super) struct Artwork {
     pub layers: Vec<Layer>,
     pub warm: Vec<Layer>,
     prepared: bool,
+    input_atlas: Option<std::sync::Arc<crate::input_icons::Atlas>>,
 }
 
 impl Artwork {
@@ -29,16 +31,47 @@ impl Artwork {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         images: &mut Assets<Image>,
+        inputs: &crate::input_icons::Prepared,
     ) -> Result<Self> {
         let mut banks = BTreeMap::new();
         let mut loaded = Vec::new();
         let mut samplers: Vec<(ImageSamplerDescriptor, Handle<Image>)> = Vec::new();
+        let mut input_atlas = None;
+        let mut input_surface = None;
         for (&id, path) in overlays {
+            let controls = path == resonance_content::input_prompts::FIELD_BANK_PATH;
+            if controls && input_surface.is_none() {
+                let atlas = inputs.atlas.clone();
+                let image = inputs.image.clone();
+                loaded.push(image.clone());
+                input_surface = Some(materials.add(Surface {
+                    source: image.clone(),
+                    sampling: image.clone(),
+                    frame_mask: image.clone(),
+                    color_mask: image,
+                    coverage: Coverage::default(),
+                    additive: false,
+                    texture_effect: Default::default(),
+                    opaque: false,
+                }));
+                input_atlas = Some(atlas);
+            }
             let art = OverlayArt::load(path, &read)?;
             art.validate()?;
             let mut surfaces = Vec::new();
             let mut sizes = Vec::new();
-            for texture in &art.textures {
+            if controls {
+                ensure!(
+                    art.textures.len() == resonance_content::input_prompts::FIELD_GLYPHS,
+                    "invalid scripted input bank"
+                );
+            }
+            for (index, texture) in art.textures.iter().enumerate() {
+                if controls && !resonance_content::input_prompts::PANEL_GLYPHS.contains(&index) {
+                    sizes.push([24, 24]);
+                    surfaces.push(input_surface.clone());
+                    continue;
+                }
                 let Some(texture) = texture else {
                     surfaces.push(None);
                     sizes.push([0, 0]);
@@ -78,7 +111,14 @@ impl Artwork {
                     opaque: false,
                 })));
             }
-            banks.insert(id as u32, Bank { sizes, surfaces });
+            banks.insert(
+                id as u32,
+                Bank {
+                    sizes,
+                    surfaces,
+                    controls,
+                },
+            );
         }
         Ok(Self {
             banks,
@@ -86,6 +126,7 @@ impl Artwork {
             layers: Vec::new(),
             warm: Vec::new(),
             prepared: false,
+            input_atlas,
         })
     }
 
@@ -123,8 +164,15 @@ impl Artwork {
         world: &GameWorld,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
+        device: crate::input_icons::PromptDevice,
     ) -> Result<Vec<i32>> {
         ensure!(self.prepared, "field overlays were not prepared");
+        let defaults = resonance_content::input::Keymap::default();
+        let keymap = world
+            .party
+            .as_ref()
+            .map(|party| &party.settings.preferences.keymap)
+            .unwrap_or(&defaults);
         let mut draws = Vec::new();
         let mut handled = Vec::new();
         for (&id, overlay) in &world.overlays {
@@ -158,14 +206,39 @@ impl Artwork {
                         .context("overlay texture index is outside its bank")?;
                     let mut color = overlay.rgba.map(|v| f32::from(v) / 255.);
                     color[3] = f32::from(alpha) / 255.;
-                    emit(
-                        texture,
-                        centered_rect(overlay.size, size),
-                        [0., 0., 255. / 256., 255. / 256.],
-                        color,
-                        sprite.scale,
-                        actor.position[2] + sprite.depth as i16 as f32 * sprite.scale[2],
-                    );
+                    let rect = centered_rect(overlay.size, size);
+                    let depth = actor.position[2] + sprite.depth as i16 as f32 * sprite.scale[2];
+                    if bank.controls
+                        && !resonance_content::input_prompts::PANEL_GLYPHS.contains(&texture)
+                    {
+                        let atlas = self
+                            .input_atlas
+                            .as_ref()
+                            .context("scripted input atlas missing")?;
+                        for prompt in crate::input_icons::controller_quads(
+                            atlas, keymap, texture, rect, true, device,
+                        )? {
+                            let [u, v, w, h] = prompt.uv.map(|v| v as f32);
+                            let [aw, ah] = atlas.size.map(|v| v as f32);
+                            emit(
+                                texture,
+                                prompt.rect,
+                                [u / aw, v / ah, (u + w) / aw, (v + h) / ah],
+                                color,
+                                sprite.scale,
+                                depth,
+                            );
+                        }
+                    } else {
+                        emit(
+                            texture,
+                            rect,
+                            [0., 0., 255. / 256., 255. / 256.],
+                            color,
+                            sprite.scale,
+                            depth,
+                        );
+                    }
                 }
                 OverlayKind::LocationCaption { .. } => {
                     ensure!(
@@ -352,6 +425,157 @@ fn allocate(
 mod tests {
     use super::*;
 
+    #[test]
+    fn controller_bank_never_loads_legacy_button_pixels_and_uses_cooked_prompts() -> Result<()> {
+        use resonance_content::input_prompts as prompts;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>();
+        crate::input_icons::install(&mut app);
+        let server = app.world().resource::<AssetServer>().clone();
+        let mut materials = Assets::<Surface>::default();
+        let mut images = Assets::<Image>::default();
+        let paths: Vec<_> = (0..32).map(|i| format!("legacy/{i}.ktx2")).collect();
+        let metadata = serde_json::to_vec(&paths)?;
+        let panel = resonance_asset_writer::ktx2::encode_rgba8(16, 24, &vec![255; 16 * 24 * 4])?;
+        let reads = std::cell::RefCell::new(Vec::new());
+        let read = |path: &str| -> Result<Vec<u8>> {
+            reads.borrow_mut().push(path.to_string());
+            if path == prompts::IMAGE_PATH {
+                return Ok(crate::input_icons::test_image().to_vec());
+            }
+            if path == prompts::MANIFEST_PATH {
+                return Ok(serde_json::to_vec(crate::input_icons::default_atlas())?);
+            }
+            if path == prompts::FIELD_BANK_PATH {
+                return Ok(metadata.clone());
+            }
+            if ["legacy/19.ktx2", "legacy/20.ktx2", "legacy/21.ktx2"].contains(&path) {
+                return Ok(panel.clone());
+            }
+            anyhow::bail!("absent {path}")
+        };
+        let inputs = crate::input_icons::prepare(&read, &server)?;
+        let mut art = Artwork::load(
+            &[(123, prompts::FIELD_BANK_PATH.into())].into(),
+            read,
+            &server,
+            &mut materials,
+            &mut images,
+            &inputs,
+        )?;
+        assert!(art.input_atlas.is_some());
+        assert!(std::sync::Arc::ptr_eq(
+            art.input_atlas.as_ref().unwrap(),
+            &inputs.atlas
+        ));
+        for (path, expected) in [(prompts::IMAGE_PATH, 0), (prompts::MANIFEST_PATH, 1)] {
+            assert_eq!(
+                reads
+                    .borrow()
+                    .iter()
+                    .filter(|read| read.as_str() == path)
+                    .count(),
+                expected
+            );
+        }
+        let bank = &art.banks[&123];
+        assert!(bank.controls);
+        for id in 0..32 {
+            if prompts::PANEL_GLYPHS.contains(&id) {
+                continue;
+            }
+            assert_eq!(bank.sizes[id], [24, 24]);
+            assert_eq!(bank.surfaces[id], bank.surfaces[0]);
+            assert!(!reads.borrow().contains(&format!("legacy/{id}.ktx2")));
+        }
+        let surface = materials.get(bank.surfaces[0].as_ref().unwrap()).unwrap();
+        assert_eq!(
+            server.get_path(surface.source.id()).unwrap().to_string(),
+            prompts::IMAGE_PATH
+        );
+        // Exercise the real sprite path through a tiny authored overlay call.
+        // This preserves native alpha, transform, size and image-index behavior.
+        let mut words = vec![4u16, 0, 0, 0];
+        for arg in [7i32, 123, 320, 240, -1, -1, 0, 255, 255, 255, 255, 0, 0] {
+            words.extend([
+                0x0200,
+                arg as u16,
+                (arg as u32 >> 16) as u16,
+                0x3000,
+                0x4000,
+            ]);
+        }
+        words.extend([0x204b, 0x20ff]);
+        let program = symphonia_script::Program::decode(
+            &words
+                .into_iter()
+                .flat_map(u16::to_be_bytes)
+                .collect::<Vec<_>>(),
+        )?;
+        let mut resources = resonance_events::ResourceLibrary::default();
+        resources
+            .bindings
+            .insert(123, (resonance_events::ResourceKind::Overlay, 123));
+        let mut events = resonance_events::EventRuntime::new(
+            std::sync::Arc::new(program),
+            std::sync::Arc::new(resources),
+        )?;
+        let render_world = World::new();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &render_world);
+        let mut meshes = Assets::<Mesh>::default();
+        art.prepare(&mut commands, &mut meshes);
+        for id in 0..32 {
+            if prompts::PANEL_GLYPHS.contains(&id) {
+                continue;
+            }
+            let OverlayKind::Sprite(sprite) = &mut events.world.overlays.get_mut(&7).unwrap().kind
+            else {
+                unreachable!()
+            };
+            sprite.image = id as u8;
+            assert_eq!(
+                art.render(
+                    &events.world,
+                    &mut commands,
+                    &mut meshes,
+                    crate::input_icons::PromptDevice::Controller
+                )?,
+                [7]
+            );
+            let atlas = art.input_atlas.as_ref().unwrap();
+            let expected = crate::input_icons::controller_quads(
+                atlas,
+                &Default::default(),
+                id,
+                [-12., -12., 12., 12.],
+                true,
+                crate::input_icons::PromptDevice::Controller,
+            )?;
+            let visible: Vec<_> = art.layers.iter().filter(|l| l.visible).collect();
+            assert_eq!(visible.len(), expected.len(), "glyph {id}");
+            for (layer, expected) in visible.into_iter().zip(expected) {
+                let (batch, _) = layer.uploaded.as_ref().unwrap();
+                assert_eq!(
+                    batch.uv[0],
+                    [
+                        expected.uv[0] as f32 / atlas.size[0] as f32,
+                        expected.uv[1] as f32 / atlas.size[1] as f32
+                    ],
+                    "glyph {id}"
+                );
+                assert_eq!(batch.colors[0][3], 1.);
+                assert!(
+                    batch
+                        .positions
+                        .iter()
+                        .all(|p| p[0].abs() <= 12. && p[1].abs() <= 12.)
+                );
+            }
+        }
+        Ok(())
+    }
     #[test]
     fn overlays_rotate_before_nonuniform_scale_and_keep_instance_order_across_banks() {
         let rect = centered_rect([-1, -1], [259, 65]);

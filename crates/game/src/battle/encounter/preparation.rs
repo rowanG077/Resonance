@@ -1790,6 +1790,7 @@ impl Assets {
                     techniques: &row.actions.as_ref()?.techniques,
                     temporary_weapons: unison_weapons.get(&slot).unwrap_or(&empty_weapons),
                     short_weapon: row.actor.equipment.dagger_reach,
+                    selected: party.members[character.index()].unison_arte,
                 })
             })
             .collect();

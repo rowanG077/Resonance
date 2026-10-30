@@ -11,6 +11,9 @@ impl Candidate {
             let member = &mut party.members[character.index()];
             if let Some(current) = battle.current_techniques(actor) {
                 member.techniques = current.iter().map(|id| id.0).collect();
+                member.unison_arte = member
+                    .unison_arte
+                    .filter(|id| member.techniques.contains(id));
                 member
                     .disabled_techniques
                     .retain(|id| member.techniques.contains(id));

@@ -13,20 +13,22 @@ pub(crate) struct Preferences {
 }
 impl Preferences {
     pub fn load(file: PathBuf) -> Result<Self> {
-        let settings: CustomizeSettings = match fs::read_to_string(&file) {
+        let mut settings: CustomizeSettings = match fs::read_to_string(&file) {
             Ok(text) => toml::from_str(&text).context("read config.toml")?,
             Err(error) if error.kind() == ErrorKind::NotFound => Default::default(),
             Err(error) => return Err(error).context("read config.toml"),
         };
         settings.validate().context("invalid config.toml")?;
+        settings.migrate_button_map();
         Ok(Self {
             settings,
             file: Some(file),
         })
     }
 
-    pub fn commit(&mut self, settings: CustomizeSettings) -> Result<()> {
+    pub fn commit(&mut self, mut settings: CustomizeSettings) -> Result<()> {
         settings.validate()?;
+        settings.migrate_button_map();
         // Keep the applied settings for this session even if the disk is unavailable.
         self.settings = settings;
         if let Some(file) = &self.file {
@@ -109,5 +111,38 @@ pub(crate) fn restore(world: &mut World) {
         world.resource_scope(|world, preferences: Mut<Preferences>| {
             preferences.apply(&mut world.resource_mut::<Session>(), false);
         });
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    use resonance_content::input::{AxisDirection, PhysicalInput, StandardAction};
+    #[test]
+    fn physical_keymap_survives_config_toml_and_migrates_legacy_permutations() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("config.toml");
+        let mut config = Preferences::load(path.clone())?;
+        let mut settings = config.settings.clone();
+        settings
+            .keymap
+            .assign(StandardAction::Confirm, PhysicalInput::Key("KeyJ".into()));
+        settings.keymap.assign(
+            StandardAction::Skit,
+            PhysicalInput::Axis(AxisDirection::RightRight),
+        );
+        config.commit(settings.clone())?;
+        assert_eq!(Preferences::load(path.clone())?.settings, settings);
+        std::fs::write(&path, "button_map = [2, 1, 0, 3, 4, 5, 6]\n")?;
+        let loaded = Preferences::load(path)?;
+        assert_eq!(loaded.settings.button_map, [0, 1, 2, 3, 4, 5, 6]);
+        assert!(
+            loaded
+                .settings
+                .keymap
+                .get(StandardAction::Confirm)
+                .contains(&PhysicalInput::Key("KeyX".into()))
+        );
+        Ok(())
     }
 }

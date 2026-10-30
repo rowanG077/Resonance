@@ -43,9 +43,23 @@ pub fn capture_scene(
     for overlay in field.overlays.values() {
         let art = crate::effect::OverlayArt::load(overlay, &mut read)?;
         art.validate().with_context(|| overlay.clone())?;
-        for texture in art.references() {
-            read(texture).with_context(|| format!("referenced by {overlay}"))?;
+        for (index, texture) in art.textures.iter().enumerate() {
+            if overlay == crate::input_prompts::FIELD_BANK_PATH
+                && !crate::input_prompts::PANEL_GLYPHS.contains(&index)
+            {
+                continue;
+            }
+            for path in texture.iter().flat_map(|texture| &texture.images) {
+                read(path).with_context(|| format!("referenced by {overlay}"))?;
+            }
         }
+    }
+    if field
+        .overlays
+        .values()
+        .any(|path| path == crate::input_prompts::FIELD_BANK_PATH)
+    {
+        crate::input_prompts::capture(snapshot)?;
     }
     for path in field
         .unbound_geometry
