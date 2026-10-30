@@ -519,15 +519,42 @@ pub(super) struct ActorPart {
     pub(super) resource: u32,
     pub(super) part: usize,
     pub(super) pass: u8,
-    materials: Vec<Handle<TitleSurface>>,
+    pub(super) materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
     pub(super) disabled: bool,
     instantiated: bool,
-    geometry: Vec<(usize, Entity)>,
+    pub(super) geometry: Vec<(usize, Entity)>,
     pub(super) active_clip: Option<usize>,
     shadow_anchor: Option<Entity>,
 }
 impl ActorPart {
+    pub(super) fn new(
+        actor: i32,
+        source: &resonance_events::Actor,
+        part: usize,
+        pass: u8,
+        materials: Vec<Handle<TitleSurface>>,
+    ) -> Self {
+        Self {
+            actor,
+            instance: source.instance,
+            resource: source.model_resource(),
+            part,
+            pass,
+            materials,
+            prepared: false,
+            disabled: false,
+            instantiated: false,
+            geometry: Vec::new(),
+            active_clip: None,
+            shadow_anchor: None,
+        }
+    }
+
+    pub(super) fn current(&self, actor: &resonance_events::Actor) -> bool {
+        self.instance == actor.instance && self.resource == actor.model_resource()
+    }
+
     pub(super) fn disable(&mut self) {
         self.disabled = true;
         self.prepared = true;
@@ -1687,11 +1714,9 @@ fn instances(
     for (&id, actor) in &session.get().events.world.actors {
         if let Some(entities) = art.instances.get(&id) {
             if !entities.is_empty()
-                && entities.iter().all(|entity| {
-                    instances.get(*entity).is_ok_and(|part| {
-                        part.instance == actor.instance && part.resource == actor.model_resource()
-                    })
-                })
+                && entities
+                    .iter()
+                    .all(|entity| instances.get(*entity).is_ok_and(|part| part.current(actor)))
             {
                 continue;
             }
@@ -1734,20 +1759,7 @@ fn instances(
                     .spawn((
                         WorldAssetRoot(part.scene.clone()),
                         Transform::default(),
-                        ActorPart {
-                            actor: id,
-                            instance: actor.instance,
-                            resource: actor.model_resource(),
-                            part: index,
-                            pass,
-                            materials,
-                            prepared: false,
-                            disabled: false,
-                            instantiated: false,
-                            geometry: Vec::new(),
-                            active_clip: None,
-                            shadow_anchor: None,
-                        },
+                        ActorPart::new(id, actor, index, pass, materials),
                     ))
                     .observe(
                         |event: On<WorldInstanceReady>,
