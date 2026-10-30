@@ -134,9 +134,9 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
     let mut current = actor(Side::Party);
     current.hp = 37;
     current.tp = 9;
-    current.species = crate::Species(6);
+    current.species = crate::Species::Human;
     current.combat_adjustments.attack = -50;
-    current.equipment.damage.weapon_species = Some(crate::Species(2));
+    current.equipment.damage.weapon_species = Some(crate::Species::Undead);
     current.equipment.damage.critical_chance_bonus = 1;
     current.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
         base: ConditionSet::of(&[Condition::Weak]),
@@ -150,7 +150,7 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
     replacement.equipment.max_tp = 80;
     //A freshly derived gear row has no actor-template species. Only that
     //profile field survives; weapon/EX damage traits must still be rebuilt.
-    replacement.equipment.damage.weapon_species = Some(crate::Species(9));
+    replacement.equipment.damage.weapon_species = Some(crate::Species::Aquatic);
     replacement.equipment.damage.critical_chance_bonus = 7;
     replacement.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
         base: battle.actors()[id.index()].conditions.base(),
@@ -169,11 +169,11 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
         ),
         (37, 9, 200, 80)
     );
-    assert_eq!(live.species, crate::Species(6));
+    assert_eq!(live.species, crate::Species::Human);
     assert_eq!(live.combat_adjustments.attack, -50);
     assert_eq!(
         live.equipment.damage.weapon_species,
-        Some(crate::Species(9))
+        Some(crate::Species::Aquatic)
     );
     assert_eq!(live.equipment.damage.critical_chance_bonus, 7);
     assert_eq!(live.conditions.base(), ConditionSet::of(&[Condition::Weak]));
@@ -257,7 +257,7 @@ pub(crate) fn model_definition(
     resource: u32,
     motions: impl IntoIterator<Item = (u16, f32)>,
 ) -> ModelDefinition {
-    use resonance_content::animation::{Bone, Motion, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Motion, Skeleton, Transform};
     let motions: Vec<_> = motions.into_iter().collect();
     ModelDefinition {
         tint: [64, 64, 64, 255],
@@ -275,7 +275,8 @@ pub(crate) fn model_definition(
             bones: vec![Bone {
                 name: "root".into(),
                 parent: None,
-                bind_channels: TransformChannels(8),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform::default(),
             }],
         },
@@ -297,7 +298,7 @@ pub(crate) fn model_definition(
         idle_expression: [0; 4],
         active_expression: [0; 4],
         forced_eye_frame: None,
-        blink: None,
+        blinks: vec![],
         weapons: vec![],
 
         shadow: None,

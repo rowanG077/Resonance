@@ -14,3 +14,7 @@ state before `menu_settled` observes entrance slides and selection
 trails before capture; input remains immediate. Ordinary taps need only one
 press update and one release update, without fixed animation padding. Decorative
 cursor bobs and blinking markers continue normally.
+
+`title-menus.json` opens Continue, navigates its save banks, cancels back to the
+title, opens and edits Customize, returns, and enters New Game setup. It uses
+the current installed library and the normal input/render path.

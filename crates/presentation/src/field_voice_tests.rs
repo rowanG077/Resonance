@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn shared_voice_loader_preserves_native_pcm_and_uses_the_playback_clock() -> Result<()> {
-    use resonance_content::field_audio::{Asset, Voice};
+    use resonance_content::field_audio::Voice;
     let pcm: [i16; 4] = [1234, -2345, 32767, -32768];
     let wave = |rate| -> Result<Vec<u8>> {
         let mut bytes = Cursor::new(Vec::new());
@@ -23,10 +23,7 @@ fn shared_voice_loader_preserves_native_pcm_and_uses_the_playback_clock() -> Res
     };
     let bytes: Arc<[u8]> = wave(32000)?.into();
     let mut voice = Voice {
-        asset: Asset {
-            path: "audio/streams/test.wav".into(),
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
-        },
+        path: "audio/streams/test.wav".into(),
         frames: 4,
         channels: 1,
         sample_rate: 32028,

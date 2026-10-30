@@ -4,79 +4,15 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod frame_cycle;
 /// Shared field artwork, addressed by scenario sprite IDs.
-pub mod sprite {
-    pub const GLOW_SPRITE: u16 = 0;
-    pub const SMOKE_SPRITE: u16 = 1;
-    pub const STATION_GLOW_SPRITE: u16 = 4;
-    pub const CAMERA_DISC_SPRITE: u16 = 5;
-    pub const WORLD_GLOW_SPRITE: u16 = 6;
-    pub const STAR_SPRITE: u16 = 7;
-    pub const SPINNING_STAR_SPRITE: u16 = 8;
-    pub const ORB_SPRITE: u16 = 10;
-    pub const FLAME_SPRITE: u16 = 11;
-    pub const TRAIL_GLOW_SPRITE: u16 = 12;
-    pub const BURST_SPRITE: u16 = 13;
-    pub const ELECTRIC_ARC_SPRITE: u16 = 14;
-    pub const SWIRL_SPRITE: u16 = 18;
-    pub const SPARKLE_CLUSTER_SPRITE: u16 = 21;
-    pub const STATION_HALO_SPRITE: u16 = 22;
-    pub const STREAK_SPRITE: u16 = 23;
-    pub const RING_SPRITE: u16 = 41;
-    pub const ELECTRIC_SPARK_SPRITE: u16 = 42;
-    pub const RISING_LIGHT_SPRITE: u16 = 44;
-    pub const DEBRIS_SPRITES: [u16; 3] = [52, 53, 54];
-    pub const SEAL_STAR_SPRITE: u16 = 68;
-    pub const SEAL_SPARK_SPRITE: u16 = 69;
-    pub const SQUARE_GLOW_SPRITE: u16 = 70;
-    pub const LIGHTNING_BOLT_SPRITE: u16 = 74;
-    pub const PLANE_LIGHT_SPRITES: [u16; 4] = [75, 76, 77, 78];
-    pub const FLAME_PLUME_SPRITE: u16 = 80;
-    pub const CYLINDER_RAY_SPRITE: u16 = 82;
-    pub const LIGHT_SHEET_SPRITE: u16 = 95;
-    pub const COOKING_CLOUDS: std::ops::RangeInclusive<u16> = 501..=505;
-
-    pub const ALL: [u16; 33] = [
-        GLOW_SPRITE,
-        SMOKE_SPRITE,
-        STATION_GLOW_SPRITE,
-        CAMERA_DISC_SPRITE,
-        WORLD_GLOW_SPRITE,
-        STAR_SPRITE,
-        SPINNING_STAR_SPRITE,
-        ORB_SPRITE,
-        FLAME_SPRITE,
-        TRAIL_GLOW_SPRITE,
-        BURST_SPRITE,
-        ELECTRIC_ARC_SPRITE,
-        SWIRL_SPRITE,
-        SPARKLE_CLUSTER_SPRITE,
-        STATION_HALO_SPRITE,
-        STREAK_SPRITE,
-        RING_SPRITE,
-        ELECTRIC_SPARK_SPRITE,
-        RISING_LIGHT_SPRITE,
-        DEBRIS_SPRITES[0],
-        DEBRIS_SPRITES[1],
-        DEBRIS_SPRITES[2],
-        SEAL_STAR_SPRITE,
-        SEAL_SPARK_SPRITE,
-        SQUARE_GLOW_SPRITE,
-        LIGHTNING_BOLT_SPRITE,
-        PLANE_LIGHT_SPRITES[0],
-        PLANE_LIGHT_SPRITES[1],
-        PLANE_LIGHT_SPRITES[2],
-        PLANE_LIGHT_SPRITES[3],
-        FLAME_PLUME_SPRITE,
-        CYLINDER_RAY_SPRITE,
-        LIGHT_SHEET_SPRITE,
-    ];
-}
+pub mod sprite;
 
 /// Eye atlas frames at the fixed update rate, including the open-eye rest.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct BlinkCycle {
+    #[serde(with = "frame_cycle")]
     pub frames: Vec<u8>,
 }
 impl BlinkCycle {
@@ -91,47 +27,17 @@ impl BlinkCycle {
     }
 }
 
-/// All images in one script texture resource, in authored index order.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OverlayArt {
-    pub textures: Vec<OverlayTexture>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OverlayTexture {
-    /// Palette variants share dimensions and sampling. Ordinary overlays use
-    /// the first palette; keeping the complete bank avoids losing authored data.
-    pub images: Vec<crate::font::UiTexture>,
-    pub sampler: crate::texture::Sampler,
-}
-
-impl OverlayArt {
-    pub fn validate(&self) -> Result<()> {
-        ensure!(!self.textures.is_empty(), "empty overlay texture bank");
-        for texture in &self.textures {
-            ensure!(!texture.images.is_empty(), "empty overlay palette bank");
-            texture.sampler.validate()?;
-            let first = &texture.images[0];
-            for image in &texture.images {
-                crate::validate_asset_path(&image.path)?;
-                ensure!(
-                    (1..=4096).contains(&image.width)
-                        && (1..=4096).contains(&image.height)
-                        && (image.width, image.height) == (first.width, first.height),
-                    "invalid overlay image dimensions"
-                );
-            }
-        }
-        Ok(())
-    }
-}
+/// Image banks share one editable representation with model textures.
+pub type OverlayArt = crate::physical_scene::TextureCatalogue;
 
 /// A textured leaf tumbling in world space, with wind expressed per gameplay tick.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlutterRecipe<Image = String> {
     pub texture: Image,
     pub uv: [f32; 4],
     pub aspect_ratio: f32,
+    /// Omission in a field document uses its shared settings palette.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub palette: Vec<[u8; 4]>,
     pub fall_speed: f32,
     pub fall_variation: f32,
@@ -159,18 +65,18 @@ impl<Image: AsRef<str>> FlutterRecipe<Image> {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldEffects<Image = String> {
-    pub version: u32,
     pub emote_texture: Image,
     pub status_texture: Image,
+    #[serde(with = "sprite::named")]
     pub sprites: BTreeMap<u16, SpriteRecipe<Image>>,
     #[serde(default)]
     pub palette: Vec<[u8; 4]>,
     pub refraction: RefractionRecipe<Image>,
     pub air_refraction: SpriteRecipe<Image>,
+    #[serde(with = "frame_cycle")]
     pub mouth_cycle: Vec<u8>,
     pub rising_light_destination: [f32; 3],
 }
-pub const FIELD_EFFECTS_VERSION: u32 = 10;
 pub const SMOKE_UPDATES: u32 = 56;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,6 +89,7 @@ pub struct SpriteFrame {
 pub struct SpriteRecipe<Image = String> {
     pub texture: Image,
     pub uv: [f32; 4],
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub additive: bool,
     /// Frame durations include the native timer-zero pose.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -263,13 +170,23 @@ fn opaque() -> u8 {
     255
 }
 impl<Image: AsRef<str>> FieldEffects<Image> {
+    pub fn references(&self) -> impl Iterator<Item = &str> {
+        [self.emote_texture.as_ref(), self.status_texture.as_ref()]
+            .into_iter()
+            .chain(
+                self.sprites
+                    .values()
+                    .chain([&self.refraction.sprite, &self.air_refraction])
+                    .map(|sprite| sprite.texture.as_ref()),
+            )
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == FIELD_EFFECTS_VERSION
-                && self.sprites.len() <= 256
-                && sprite::ALL.iter().all(|id| self.sprites.contains_key(id))
+            self.sprites.len() <= 256
+                && sprite::all().all(|id| self.sprites.contains_key(&id))
                 && self.palette.len() == FIELD_PALETTE_COLORS,
-            "invalid or outdated field effects; run cook-all"
+            "invalid field effects"
         );
         ensure!(
             self.rising_light_destination.iter().all(|v| v.is_finite()),

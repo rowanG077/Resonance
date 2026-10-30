@@ -25,7 +25,7 @@ pub(super) fn sky_position(playback: &Playback) -> Position {
         .unwrap()
 }
 pub(super) fn background(definition: &resonance_content::overworld::Cinematic, actor: u8) -> bool {
-    definition.presentation.actors[&actor].background
+    definition.presentation.actor(actor).background
 }
 pub(super) fn draw_order(
     definition: &resonance_content::overworld::Cinematic,
@@ -46,7 +46,7 @@ pub(super) fn surface(
     surface: &mut TitleSurface,
 ) {
     use resonance_content::overworld::CinematicBlend;
-    let track = &definition.presentation.actors[&actor];
+    let track = definition.presentation.actor(actor);
     if let Some(depth_write) = track.depth_write {
         surface.depth_write = depth_write;
     }
@@ -62,13 +62,19 @@ pub(super) fn surface(
 }
 pub(super) fn opacity(playback: &Playback, actor: u8) -> f32 {
     f32::from(
-        playback.definition.presentation.actors[&actor]
+        playback
+            .definition
+            .presentation
+            .actor(actor)
             .opacity
             .map_or(255, |window| window.alpha(playback.ticks())),
     ) / 255.
 }
 pub(super) fn uv(playback: &Playback, actor: u8, texture: usize, presentation_tick: u32) -> Vec2 {
-    playback.definition.presentation.actors[&actor]
+    playback
+        .definition
+        .presentation
+        .actor(actor)
         .uv
         .iter()
         .find(|track| track.animation.texture == texture)

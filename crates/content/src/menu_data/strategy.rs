@@ -32,7 +32,7 @@ impl StrategyPreset {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StrategyData {
     pub groups: [Vec<StrategyOption>; 3],
     pub presets: [[[u8; 3]; 9]; 3],

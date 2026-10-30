@@ -20,12 +20,13 @@ impl Kind {
     }
 }
 
-pub use resonance_content::save_identity::Identity;
+/// Version of the serialized save state, independent of asset contents.
+pub const VERSION: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Header {
-    pub identity: Identity,
+    pub version: u32,
     pub label: String,
     pub location: String,
     pub played_ticks: u64,
@@ -34,7 +35,12 @@ pub struct Header {
 impl Header {
     fn validate(&self) -> Result<()> {
         ensure!(
-            self.identity.schema > 0 && self.label.len() <= 256 && self.location.len() <= 256,
+            self.version == VERSION,
+            "unsupported save version {}; expected {VERSION}",
+            self.version
+        );
+        ensure!(
+            self.label.len() <= 256 && self.location.len() <= 256,
             "invalid save metadata"
         );
         Ok(())
@@ -49,13 +55,8 @@ pub struct Save<T> {
 }
 
 impl<T> Save<T> {
-    /// Admit parsed state only after its content snapshot is available.
-    pub fn admit(self, expected: &Identity) -> Result<(Header, T)> {
-        ensure!(
-            &self.header.identity == expected,
-            "incompatible save schema or content"
-        );
-        Ok((self.header, self.state))
+    pub fn into_parts(self) -> (Header, T) {
+        (self.header, self.state)
     }
 }
 

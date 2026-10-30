@@ -1,7 +1,9 @@
 //! Scenario auxiliary messages, adapted from the author's message-table tooling.
-//! Text is decoded once for cooking; expressions and unknown bytes stay explicit.
+//! Source text and expressions are decoded once for cooking.
+mod document;
+mod expression;
 use encoding_rs::SHIFT_JIS;
-use serde::{Deserialize, Serialize};
+pub use expression::Expression;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -14,17 +16,18 @@ pub enum MessageError {
     Character(usize),
     #[error("message {0} contains an unterminated control expression")]
     Expression(usize),
+    #[error("message {0}: {1}")]
+    ExpressionValue(usize, String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     Text { text: String },
-    Control { opcode: u8, expression: Vec<u8> },
+    Control { opcode: u8, expression: Expression },
     Raw { value: u8 },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub tokens: Vec<Token>,
 }
@@ -111,8 +114,7 @@ fn parse_body(body: &[u8], index: usize) -> Result<Message, MessageError> {
             1..=9 | 0x11 | 0x12 => {
                 flush(&mut text, &mut tokens);
                 // Control expressions may start at either byte
-                // parity and finds their literal 20 FF terminator. Keep them as
-                // compatibility payload, never treat their embedded NULs as text end.
+                // parity. Their embedded NULs are operands, not text terminators.
                 let size = body[cursor..]
                     .windows(2)
                     .position(|pair| pair == [0x20, 0xff])
@@ -120,7 +122,8 @@ fn parse_body(body: &[u8], index: usize) -> Result<Message, MessageError> {
                     + 2;
                 tokens.push(Token::Control {
                     opcode: byte,
-                    expression: body[cursor..cursor + size].to_vec(),
+                    expression: Expression::from_native(&body[cursor..cursor + size])
+                        .map_err(|error| MessageError::ExpressionValue(index, error))?,
                 });
                 cursor += size;
             }
@@ -156,7 +159,7 @@ mod tests {
                 },
                 Token::Control {
                     opcode: 1,
-                    expression: vec![0, 2, 0x30, 0, 0x20, 0xff]
+                    expression: Expression::Constant(2)
                 },
                 Token::Text { text: "!".into() },
             ]

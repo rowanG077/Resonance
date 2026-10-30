@@ -25,10 +25,21 @@ impl Figurine {
                 && !self.name.is_empty(),
             "invalid figurine record"
         );
-        self.preview.validate()
+        self.preview.validate_definition()
     }
 }
 impl FigurineBook {
+    pub fn load(files: &crate::prepared::Files) -> anyhow::Result<Self> {
+        let value = files.json(crate::menu_data::FIGURINES_PATH)?;
+        let (value, paths) =
+            crate::model_preview::document::expand_catalogue(value, |path| files.read(path))?;
+        let mut book: Self = serde_json::from_value(value)?;
+        for (record, path) in book.records.iter_mut().zip(paths) {
+            record.preview.document = Some(path);
+        }
+        Ok(book)
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.title.is_empty() && self.records.len() == FIGURINE_COUNT,

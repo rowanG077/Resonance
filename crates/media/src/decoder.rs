@@ -1,10 +1,9 @@
-use crate::{AudioChunk, DecodeResult, VideoFrame, VideoReader, container};
+use crate::{AudioChunk, DecodeResult, Format, VideoFrame, VideoReader, container};
 use anyhow::{Context, Result, ensure};
 use matroska_demuxer::TrackType;
-use resonance_content::MovieAsset;
 use std::{
-    path::Path,
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::SyncSender,
     },
@@ -12,83 +11,135 @@ use std::{
 };
 use symphonia::core::{
     audio::SampleBuffer,
-    codecs::{CODEC_TYPE_FLAC, CodecParameters, DecoderOptions},
+    codecs::{CODEC_TYPE_FLAC, CodecParameters, Decoder, DecoderOptions},
     formats::Packet,
 };
 
-pub(super) fn audio(
-    path: &Path,
-    asset: &MovieAsset,
-    cancelled: &AtomicBool,
-    sender: &SyncSender<DecodeResult<AudioChunk>>,
-) -> Result<()> {
-    if cancelled.load(Ordering::Acquire) {
-        return Ok(());
+/// Validate durations from actual decoded streams, including containers whose
+/// headers omit lengths. Neither worker waits for the other or buffers the movie.
+#[derive(Clone, Default)]
+pub(crate) struct Completion(Arc<Mutex<[Option<Duration>; 2]>>);
+impl Completion {
+    fn finish(&self, track: usize, duration: Duration) -> Result<()> {
+        let mut values = self.0.lock().expect("movie completion poisoned");
+        values[track] = Some(duration);
+        if let [Some(video), Some(audio)] = *values {
+            ensure!(
+                video.abs_diff(audio) < Duration::from_millis(100),
+                "movie audio and video durations disagree: {audio:?} audio, {video:?} video"
+            );
+        }
+        Ok(())
     }
-    let mut input = container::open(path)?;
-    let scale = input.info().timestamp_scale().get();
-    let audio_track = input
-        .tracks()
-        .iter()
-        .filter(|track| track.track_type() == TrackType::Audio)
-        .nth(usize::from(asset.audio_track))
-        .with_context(|| format!("movie has no audio track {}", asset.audio_track))?;
-    ensure!(
-        audio_track.content_encodings().is_none(),
-        "encoded container tracks are unsupported"
-    );
-    let audio_id = audio_track.track_number().get();
-    let info = audio_track.audio().context("missing movie audio format")?;
-    ensure!(
-        audio_track.codec_id() == "A_FLAC"
-            && info.sampling_frequency() == f64::from(asset.sample_rate)
-            && info.channels().get() == u64::from(asset.channels),
-        "movie audio format disagrees with the cooked manifest"
-    );
-    let private = audio_track
-        .codec_private()
-        .context("missing FLAC configuration")?;
-    ensure!(
-        private.len() >= 42
-            && &private[..4] == b"fLaC"
-            && private[4] & 0x7f == 0
-            && private[5..8] == [0, 0, 34],
-        "invalid FLAC stream info"
-    );
-    let mut parameters = CodecParameters::new();
-    parameters.codec = CODEC_TYPE_FLAC;
-    parameters.with_extra_data(private[8..42].into());
-    let mut audio =
-        symphonia::default::get_codecs().make(&parameters, &DecoderOptions::default())?;
-    ensure!(
-        audio.codec_params().sample_rate == Some(asset.sample_rate)
-            && audio
-                .codec_params()
-                .channels
-                .is_some_and(|c| c.count() == usize::from(asset.channels)),
-        "FLAC format disagrees with manifest"
-    );
-    let mut audio_frames = 0u64;
-    let mut packet = matroska_demuxer::Frame::default();
-    loop {
-        if cancelled.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        if !input.next_frame(&mut packet)? {
-            break;
-        }
-        if packet.track == audio_id {
+}
+
+pub(crate) struct AudioReader {
+    input: container::Input,
+    decoder: Box<dyn Decoder>,
+    id: u64,
+    pub sample_rate: u32,
+    pub frames: Option<u64>,
+}
+
+impl AudioReader {
+    pub fn new(input: container::Input, selected: u16) -> Result<Self> {
+        let track = input
+            .tracks()
+            .iter()
+            .filter(|track| track.track_type() == TrackType::Audio)
+            .nth(usize::from(selected))
+            .with_context(|| format!("movie has no audio track {selected}"))?;
+        ensure!(
+            track.content_encodings().is_none(),
+            "encoded container tracks are unsupported"
+        );
+        ensure!(
+            track.codec_id() == "A_FLAC",
+            "movie playback requires FLAC audio"
+        );
+        let id = track.track_number().get();
+        let info = track.audio().context("missing movie audio format")?;
+        let rate = info.sampling_frequency();
+        ensure!(
+            rate.is_finite()
+                && rate.fract() == 0.
+                && (8000. ..=96000.).contains(&rate)
+                && info.channels().get() == 2,
+            "movie playback requires stereo audio at 8000–96000 Hz"
+        );
+        let sample_rate = rate as u32;
+        let private = track
+            .codec_private()
+            .context("missing FLAC configuration")?;
+        ensure!(
+            private.len() >= 42
+                && &private[..4] == b"fLaC"
+                && private[4] & 0x7f == 0
+                && private[5..8] == [0, 0, 34],
+            "invalid FLAC stream info"
+        );
+        let mut parameters = CodecParameters::new();
+        parameters.codec = CODEC_TYPE_FLAC;
+        parameters.with_extra_data(private[8..42].into());
+        let decoder =
+            symphonia::default::get_codecs().make(&parameters, &DecoderOptions::default())?;
+        ensure!(
+            decoder.codec_params().sample_rate == Some(sample_rate)
+                && decoder
+                    .codec_params()
+                    .channels
+                    .is_some_and(|c| c.count() == 2),
+            "FLAC format disagrees with container track"
+        );
+        // STREAMINFO's zero count means unspecified, not an empty soundtrack.
+        let frames = decoder
+            .codec_params()
+            .n_frames
+            .filter(|&frames| frames != 0);
+        ensure!(
+            frames.is_none_or(|frames| frames <= u64::from(sample_rate) * 3600),
+            "movie audio exceeds one hour"
+        );
+        Ok(Self {
+            input,
+            decoder,
+            id,
+            sample_rate,
+            frames,
+        })
+    }
+
+    pub fn run(
+        mut self,
+        cancelled: &AtomicBool,
+        sender: &SyncSender<DecodeResult<AudioChunk>>,
+        completion: Completion,
+    ) -> Result<()> {
+        let scale = self.input.info().timestamp_scale().get();
+        let mut audio_frames = 0u64;
+        let mut packet = matroska_demuxer::Frame::default();
+        loop {
+            if cancelled.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            if !self.input.next_frame(&mut packet)? {
+                break;
+            }
+            if packet.track != self.id {
+                continue;
+            }
             let pts = container::timestamp(packet.timestamp, scale)?;
             let expected =
-                Duration::from_secs_f64(audio_frames as f64 / f64::from(asset.sample_rate));
+                Duration::from_secs_f64(audio_frames as f64 / f64::from(self.sample_rate));
             ensure!(
                 pts.abs_diff(expected) < Duration::from_millis(2),
                 "discontinuous movie audio timestamps"
             );
             let decoded =
-                audio.decode(&Packet::new_from_slice(0, audio_frames, 0, &packet.data))?;
+                self.decoder
+                    .decode(&Packet::new_from_slice(0, audio_frames, 0, &packet.data))?;
             ensure!(
-                decoded.spec().rate == asset.sample_rate
+                decoded.spec().rate == self.sample_rate
                     && decoded.spec().channels.count() == 2
                     && (1..=65536).contains(&decoded.frames()),
                 "unexpected movie audio block format"
@@ -99,8 +150,9 @@ pub(super) fn audio(
             let start_frame = audio_frames;
             audio_frames += count;
             ensure!(
-                audio_frames <= asset.audio_frames,
-                "movie audio exceeds cooked frame count"
+                audio_frames <= u64::from(self.sample_rate) * 3600
+                    && self.frames.is_none_or(|frames| audio_frames <= frames),
+                "movie audio exceeds stream length or one-hour limit"
             );
             sender
                 .send(Ok(Some(AudioChunk {
@@ -110,42 +162,42 @@ pub(super) fn audio(
                 })))
                 .context("movie consumer closed")?;
         }
+        ensure!(
+            audio_frames > 0 && self.frames.is_none_or(|frames| frames == audio_frames),
+            "movie audio ended early: {audio_frames} frames, stream declares {:?}",
+            self.frames
+        );
+        completion.finish(
+            1,
+            Duration::from_secs_f64(audio_frames as f64 / f64::from(self.sample_rate)),
+        )
     }
-    ensure!(
-        audio_frames == asset.audio_frames,
-        "movie audio ended early: {audio_frames}/{} frames",
-        asset.audio_frames
-    );
-    Ok(())
 }
 
-/// Video has its own reader and worker. Sharing a demux loop would let a full
-/// video packet queue block delivery of the following audio packets again.
+/// Independent demuxing prevents video backpressure from blocking audio.
 pub(super) fn video(
-    path: &Path,
-    asset: &MovieAsset,
+    mut input: VideoReader,
+    format: Format,
     cancelled: &AtomicBool,
     sender: &SyncSender<DecodeResult<VideoFrame>>,
+    completion: Completion,
 ) -> Result<()> {
-    if cancelled.load(Ordering::Acquire) {
-        return Ok(());
-    }
-    let mut input = VideoReader::open(path)?;
-    ensure!(
-        input.dimensions() == (asset.width, asset.height),
-        "movie video format disagrees with the cooked manifest"
-    );
     let mut frames = 0;
+    let mut end = Duration::ZERO;
     while !cancelled.load(Ordering::Acquire) {
         let Some(frame) = input.next_frame()? else {
-            ensure!(
-                frames == asset.frames,
-                "movie video ended early: {frames}/{} frames",
-                asset.frames
-            );
-            return Ok(());
+            ensure!(frames > 0, "movie contains no video frames");
+            return completion.finish(0, end);
         };
-        ensure!(frames < asset.frames, "unexpected movie video frame");
+        ensure!(
+            frames < 100_000 && frame.timestamp < Duration::from_secs(3600),
+            "movie video exceeds playback limits"
+        );
+        ensure!(
+            frames != 0 || frame.timestamp == Duration::ZERO,
+            "movie video must start at time zero"
+        );
+        end = frame.timestamp + format.frame_duration;
         sender
             .send(Ok(Some(frame)))
             .context("movie consumer closed")?;

@@ -1,6 +1,6 @@
 use super::{Entry, PreparedEvent, Resources};
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs,
@@ -10,7 +10,7 @@ use std::{
 use symphonia_script_compiler::SourceResolver;
 use symphonia_script_tools::{PreparationCache, SourceTree, StandardSources};
 
-#[derive(Default, Clone, Copy, Deserialize)]
+#[derive(Default, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum On {
     /// The first player-controlled update after arriving from another field.
@@ -20,7 +20,7 @@ enum On {
     Entry,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Binding {
     module: String,
@@ -29,6 +29,27 @@ struct Binding {
     arguments: Vec<i32>,
     #[serde(default)]
     on: On,
+}
+
+/// The project's bindings and all non-standard modules captured for one
+/// preparation. Compilation consumes these inputs.
+pub struct FieldProject {
+    bindings: BTreeMap<u32, Binding>,
+    sources: SourceTree,
+}
+impl FieldProject {
+    pub fn load(root: &Path) -> Result<Self> {
+        let path = root.join("fields.json");
+        let bindings = serde_json::from_slice(
+            &fs::read(&path)
+                .with_context(|| format!("read authored field bindings {}", path.display()))?,
+        )
+        .with_context(|| format!("decode authored field bindings {}", path.display()))?;
+        Ok(Self {
+            bindings,
+            sources: SourceTree::load_project(root)?,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -60,24 +81,32 @@ impl FieldScripts {
         &self.root
     }
 
+    pub fn capture(&self) -> Result<FieldProject> {
+        FieldProject::load(&self.root)
+    }
+
     pub fn prepare(
         &mut self,
         map: u32,
         standard: &impl SourceResolver,
         resources: &mut impl Resources,
     ) -> Result<Option<FieldEvent>> {
-        let path = self.root.join("fields.json");
-        let bindings: BTreeMap<u32, Binding> = serde_json::from_slice(
-            &fs::read(&path)
-                .with_context(|| format!("read authored field bindings {}", path.display()))?,
-        )
-        .with_context(|| format!("decode authored field bindings {}", path.display()))?;
-        let Some(binding) = bindings.get(&map) else {
+        let project = self.capture()?;
+        self.prepare_captured(map, &project, standard, resources)
+    }
+
+    pub fn prepare_captured(
+        &mut self,
+        map: u32,
+        project: &FieldProject,
+        standard: &impl SourceResolver,
+        resources: &mut impl Resources,
+    ) -> Result<Option<FieldEvent>> {
+        let Some(binding) = project.bindings.get(&map) else {
             return Ok(None);
         };
-        let project = SourceTree::load_project(&self.root)?;
         let sources = StandardSources {
-            project: &project,
+            project: &project.sources,
             standard,
         };
         let event = PreparedEvent::prepare(

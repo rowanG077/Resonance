@@ -17,7 +17,7 @@ fn field_entry_has_a_pose_before_the_first_update() {
     use resonance_game::field::{FieldEntry, FieldSession};
 
     for map in [7, 332, 481] {
-        let assets: FieldAssets = cooked(&format!("fields/map-{map}.json"));
+        let assets: FieldAssets = common::field(map);
         let script = fs::read(asset_root().join(&assets.script)).unwrap();
         for idle_animation in [None, Some(slot::WALK)] {
             let session = FieldSession::enter(
@@ -44,13 +44,13 @@ fn field_entry_has_a_pose_before_the_first_update() {
 #[ignore = "requires locally cooked GQSEAF setup scenario/session data; no devices"]
 fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
     let root = asset_root();
-    let assets: FieldAssets = cooked("fields/map-5.json");
+    let assets: FieldAssets = common::field(5);
     assets.validate().unwrap();
-    let data: SessionData = cooked("game/session-data.json");
+    let data: SessionData = common::session();
     let data = Arc::new(data);
     let program = Arc::new(Program::decode(&fs::read(root.join(&assets.script)).unwrap()).unwrap());
     let resources = Arc::new(ResourceLibrary {
-        messages: cooked(&assets.messages),
+        messages: assets.messages.as_deref().map(cooked).unwrap_or_default(),
         session_data: Some(data.clone()),
         fields: [340].into(),
         ..Default::default()

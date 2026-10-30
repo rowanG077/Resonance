@@ -1193,7 +1193,7 @@ mod tests {
         owner.equipment.stats.accuracy = 25;
         let mut target = actor(Side::Enemy);
         target.hp = 1000;
-        target.species = crate::Species(2);
+        target.species = crate::Species::Undead;
         for (base, power, ordinary, matching) in [
             (7, Power::Normal, 7, 7),
             (8, Power::Normal, 8, 9),
@@ -1205,7 +1205,11 @@ mod tests {
             owner.equipment.stats.thrust = base * 2;
             owner.equipment.stats.intelligence = base;
             for kind in [DamageKind::Slash, DamageKind::Thrust, DamageKind::Magic] {
-                for species in [None, Some(crate::Species(2)), Some(crate::Species(3))] {
+                for species in [
+                    None,
+                    Some(crate::Species::Undead),
+                    Some(crate::Species::Beast),
+                ] {
                     owner.equipment.damage.weapon_species = species;
                     let result = resolve(
                         &owner,

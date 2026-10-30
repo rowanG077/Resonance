@@ -158,7 +158,7 @@ impl Symbols {
             if !self.clear_position(position, c) {
                 continue;
             }
-            let query = c.terrain.query(position, c.parameters.collision_radius)?;
+            let query = c.terrain.query(position, c.parameters.collision.radius)?;
             let Some(surface) = query.surface(collision::Mode::Ground) else {
                 continue;
             };
@@ -317,7 +317,7 @@ impl Symbol {
         self.speed = speed;
         let motion = c
             .terrain
-            .query(self.position, c.parameters.collision_radius)?
+            .query(self.position, c.parameters.collision.radius)?
             .motion(speed, self.heading, collision::Mode::Ground)?;
         self.position = self.position.translated(motion.delta)?;
         let current = self.display_heading.to_degrees().trunc();
@@ -335,7 +335,7 @@ impl Symbol {
             .rem_euclid(360.)
             .to_radians()
         };
-        Ok(motion.response.is_some())
+        Ok(motion.surface.is_some())
     }
     fn wander(&mut self, radius: f32, random: &mut Random) -> Result<bool> {
         let distance = self.position.distance_to(self.target);
@@ -386,9 +386,10 @@ mod tests {
         landmarks::tests::definitions,
         travel::tests::parameters,
     };
+    use resonance_content::overworld::TerrainSurface;
     use std::sync::Arc;
 
-    fn terrain(surface: u32, neighbors: bool) -> Terrain {
+    fn terrain(surface: TerrainSurface, neighbors: bool) -> Terrain {
         let groups: Vec<_> = (0..16)
             .flat_map(|x| {
                 (0..16).map(move |z| {
@@ -410,7 +411,6 @@ mod tests {
     fn locations() -> Locations {
         Locations::new(
             Arc::new(definitions()),
-            Arc::default(),
             crate::overworld::scripts::fixture(),
         )
         .unwrap()
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn pursuit_turns_the_model_without_delaying_movement_or_run_animation() -> Result<()> {
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         let locations = locations();
         let parameters = parameters();
         let c = context(&ground, &locations, &parameters);
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn wandering_retargets_after_steering_and_patrol_resumes_on_pause_completion() -> Result<()> {
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         let locations = locations();
         let parameters = parameters();
         let c = context(&ground, &locations, &parameters);
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn blocked_pursuers_give_up_after_three_seconds_and_keep_ground_height() -> Result<()> {
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         let locations = locations();
         let parameters = parameters();
         let mut seed = 7;
@@ -542,16 +542,12 @@ mod tests {
     fn disabled_landmarks_still_block_enemy_spawning_and_movement() -> Result<()> {
         use resonance_content::overworld::Marker;
 
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         let parameters = parameters();
         let mut data = definitions();
         data.worlds[0][0].position = [3200., 3200.];
         data.worlds[0][0].radius = 100.;
-        let mut locations = Locations::new(
-            Arc::new(data),
-            Arc::default(),
-            crate::overworld::scripts::fixture(),
-        )?;
+        let mut locations = Locations::new(Arc::new(data), crate::overworld::scripts::fixture())?;
         let mut seed = 7;
         for marker in [Marker::FieldPoint, Marker::Unmodeled] {
             locations.appearances.get_mut(&1).unwrap().marker = marker;
@@ -619,7 +615,7 @@ mod tests {
 
     #[test]
     fn spawn_grace_resident_limit_ground_and_rng_replay() -> Result<()> {
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         let locations = locations();
         let parameters = parameters();
         let mut symbols = Symbols::default();
@@ -663,7 +659,7 @@ mod tests {
             );
         }
         assert_eq!(seed, replay_seed);
-        let sea = terrain(11, true);
+        let sea = terrain(TerrainSurface::Water, true);
         symbols.clear();
         for _ in 0..65 {
             symbols.step(context(&sea, &locations, &parameters), &mut seed)?;
@@ -674,7 +670,7 @@ mod tests {
 
     #[test]
     fn missing_collision_rolls_back_spawn_rng_and_vehicle_travel_clears_symbols() -> Result<()> {
-        let ground = terrain(1, false);
+        let ground = terrain(TerrainSurface::Grassland, false);
         let locations = locations();
         let parameters = parameters();
         let mut symbols = Symbols {
@@ -687,7 +683,7 @@ mod tests {
         assert!(symbols.step(c, &mut seed).is_err());
         assert_eq!(seed, 15);
         assert_eq!(symbols.iter().count(), 0);
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         for mount in [Mount::Rheairds, Mount::Ship] {
             symbols.grace = 60;
             symbols.step(context(&ground, &locations, &parameters), &mut seed)?;
@@ -707,7 +703,7 @@ mod tests {
 
     #[test]
     fn bottles_change_behavior_noishe_stops_pursuit_and_contacts_wrap() -> Result<()> {
-        let ground = terrain(1, true);
+        let ground = terrain(TerrainSurface::Grassland, true);
         let locations = locations();
         let parameters = parameters();
         let mut symbols = Symbols {

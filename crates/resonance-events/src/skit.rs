@@ -51,7 +51,7 @@ pub struct Portrait {
     pub opacity: f32,
     pub scale: f32,
     pub talking: bool,
-    pub timeline: Option<usize>,
+    pub timeline: Option<u16>,
     pub tiles: Vec<PortraitTile>,
     pub(crate) fade_step: f32,
     pub(crate) scale_target: f32,
@@ -168,7 +168,7 @@ impl Scene {
                 .map(|index| {
                     catalog
                         .portrait_recipes
-                        .get(index)
+                        .get(&index)
                         .context("uncooked portrait timeline")
                 })
                 .transpose()?;

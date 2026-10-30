@@ -2,17 +2,7 @@ use super::{TILE_COLUMNS, TILE_ROWS, TILE_SIZE, WORLD_DEPTH, WORLD_WIDTH};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum World {
-    Sylvarant,
-    TetheAlla,
-}
-impl World {
-    pub fn index(self) -> usize {
-        self as usize
-    }
-}
+pub use symphonia_constants::WorldId as World;
 
 /// Canonical map coordinates increase east/south. Height is independent of the
 /// map. Construction and deserialization reject nonfinite positions.

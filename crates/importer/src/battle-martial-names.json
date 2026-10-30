@@ -1,0 +1,717 @@
+{
+  "1": {
+    "name": "demon-fang",
+    "variants": {
+      "0": "lloyd",
+      "1": "zelos",
+      "2": "kratos"
+    }
+  },
+  "2": {
+    "name": "double-demon-fang",
+    "variants": {
+      "0": "lloyd",
+      "1": "zelos",
+      "2": "kratos"
+    }
+  },
+  "3": {
+    "name": "demonic-chaos",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "4": {
+    "name": "fierce-demon-fang",
+    "variants": {
+      "0": "lloyd",
+      "1": "zelos",
+      "2": "kratos"
+    }
+  },
+  "5": {
+    "name": "demonic-circle",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "6": {
+    "name": "tiger-blade",
+    "variants": {
+      "0": "lloyd",
+      "1": "lightning-tiger"
+    }
+  },
+  "7": {
+    "name": "tiger-rage",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "8": {
+    "name": "heavy-tiger-blade",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "9": {
+    "name": "twin-tiger-blade",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "10": {
+    "name": "sonic-thrust",
+    "variants": {
+      "0": "lloyd",
+      "1": "zelos",
+      "2": "kratos",
+      "3": "lightning-thrust"
+    }
+  },
+  "11": {
+    "name": "hurricane-thrust",
+    "variants": {
+      "0": "lloyd",
+      "1": "zelos",
+      "2": "kratos"
+    }
+  },
+  "12": {
+    "name": "super-sonic-thrust",
+    "variants": {
+      "0": "lloyd",
+      "1": "zelos",
+      "2": "kratos"
+    }
+  },
+  "13": {
+    "name": "sword-rain",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "14": {
+    "name": "sword-rain-alpha",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "15": {
+    "name": "sword-rain-beta",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "16": {
+    "name": "sonic-sword-rain",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "17": {
+    "name": "tempest",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "18": {
+    "name": "omega-tempest",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "19": {
+    "name": "psi-tempest",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "20": {
+    "name": "beast-lloyd",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "21": {
+    "name": "raging-beast",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "22": {
+    "name": "hunting-beast",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "23": {
+    "name": "demonic-tiger-blade",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "24": {
+    "name": "demonic-thrust",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "25": {
+    "name": "raining-tiger-blade",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "26": {
+    "name": "tempest-thrust",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "27": {
+    "name": "tempest-beast",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "28": {
+    "name": "beast-sword-rain",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "29": {
+    "name": "rising-falcon",
+    "variants": {
+      "0": "grounded",
+      "1": "airborne",
+      "2": "phoenix-grounded",
+      "3": "phoenix-airborne"
+    }
+  },
+  "34": {
+    "name": "special-guard",
+    "variants": {
+      "0": "shared"
+    }
+  },
+  "35": {
+    "name": "ray-thrust",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "36": {
+    "name": "dual-ray-thrust",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "37": {
+    "name": "triple-ray-thrust",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "38": {
+    "name": "ray-satellite",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "39": {
+    "name": "triple-ray-satellite",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "40": {
+    "name": "pow-hammer",
+    "variants": {
+      "0": "pow-hammer",
+      "1": "ice-and-toss-hammer"
+    }
+  },
+  "41": {
+    "name": "pow-pow-hammer",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "42": {
+    "name": "hammer-rain",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "43": {
+    "name": "item-thief",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "44": {
+    "name": "item-rover",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "45": {
+    "name": "ring-whirlwind",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "46": {
+    "name": "ring-cyclone",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "48": {
+    "name": "whirlwind-rush",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "50": {
+    "name": "grand-chariot",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "51": {
+    "name": "unassigned-action-51",
+    "variants": {
+      "0": "variant-0"
+    }
+  },
+  "52": {
+    "name": "stardust-cross",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "62": {
+    "name": "pyre-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "63": {
+    "name": "power-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "64": {
+    "name": "power-seal-pinion",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "65": {
+    "name": "power-seal-absolute",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "66": {
+    "name": "serpent-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "67": {
+    "name": "serpent-seal-pinion",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "68": {
+    "name": "s-seal-absolute",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "69": {
+    "name": "mirage-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "70": {
+    "name": "mirage-seal-pinion",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "71": {
+    "name": "m-seal-absolute",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "72": {
+    "name": "life-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "73": {
+    "name": "spirit-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "77": {
+    "name": "force-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "78": {
+    "name": "demon-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "80": {
+    "name": "cyclone-seal",
+    "variants": {
+      "0": "sheena"
+    }
+  },
+  "81": {
+    "name": "light-spear",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "82": {
+    "name": "victory-light-spear",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "83": {
+    "name": "light-spear-cannon",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "84": {
+    "name": "hell-pyre",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "85": {
+    "name": "lightning-blade",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "86": {
+    "name": "demon-spear",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "87": {
+    "name": "s-lightning-blade",
+    "variants": {
+      "0": "zelos",
+      "1": "kratos"
+    }
+  },
+  "90": {
+    "name": "destruction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "91": {
+    "name": "deadly-destruction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "92": {
+    "name": "infinite-destruction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "93": {
+    "name": "fiery-destruction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "95": {
+    "name": "punishment",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "96": {
+    "name": "dual-punishment",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "97": {
+    "name": "rising-punishment",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "98": {
+    "name": "finality-punishment",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "99": {
+    "name": "infliction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "100": {
+    "name": "dual-infliction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "101": {
+    "name": "resolute-infliction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "103": {
+    "name": "devastation",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "104": {
+    "name": "finite-devastation",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "105": {
+    "name": "mass-devastation",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "106": {
+    "name": "fiery-infliction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "107": {
+    "name": "eternal-damnation",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "108": {
+    "name": "beast-presea",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "109": {
+    "name": "endless-infliction",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "111": {
+    "name": "eternal-devastation",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "112": {
+    "name": "crescent-moon",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "113": {
+    "name": "spin-kick",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "114": {
+    "name": "triple-kick",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "115": {
+    "name": "wolverine",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "116": {
+    "name": "heel-kick",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "117": {
+    "name": "dragon-fang",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "118": {
+    "name": "swallow-kick",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "119": {
+    "name": "swallow-dance",
+    "variants": {
+      "0": "regal",
+      "1": "super-swallow-dance"
+    }
+  },
+  "120": {
+    "name": "dragon-dance",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "121": {
+    "name": "eagle-dive",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "122": {
+    "name": "eagle-rage",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "123": {
+    "name": "eagle-fall",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "124": {
+    "name": "rising-dragon",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "125": {
+    "name": "dragon-fury",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "126": {
+    "name": "dragon-rage",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "127": {
+    "name": "heavens-charge",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "131": {
+    "name": "triple-rage-kick",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "133": {
+    "name": "crescent-dark-moon",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "137": {
+    "name": "mirage",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "138": {
+    "name": "para-ball",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "139": {
+    "name": "torrential-para-ball",
+    "variants": {
+      "0": "colette"
+    }
+  },
+  "140": {
+    "name": "falcons-crest",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "141": {
+    "name": "unassigned-action-141",
+    "variants": {
+      "0": "variant-0",
+      "1": "variant-1"
+    }
+  },
+  "142": {
+    "name": "unassigned-action-142",
+    "variants": {
+      "0": "variant-0",
+      "1": "variant-1"
+    }
+  },
+  "143": {
+    "name": "unassigned-action-143",
+    "variants": {
+      "0": "variant-0",
+      "1": "variant-1"
+    }
+  },
+  "144": {
+    "name": "unassigned-action-144",
+    "variants": {
+      "0": "variant-0",
+      "1": "variant-1"
+    }
+  },
+  "145": {
+    "name": "unassigned-action-145",
+    "variants": {
+      "0": "variant-0",
+      "1": "variant-1"
+    }
+  }
+}

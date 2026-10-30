@@ -1,6 +1,6 @@
 script model;
 use model;
-use std::nodes::yggdrasill_236;
+use std::model_nodes;
 pub fn apply() {
-    model::set_scale(model::node(yggdrasill_236::RightHandAttachment), 0.0, 0.0, 0.0);
+    model::set_scale(model::node(model_nodes::YggdrasillRightHandAttachment), 0.0, 0.0, 0.0);
 }

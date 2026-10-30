@@ -13,11 +13,23 @@ const ITEM: Type = Type::TextReference {
 const KIND: Type = Type::Enum {
     name: "game::treasure::Kind",
     variants: &[
-        variant("UnknownId0", TreasureKind::UnknownId0 as i32, &[]),
-        variant("UnknownId1", TreasureKind::UnknownId1 as i32, &[]),
-        variant("UnknownId2", TreasureKind::UnknownId2 as i32, &[]),
-        variant("CustomModel0", TreasureKind::CustomModel0 as i32, &[]),
-        variant("CustomModel1", TreasureKind::CustomModel1 as i32, &[]),
+        variant(TreasureKind::Chest.name(), TreasureKind::Chest as i32, &[]),
+        variant(
+            TreasureKind::ReinforcedChest.name(),
+            TreasureKind::ReinforcedChest as i32,
+            &[],
+        ),
+        variant(TreasureKind::Bag.name(), TreasureKind::Bag as i32, &[]),
+        variant(
+            TreasureKind::CustomModel0.name(),
+            TreasureKind::CustomModel0 as i32,
+            &[],
+        ),
+        variant(
+            TreasureKind::CustomModel1.name(),
+            TreasureKind::CustomModel1 as i32,
+            &[],
+        ),
     ],
 };
 #[repr(i32)]

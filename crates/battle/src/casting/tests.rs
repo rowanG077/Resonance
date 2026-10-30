@@ -763,9 +763,7 @@ fn zero_hp_revival_waits_for_cast_pose_completion() -> anyhow::Result<()> {
 
 #[test]
 fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Result<()> {
-    use resonance_content::animation::{
-        Track, TransformChannels, VectorCurve, VectorInterpolation,
-    };
+    use resonance_content::animation::{Channel, Interpolation, Track};
 
     for (has_opening, interrupt_at, long_release, has_release) in [
         (true, None, false, true),
@@ -841,20 +839,19 @@ fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Res
         }
         model.motions.get_mut(&12).unwrap().tracks.push(Track {
             bone: 0,
-            bind_channels: TransformChannels(8),
-            period_frames: 15.,
-            times: vec![0., 15.],
-            translation: Some(VectorCurve {
-                interpolation: VectorInterpolation::Linear,
-                values: vec![[0.; 3], [15., 0., 0.]],
-                incoming: vec![],
-                outgoing: vec![],
-                ease: vec![],
-            }),
-            scale: None,
-            rotation: None,
-            euler_degrees: None,
-            matrices: None,
+            nodes: vec![resonance_content::animation::NodeTrack {
+                bind: resonance_content::animation::Transform::default(),
+                translation: Some(Channel {
+                    times: (vec![0., 15.])
+                        .into_iter()
+                        .map(|frame| frame / 30.)
+                        .collect(),
+                    interpolation: Interpolation::Linear,
+                    values: vec![[0.; 3], [15., 0., 0.]],
+                }),
+                rotation: None,
+                scale: None,
+            }],
         });
         model.weapons.push(Arc::new(crate::WeaponDefinition::body(
             None,

@@ -101,7 +101,9 @@ pub fn definition(
             .map(|behavior_source| behavior(behavior_source, model, &source.null_motions))
             .transpose()?
             .flatten(),
-        walk_motion: None,
+        walk_motion: policy
+            .walk_override
+            .and_then(|_| super::model::common_motion(model, super::model::MotionRole::Walk)),
         run_motion: super::model::common_motion(model, super::model::MotionRole::Run),
         turn_ticks: source.profile.turn_ticks,
     })
@@ -115,6 +117,15 @@ fn behavior(
     use resonance_battle::EnemyBehavior;
     use resonance_content::battle_action::EnemyBehavior as Source;
     Ok(Some(match source {
+        Source::HealthRecoil {
+            hp_percent,
+            knockdown_immune,
+            clear_pending_on_hit,
+        } => EnemyBehavior::HealthRecoil {
+            hp_percent: *hp_percent,
+            knockdown_immune: *knockdown_immune,
+            clear_pending_on_hit: *clear_pending_on_hit,
+        },
         Source::ActionWeapons { .. } => return Ok(None),
         Source::Retreat {
             hp_percent,
@@ -125,11 +136,30 @@ fn behavior(
         },
         Source::HealthStage {
             hp_percent,
+            common_motion_offset,
             initial_station,
             initial_actions,
             final_actions,
         } => EnemyBehavior::HealthStage {
             hp_percent: *hp_percent,
+            motion_aliases: if *common_motion_offset == 0 {
+                Vec::new()
+            } else {
+                let model = model.context("enemy health stage requires a prepared body")?;
+                (0_u16..30)
+                    .map(|clip| {
+                        let target = clip
+                            .checked_add(*common_motion_offset)
+                            .context("health-stage motion overflow")?;
+                        let target = (!null_motions.contains(&target)).then_some(target);
+                        ensure!(
+                            target.is_none_or(|target| model.motions.contains_key(&target)),
+                            "missing health-stage motion"
+                        );
+                        Ok((clip, target))
+                    })
+                    .collect::<Result<_>>()?
+            },
             initial_station: *initial_station,
             initial_actions: EnemyChoiceId(usize::from(initial_actions.start))
                 ..EnemyChoiceId(usize::from(initial_actions.end)),
@@ -175,7 +205,9 @@ fn behavior(
         Source::Transformation {
             reveal_hp_percent,
             revealed_bones,
+            reveal_armor,
             airborne_hp_percent,
+            airborne_recover_in_air,
             airborne_walk_speed,
             airborne_motions,
             hover_height,
@@ -185,6 +217,8 @@ fn behavior(
             let model = model.context("enemy transformation requires a prepared body")?;
             EnemyBehavior::Transformation {
                 reveal_hp_percent: *reveal_hp_percent,
+                reveal_armor: *reveal_armor,
+                airborne_recover_in_air: *airborne_recover_in_air,
                 revealed_bones: revealed_bones
                     .iter()
                     .map(|name| {

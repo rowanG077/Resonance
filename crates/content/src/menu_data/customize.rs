@@ -1,27 +1,15 @@
 use super::*;
 
-pub const IMPORTED_CUSTOMIZE_OPTIONS: usize = 14;
-pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = IMPORTED_CUSTOMIZE_OPTIONS;
-pub const COMBINED_BATTLES_OPTION: usize = IMPORTED_CUSTOMIZE_OPTIONS + 1;
-pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = IMPORTED_CUSTOMIZE_OPTIONS + 2;
-pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = IMPORTED_CUSTOMIZE_OPTIONS + 3;
-pub const CUSTOMIZE_OPTIONS: usize = IMPORTED_CUSTOMIZE_OPTIONS + 4;
-const COMBINED_BATTLES_NAME: &str = "Combined Battles";
-const COMBINED_BATTLES_HELP: &str = "Enemies within 500 units join.\nEach extra group adds 50% to EXP,\nGald, Grade and item drop chances.";
-const FLEXIBLE_BATTLE_PARTY_NAME: &str = "Flexible Battle Party";
-const FLEXIBLE_BATTLE_PARTY_HELP: &str =
-    "Allow required characters to stay in reserve\nfor boss battles. Your active lineup is kept.";
-const LEARN_ELEMENTAL_ARTES_NAME: &str = "Learn Elemental Artes";
-const LEARN_ELEMENTAL_ARTES_HELP: &str = "Learn elemental variants after\n50 uses outside Unison.\nTurning this off makes everyone\nforget their elemental artes.";
-pub const FORGET_ELEMENTAL_ARTES_CONFIRMATION: &str = "Turn off elemental arte learning?\nAll party members will forget\ntheir learned elemental variants.\nAre you sure?";
-const LEARN_BOTH_ARTE_PATHS_NAME: &str = "Both T/S Arte Paths";
-const LEARN_BOTH_ARTE_PATHS_HELP: &str = "Learn both T and S arte paths.\nLevel and use requirements remain.\nTurning this off forgets artes\nopposite each character's T/S type.";
-pub const FORGET_ARTE_PATHS_CONFIRMATION: &str = "Turn off learning both T/S paths?\nAll party members will forget\nartes opposite their T/S type.\nAre you sure?";
-pub const FORGET_ARTES_CONFIRMATION: &str = "Turn off both arte learning options?\nAll party members will forget\nelemental variants and artes\nopposite their current T/S type.\nAre you sure?";
+pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 14;
+pub const COMBINED_BATTLES_OPTION: usize = 15;
+pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 16;
+pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 17;
+pub const CUSTOMIZE_OPTIONS: usize = 18;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomizeOption {
     pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
 }
 
@@ -185,14 +173,21 @@ pub struct CustomizeData {
     pub defaults: CustomizeSettings,
     pub control_buttons: [u8; 7],
     pub labels: BTreeMap<String, String>,
+    pub confirmations: BTreeMap<String, String>,
 }
 impl CustomizeData {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.options.len() == IMPORTED_CUSTOMIZE_OPTIONS,
+            self.options.len() == CUSTOMIZE_OPTIONS,
             "invalid customization option count"
         );
         self.defaults.validate()?;
+        for key in crate::options::CONFIRMATIONS {
+            ensure!(
+                self.confirmations.get(key).is_some_and(|s| !s.is_empty()),
+                "missing option confirmation {key}"
+            );
+        }
         for key in [
             "cancel",
             "default",
@@ -223,47 +218,20 @@ impl CustomizeData {
             .chain(&self.color_groups)
             .chain(&self.volume_channels)
             .chain(self.labels.values())
+            .chain(self.confirmations.values())
             .map(String::as_str)
-            .chain([
-                FLEXIBLE_BATTLE_PARTY_NAME,
-                FLEXIBLE_BATTLE_PARTY_HELP,
-                COMBINED_BATTLES_NAME,
-                COMBINED_BATTLES_HELP,
-                LEARN_ELEMENTAL_ARTES_NAME,
-                LEARN_ELEMENTAL_ARTES_HELP,
-                FORGET_ELEMENTAL_ARTES_CONFIRMATION,
-                LEARN_BOTH_ARTE_PATHS_NAME,
-                LEARN_BOTH_ARTE_PATHS_HELP,
-                FORGET_ARTE_PATHS_CONFIRMATION,
-                FORGET_ARTES_CONFIRMATION,
-            ])
     }
 
     pub fn option_name(&self, row: usize) -> &str {
-        if row == FLEXIBLE_BATTLE_PARTY_OPTION {
-            FLEXIBLE_BATTLE_PARTY_NAME
-        } else if row == COMBINED_BATTLES_OPTION {
-            COMBINED_BATTLES_NAME
-        } else if row == LEARN_ELEMENTAL_ARTES_OPTION {
-            LEARN_ELEMENTAL_ARTES_NAME
-        } else if row == LEARN_BOTH_ARTE_PATHS_OPTION {
-            LEARN_BOTH_ARTE_PATHS_NAME
-        } else {
-            &self.options[row].name
-        }
+        &self.options[row].name
     }
-
     pub fn option_description(&self, row: usize) -> &str {
-        if row == FLEXIBLE_BATTLE_PARTY_OPTION {
-            FLEXIBLE_BATTLE_PARTY_HELP
-        } else if row == COMBINED_BATTLES_OPTION {
-            COMBINED_BATTLES_HELP
-        } else if row == LEARN_ELEMENTAL_ARTES_OPTION {
-            LEARN_ELEMENTAL_ARTES_HELP
-        } else if row == LEARN_BOTH_ARTE_PATHS_OPTION {
-            LEARN_BOTH_ARTE_PATHS_HELP
-        } else {
-            &self.options[row].description
-        }
+        &self.options[row].description
+    }
+    pub fn confirmation(&self, key: &str) -> Result<&str> {
+        self.confirmations
+            .get(key)
+            .map(String::as_str)
+            .with_context(|| format!("missing option confirmation {key}"))
     }
 }

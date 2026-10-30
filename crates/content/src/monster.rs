@@ -11,6 +11,19 @@ pub struct MonsterBook {
     pub labels: std::collections::BTreeMap<String, String>,
 }
 impl MonsterBook {
+    pub(crate) fn decode_named(
+        value: serde_json::Value,
+        files: &crate::prepared::Files,
+    ) -> anyhow::Result<Self> {
+        let (value, paths) =
+            crate::model_preview::document::expand_catalogue(value, |path| files.read(path))?;
+        let mut book: Self = serde_json::from_value(value)?;
+        for (record, path) in book.records.iter_mut().zip(paths) {
+            record.preview.document = Some(path);
+        }
+        Ok(book)
+    }
+
     pub fn validate(&self, item_count: usize) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.records.len() == MONSTER_COUNT,
@@ -78,8 +91,11 @@ pub struct Monster {
     pub steal_chance: u8,
     pub attack_element: Option<Element>,
     /// Original neutral, water, wind, fire, earth, lightning, ice, light and dark responses.
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub affinities: [i8; 9],
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub weaknesses: Vec<Element>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resistances: Vec<Element>,
     pub preview: ModelPreview,
 }
@@ -122,6 +138,6 @@ impl Monster {
             "invalid monster {}",
             self.id
         );
-        self.preview.validate()
+        self.preview.validate_definition()
     }
 }

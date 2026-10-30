@@ -1,9 +1,6 @@
 //! File work runs off the presentation thread; the menu owns input until it ends.
 use super::*;
 use resonance_game::menu::{Command, Menu, SLOTS_PER_BANK, Slot};
-use resonance_persistence::Identity;
-#[cfg(test)]
-use std::path::Path;
 
 enum Completion {
     Slots(Vec<Slot>),
@@ -16,6 +13,15 @@ struct Loading(loading::Pending);
 
 pub(super) fn loading(world: &World) -> bool {
     world.contains_resource::<Loading>()
+}
+
+pub(super) fn preparing(world: &World) -> bool {
+    world
+        .get_resource::<Pending>()
+        .is_some_and(|task| task.0.is_running())
+        || world
+            .get_resource::<Loading>()
+            .is_some_and(|task| task.0.is_running())
 }
 
 pub(super) fn update(world: &mut World) {
@@ -103,20 +109,15 @@ fn start(world: &mut World, command: Command) -> Result<()> {
     let store = persistence.store.clone();
     match command {
         Command::ReadSlots => {
-            let context = world
-                .get_resource::<new_game::Session>()
-                .map(|session| (session.identity.clone(), session.data().clone()));
-            let root = world.resource::<crate::RunOptions>().assets.clone();
-            let diagnostics = crate::diagnostics::policy(world);
+            let library = world
+                .resource::<loading::Resident>()
+                .library(&world.resource::<super::super::RunOptions>().assets)?;
             world.insert_resource(Pending(loading::Task::spawn(move |_| {
-                let (identity, data) =
-                    context.map_or_else(|| new_game::save_context(&root, diagnostics), Ok)?;
-                read_slots(&store, &identity, &data).map(Completion::Slots)
+                read_slots(&store, &library).map(Completion::Slots)
             })?));
         }
         Command::Save(index) => {
             let session = world.resource::<new_game::Session>();
-            let identity = session.identity.clone();
             let menu = session.menu().context("save menu is closed")?;
             ensure!(menu.at_save_point, "saving is unavailable here");
             let checkpoint = menu
@@ -126,7 +127,7 @@ fn start(world: &mut World, command: Command) -> Result<()> {
             let location = checkpoint.location();
             let played_ticks = checkpoint.played_ticks();
             let header = Header {
-                identity,
+                version: resonance_persistence::VERSION,
                 label: format!("Save {}", index + 1),
                 location: location.clone(),
                 played_ticks,
@@ -134,6 +135,12 @@ fn start(world: &mut World, command: Command) -> Result<()> {
             };
             let bytes = resonance_persistence::encode(&header, &checkpoint)?;
             let slot = slot_id(index)?;
+            let party = checkpoint.into_progress().party;
+            let vitals = party
+                .formation
+                .iter()
+                .map(|&id| (id, party.members[usize::from(id - 1)].maximum_vitals()))
+                .collect();
             world.insert_resource(Pending(loading::Task::spawn(move |_| {
                 store.write(Kind::Save, &slot, &bytes)?;
                 Ok(Completion::Saved(
@@ -141,7 +148,8 @@ fn start(world: &mut World, command: Command) -> Result<()> {
                     Slot::Saved {
                         location,
                         played_ticks,
-                        party: Box::new(checkpoint.into_progress().party),
+                        party: Box::new(party),
+                        vitals,
                     },
                 ))
             })?));
@@ -175,12 +183,26 @@ fn slot_id(index: usize) -> Result<SlotId> {
         index % SLOTS_PER_BANK + 1
     ))
 }
-fn read_slots(
-    store: &Store,
-    identity: &Identity,
-    data: &resonance_content::session::SessionData,
-) -> Result<Vec<Slot>> {
+fn read_slots(store: &Store, library: &resonance_content::library::Library) -> Result<Vec<Slot>> {
     let existing = store.list(Kind::Save)?;
+    let rules = if existing.is_empty() {
+        None
+    } else {
+        let mut snapshot = library.snapshot();
+        let items = snapshot
+            .json::<resonance_content::items::Document>(
+                resonance_content::items::PATH,
+                resonance_content::preparation::JSON_LIMIT,
+            )?
+            .prepare()?;
+        let ex = snapshot
+            .json::<resonance_content::ex_skills::Document>(
+                resonance_content::ex_skills::PATH,
+                resonance_content::preparation::JSON_LIMIT,
+            )?
+            .prepare(&items.mappings)?;
+        Some((items.menu, ex))
+    };
     (0..SLOTS_PER_BANK * 2)
         .map(|index| {
             let id = slot_id(index)?;
@@ -190,12 +212,17 @@ fn read_slots(
             let result = store
                 .read(Kind::Save, &id)
                 .and_then(|bytes| {
-                    resonance_persistence::decode::<SceneCheckpoint>(&bytes)?.admit(identity)
+                    Ok(resonance_persistence::decode::<SceneCheckpoint>(&bytes)?.into_parts())
                 })
                 .and_then(|(header, checkpoint)| {
-                    let mut party = checkpoint.into_progress().party;
-                    party.bind_rules(data);
-                    party.validate(data)?;
+                    let party = checkpoint.into_progress().party;
+                    ensure!(
+                        (1..=8).contains(&party.formation.len())
+                            && party.formation.iter().all(|&id| {
+                                id > 0 && usize::from(id) <= party.members.len() && id <= 9
+                            }),
+                        "invalid slot party formation"
+                    );
                     ensure!(
                         header
                             .location
@@ -203,13 +230,29 @@ fn read_slots(
                             .all(|c| c.is_ascii_graphic() || c == ' '),
                         "invalid slot location label"
                     );
-                    Ok((header, party))
+                    let (items, ex) = rules.as_ref().context("missing slot preview rules")?;
+                    let vitals = party
+                        .formation
+                        .iter()
+                        .map(|&id| {
+                            Ok((
+                                id,
+                                party.members[usize::from(id - 1)].maximum_vitals_for(
+                                    items,
+                                    ex,
+                                    usize::from(id - 1),
+                                )?,
+                            ))
+                        })
+                        .collect::<Result<_>>()?;
+                    Ok((header, party, vitals))
                 });
             Ok(match result {
-                Ok((header, party)) => Slot::Saved {
+                Ok((header, party, vitals)) => Slot::Saved {
                     location: header.location,
                     played_ticks: header.played_ticks,
                     party: Box::new(party),
+                    vitals,
                 },
                 Err(error) => {
                     warn!("Cannot read save slot {}: {error:#}", id.as_str());
@@ -220,82 +263,4 @@ fn read_slots(
             })
         })
         .collect()
-}
-
-#[cfg(test)]
-use crate::test_support::field_checkpoint;
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "requires cooked session/menu definitions and save identity; no output devices"]
-    fn save_slots_bind_admitted_ex_rules_before_validation() -> Result<()> {
-        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
-            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
-            PathBuf::from,
-        );
-        let mut files = resonance_content::prepared::Files::default();
-        for path in [
-            "game/session-data.json",
-            "game/menu-data.json",
-            resonance_content::save_identity::PATH,
-        ] {
-            files.insert(path.into(), std::fs::read(root.join(path))?.into());
-        }
-        let data = resonance_content::session::SessionData::load(&files)?;
-        let mut checkpoint = field_checkpoint(&files)?;
-        let rules = &data
-            .rules
-            .as_ref()
-            .context("gameplay rules not admitted")?
-            .ex_skills;
-        let gem = rules.gem_items[0];
-        let skill = rules.characters[0].levels[0][0];
-        let party = &mut checkpoint.progress.party;
-        party.items.insert(gem, 1);
-        assert!(
-            party
-                .set_ex_gem(&data, 0, 0, 1)
-                .map_err(anyhow::Error::msg)?
-        );
-        assert!(
-            party
-                .set_ex_skill(&data, 0, 0, skill)
-                .map_err(anyhow::Error::msg)?
-        );
-        party.validate(&data)?;
-        let identity = Identity::load(&files)?;
-        let header = Header {
-            identity: identity.clone(),
-            label: "Save 1".into(),
-            location: "Iselia school grounds".into(),
-            played_ticks: 0,
-            saved_unix_seconds: 0,
-        };
-        let directory = tempfile::tempdir()?;
-        let store = Store::new(directory.path().to_owned());
-        store.write(
-            Kind::Save,
-            &slot_id(0)?,
-            &resonance_persistence::encode(&header, &SceneCheckpoint::Field(checkpoint.clone()))?,
-        )?;
-        let slots = read_slots(&store, &identity, &data)?;
-        let Slot::Saved { party: saved, .. } = &slots[0] else {
-            anyhow::bail!("EX-bearing save slot was rejected");
-        };
-        assert_eq!(saved.members[0].ex_skills[0], skill);
-        saved.validate(&data)?;
-        checkpoint.progress.party.members[0].ex_skills[0] = 255;
-        store.write(
-            Kind::Save,
-            &slot_id(0)?,
-            &resonance_persistence::encode(&header, &SceneCheckpoint::Field(checkpoint.clone()))?,
-        )?;
-        assert!(matches!(
-            read_slots(&store, &identity, &data)?[0],
-            Slot::Invalid(_)
-        ));
-        Ok(())
-    }
 }

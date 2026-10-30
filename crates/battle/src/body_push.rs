@@ -274,7 +274,8 @@ mod tests {
                 .push(resonance_content::animation::Bone {
                     name: format!("chain-{parent}"),
                     parent: Some(parent),
-                    bind_channels: resonance_content::animation::TransformChannels(8),
+                    parent_transform: None,
+                    shadow_bounds: true,
                     bind: resonance_content::animation::Transform {
                         translation: [0., 0., 10.],
                         ..Default::default()
@@ -308,20 +309,19 @@ mod tests {
             .tracks
             .push(resonance_content::animation::Track {
                 bone: 0,
-                bind_channels: resonance_content::animation::TransformChannels(8),
-                period_frames: 10.,
-                times: vec![0., 10.],
-                translation: Some(resonance_content::animation::VectorCurve {
-                    interpolation: resonance_content::animation::VectorInterpolation::Linear,
-                    values: vec![[0.; 3], [140., 0., 0.]],
-                    incoming: vec![],
-                    outgoing: vec![],
-                    ease: vec![],
-                }),
-                scale: None,
-                rotation: None,
-                euler_degrees: None,
-                matrices: None,
+                nodes: vec![resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(resonance_content::animation::Channel {
+                        times: (vec![0., 10.])
+                            .into_iter()
+                            .map(|frame| frame / 30.)
+                            .collect(),
+                        interpolation: resonance_content::animation::Interpolation::Linear,
+                        values: vec![[0.; 3], [140., 0., 0.]],
+                    }),
+                    rotation: None,
+                    scale: None,
+                }],
             });
         let mut fixed = crate::tests::model_definition(2, [(0, 10.)]);
         fixed.body_spheres.push(crate::BodySphere {

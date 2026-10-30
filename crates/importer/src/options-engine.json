@@ -1,0 +1,25 @@
+{
+  "options": {
+    "flexible_battle_party": {
+      "name": "Flexible Battle Party",
+      "description": "Allow required characters to stay in reserve\nfor boss battles. Your active lineup is kept."
+    },
+    "combined_battles": {
+      "name": "Combined Battles",
+      "description": "Enemies within 500 units join.\nEach extra group adds 50% to EXP,\nGald, Grade and item drop chances."
+    },
+    "learn_elemental_artes": {
+      "name": "Learn Elemental Artes",
+      "description": "Learn elemental variants after\n50 uses outside Unison.\nTurning this off makes everyone\nforget their elemental artes."
+    },
+    "learn_both_arte_paths": {
+      "name": "Both T/S Arte Paths",
+      "description": "Learn both T and S arte paths.\nLevel and use requirements remain.\nTurning this off forgets artes\nopposite each character's T/S type."
+    }
+  },
+  "confirmations": {
+    "forget_elemental_artes": "Turn off elemental arte learning?\nAll party members will forget\ntheir learned elemental variants.\nAre you sure?",
+    "forget_arte_paths": "Turn off learning both T/S paths?\nAll party members will forget\nartes opposite their T/S type.\nAre you sure?",
+    "forget_artes": "Turn off both arte learning options?\nAll party members will forget\nelemental variants and artes\nopposite their current T/S type.\nAre you sure?"
+  }
+}

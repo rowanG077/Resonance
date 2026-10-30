@@ -1,32 +1,9 @@
 //! Stored skill artwork joins the ordinary effect and model resource preparation.
 use anyhow::{Context, Result};
-use resonance_content::{
-    battle_effect::SourceBank,
-    battle_scene,
-    prepared::{Cache, Files},
-};
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use resonance_content::battle_scene;
 
 pub(crate) fn contains(catalogue: u16) -> bool {
     matches!(catalogue, 51 | 228)
-}
-
-pub(crate) fn load(
-    root: &Path,
-    mut files: Files,
-    catalogues: impl IntoIterator<Item = u16>,
-    cache: &mut Cache,
-    cancelled: impl Fn() -> bool,
-) -> Result<(Files, BTreeMap<u16, Arc<SourceBank>>)> {
-    let mut banks = BTreeMap::new();
-    for catalogue in catalogues {
-        let scene: battle_scene::Scene = files.json(&battle_scene::skill_path(catalogue))?;
-        files = files.with_dependencies(root, scene.files, cache, &cancelled)?;
-        if let Some(bank) = super::effect_program::load(&files, &scene.effects)? {
-            banks.insert(catalogue, bank);
-        }
-    }
-    Ok((files, banks))
 }
 
 /// Falcon's Crest keeps its artwork on the same elapsed schedule as its prepared attack.

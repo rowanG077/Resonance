@@ -94,6 +94,59 @@ impl EventRuntime {
     pub fn resources(&self) -> &ResourceLibrary {
         &self.resources
     }
+    /// Publish a prepared selection without replacing the running scene or VM.
+    pub fn install_resource(
+        &mut self,
+        request: &crate::ResourceRequest,
+        prepared: ResourceLibrary,
+    ) -> Result<()> {
+        let binding = prepared
+            .request(request.id as i32)
+            .map_err(anyhow::Error::msg)?;
+        self.complete_resource(request, binding, Some(prepared))
+    }
+
+    /// Another suspended caller may have requested the same resource before
+    /// its first preparation finished. Reuse that installed resource.
+    pub fn resume_resource(&mut self, request: &crate::ResourceRequest) -> Result<bool> {
+        let Some(binding) = self.resources.binding(request.id as i32) else {
+            return Ok(false);
+        };
+        self.complete_resource(request, binding, None)?;
+        Ok(true)
+    }
+
+    fn complete_resource(
+        &mut self,
+        request: &crate::ResourceRequest,
+        binding: (crate::ResourceKind, u32),
+        prepared: Option<ResourceLibrary>,
+    ) -> Result<()> {
+        ensure!(
+            self.world.resource_requests.iter().any(|pending| {
+                pending.operation.id() == request.operation.id()
+                    && pending.id == request.id
+                    && pending.handle == request.handle
+            }) && request.operation.is_pending(),
+            "dynamic resource request is no longer active"
+        );
+        if let Some(prepared) = prepared {
+            let resources = Arc::make_mut(&mut self.resources);
+            resources.models.extend(prepared.models);
+            resources.bindings.extend(prepared.bindings);
+            resources.animations.extend(prepared.animations);
+            resources.camera_tracks.extend(prepared.camera_tracks);
+        }
+        self.world.loaded_resources.insert(request.handle, binding);
+        request
+            .operation
+            .complete(Some(request.handle))
+            .map_err(anyhow::Error::msg)?;
+        self.world
+            .resource_requests
+            .retain(|pending| pending.operation.id() != request.operation.id());
+        Ok(())
+    }
     /// Restart a reusable scene without reloading its program or immutable assets.
     pub fn fresh(&self) -> Result<Self> {
         Self::new(self.program.clone(), self.resources.clone())
@@ -856,14 +909,17 @@ impl EventRuntime {
             if camera.motion.is_none()
                 && let Some(playback) = &self.world.camera
                 && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
-                && let Some((position, target)) = playback.sample(self.world.tick, track)
             {
-                camera.position = position;
+                let key = playback.sample(self.world.tick, track)?;
+                camera.position = key.position;
+                camera.up = key.up();
+                camera.orientation = (!self.world.actors.contains_key(&playback.target_actor))
+                    .then_some(key.orientation);
                 camera.target = self
                     .world
                     .actors
                     .get(&playback.target_actor)
-                    .map_or(target, |actor| {
+                    .map_or(key.target, |actor| {
                         std::array::from_fn(|i| actor.position[i] + playback.target_offset[i])
                     });
             }

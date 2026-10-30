@@ -2,6 +2,10 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod dialogue;
+mod document;
+mod text;
+pub use text::SystemText;
 
 /// Latin text and halfwidth kana use the source font's narrow glyph metrics.
 pub fn is_single_byte(character: char) -> bool {
@@ -9,7 +13,7 @@ pub fn is_single_byte(character: char) -> bool {
 }
 
 /// A literal text run using the dialogue palette, shared by system notices and menus.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextSpan {
     pub text: String,
     pub color: u8,
@@ -29,18 +33,15 @@ impl TextSpan {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct BitmapFont {
-    pub version: u32,
     pub texture: String,
     pub width: u32,
     pub height: u32,
     pub line_height: u32,
     pub glyphs: BTreeMap<char, Glyph>,
-    pub source_sha256: String,
-    pub executable_sha256: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Glyph {
     pub rect: [u32; 4],
     pub advance: u32,
@@ -48,14 +49,14 @@ pub struct Glyph {
 
 /// Subtitle positions and advances are cooked from the movie's authored text.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct MovieSubtitles {
-    pub version: u32,
-    pub movie: u32,
     pub cues: Vec<SubtitleCue>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubtitleCue {
     pub frame: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lines: Vec<SubtitleLine>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +67,7 @@ pub struct SubtitleLine {
 impl MovieSubtitles {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 1 && !self.cues.is_empty() && self.cues.len() <= 1024,
+            !self.cues.is_empty() && self.cues.len() <= 1024,
             "invalid movie subtitle track"
         );
         ensure!(
@@ -86,16 +87,14 @@ impl MovieSubtitles {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DialogueArt {
-    pub version: u32,
     pub font: String,
     pub textures: Vec<UiTexture>,
     pub cursor: UiTexture,
     pub selection: SelectionArt,
-    pub source_sha256: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UiTexture {
     pub path: String,
     pub width: u32,
@@ -123,8 +122,8 @@ pub struct SelectionArt {
 impl DialogueArt {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 2 && self.textures.len() == 9,
-            "invalid dialogue art manifest"
+            self.textures.len() == 9,
+            "dialogue artwork requires its nine drawing roles"
         );
         crate::validate_asset_path(&self.font)?;
         ensure!(
@@ -141,13 +140,8 @@ impl DialogueArt {
             "invalid selection artwork"
         );
         for texture in self.textures.iter().chain([&self.cursor]) {
-            texture.validate()?;
+            crate::validate_asset_path(&texture.path)?;
         }
-        ensure!(
-            self.source_sha256.len() == 64
-                && self.source_sha256.bytes().all(|b| b.is_ascii_hexdigit()),
-            "invalid dialogue art digest"
-        );
         Ok(())
     }
 }
@@ -170,8 +164,7 @@ impl BitmapFont {
     pub fn validate(&self) -> Result<()> {
         crate::validate_asset_path(&self.texture)?;
         ensure!(
-            self.version == 1
-                && (1..=4096).contains(&self.width)
+            (1..=4096).contains(&self.width)
                 && (1..=4096).contains(&self.height)
                 && (1..=64).contains(&self.line_height),
             "invalid font dimensions"
@@ -189,12 +182,6 @@ impl BitmapFont {
                     && y.checked_add(h).is_some_and(|e| e <= self.height)
                     && glyph.advance <= 64,
                 "invalid font glyph rectangle"
-            );
-        }
-        for hash in [&self.source_sha256, &self.executable_sha256] {
-            ensure!(
-                hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
-                "invalid font source digest"
             );
         }
         Ok(())

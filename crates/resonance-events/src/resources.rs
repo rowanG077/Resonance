@@ -8,14 +8,17 @@ pub enum ResourceKind {
     Camera,
     Overlay,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct MemoryCircleText {
     pub tutorial: Vec<resonance_content::font::TextSpan>,
     pub unlock: Vec<resonance_content::font::TextSpan>,
     pub no_gem: Vec<resonance_content::font::TextSpan>,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ResourceLibrary {
+    pub dynamic_resources: bool,
+    pub local_resources: BTreeSet<u32>,
+    pub joint_mappings: BTreeMap<String, String>,
     pub texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     pub field_wind: Option<resonance_content::field::FieldWind>,
     pub rising_light_destination: Option<[f32; 3]>,
@@ -36,11 +39,20 @@ pub struct ResourceLibrary {
     pub session_data: Option<std::sync::Arc<resonance_content::session::SessionData>>,
     pub fields: BTreeSet<u32>,
     pub doors: Vec<resonance_content::field::Door>,
-    pub camera_tracks: BTreeMap<u32, Vec<resonance_content::CameraKey>>,
+    pub camera_tracks: BTreeMap<u32, resonance_content::camera_motion::CameraMotion>,
 }
+#[derive(Clone)]
 pub enum ParticleKind {
     Glow,
     Flutter(resonance_content::effect::FlutterRecipe),
+}
+
+/// A suspended script request, completed after its selected asset is prepared.
+#[derive(Debug, Clone)]
+pub struct ResourceRequest {
+    pub id: u32,
+    pub handle: i32,
+    pub operation: crate::Operation,
 }
 impl ResourceLibrary {
     pub fn names(&self, party: Option<&crate::party::Party>) -> BTreeMap<i32, String> {
@@ -81,7 +93,36 @@ impl ResourceLibrary {
             .map(|(_, id)| *id)
             .ok_or_else(|| format!("unmapped {kind:?} resource {script_id}"))
     }
+    pub fn request(&self, script_id: i32) -> Result<(ResourceKind, u32), String> {
+        self.binding(script_id)
+            .ok_or_else(|| format!("unmapped script resource {:#x}", script_id as u32))
+    }
+
     pub fn binding(&self, script_id: i32) -> Option<(ResourceKind, u32)> {
+        let id = script_id as u32;
+        // Native field-owned entries in the standalone-ID range are models.
+        // In particular field model 33 shadows the global rock-motion bank 33.
+        if id < 53 && self.local_resources.contains(&id) {
+            return self.bindings.get(&script_id).copied();
+        }
+        if id < 53 && !self.local_resources.contains(&id) {
+            let model = resonance_content::field::STANDALONE_MODEL_RESOURCE_BASE | id;
+            return self
+                .animations
+                .contains_key(&id)
+                .then_some((ResourceKind::Animation, id))
+                .or_else(|| {
+                    self.models
+                        .contains_key(&model)
+                        .then_some((ResourceKind::Model, model))
+                })
+                .or_else(|| {
+                    self.bindings
+                        .get(&script_id)
+                        .copied()
+                        .filter(|(kind, _)| *kind != ResourceKind::Model)
+                });
+        }
         self.animations
             .contains_key(&(script_id as u32))
             .then_some((ResourceKind::Animation, script_id as u32))
@@ -301,7 +342,7 @@ impl ResourceLibrary {
             .get(&animation.slot)
     }
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ModelResource {
     pub collision: std::sync::Arc<resonance_content::field::ModelCollision>,
     pub has_eyes: bool,
@@ -320,6 +361,7 @@ pub struct ModelAttachments {
     pub mesh_bounds: Option<[[f32; 3]; 2]>,
     pub clips: BTreeMap<(crate::animation::AnimationSource, u32, u16), AttachmentPose>,
 }
+#[derive(Clone)]
 pub struct AnimationClip {
     pub duration_ticks: u32,
     pub attachments: Option<AttachmentPose>,

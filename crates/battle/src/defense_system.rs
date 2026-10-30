@@ -547,20 +547,19 @@ mod tests {
             .tracks
             .push(resonance_content::animation::Track {
                 bone: 0,
-                bind_channels: resonance_content::animation::TransformChannels(8),
-                period_frames: 60.,
-                times: vec![0., 60.],
-                translation: Some(resonance_content::animation::VectorCurve {
-                    interpolation: resonance_content::animation::VectorInterpolation::Linear,
-                    values: vec![[185., 0., 400.], [245., 0., 400.]],
-                    incoming: vec![],
-                    outgoing: vec![],
-                    ease: vec![],
-                }),
-                scale: None,
-                rotation: None,
-                euler_degrees: None,
-                matrices: None,
+                nodes: vec![resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(resonance_content::animation::Channel {
+                        times: (vec![0., 60.])
+                            .into_iter()
+                            .map(|frame| frame / 30.)
+                            .collect(),
+                        interpolation: resonance_content::animation::Interpolation::Linear,
+                        values: vec![[185., 0., 400.], [245., 0., 400.]],
+                    }),
+                    rotation: None,
+                    scale: None,
+                }],
             });
         battle.set_models(crate::Models::new(
             battle.actors(),
@@ -663,20 +662,19 @@ mod tests {
             .tracks
             .push(resonance_content::animation::Track {
                 bone: 0,
-                bind_channels: resonance_content::animation::TransformChannels(8),
-                period_frames: 30.,
-                times: vec![0., 30.],
-                translation: Some(resonance_content::animation::VectorCurve {
-                    interpolation: resonance_content::animation::VectorInterpolation::Linear,
-                    values: vec![[50., 0., 100.], [50., 0., 130.]],
-                    incoming: vec![],
-                    outgoing: vec![],
-                    ease: vec![],
-                }),
-                scale: None,
-                rotation: None,
-                euler_degrees: None,
-                matrices: None,
+                nodes: vec![resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(resonance_content::animation::Channel {
+                        times: (vec![0., 30.])
+                            .into_iter()
+                            .map(|frame| frame / 30.)
+                            .collect(),
+                        interpolation: resonance_content::animation::Interpolation::Linear,
+                        values: vec![[50., 0., 100.], [50., 0., 130.]],
+                    }),
+                    rotation: None,
+                    scale: None,
+                }],
             });
         battle.set_models(crate::Models::new(
             battle.actors(),

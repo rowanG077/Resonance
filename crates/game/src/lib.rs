@@ -12,6 +12,7 @@ pub mod game_over;
 pub mod menu;
 pub mod overworld;
 pub mod replay;
+pub mod screen_resources;
 pub mod skit;
 pub mod title_events;
 pub const TITLE_REVEAL_TICKS: u32 = 843;
@@ -57,10 +58,6 @@ impl Default for TitleState {
 }
 
 impl TitleState {
-    /// Blink on the shared presentation clock, preserving its phase across scenes.
-    pub fn disc_label_visible(&self, clock: clock::PresentationClock) -> bool {
-        clock.tick() & 64 != 0
-    }
     /// Selected rows receive a second additive draw.
     pub fn pulse_alpha(&self) -> u8 {
         let intensity =

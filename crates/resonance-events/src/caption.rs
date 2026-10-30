@@ -132,3 +132,31 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[test]
+fn absent_caption_placeholder_keeps_every_visible_quad_and_tick() -> Result<()> {
+    for width in [32, 64, 128, 256, 512, 1024] {
+        for tick in 0..400 {
+            let visible = |blank| -> Result<Vec<_>> {
+                let mut output = Vec::new();
+                frame(
+                    [[144, 8], [256, 200], blank, [width, 64]].into_iter(),
+                    tick,
+                    |s| {
+                        if s.texture != 2 {
+                            output.push((s.texture, s.rect, s.uv, s.alpha));
+                        }
+                    },
+                )?;
+                Ok(output)
+            };
+            assert_eq!(
+                visible([4, 48])?,
+                visible([0, 0])?,
+                "width {width}, tick {tick}"
+            );
+        }
+    }
+    Ok(())
+}

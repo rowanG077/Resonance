@@ -1,6 +1,7 @@
 //! Source preparation and authoring tools, independent of the game and cooker.
 mod cache;
 mod cli;
+mod scenario;
 mod source;
 
 pub use cache::{Generation, PreparationCache, PreparedModule};
@@ -17,6 +18,8 @@ pub enum Error {
     Module(String),
     #[error("source path is not a regular file or directory: {}", .0.display())]
     SourcePath(PathBuf),
+    #[error("scenario {}: {message}", path.display())]
+    Scenario { path: PathBuf, message: String },
     #[error(transparent)]
     Compile(#[from] symphonia_script_compiler::Diagnostic),
     #[error("formatting differs: {0}")]

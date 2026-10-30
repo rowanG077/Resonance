@@ -11,7 +11,6 @@ use resonance_content::menu_data::{
 pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
     let (_, _, titles, mut party) = crate::battle::rewards::tests::reward_fixture();
     let mut menus = MenuData {
-        version: MenuData::VERSION,
         crafting: Default::default(),
         grade_shop: resonance_content::grade::Shop {
             options: vec![],
@@ -49,11 +48,17 @@ pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
             bonus_skill: 0,
         },
         status: StatusData {
-            equipment_effects: [48, 49, 50, 52]
-                .map(|id| (id, EquipmentEffect { suppresses: vec![] }))
-                .into(),
+            equipment_effects: [
+                "third-tp-cost",
+                "half-tp-cost",
+                "small-hp-regeneration",
+                "large-hp-regeneration",
+            ]
+            .map(|name| (name.into(), EquipmentEffect { suppresses: vec![] }))
+            .into(),
         },
         world_map: WorldMapData {
+            landmarks: "world/landmarks.json".into(),
             locations: Default::default(),
             field_locations: Default::default(),
             shops: vec![],
@@ -112,8 +117,10 @@ fn gear_bonuses_saturate_and_weapon_species_uses_only_the_primary_weapon() -> Re
     for item in &mut menus.items[1..=6] {
         item.properties.critical_chance_bonus = 50;
     }
-    menus.items[1].properties.species_bonus = Some(resonance_content::battle_profile::Species(6));
-    menus.items[2].properties.species_bonus = Some(resonance_content::battle_profile::Species(1));
+    menus.items[1].properties.species_bonus =
+        Some(resonance_content::battle_profile::Species::Human);
+    menus.items[2].properties.species_bonus =
+        Some(resonance_content::battle_profile::Species::Plant);
     menus.items[1].properties.neutral_resistance = 64;
     menus.items[2].properties.neutral_resistance = 64;
     menus.items[1]
@@ -127,7 +134,7 @@ fn gear_bonuses_saturate_and_weapon_species_uses_only_the_primary_weapon() -> Re
     let attributes = loadout(&menus, &member, Character::Lloyd)?.attributes;
     assert_eq!(
         attributes.damage.weapon_species,
-        Some(resonance_content::battle_profile::Species(6))
+        Some(resonance_content::battle_profile::Species::Human)
     );
     assert_eq!(attributes.damage.critical_chance_bonus, 100);
     assert_eq!(attributes.affinities[0], Affinity::Absorb);
@@ -315,22 +322,22 @@ fn caption_suppression_does_not_remove_equipment_gameplay() -> Result<()> {
     let (mut menus, mut member) = fixture()?;
     member.equipment[..2].copy_from_slice(&[1, 2]);
     menus.items[1].properties.tp_discount = TpDiscount::Half;
-    menus.items[1].properties.caption_ids = vec![49];
+    menus.items[1].properties.descriptions = vec!["half-tp-cost".into()];
     menus.items[1].properties.movement_bonus = 1;
     menus.items[1].properties.experience_percent = 50;
     menus.items[2].properties.tp_discount = TpDiscount::Third;
-    menus.items[2].properties.caption_ids = vec![48];
+    menus.items[2].properties.descriptions = vec!["third-tp-cost".into()];
     menus.items[2].properties.experience_percent = 100;
     menus
         .status
         .equipment_effects
-        .get_mut(&49)
+        .get_mut("half-tp-cost")
         .unwrap()
-        .suppresses = vec![48];
+        .suppresses = vec!["third-tp-cost".into()];
     let gear = super::super::conditions::GearEffects::equipped(&menus, &member);
     assert_eq!(gear.movement_bonus, 1);
     assert_eq!(gear.experience_percent, 100);
-    assert_eq!(member.equipment_captions(&menus).unwrap(), [49]);
+    assert_eq!(member.equipment_captions(&menus).unwrap(), ["half-tp-cost"]);
     menus.techniques.push(Technique {
         tp: 12,
         tp_percent: false,
@@ -379,17 +386,20 @@ fn regeneration_stacks_independently_of_caption_suppression() -> Result<()> {
     let (mut menus, mut member) = fixture()?;
     member.equipment = [1, 2, 3, 0, 0, 0];
     menus.items[2].properties.hp_regeneration = 1;
-    menus.items[2].properties.caption_ids = vec![50];
+    menus.items[2].properties.descriptions = vec!["small-hp-regeneration".into()];
     menus.items[3].properties.hp_regeneration = 3;
-    menus.items[3].properties.caption_ids = vec![52];
+    menus.items[3].properties.descriptions = vec!["large-hp-regeneration".into()];
     menus
         .status
         .equipment_effects
-        .get_mut(&52)
+        .get_mut("large-hp-regeneration")
         .unwrap()
         .suppresses
-        .push(50);
-    assert_eq!(member.equipment_captions(&menus).unwrap(), [52]);
+        .push("small-hp-regeneration".into());
+    assert_eq!(
+        member.equipment_captions(&menus).unwrap(),
+        ["large-hp-regeneration"]
+    );
     let (_, conditions) = loadout(&menus, &member, Character::Lloyd)?.equipment_attributes(
         &member,
         &Default::default(),

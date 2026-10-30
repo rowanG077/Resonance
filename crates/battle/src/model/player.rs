@@ -683,13 +683,13 @@ impl Models {
                     .to_cols_array_2d();
                     model.detach_weapon(flight.slot, Some(world));
                 }
-                if !already_advanced
+                let releasing = !already_advanced
                     && clock == BattleClock::SpellTransition
                     && release_actor == Some(ActorId(index as u8))
                     && !paused
                     && !resuming
-                    && actor.time_stop == 0
-                {
+                    && actor.time_stop == 0;
+                if releasing {
                     model.sample_main(true)?;
                     for weapon in &mut model.weapons {
                         weapon.advance_pose()?;
@@ -713,7 +713,15 @@ impl Models {
                             .saturating_sub(1),
                     );
                 }
-                model.step_with_phases(actor, advance_pose, advance, ticking)?;
+                // The caster's pose moves during the spell transition. Its hair
+                // and cloth must follow it while other actors remain frozen.
+                model.step_with_phases(
+                    actor,
+                    advance_pose,
+                    advance,
+                    ticking,
+                    advance || releasing,
+                )?;
                 let mut tint = model.definition.tint;
                 if let Some(flash) = &mut model.tint_flash {
                     for (channel, target) in flash.iter_mut().zip(tint) {

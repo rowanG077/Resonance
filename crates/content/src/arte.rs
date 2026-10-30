@@ -3,40 +3,74 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+pub mod document;
 pub mod elemental;
 
 pub const PATH: &str = "game/techniques.json";
 pub const MAX_USES: u16 = 999;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Definition {
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(
+    default,
+    deny_unknown_fields,
+    bound(
+        serialize = "I: Serialize + Default + PartialEq, E: Serialize + Default + PartialEq",
+        deserialize = "I: Deserialize<'de> + Default, E: Deserialize<'de> + Default"
+    )
+)]
+pub struct Definition<I = u16, E = u8> {
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub tp_cost: u8,
-    pub element: u8,
-    pub learning: LearningRules,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub element: E,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub learning: LearningRules<I>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub capabilities: TechniqueCapabilities,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub admission_flash: Option<AdmissionFlash>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub learn_on_level_up: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub casting: Casting,
     /// Maximum target distance in world units.
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub action_range: f32,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub cast_time_adjustment: i16,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub recovery_ticks: i16,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub required_level: u16,
 }
 
 /// Requirements evaluated when a technique is used. Every prerequisite group must
 /// contain a currently learned technique with the requested usage count.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LearningRules {
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    default,
+    deny_unknown_fields,
+    bound(
+        serialize = "I: Serialize",
+        deserialize = "I: Deserialize<'de> + Default"
+    )
+)]
+pub struct LearningRules<I = u16> {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub route: Option<LearningRoute>,
-    pub parent: Option<u16>,
-    pub technical_successor: Option<u16>,
-    pub strike_successor: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<I>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub technical_successor: Option<I>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strike_successor: Option<I>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub parent_uses: u16,
-    pub prerequisites: Vec<LearningPrerequisite>,
-    pub excludes: Vec<u16>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub prerequisites: Vec<LearningPrerequisite<I>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub excludes: Vec<I>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub requires_story_unlock: bool,
 }
 
@@ -47,10 +81,10 @@ pub enum LearningRoute {
     Strike,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LearningPrerequisite {
-    pub any_of: Vec<u16>,
+pub struct LearningPrerequisite<I = u16> {
+    pub any_of: Vec<I>,
     pub minimum_uses: u16,
 }
 
@@ -101,17 +135,27 @@ pub enum TechniqueTarget {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct TechniqueCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<ArteFamily>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub regal_family: Option<RegalArteFamily>,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub spell: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub aerial: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub uses_weapon_reach: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub chains_without_contact: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub target: TechniqueTarget,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub offensive: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub revives: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub healing: bool,
 }
 
@@ -124,11 +168,14 @@ pub enum AdmissionFlash {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct Casting {
     /// Preserve the authored cast duration despite equipment or Over Limit.
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub fixed_timing: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub support_target: bool,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub effects: CastingEffects,
 }
 
@@ -169,9 +216,7 @@ pub struct Catalogue {
 
 impl Catalogue {
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
-        let mut data: Self = files.json(PATH)?;
-        elemental::extend_catalogue(&mut data)?;
-        Ok(data)
+        Ok(files.json::<document::Document>(PATH)?.prepare()?.catalogue)
     }
 
     pub fn definition(&self, id: usize) -> Result<&Definition> {

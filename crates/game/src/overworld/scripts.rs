@@ -169,10 +169,9 @@ impl Host for RuleHost<'_> {
             let progress = h.progress()?;
             value(
                 h.locations()?
-                    .definitions
-                    .party_requirements
-                    .get(&id(a[0])?)
-                    .is_none_or(|c| progress.formation.contains(c)),
+                    .definition(id(a[0])?)
+                    .and_then(|landmark| landmark.required_character)
+                    .is_none_or(|character| progress.formation.contains(&(character as u8))),
             )
         })
         .register_typed(Native::GuidepostCount.declaration(), |h, _, _| {
@@ -180,34 +179,28 @@ impl Host for RuleHost<'_> {
         })
         .register_typed(Native::GuidepostLocation.declaration(), |h, a, _| {
             value(
-                h.locations()?
+                *h.locations()?
                     .guideposts
                     .get(a[0] as usize)
-                    .ok_or("invalid guidepost index")?
-                    .location,
+                    .ok_or("invalid guidepost index")?,
             )
         })
         .register_typed(Native::GuidepostKnown.declaration(), |h, a, _| {
-            let post = h
-                .locations()?
+            let locations = h.locations()?;
+            let id = *locations
                 .guideposts
                 .get(a[0] as usize)
                 .ok_or("invalid guidepost index")?;
+            let post = locations.guidepost(id).ok_or("missing guidepost")?;
             value(
-                h.progress()?.event_flags.contains(
-                    &post.event_flags[0]
-                        .ok_or("guidepost lacks discovery flag")?
-                        .get(),
-                ),
+                h.progress()?
+                    .event_flags
+                    .contains(&post.discovery_flag.get()),
             )
         })
         .register_typed(Native::SetInteraction.declaration(), |h, a, _| {
-            let interaction = match a[1] {
-                0 => Interaction::Disabled,
-                1 => Interaction::Active,
-                2 => Interaction::Blocked,
-                _ => return Err("invalid landmark interaction".into()),
-            };
+            let raw = u8::try_from(a[1]).map_err(|_| "invalid landmark interaction")?;
+            let interaction = Interaction::try_from(raw).map_err(|e| e.to_string())?;
             h.set(a[0], |a| a.interaction = interaction)
         })
         .register_typed(Native::HideMarker.declaration(), |h, a, _| {
@@ -218,7 +211,7 @@ impl Host for RuleHost<'_> {
                 return Err("invalid landmark model".into());
             }
             h.set(a[0], |appearance| {
-                appearance.marker = Marker::Model { id: a[1] as u8 }
+                appearance.marker = Marker::Model(a[1] as u8)
             })
         })
         .register_typed(Native::UnmodeledMarker.declaration(), |h, a, _| {
@@ -412,11 +405,7 @@ pub(crate) fn fixture() -> Arc<Rules> {
     static RULES: std::sync::OnceLock<Arc<Rules>> = std::sync::OnceLock::new();
     RULES
         .get_or_init(|| {
-            let sources = symphonia_script_tools::SourceTree::load(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../scripts"
-            ))
-            .unwrap();
+            let sources = resonance_script_content::modules();
             Rules::prepare(&mut PreparationCache::default(), &sources).unwrap()
         })
         .clone()

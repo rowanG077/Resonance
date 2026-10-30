@@ -3,22 +3,20 @@ use super::{Position, TileCoordinate};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     field::CollisionGroup,
-    overworld::{CollisionTables, TILE_SIZE},
+    overworld::{CollisionSettings, TILE_SIZE, TerrainSurface},
 };
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Ground,
-    AlternateGround,
     Ship,
-    RestrictedGround,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Face {
     points: [[f32; 3]; 3],
-    surface: u8,
+    surface: TerrainSurface,
 }
 impl Face {
     fn contains(self, point: [f32; 3]) -> bool {
@@ -52,15 +50,14 @@ impl Face {
             .sum::<f64>();
         (n[2] * distance / n.iter().map(|v| v * v).sum::<f64>()) as f32
     }
-    fn ground(self, point: [f32; 3], tables: &CollisionTables, mode: Mode) -> Surface {
+    fn ground(self, point: [f32; 3]) -> Surface {
         let normal = self.normal();
         let height = self.points[0][2]
             - (normal[0] * (point[0] - self.points[0][0])
                 + normal[1] * (point[1] - self.points[0][1]))
                 / normal[2];
         Surface {
-            surface: self.surface,
-            response: tables.surface_responses[usize::from(self.surface)][mode as usize],
+            kind: self.surface,
             height,
             normal,
         }
@@ -76,7 +73,7 @@ impl Mesh {
         let mut faces = Vec::new();
         for group in groups {
             group.validate()?;
-            ensure!(group.surface < 16, "invalid world terrain surface");
+            let surface = TerrainSurface::from_index(group.surface)?;
             for triangle in &group.triangles {
                 let points = triangle.map(|i| group.vertices[usize::from(i)]);
                 let [a, b, c] = points;
@@ -84,10 +81,7 @@ impl Mesh {
                 // coincide. Retain other faces, including downward faces, since
                 // they still occupy slots in the source's 2048-face budget.
                 if a[..2] != b[..2] || b[..2] != c[..2] {
-                    faces.push(Face {
-                        points,
-                        surface: group.surface as u8,
-                    });
+                    faces.push(Face { points, surface });
                 }
             }
         }
@@ -97,14 +91,14 @@ impl Mesh {
 
 pub struct Terrain {
     tiles: BTreeMap<TileCoordinate, Mesh>,
-    tables: CollisionTables,
+    settings: CollisionSettings,
 }
 impl Terrain {
     pub fn new(
         tiles: impl IntoIterator<Item = (TileCoordinate, Mesh)>,
-        tables: CollisionTables,
+        settings: CollisionSettings,
     ) -> Result<Self> {
-        tables.validate()?;
+        settings.validate()?;
         let mut prepared = BTreeMap::new();
         for (coordinate, mesh) in tiles {
             ensure!(
@@ -115,7 +109,7 @@ impl Terrain {
         ensure!(!prepared.is_empty(), "world has no terrain tiles");
         Ok(Self {
             tiles: prepared,
-            tables,
+            settings,
         })
     }
 
@@ -203,7 +197,7 @@ impl Terrain {
         }
         Ok(Query {
             faces,
-            tables: &self.tables,
+            settings: &self.settings,
             origin: p,
         })
     }
@@ -211,15 +205,14 @@ impl Terrain {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Surface {
-    pub surface: u8,
-    pub response: i8,
+    pub kind: TerrainSurface,
     pub height: f32,
     pub normal: [f32; 3],
 }
 
 pub struct Query<'a> {
     faces: Vec<Face>,
-    tables: &'a CollisionTables,
+    settings: &'a CollisionSettings,
     origin: [f32; 3],
 }
 impl Query<'_> {
@@ -244,14 +237,12 @@ impl Query<'_> {
             if mode == Mode::Ship {
                 if face.contains(point) {
                     // Any overlapping land invalidates water, regardless of order.
-                    if face.surface != 11 {
+                    if face.surface != TerrainSurface::Water {
                         return None;
                     }
                     water = Some(*face);
                 }
-            } else if self.tables.surface_responses[usize::from(face.surface)][mode as usize] != -1
-                && face.contains(point)
-            {
+            } else if face.surface.walkable() && face.contains(point) {
                 return Some(*face);
             }
         }
@@ -259,9 +250,9 @@ impl Query<'_> {
     }
     fn clear_at(&self, point: [f32; 3], mode: Mode) -> bool {
         let half = if mode == Mode::Ship {
-            self.tables.mode2_probe_half_extent
+            self.settings.ship_probe_half_extent
         } else {
-            self.tables.other_probe_half_extent
+            self.settings.ground_probe_half_extent
         };
         [[half, half], [-half, half], [half, -half], [-half, -half]]
             .into_iter()
@@ -271,15 +262,14 @@ impl Query<'_> {
             })
     }
     pub fn surface(&self, mode: Mode) -> Option<Surface> {
-        self.face(self.origin, mode)
-            .map(|f| f.ground(self.origin, self.tables, mode))
+        self.face(self.origin, mode).map(|f| f.ground(self.origin))
     }
     /// Flight clearance includes terrain that cannot be walked on or landed on.
     pub fn flight_floor(&self) -> f32 {
         self.faces
             .iter()
             .filter(|face| face.contains(self.origin))
-            .map(|face| face.ground(self.origin, self.tables, Mode::Ground).height)
+            .map(|face| face.ground(self.origin).height)
             .fold(0., f32::max)
     }
     pub fn has_clearance(&self, mode: Mode) -> bool {
@@ -309,7 +299,7 @@ impl Query<'_> {
             if self.clear_at(trial, mode)
                 && let Some(face) = self.face(trial, mode)
             {
-                let surface = face.ground(trial, self.tables, mode);
+                let surface = face.ground(trial);
                 let [nx, ny, nz] = surface.normal;
                 let pitch = -ny.clamp(-1., 1.).asin();
                 let roll = nx.atan2(nz);
@@ -319,7 +309,7 @@ impl Query<'_> {
                         delta[0] * roll.sin() * pitch.sin() + delta[1] * pitch.cos(),
                         face.correction(trial),
                     ],
-                    response: Some(surface.response),
+                    surface: Some(surface.kind),
                     slope: [pitch, roll, 0.],
                 });
             }
@@ -332,7 +322,7 @@ impl Query<'_> {
             .fold(-self.origin[2], f32::max);
         Ok(Motion {
             delta: [0., 0., correction],
-            response: None,
+            surface: None,
             slope: [0.; 3],
         })
     }
@@ -340,7 +330,7 @@ impl Query<'_> {
 #[derive(Debug, Clone, Copy)]
 pub struct Motion {
     pub delta: [f32; 3],
-    pub response: Option<i8>,
+    pub surface: Option<TerrainSurface>,
     /// Pitch/roll in radians, for terrain-aligned presentation.
     pub slope: [f32; 3],
 }

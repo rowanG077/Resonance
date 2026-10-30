@@ -1,6 +1,8 @@
 //! World view pitch and terrain clearance.
 use super::{Position, collision::Terrain, travel::Travel};
 use anyhow::Result;
+#[cfg(test)]
+use resonance_content::overworld::TerrainSurface;
 
 pub(super) const MINIMUM_ANGLE: f32 = 120f32.to_radians();
 
@@ -103,7 +105,7 @@ mod tests {
     #[test]
     fn open_terrain_settles_with_acceleration_and_alternate_view_has_no_lead() -> Result<()> {
         let travel = Travel::new(state(Mount::Foot), parameters())?;
-        let terrain = terrain(1);
+        let terrain = terrain(TerrainSurface::Grassland);
         let mut camera = Camera::default();
         let initial = camera.angle();
         camera.step(&travel, &terrain, None)?;
@@ -120,7 +122,7 @@ mod tests {
     #[test]
     fn nearby_high_geometry_raises_the_view_and_failure_keeps_camera_state() -> Result<()> {
         let travel = Travel::new(state(Mount::Foot), parameters())?;
-        let open = terrain(1);
+        let open = terrain(TerrainSurface::Grassland);
         let mut camera = Camera::default();
         for _ in 0..300 {
             camera.step(&travel, &open, None)?;
@@ -128,7 +130,12 @@ mod tests {
         let high = collision::Terrain::new(
             [(
                 TileCoordinate::new(0, 0)?,
-                collision::Mesh::new(&[rectangle(0, [-100., -900.], [100., -700.], 1000.)])?,
+                collision::Mesh::new(&[rectangle(
+                    TerrainSurface::Barrier,
+                    [-100., -900.],
+                    [100., -700.],
+                    1000.,
+                )])?,
             )],
             tables(),
         )?;
@@ -161,11 +168,7 @@ mod tests {
             far_margin: 4250.,
             height: 885.,
         });
-        let mut locations = Locations::new(
-            Arc::new(data),
-            Arc::default(),
-            crate::overworld::scripts::fixture(),
-        )?;
+        let mut locations = Locations::new(Arc::new(data), crate::overworld::scripts::fixture())?;
         let position = Position::from_map([3200., 3200., 0.])?;
         let near = locations.camera_angle_bound(World::TetheAlla, position, Mount::Ship);
         assert_eq!(near, Some(MINIMUM_ANGLE));
@@ -194,7 +197,7 @@ mod tests {
             velocity: 0.,
         };
         let travel = Travel::new(state(Mount::Ship), parameters())?;
-        let water = terrain(11);
+        let water = terrain(TerrainSurface::Water);
         for _ in 0..300 {
             camera.step(&travel, &water, near)?;
         }

@@ -1,31 +1,29 @@
 //! Victory motion packages and regional group-voice descriptors.
 //! Selection and native playback are owned by the game and battle runtimes.
-use crate::field_preload::File;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-pub const PATH: &str = "battle/victory.json";
+pub mod document;
+
 pub const GROUP_COUNT: u8 = 54;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Performances<O = Vec<Ordinary>, G = Vec<Group>, F = BTreeMap<String, File>> {
-    pub module_sha256: String,
-    pub archive_sha256: String,
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Performances {
     #[serde(default)]
-    pub ordinary: O,
+    pub ordinary: Vec<Ordinary>,
     #[serde(default)]
-    pub groups: G,
-    #[serde(default)]
-    pub files: F,
+    pub groups: Vec<Group>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Ordinary {
     pub character: u8,
+    /// Named preparation supplies costume identity from the lookup scope.
+    /// The editable performance document does not repeat its owner's identity.
+    #[serde(skip)]
+    pub costume: Option<u8>,
     pub selector: u8,
-    pub source_sha256: String,
-    pub body_sha256: String,
+
     /// Sparse motion clip for this performance.
     pub motion: String,
     /// Authored result updates, independent of the skeletal clip's frame rate.
@@ -39,15 +37,20 @@ pub struct Ordinary {
 #[serde(rename_all = "snake_case")]
 pub enum Event {
     Pose {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         start: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         end: Option<f32>,
         rate: f32,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         blend: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         repeat: bool,
     },
     Expression([u8; 4]),
     /// Resume the actor's ordinary idle after a completed celebration.
     Idle {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         blend: u8,
     },
 }
@@ -55,7 +58,7 @@ pub enum Event {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
     pub id: u8,
-    /// Character leading the group and providing its voice.
+    /// Playback anchor for the group's recording, which can include several speakers.
     pub character: u8,
     pub voice: Option<crate::battle_voice::Sound>,
     pub participants: Vec<u8>,

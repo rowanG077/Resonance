@@ -2,9 +2,8 @@
 use super::{Trace, random_inputs::Pin};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{ActorId, EffectAppearance, Effects, FixtureEffectBirth};
-use resonance_content::battle_effect::{EffectOperation, SourceBank, declaration::Declaration};
+use resonance_content::battle_effect::{EffectOperation, declaration::Declaration};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Deserialize)]
@@ -57,7 +56,7 @@ struct Interval {
 struct Proof {
     format: String,
     case: String,
-    metadata: Pin,
+    metadata: super::content_evidence::Evidence,
     archive: Pin,
     bank_offset: usize,
     bank_length: usize,
@@ -89,19 +88,24 @@ impl Inputs {
             "unqualified effect birth inputs"
         );
         proof.source_capture.read_bytes()?;
-        let metadata: SourceBank = serde_json::from_slice(&proof.metadata.read_bytes()?)?;
+        let metadata = proof.metadata.registered_effect(&source.setup)?;
+        let bank_digest = proof.metadata.source_digest()?;
         let archive = proof.archive.read_bytes()?;
+        let end = proof
+            .bank_offset
+            .checked_add(proof.bank_length)
+            .context("effect bank range overflows")?;
         let raw = archive
-            .get(proof.bank_offset..proof.bank_offset + proof.bank_length)
+            .get(proof.bank_offset..end)
             .context("effect bank range differs")?;
         ensure!(
-            format!("{:x}", Sha256::digest(raw)) == metadata.source_sha256,
-            "effect bank fingerprint differs"
+            raw == proof.metadata.source()?,
+            "effect bank differs from independent original evidence"
         );
         let (&resource, _) = super::exactly_one(
             banks
                 .iter()
-                .filter(|(_, hash)| **hash == metadata.source_sha256),
+                .filter(|(_, hash)| hash.as_str() == bank_digest),
         )
         .context("recorded effect bank is not unique")?;
         for interval in &proof.intervals {
@@ -159,7 +163,7 @@ impl Inputs {
                     .iter()
                     .filter(|event| event["kind"] == "program_started"
                         && event["owner"] == input.owner
-                        && event["bank"] == metadata.source_sha256
+                        && event["bank"] == bank_digest
                         && event["program"] == input.program
                         && event["presentation_clock"] == input.program_clock)
                     .count()
@@ -218,7 +222,7 @@ impl Inputs {
             )
             .filter(|particle| {
                 particle["owner"] == input.owner
-                    && particle["bank"] == metadata.source_sha256
+                    && particle["bank"] == bank_digest
                     && particle["member"] == input.particle
                     && particle["initialized"] == true
                     && particle["age"] == 1
@@ -232,7 +236,7 @@ impl Inputs {
                         .iter()
                         .filter(|model| {
                             model["owner"] == input.owner
-                                && model["bank"] == metadata.source_sha256
+                                && model["bank"] == bank_digest
                                 && model["member"] == input.particle
                                 && model["ordinal"] == ordinal
                                 && model["model"] == particle["model"]
@@ -360,7 +364,7 @@ impl Inputs {
                 let ranges: Vec<_> = emissions
                     .iter()
                     .flat_map(|(_, _, birth)| birth.ranges())
-                    .filter(|range| range.draw == Some(draw.draw))
+                    .filter(|range| range.draw == Some(i64::from(draw.draw)))
                     .collect();
                 let spreads: Vec<_> = emissions
                     .iter()
@@ -369,8 +373,8 @@ impl Inputs {
                     })
                     .filter_map(|(target, spread)| spread.map(|spread| (target, spread)))
                     .filter(|(_, spread)| {
-                        spread.radius_draw == Some(draw.draw)
-                            || spread.angle_draw == Some(draw.draw)
+                        spread.radius_draw == Some(i64::from(draw.draw))
+                            || spread.angle_draw == Some(i64::from(draw.draw))
                     })
                     .collect();
                 match draw.kind {
@@ -400,7 +404,11 @@ impl Inputs {
                                             .try_into()
                                             .unwrap(),
                                     );
-                                    let at = usize::from(table) + usize::from(input.particle) * 352;
+                                    let at = usize::from(table)
+                                        + proof
+                                            .metadata
+                                            .source_template(usize::from(input.particle))?
+                                            * 352;
                                     let declaration = raw
                                         .get(at..at + 352)
                                         .context("missing effect declaration")?;
@@ -436,7 +444,7 @@ impl Inputs {
                                             (spread.angle_draw, spread.angle_jitter)
                                         };
                                     *target == words[1]
-                                        && slot == Some(draw.draw)
+                                        && slot == Some(i64::from(draw.draw))
                                         && extent == divisor as f32 * 0.1
                                         && spread.angles == [scalar(2), scalar(4), scalar(6)]
                                         && spread.radius == scalar(8)

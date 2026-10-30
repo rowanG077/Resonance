@@ -1,5 +1,5 @@
 //! Prepared presentation tracks use the world scene's 60 Hz clock.
-use crate::{ScenePart, TextureAnimation, field_audio::FieldAudio};
+use crate::{ScenePart, TextureAnimation};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,21 +7,46 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CinematicPresentation {
-    pub provenance: String,
     pub fade: CinematicFade,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub initial_audio: Vec<CinematicAudio>,
     /// Stable source order is retained for simultaneous events, including duplicates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audio: Vec<CinematicAudioEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub end_audio: Vec<CinematicAudio>,
+    #[serde(
+        default,
+        serialize_with = "actor_overrides",
+        skip_serializing_if = "no_actor_overrides"
+    )]
     pub actors: BTreeMap<u8, CinematicActor>,
+}
+
+fn no_actor_overrides(actors: &BTreeMap<u8, CinematicActor>) -> bool {
+    actors.values().all(CinematicActor::is_empty)
+}
+fn actor_overrides<S: serde::Serializer>(
+    actors: &BTreeMap<u8, CinematicActor>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(None)?;
+    for (id, actor) in actors.iter().filter(|(_, actor)| !actor.is_empty()) {
+        map.serialize_entry(id, actor)?;
+    }
+    map.end()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CinematicFade {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub white: bool,
     pub end_rate: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intro_rate: Option<u8>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flashes: Vec<CinematicFlash>,
 }
 
@@ -85,6 +110,7 @@ impl CinematicFade {
 #[serde(deny_unknown_fields)]
 pub struct CinematicAudioEvent {
     pub tick: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub before_dialogue: bool,
     pub action: CinematicAudio,
 }
@@ -147,13 +173,30 @@ impl CinematicAudio {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CinematicActor {
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
     /// None preserves the model's own material setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub depth_write: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub depth_test: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub blend: Option<CinematicBlend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub opacity: Option<CinematicOpacity>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub uv: Vec<CinematicUv>,
+}
+
+impl CinematicActor {
+    fn is_empty(&self) -> bool {
+        !self.background
+            && self.depth_write.is_none()
+            && self.depth_test.is_none()
+            && self.blend.is_none()
+            && self.opacity.is_none()
+            && self.uv.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -168,6 +211,7 @@ pub enum CinematicClock {
 #[serde(deny_unknown_fields)]
 pub struct CinematicUv {
     pub clock: CinematicClock,
+    #[serde(flatten)]
     pub animation: TextureAnimation,
 }
 
@@ -209,6 +253,18 @@ impl CinematicOpacity {
 }
 
 impl CinematicPresentation {
+    pub fn actor(&self, id: u8) -> &CinematicActor {
+        static DEFAULT: CinematicActor = CinematicActor {
+            background: false,
+            depth_write: None,
+            depth_test: None,
+            blend: None,
+            opacity: None,
+            uv: Vec::new(),
+        };
+        self.actors.get(&id).unwrap_or(&DEFAULT)
+    }
+
     pub fn actions(&self) -> impl Iterator<Item = &CinematicAudio> {
         self.initial_audio
             .iter()
@@ -217,14 +273,10 @@ impl CinematicPresentation {
     }
 
     pub fn validate(&self, actors: &BTreeMap<u8, Vec<ScenePart>>) -> Result<()> {
-        ensure!(
-            !self.provenance.trim().is_empty() && self.provenance.len() <= 2048,
-            "cinematic presentation requires bounded provenance"
-        );
         self.fade.validate()?;
         ensure!(
-            actors.keys().eq(self.actors.keys()),
-            "cinematic actor tracks are incomplete"
+            self.actors.keys().all(|id| actors.contains_key(id)),
+            "cinematic settings refer to an absent actor"
         );
         ensure!(
             self.audio.len() <= 4096
@@ -272,12 +324,9 @@ impl CinematicPresentation {
         Ok(())
     }
 
-    pub fn validate_audio(&self, audio: &FieldAudio) -> Result<()> {
+    pub fn validate_sound_selection(&self, contains: impl Fn(i16) -> bool) -> Result<()> {
         for id in self.actions().filter_map(CinematicAudio::sound) {
-            ensure!(
-                audio.sounds.contains_key(&id),
-                "cinematic sound {id} is not prepared"
-            );
+            ensure!(contains(id), "cinematic sound {id} is not prepared");
         }
         Ok(())
     }
@@ -380,7 +429,6 @@ mod tests {
             },
         };
         let mut presentation = CinematicPresentation {
-            provenance: "synthetic audio fixture".into(),
             fade: CinematicFade {
                 white: false,
                 end_rate: 8,

@@ -437,7 +437,7 @@ impl Rewards {
             .formation
             .iter()
             .copied()
-            .map(Character::try_from)
+            .map(|id| Character::try_from(id).map_err(anyhow::Error::from))
             .collect::<Result<Vec<_>>>()
             .context("invalid reward recipient")?;
         ensure!(
@@ -601,7 +601,6 @@ pub(super) mod tests {
         let session = SessionData {
             rules: None,
             version: 1,
-            executable_sha256: "0".repeat(64),
             experience: vec![0, 0, 10, 30],
             items: (0..51)
                 .map(|_| ItemDefinition {

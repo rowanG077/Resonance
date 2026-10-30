@@ -3,6 +3,7 @@
 One resident emulator, ordinary inputs, no per-arte case files. This adapter
 reports evidence and missing observations; it never certifies equivalence.
 """
+import technique_content
 import argparse
 from collections import Counter
 import gc
@@ -22,8 +23,11 @@ from battle_geometry import model_world as static_model_world
 import damage_envelope
 import enemy_artes
 import enemy_prerequisites
+import effect_sources
 import effect_entry
 import effect_model_joints
+import reaction_inputs
+from named_content import Snapshot as ContentSnapshot, scene_effect_range, same_evidence
 import entry_history
 import entry_motions
 import support_outcomes
@@ -49,7 +53,7 @@ OBJECT_POOL_CAPACITY, OBJECT_BYTES, OBJECT_FREE_HEAD = 416, 0x288, 0x754a4
 OBJECT_SENTINELS = {"projectile": 0x75c40, "program": 0x75ec8,
                     "particle": 0x763d8, "alternate": 0x76660}
 MENU_ACTIVE = 0x80000000
-STUN_ACTION, STUN_DECLARATION = 15, 19
+STUN_ACTION = 15
 PARTY_FIXTURE_RADIUS = 850.0
 MAX_RECIPIENT_POLLS = 2 * 3600  # Two controller polls per update, within the capture budget.
 ENEMY_ENGAGEMENT_DISTANCE = 300.0
@@ -166,8 +170,8 @@ def presentation_requirements(definition, body=None, null_motions=()):
                     for part in body.get("attachments", {}).values()) or body.get("weapon_variants")
                     or body.get("secondary_body") or "groups" not in contact
                     or not contact["groups"] or any(group >= 12 for group in contact["groups"])
-                    or not body["body"]["skeleton"]["bones"]
-                    or has_requested_body_contacts((bone["name"] for bone in body["body"]["skeleton"]["bones"]), contact["groups"])):
+                    or not body["rig"]["skeleton"]["bones"]
+                    or has_requested_body_contacts((bone["name"] for bone in body["rig"]["skeleton"]["bones"]), contact["groups"])):
                 raise ValueError("presentation contact has possible melee bindings")
             groups.update(contact["groups"])
         elif set(event) - {"sound", "voice"}:
@@ -187,13 +191,12 @@ def observe_presentation_contacts(case, setup, states, assets):
     groups = case.get("presentation", {}).get("empty_contact_groups", [])
     if not groups:
         return
-    descriptor = assets / f"battle/enemies/{case['enemy']:03}.json"
     address = setup["initial_battle"]["actors"][setup["owner"]]["address"]
     samples = []
     for label, state in states:
         actor = next(actor for actor in inspect(state, battle=True)["battle"]["actors"]
                      if actor["address"] == address)
-        names = battle_geometry.read_initialized_body(state, actor, descriptor)["names"]
+        names = battle_geometry.read_initialized_body(state, actor, assets, enemy=case["enemy"])["names"]
         if has_requested_body_contacts(names["labels"], groups):
             raise ValueError("presentation body has initialized melee markers")
         counts = [state.read(address + 0x10c8 + 12 * group + 11, "B") for group in groups]
@@ -205,8 +208,9 @@ def observe_presentation_contacts(case, setup, states, assets):
 
 def resolve_cases(assets, descriptors):
     """Resolve authored payloads for the single Rust-generated selection."""
-    techniques = read(assets / "game/techniques.json")
-    placements = read(assets / "battle/unison.json")["placements"]
+    content = ContentSnapshot(assets)
+    techniques = technique_content.prepare(read(assets / "game/techniques.json"))
+    placements = content.unison_placements()
     contact_fixtures = read(Path(__file__).with_name("fixtures") / "enemy_contacts.json")
     items = None
     result = []
@@ -226,25 +230,26 @@ def resolve_cases(assets, descriptors):
                 definition=definition)
         elif binding["side"] == "enemy":
             enemy, row = binding["enemy"], binding["row"]
-            enemy_definition = read(assets / f"battle/enemies/{enemy:03}/definition.json")
+            enemy_definition = content.enemy_rules(enemy)
             definition = enemy_definition["actions"]["rows"][row]
             resolved = dict(id=f"enemy:{enemy}:{row}", enemy=enemy, action_row=row, definition=definition)
             execution = definition.get("execution")
             execution = execution if isinstance(execution, dict) else {}
             if "spell" in execution and any(
-                    item["capabilities"]["healing"] and placements[arte]["native_id"] == execution["spell"]
+                    item["capabilities"]["healing"] and arte in placements and placements[arte]["native_id"] == execution["spell"]
                     for arte, item in enumerate(techniques["definitions"])):
                 resolved["healing"] = True
             attack = execution.get("attack", execution.get("physical", {}).get("attack", {}))
             for _, event in attack.get("events", []):
                 if isinstance(event, dict) and "use_item" in event:
                     if items is None:
-                        items = read(assets / "game/menu-data.json")["items"]
-                    item = items[event["use_item"]["item"]]["field_use"]
+                        catalogue = read(assets / "game/items.json")
+                        items = {int(id): catalogue["items"][name] for id, name in catalogue["mappings"].items()}
+                    item = items[event["use_item"]["item"]].get("field_use")
                     if item and item["kind"] == "recover":
-                        if item["hp"]:
+                        if item.get("hp", 0):
                             resolved["healing"] = True
-                        if item["tp"]:
+                        if item.get("tp", 0):
                             resolved["restores_tp"] = True
             if any("defeat" in event for _, event in attack.get("events", [])):
                 resolved["self_defeat"] = dict(retain_body=enemy_definition["profile"]["traits"]["retain_defeated_body"])
@@ -261,9 +266,10 @@ def resolve_cases(assets, descriptors):
             raise ValueError("departure context requires an authored leave-arena action")
         if resolved["context"] == "presentation":
             if "enemy" in resolved:
-                body = read(assets / f"battle/enemies/{enemy:03}.json")
-                if body["source_sha256"] != enemy_definition["source_sha256"]:
-                    raise ValueError("presentation body and action packages differ")
+                body = content.enemy_artwork(enemy)
+                body = dict(body, rig=content.rig(content.body_mesh(body), body.get("attachment_nodes", {})), attachments={
+                    slot: content.document(path, ("model",))["model"]
+                    for slot, path in body["attachments"].items()})
                 resolved["presentation"] = presentation_requirements(definition, body, enemy_definition["null_motions"])
             elif resolved["arte"] == 222:  # Sacred Light only presents its stored scene.
                 resolved["presentation"] = dict(poses=[], effects=[1])
@@ -770,19 +776,26 @@ def effect_program_end(raw, start, end):
     return None
 
 
-def effect_bank(raw, path):
-    metadata = read(path)
+def effect_bank(raw, path, assets, evidence_directory):
+    content = ContentSnapshot(assets, evidence_directory)
+    entry = Path(path).relative_to(Path(assets)).as_posix()
+    metadata = content.effects(entry)
     signature = hashlib.sha256(raw).hexdigest()
-    if raw[:4] != b"ef1\0" or signature != metadata["source_sha256"]:
-        raise ValueError(f"effect bank differs from cooked source: {path}")
+    if raw[:4] != b"ef1\0":
+        raise ValueError(f"invalid original effect bank for {path}")
     offsets = struct.unpack_from(">6H", raw, 8)
     end = offsets[0] if offsets[0] in offsets[1:] else min(v for v in offsets if v > offsets[0])
     if (end - offsets[0]) % 352:
         raise ValueError("truncated effect declarations")
     roots = [offsets[1] + struct.unpack_from(">h", raw, offsets[4] + 2 * i)[0]
              for i in range(raw[4])]
-    return dict(source_sha256=signature, metadata=metadata, path=str(path),
-        declarations=[raw[at:at + 352] for at in range(offsets[0], end, 352)],
+    declarations = [raw[at:at + 352] for at in range(offsets[0], end, 352)]
+    declarations, aliases = effect_sources.bind(raw, metadata['actors'], declarations)
+    names = sorted(content.json(entry).get('templates', {})) if metadata['actors'] else []
+    return dict(source_sha256=signature, metadata=metadata, path=str(path), entry=entry,
+        declaration_aliases=aliases, stun_member=names.index('stun-bird') if 'stun-bird' in names else None,
+        evidence=content.evidence(entry, raw),
+        declarations=declarations,
         uv_descriptors=raw[offsets[3]:min([v for v in offsets if v > offsets[3]] + [len(raw)])],
         roots=roots, program_ends=[effect_program_end(raw, root,
             min([at for at in (*offsets, *roots) if at > root] + [len(raw)])) for root in roots],
@@ -790,25 +803,40 @@ def effect_bank(raw, path):
             if raw[root:root + 6] == bytes([0, 0, 254, 0, 0, 0])])
 
 
-def effect_banks(state, assets, packages, enemy_ids, usual):
+def register_effect_inputs(setup, banks):
+    inputs = setup.setdefault("effect_inputs", {})
+    for bank in banks.values():
+        entry, evidence = bank["entry"], bank["evidence"]
+        if entry in inputs and not same_evidence(inputs[entry], evidence):
+            raise ValueError(f"effect input changed during observation: {entry}")
+        inputs[entry] = evidence
+
+
+def effect_banks(state, assets, packages, enemy_ids, usual, evidence_directory):
     """Bind complete authored bytes, never an address or declaration ID alone."""
     sources = []
     common = list(sections(Path(usual).read_bytes()))
     for index, name in ((2, "common"), (3, "techniques")):
-        sources.append((common[index], assets / f"battle/effects/{name}.json"))
+        sources.append((common[index], assets / f"battle/effects/{name}/effects.json"))
+    content = ContentSnapshot(assets, evidence_directory)
     for enemy in enemy_ids:
         raw = (packages / f"{enemy:03}.bin").read_bytes()
         start = struct.unpack_from(">I", raw, 0x1cc)[0]
         offsets = struct.unpack_from(">116I", raw, 0x18)
         if start:
             end = min([v for v in offsets if v > start] + [len(raw)])
-            sources.append((raw[start:end], assets / f"battle/enemies/{enemy:03}/effects.json"))
+            entry = content.resolve("battle/enemies/mappings.json", enemy, "enemy.json")
+            if entry is None:
+                raise ValueError(f"unmapped original enemy {enemy}")
+            definition = content.document(entry, ("rules", "artwork", "effects"))
+            if definition.get("effects"):
+                sources.append((raw[start:end], assets / definition["effects"]))
     banks = {}
     memory = bytes(state.ram)
     for raw, path in sources:
         if raw[:4] != b"ef1\0" or not path.exists():
             continue
-        bank = effect_bank(raw, path)
+        bank = effect_bank(raw, path, assets, evidence_directory)
         start = 0
         while (at := memory.find(raw, start)) >= 0:
             banks[at + 0x80000000] = bank
@@ -816,13 +844,17 @@ def effect_banks(state, assets, packages, enemy_ids, usual):
     return banks
 
 
-def ready_stage_effect(snapshot, assets, setup, banks):
+def ready_stage_effect(snapshot, assets, setup, banks, evidence_directory):
     """Bind complete stage bytes and retain a proven first-cycle scenery clock."""
     battle = setup["initial_battle"]
-    stage = read(assets / f"battle/stages/{setup['arena']:03}.json")
+    content = ContentSnapshot(assets, evidence_directory)
+    path = content.resolve("battle/arenas/mappings.json", setup["arena"], "arena.json")
+    if path is None:
+        raise ValueError("unmapped original arena")
+    stage = content.arena(path)
     if not stage.get("effects"):
         return
-    metadata = read(assets / stage["effects"])
+    metadata = content.effects(stage["effects"])
     if not metadata["actors"] and not any(metadata["programs"]):
         # An empty authored bank has no declarations or scheduled work to observe.
         return
@@ -839,7 +871,7 @@ def ready_stage_effect(snapshot, assets, setup, banks):
         raise ValueError("ready stage effect range is invalid")
     base = archive + start
     raw = bytes(snapshot.ram[base - 0x80000000:archive + end - 0x80000000])
-    bank = effect_bank(raw, assets / stage["effects"])
+    bank = effect_bank(raw, assets / stage["effects"], assets, evidence_directory)
     banks[base] = bank
     interval = snapshot.read(archive + offsets[0] + 0x2d4, "H")
     if interval != (stage.get("recurring_interval") or 0):
@@ -964,14 +996,14 @@ def detached_contact_bindings(state, usual, enemy_packages=()):
                     for common_base in common_bases:
                         bind(raw, base, rule, at + 8, rule_raw=common, rule_base=common_base)
                 at += 32
-        sources.append(dict(package=pin(path), address=base,
+        sources.append(dict(enemy=int(path.stem), package=pin(path), address=base,
             rules=[rules, rules + len(rule_bytes)], contacts=[contacts, contacts + len(contact_bytes)]))
     result = dict(source=pin(usual), records=list(records.values()))
     if sources:
         result["enemy_packages"] = sources
     return result
 
-def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
+def stored_effect_banks(case, rows, setup, terminal_path, assets, usual, evidence_directory):
     """Register loaded scene bytes against the authored package and retained RAM."""
     owner = setup["initial_battle"]["actors"][setup["owner"]]["address"]
     execution = case.get("definition", {}).get("execution")
@@ -981,6 +1013,7 @@ def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
         if isinstance(event, dict) and "release_spell" in event}
     physical_release = len(release_ids) == 1
     requested_native = next(iter(release_ids)) if physical_release else case.get("native")
+    content = ContentSnapshot(assets, evidence_directory)
     observed = {(slot, row[f"battle_stored_{slot}_resource_word"],
                  row[f"battle_stored_{slot}_flags_technique_word"] & 65535)
                 for row in rows for slot in range(2)
@@ -989,7 +1022,7 @@ def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
                    row["battle_stored_slots_word"] & (0xff00 >> (slot * 8))}
     attached_banks = set()
     if not observed:
-        if requested_native is None or not (assets / f"battle/scenes/{requested_native:03}.json").is_file():
+        if requested_native is None or content.scene_path(requested_native) is None:
             return {}
         counts = observation_counts(rows[0]) if rows else {}
         for row in rows:
@@ -1002,7 +1035,7 @@ def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
             return {}
         observed = {(None, None, requested_native)}
     module = Path(usual).parent.parent / "US_r_Top2Btl.rel"
-    skill = case.get("arte") is not None and (assets / f"battle/scenes/skills/{case['arte']:03}.json").is_file()
+    skill = case.get("arte") is not None and content.scene_path(case["arte"], skill=True) is not None
     archive = Path(usual).with_name("BTLskill.dat" if skill else "BTLmagic.dat")
     raw = module.read_bytes()
     table = struct.unpack_from(">I", raw, 0x10)[0]
@@ -1013,8 +1046,11 @@ def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
     for slot, resource, native in sorted(observed):
         if native != requested_native or not skill and not 201 <= native < 200 + len(offsets):
             raise ValueError("loaded stored scene does not match the requested physical action")
-        path = assets / (f"battle/scenes/skills/{case['arte']:03}.json" if skill else f"battle/scenes/{native:03}.json")
-        scene = read(path)
+        content = ContentSnapshot(assets, evidence_directory)
+        path = content.scene_path(case["arte"] if skill else native, skill=skill)
+        if path is None:
+            raise ValueError("observed stored scene has no current ID mapping")
+        scene, _ = content.scene(path)
         candidates = range(1, len(offsets)) if skill else [native - 200]
         matches = []
         for index in candidates:
@@ -1025,16 +1061,19 @@ def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
             with archive.open("rb") as stream:
                 stream.seek(start)
                 package = stream.read(end - start)
-            if hashlib.sha256(package).hexdigest() == scene["source_sha256"]:
+            member, end_member = scene_effect_range(package)
+            data = package[member:end_member]
+            addresses = attached_banks if resource is None else [resource + member]
+            if any(0 <= address - 0x80000000 <= len(terminal.ram) - len(data)
+                   and terminal.ram[address - 0x80000000:address - 0x80000000 + len(data)] == data
+                   for address in addresses):
                 matches.append((start, end, package))
         if len(matches) != 1:
-            raise ValueError("stored scene archive differs from its authored metadata")
+            raise ValueError("stored scene archive has no unique byte-exact observed effect bank")
         start, end, package = matches[0]
-        pointers = struct.unpack_from(">68I", package, 4)
-        member = pointers[0]
-        end_member = min([v for v in pointers if v > member] + [len(package)])
+        member, end_member = scene_effect_range(package)
         data = package[member:end_member]
-        bank = effect_bank(data, assets / scene["effects"])
+        bank = effect_bank(data, assets / scene["effects"], assets, evidence_directory)
         for address in sorted(attached_banks) if resource is None else [resource + member]:
             at = address - 0x80000000
             if not 0 <= at <= len(terminal.ram) - len(data) or terminal.ram[at:at + len(data)] != data:
@@ -1043,12 +1082,14 @@ def stored_effect_banks(case, rows, setup, terminal_path, assets, usual):
                 raise ValueError("stored effect bank is not retained byte-exactly in source RAM")
             banks[address] = bank
             records.append(dict(slot=slot, owner=owner, native=native, resource=address - member,
-                bank=address, package_range=[start, end], package_sha256=scene["source_sha256"],
-                scene=pin(path), effects=pin(assets / scene["effects"]), bank_sha256=bank["source_sha256"],
+                bank=address, package_range=[start, end], package_sha256=hashlib.sha256(package).hexdigest(),
+                scene=content.evidence(path, package), effects=bank["evidence"], effects_range=[member, end_member],
+                bank_sha256=bank["source_sha256"],
                 kind="skill" if skill else "spell", physical_release=physical_release))
     if records:
         setup["stored_scenes"] = dict(module=pin(module), archive=pin(archive),
                                       terminal=pin(terminal_path), registrations=records)
+        register_effect_inputs(setup, banks)
     return banks
 
 
@@ -1489,6 +1530,22 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
                         birth_tick=None, size=None, owner_bone=None, angles=None, offset=None, heading=None,
                         model_attachment=None):
     """Exact copied prefix, including supported authored birth overrides."""
+    aliases = bank.get('declaration_aliases')
+    if aliases is not None:
+        # Equal semantic definitions may have different unused source bytes.
+        # Try each actual copied header while returning current dense indices.
+        bank = dict(bank)
+        del bank['declaration_aliases']
+        options = dict(model_binding=model_binding, initialized=initialized, age=age,
+            birth_tick=birth_tick, size=size, owner_bone=owner_bone, angles=angles,
+            offset=offset, heading=heading, model_attachment=model_attachment)
+        matches = set(declaration_matches(bank, copied, parent_root, **options))
+        for member, variants in enumerate(aliases):
+            for raw in variants[1:]:
+                alternate = list(bank['declarations'])
+                alternate[member] = raw
+                matches.update(declaration_matches(dict(bank, declarations=alternate), copied, parent_root, **options))
+        return sorted(matches)
     retained = int.from_bytes(copied[20:24], "big") & 0x40000
     if retained and copied[5] not in (*range(8), 255):
         return []
@@ -1708,9 +1765,10 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
                 size_overrides[value["field"]["axis"]] = value
         expected = bytearray(bank["declarations"][member][:24])
         if op.get("blend") is not None:
-            if op["blend"] not in (0, 1):
+            mode = {"alpha":0, "additive":1}.get(op["blend"])
+            if mode is None:
                 continue
-            expected[1] = op["blend"]
+            expected[1] = mode
         if birth.get("cull_back"):
             expected[20] |= 0x10
         if birth.get("ribbon_depth"):
@@ -1786,11 +1844,12 @@ def stun_particle_identity(row, prefix, copied, setup, banks, *, initialized=Tru
         return None
     bank = next((bank for bank in banks.values()
                  if bank["source_sha256"] == setup.get("common_effect_bank")), None)
-    if bank is None or len(bank["declarations"]) <= STUN_DECLARATION:
+    member = None if bank is None else bank.get("stun_member")
+    if member is None:
         return None
     if not initialized:
-        return (bank, STUN_DECLARATION, owner) if copied == bank["declarations"][STUN_DECLARATION][:24] else None
-    metadata = bank["metadata"]["actors"][STUN_DECLARATION]
+        return (bank, member, owner) if copied == bank["declarations"][member][:24] else None
+    metadata = bank["metadata"]["actors"][member]
     template = metadata.get("template", {})
     animation = template.get("uv_animation") or {}
     frames = animation.get("frames", [])
@@ -1799,13 +1858,13 @@ def stun_particle_identity(row, prefix, copied, setup, banks, *, initialized=Tru
     change = frames[0]["change"]
     if change["kind"] != "rectangle":
         return None
-    expected = bytearray(bank["declarations"][STUN_DECLARATION][:24])
+    expected = bytearray(bank["declarations"][member][:24])
     expected[8:16] = struct.pack(">4h", *change["rect"])
     count = min(remaining // 45 + 1, 4)
     expected[18] = 4 if count == 3 else count
     if copied[:3] + copied[4:] != expected[:3] + expected[4:]:
         return None
-    return bank, STUN_DECLARATION, owner
+    return bank, member, owner
 
 
 def damage_context(state, battle):
@@ -3930,7 +3989,7 @@ def prepare_recipient_input(state, path, battle, specification, learning, *, own
 
 def restore_authored_selection(state, battle, assets, packages):
     """Undo only the former bridge's guarding-target suppression, with preimages."""
-    formation = read(assets / "battle/formations.json")["records"][battle["formation"]]
+    formation = ContentSnapshot(assets).formations()["records"][battle["formation"]]
     enemy_ids = {formation["resources"][a["resource"]]["enemy"] for a in formation["actors"]}
     for enemy in enemy_ids:
         raw = (packages / f"{enemy:03}.bin").read_bytes()
@@ -4203,8 +4262,8 @@ def _arrange_enemy_contact(base, path, initialized, case, assets):
     target = next(a for a in battle["actors"] if a["slot"] == 0)
     # Bind the unedited body poses. Geometry resolves their published model
     # transform before applying the current actor transform.
-    enemy = battle_geometry.read_initialized_body(base, owner, assets / f"battle/enemies/{case['enemy']:03}.json")
-    party = battle_geometry.read_initialized_body(base, target, assets / f"battle/party/{battle['party_order'][0]:02}.json")
+    enemy = battle_geometry.read_initialized_body(base, owner, assets, enemy=case["enemy"])
+    party = battle_geometry.read_initialized_body(base, target, assets, character=battle["party_order"][0])
     # Leave room for the required opponent attack to miss while the selected
     # enemy remains within its authored approach interval.
     attacking_target = "target_attacking" in row["requirements"]["predicates"]
@@ -4262,7 +4321,7 @@ def _arrange_enemy_contact(base, path, initialized, case, assets):
             recipient_anchor=fixture["recipient_anchor"], owner_geometry=enemy, target_geometry=party,
             changes=state.changes, scope="Recipient placement beside an observed attachment anchor; owner deployment remains ordinary.")
     # Station policies replace the encounter position before choosing an action.
-    policy = read(assets / f"battle/enemies/{case['enemy']:03}/definition.json")["actions"]["policy"]
+    policy = ContentSnapshot(assets).enemy_rules(case["enemy"])["actions"]["policy"]
     behavior = policy.get("behavior") or {}
     stations = (behavior.get("three_stations") or {}).get("stations")
     health_stage = behavior.get("health_stage") or {}
@@ -4308,9 +4367,9 @@ def _arrange_enemy_contact(base, path, initialized, case, assets):
         slot = actor["slot"]
         if slot in geometry:
             continue
-        descriptor = (f"enemies/{identities[slot]:03}.json" if slot >= 4
-                      else f"party/{battle['party_order'][slot]:02}.json")
-        geometry[slot] = battle_geometry.read_initialized_body(base, actor, assets / "battle" / descriptor)
+        identity = (dict(enemy=identities[slot]) if slot >= 4
+                    else dict(character=battle["party_order"][slot]))
+        geometry[slot] = battle_geometry.read_initialized_body(base, actor, assets, **identity)
     prepared_anchor = anchor if origin_bounds or initial_station or "owner_anchor" in fixture else prepared_positions[owner["slot"]]
     if attacking_target or behind_front_rank:
         # Put the required attack beyond the neutral encounter actors as well.
@@ -4360,18 +4419,19 @@ def enemy_placement_proof(base, path, initialized, assets):
     enemies = {a["slot"]:a["enemy"] for a in initialized["identities"]}
     geometry = {}
     carried = set()
+    content = ContentSnapshot(assets)
     host = next((actor for actor in before["actors"] if actor["side"] == 1), None)
     if (before["combat_tick"] == 0 and host is not None
-            and read(assets / f"battle/enemies/{enemies[host['slot']]:03}/definition.json")["profile"]["traits"]["hosts_participants"]):
+            and content.enemy_rules(enemies[host["slot"]])["profile"]["traits"]["hosts_participants"]):
         carried = {actor["slot"] for actor in before["actors"]
                    if actor["slot"] in enemies and actor["slot"] > host["slot"]
-                   and read(assets / f"battle/enemies/{enemies[actor['slot']]:03}/definition.json")["profile"].get("hosted_body")
+                   and content.enemy_rules(enemies[actor["slot"]])["profile"].get("hosted_body")
                    and current[actor["slot"]]["position"] == actor["position"]}
     for actor in before["actors"]:
         slot = actor["slot"]
-        descriptor = (f"enemies/{enemies[slot]:03}.json" if slot >= 4
-                      else f"party/{before['party_order'][slot]:02}.json")
-        geometry[slot] = battle_geometry.read_initialized_body(base, actor, assets / "battle" / descriptor)
+        identity = (dict(enemy=enemies[slot]) if slot >= 4
+                    else dict(character=before["party_order"][slot]))
+        geometry[slot] = battle_geometry.read_initialized_body(base, actor, assets, **identity)
         if slot not in moved and current[slot]["position"] != actor["position"]:
             raise ValueError("neutral actor placement changed from its initialized encounter")
     gaps = []
@@ -4758,13 +4818,14 @@ def run(args):
                     if enemy_manifest is None:
                         enemy_manifest = build_catalogue(args.packages, assets, enemy_artes.MANIFEST.with_name("battle-formations.json"))
                         enemy_manifest["fixture_defaults"]["party_hp"] = 9999
+                        write(output / "enemy-catalogue.json", enemy_manifest)
                     source_id = f"enemy{case['enemy']:03}:row{case['action_row']:02}"
                     hp_percent = case["definition"]["requirements"]["hp_percent"]
                     hp_percent = 100 if hp_percent is None else hp_percent
                     if not 1 <= hp_percent <= 100:
                         raise ValueError("selected row has no supported living HP fixture")
                     options = SimpleNamespace(case=[source_id], enemy=None, output=destination,
-                        capture_vis=args.max_vis, manifest=assets / f"battle/enemies/{case['enemy']:03}/definition.json",
+                        capture_vis=args.max_vis, manifest=output / "enemy-catalogue.json",
                         difficulty=case.get("contact_fixture", {}).get("difficulty"),
                         formation=case.get("contact_fixture", {}).get("formation"),
                         party_minimum=case.get("contact_fixture", {}).get("party_minimum"),
@@ -4822,7 +4883,7 @@ def run(args):
                     assistance = {"retained_ready": record["resume_ready"], "source_fixture": pin(args.resume_ready.parent / "fixture.json"),
                                   "changes": record["manual_fixture_changes"] + arrangement}
                     expected = {"native": case["native"]}
-                    formation = read(assets / "battle/formations.json")["records"][battle["formation"]]
+                    formation = ContentSnapshot(assets).formations()["records"][battle["formation"]]
                     enemy_ids = [formation["resources"][a["resource"]]["enemy"] for a in formation["actors"]]
                 elif "character" in case:
                     state_path, preselection_changes = prepare_party_ready(worker, destination, record, args.packages)
@@ -4830,7 +4891,7 @@ def run(args):
                     assistance = preselection_changes + assistance
                     expected = {"native": case["native"]}
                     enemy_ids = [144]  # The global formation399 fixture is verified below.
-                    formations = read(assets / "battle/formations.json")["records"]
+                    formations = ContentSnapshot(assets).formations()["records"]
                     formation = formations[battle["formation"]]
                     enemy_ids = [formation["resources"][a["resource"]]["enemy"] for a in formation["actors"]]
                 else:
@@ -4895,7 +4956,7 @@ def run(args):
                     case, recipient_input or case.get("contact_fixture", {}).get("recipient_input"),
                     assistance.get("prerequisites") if "enemy" in case else None)
                 recipient = (prepare_recipient_input(state, state_path, battle, recipient_specification,
-                    read(assets / "game/techniques.json")["learning"], owner=owner) if recipient_specification is not None else None)
+                    technique_content.native_learning(read(assets / "game/techniques.json")), owner=owner) if recipient_specification is not None else None)
                 if recipient is not None and recipient["mode"] in ("attack", "stick"):
                     recipient_actor = next(a for a in battle["actors"] if a["slot"] == target)
                     input_target = recipient.get("target_slot", owner)
@@ -4917,10 +4978,10 @@ def run(args):
                 battle = inspect(state, battle=True)["battle"]
                 assistance = dict(preparation=assistance, neutral_and_offense_changes=fixture_changes,
                                   offensive_stat_preset=args.offense)
-                banks = effect_banks(state, assets, args.packages, enemy_ids, args.usual)
+                banks = effect_banks(state, assets, args.packages, enemy_ids, args.usual, destination / "content-evidence")
                 setup = setup_record(case, state_path, battle, owner, target, assistance, inputs,
                     entry_path,
-                    read(assets / "game/techniques.json")["learning"])
+                    technique_content.native_learning(read(assets / "game/techniques.json")))
                 if "character" in case and not args.resume_ready:
                     warm_path = destination / "warm.s01"
                     warm = State(warm_path)
@@ -4935,7 +4996,8 @@ def run(args):
                     del warm
                 if "enemy" in case and assistance["preparation"].get("prerequisites", {}).get("defense_deployment"):
                     setup["defense_deployed"] = False
-                ready_stage_effect(state, assets, setup, banks)
+                ready_stage_effect(state, assets, setup, banks, destination / "content-evidence")
+                register_effect_inputs(setup, banks)
                 setup["detached_contacts"] = detached_contact_bindings(state, args.usual,
                     [args.packages / f"{enemy:03}.bin" for enemy in enemy_ids])
                 if recipient is not None:
@@ -4943,13 +5005,22 @@ def run(args):
                     setup["opponent_control"].update(mode="manual", port=3,
                         scope="Opponents are manual; the declared recipient receives controller zero input.")
                 setup["common_effect_bank"] = next(b["source_sha256"] for b in banks.values()
-                    if Path(b["path"]).name == "common.json")
-                setup["catalogue"] = pin(assets / ("game/techniques.json" if "character" in case else f"battle/enemies/{case['enemy']:03}/definition.json"))
+                    if b["entry"] == "battle/effects/common/effects.json")
+                if "character" in case:
+                    catalogue = "game/techniques.json"
+                else:
+                    current = ContentSnapshot(assets, destination / "content-evidence")
+                    enemy = current.resolve("battle/enemies/mappings.json", case["enemy"], "enemy.json")
+                    if enemy is None:
+                        raise ValueError("unmapped observed enemy")
+                    catalogue, _ = current.enemy_entry(case["enemy"])
+                setup["catalogue"] = pin(assets / catalogue)
                 setup["knockdown_impacts"] = True
                 object_pool = fixed_particle_slots(state, battle["pool"], OBJECT_POOL_CAPACITY)
                 owner_bones = ready_owner_bones(state, battle, banks)
                 model_joint_plan = effect_model_joints.prepare(
-                    dict(case, native=expected.get("native", case.get("native"))), assets)
+                    dict(case, native=expected.get("native", case.get("native"))), assets,
+                    args.usual, destination / "content-evidence")
                 del state
                 gc.collect()
                 particle_addresses = None
@@ -5000,7 +5071,7 @@ def run(args):
                 rows = read(capture / "observations.json")
                 try:
                     banks.update(stored_effect_banks(dict(case, native=expected.get("native", case.get("native"))),
-                        rows, setup, destination / "terminal.s01", assets, args.usual))
+                        rows, setup, destination / "terminal.s01", assets, args.usual, destination / "content-evidence"))
                 except (OSError, ValueError, KeyError, struct.error) as error:
                     setup["stored_scene_observation_error"] = f"stored scene registration unavailable: {error}"
                 if case.get("presentation", {}).get("empty_contact_groups"):
@@ -5008,6 +5079,7 @@ def run(args):
                         [("ready", State(setup["ready_state"]["path"])),
                          ("terminal", State(destination / "terminal.s01"))], assets)
                 trace = normalize(case, rows, setup, banks, expected, None)
+                reaction_inputs.register(trace, assets, args.usual, destination / "content-evidence")
                 try:
                     entry_motions.register(trace, destination / "terminal.s01", args.packages,
                         enemy_ids, args.extracted, ROOT / "target/debug/resonance-import")

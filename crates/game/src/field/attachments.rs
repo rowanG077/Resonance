@@ -1,9 +1,6 @@
 //! Prepare gameplay attachment queries from the same mesh and curves as drawing.
-use anyhow::{Context, Result, ensure};
-use resonance_content::{
-    animation::{Motion, Skeleton},
-    field::FieldAssets,
-};
+use anyhow::{Context, Result};
+use resonance_content::field::{FieldAssets, attachments};
 use resonance_events::AttachmentPose;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -14,6 +11,7 @@ pub fn prepare(
     mut read: impl FnMut(&str) -> Result<Arc<[u8]>>,
 ) -> Result<Attachments> {
     let mut poses = Attachments::new();
+    let mut motions = BTreeMap::new();
     let models = assets
         .actors
         .iter()
@@ -26,29 +24,22 @@ pub fn prepare(
         }));
     for (resource, model) in models {
         let model = model.context("attachment model is missing")?;
-        if model.bone_names.is_empty() {
+        let Some(inputs) = attachments::read(model, &mut motions, &mut read)? else {
             continue;
-        }
-        let (skeleton, bounds) = Skeleton::from_glb_with_bounds(&read(&model.mesh)?)?;
-        let skeleton = Arc::new(skeleton);
-        ensure!(
-            skeleton.bones.iter().map(|b| &b.name).eq(&model.bone_names),
-            "attachment skeleton differs from scene"
-        );
+        };
+        let skeleton = inputs.skeleton;
         let poses = poses.entry(resource).or_default();
-        poses.mesh_bounds = bounds;
+        poses.mesh_bounds = inputs.mesh_bounds;
         poses.skeleton = Some(skeleton.clone());
         // Following effects and scenario attachment queries can sample any live clip.
-        for clip in &model.clips {
-            let motion = Arc::new(Motion::decode(&read(&clip.motion)?)?);
+        for ((animation_resource, slot), motion) in inputs.clips {
             use resonance_events::animation::AnimationSource;
-            let (source, resource) = clip
-                .animation_resource
+            let (source, resource) = animation_resource
                 .map_or((AnimationSource::Model, resource), |id| {
                     (AnimationSource::Resource, id)
                 });
             poses.clips.insert(
-                (source, resource, clip.resource_slot),
+                (source, resource, slot),
                 AttachmentPose::new(skeleton.clone(), motion)?,
             );
         }

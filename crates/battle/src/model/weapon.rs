@@ -157,7 +157,9 @@ impl WeaponDefinition {
                     initial
                         .iter()
                         .all(|&value| value > -UV_REPEAT && value < UV_REPEAT)
-                        && step.iter().all(|&value| (-128..=127).contains(&value)),
+                        && step
+                            .iter()
+                            .all(|&value| (-UV_REPEAT..=UV_REPEAT).contains(&value)),
                     "invalid weapon texture scroll"
                 ),
                 Some(WeaponTextureAnimation::Atlas {
@@ -657,7 +659,7 @@ impl Weapon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_content::animation::{Bone, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Transform};
 
     fn owner() -> ModelFrame {
         ModelFrame {
@@ -708,7 +710,8 @@ mod tests {
                     bones: vec![Bone {
                         name: "weapon".into(),
                         parent: None,
-                        bind_channels: TransformChannels(8),
+                        parent_transform: None,
+                        shadow_bounds: true,
                         bind: Transform {
                             translation: [1., 2., 3.],
                             ..Default::default()
@@ -783,7 +786,7 @@ mod tests {
         horizontal.texture_animation = Some(WeaponTextureAnimation::Scroll {
             texture: 0,
             initial: [995, 0],
-            step: [7, 0],
+            step: [700, 0],
         });
         definition.layers.push(horizontal);
         let definition = Arc::new(definition);
@@ -800,7 +803,7 @@ mod tests {
         };
         assert_eq!(
             offsets(&weapon),
-            vec![(1, [0., -0.072]), (0, [0., 0.116]), (0, [0.072, 0.])]
+            vec![(1, [0., -0.072]), (0, [0., 0.116]), (0, [0.695, 0.])]
         );
         let held = offsets(&weapon);
         weapon.step(&owner, false)?;
@@ -902,7 +905,7 @@ mod tests {
 
     #[test]
     fn local_weapon_layers_loop_independently_and_hold_with_the_owner() -> Result<()> {
-        use resonance_content::animation::{Track, VectorCurve, VectorInterpolation};
+        use resonance_content::animation::{Channel, Interpolation, Track};
         let mut definition = definition();
         let primary = &mut definition.layers[0];
         primary.playback = WeaponPlayback::Local(Playback {
@@ -917,20 +920,16 @@ mod tests {
                 duration_frames: 4.,
                 tracks: vec![Track {
                     bone: 0,
-                    bind_channels: TransformChannels(8),
-                    period_frames: 4.,
-                    times: vec![0., 4.],
-                    translation: Some(VectorCurve {
-                        interpolation: VectorInterpolation::Linear,
-                        values: vec![[1., 2., 3.], [9., 2., 3.]],
-                        incoming: vec![],
-                        outgoing: vec![],
-                        ease: vec![],
-                    }),
-                    scale: None,
-                    rotation: None,
-                    euler_degrees: None,
-                    matrices: None,
+                    nodes: vec![resonance_content::animation::NodeTrack {
+                        bind: resonance_content::animation::Transform::default(),
+                        translation: Some(Channel {
+                            times: vec![0., 4. / 30.],
+                            interpolation: Interpolation::Linear,
+                            values: vec![[1., 2., 3.], [9., 2., 3.]],
+                        }),
+                        rotation: None,
+                        scale: None,
+                    }],
                 }],
             },
         )]
@@ -1093,27 +1092,23 @@ mod tests {
 
     #[test]
     fn rebinding_keeps_unchanged_animation_and_initializes_changed_definitions() -> Result<()> {
-        use resonance_content::animation::{Track, VectorCurve, VectorInterpolation};
+        use resonance_content::animation::{Channel, Interpolation, Track};
 
         let owner = owner();
-        let curve = |values| VectorCurve {
-            interpolation: VectorInterpolation::Linear,
+        let curve = |values| Channel {
+            times: vec![0., 20. / 30.],
+            interpolation: Interpolation::Linear,
             values,
-            incoming: vec![],
-            outgoing: vec![],
-            ease: vec![],
         };
         let mut definition = definition();
         definition.layers[0].motions.get_mut(&90).unwrap().tracks = vec![Track {
             bone: 0,
-            bind_channels: TransformChannels(8),
-            period_frames: 20.,
-            times: vec![0., 20.],
-            translation: Some(curve(vec![[1., 2., 3.], [21., 2., 3.]])),
-            scale: Some(curve(vec![[2., 3., 4.]; 2])),
-            rotation: None,
-            euler_degrees: None,
-            matrices: None,
+            nodes: vec![resonance_content::animation::NodeTrack {
+                bind: resonance_content::animation::Transform::default(),
+                translation: Some(curve(vec![[1., 2., 3.], [21., 2., 3.]])),
+                rotation: None,
+                scale: Some(curve(vec![[2., 3., 4.]; 2])),
+            }],
         }];
         let definition = Arc::new(definition);
         let mut previous = Weapon::new(Arc::clone(&definition), &owner)?;
@@ -1161,8 +1156,8 @@ mod tests {
             repeat: true,
         });
         let track = &mut layer.motions.get_mut(&90).unwrap().tracks[0];
-        track.translation = Some(curve(vec![[31., 2., 3.], [71., 2., 3.]]));
-        track.scale = None;
+        track.nodes[0].translation = Some(curve(vec![[31., 2., 3.], [71., 2., 3.]]));
+        track.nodes[0].scale = None;
         changed.validate()?;
         let mut rebound = Weapon::rebind(Arc::new(changed), &owner, Some(&previous), body, 10.)?;
         for (frame, x) in [(1., 33.), (1.5, 34.)] {

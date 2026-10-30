@@ -83,6 +83,28 @@ fn sprite_property(
     Some(previous)
 }
 impl NativeHost<'_> {
+    fn find_actor_node(&mut self, actor: i32, requested: &str) -> Option<usize> {
+        let name = self
+            .resources
+            .joint_mappings
+            .get(requested)
+            .map_or(requested, String::as_str);
+        let resource = self.world.actors.get(&actor).map(Actor::model_resource);
+        let result = resource
+            .and_then(|id| self.resources.model(id))
+            .and_then(|model| model.names.iter().position(|node| node == name));
+        if result.is_none() {
+            let message = format!(
+                "missing joint {requested:?} (mapped to {name:?}); actor {actor}, model {resource:?}, field {:?}, event actor {}",
+                self.world.current_field, self.event_actor,
+            );
+            if self.world.warnings.insert(message.clone()) {
+                eprintln!("WARN [scene node lookup] {message}");
+            }
+        }
+        result
+    }
+
     fn wait_for_choice(
         &mut self,
         slot: u8,
@@ -1245,9 +1267,8 @@ impl NativeHost<'_> {
                     .resources
                     .camera_tracks
                     .get(&playback.resource)
-                    .and_then(|keys| keys.last())
                     .ok_or("camera track is not cooked")?
-                    .time;
+                    .duration_frames();
                 if op == NativeCall::MapCameraTrackPosition {
                     require(a[2] != a[3], "camera mapping range is empty")?;
                     let fraction =
@@ -1424,12 +1445,7 @@ impl NativeHost<'_> {
                     .program
                     .string(u16::try_from(a[1]).map_err(|_| "invalid name index")?)
                     .ok_or("name is missing")?;
-                let result = self
-                    .world
-                    .actors
-                    .get(&a[0])
-                    .and_then(|a| self.resources.model(a.model_resource()))
-                    .and_then(|m| m.names.iter().position(|n| n == name.as_ref()));
+                let result = self.find_actor_node(a[0], &name);
                 value = Some(result.map_or(-1, |i| i as i32));
             }
             NativeCall::ReadCoordinateRegister => {

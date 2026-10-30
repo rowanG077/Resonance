@@ -300,7 +300,6 @@ fn battle_result_is_published_before_the_caller_runs_its_reward_once() {
         session_data: Some(Arc::new(resonance_content::session::SessionData {
             rules: None,
             version: 1,
-            executable_sha256: String::new(),
             items: Vec::new(),
             characters: Vec::new(),
             experience: Vec::new(),

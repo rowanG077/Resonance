@@ -4,10 +4,8 @@ use replay::{Event, Key, MenuPage, SlotMode, SlotState, Step, assert_checkpoint,
 use std::{fs, path::Path};
 
 pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
-    let (identity, _) =
-        new_game::save_context(root, resonance_content::diagnostics::Diagnostics::new(true))?;
     let (_, SceneCheckpoint::Field(expected)) =
-        resonance_persistence::decode(&fs::read(save)?)?.admit(&identity)?
+        resonance_persistence::decode(&fs::read(save)?)?.into_parts()
     else {
         anyhow::bail!("probe requires a field save");
     };
@@ -27,7 +25,17 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     steps.push(slots(SlotMode::Save, SlotState::Confirm));
     steps.push(menu(MenuPage::Save));
     steps.push(Step::capture("save-confirm"));
-    steps.extend(Step::tap(Key::Interact));
+    steps.push(Step::Hold {
+        keys: vec![Key::Interact],
+        updates: 1,
+    });
+    // The menu's play clock advances on the confirmation input. Observe the
+    // submitted state before the release input advances it again.
+    steps.push(Step::capture("save-submitted"));
+    steps.push(Step::Hold {
+        keys: vec![],
+        updates: 1,
+    });
     steps.push(slots(SlotMode::Save, SlotState::Notice));
     steps.push(menu(MenuPage::Save));
     steps.push(Step::capture("save-success"));
@@ -92,13 +100,13 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     let store = Store::new(output.join("slots"));
     let (_, SceneCheckpoint::Field(persisted)) =
         resonance_persistence::decode(&store.read(Kind::Save, &SlotId::new("a-001")?)?)?
-            .admit(&identity)?
+            .into_parts()
     else {
         anyhow::bail!("probe requires a field save");
     };
     ensure!(
         serde_json::to_value(&persisted)?
-            == capture_from(&report, "save-confirm")?["menu"]["checkpoint"]["field"],
+            == capture_from(&report, "save-submitted")?["menu"]["checkpoint"]["field"],
         "save menu changed the submitted checkpoint"
     );
     let loaded = capture_from(&report, "loaded-field")?;

@@ -1,3 +1,4 @@
+mod common;
 use resonance_events::*;
 use std::sync::Arc;
 use symphonia_script::{
@@ -38,7 +39,7 @@ fn controlled_world() -> GameWorld {
 
 #[test]
 fn node_position_queries_and_setters_use_local_coordinates_and_preserve_rotation() {
-    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Skeleton, Transform};
     let mut code = Vec::new();
     let cases = [
         (0, [0, 0, 0], [10, -20, 30]),
@@ -66,7 +67,8 @@ fn node_position_queries_and_setters_use_local_coordinates_and_preserve_rotation
             Bone {
                 name: "root".into(),
                 parent: None,
-                bind_channels: TransformChannels(0),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     translation: [100.; 3],
                     ..Default::default()
@@ -75,7 +77,8 @@ fn node_position_queries_and_setters_use_local_coordinates_and_preserve_rotation
             Bone {
                 name: "section".into(),
                 parent: Some(0),
-                bind_channels: TransformChannels(0),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     translation: [10.75, -20.5, 30.9],
                     ..Default::default()
@@ -412,9 +415,7 @@ fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn battle_rules_survive_saves_and_are_captured_when_an_encounter_starts() {
-    let data = Arc::new(cooked::<resonance_content::session::SessionData>(
-        "session-data.json",
-    ));
+    let data = Arc::new(common::session(&asset_root()));
     let mut world = controlled_world();
     world.party = Some(party::Party::new(&data, Default::default()).unwrap());
     let setup = script(&[
@@ -427,7 +428,7 @@ fn battle_rules_survive_saves_and_are_captured_when_an_encounter_starts() {
     ]);
     let battle = script(&[
         (Call::ConfigureBattleRules, &[5, -1]),
-        (Call::Unknown37, &[30, 79, 0]),
+        (Call::StartBattleSimple, &[30, 79, 0]),
     ]);
     let mut events = runtime(
         program(&setup, &battle),
@@ -459,7 +460,7 @@ fn battle_rules_survive_saves_and_are_captured_when_an_encounter_starts() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn short_battle_command_waits_for_and_returns_the_real_outcome() {
-    let data = cooked::<resonance_content::session::SessionData>("session-data.json");
+    let data = common::session(&asset_root());
     for (flags, outcome, defeat) in [
         (0, battle::Outcome::Victory, battle::DefeatPolicy::GameOver),
         (
@@ -471,7 +472,7 @@ fn short_battle_command_waits_for_and_returns_the_real_outcome() {
         let mut world = GameWorld::default();
         world.party = Some(party::Party::new(&data, Default::default()).unwrap());
         let code = script(&[
-            (Call::Unknown37, &[30, 79, flags]),
+            (Call::StartBattleSimple, &[30, 79, flags]),
             (Call::SetEventBit, &[123]),
         ]);
         let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
@@ -508,9 +509,7 @@ fn short_battle_command_waits_for_and_returns_the_real_outcome() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn empty_slots_in_party_reunion_do_not_abort_the_event() {
-    let session = Arc::new(cooked::<resonance_content::session::SessionData>(
-        "session-data.json",
-    ));
+    let session = Arc::new(common::session(&asset_root()));
     let mut party = party::Party::new(&session, Default::default()).unwrap();
     party.formation = vec![1, 4];
     let mut world = GameWorld::default();
@@ -539,9 +538,7 @@ fn empty_slots_in_party_reunion_do_not_abort_the_event() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn rebuilding_the_party_restores_its_leader_before_returning_field_control() {
-    let session = Arc::new(cooked::<resonance_content::session::SessionData>(
-        "session-data.json",
-    ));
+    let session = Arc::new(common::session(&asset_root()));
     let mut party = party::Party::new(&session, Default::default()).unwrap();
     party.formation = vec![1, 4];
     party.field_leader = 4;
@@ -808,6 +805,7 @@ fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values(
 fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
     for (name, encoded) in [
         ("sword", b"sword".as_slice()),
+        ("spine-03", b"Bone_sebone03".as_slice()),
         ("ｵﾌﾞｼﾞｪｸﾄ04", b"\xb5\xcc\xde\xbc\xde\xaa\xb8\xc404".as_slice()),
     ] {
         let mut code = vec![0x1200, 0x100];
@@ -834,6 +832,7 @@ fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
         let mut actor = Actor::new(9, [0.; 3]);
         actor.appearance.costume = 1;
         let resources = ResourceLibrary {
+            joint_mappings: [("Bone_sebone03".into(), "spine-03".into())].into(),
             models: [
                 (
                     9,
@@ -861,13 +860,58 @@ fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
         let attachment = events.world.actors[&10].attachment.as_ref().unwrap();
         assert_eq!(attachment.actor, 9);
         assert_eq!(attachment.bone, name);
+        assert!(events.world.warnings.is_empty());
+    }
+}
+
+#[test]
+fn named_nodes_warn_once_when_a_mapped_joint_is_missing() {
+    let mut code = vec![0x1200, 0x100];
+    native(&mut code, Call::FindActorNode, &[9, 0]);
+    code.extend([0x3010, 0x3000]);
+    native(&mut code, Call::FindActorNode, &[9, 0]);
+    code.push(0x20ff);
+    let mut bytes: Vec<_> = [4, 0, (4 + code.len()) as u16, 0]
+        .into_iter()
+        .chain(code)
+        .flat_map(u16::to_be_bytes)
+        .collect();
+    bytes.extend(4_u32.to_be_bytes());
+    bytes.extend(b"Bone_sebone03\0");
+    let resources = ResourceLibrary {
+        joint_mappings: [("Bone_sebone03".into(), "spine-03".into())].into(),
+        models: [(
+            7,
+            ModelResource {
+                names: vec!["root".into()],
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = GameWorld::default();
+    world.current_field = Some(136);
+    world.insert_actor(9, Actor::new(7, [0.; 3]));
+    let events = runtime(Arc::new(Program::decode(&bytes).unwrap()), resources, world);
+    assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), -1);
+    assert_eq!(events.world.warnings.len(), 1);
+    let message = events.world.warnings.first().unwrap();
+    for context in [
+        "Bone_sebone03",
+        "spine-03",
+        "actor 9",
+        "model Some(7)",
+        "field Some(136)",
+    ] {
+        assert!(message.contains(context), "{message}");
     }
 }
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn costume_change_selects_a_body_and_survives_save() {
-    let data = Arc::new(cooked("session-data.json"));
+    let data = Arc::new(common::session(&asset_root()));
     let body = resonance_content::appearance::costume_resource(4, 2);
     let setup = script(&[(Call::SetCharacterCostume, &[4, 2])]);
     let mut world = GameWorld::default();
@@ -905,9 +949,8 @@ fn costume_change_selects_a_body_and_survives_save() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn script_collection_and_character_changes_survive_save_without_stale_shortcuts() {
-    let mut data: resonance_content::session::SessionData = cooked("session-data.json");
-    data.rules = Some(Arc::new(cooked("menu-data.json")));
-    let data = Arc::new(data);
+    let files = common::files(&asset_root());
+    let data = Arc::new(resonance_content::session::SessionData::load(&files).unwrap());
     let mut party = party::Party::new(&data, Default::default()).unwrap();
     party.members[4].techniques.insert(139);
     party.members[4].disabled_techniques.insert(139);
@@ -931,7 +974,7 @@ fn script_collection_and_character_changes_survive_save_without_stale_shortcuts(
         program(&setup, &[0x20ff]),
         ResourceLibrary {
             session_data: Some(data),
-            text: Arc::new(cooked("text.json")),
+            text: Arc::new(resonance_content::session::GameText::load(&files).unwrap()),
             ..Default::default()
         },
         world,
@@ -956,9 +999,11 @@ fn script_collection_and_character_changes_survive_save_without_stale_shortcuts(
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn collection_services_track_discovery_and_preserve_awarded_completion() {
-    let data = Arc::new(cooked("session-data.json"));
-    let menu: resonance_content::menu_data::MenuData = cooked("menu-data.json");
-    let skits: resonance_content::skit::SkitCatalog = cooked("skits.json");
+    let data = Arc::new(common::session(&asset_root()));
+    let menu = data.rules.as_ref().unwrap().clone();
+    let library = resonance_content::library::Library::open(&asset_root(), &[]).unwrap();
+    let skits =
+        resonance_content::skit::document::capture(&mut library.snapshot(), &|| false).unwrap();
     skits.validate().unwrap();
     let group = i32::from(menu.monsters().unwrap().records[29].unseen_count_group);
     let mut party = party::Party::new(&data, Default::default()).unwrap();
@@ -974,20 +1019,20 @@ fn collection_services_track_discovery_and_preserve_awarded_completion() {
         .filter(|&id| id != 50)
         .collect();
     let calls: &[(Call, &[i32], i32)] = &[
-        (Call::Unknown92, &[2, group], 1),
+        (Call::FieldSystem, &[2, group], 1),
         (Call::ConfigureMonsterKnowledge, &[29, 63], 0),
-        (Call::Unknown92, &[2, group], 0),
-        (Call::Unknown92, &[4, 0], 1),
+        (Call::FieldSystem, &[2, group], 0),
+        (Call::FieldSystem, &[4, 0], 1),
         (Call::ConfigureMonsterKnowledge, &[29, 0], 63),
-        (Call::Unknown92, &[4, 0], 0),
-        (Call::Unknown92, &[7, 0], 1),
+        (Call::FieldSystem, &[4, 0], 0),
+        (Call::FieldSystem, &[7, 0], 1),
         (Call::ConfigureMonsterKnowledge, &[29, 2], 0),
         (Call::ConfigureMonsterKnowledge, &[29, -1], 2),
-        (Call::Unknown92, &[2, group], 0),
+        (Call::FieldSystem, &[2, group], 0),
         (Call::ConfigureFigurine, &[0, 50], 0),
-        (Call::Unknown92, &[5, 0], 1),
-        (Call::Unknown92, &[8, 0], 1),
-        (Call::Unknown92, &[1, 0], 9876),
+        (Call::FieldSystem, &[5, 0], 1),
+        (Call::FieldSystem, &[8, 0], 1),
+        (Call::FieldSystem, &[1, 0], 9876),
         (Call::GetReplaySkit, &[-1], skits.preview_order.len() as i32),
         (Call::GetReplaySkit, &[0], i32::from(skits.preview_order[0])),
         (Call::GetReplaySkit, &[skits.preview_order.len() as i32], -1),
@@ -1014,7 +1059,7 @@ fn collection_services_track_discovery_and_preserve_awarded_completion() {
         program(&code, &[0x20ff]),
         ResourceLibrary {
             session_data: Some(data),
-            menu_data: Some(Arc::new(menu)),
+            menu_data: Some(menu),
             skits: Some(Arc::new(skits)),
             ..Default::default()
         },
@@ -1040,7 +1085,7 @@ fn collection_services_track_discovery_and_preserve_awarded_completion() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn skit_prompt_control_survives_save_and_follows_control_handoff() {
-    let disable = script(&[(Call::Unknown92, &[21, 0])]);
+    let disable = script(&[(Call::FieldSystem, &[21, 0])]);
     let mut events = party_runtime(&disable, &[0x20ff]);
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -1);
     events = reload(&events, &[0x20ff], &[0x20ff]);
@@ -1053,7 +1098,7 @@ fn skit_prompt_control_survives_save_and_follows_control_handoff() {
             .travel
             .skit_prompts_disabled
     );
-    let enable = script(&[(Call::Unknown92, &[21, 1])]);
+    let enable = script(&[(Call::FieldSystem, &[21, 1])]);
     events = reload(&events, &enable, &[0x20ff]);
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
     assert!(
@@ -2007,7 +2052,7 @@ fn actor_heading_queries_handle_coincident_points_and_cardinal_directions() {
 
 #[test]
 fn actor_geometry_resolves_attachments_without_changing_script_coordinates() {
-    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Skeleton, Transform};
     let resources = ResourceLibrary {
         models: [(
             1,
@@ -2018,7 +2063,8 @@ fn actor_geometry_resolves_attachments_without_changing_script_coordinates() {
                         bones: vec![Bone {
                             name: "root".into(),
                             parent: None,
-                            bind_channels: TransformChannels(0),
+                            parent_transform: None,
+                            shadow_bounds: true,
                             bind: Transform::default(),
                         }],
                     })),
@@ -2535,13 +2581,13 @@ fn scripted_sound_minus_one_releases_only_an_explicit_slot() {
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn field_system_leader_commands_read_and_change_the_party_selection() {
-    let session = cooked("session-data.json");
+    let session = common::session(&asset_root());
     let mut world = GameWorld::default();
     world.party = Some(party::Party::new(&session, Default::default()).unwrap());
     world.party.as_mut().unwrap().field_leader = 3;
     world.controlled_actor = 1000;
     for (command, expected, leader) in [(13, 3, 3), (14, 3, 2), (13, 2, 2)] {
-        let code = script(&[(Call::Unknown92, &[command, 2])]);
+        let code = script(&[(Call::FieldSystem, &[command, 2])]);
         let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
         assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
         assert_eq!(events.world.party.as_ref().unwrap().field_leader, leader);
@@ -2914,7 +2960,7 @@ fn credits_wait_for_playback_then_resume_without_changing_menu_results() {
         (Call::ConfigureSession, &[18, 0]),
         (Call::SetEventBit, &[2000]),
     ]);
-    let data = Arc::new(cooked("session-data.json"));
+    let data = Arc::new(common::session(&asset_root()));
     let mut world = GameWorld::default();
     world.party = Some(party::Party::new(&data, Default::default()).unwrap());
     let mut memory = symphonia_script_vm::Memory::default();
@@ -3096,16 +3142,15 @@ fn program_record(main: &[u16], child: &[u16], kind: u16, key: u32) -> Arc<Progr
 fn runtime(program: Arc<Program>, resources: ResourceLibrary, world: GameWorld) -> EventRuntime {
     EventRuntime::with_state(program, Arc::new(resources), world, Default::default()).unwrap()
 }
-fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+fn asset_root() -> std::path::PathBuf {
+    std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
-        });
-    serde_json::from_slice(&std::fs::read(root.join("game").join(name)).unwrap()).unwrap()
+        })
 }
 fn party_runtime(main: &[u16], child: &[u16]) -> EventRuntime {
-    let data = Arc::new(cooked("session-data.json"));
+    let data = Arc::new(common::session(&asset_root()));
     let mut world = GameWorld::default();
     world.party = Some(party::Party::new(&data, Default::default()).unwrap());
     runtime(
@@ -3151,7 +3196,7 @@ fn model(slots: impl IntoIterator<Item = u16>, duration_ticks: u32) -> ModelReso
 
 #[test]
 fn wing_profiles_follow_their_models_and_keep_instance_state_isolated() {
-    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{Bone, Skeleton, Transform};
     let resource = 10;
     for id in [20, 30] {
         let wings = ModelResource {
@@ -3161,7 +3206,8 @@ fn wing_profiles_follow_their_models_and_keep_instance_state_isolated() {
                     bones: vec![Bone {
                         name: "tip".into(),
                         parent: None,
-                        bind_channels: TransformChannels(0),
+                        parent_transform: None,
+                        shadow_bounds: true,
                         bind: Transform {
                             translation: [100., 0., 0.],
                             ..Default::default()
@@ -3242,40 +3288,99 @@ fn wing_profiles_follow_their_models_and_keep_instance_state_isolated() {
 
 #[test]
 fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pose_delay() {
-    use resonance_content::animation::{Bone, Motion, Skeleton, Transform, TransformChannels};
+    use resonance_content::animation::{
+        Bone, Channel, FRAME_HZ, Interpolation, Motion, NodeTrack, Skeleton, Track, Transform,
+    };
     let skeleton = Arc::new(Skeleton {
         bones: [("parent", None), ("attachment", Some(0))]
             .into_iter()
             .map(|(name, parent)| Bone {
                 name: name.into(),
                 parent,
-                bind_channels: TransformChannels(0),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform::default(),
             })
             .collect(),
     });
-    let motion: Motion = serde_json::from_value(serde_json::json!({
-        "duration_frames":2., "tracks":[
-            {"bone":0,"bind_channels":0,"period_frames":2.,"times":[0.],
-             "matrices":[[2.,0.5,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.]]},
-            {"bone":1,"bind_channels":0,"period_frames":2.,"times":[0.,2.],
-             "translation":{"interpolation":"linear","values":[[0.,1.,3.],[8.,1.,3.]]}}
-        ]
-    }))
-    .unwrap();
-    let motion = Arc::new(Motion::decode(&motion.encode().unwrap()).unwrap());
+    // These two TRS nodes compose the original sheared parent matrix.
+    let affine_node = |rotation, scale| NodeTrack {
+        bind: Transform::default(),
+        translation: Some(Channel {
+            interpolation: Interpolation::Step,
+            times: vec![0.],
+            values: vec![[0.; 3]],
+        }),
+        rotation: Some(Channel {
+            interpolation: Interpolation::Step,
+            times: vec![0.],
+            values: vec![rotation],
+        }),
+        scale: Some(Channel {
+            interpolation: Interpolation::Step,
+            times: vec![0.],
+            values: vec![scale],
+        }),
+    };
+    let motion = Motion {
+        duration_frames: 2.,
+        tracks: vec![
+            Track {
+                bone: 0,
+                nodes: vec![
+                    affine_node(
+                        [
+                            0.7051388086518144,
+                            0.052718692444898636,
+                            0.052718692444898636,
+                            0.7051388086518144,
+                        ],
+                        [2.079707626949502, 1., 0.9616736381996076],
+                    ),
+                    affine_node(
+                        [
+                            -0.6983879065115112,
+                            -0.11069928653098358,
+                            -0.11069928653098358,
+                            0.6983879065115111,
+                        ],
+                        [1.; 3],
+                    ),
+                ],
+            },
+            Track {
+                bone: 1,
+                nodes: vec![NodeTrack {
+                    translation: Some(Channel {
+                        interpolation: Interpolation::Linear,
+                        times: vec![0., 2. / FRAME_HZ],
+                        values: vec![[0., 1., 3.], [8., 1., 3.]],
+                    }),
+                    ..NodeTrack::new(Transform::default())
+                }],
+            },
+        ],
+    };
+    let motion = Arc::new(Motion::decode(&motion.encode(&skeleton).unwrap()).unwrap());
     let mut model = model([12, 13], 4);
     model.names = vec!["parent".into(), "attachment".into()];
     model.attachment_pose_delay = 1;
     model.clips.get_mut(&12).unwrap().attachments =
         Some(AttachmentPose::new(skeleton.clone(), motion).unwrap());
-    let layer = serde_json::from_value(serde_json::json!({
-        "duration_frames":2., "tracks":[
-            {"bone":1,"bind_channels":0,"period_frames":2.,"times":[0.],
-             "translation":{"interpolation":"linear","values":[[4.,5.,6.]]}}
-        ]
-    }))
-    .unwrap();
+    let layer = Motion {
+        duration_frames: 2.,
+        tracks: vec![Track {
+            bone: 1,
+            nodes: vec![NodeTrack {
+                translation: Some(Channel {
+                    interpolation: Interpolation::Linear,
+                    times: vec![0.],
+                    values: vec![[4., 5., 6.]],
+                }),
+                ..NodeTrack::new(Transform::default())
+            }],
+        }],
+    };
     model.clips.get_mut(&13).unwrap().attachments =
         Some(AttachmentPose::new(skeleton, Arc::new(layer)).unwrap());
     let resources = ResourceLibrary {
@@ -4197,6 +4302,16 @@ fn event_control_selects_the_leaders_idle_without_overriding_other_actors() {
 fn loaded_motion_and_party_model_keep_their_own_resource_namespaces() {
     use animation::AnimationSource;
     let mut resources = ResourceLibrary::default();
+    for kind in [
+        ResourceKind::Camera,
+        ResourceKind::Overlay,
+        ResourceKind::UnboundGeometry,
+    ] {
+        resources.bindings.insert(46, (kind, 46));
+        assert_eq!(resources.request(46), Ok((kind, 46)));
+    }
+    resources.bindings.insert(46, (ResourceKind::Model, 46));
+    assert!(resources.request(46).is_err());
     resources.models.insert(8, model([12], 20));
     resources.bindings.insert(8, (ResourceKind::Model, 8));
     resources.animations.insert(8, model([12], 60).clips);
@@ -5394,8 +5509,8 @@ fn clear_field_handoff_releases_input_without_a_delayed_second_handoff() {
 
 #[test]
 fn frame_feedback_can_be_enabled_and_restored_by_scripts() {
-    let setup = script(&[(Call::Unknown92, &[18, 2])]);
-    let restore = script(&[(Call::Unknown92, &[18, 0])]);
+    let setup = script(&[(Call::FieldSystem, &[18, 2])]);
+    let restore = script(&[(Call::FieldSystem, &[18, 0])]);
     let mut events = runtime(
         program(&setup, &restore),
         Default::default(),
@@ -5606,8 +5721,8 @@ fn movement_speed_property_changes_an_active_move_and_survives_arrival() {
 #[test]
 #[ignore = "requires locally cooked party and equipment definitions; no devices"]
 fn actor_luck_commands_reroll_once_and_read_equipment_bonuses_without_a_field_actor() {
-    let session = Arc::new(cooked("session-data.json"));
-    let data = Arc::new(cooked("menu-data.json"));
+    let session = Arc::new(common::session(&asset_root()));
+    let data = session.rules.as_ref().unwrap().clone();
     let mut party = party::Party::new(&session, Default::default()).unwrap();
     party.members[0].luck = 14;
     party.members[0].equipment = [0; 6];
@@ -5659,15 +5774,17 @@ fn actor_luck_commands_reroll_once_and_read_equipment_bonuses_without_a_field_ac
 #[ignore = "requires locally cooked character names and party definitions; no devices"]
 fn dialogue_names_use_cooked_companion_names_and_saved_renames_but_reject_unknown_ids() {
     use resonance_events::dialogue::TextToken;
-    let text: resonance_content::session::GameText = cooked("text.json");
+    let files = common::files(&asset_root());
+    let text = resonance_content::session::GameText::load(&files).unwrap();
     assert_eq!(text.characters.len(), 10);
     assert_eq!(text.characters[&10], "Noishe");
-    let mut party = party::Party::new(&cooked("session-data.json"), Default::default()).unwrap();
+    let session = resonance_content::session::SessionData::load(&files).unwrap();
+    let mut party = party::Party::new(&session, Default::default()).unwrap();
     party.members[0].name = Some("Traveler".into());
     let name = |id| Message {
         tokens: vec![Token::Control {
             opcode: 1,
-            expression: vec![0, id, 48, 0, 32, 255],
+            expression: symphonia_script::message::Expression::Constant(i32::from(id)),
         }],
     };
     let resources = Arc::new(ResourceLibrary {
@@ -5857,6 +5974,8 @@ fn numbered_world_cinematics_keep_the_following_scene_and_retire_the_caller() {
 
 #[test]
 fn camera_paths_take_over_tracks_and_new_tracks_restore_playback() {
+    let mut key = resonance_content::CameraKey::looking_at(0., [200., 300., 400.], [0.; 3]);
+    key.orientation = [0., 0., 0., 1.];
     let setup = script(&[
         (Call::PlayCameraTrack, &[555, 0, 0]),
         (Call::SelectCamera, &[-2]),
@@ -5868,11 +5987,7 @@ fn camera_paths_take_over_tracks_and_new_tracks_restore_playback() {
         bindings: [(555, (ResourceKind::Camera, 22))].into(),
         camera_tracks: [(
             22,
-            vec![resonance_content::CameraKey {
-                time: 0.,
-                position: [200., 300., 400.],
-                target: [0.; 3],
-            }],
+            resonance_content::camera_motion::CameraMotion::from_keys(&[key.clone()]).unwrap(),
         )]
         .into(),
         ..Default::default()
@@ -5883,12 +5998,31 @@ fn camera_paths_take_over_tracks_and_new_tracks_restore_playback() {
     let camera = events.world.field_camera.as_ref().unwrap();
     assert_eq!(camera.position, [9., 8., 7.]);
     assert_eq!(camera.target, [9., 1008., 7.]);
+    assert_eq!(camera.up, [0., 0., 1.]);
+    assert_eq!(camera.orientation, None);
     assert!(events.trigger(42, true).unwrap());
     steps(&mut events, 2);
     let camera = events.world.field_camera.as_ref().unwrap();
     assert!(camera.motion.is_none());
     assert_eq!(camera.position, [200., 300., 400.]);
     assert_eq!(camera.target, [0.; 3]);
+    assert!(
+        camera
+            .up
+            .into_iter()
+            .zip(key.up())
+            .all(|(a, b)| (a - b).abs() < 0.000001)
+    );
+    let actual = camera.orientation.unwrap();
+    assert!(
+        actual
+            .into_iter()
+            .zip(key.orientation)
+            .map(|(a, b)| a * b)
+            .sum::<f32>()
+            .abs()
+            > 0.999999
+    );
 }
 
 #[test]
@@ -5907,18 +6041,11 @@ fn camera_tracks_hold_mapped_positions_then_resume_and_loop() {
         bindings: [(555, (ResourceKind::Camera, 22))].into(),
         camera_tracks: [(
             22,
-            vec![
-                resonance_content::CameraKey {
-                    time: 0.,
-                    position: [0.; 3],
-                    target: [0., 10., 0.],
-                },
-                resonance_content::CameraKey {
-                    time: 20.,
-                    position: [40., 0., 0.],
-                    target: [0., 10., 0.],
-                },
-            ],
+            resonance_content::camera_motion::CameraMotion::from_keys(&[
+                resonance_content::CameraKey::looking_at(0., [0.; 3], [0., 10., 0.]),
+                resonance_content::CameraKey::looking_at(20., [40., 0., 0.], [0., 10., 0.]),
+            ])
+            .unwrap(),
         )]
         .into(),
         ..Default::default()
@@ -6057,8 +6184,7 @@ fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
 #[test]
 #[ignore = "requires cooked party and EX skill definitions; no devices"]
 fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
-    let mut data: resonance_content::session::SessionData = cooked("session-data.json");
-    data.rules = Some(Arc::new(cooked("menu-data.json")));
+    let data = common::session(&asset_root());
     let mut world = controlled_world();
     world.controlled_actor = 1;
     world.insert_actor(1, Actor::new(1, [0.; 3]));

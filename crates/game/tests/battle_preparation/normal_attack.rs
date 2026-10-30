@@ -6,16 +6,28 @@ pub(super) fn resources(
     model: &resonance_battle::ModelDefinition,
 ) -> Result<(Vec<ActionDefinition>, ActionResources)> {
     let mut resources = ActionResources::default();
+    let mut snapshot = files
+        .library()
+        .context("normal fixture requires a library")?
+        .snapshot();
     let common = EffectResource {
         bank: Some(Arc::new(
-            files.json(resonance_content::battle_effect::COMMON_PATH)?,
+            resonance_content::battle_effect::document::capture(
+                &mut snapshot,
+                resonance_content::battle_effect::document::COMMON,
+                files.diagnostics(),
+                &|| false,
+            )?,
         )),
         resource: resonance_battle::ResourceId(30),
         members: vec![],
         models: Default::default(),
     };
-    let profiles = files.json(resonance_content::battle_profile::PARTY_PATH)?;
-    let tints = files.json(resonance_content::battle_effect::TINTS_PATH)?;
+    let profiles = resonance_content::battle_rules::party(&files)?;
+    let tints = snapshot.json(
+        resonance_content::battle_effect::TINTS_PATH,
+        resonance_content::preparation::JSON_LIMIT,
+    )?;
     let resolver = battle::voice::Resolver::new(files, &profiles, []);
     let recoil = battle::recoil::Parameters::load(files)?;
     let bindings = battle::normal::prepare_resources(
@@ -39,7 +51,7 @@ pub(super) fn control(
     model: &resonance_battle::ModelDefinition,
 ) -> Result<Arc<resonance_battle::ControlDefinition>> {
     let profiles: resonance_content::battle_profile::Table =
-        files.json(resonance_content::battle_profile::PARTY_PATH)?;
+        resonance_content::battle_rules::party(&files)?;
     Ok(Arc::new(battle::control::party(
         &profiles.records[usize::from(character - 1)],
         &profiles.normal_attacks[usize::from(character - 1)],

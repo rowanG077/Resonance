@@ -1,13 +1,15 @@
 //! Effect recipes and timeline inputs prepared for battle loading.
 pub mod declaration;
+pub mod document;
+mod labels;
+mod range;
+mod texture;
 pub mod timeline;
 pub mod visual;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 pub use timeline::*;
 
-pub const COMMON_PATH: &str = "battle/effects/common.json";
-pub const TECHNIQUES_PATH: &str = "battle/effects/techniques.json";
 pub const TINTS_PATH: &str = "battle/effects/tints.json";
 
 /// Effect palettes, element colors and actor tint requests. Effect
@@ -58,29 +60,36 @@ impl Tints {
     }
 }
 
-/// Cooked recipes and schedules. Unsupported members remain cold until an
-/// encounter requests them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Prepared recipes and schedules. Only `document` reads cooked effect banks;
+/// this in-memory aggregate has no serialized-input reader. Unsupported members
+/// remain cold until an encounter requests them.
+#[derive(Debug, Clone, Serialize)]
 pub struct SourceBank {
-    pub source_sha256: String,
+    /// Runtime ownership for diagnostics and oracle binding, derived from the
+    /// current entry path. This is never serialized into an editable program.
+    #[serde(skip)]
+    pub document: Option<String>,
+
     pub programs: Vec<Vec<ScheduledEvent>>,
     pub actors: Vec<declaration::Declaration>,
+    /// Authored local names; native import pools have none until publication.
+    #[serde(skip)]
+    pub template_names: Vec<String>,
     /// Shared presentation dependencies; unused members stay cold.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub art: Option<Art>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Art {
-    pub source_sha256: String,
     /// Native texture bank slot, then native texture index, then palette page.
     pub textures: BTreeMap<u8, Vec<EffectTexture>>,
     /// Effect model slots retained from the asset catalogue.
     pub models: BTreeMap<u8, crate::battle_model::ModelPart>,
-    pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "texture::Definition", into = "texture::Definition")]
 pub struct EffectTexture {
     pub images: Vec<crate::font::UiTexture>,
     pub sampler: crate::texture::Sampler,
@@ -108,10 +117,13 @@ pub enum UvAnimation {
     Frames {
         frames: Vec<UvFrame>,
         /// Repeat from this frame, or hold the final frame when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         loop_start: Option<usize>,
     },
     Scroll {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         origin: [i16; 2],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         step: [i16; 2],
         interval: u32,
     },
@@ -135,7 +147,9 @@ pub enum UvChange {
 #[serde(deny_unknown_fields)]
 pub struct ModelBinding {
     pub slot: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation: Option<u16>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub repeat: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reverse_at: Option<u8>,
@@ -161,9 +175,13 @@ pub enum ParticleGeometry {
     BillboardTrail {
         size: [f32; 2],
         radius: f32,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         radius_velocity: f32,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         segment_size_step: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         segment_offset: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         segment_angle_step: f32,
         steps_per_segment: u8,
     },
@@ -172,25 +190,34 @@ pub enum ParticleGeometry {
     Ribbon {
         length: f32,
         width: f32,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         jitter: f32,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         phase: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         phase_period: i8,
     },
     /// A segmented spiral with ordinary dimension integration. Modifiers may
     /// reverse its per-segment angle independently of its angular velocity.
     Spiral {
         value: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         velocity: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         acceleration: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         segment_angle_step: f32,
     },
     Size {
         value: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         velocity: [f32; 3],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         acceleration: [f32; 3],
     },
     Quad {
         vertices: [[f32; 3]; 4],
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         velocity: [[f32; 3]; 4],
     },
 }
@@ -202,22 +229,35 @@ pub struct ParticleState {
     pub segment_offset: [Option<f32>; 3],
     /// Constructor modifier override; absent values retain the prepared declaration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "labels::blend::optional")]
     pub blend: Option<u8>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub cull_back: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ribbon_depth: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub offset: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub velocity: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub acceleration: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub angles: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub angular_velocity: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub orbit: [f32; 3],
     pub geometry: ParticleGeometry,
     pub colors: [[i16; 4]; 2],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub brighten: [u8; 4],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brighten_until: Option<u32>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub uv: [i16; 4],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub palettes: [u8; 2],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub geometry_count: u8,
     /// Repeat this billboard at the current positions of the owner's tagged bones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -241,6 +281,7 @@ pub struct ParticleTemplate {
     /// Advance while a cinematic holds ordinary battle effects.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub during_pause: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifetime: Option<u32>,
     /// Integrate and draw in the current pose of this owner bone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -249,9 +290,10 @@ pub struct ParticleTemplate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_bone: Option<u8>,
     /// Refresh the origin from the effect's attachment on each particle visit.
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub follow_origin: bool,
     /// Face successive followed positions instead of integrating angular motion.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub follow_orientation: bool,
     /// Preserve authored angles and orbit instead of advancing their motion.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -267,6 +309,7 @@ pub struct ParticleTemplate {
     pub model_ground_relative: bool,
     /// Submit this particle in its selected actor's ordered drawing lists.
     /// The visual recipe selects the side of the actor drawing pass.
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub draw_after_target: bool,
     /// Reflect vertical velocity at the floor after integration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -283,18 +326,26 @@ pub struct ParticleTemplate {
     /// Emit a detached member on the first particle visit and each interval thereafter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub periodic_effect: Option<PeriodicEffect>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub element_tint: bool,
     pub state: ParticleState,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub jerk: [f32; 3],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub orbit_velocity: [f32; 3],
     /// Integrate the local offset as XYZ rather than advancing its angle.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub linear_orbit: bool,
     /// None keeps geometry acceleration active for the full lifetime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geometry_acceleration_until: Option<u32>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub gradient: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub fade: [u8; 4],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub fade_from: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uv_animation: Option<UvAnimation>,
 }
 
@@ -469,6 +520,15 @@ impl ParticleTemplate {
 }
 
 impl SourceBank {
+    pub fn named_particle(&self, name: &str) -> Result<(u8, &ParticleTemplate)> {
+        let index = self
+            .template_names
+            .iter()
+            .position(|n| n == name)
+            .with_context(|| format!("missing effect template {name}"))?;
+        Ok((u8::try_from(index)?, self.particle(index)?))
+    }
+
     /// Borrow one admitted particle without copying its animation or geometry.
     pub fn particle(&self, member: usize) -> Result<&ParticleTemplate> {
         let template = self
@@ -502,3 +562,9 @@ impl SourceBank {
         Ok(timeline)
     }
 }
+
+#[cfg(test)]
+mod format_tests;
+
+#[cfg(test)]
+mod authoring_tests;

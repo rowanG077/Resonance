@@ -112,7 +112,6 @@ mod tests {
     #[test]
     fn fixed_cells_preserve_the_bitmap_glyph_aspect() {
         let font = BitmapFont {
-            version: 1,
             texture: String::new(),
             width: 32,
             height: 32,
@@ -125,8 +124,6 @@ mod tests {
                 },
             )]
             .into(),
-            source_sha256: String::new(),
-            executable_sha256: String::new(),
         };
         let mut batch = Batch::default();
         glyphs(&mut batch, &font, "11", [0., 0.], [10., 10.], [128; 4]).unwrap();

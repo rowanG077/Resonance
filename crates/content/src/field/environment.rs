@@ -4,8 +4,11 @@ use crate::effect::SpriteRecipe;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod document;
+pub use document::{EnvironmentDefaults, EnvironmentDocument};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldEnvironment {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub particles: Vec<AmbientParticles>,
@@ -35,25 +38,26 @@ impl FieldEnvironment {
             particle.sprite.validate()?;
             match &particle.emission {
                 AmbientEmission::Drifting {
-                    interval,
-                    lifetime,
-                    position,
-                    position_step,
-                    position_steps,
-                    velocity,
-                    half_size,
+                    interval_ticks,
+                    lifetime_ticks,
+                    spawn_position,
+                    spawn_step,
+                    spawn_counts,
+                    velocity_per_tick,
+                    size,
                     ..
                 } => ensure!(
-                    *interval > 0
-                        && *lifetime > 0
-                        && position_steps.iter().all(|n| *n > 0)
-                        && position
+                    *interval_ticks > 0
+                        && *lifetime_ticks > 0
+                        && *lifetime_ticks <= 65_536
+                        && spawn_counts.iter().all(|n| *n > 0)
+                        && spawn_position
                             .iter()
-                            .chain(position_step)
-                            .chain(velocity)
-                            .chain(half_size)
+                            .chain(spawn_step)
+                            .chain(velocity_per_tick)
+                            .chain(size)
                             .all(|v| v.is_finite())
-                        && half_size.iter().all(|v| *v > 0.),
+                        && size.iter().all(|v| *v > 0.),
                     "invalid drifting field particles"
                 ),
                 AmbientEmission::Fire { position, size } => ensure!(
@@ -62,22 +66,24 @@ impl FieldEnvironment {
                 ),
                 AmbientEmission::Snow {
                     count,
-                    spread,
-                    height,
-                    fall_speed,
-                    half_size,
+                    horizontal_offsets,
+                    spawn_height,
+                    fall_speed_per_tick,
+                    size,
                     fog_range,
                     ..
                 } => ensure!(
                     *count > 0
                         && *count <= 4096
-                        && *spread > 0
-                        && height.is_finite()
-                        && *height > 0.
-                        && fall_speed[0] > 0
-                        && fall_speed[0] <= fall_speed[1]
-                        && half_size.is_finite()
-                        && *half_size > 0.
+                        && horizontal_offsets[0] <= horizontal_offsets[1]
+                        && i64::from(horizontal_offsets[1]) - i64::from(horizontal_offsets[0])
+                            < i64::from(u32::MAX)
+                        && spawn_height.is_finite()
+                        && *spawn_height > 0.
+                        && fall_speed_per_tick[0] > 0
+                        && fall_speed_per_tick[0] <= fall_speed_per_tick[1]
+                        && size.is_finite()
+                        && *size > 0.
                         && fog_range.iter().all(|v| v.is_finite())
                         && fog_range[0] < fog_range[1],
                     "invalid field snow"
@@ -87,7 +93,7 @@ impl FieldEnvironment {
         if let Some(wind) = &self.wind {
             wind.gate.validate()?;
             ensure!(
-                wind.steps > 0 && wind.base.iter().chain(&wind.step).all(|v| v.is_finite()),
+                wind.count > 0 && wind.first.iter().chain(&wind.step).all(|v| v.is_finite()),
                 "invalid field wind"
             );
         }
@@ -125,6 +131,7 @@ impl FieldEnvironment {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EnvironmentGate {
     #[default]
     Always,
@@ -171,21 +178,24 @@ impl RenderValue {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AmbientParticles {
+    #[serde(default, rename = "when")]
     pub gate: EnvironmentGate,
     pub sprite: SpriteRecipe,
+    #[serde(flatten)]
     pub emission: AmbientEmission,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AmbientEmission {
     Drifting {
-        interval: u16,
-        lifetime: u16,
-        position: [f32; 3],
-        /// Independent integer samples in 0..position_steps multiply these offsets.
-        position_step: [f32; 3],
-        position_steps: [u16; 3],
-        velocity: [f32; 3],
-        half_size: [f32; 2],
+        interval_ticks: u32,
+        lifetime_ticks: u32,
+        spawn_position: [f32; 3],
+        /// Independent integer samples in 0..spawn_counts multiply these offsets.
+        spawn_step: [f32; 3],
+        spawn_counts: [u16; 3],
+        velocity_per_tick: [f32; 3],
+        size: [f32; 2],
         color: [u8; 4],
     },
     Fire {
@@ -194,24 +204,28 @@ pub enum AmbientEmission {
     },
     Snow {
         count: u16,
-        spread: u16,
-        height: f32,
-        fall_speed: [u8; 2],
-        half_size: f32,
+        horizontal_offsets: [i32; 2],
+        spawn_height: f32,
+        fall_speed_per_tick: [u8; 2],
+        size: f32,
         color: [u8; 4],
         fog_color: [u8; 4],
         fog_range: [f32; 2],
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldWind {
+    #[serde(default, rename = "when")]
     pub gate: EnvironmentGate,
-    pub base: [f32; 3],
+    pub first: [f32; 3],
     pub step: [f32; 3],
-    pub steps: u16,
+    pub count: u16,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeatHaze {
+    #[serde(default, rename = "when")]
     pub gate: EnvironmentGate,
     pub sprite: SpriteRecipe,
     pub scroll_per_tick: f32,
@@ -220,8 +234,11 @@ pub struct HeatHaze {
     pub alpha: u8,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SceneryLighting {
+    #[serde(default, rename = "when")]
     pub gate: EnvironmentGate,
+    #[serde(default = "primary_scenery")]
     pub target: RenderValue,
     pub ambient: [u8; 3],
     pub color: [u8; 3],
@@ -229,8 +246,13 @@ pub struct SceneryLighting {
     pub lights: Vec<SceneryLight>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SceneryLight {
     pub actor: RenderValue,
     pub height: f32,
     pub intensity: f32,
+}
+
+fn primary_scenery() -> RenderValue {
+    RenderValue::Fixed(super::scenery_actor(0))
 }

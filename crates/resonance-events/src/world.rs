@@ -170,6 +170,11 @@ impl Actor {
         self.culling_flags[1] == Some(true)
     }
 
+    /// Native model-less emitters draw particles instead of an actor model.
+    pub fn is_model_less_emitter(&self) -> bool {
+        self.resource == 0 && self.emitter.is_some()
+    }
+
     pub fn model_resource(&self) -> u32 {
         resonance_content::appearance::costume_resource(self.resource, self.appearance.costume)
     }
@@ -616,6 +621,8 @@ pub struct CameraTrack {
 }
 #[derive(Default)]
 pub struct GameWorld {
+    /// Distinct nonfatal lookup failures, retained for diagnostics and logged once.
+    pub warnings: std::collections::BTreeSet<String>,
     pub(crate) authored_actors: BTreeMap<i32, i32>,
     pub(crate) ring: crate::ring::Controller,
     pub(crate) fog_effects: BTreeMap<i32, crate::camera::FogEffect>,
@@ -716,6 +723,7 @@ pub struct GameWorld {
     pub(crate) enemy_encounter_cooldown: u8,
     pub(crate) restore_battle_music: bool,
     pub(crate) loaded_resources: BTreeMap<i32, (crate::ResourceKind, u32)>,
+    pub resource_requests: Vec<crate::ResourceRequest>,
     pub(crate) operations: crate::operation::OperationScope,
     pub(crate) next_particle: i32,
 }
@@ -1003,28 +1011,7 @@ pub struct TreasureChest {
     pub reward: TreasureReward,
     pub kind: TreasureKind,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TreasureKind {
-    UnknownId0 = 0,
-    UnknownId1 = 1,
-    UnknownId2 = 2,
-    CustomModel0 = 3,
-    CustomModel1 = 4,
-}
-impl TryFrom<i32> for TreasureKind {
-    type Error = &'static str;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::UnknownId0),
-            1 => Ok(Self::UnknownId1),
-            2 => Ok(Self::UnknownId2),
-            3 => Ok(Self::CustomModel0),
-            4 => Ok(Self::CustomModel1),
-            _ => Err("invalid treasure kind"),
-        }
-    }
-}
+pub use symphonia_constants::TreasureKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TreasureReward {
     Item(u16),

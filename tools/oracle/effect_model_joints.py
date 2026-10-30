@@ -1,7 +1,5 @@
 """Observe authored model attachments through typed model descriptors."""
-import hashlib
-import json
-from pathlib import Path
+from named_content import Snapshot, scene_effect_range, spell_package
 
 
 DESCRIPTOR_TABLE = 0x7a63c
@@ -9,7 +7,7 @@ DESCRIPTOR_BYTES = 0x7e0
 STORED_MODEL_BANKS = (6, 7)
 
 
-def prepare(case, assets):
+def prepare(case, assets, usual, evidence_directory):
     execution = case.get("definition", {}).get("execution")
     attack = execution.get("attack", {}) if isinstance(execution, dict) else {}
     natives = {event["release_spell"]["technique"]
@@ -19,11 +17,11 @@ def prepare(case, assets):
         natives.add(case["native"])
     result = []
     for native in sorted(natives):
-        path = Path(assets) / f"battle/scenes/{native:03}.json"
-        if not path.is_file():
+        content = Snapshot(assets, evidence_directory)
+        path = content.scene_path(native)
+        if path is None:
             continue
-        scene = json.loads(path.read_text())
-        effects = json.loads((Path(assets) / scene["effects"]).read_text())
+        scene, effects = content.scene(path)
         attachments = [actor["binding"]["attachment"] for actor in effects["actors"]
                        if actor.get("binding", {}).get("attachment")]
         if not attachments:
@@ -39,8 +37,13 @@ def prepare(case, assets):
                     joints.append(dict(model=int(model), joint=joint, bone=matches[0]))
         if set(attachment["joint"] for attachment in attachments) - {entry["joint"] for entry in joints}:
             raise ValueError("model attachment has no authored joint")
-        result.append(dict(bank=effects["source_sha256"],
-            scene=dict(path=str(path.resolve()), sha256=hashlib.sha256(path.read_bytes()).hexdigest()),
+        package = spell_package(usual, native)
+        start, end = scene_effect_range(package)
+        bank_content = Snapshot(assets, evidence_directory)
+        bank_content.effects(scene["effects"])
+        bank_evidence = bank_content.evidence(scene["effects"], package[start:end])
+        result.append(dict(bank=bank_evidence["source"]["sha256"],
+            scene=content.evidence(path, package), effects=bank_evidence, effects_range=[start, end],
             retained=sorted({attachment["retained"] for attachment in attachments}), joints=joints))
     return result
 

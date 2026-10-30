@@ -51,6 +51,8 @@ enum Command {
     },
     /// Print the selected host's actual native declarations.
     Api { host: Host },
+    /// Print optional .sym node references from a model's current GLB skeleton.
+    Nodes { model: PathBuf },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -62,17 +64,17 @@ fn main() -> anyhow::Result<()> {
             root,
             modules,
         } => {
-            let project = if assets.is_some() {
-                SourceTree::load_project(root)?
-            } else {
-                SourceTree::load(root)?
-            };
+            let project = SourceTree::load_project(root)?;
+            let generated = resonance_script_content::modules();
             let standard = assets
                 .map(|assets| SourceTree::load(assets.join("scripts")))
                 .transpose()?;
             let sources = StandardSources {
                 project: &project,
-                standard: standard.as_ref().unwrap_or(&project),
+                standard: standard
+                    .as_ref()
+                    .map(|tree| tree as &dyn SourceResolver)
+                    .unwrap_or(&generated),
             };
             for module in &modules {
                 let source = sources
@@ -121,6 +123,17 @@ fn main() -> anyhow::Result<()> {
         Command::Api { host } => {
             let natives = host.declarations();
             print!("{}", native_reference(&natives));
+        }
+        Command::Nodes { model } => {
+            let bytes =
+                std::fs::read(&model).with_context(|| format!("read model {}", model.display()))?;
+            let names = resonance_content::animation::joint_names_from_glb(&bytes)?;
+            print!(
+                "{}",
+                resonance_script_content::node_definitions(
+                    &names.iter().map(String::as_str).collect::<Vec<_>>(),
+                )
+            );
         }
     }
     Ok(())

@@ -164,11 +164,7 @@ mod tests {
         data.worlds[0][0].position = [1000., 2000.];
         data.worlds[0][0].radius = 400.;
         data.worlds[0][0].interaction = Interaction::Active;
-        let locations = Locations::new(
-            Arc::new(data),
-            Default::default(),
-            crate::overworld::scripts::fixture(),
-        )?;
+        let locations = Locations::new(Arc::new(data), crate::overworld::scripts::fixture())?;
         let previous = state(Mount::Noishe);
         for (direction, expected) in [
             (0, [1500., 2000., 0.]),
@@ -192,7 +188,6 @@ mod tests {
     fn authored_special_exits_keep_their_positions_and_mount_modes() -> Result<()> {
         let locations = Locations::new(
             Arc::new(entry_definitions()),
-            Default::default(),
             crate::overworld::scripts::fixture(),
         )?;
         let p = parameters();
@@ -220,11 +215,8 @@ mod tests {
         };
         rule.mount = Some(Mount::Noishe);
         data.worlds[0][0].entry_overrides.push(rule.clone());
-        let locations = Locations::new(
-            Arc::new(data.clone()),
-            Default::default(),
-            crate::overworld::scripts::fixture(),
-        )?;
+        let locations =
+            Locations::new(Arc::new(data.clone()), crate::overworld::scripts::fixture())?;
         let previous = state(Mount::Foot);
         let next = resolve(&locations, &parameters(), Some(&previous), 1, 6)?;
         assert_eq!(next.position.map(), [1111., 2222., 7.]);
@@ -238,24 +230,12 @@ mod tests {
         assert_eq!(retained.mount, previous.mount);
         data.worlds[0][0].entry_overrides.push(rule);
         assert!(
-            Locations::new(
-                Arc::new(data.clone()),
-                Default::default(),
-                crate::overworld::scripts::fixture()
-            )
-            .is_err()
+            Locations::new(Arc::new(data.clone()), crate::overworld::scripts::fixture()).is_err()
         );
         data.worlds[0][0].entry_overrides.truncate(1);
         data.worlds[0][0].entry_overrides[0].placement =
             EntryPlacement::LandmarkCenter { height: f32::NAN };
-        assert!(
-            Locations::new(
-                Arc::new(data),
-                Default::default(),
-                crate::overworld::scripts::fixture()
-            )
-            .is_err()
-        );
+        assert!(Locations::new(Arc::new(data), crate::overworld::scripts::fixture()).is_err());
         Ok(())
     }
 }

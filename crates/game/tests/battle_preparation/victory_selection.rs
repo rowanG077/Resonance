@@ -1,14 +1,11 @@
 use super::*;
 use resonance_battle::{ActorAvailability, BattleResult, Cue};
 use resonance_content::{
-    arte, diagnostics::Diagnostics, menu_data::MenuData, prepared::Cache, session::SessionData,
+    arte, diagnostics::Diagnostics, menu_data::MenuData, session::SessionData,
 };
 use resonance_events::{battle::DefeatPolicy, party::Party};
 use resonance_game::battle::{
-    encounter::{Assets, PrepareOptions},
-    lifecycle::victory_selection,
-    party::Character,
-    results,
+    encounter::PrepareOptions, lifecycle::victory_selection, party::Character, results,
 };
 
 /// Real result resources exercise selected group playback and persistence with
@@ -17,15 +14,18 @@ use resonance_game::battle::{
 #[ignore = "requires prepared battle and audio assets; no devices"]
 fn fallen_companion_results_place_speak_and_preserve_party_state() -> Result<()> {
     let root = common::asset_root();
-    let mut cache = Cache::default();
-    let retained = Files::load(&root, &["fields/map-332.preload.json"], &mut cache, || {
-        false
-    })?;
-    let menus: Arc<MenuData> = Arc::new(retained.json("game/menu-data.json")?);
-    let mut data: SessionData = retained.json("game/session-data.json")?;
+
+    let retained = resonance_content::preparation::capture(
+        &resonance_content::library::Library::open(&root, &[])?,
+        &[],
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let menus: Arc<MenuData> = Arc::new(resonance_content::menu_data::MenuData::load(&retained)?);
+    let mut data: SessionData = resonance_content::session::SessionData::load(&retained)?;
     data.rules = Some(menus.clone());
     let data = Arc::new(data);
-    let catalogue: Arc<arte::Catalogue> = Arc::new(retained.json(arte::PATH)?);
+    let catalogue: Arc<arte::Catalogue> = Arc::new(arte::Catalogue::load(&retained)?);
     let mut party = Party::new(&data, Default::default())?;
     party.formation = vec![Character::Raine as u8, Character::Sheena as u8];
     party.field_leader = Character::Raine as u8;
@@ -36,20 +36,34 @@ fn fallen_companion_results_place_speak_and_preserve_party_state() -> Result<()>
     let raine = usize::from(Character::Raine as u8 - 1);
     party.members[raine].hp = 0;
     party.validate(&data)?;
-    let (_assets, prepared) = Assets::load(
-        &root,
-        &retained,
-        &menus,
-        &data,
-        &party,
-        opening_setup(1, DefeatPolicy::GameOver),
-        PrepareOptions {
-            victory_story_flags: [true, true],
-            ..opening_options(4)
-        },
-        &mut cache,
-        || false,
-    )?;
+    let (_assets, prepared) = {
+        let mut snapshot = (&retained)
+            .library()
+            .context("named library is required")?
+            .snapshot();
+        let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+            &mut snapshot,
+            &(|| false),
+        )?;
+        let inputs = resonance_game::battle::encounter::Assets::capture(
+            &mut snapshot,
+            &menus,
+            &data,
+            &party,
+            opening_setup(1, DefeatPolicy::GameOver),
+            (&retained).diagnostics().clone(),
+            &(|| false),
+        )?;
+        let (assets, prepared, _) = inputs.prepare_named(
+            &menus,
+            PrepareOptions {
+                victory_story_flags: [true, true],
+                ..opening_options(4)
+            },
+            &catalogue,
+        )?;
+        Ok::<_, anyhow::Error>((assets, prepared))
+    }?;
 
     let group = victory_selection::VictoryGroupId(2); // Raine's fallen-companion dialogue.
     let expected = prepared

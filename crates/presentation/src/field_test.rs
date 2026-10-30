@@ -39,7 +39,9 @@ impl Scene {
     ) -> Result<Self> {
         let package =
             new_game::FieldPackage::prepare(root, map, &mut Default::default(), || false)?;
-        let data = Arc::new(package.files.json("game/session-data.json")?);
+        let data = Arc::new(resonance_content::session::SessionData::load(
+            &package.files,
+        )?);
         let mut entry = FieldEntry {
             persistent: resonance_events::PersistentState {
                 party: Some(resonance_events::party::Party::new(
@@ -190,7 +192,7 @@ impl Scene {
         package: &new_game::FieldPackage,
         mut entry: resonance_game::field::FieldEntry,
     ) -> Result<Self> {
-        entry.skits = Some(Arc::new(package.files.json("game/skits.json")?));
+        entry.skits = Some(package.skits.clone());
         let kind = entry.kind;
         let mut field = package.enter(entry)?;
         package.queue_entry(&mut field, kind);

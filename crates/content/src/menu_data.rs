@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 mod cooking;
 pub mod crafting;
 mod customize;
+pub mod document;
 mod ex_skills;
 mod manual;
 mod presentation;
@@ -14,7 +15,7 @@ mod strategy;
 mod synopsis;
 mod text;
 mod title_awards;
-mod world_map;
+pub mod world_map;
 pub use cooking::*;
 pub use customize::*;
 pub use ex_skills::*;
@@ -29,9 +30,14 @@ pub use title_awards::*;
 pub use world_map::*;
 
 pub const MANUAL_PATH: &str = "game/menu/manual.json";
+pub const GRADE_SHOP_PATH: &str = "game/menu/grade-shop.json";
+pub const CRAFTING_PATH: &str = "game/menu/crafting.json";
+pub const WORLD_MAP_PATH: &str = "game/menu/world-map.json";
+pub const PRESENTATION_PATH: &str = "game/menu/presentation.json";
+pub const MONSTER_BOOK_PATH: &str = "game/menu/monster-book.json";
 pub const FIGURINES_PATH: &str = "game/menu/figurines.json";
 pub const SYNOPSIS_PATH: &str = "game/menu/synopsis.json";
-pub const CUSTOMIZE_PATH: &str = "game/menu/customize.json";
+pub const CUSTOMIZE_PATH: &str = crate::options::PATH;
 pub const RENAME_PATH: &str = "game/menu/rename.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,24 +71,32 @@ impl Item {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuData {
     pub grade_shop: crate::grade::Shop,
-    pub version: u32,
+    #[serde(default)]
     pub items: Vec<Item>,
+    #[serde(default)]
     pub titles: Vec<Vec<Title>>,
+    #[serde(default)]
     pub title_awards: TitleAwardRules,
+    #[serde(default)]
     pub initial_names: [String; 9],
+    #[serde(default)]
     pub techniques: Vec<Technique>,
+    #[serde(default)]
     pub strategy: StrategyData,
+    #[serde(default)]
     pub cooking: CookingData,
     #[serde(default)]
     pub crafting: crafting::Data,
+    #[serde(default)]
     pub status: StatusData,
     pub world_map: WorldMapData,
+    #[serde(default)]
     pub ex_skills: ExSkillData,
     #[serde(default)]
     pub presentation: MenuPresentation,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Technique {
     pub tp: u8,
     pub tp_percent: bool,
@@ -98,7 +112,7 @@ pub struct Technique {
     pub field_use: Option<TechniqueUse>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TechniqueUse {
     Recover { hp: u8, party: bool },
@@ -184,23 +198,76 @@ pub enum Costume {
 }
 
 impl MenuData {
-    pub const VERSION: u32 = 37;
     /// Admit optional labels independently while keeping gameplay records typed.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
-        let mut data = Self::decode(&files.read("game/menu-data.json")?, files.diagnostics())?;
-        crate::arte::elemental::extend_menu(&mut data)?;
-        Ok(data)
+        Self::load_with_tables(
+            files,
+            &crate::items::load(files)?,
+            &crate::arte::document::load(files)?,
+            &files.json(crate::characters::PATH)?,
+            &files.json(crate::cooking::PATH)?,
+            &files.json(crate::ex_skills::PATH)?,
+        )
     }
 
-    pub fn decode(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {
-        let mut source: serde_json::Value = serde_json::from_slice(bytes)?;
-        let presentation = source
-            .as_object_mut()
-            .context("menu data must be an object")?
-            .remove("presentation")
-            .unwrap_or_default();
-        let mut data: Self = serde_json::from_value(source)?;
-        data.presentation = MenuPresentation::decode(presentation, diagnostics)?;
+    pub(crate) fn load_with_tables(
+        files: &crate::prepared::Files,
+        items: &crate::items::Prepared,
+        techniques: &crate::arte::document::Prepared,
+        characters: &crate::characters::Document,
+        cooking: &crate::cooking::Document,
+        ex: &crate::ex_skills::Document,
+    ) -> Result<Self> {
+        let mut data = document::Document::load(files)?.prepare(files, &items.mappings)?;
+        data.items = items.menu.clone();
+        ensure!(
+            !data
+                .presentation
+                .labels
+                .keys()
+                .any(|key| key.starts_with("strategy_")),
+            "strategy rules and captions belong in game/strategy.json"
+        );
+        let strategy: crate::strategy::Document = files.json(crate::strategy::PATH)?;
+        data.strategy = strategy.prepare()?;
+        data.presentation.strategy = Some(strategy.captions(files.diagnostics())?);
+        data.presentation.labels.extend(
+            crate::menu::decode_labels(strategy.labels, files.diagnostics(), "Strategy label")?
+                .into_iter()
+                .map(|(key, value)| (format!("strategy_{key}"), value)),
+        );
+
+        data.ex_skills = ex.prepare(&items.mappings)?;
+        data.ex_skills.foraging = files
+            .json::<crate::foraging::Document>(crate::foraging::PATH)?
+            .prepare(&items.mappings, &files.json(crate::library::FIELDS)?)?;
+        data.presentation.ex_skills = ex.captions(files.diagnostics())?;
+        data.cooking = cooking.prepare(&items.mappings, &ex.mappings)?;
+        data.presentation.cooking = cooking.captions(files.diagnostics())?;
+        data.initial_names = characters.initial_names()?;
+        data.presentation.names = characters.full_names(files.diagnostics())?;
+        data.status = items.status.clone();
+        if let Some(text) = &mut data.presentation.status {
+            ensure!(
+                text.equipment_effects.is_empty(),
+                "equipment descriptions belong in game/items.json"
+            );
+            text.equipment_effects = items.description_text(files.diagnostics())?;
+        }
+        if let Some(captions) = &mut data.presentation.items {
+            ensure!(
+                captions.items.is_empty(),
+                "item captions belong in game/items.json"
+            );
+            captions.items = items.captions(files.diagnostics())?;
+        }
+        let titles = crate::titles::load(files, &items.mappings)?;
+        data.presentation.titles = Some(titles.captions(files.diagnostics())?);
+        data.titles = titles.rules;
+        data.title_awards = titles.awards;
+        data.world_map.prepare_locations(files)?;
+        data.presentation.techniques = Some(techniques.captions(files.diagnostics())?);
+        data.techniques = techniques.menu.clone();
         Ok(data)
     }
 
@@ -222,10 +289,7 @@ impl MenuData {
     /// resources are validated when that page is selected.
     pub fn validate_gameplay(&self) -> Result<()> {
         self.title_awards.validate(&self.titles, self.items.len())?;
-        ensure!(
-            self.version == Self::VERSION && !self.items.is_empty(),
-            "invalid menu item data"
-        );
+        ensure!(!self.items.is_empty(), "invalid menu item data");
         ensure!(
             self.titles.len() == 9
                 && self
@@ -284,6 +348,12 @@ impl MenuData {
             .iter()
             .map(String::as_str)
             .chain(self.presentation.texts())
+            .chain(
+                self.world_map
+                    .locations
+                    .values()
+                    .map(|location| location.name.as_str()),
+            )
             .chain(self.crafting.texts())
     }
 }

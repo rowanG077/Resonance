@@ -216,9 +216,7 @@ impl Battle {
 mod tests {
     use super::*;
     use crate::{ActionKey, AttackEvent, BattleInput, ContactSource, Cue, Side};
-    use resonance_content::animation::{
-        Bone, Track, Transform, TransformChannels, VectorCurve, VectorInterpolation,
-    };
+    use resonance_content::animation::{Bone, Channel, Interpolation, Track, Transform};
     use std::{collections::BTreeMap, sync::Arc};
 
     #[test]
@@ -239,7 +237,8 @@ mod tests {
             model.skeleton.bones.push(Bone {
                 name: "hold".into(),
                 parent: Some(0),
-                bind_channels: TransformChannels(8),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     // Model Z is battle height; model Y points along negative battle Z.
                     translation: [20., 0., 50.],
@@ -248,26 +247,26 @@ mod tests {
             });
             model.motions.get_mut(&0).unwrap().tracks.push(Track {
                 bone: 1,
-                bind_channels: TransformChannels(8),
-                period_frames: 10.,
-                times: vec![0., 10.],
-                translation: Some(VectorCurve {
-                    interpolation: VectorInterpolation::Linear,
-                    values: vec![[20., 0., 50.], [40., 0., 50.]],
-                    incoming: vec![],
-                    outgoing: vec![],
-                    ease: vec![],
-                }),
-                scale: None,
-                rotation: None,
-                euler_degrees: None,
-                matrices: None,
+                nodes: vec![resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(Channel {
+                        times: (vec![0., 10.])
+                            .into_iter()
+                            .map(|frame| frame / 30.)
+                            .collect(),
+                        interpolation: Interpolation::Linear,
+                        values: vec![[20., 0., 50.], [40., 0., 50.]],
+                    }),
+                    rotation: None,
+                    scale: None,
+                }],
             });
             let mut victim_model = crate::tests::model_definition(8, [(0, 10.)]);
             victim_model.skeleton.bones.push(Bone {
                 name: "reception".into(),
                 parent: Some(0),
-                bind_channels: TransformChannels(8),
+                parent_transform: None,
+                shadow_bounds: true,
                 bind: Transform {
                     translation: [0., 0., 12.],
                     ..Default::default()

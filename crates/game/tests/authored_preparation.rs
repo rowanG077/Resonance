@@ -185,8 +185,9 @@ fn field_bindings_reload_edits_and_define_restore_timing() {
             .unwrap()
             .is_none()
     );
+    let captured = scripts.capture().unwrap();
     let original = scripts
-        .prepare(340, &standard, &mut Available)
+        .prepare_captured(340, &captured, &standard, &mut Available)
         .unwrap()
         .unwrap();
     assert!(original.for_entry(EntryKind::Restore).is_none());
@@ -199,6 +200,20 @@ fn field_bindings_reload_edits_and_define_restore_timing() {
         r#"{"340":{"module":"entry","task":"run","on":"entry"}}"#,
     )
     .unwrap();
+    let frozen = scripts
+        .prepare_captured(340, &captured, &standard, &mut Available)
+        .unwrap()
+        .unwrap();
+    assert!(frozen.for_entry(EntryKind::Restore).is_none());
+    let mut frozen_events = runtime();
+    frozen
+        .for_entry(EntryKind::Arrival)
+        .unwrap()
+        .start(&mut frozen_events)
+        .unwrap();
+    frozen_events.step().unwrap();
+    assert!(frozen_events.world.event_flags.contains(&41));
+    assert!(!frozen_events.world.event_flags.contains(&42));
     let updated = scripts
         .prepare(340, &standard, &mut Available)
         .unwrap()

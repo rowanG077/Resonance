@@ -78,6 +78,7 @@ pub struct Purchase {
     pub price: u32,
     pub name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excludes: Vec<Benefit>,
 }
 impl Shop {

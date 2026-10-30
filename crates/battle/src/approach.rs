@@ -191,6 +191,8 @@ impl Battle {
         );
         self.actors[index].movement.locomotion = if self.approach_within_range(index) {
             crate::Locomotion::Action
+        } else if self.runtime[index].enemy_walk_override.is_some() {
+            crate::Locomotion::Walk
         } else {
             crate::Locomotion::Run
         };
@@ -542,7 +544,11 @@ impl Battle {
             .enemy_walk_override
             .unwrap_or(approach.parameters.speed);
         let owner = &mut self.actors[index];
-        owner.movement.locomotion = crate::Locomotion::Run;
+        owner.movement.locomotion = if self.runtime[index].enemy_walk_override.is_some() {
+            crate::Locomotion::Walk
+        } else {
+            crate::Locomotion::Run
+        };
         let desired = crate::distance::planar_direction(destination, owner.position, direction);
         const DIRECTION_BLEND: f32 = 0.1;
         owner.movement.direction = crate::distance::normalize(std::array::from_fn(|axis| {

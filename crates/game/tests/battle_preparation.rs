@@ -74,6 +74,34 @@ fn enter_battle(battle: &mut Battle) -> Result<()> {
     bail!("battle entry did not enable actor control")
 }
 
+fn assert_stored_spell_art(effect: &battle::encounter::RenderEffect, palette: u8) -> Result<()> {
+    let mut tinted = false;
+    for event in effect.source.program(50)? {
+        if let resonance_content::battle_effect::EffectOperation::Spawn {
+            particle, birth, ..
+        } = &event.operation
+        {
+            let member = u16::from(*particle);
+            assert!(
+                effect.members.contains(&member),
+                "missing stored-spell particle {member}"
+            );
+            let particle = effect.source.particle(usize::from(member))?;
+            if particle.element_tint || birth.element_tint {
+                tinted = true;
+                assert!(
+                    effect.palettes.get(&member).is_some_and(|pairs| {
+                        pairs.contains(&[palette, particle.state.palettes[1]])
+                    }),
+                    "stored-spell particle {member} lacks elemental palette {palette}"
+                );
+            }
+        }
+    }
+    assert!(tinted, "stored-spell program has no elemental particle");
+    Ok(())
+}
+
 fn opening_setup(
     formation: u16,
     defeat: resonance_events::battle::DefeatPolicy,
@@ -108,16 +136,18 @@ fn prepare_party_fixture(
     party: &resonance_events::party::Party,
     setups: Vec<battle::party::Setup>,
 ) -> Result<Vec<battle::encounter::PreparedPartyMember>> {
-    let session = files.json("game/session-data.json")?;
-    let inputs = battle::encounter::Inputs::load(
-        &common::asset_root(),
-        files,
+    let session = resonance_content::session::SessionData::load(&files)?;
+    let inputs = battle::encounter::Assets::capture(
+        &mut (files)
+            .library()
+            .context("named library is required")?
+            .snapshot(),
         menus,
         &session,
         party,
         opening_setup(1, resonance_events::battle::DefeatPolicy::ResumeEvent),
-        &mut resonance_content::prepared::Cache::default(),
-        || false,
+        (files).diagnostics().clone(),
+        &(|| false),
     )?;
     let mut next_resource = ResourceId(1000);
     setups
@@ -151,8 +181,8 @@ fn single_party_fixture(
     weapon: u16,
     setup: battle::party::Setup,
 ) -> Result<battle::encounter::PreparedPartyMember> {
-    let menus = files.json("game/menu-data.json")?;
-    let data = files.json("game/session-data.json")?;
+    let menus = resonance_content::menu_data::MenuData::load(&files)?;
+    let data = resonance_content::session::SessionData::load(&files)?;
     let mut party = resonance_events::party::Party::new(&data, Default::default())?;
     party.formation = vec![character];
     let member = party
@@ -174,11 +204,12 @@ fn prepare_enemy_fixture(
     resource: u32,
 ) -> Result<battle::encounter::PreparedEnemyMember> {
     use resonance_content::battle_formation;
-    let menus = files.json("game/menu-data.json")?;
-    let data = files.json("game/session-data.json")?;
+    let menus = resonance_content::menu_data::MenuData::load(&files)?;
+    let data = resonance_content::session::SessionData::load(&files)?;
     let mut party = resonance_events::party::Party::new(&data, Default::default())?;
     party.formation = vec![1];
-    let formations: battle_formation::Formations = files.json(battle_formation::PATH)?;
+    let formations: battle_formation::Formations =
+        resonance_content::battle_rules::formations(&files)?;
     let (encounter, spawn) = formations
         .records
         .iter()
@@ -194,9 +225,11 @@ fn prepare_enemy_fixture(
                 .map(|spawn| (encounter, spawn))
         })
         .context("no authored formation contains fixture enemy variant")?;
-    let inputs = battle::encounter::Inputs::load(
-        &common::asset_root(),
-        files,
+    let inputs = battle::encounter::Assets::capture(
+        &mut (files)
+            .library()
+            .context("named library is required")?
+            .snapshot(),
         &menus,
         &data,
         &party,
@@ -204,8 +237,8 @@ fn prepare_enemy_fixture(
             u16::try_from(encounter)?,
             resonance_events::battle::DefeatPolicy::ResumeEvent,
         ),
-        &mut resonance_content::prepared::Cache::default(),
-        || false,
+        (files).diagnostics().clone(),
+        &(|| false),
     )?;
     inputs.prepare_enemy_member(
         spawn,
@@ -240,20 +273,21 @@ fn files() -> Files {
         resonance_content::battle_recoil::PATH.into(),
         serde_json::to_vec(&recoil::source()).unwrap().into(),
     );
-    let effects = resonance_content::battle_effect::SourceBank {
-        art: None,
-        source_sha256: "a".repeat(64),
+    let effects = resonance_content::battle_effect::document::Definition {
+        artwork: None,
         programs: vec![Vec::new(); 29],
-        actors: vec![],
+        templates: Vec::new(),
+        template_names: Vec::new(),
     };
     files.insert(
         "test-effects.json".into(),
         serde_json::to_vec(&effects).unwrap().into(),
     );
     files.insert(
-        "test-projectiles.json".into(),
+        resonance_content::battle_projectile::PATH.into(),
         serde_json::to_vec(&serde_json::json!({
-            "source_sha256": "a".repeat(64),
+            "version": resonance_content::battle_projectile::VERSION,
+            "resident_spells": {}, "support_durations": {}, "fire_ball": null,
             "records": [{
                 "lifetime": 20, "clamp_ground": true, "active": null,
                 "ground_effect": {"bank": 0, "member": 0},

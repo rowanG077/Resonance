@@ -1172,7 +1172,7 @@ fn muzzle_height(
     id: i32,
     offset: [f32; 3],
 ) -> Result<f32> {
-    const BONE: &str = "Bone_sebone03";
+    const BONE: &str = "spine-03";
     let actor = &world.actors[&id];
     let model = resources
         .model(actor.model_resource())

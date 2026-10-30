@@ -1,8 +1,8 @@
 //! Player travel and mount lifetime, independent of scene and audio ownership.
 use super::{Position, Rules, collision};
 use anyhow::{Result, ensure};
-use resonance_content::overworld::MovementParameters;
 pub use resonance_content::overworld::{Mount, TravelState as State};
+use resonance_content::overworld::{MovementParameters, TerrainSurface};
 use std::{
     collections::BTreeSet,
     f32::consts::{FRAC_PI_2, PI, TAU},
@@ -106,15 +106,16 @@ pub struct Travel {
     vehicle_speed: f32,
     turn: f32,
     pitch: f32,
-    response: i8,
+    surface: Option<TerrainSurface>,
     slope: [f32; 3],
 }
 impl Travel {
     pub fn new(state: State, parameters: Arc<MovementParameters>) -> Result<Self> {
         parameters.validate()?;
         state.validate_shape()?;
-        let camera_distance = parameters.camera_distances[usize::from(state.alternate_perspective)]
-            [usize::from(state.mount.long_range())];
+        let camera_distance = parameters
+            .camera_distances
+            .for_view(state.alternate_perspective)[usize::from(state.mount.long_range())];
         let stick_divisor = if state.mount.long_range() {
             parameters.mounted_stick_divisor
         } else {
@@ -133,7 +134,7 @@ impl Travel {
             vehicle_speed: 0.,
             turn: 0.,
             pitch: 0.,
-            response: -1,
+            surface: None,
             slope: [0.; 3],
         })
     }
@@ -180,8 +181,8 @@ impl Travel {
     pub fn pitch(&self) -> f32 {
         self.pitch
     }
-    pub fn response(&self) -> i8 {
-        self.response
+    pub fn surface(&self) -> Option<TerrainSurface> {
+        self.surface
     }
 
     pub fn ship_action(
@@ -200,7 +201,7 @@ impl Travel {
                 if !(context.rheairds_owned && context.event_flags.contains(&22)) =>
             {
                 rules
-                    .embark_destination(self.state.position, self.response)
+                    .embark_destination(self.state.position, self.surface)
                     .map(|destination| (ShipAction::Embark, destination))
             }
             _ => None,
@@ -292,13 +293,13 @@ impl Travel {
     ) -> Result<Vec<Cue>> {
         self.camera_turn_input = 0.;
         let mut cues = Vec::new();
-        let query = terrain.query(self.state.position, self.parameters.collision_radius)?;
+        let query = terrain.query(self.state.position, self.parameters.collision.radius)?;
         let mode = if self.state.mount == Mount::Ship {
             collision::Mode::Ship
         } else {
             collision::Mode::Ground
         };
-        self.response = query.surface(mode).map_or(-1, |s| s.response);
+        self.surface = query.surface(mode).map(|s| s.kind);
         if self.transition.is_none() {
             if input.toggle_perspective {
                 self.state.alternate_perspective = !self.state.alternate_perspective;
@@ -332,7 +333,9 @@ impl Travel {
         }
 
         let p = &self.parameters;
-        let distances = p.camera_distances[usize::from(self.state.alternate_perspective)];
+        let distances = p
+            .camera_distances
+            .for_view(self.state.alternate_perspective);
         self.camera_distance = approach(
             self.camera_distance,
             distances[usize::from(self.state.mount.long_range())],
@@ -359,9 +362,9 @@ impl Travel {
             // ground rejection. Height is displayed from the separate altitude.
             delta[0] = self.speed * collision::sine(self.state.heading);
             delta[1] = -self.speed * collision::cosine(self.state.heading);
-            self.response = motion.response.unwrap_or(-1);
-        } else if let Some(response) = motion.response {
-            self.response = response;
+            self.surface = motion.surface;
+        } else if let Some(surface) = motion.surface {
+            self.surface = Some(surface);
         }
         self.state.position = self.state.position.translated(delta)?;
         self.camera_turn_input = camera_input;
@@ -384,7 +387,7 @@ impl Travel {
         if input.vehicle {
             match self.state.mount {
                 Mount::Rheairds => {
-                    if context.landing_clear && rules.can_land(self.state.world, self.response) {
+                    if context.landing_clear && rules.can_land(self.state.world, self.surface) {
                         self.begin(Mount::Foot, Phase::Flight, cues)?;
                     } else {
                         cues.push(Cue::Denied);
@@ -489,7 +492,9 @@ impl Travel {
         let p = &self.parameters;
         let transition = self.transition.as_mut().expect("active transition");
         if !transition.zoom_done {
-            let distances = p.camera_distances[usize::from(self.state.alternate_perspective)];
+            let distances = p
+                .camera_distances
+                .for_view(self.state.alternate_perspective);
             let goal = distances[usize::from(self.state.mount.long_range())];
             self.camera_distance = approach(
                 self.camera_distance,

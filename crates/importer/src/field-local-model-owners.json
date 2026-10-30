@@ -1,0 +1,393 @@
+{
+  "derris-kharlan-0130": {
+    "4293787654": "meshes/props/field-unidentified-7",
+    "4293787655": "meshes/props/field-unidentified-8",
+    "4293787656": "meshes/props/field-unidentified-9",
+    "4293787657": "meshes/props/field-unidentified-10",
+    "4293787658": "meshes/props/field-unidentified-11",
+    "4293787659": "meshes/props/field-unidentified-12",
+    "4293787660": "meshes/props/field-unidentified-13",
+    "4293787661": "meshes/props/field-unidentified-14",
+    "4293787662": "meshes/props/field-unidentified-15",
+    "4293787663": "fields/derris-kharlan-0130/models/dark-dragon"
+  },
+  "derris-kharlan-0132": {
+    "4293787648": "meshes/props/field-unidentified-1"
+  },
+  "derris-kharlan-0134": {
+    "4293787649": "meshes/props/field-unidentified-15",
+    "4293787648": "meshes/props/field-unidentified-1"
+  },
+  "derris-kharlan-0135": {
+    "4293787648": "meshes/props/field-unidentified-7",
+    "4293787649": "meshes/props/field-unidentified-8",
+    "4293787650": "meshes/props/field-unidentified-9",
+    "4293787651": "meshes/props/field-unidentified-10",
+    "4293787652": "meshes/props/field-unidentified-11",
+    "4293787653": "meshes/props/field-unidentified-12",
+    "4293787654": "meshes/props/field-unidentified-13",
+    "4293787655": "meshes/props/field-unidentified-14",
+    "4293787656": "meshes/props/field-unidentified-1"
+  },
+  "tower-of-salvation-0149": {
+    "4293787648": "meshes/props/field-unidentified-1-variant-2",
+    "4293787649": "meshes/props/field-unidentified-2"
+  },
+  "tower-of-salvation-0150": {
+    "4293787658": "meshes/props/field-unidentified-11-variant-2",
+    "4293787661": "meshes/props/field-unidentified-11-variant-2"
+  },
+  "tower-of-salvation-0151": {
+    "4293787649": "meshes/props/field-unidentified-1-variant-2",
+    "4293787650": "meshes/props/field-unidentified-2",
+    "4293787648": "meshes/props/field-unidentified-1-variant-3"
+  },
+  "niflheim-0524": {
+    "4293787655": "meshes/props/temple-of-ice-unidentified-9"
+  },
+  "gaoracchia-forest-0511": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1"
+  },
+  "gaoracchia-forest-0512": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1",
+    "4293787650": "meshes/props/gaoracchia-forest-unidentified-3",
+    "4293787651": "meshes/props/gaoracchia-forest-unidentified-4",
+    "4293787652": "meshes/props/gaoracchia-forest-unidentified-5",
+    "4293787653": "meshes/props/gaoracchia-forest-unidentified-6"
+  },
+  "gaoracchia-forest-0513": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1",
+    "4293787650": "meshes/props/gaoracchia-forest-unidentified-3",
+    "4293787651": "meshes/props/gaoracchia-forest-unidentified-4",
+    "4293787652": "meshes/props/gaoracchia-forest-unidentified-5",
+    "4293787653": "meshes/props/gaoracchia-forest-unidentified-6"
+  },
+  "gaoracchia-forest-0514": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1",
+    "4293787650": "meshes/props/gaoracchia-forest-unidentified-3",
+    "4293787651": "meshes/props/gaoracchia-forest-unidentified-4",
+    "4293787652": "meshes/props/gaoracchia-forest-unidentified-5",
+    "4293787653": "meshes/props/gaoracchia-forest-unidentified-6"
+  },
+  "gaoracchia-forest-0515": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1",
+    "4293787650": "meshes/props/gaoracchia-forest-unidentified-3",
+    "4293787651": "meshes/props/gaoracchia-forest-unidentified-4",
+    "4293787652": "meshes/props/gaoracchia-forest-unidentified-5",
+    "4293787653": "meshes/props/gaoracchia-forest-unidentified-6"
+  },
+  "gaoracchia-forest-0516": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1",
+    "4293787650": "meshes/props/gaoracchia-forest-unidentified-3",
+    "4293787651": "meshes/props/gaoracchia-forest-unidentified-4",
+    "4293787652": "meshes/props/gaoracchia-forest-unidentified-5",
+    "4293787653": "meshes/props/gaoracchia-forest-unidentified-6"
+  },
+  "gaoracchia-forest-0517": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1"
+  },
+  "gaoracchia-forest-0518": {
+    "4293787648": "meshes/props/gaoracchia-forest-unidentified-1",
+    "4293787650": "meshes/props/gaoracchia-forest-unidentified-3",
+    "4293787651": "meshes/props/gaoracchia-forest-unidentified-4",
+    "4293787652": "meshes/props/gaoracchia-forest-unidentified-5",
+    "4293787653": "meshes/props/gaoracchia-forest-unidentified-6"
+  },
+  "heimdall-0479": {
+    "4293787648": "meshes/props/heimdall-unidentified-1"
+  },
+  "heimdall-0480": {
+    "4293787649": "meshes/props/heimdall-unidentified-1"
+  },
+  "heimdall-0481": {
+    "4293787648": "meshes/props/heimdall-unidentified-1"
+  },
+  "heimdall-0482": {
+    "4293787648": "meshes/props/heimdall-unidentified-1"
+  },
+  "heimdall-0483": {
+    "4293787648": "meshes/props/heimdall-unidentified-1"
+  },
+  "iselia-human-ranch-0196": {
+    "4293787649": "meshes/props/iselia-human-ranch-unidentified-2",
+    "4293787659": "meshes/props/iselia-human-ranch-unidentified-2",
+    "4293787660": "meshes/props/iselia-human-ranch-unidentified-2",
+    "4293787661": "meshes/props/iselia-human-ranch-unidentified-2"
+  },
+  "island-ranch-0080": {
+    "4293787648": "fields/island-ranch-0080/models/volt"
+  },
+  "island-ranch-0224": {
+    "4293787648": "meshes/props/island-ranch-unidentified-1"
+  },
+  "island-ranch-0229": {
+    "4293787648": "meshes/props/island-ranch-unidentified-1-variant-2"
+  },
+  "island-ranch-0230": {
+    "4293787648": "meshes/props/island-ranch-unidentified-1",
+    "4293787649": "meshes/props/island-ranch-unidentified-1-variant-2"
+  },
+  "latheon-gorge-0492": {
+    "4293787653": "meshes/props/sylvarant-base-unidentified-4",
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1",
+    "4293787649": "meshes/props/latheon-gorge-unidentified-2",
+    "4293787650": "meshes/props/latheon-gorge-unidentified-3",
+    "4293787651": "meshes/props/latheon-gorge-unidentified-4",
+    "4293787652": "meshes/props/latheon-gorge-unidentified-5"
+  },
+  "latheon-gorge-0493": {
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1",
+    "4293787649": "meshes/props/latheon-gorge-unidentified-2",
+    "4293787650": "meshes/props/latheon-gorge-unidentified-3",
+    "4293787651": "meshes/props/latheon-gorge-unidentified-4",
+    "4293787652": "meshes/props/latheon-gorge-unidentified-5"
+  },
+  "latheon-gorge-0494": {
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1",
+    "4293787649": "meshes/props/latheon-gorge-unidentified-2",
+    "4293787650": "meshes/props/latheon-gorge-unidentified-3",
+    "4293787651": "meshes/props/latheon-gorge-unidentified-4",
+    "4293787652": "meshes/props/latheon-gorge-unidentified-5"
+  },
+  "latheon-gorge-0495": {
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1",
+    "4293787649": "meshes/props/latheon-gorge-unidentified-2",
+    "4293787650": "meshes/props/latheon-gorge-unidentified-3",
+    "4293787651": "meshes/props/latheon-gorge-unidentified-4",
+    "4293787652": "meshes/props/latheon-gorge-unidentified-5"
+  },
+  "latheon-gorge-0496": {
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1"
+  },
+  "latheon-gorge-0497": {
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1"
+  },
+  "latheon-gorge-0498": {
+    "4293787648": "meshes/props/latheon-gorge-unidentified-1",
+    "4293787649": "meshes/props/latheon-gorge-unidentified-2",
+    "4293787650": "meshes/props/latheon-gorge-unidentified-3",
+    "4293787651": "meshes/props/latheon-gorge-unidentified-4",
+    "4293787652": "meshes/props/latheon-gorge-unidentified-5"
+  },
+  "meltokio-0467": {
+    "4293787653": "meshes/props/meltokio-unidentified-6"
+  },
+  "meltokio-0469": {
+    "4293787649": "meshes/props/treasure-bag",
+    "4293787650": "meshes/props/meltokio-unidentified-6",
+    "4293787651": "fields/meltokio-0469/models/treasure-bag-variant-2"
+  },
+  "palmacosta-ranch-0205": {
+    "4293787656": "meshes/props/palmacosta-ranch-unidentified-9"
+  },
+  "sylvarant-base-0279": {
+    "4293787648": "meshes/props/sylvarant-base-unidentified-1",
+    "4293787649": "meshes/props/sylvarant-base-unidentified-2",
+    "4293787650": "meshes/props/sylvarant-base-unidentified-3",
+    "4293787651": "meshes/props/sylvarant-base-unidentified-4"
+  },
+  "sylvarant-base-0280": {
+    "4293787648": "meshes/props/sylvarant-base-unidentified-1",
+    "4293787649": "meshes/props/sylvarant-base-unidentified-2",
+    "4293787650": "meshes/props/sylvarant-base-unidentified-3"
+  },
+  "temple-of-ice-0324": {
+    "4293787656": "meshes/props/temple-of-ice-unidentified-9"
+  },
+  "temple-of-lightning-0475": {
+    "4293787648": "fields/temple-of-lightning-0475/models/volt"
+  },
+  "temple-of-lightning-0477": {
+    "4293787656": "fields/temple-of-lightning-0477/models/treasure-chest"
+  },
+  "tethealla-base-0252": {
+    "4293787649": "meshes/props/field-unidentified-1-variant-3"
+  },
+  "tethealla-base-0254": {
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3"
+  },
+  "tethealla-base-0256": {
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3",
+    "4293787649": "meshes/props/tethealla-base-unidentified-2"
+  },
+  "tethealla-base-0258": {
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3",
+    "4293787649": "meshes/props/tethealla-base-unidentified-2"
+  },
+  "tethealla-base-0260": {
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3",
+    "4293787649": "meshes/props/tethealla-base-unidentified-2"
+  },
+  "tethealla-base-0261": {
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3",
+    "4293787649": "meshes/props/tethealla-base-unidentified-2"
+  },
+  "tethealla-base-0262": {
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3",
+    "4293787649": "meshes/props/tethealla-base-unidentified-2"
+  },
+  "tethealla-base-0265": {
+    "4293787652": "meshes/props/palmacosta-ranch-unidentified-9",
+    "4293787648": "meshes/props/tethealla-base-unidentified-1",
+    "4293787650": "meshes/props/tethealla-base-unidentified-3",
+    "4293787649": "meshes/props/tethealla-base-unidentified-2"
+  },
+  "tethealla-bridge-0075": {
+    "4293787657": "meshes/props/tethealla-bridge-unidentified-10",
+    "4293787662": "meshes/props/tethealla-bridge-unidentified-10"
+  },
+  "thoda-geyser-0008": {
+    "4293787649": "meshes/props/thoda-geyser-unidentified-2"
+  },
+  "thoda-geyser-0009": {
+    "4293787648": "meshes/props/thoda-geyser-unidentified-2"
+  },
+  "toize-valley-mine-0412": {
+    "4293787648": "meshes/props/toize-valley-mine-unidentified-1",
+    "4293787660": "meshes/props/toize-valley-mine-unidentified-1"
+  },
+  "toize-valley-mine-0413": {
+    "4293787648": "meshes/props/toize-valley-mine-unidentified-1-variant-2",
+    "4293787660": "meshes/props/toize-valley-mine-unidentified-1-variant-2"
+  },
+  "toize-valley-mine-0414": {
+    "4293787648": "meshes/props/toize-valley-mine-unidentified-1-variant-3",
+    "4293787660": "meshes/props/toize-valley-mine-unidentified-1-variant-3",
+    "4293787649": "meshes/props/toize-valley-mine-unidentified-2",
+    "4293787650": "meshes/props/toize-valley-mine-unidentified-3",
+    "4293787651": "meshes/props/toize-valley-mine-unidentified-4",
+    "4293787652": "meshes/props/toize-valley-mine-unidentified-5"
+  },
+  "toize-valley-mine-0415": {
+    "4293787648": "meshes/props/toize-valley-mine-unidentified-1-variant-3",
+    "4293787660": "meshes/props/toize-valley-mine-unidentified-1-variant-3",
+    "4293787649": "meshes/props/toize-valley-mine-unidentified-2",
+    "4293787650": "meshes/props/toize-valley-mine-unidentified-3",
+    "4293787651": "meshes/props/toize-valley-mine-unidentified-4",
+    "4293787652": "meshes/props/toize-valley-mine-unidentified-5"
+  },
+  "tower-of-mana-0363": {
+    "4293787648": "meshes/props/tower-of-mana-unidentified-1",
+    "4293787649": "meshes/props/tower-of-mana-unidentified-2",
+    "4293787650": "meshes/props/tower-of-mana-unidentified-3",
+    "4293787651": "meshes/props/tower-of-mana-unidentified-4"
+  },
+  "tower-of-mana-0364": {
+    "4293787648": "meshes/props/tower-of-mana-unidentified-1-variant-2"
+  },
+  "tower-of-mana-0365": {
+    "4293787648": "meshes/props/tower-of-mana-unidentified-1",
+    "4293787649": "meshes/props/tower-of-mana-unidentified-2",
+    "4293787650": "meshes/props/tower-of-mana-unidentified-3",
+    "4293787651": "meshes/props/tower-of-mana-unidentified-4"
+  },
+  "tower-of-mana-0368": {
+    "4293787648": "meshes/props/tower-of-mana-unidentified-1-variant-2"
+  },
+  "tower-of-salvation-0153": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0154": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0156": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0157": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0158": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0159": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0160": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0161": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0163": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0164": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0165": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0167": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1"
+  },
+  "tower-of-salvation-0168": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3",
+    "4293787651": "meshes/props/tower-of-salvation-unidentified-4"
+  },
+  "tower-of-salvation-0169": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787651": "meshes/props/tower-of-salvation-unidentified-4",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2-variant-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3-variant-2"
+  },
+  "tower-of-salvation-0170": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-4",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-2-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-3-variant-2"
+  },
+  "tower-of-salvation-0172": {
+    "4293787651": "meshes/props/field-unidentified-1-variant-3",
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3"
+  },
+  "tower-of-salvation-0173": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3"
+  },
+  "tower-of-salvation-0174": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3"
+  },
+  "tower-of-salvation-0175": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3"
+  },
+  "tower-of-salvation-0176": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3"
+  },
+  "tower-of-salvation-0177": {
+    "4293787648": "meshes/props/tower-of-salvation-unidentified-1-variant-2",
+    "4293787649": "meshes/props/tower-of-salvation-unidentified-2",
+    "4293787650": "meshes/props/tower-of-salvation-unidentified-3"
+  },
+  "triet-ruins-0219": {
+    "4293787648": "meshes/props/triet-ruins-unidentified-1"
+  },
+  "triet-ruins-0220": {
+    "4293787649": "meshes/props/wooden-crate",
+    "4293787648": "meshes/props/triet-ruins-unidentified-1"
+  },
+  "ymir-forest-0519": {
+    "4293787669": "fields/ymir-forest-0519/models/treasure-chest"
+  },
+  "ymir-forest-0520": {
+    "4293787669": "fields/ymir-forest-0520/models/treasure-chest"
+  },
+  "ymir-forest-0521": {
+    "4293787666": "fields/ymir-forest-0521/models/treasure-chest"
+  }
+}

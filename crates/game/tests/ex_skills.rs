@@ -1,6 +1,5 @@
 //! Gem transactions, stat changes and save restoration with the cooked rules.
 mod common;
-use common::cooked;
 use resonance_content::{menu_data::MenuData, session::SessionData};
 use resonance_events::{SavedProgress, party::Party};
 use std::sync::Arc;
@@ -8,8 +7,8 @@ use std::sync::Arc;
 #[test]
 #[ignore = "requires locally cooked EX skill definitions; no devices"]
 fn gems_stats_compounds_and_save_restore() {
-    let menu: MenuData = cooked("game/menu-data.json");
-    let mut data: SessionData = cooked("game/session-data.json");
+    let menu: MenuData = common::menu();
+    let mut data: SessionData = common::session();
     data.rules = Some(Arc::new(menu.clone()));
     let mut party = Party::new(&data, Default::default()).unwrap();
     let baseline = serde_json::to_value(&party).unwrap();

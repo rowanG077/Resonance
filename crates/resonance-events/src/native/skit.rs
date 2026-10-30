@@ -83,9 +83,9 @@ impl NativeHost<'_> {
                     .portraits
                     .get(&resource)
                     .ok_or("portrait handle is not loaded")?;
-                let timeline = ((a[12] as u32) >> 16 == 13).then_some((a[12] & 0xffff) as usize);
+                let timeline = ((a[12] as u32) >> 16 == 13).then_some((a[12] & 0xffff) as u16);
                 require(
-                    timeline.is_none_or(|index| index < catalog.portrait_recipes.len()),
+                    timeline.is_none_or(|index| catalog.portrait_recipes.contains_key(&index)),
                     "portrait timeline is not cooked",
                 )?;
                 let slot = (0..MAX_PORTRAITS as u8)
@@ -148,9 +148,11 @@ impl NativeHost<'_> {
                     if a[1] == 63 {
                         if op == NativeCall::SetActorProperty {
                             let timeline =
-                                ((a[2] as u32) >> 16 == 13).then_some((a[2] & 0xffff) as usize);
+                                ((a[2] as u32) >> 16 == 13).then_some((a[2] & 0xffff) as u16);
                             require(
-                                timeline.is_none_or(|index| index < catalog.portrait_recipes.len()),
+                                timeline.is_none_or(|index| {
+                                    catalog.portrait_recipes.contains_key(&index)
+                                }),
                                 "portrait timeline is not cooked",
                             )?;
                             portrait.timeline = timeline;
@@ -162,7 +164,7 @@ impl NativeHost<'_> {
                         let cursor = a[2] as u8;
                         let forced = (cursor != u8::MAX).then_some(usize::from(cursor));
                         if let Some(index) = portrait.timeline {
-                            let track = &catalog.portrait_recipes[index].tracks[channel];
+                            let track = &catalog.portrait_recipes[&index].tracks[channel];
                             require(
                                 track.is_empty()
                                     || forced.is_none_or(|cursor| cursor < track.len()),

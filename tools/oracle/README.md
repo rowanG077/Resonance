@@ -96,9 +96,11 @@ target/debug/resonance-oracle video-frames VIDEO --output local/oracle/frames \
   --first-vi 0 --vi 0 100 300
 ```
 
-The Rust tool streams Matroska through the Rust FFV1 decoder and retains
-container timestamps and image hashes in `frames.json`. No external media
-extraction command is required.
+The Rust tool reads FFV1 version 3 Matroska and retains container timestamps and
+image hashes in `frames.json`. Some Dolphin recordings use an earlier FFV1
+variant and require a separate offline decoder. In that case, retain the original
+recording, exact selected timestamps, decoder identity and extracted image hashes;
+do not resample the video or substitute neighboring frames.
 It rejects missing presentations instead of choosing a nearby frame. A pair's
 `dolphin.video_first_vi` registers the first frame; its frames use `dolphin_vi`
 without a PNG index. Multiple video segments require explicit `video_segment`.
@@ -371,9 +373,25 @@ reproducer when a new regression is found.
 target/debug/resonance --silent --record-playthrough local/native/playthrough
 target/debug/resonance --silent --skip-intro --record-music local/native/title.wav \
   --audio-frames 1280000
-cargo test -p resonance-presentation startup_fade_overlapping_cues_and_first_loop_match_dolphin -- --ignored
-cargo test -p resonance-presentation program_cues_match_dolphin_and_respect_live_group_volume -- --ignored
+RESONANCE_TEST_ASSETS=local/all-assets cargo test -p resonance-presentation \
+  title_music_preserves_playback_across_the_first_score_loop -- --ignored
+RESONANCE_TEST_ASSETS=local/all-assets cargo test -p resonance-presentation \
+  menu_programs_preserve_authored_gain_stereo_and_output_completion -- --ignored
 ```
+
+These preparation/playback tests use the current named library. For the
+independent title music and overlapping-cue comparison,
+[title-menu-audio.json](cases/title-menu-audio.json) pins the source recording,
+its window and cue requests. Render its matching player input with:
+
+```sh
+target/debug/resonance --assets local/all-assets --record-music local/native/title-menu.wav \
+  --audio-frames 570544 --audio-cue 327040:navigate --audio-cue 487360:confirm
+```
+
+Compare that recording from actual frame zero against the manifest's pinned
+reference starting at frame 1,383,592, for 570,544 frames. Keep the source hash,
+capture provenance and comparison report with the result.
 
 `resonance-oracle compare-audio` compares explicit WAV windows using
 `--reference-start-frame`, `--actual-start-frame` and `--frames`; tolerance defaults

@@ -1,13 +1,21 @@
 //! Cooked cue programs mixed through shared effects.
+#[cfg(test)]
+use crate::package::Loaded;
 use crate::{
-    package::Loaded,
+    effect::{Prepared, Stream},
     reverb,
-    sequence::{BusFrame, LiveControls, shared::Synthesizer, stream::Stream},
+    sequence::{BusFrame, LiveControls, shared::Synthesizer},
 };
 use anyhow::{Result, ensure};
 use std::sync::Arc;
 
-pub mod package;
+/// Captured menu cues ready for playback. Content loading belongs to the
+/// current content snapshot, not to a second audio-specific manifest reader.
+pub struct Bank {
+    pub sample_rate: u32,
+    pub reverbs: [[f32; 5]; 2],
+    pub cues: std::collections::BTreeMap<String, Arc<Prepared>>,
+}
 
 pub struct Studio {
     voices: Vec<Stream>,
@@ -29,8 +37,8 @@ impl Studio {
         })
     }
 
-    pub fn play(&mut self, cue: Arc<Loaded>) -> Result<()> {
-        let stream = Stream::in_synthesizer(cue, false, &self.synthesizer)?;
+    pub fn play(&mut self, cue: impl Into<Prepared>) -> Result<()> {
+        let stream = Stream::in_synthesizer(cue, &self.synthesizer)?;
         stream.set_shared_controls([self.control; crate::CONTROLS_PER_BLOCK])?;
         self.voices.push(stream);
         Ok(())
@@ -54,6 +62,10 @@ impl Studio {
         &mut self,
         mut on_error: impl FnMut(anyhow::Error) -> Result<()>,
     ) -> Result<[i16; 2]> {
+        // Recording voices, like score voices, enter the next unrendered block.
+        for voice in &self.voices {
+            voice.set_shared_controls([self.control; crate::CONTROLS_PER_BLOCK])?;
+        }
         let error = self.synthesizer.advance().err();
         let mut buses = [[0i32; 2]; 3];
         let mut mix = |input: BusFrame| {
@@ -84,16 +96,6 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    pub(super) fn fixture(
-        commands: Vec<crate::data::Command>,
-    ) -> (crate::package::tests::Fixture, crate::package::Package) {
-        let (root, value) = crate::package::tests::fixture();
-        let mut package: crate::package::Package = serde_json::from_value(value).unwrap();
-        package.programs.insert(1, commands);
-        package.score = sound_score(package.score);
-        (root, package)
-    }
 
     fn sound_score(mut score: crate::data::Score) -> crate::data::Score {
         use crate::data::{Event, EventKind, Note, ScoreOrigin, VoiceSource};
@@ -390,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_cues_share_the_native_voice_budget() {
+    fn overlapping_cues_share_the_sound_effect_voice_budget() {
         let cue = signal_cue(
             crate::data::Interpolation::Direct,
             60,
@@ -405,7 +407,7 @@ mod tests {
         for frame in expected {
             assert_eq!(
                 studio.next_frame(Err).unwrap(),
-                frame.map(|sample| sample * crate::sequence::VOICE_BUDGET as i16)
+                frame.map(|sample| sample * crate::sequence::SOUND_EFFECT_VOICE_BUDGET as i16)
             );
         }
         assert!(studio.voices.is_empty());

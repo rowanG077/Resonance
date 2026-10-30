@@ -1,5 +1,5 @@
 //! Prepare one complete generation without changing the suspended session.
-use super::{Inputs, Prepared, RenderModel, assets::EquipmentKind, render, resources::Resources};
+use super::{Assets, Prepared, RenderModel, assets::EquipmentKind, render, resources::Resources};
 use crate::battle::lifecycle::victory_selection::VictoryGroupId;
 use crate::battle::model::MotionRole;
 use crate::battle::party::Character;
@@ -59,7 +59,7 @@ struct EquipmentAttachments {
     weapons: Vec<Arc<resonance_battle::WeaponDefinition>>,
 }
 
-impl Inputs {
+impl Assets {
     fn prepare_weapon(
         &self,
         character: Character,
@@ -114,12 +114,11 @@ impl Inputs {
             )?;
             let resource = definition.primary_resource();
             prepared.weapons.push(definition);
-            if let Some(&material) = weapon.trails.get(&part_index)
+            if let Some(trail) = weapon.trails.get(&part_index)
                 && let Some(render) = render::weapon_trail(
                     self.files.diagnostics(),
-                    &part.rig.skeleton,
                     resource,
-                    material,
+                    trail,
                     true,
                     self.common_effects.as_deref(),
                     None,
@@ -151,7 +150,7 @@ pub(super) struct ActorRow<'a> {
 }
 
 impl ActorRow<'_> {
-    fn prepare_control(&mut self, inputs: &Inputs, difficulty: Difficulty) -> Result<()> {
+    fn prepare_control(&mut self, inputs: &Assets, difficulty: Difficulty) -> Result<()> {
         self.setup.overlimit_gain = self.profile.overlimit_gain;
         self.setup.extended_overlimit = self.extended_overlimit;
         self.setup.wait_for_defeat_animation = self.profile.traits.wait_for_defeat_animation;
@@ -259,6 +258,7 @@ impl ActorRow<'_> {
                     artwork.as_deref(),
                     model::MotionRole::Acquisition,
                 ),
+                acquisition_voice: voices.select(*source, |v| v.acquisition, &mut sound)?,
                 overlimit: None,
                 overlimit_voice: voices.absolute(
                     *source,
@@ -285,19 +285,12 @@ impl ActorRow<'_> {
             "invalid Over Limit effect scale"
         );
         if let Some(model) = artwork {
-            let bone = match source {
-                model::ModelSource::Party(_) => model
-                    .skeleton
-                    .bones
-                    .iter()
-                    .position(|bone| bone.name == "Bone_sebone01")
-                    .context("party model is missing its Over Limit body anchor")?,
-                _ => usize::from(profile.overlimit_bone),
-            };
-            ensure!(
-                bone < model.skeleton.bones.len(),
-                "Over Limit effect bone is missing"
-            );
+            let bone = model
+                .skeleton
+                .bone(&profile.overlimit_bone)
+                .with_context(|| {
+                    format!("Over Limit joint {:?} is missing", profile.overlimit_bone)
+                })?;
             controls.overlimit = Some(battle::feedback::OverLimitFeedback {
                 appearance: resonance_battle::EffectAppearance {
                     resource: common_id,
@@ -310,12 +303,12 @@ impl ActorRow<'_> {
             });
         }
         feedback.actors.push(controls);
-        let expressions = !profile.texture_channels.is_empty();
+        let expressions = !profile.expressions.is_empty();
         let rescue = battle::feedback::RescueFeedback {
             motion: (!profile.traits.body_motion_disabled)
                 .then(|| model::common_motion(artwork.as_deref(), MotionRole::Hurt))
                 .flatten(),
-            expression: expressions.then_some(profile.rescue_expression),
+            expression: expressions.then(|| profile.expression_frames(|e| e.rescue)),
             appearance: resonance_battle::EffectAppearance {
                 resource: common_id,
                 member: 19,
@@ -362,7 +355,7 @@ pub struct PreparedEnemyMember {
     weapon_groups: Vec<Vec<Arc<WeaponDefinition>>>,
 }
 
-impl Inputs {
+impl Assets {
     pub fn prepare_enemy_member(
         &self,
         spawn_index: usize,
@@ -388,6 +381,7 @@ impl Inputs {
                 .context("enemy statistics variant is not authored")?,
             difficulty,
         );
+        let stats = stats.with_fixed_hp(definition.actions.policy.fixed_hp)?;
         let mut actor = battle::enemy::actor(
             monster,
             &definition.profile,
@@ -466,11 +460,20 @@ impl Inputs {
                 parts: body_parts,
                 instances: render::RenderInstances::Fixed(1),
                 lit: true,
-                texture_channels: definition.profile.texture_channels.clone(),
+                texture_channels: render::texture_channels(
+                    &definition.profile.expressions,
+                    &monster
+                        .preview
+                        .parts
+                        .first()
+                        .context("missing enemy body")?
+                        .scene,
+                )?,
                 target_anchor: Some(render::TargetAnchor::prepare(
                     &definition.profile.target_anchor,
+                    &definition.profile.head_anchor,
                     &source.body.skeleton,
-                )),
+                )?),
                 suppressed_nodes: render::suppressed_body_nodes(
                     &source.body.skeleton,
                     definition.profile.traits.show_body_attachments,
@@ -566,7 +569,7 @@ impl Inputs {
             );
             let mut prepare_weapon = |slot,
                                       part: &battle_model::ModelPart,
-                                      trail: Option<&battle_model::TrailMaterial>,
+                                      trail: Option<&battle_model::Trail>,
                                       animation: Option<&battle_model::AttachmentAnimation>|
              -> Result<Option<Arc<WeaponDefinition>>> {
                 let mut render = Vec::new();
@@ -621,12 +624,11 @@ impl Inputs {
                 };
                 let resource = weapon.primary_resource();
                 models.extend(render);
-                if let Some(&material) = trail
+                if let Some(trail) = trail
                     && let Some(render) = render::weapon_trail(
                         self.files.diagnostics(),
-                        &part.rig.skeleton,
                         resource,
-                        material,
+                        trail,
                         false,
                         self.common_effects.as_deref(),
                         self.enemy_effects.get(&monster.id).map(Arc::as_ref),
@@ -645,7 +647,7 @@ impl Inputs {
                         .context("enemy weapon variant is not prepared")?;
                     (
                         &variant.model,
-                        Some(&variant.trail),
+                        variant.trail.as_ref(),
                         variant.animation.as_ref(),
                     )
                 } else {
@@ -681,7 +683,7 @@ impl Inputs {
                             let weapon = prepare_weapon(
                                 slot,
                                 &variant.model,
-                                Some(&variant.trail),
+                                variant.trail.as_ref(),
                                 variant.animation.as_ref(),
                             )?
                             .context("enemy action weapon artwork is missing")?;
@@ -756,14 +758,15 @@ impl Inputs {
                     skeleton: source.body.skeleton.clone(),
                     instances: render::RenderInstances::Fixed(1),
                     lit: true,
-                    texture_channels: render::party_texture_channels(
-                        &profile.texture_channels,
+                    texture_channels: render::texture_channels(
+                        &profile.expressions,
                         source.parts.first().context("missing party body")?,
                     )?,
                     target_anchor: Some(render::TargetAnchor::prepare(
                         &profile.target_anchor,
+                        &profile.head_anchor,
                         &source.body.skeleton,
-                    )),
+                    )?),
                     suppressed_nodes: render::suppressed_body_nodes(
                         &source.body.skeleton,
                         profile.traits.show_body_attachments,
@@ -792,7 +795,7 @@ impl Inputs {
         let current = &self.party.members[character.index()];
         let performances = if let (Some(victory), Some(model)) = (victory, &body) {
             let (prepared, performances) =
-                battle::victory::prepare(&self.files, victory, source, character, model)?;
+                battle::victory::prepare(&self.files, victory, character, current.costume, model)?;
             body = Some(prepared);
             performances
         } else {
@@ -1063,9 +1066,11 @@ impl Inputs {
             .keys()
             .filter(|id| matches!(id, 301 | 312 | 314))
         {
-            let scene: resonance_content::battle_scene::Scene = self
-                .files
-                .json(&resonance_content::battle_scene::path(native))?;
+            let scene = resonance_content::battle_scene::document::load(
+                &self.files,
+                resonance_content::battle_scene::document::Kind::Technique,
+                native,
+            )?;
             let mut weapon = scene.weapon.context("missing combination weapon")?;
             if native == 301 {
                 // Pow Blade equips the same hammer in both of Lloyd's hands.
@@ -1075,7 +1080,7 @@ impl Inputs {
                     .context("missing Pow Blade hammer")?
                     .clone();
                 weapon.parts.insert(1, part);
-                if let Some(&trail) = weapon.trails.get(&0) {
+                if let Some(trail) = weapon.trails.get(&0).cloned() {
                     weapon.trails.insert(1, trail);
                 }
                 if let Some(animation) = weapon.uv_animation.get(&0).cloned() {
@@ -1109,9 +1114,11 @@ impl Inputs {
         }
         let mut skill_weapons = BTreeMap::new();
         for &catalogue in self.skill_scenes.keys() {
-            let scene: resonance_content::battle_scene::Scene = self
-                .files
-                .json(&resonance_content::battle_scene::skill_path(catalogue))?;
+            let scene = resonance_content::battle_scene::document::load(
+                &self.files,
+                resonance_content::battle_scene::document::Kind::Skill,
+                catalogue,
+            )?;
             let Some(weapon) = scene.weapon else { continue };
             for (slot, input) in self.party_actors.iter().enumerate() {
                 if !super::resources::party_techniques(&self.catalogue, input.character)?
@@ -1249,13 +1256,16 @@ impl Inputs {
             }
             if let Some((model, _)) = self.enemy_models.get(&enemy) {
                 members.extend(model.uv_animation.iter().filter_map(|(&slot, animation)| {
-                    (animation.effect_interval != 0).then_some(u16::from(slot))
+                    animation
+                        .effect_every_ticks
+                        .is_some()
+                        .then_some(u16::from(slot))
                 }));
                 if model.weapon_variants.values().any(|variant| {
                     variant
                         .animation
                         .as_ref()
-                        .is_some_and(|animation| animation.effect_interval != 0)
+                        .is_some_and(|animation| animation.effect_every_ticks.is_some())
                 }) {
                     members.insert(0);
                 }
@@ -1335,7 +1345,22 @@ impl Inputs {
             }
             render_trails.extend(prepared.render_trails);
             enemy_weapon_groups.insert(rows.len(), prepared.weapon_groups);
-            let actor = prepared.actor;
+            let mut actor = prepared.actor;
+            for rule in &source.actions.policy.normalize_affinities {
+                if rule
+                    .flags
+                    .iter()
+                    .all(|flag| options.event_flags.contains(flag))
+                {
+                    if rule.neutral {
+                        actor.equipment.affinities[0] = resonance_battle::Affinity::Normal;
+                    }
+                    for element in &rule.elements {
+                        actor.equipment.affinities[*element as usize + 1] =
+                            resonance_battle::Affinity::Normal;
+                    }
+                }
+            }
             let model = prepared.model;
             enemy_entry_rows.push(source.entry_row);
             result_enemies.push(battle::results::PreparedEnemy {
@@ -1397,7 +1422,7 @@ impl Inputs {
                 model,
                 setup: resonance_battle::ActorSetup {
                     target_excluded: source.profile.hosted_body.is_some(),
-                    resists_cyclone: source.profile.camera_category >= 2,
+                    resists_cyclone: source.profile.size.resists_cyclone(),
                     movement_effect: source.profile.movement_effect.map(|effect| {
                         (
                             resonance_battle::EffectAppearance {
@@ -1455,9 +1480,7 @@ impl Inputs {
                 .iter()
                 .map(|actor| (actor.character, &actor.source.null_motions))
                 .collect(),
-            projectiles: self
-                .files
-                .json(resonance_content::battle_projectile::PATH)?,
+            projectiles: &self.projectiles,
             tints: tints.as_ref(),
             voices: &voices,
             common: EffectResource {
@@ -1961,7 +1984,7 @@ impl Inputs {
             let major = rows
                 .iter()
                 .skip(self.party_actors.len())
-                .any(|row| row.profile.camera_category >= 3);
+                .any(|row| row.profile.size.wide_camera());
             for (index, row) in rows[..self.party_actors.len()].iter().enumerate() {
                 if !row.actor.available() || row.actor.hp == 0 {
                     continue;
@@ -2090,14 +2113,16 @@ impl Inputs {
             .map(|source| {
                 self.files.diagnostics().attempt(
                     "stun bird artwork",
-                    source.particle(19).map(|data| {
-                        Arc::new(resonance_battle::ParticleDefinition {
-                            resource: common_id,
-                            member: 19,
-                            model: None,
-                            data: data.clone(),
-                        })
-                    }),
+                    source
+                        .named_particle(resonance_content::battle_effect::document::STUN_BIRD)
+                        .map(|(member, data)| {
+                            Arc::new(resonance_battle::ParticleDefinition {
+                                resource: common_id,
+                                member: u16::from(member),
+                                model: None,
+                                data: data.clone(),
+                            })
+                        }),
                 )
             })
             .transpose()?
@@ -2118,8 +2143,10 @@ impl Inputs {
                     }),
                     self.files.diagnostics(),
                 )?;
-                if effect.resource == common_id && stun_particle.is_some() {
-                    render.members.insert(19);
+                if effect.resource == common_id
+                    && let Some(particle) = &stun_particle
+                {
+                    render.members.insert(particle.member);
                 }
                 Ok(render)
             })
@@ -2127,23 +2154,30 @@ impl Inputs {
         let head_anchors = rows
             .iter()
             .map(|row| {
-                let mut anchor = row.profile.head_anchor;
-                if let Some(model) = &row.model {
-                    if matches!(row.source, model::ModelSource::Party(_)) {
-                        anchor.bone = model
-                            .skeleton
-                            .bones
-                            .iter()
-                            .position(|bone| bone.name == "Bone_atama")
-                            .and_then(|index| u8::try_from(index).ok())
-                            .unwrap_or(0);
-                    } else if usize::from(anchor.bone) >= model.skeleton.bones.len() {
-                        anchor.bone = 0;
-                    }
-                }
-                anchor
+                let anchor = &row.profile.head_anchor;
+                let bone = if let Some(model) = &row.model {
+                    self.files
+                        .diagnostics()
+                        .attempt(
+                            "battle head anchor",
+                            (|| {
+                                let bone =
+                                    model.skeleton.bone(&anchor.bone).with_context(|| {
+                                        format!("head joint {:?} is missing", anchor.bone)
+                                    })?;
+                                u8::try_from(bone).context("head joint exceeds u8")
+                            })(),
+                        )?
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                Ok(resonance_battle::HeadAnchor {
+                    bone,
+                    offset: anchor.offset,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         let model_definitions = rows.iter().map(|row| row.model.clone()).collect();
         let participants = rows.into_iter().map(|row| (row.actor, row.setup)).collect();
         let mut core =
@@ -2275,9 +2309,12 @@ impl Inputs {
                     participants: participants
                         .iter()
                         .copied()
-                        .map(Character::try_from)
+                        .map(|id| Character::try_from(id).map_err(anyhow::Error::from))
                         .collect::<Result<_>>()?,
-                    required_leader: group.required_leader.map(Character::try_from).transpose()?,
+                    required_leader: group
+                        .required_leader
+                        .map(|id| Character::try_from(id).map_err(anyhow::Error::from))
+                        .transpose()?,
                     condition: group.condition,
                     selection: group.selection.clone(),
                     voice,

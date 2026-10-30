@@ -10,7 +10,7 @@ const COMB_DELAYS: [usize; 2] = [1789, 1999];
 const AUXILIARY_RETURN_FRAMES: usize = 2 * crate::BLOCK_FRAMES;
 
 /// Parameters: coloration, mix, decay seconds, damping, pre-delay seconds.
-pub(crate) fn validate_parameters(parameters: [f32; 5]) -> Result<()> {
+pub fn validate_parameters(parameters: [f32; 5]) -> Result<()> {
     for (value, (min, max)) in parameters.into_iter().zip([
         (0.0, 1.0),
         (0.0, 1.0),

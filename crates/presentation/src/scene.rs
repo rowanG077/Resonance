@@ -21,6 +21,7 @@ pub(super) struct AnimatedPart {
     resource: u32,
     autoplay: bool,
     clips: Vec<Handle<super::sparse_animation::Clip>>,
+    motions: Vec<Arc<resonance_content::animation::Motion>>,
     bone_names: Vec<String>,
     binding: Option<super::sparse_animation::Binding>,
     schedule: Vec<SceneClip>,
@@ -130,8 +131,9 @@ impl FieldAssets {
                     clips: part
                         .clips
                         .iter()
-                        .map(|clip| server.load(clip.motion.clone()))
+                        .map(|clip| server.load_builder().load(clip.motion.clone()))
                         .collect(),
+                    motions: Vec::new(),
                     bone_names: part.bone_names.clone(),
                     binding: None,
                     schedule: part.clips.clone(),
@@ -182,14 +184,13 @@ pub(super) fn bind_animated(
             if !part.clips.iter().all(|clip| clips.contains(clip)) {
                 continue;
             }
-            for clip in &part.clips {
-                clips
-                    .get(clip)
-                    .unwrap()
-                    .0
-                    .validate_bones(part.bone_names.len())
-                    .expect("title animation must match its prepared skeleton");
-            }
+            part.motions = part
+                .clips
+                .iter()
+                .zip(&part.schedule)
+                .map(|(handle, spec)| clips.get(handle).unwrap().bind(&part.bone_names, spec))
+                .collect::<anyhow::Result<_>>()
+                .expect("title animation must match its prepared skeleton");
             part.binding = Some(
                 super::sparse_animation::Binding::new(
                     root,
@@ -209,7 +210,6 @@ pub(super) fn animate_field(
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<super::sparse_animation::affine::Locals>,
     mut visibility: Query<&mut Visibility>,
-    clips: Res<Assets<super::sparse_animation::Clip>>,
 ) {
     let Some(events) = events else {
         return;
@@ -261,11 +261,9 @@ pub(super) fn animate_field(
         } else {
             elapsed.min(spec.duration_seconds)
         };
-        let Some(clip) = clips.get(&part.clips[clip]) else {
-            continue;
-        };
+        let clip = &part.motions[clip];
         binding
-            .sample(&clip.0, time, &mut transforms, &mut affine)
+            .sample(clip, time, &mut transforms, &mut affine)
             .expect("validated title animation must evaluate");
     }
 }
@@ -276,7 +274,7 @@ pub(super) struct SampledImages {
     pub hits: u64,
     pub misses: u64,
 }
-type SampleKey = (AssetId<Image>, u8, u8, bool, bool);
+type SampleKey = (AssetId<Image>, u8, u8, bool, bool, bool);
 
 #[cfg(test)]
 #[path = "scene/sampled_tests.rs"]
@@ -294,6 +292,7 @@ pub(super) fn sampled_image(
             binding.wrap_v as u8,
             binding.nearest_min,
             binding.nearest_mag,
+            binding.mipmapped,
         );
         if let Some(cached) = cache.images.get(&key).and_then(std::sync::Weak::upgrade) {
             cache.hits += 1;
@@ -304,11 +303,10 @@ pub(super) fn sampled_image(
         // Different materials may sample the same image with different wrap
         // modes. A derived image prevents one loader setting winning globally.
         let mut image = images.get(&handle).expect("loaded texture").clone();
-        // Scene shaders currently sample the base image. Keep that policy when
-        // physical textures also retain their authored mip levels.
+        // Only materials selecting mip filtering may sample authored mip levels.
         let view = image.texture_view_descriptor.get_or_insert_default();
         view.base_mip_level = 0;
-        view.mip_level_count = Some(1);
+        view.mip_level_count = (!binding.mipmapped).then_some(1);
         let wrap = |mode| match mode {
             TextureWrap::Clamp => ImageAddressMode::ClampToEdge,
             TextureWrap::Repeat => ImageAddressMode::Repeat,
@@ -326,6 +324,7 @@ pub(super) fn sampled_image(
             address_mode_v: wrap(binding.wrap_v),
             min_filter: filter(binding.nearest_min),
             mag_filter: filter(binding.nearest_mag),
+            mipmap_filter: ImageFilterMode::Linear,
             ..ImageSamplerDescriptor::linear()
         });
         let derived = images.add(image);

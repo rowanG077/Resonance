@@ -21,13 +21,13 @@ pub fn apply(
     actor.movement.flying = profile.traits.flying;
     actor.movement.fixed_height = profile.traits.fixed_height;
     actor.movement.turning_disabled = profile.traits.turning_disabled;
-    actor.movement.steering.positioning_radius = profile.camera_category;
+    actor.movement.steering.positioning_radius = profile.size.positioning_radius();
     actor.movement.steering.passes_allied_obstacles = profile.traits.passes_allied_obstacles;
     actor.movement.steering.passable_for_allies = profile.traits.passable_for_allies;
     actor.movement.steering.unrestricted_arena = profile.traits.unrestricted_arena;
     actor.movement.steering.push_obstacle_disabled = profile.traits.push_obstacle_disabled;
     actor.movement.steering.push_immovable = profile.traits.push_immovable;
-    actor.reaction.profile = recoil.profile(profile.weight, &profile.traits);
+    actor.reaction.profile = recoil.profile(profile.recoil_weight, &profile.traits);
     actor.reaction.recover_in_air = profile.traits.recover_in_air;
     actor.reaction.hit_shake_disabled = profile.traits.hit_shake_disabled;
     actor.reaction.armor.base = profile.armor;

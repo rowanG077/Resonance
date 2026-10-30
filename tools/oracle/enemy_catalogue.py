@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import struct
+from named_content import Snapshot
 
 ACTION_BYTES = 68
 PACKAGE_HEADER_BYTES = 488
@@ -67,13 +68,21 @@ def formation_fixtures(profile, formations, worlds):
 def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> dict:
     """Preserve every enemy row; recipe grouping never substitutes for a binding test."""
     packages, assets, formations_manifest = map(Path, (packages, assets, formations_manifest))
+    content = Snapshot(assets)
     profile = read(formations_manifest)
-    formation_path = assets / "battle/formations.json"
-    world_path = assets / "worlds/world.json"
-    formations = read(formation_path)
-    fixtures = formation_fixtures(profile, formations, read(world_path)["encounters"]["worlds"])
-    definitions = {int(path.parent.name): path for path in
-                   sorted((assets / "battle/enemies").glob("[0-9][0-9][0-9]/definition.json"))}
+    formations = content.formations()
+    world_entry, encounters = content.world_encounters()
+    fixtures = formation_fixtures(profile, formations, encounters["worlds"])
+    definitions = {int(identity): assets / content.enemy_entry(int(identity))[0]
+                   for identity in content.mapping("battle/enemies/mappings.json")}
+    monsters = content.json("game/menu/monster-book.json")["records"]
+
+    def arena_available(identity):
+        path = content.arena_path(identity)
+        if path is None:
+            return False
+        content.arena(path)
+        return True
     raw_paths = {int(path.stem): path for path in sorted(packages.glob("[0-9][0-9][0-9].bin"))}
     if not definitions or definitions.keys() != raw_paths.keys():
         raise ValueError("raw enemy packages and cooked definitions must have the same complete IDs")
@@ -84,20 +93,18 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
         raw_path = raw_paths[enemy]
         raw = raw_path.read_bytes()
         package_sha = sha256(raw).hexdigest()
-        definition = read(definition_path)
-        monster_path = assets / f"monsters/{enemy:03}.json"
-        monster = read(monster_path)
+        definition = content.enemy_rules(enemy)
+        monster = monsters[enemy]
         if len(raw) < PACKAGE_HEADER_BYTES or raw[:4] != b"em8\0":
             raise ValueError(f"invalid authored enemy package: {raw_path}")
-        if package_sha != definition["source_sha256"] or monster["id"] != enemy:
-            raise ValueError(f"enemy {enemy} metadata does not match its authored package")
+        if monster["id"] != enemy:
+            raise ValueError(f"enemy {enemy} does not match its monster catalogue ID")
         row_start, authored_rows = section(raw, 10)
         policy_offset, policy = section(raw, 12)
         rows = definition["actions"]["rows"]
         if len(authored_rows) != len(rows) * ACTION_BYTES or len(policy) < 26:
             raise ValueError(f"enemy {enemy} action or policy table is truncated")
-        candidates = [{**fixture, "arena_cooked":
-                       (assets / f"battle/stages/{fixture['arena']:03}.json").exists()}
+        candidates = [{**fixture, "arena_cooked": arena_available(fixture["arena"])}
                       for fixture in fixtures[enemy]]
         authored = [fixture for fixture in candidates if fixture["arena_cooked"] and
                     fixture["arena_basis"] != "declared component arena"]
@@ -105,7 +112,7 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
         if not authored:
             fixture = {**fixture, "arena": profile["component_arena"],
                        "arena_basis": "declared component arena; no available authored caller arena"}
-        if not (assets / f"battle/stages/{fixture['arena']:03}.json").exists():
+        if not arena_available(fixture["arena"]):
             raise ValueError(f"enemy {enemy} fixture arena is not cooked")
         spell_candidates = []
         for candidate in authored or candidates:
@@ -124,7 +131,8 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
                         for row in bindings}
         enemies.append({"enemy": enemy, "name": monster["name"],
                         "package": {"path": str(raw_path), "sha256": package_sha},
-                        "definition": pinned(definition_path), "monster": pinned(monster_path),
+                        "definition": content.files[definition_path.relative_to(assets).as_posix()][1],
+                        "monster_catalogue": content.files["game/menu/monster-book.json"][1],
                         "policy_selector": policy[8], "policy_offset": policy_offset,
                         "policy": definition["actions"]["policy"],
                         "formations": [f["formation"] for f in fixtures[enemy]],
@@ -186,8 +194,10 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
             "description": "Every authored enemy action binding. Generated metadata is not a runtime or fidelity receipt.",
             "inputs": {"state": profile["source"], "movie": profile["source_movie"],
                        "disc_sha256": profile["disc_sha256"], "packages": str(packages), "assets": str(assets),
-                       "formations_manifest": pinned(formations_manifest), "formations": pinned(formation_path),
-                       "worlds": pinned(world_path), "authored_arenas": profile["authored_arenas"]},
+                       "formations_manifest": pinned(formations_manifest),
+                       "formations": content.files["battle/formations.json"][1],
+                       "worlds": content.files[world_entry][1], "authored_arenas": profile["authored_arenas"],
+                       "content": {path: pin for path, (_, pin) in content.files.items()}},
             "fixture_defaults": {"party_hp": profile["party_hp"], "warmup_vis": profile["warmup_vis"],
                                  "entry_gate_vis": 30, "entry_gate_attempts": 8, "capture_vis": 900,
                                  "selection": "controlled_authored_row"},

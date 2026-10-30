@@ -26,6 +26,8 @@ pub struct Voices {
     pub unison_start: Option<Sound>,
     pub technique_command: Option<Sound>,
     pub item_use: Option<Sound>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acquisition: Option<Sound>,
     pub entry: [Option<Sound>; 3],
     pub major_enemy: Option<Sound>,
     pub outnumbered: Option<Sound>,

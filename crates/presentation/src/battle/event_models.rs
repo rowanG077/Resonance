@@ -3,9 +3,7 @@ use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     Actor, ActorId, Battle, BattleFrame, Character, ModelDefinition, ModelSample, ModelSampler,
 };
-use resonance_content::{
-    animation::Motion, battle_event::Scene, model_preview::PreviewPart, prepared::Files,
-};
+use resonance_content::{battle_event::Scene, model_preview::PreviewPart, prepared::Files};
 use resonance_events::{Face, animation::AnimationSource};
 use resonance_game::battle::{
     encounter::{RenderInstances, RenderModel},
@@ -150,7 +148,7 @@ impl State {
                     body_spheres: vec![],
                     reception_spheres: None,
                     motions: BTreeMap::new(),
-                    secondary_motion: body.secondary_motion.chains.clone(),
+                    secondary_motion: body.secondary_motion.prepare(&body.bone_names)?,
                     initial: resonance_battle::Playback {
                         clip: 0,
                         frame: 0.,
@@ -162,7 +160,7 @@ impl State {
                     idle_expression: [0; 4],
                     active_expression: [0; 4],
                     forced_eye_frame: None,
-                    blink: None,
+                    blinks: vec![],
                     weapons: vec![],
                     shadow: None,
                     suppress_root_translation: [false; 3],
@@ -203,7 +201,10 @@ impl State {
                         if clips.contains_key(&key) {
                             continue;
                         }
-                        let motion = Motion::decode(&files.read(&clip.motion)?)?;
+                        let motion = clip.decode_for_skeleton(
+                            &files.read(&clip.motion)?,
+                            &definition.skeleton,
+                        )?;
                         motion.validate(&definition.skeleton)?;
                         let slot = if key.0 == AnimationSource::Model {
                             clip.resource_slot
@@ -244,7 +245,10 @@ impl State {
             });
         }
         let mouth_cycle = files
-            .json::<resonance_content::effect::FieldEffects>("effects/field.json")?
+            .json::<resonance_content::field::settings::Settings>(
+                resonance_content::field::settings::PATH,
+            )?
+            .effects
             .mouth_cycle;
         ensure!(
             !mouth_cycle.is_empty() && mouth_cycle.iter().all(|&frame| frame < 8),

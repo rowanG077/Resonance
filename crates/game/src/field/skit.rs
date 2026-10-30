@@ -1,7 +1,9 @@
 //! Available skit titles are transient field notifications, not save-state data.
 use super::*;
-use resonance_content::skit::{SkitCatalog, SkitLocation};
+use resonance_content::skit::{SkitCatalog, SkitLocation, SkitTrigger};
 use resonance_events::input::Button;
+#[cfg(test)]
+mod availability_tests;
 mod conditions;
 
 const REFRESH_TICKS: u32 = 1200;
@@ -107,10 +109,6 @@ impl Skits {
         };
         let story = events.memory().read(0x40, symphonia_script::Width::S32)?;
         let side = events.memory().read(0x50, symphonia_script::Width::S32)?;
-        let mask = party
-            .formation
-            .iter()
-            .fold(0, |mask, id| mask | (1u16 << id));
         self.control_ticks = self.control_ticks.saturating_add(1);
         let entry = !self.checked_entry;
         self.checked_entry = true;
@@ -129,14 +127,17 @@ impl Skits {
                 || skit
                     .story
                     .is_some_and(|[start, end]| !(start..=end).contains(&story))
-                || mask & skit.party_mask != skit.party_mask
-                || !match skit.location {
+                || !skit
+                    .party
+                    .iter()
+                    .all(|member| party.formation.contains(&(*member as u8)))
+                || !match &skit.location {
                     SkitLocation::Anywhere => true,
                     SkitLocation::Field => map < 3000,
-                    SkitLocation::Map(id) => map == u32::from(id),
-                    SkitLocation::Overworld(required) => {
-                        map >= 3000 && required.is_none_or(|v| side == i32::from(v))
-                    }
+                    SkitLocation::Map(field) => map == u32::from(field.id()?),
+                    SkitLocation::Overworld => map >= 3000,
+                    SkitLocation::Sylvarant => map >= 3000 && side == 0,
+                    SkitLocation::TetheAlla => map >= 3000 && side == 1,
                 }
             {
                 continue;
@@ -147,7 +148,10 @@ impl Skits {
             if self.selected == Some(index) {
                 selected_valid = true;
             }
-            if (skit.id < 600 && entry) || (skit.id >= 600 && refresh) {
+            if match skit.trigger {
+                SkitTrigger::Entry => entry,
+                SkitTrigger::Exploration => refresh,
+            } {
                 self.selected = Some(index);
                 selected_valid = true;
                 self.remaining = HOLD_TICKS;
@@ -178,12 +182,10 @@ impl Skits {
 
 pub use crate::skit::{Playback, Prepared};
 impl FieldSession {
-    /// Decode scenarios while preparing the field. Z never reads the filesystem.
-    pub fn prepare_skits(&mut self, files: &resonance_content::prepared::Files) -> Result<()> {
-        if let Some(catalog) = self.skits.data.clone() {
-            self.skit_programs = Prepared::load(catalog, files, self.events.resources())?;
-        }
-        Ok(())
+    /// Share immutable scenarios prepared by the field owner. Each playback
+    /// still creates its own VM and copies the caller's current story state.
+    pub fn set_prepared_skits(&mut self, programs: Arc<BTreeMap<u16, Prepared>>) {
+        self.skit_programs = programs;
     }
     pub(super) fn start_skit(
         &mut self,
@@ -236,9 +238,9 @@ mod tests {
     use super::*;
     use resonance_content::skit::SkitCondition;
 
-    fn events() -> EventRuntime {
+    pub(super) fn events() -> EventRuntime {
         let data = serde_json::from_value(serde_json::json!({
-            "version":1, "executable_sha256":"0".repeat(64), "experience":[0,0,10],
+            "version":1,  "experience":[0,0,10],
             "items":[{"equipment_kind":null,"allowed_characters":511,"stack_limit":20}],
             "characters":vec![serde_json::json!({
                 "level":1,"experience":0,"affinity":0,"base_stats":[100,20,30,40,50,60,70],
@@ -259,18 +261,22 @@ mod tests {
     fn catalog(id: u16, condition: SkitCondition) -> Arc<SkitCatalog> {
         Arc::new(SkitCatalog {
             preview_order: Vec::new(),
-            version: resonance_content::skit::VERSION,
             skits: vec![resonance_content::skit::SkitDefinition {
                 id,
                 title: "Test skit".into(),
                 story: None,
-                party_mask: 0,
+                party: vec![],
+                trigger: if id < 600 {
+                    SkitTrigger::Entry
+                } else {
+                    SkitTrigger::Exploration
+                },
                 location: SkitLocation::Anywhere,
                 condition,
             }],
             resources: BTreeMap::new(),
             portraits: BTreeMap::new(),
-            portrait_recipes: Vec::new(),
+            portrait_recipes: BTreeMap::new(),
             media: BTreeMap::new(),
         })
     }
@@ -285,8 +291,40 @@ mod tests {
     }
 
     #[test]
+    fn authored_trigger_order_and_named_party_requirements_control_prompts() {
+        use resonance_content::overworld::PartyCharacter;
+        let mut events = events();
+        events.world.party.as_mut().unwrap().formation = vec![1];
+        let mut data = (*catalog(700, SkitCondition::None)).clone();
+        data.skits[0].trigger = SkitTrigger::Entry;
+        data.skits[0].party = vec![PartyCharacter::Lloyd, PartyCharacter::Colette];
+        let mut skits = Skits::new(Some(Arc::new(data.clone())));
+        skits.step(&events, 10, true, None).unwrap();
+        assert!(skits.prompt().is_none());
+        events.world.party.as_mut().unwrap().formation.push(2);
+        skits = skits.next_field();
+        skits.step(&events, 10, true, None).unwrap();
+        assert_eq!(skits.open(), Some(700)); // Entry is independent of the native ID range.
+        let mut later = data.skits[0].clone();
+        later.id = 7;
+        data.skits.push(later);
+        data.validate().unwrap(); // Authored priority can differ from numeric ID order.
+        skits = Skits::new(Some(Arc::new(data.clone())));
+        skits.step(&events, 10, true, None).unwrap();
+        assert_eq!(skits.open(), Some(7));
+        data.skits.remove(0);
+        data.skits[0].trigger = SkitTrigger::Exploration;
+        skits = Skits::new(Some(Arc::new(data)));
+        skits.step(&events, 10, true, None).unwrap();
+        assert!(skits.prompt().is_none());
+        skits.control_ticks = REFRESH_TICKS - 1;
+        skits.step(&events, 10, true, None).unwrap();
+        assert_eq!(skits.open(), Some(7));
+    }
+
+    #[test]
     fn skit_rules_use_progress_party_and_world_context() {
-        use resonance_content::{overworld::Terrain, skit::SkitValue};
+        use resonance_content::overworld::Terrain;
         let mut events = events();
         events.set_global(16 + 3, 100).unwrap();
         let party = events.world.party.as_mut().unwrap();
@@ -296,10 +334,10 @@ mod tests {
         party.members[0].affinity = 100; // Lloyd is excluded from companion ranking.
         party.members[3].affinity = 10; // Raine ranks even when outside the formation.
         let rule: SkitCondition = serde_json::from_value(serde_json::json!({"all":[
-            {"maps":[10,12]}, {"any":[{"flag":9},{"item":2}]},
-            {"viewed":25}, {"not":{"member":5}}, {"terrain":"desert"},
-            {"range":{"value":{"global":3},"min":100,"max":200}},
-            {"range":{"value":{"affinity_rank":4},"min":1,"max":1}},
+            {"fields":{"from":{"id":10},"through":{"id":12}}}, {"any":[{"flag":9},{"item":2}]},
+            {"viewed":25}, {"not":{"member":"sheena"}}, {"terrain":"desert"},
+            {"range":{"value":{"global_word":3},"min":100,"max":200}},
+            {"range":{"value":{"affinity_rank":"raine"},"min":1,"max":1}},
             {"range":{"value":"exploration_seconds","min":600}}
         ]}))
         .unwrap();
@@ -335,12 +373,9 @@ mod tests {
         events.world.event_flags.insert(25);
         assert!(!matches(&events, 36000, desert)); // Event flags are not viewed skits.
         assert!(
-            SkitCondition::Range {
-                value: SkitValue::Level(0),
-                min: Some(1),
-                max: None
-            }
-            .validate()
+            serde_json::from_value::<SkitCondition>(serde_json::json!({
+                "range":{"value":{"level":"unknown"},"min":1}
+            }))
             .is_err()
         );
     }
@@ -348,7 +383,7 @@ mod tests {
     #[test]
     fn story_prompts_recheck_on_entry_and_timed_prompts_require_free_control() {
         let mut events = events();
-        let mut skits = Skits::new(Some(catalog(7, SkitCondition::Maps([10, 12]))));
+        let mut skits = Skits::new(Some(catalog(7, SkitCondition::Maps([10, 12].into()))));
         skits.step(&events, 9, true, None).unwrap();
         assert!(skits.prompt().is_none());
         skits = skits.next_field();
@@ -359,7 +394,7 @@ mod tests {
         skits.step(&events, 10, true, None).unwrap();
         assert!(skits.prompt().is_none());
 
-        let mut timed = Skits::new(Some(catalog(600, SkitCondition::Maps([10, 12]))));
+        let mut timed = Skits::new(Some(catalog(600, SkitCondition::Maps([10, 12].into()))));
         timed.control_ticks = REFRESH_TICKS - 1;
         timed.step(&events, 10, false, None).unwrap();
         assert!(timed.prompt().is_none());

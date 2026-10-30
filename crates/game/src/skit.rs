@@ -41,7 +41,7 @@ impl Prepared {
                             skits: Some(catalog.clone()),
                             text: resources.text.clone(),
                             session_data: resources.session_data.clone(),
-                            messages: files.json(&paths.messages)?,
+                            messages: files.json_or_default(paths.messages.as_deref())?,
                             actor_names: ResourceLibrary::character_names(),
                             ..Default::default()
                         }),
@@ -228,16 +228,29 @@ mod tests {
         let mut files = Files::default();
         files.insert("wait.ssb".into(), bytes.into());
         files.insert("messages.json".into(), b"[]".to_vec().into());
-        let mut catalog: SkitCatalog = serde_json::from_value(serde_json::json!({
-            "version": resonance_content::skit::VERSION,
-            "skits": [], "preview_order": [], "portrait_recipes": [],
-            "resources": {
-                "472": {"script":"wait.ssb", "messages":"messages.json", "allow_skip":true},
-                "450": {"script":"wait.ssb", "messages":"messages.json", "allow_skip":false}
-            }
-        }))?;
+        let catalog = SkitCatalog {
+            skits: vec![],
+            preview_order: vec![],
+            portrait_recipes: Default::default(),
+            portraits: Default::default(),
+            media: Default::default(),
+            resources: [(472, true), (450, false)]
+                .into_iter()
+                .map(|(id, allow_skip)| {
+                    (
+                        id,
+                        resonance_content::skit::SkitResourcePaths {
+                            script: "wait.ssb".into(),
+                            messages: (id == 472).then(|| "messages.json".into()),
+                            allow_skip,
+                            title: None,
+                        },
+                    )
+                })
+                .collect(),
+        };
         let mut parent = EventRuntime::new(program, Arc::default())?;
-        let prepared = Prepared::load(Arc::new(catalog.clone()), &files, parent.resources())?;
+        let prepared = Prepared::load(Arc::new(catalog), &files, parent.resources())?;
         for (id, caller_permission, expected) in [
             (472, true, true),
             (472, false, false),
@@ -261,8 +274,6 @@ mod tests {
                 assert_eq!(parent.world.audio_commands.len(), commands);
             }
         }
-        catalog.version = 2;
-        assert!(Prepared::load(Arc::new(catalog), &files, parent.resources()).is_err());
         Ok(())
     }
 }

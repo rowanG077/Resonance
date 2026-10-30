@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 symphonia-script.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

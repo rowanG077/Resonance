@@ -40,14 +40,12 @@ pub fn sample(skeleton: &Skeleton, motion: &Motion, frame: f32) -> Result<Vec<Bo
 /// from their last displayed pose before starting a new cross-fade.
 pub fn sample_bone(bind: Transform, track: Option<&Track>, frame: f32) -> Result<BonePose> {
     let authored = track.map(|track| Channels {
-        scale: track.scale.is_some(),
-        rotation: track.rotation.is_some() || track.euler_degrees.is_some(),
-        translation: track.translation.is_some(),
+        scale: track.channels().0 & 1 != 0,
+        rotation: track.channels().0 & 4 != 0,
+        translation: track.channels().0 & 8 != 0,
     });
     let value = match track {
-        Some(track) if track.matrices.is_some() => {
-            LocalPose::Affine(track.sample_matrix(frame, bind)?)
-        }
+        Some(track) if track.is_affine() => LocalPose::Affine(track.sample_matrix(frame, bind)?),
         Some(track) => LocalPose::Trs(track.sample(frame, bind)?),
         None => LocalPose::Trs(bind),
     };
@@ -193,56 +191,39 @@ impl BonePose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::animation::{
-        Bone, QuaternionCurve, QuaternionInterpolation, Track, TransformChannels, VectorCurve,
-        VectorInterpolation, transform_point,
-    };
+    use crate::animation::{Bone, Channel, Interpolation, Track, transform_point};
 
     fn rest() -> Bone {
         Bone {
             name: "root".into(),
             parent: None,
-            bind_channels: TransformChannels(4),
+            parent_transform: None,
+            shadow_bounds: true,
             bind: Transform::default(),
         }
     }
 
-    fn rotation_pose(euler: bool, degrees: f32) -> BonePose {
-        let mut track = Track {
-            bone: 0,
-            bind_channels: TransformChannels(4),
-            period_frames: 1.,
-            times: vec![0.],
-            translation: None,
-            scale: None,
-            rotation: None,
-            euler_degrees: None,
-            matrices: None,
-        };
-        if euler {
-            track.euler_degrees = Some(VectorCurve {
-                interpolation: VectorInterpolation::Step,
-                values: vec![[0., 0., degrees]],
-                incoming: vec![],
-                outgoing: vec![],
-                ease: vec![],
-            });
-        } else {
-            track.rotation = Some(QuaternionCurve {
-                interpolation: QuaternionInterpolation::Step,
-                values: vec![glam::Quat::from_rotation_z(degrees.to_radians()).to_array()],
-                incoming: vec![],
-                outgoing: vec![],
-                ease: vec![],
-            });
-        }
+    fn rotation_pose(step: bool, degrees: f32) -> BonePose {
+        let mut node = crate::animation::NodeTrack::new(Transform::default());
+        node.rotation = Some(Channel {
+            interpolation: if step {
+                Interpolation::Step
+            } else {
+                Interpolation::Linear
+            },
+            times: vec![0., 1. / 30.],
+            values: vec![glam::Quat::from_rotation_z(degrees.to_radians()).to_array(); 2],
+        });
         sample(
             &Skeleton {
                 bones: vec![rest()],
             },
             &Motion {
                 duration_frames: 1.,
-                tracks: vec![track],
+                tracks: vec![Track {
+                    bone: 0,
+                    nodes: vec![node],
+                }],
             },
             0.,
         )
@@ -250,12 +231,54 @@ mod tests {
     }
 
     #[test]
+    fn fractional_pose_blends_before_composing_scaled_parents() -> Result<()> {
+        let skeleton = Skeleton {
+            bones: vec![
+                Bone {
+                    bind: Transform {
+                        scale: [2.; 3],
+                        ..Default::default()
+                    },
+                    ..rest()
+                },
+                Bone {
+                    name: "child".into(),
+                    parent: Some(0),
+                    bind: Transform {
+                        translation: [3., 0., 0.],
+                        ..Default::default()
+                    },
+                    ..rest()
+                },
+            ],
+        };
+        let mut node = crate::animation::NodeTrack::new(Transform::default());
+        node.translation = Some(Channel {
+            interpolation: Interpolation::Linear,
+            times: vec![0., 2. / 30.],
+            values: vec![[0.; 3], [8., 0., 0.]],
+        });
+        let motion = Motion {
+            duration_frames: 2.,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![node],
+            }],
+        };
+        let pose = skeleton.sample(&motion, 0.25)?;
+        assert_eq!(pose.point(1, [1., 0., 0.])?, [9., 0., 0.]);
+        let blend = skeleton.blend(&skeleton.bind_pose()?, &pose, 0.5)?;
+        assert_eq!(blend.point(1, [1., 0., 0.])?, [8.5, 0., 0.]);
+        Ok(())
+    }
+
+    #[test]
     fn rotation_cross_fades_are_independent_of_curve_encoding() {
-        for from_euler in [false, true] {
-            for to_euler in [false, true] {
+        for from_step in [false, true] {
+            for to_step in [false, true] {
                 for (start, end, middle) in [(30., 150., 90.), (170., -170., 180.)] {
-                    let from = rotation_pose(from_euler, start);
-                    let to = rotation_pose(to_euler, end);
+                    let from = rotation_pose(from_step, start);
+                    let to = rotation_pose(to_step, end);
                     for (weight, degrees) in [(0., start), (0.5, middle), (1., end)] {
                         let point = transform_point(from.mix(to, weight).matrix(), [1., 0., 0.]);
                         let (sin, cos) = degrees.to_radians().sin_cos();

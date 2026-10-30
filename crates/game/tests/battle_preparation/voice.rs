@@ -36,8 +36,6 @@ fn snapshot(paranoid: bool) -> (Files, battle_profile::Table) {
     (
         files,
         battle_profile::Table {
-            version: battle_profile::PARTY_VERSION,
-            collider_recipe_sha256: "a".repeat(64),
             body_colliders: [battle_profile::StandingCollider {
                 radius: 30.,
                 height: 150.,
@@ -50,11 +48,10 @@ fn snapshot(paranoid: bool) -> (Files, battle_profile::Table) {
             lethal_rescue_names: Default::default(),
             overlimit_voices: [None; 9],
             item_use_offsets: [[0.; 3]; 9],
-            default_strategy: [[0; 3]; 10],
+            default_strategy: [[0; 3]; 9],
             companion_policy: Default::default(),
             entry: Default::default(),
             chant_sequences: Default::default(),
-            source_sha256: "a".repeat(64),
             voice_sequences,
             death_voice_pairs: vec![],
             contact_sounds: Default::default(),
@@ -195,7 +192,7 @@ fn contact_inventory_prepares_without_audio_packages() -> Result<()> {
     let (files, mut profiles) = snapshot(true);
     profiles.contact_sounds = battle_profile::ContactSounds {
         party: [46, 46, 54, 54, 54, 46, 46, 54, 46],
-        elements: [54, 55, 56, 54, 58, 59, 54, 54, 54],
+        elements: [55, 56, 54, 58, 59, 54, 54, 54],
     };
     profiles.records[0].voices.as_mut().unwrap().defeat = Some(Sound::Cue(618));
     let enemy = profile::profile();
@@ -213,7 +210,7 @@ fn contact_inventory_prepares_without_audio_packages() -> Result<()> {
             resolve(sound)
         },
     )?;
-    assert!(!files.contains_key(resonance_content::battle_audio::PATH));
+    assert!(!files.contains_key(resonance_content::battle_audio::document::PATH));
     assert_eq!(audio.actors[0].neutral, Some(Sound::Cue(46)));
     assert_eq!(audio.actors[0].voices.defeat, Some(Sound::Cue(618)));
     assert_eq!(audio.actors[1].voices.hurt, [None; 2]);
