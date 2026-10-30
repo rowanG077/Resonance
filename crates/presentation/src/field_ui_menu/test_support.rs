@@ -73,6 +73,7 @@ impl Fixture {
             frame_mask: Handle::default(),
             color_mask: Handle::default(),
             coverage: Coverage::default(),
+            sample_coverage: false,
             additive: false,
             texture_effect: Default::default(),
             opaque: false,

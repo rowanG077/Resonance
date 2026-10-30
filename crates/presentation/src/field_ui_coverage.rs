@@ -4,6 +4,10 @@ use anyhow::{Result, ensure};
 use bevy::{prelude::*, render::render_resource::ShaderType};
 use resonance_content::font::DialogueArt;
 
+#[cfg(test)]
+#[path = "field_ui_coverage_gpu_tests.rs"]
+mod gpu_tests;
+
 const LIMIT: usize = 64;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, ShaderType)]

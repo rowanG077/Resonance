@@ -1,20 +1,32 @@
 use super::*;
 use resonance_content::menu_data::{
-    COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, CustomizeSettings, FLEXIBLE_BATTLE_PARTY_OPTION,
-    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
+    ANTI_ALIASING_OPTION, AntiAliasing, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS,
+    CustomizeSettings, DISPLAY_MODE_OPTION, DISPLAY_RESOLUTIONS, DisplayMode,
+    FLEXIBLE_BATTLE_PARTY_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
+    RESOLUTION_OPTION,
 };
 
 pub const VISIBLE_OPTIONS: usize = 9;
 pub const VISIBLE_KEYMAP_ACTIONS: usize = 9;
+pub const DISPLAY_CONFIRMATION_SECONDS: u8 = 15;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
     #[default]
     Options,
+    AntiAliasing {
+        choice: AntiAliasing,
+    },
+    DisplayConfirmation {
+        previous_mode: DisplayMode,
+        previous_resolution: [u32; 2],
+        remaining_secs: u8,
+        keep: bool,
+        revision: u64,
+    },
     Colors,
     Volume,
     Controls,
-    Position,
     ForgetArtes {
         yes: bool,
     },
@@ -26,7 +38,17 @@ pub struct Customize {
     pub transition: super::Transition,
     pub draft: CustomizeSettings,
     #[serde(skip)]
+    anti_aliasing_choices: Vec<AntiAliasing>,
+    #[serde(skip)]
+    resolution_choices: Vec<[u32; 2]>,
+    #[serde(skip)]
+    native_resolution: Option<[u32; 2]>,
+    #[serde(skip)]
     original: CustomizeSettings,
+    #[serde(skip)]
+    display_revision: u64,
+    #[serde(skip)]
+    pub(super) display_input_blocked: bool,
     pub focus: Focus,
     pub row: usize,
     pub first: usize,
@@ -48,6 +70,78 @@ pub struct Customize {
     pub preview_opacity: u8,
 }
 impl Customize {
+    fn preview_display_change(&mut self, previous: (DisplayMode, [u32; 2])) {
+        if previous != (self.draft.display_mode, self.draft.resolution) {
+            self.display_revision = self.display_revision.wrapping_add(1);
+            self.focus = Focus::DisplayConfirmation {
+                previous_mode: previous.0,
+                previous_resolution: previous.1,
+                remaining_secs: DISPLAY_CONFIRMATION_SECONDS,
+                keep: true,
+                revision: self.display_revision,
+            };
+        }
+    }
+
+    /// Also called by the host's wall-clock timeout, independently of game ticks.
+    pub fn revert_display_change(&mut self) {
+        if let Focus::DisplayConfirmation {
+            previous_mode,
+            previous_resolution,
+            ..
+        } = self.focus
+        {
+            self.draft.display_mode = previous_mode;
+            self.draft.resolution = previous_resolution;
+            self.focus = Focus::Options;
+            self.display_input_blocked = true;
+        }
+    }
+
+    pub fn anti_aliasing_choices(&self) -> &[AntiAliasing] {
+        if self.anti_aliasing_choices.is_empty() {
+            &AntiAliasing::ALL
+        } else {
+            &self.anti_aliasing_choices
+        }
+    }
+    pub fn resolution_choices(&self) -> &[[u32; 2]] {
+        if self.resolution_choices.is_empty() {
+            &DISPLAY_RESOLUTIONS
+        } else {
+            &self.resolution_choices
+        }
+    }
+    pub fn native_resolution(&self) -> Option<[u32; 2]> {
+        self.native_resolution
+    }
+    /// The host supplies sizes supported by the current monitor and GPU.
+    /// Changing monitors updates the choices without changing the player's draft.
+    pub fn set_resolution_choices(&mut self, mut choices: Vec<[u32; 2]>, native: Option<[u32; 2]>) {
+        choices.sort_unstable();
+        choices.dedup();
+        self.native_resolution = native.filter(|size| choices.contains(size));
+        self.resolution_choices = choices;
+    }
+    pub fn set_anti_aliasing_choices(&mut self, choices: &[AntiAliasing]) {
+        self.anti_aliasing_choices = choices.to_vec();
+        self.normalize_anti_aliasing();
+    }
+    fn normalize_anti_aliasing(&mut self) {
+        self.draft.anti_aliasing = self
+            .draft
+            .anti_aliasing
+            .supported_or_fallback(self.anti_aliasing_choices());
+        self.original.anti_aliasing = self
+            .original
+            .anti_aliasing
+            .supported_or_fallback(self.anti_aliasing_choices());
+        if let Focus::AntiAliasing { choice } = self.focus {
+            self.focus = Focus::AntiAliasing {
+                choice: choice.supported_or_fallback(self.anti_aliasing_choices()),
+            };
+        }
+    }
     pub fn keymap_first(&self) -> usize {
         self.button_first
             .min(self.button)
@@ -108,6 +202,7 @@ impl Customize {
             preview_shown: 1,
             original: preferences.clone(),
             draft: preferences,
+            anti_aliasing_choices: AntiAliasing::ALL.to_vec(),
             ..Default::default()
         }
     }
@@ -222,7 +317,9 @@ impl Menu {
             return None;
         }
         if input == Some(Cancel) {
-            if state.focus == Focus::Options {
+            if matches!(state.focus, Focus::DisplayConfirmation { .. }) {
+                state.revert_display_change();
+            } else if state.focus == Focus::Options {
                 if state.forget_confirmation_key().is_some() {
                     state.focus = Focus::ForgetArtes { yes: false };
                     return Some(2);
@@ -284,12 +381,15 @@ impl Menu {
                         return Some(1);
                     }
                     if input == Some(Confirm) {
+                        let previous_display = (state.draft.display_mode, state.draft.resolution);
                         state.draft = if state.defaults {
                             data.defaults.clone()
                         } else {
                             state.original.clone()
                         };
                         state.draft.migrate_button_map();
+                        state.normalize_anti_aliasing();
+                        state.preview_display_change(previous_display);
                         return Some(2);
                     }
                 } else if input == Some(Confirm) {
@@ -298,17 +398,25 @@ impl Menu {
                             state.component = 0;
                             Focus::Colors
                         }
+                        ANTI_ALIASING_OPTION => Focus::AntiAliasing {
+                            choice: state.draft.anti_aliasing,
+                        },
                         5 => Focus::Volume,
                         6 => {
                             state.button = 0;
                             state.button_first = 0;
                             Focus::Controls
                         }
-                        13 => Focus::Position,
                         _ => return None,
                     };
                     return Some(2);
                 } else if horizontal {
+                    if state.display_input_blocked
+                        && matches!(state.row, DISPLAY_MODE_OPTION | RESOLUTION_OPTION)
+                    {
+                        return None;
+                    }
+                    let previous_display = (state.draft.display_mode, state.draft.resolution);
                     let draft = &mut state.draft;
                     match state.row {
                         0 => {
@@ -331,13 +439,87 @@ impl Menu {
                         10 => draft.movie_subtitles = left,
                         11 => draft.battle_auto_zoom = left,
                         12 => draft.rumble = left,
+                        ANTI_ALIASING_OPTION => {
+                            let choices = if state.anti_aliasing_choices.is_empty() {
+                                &AntiAliasing::ALL[..]
+                            } else {
+                                &state.anti_aliasing_choices
+                            };
+                            let current = choices
+                                .iter()
+                                .position(|a| *a == draft.anti_aliasing)
+                                .unwrap_or(0);
+                            draft.anti_aliasing = choices[cycle(current, left, choices.len())];
+                        }
+                        DISPLAY_MODE_OPTION => {
+                            let current = DisplayMode::ALL
+                                .iter()
+                                .position(|m| *m == draft.display_mode)
+                                .unwrap();
+                            draft.display_mode =
+                                DisplayMode::ALL[cycle(current, left, DisplayMode::ALL.len())];
+                        }
+                        RESOLUTION_OPTION => {
+                            let current = draft.resolution;
+                            let choices = state.resolution_choices();
+                            // Preserve custom config/CLI sizes until the player changes the row.
+                            state.draft.resolution = if left {
+                                choices
+                                    .iter()
+                                    .rev()
+                                    .find(|r| **r < current)
+                                    .unwrap_or(choices.last().unwrap())
+                            } else {
+                                choices
+                                    .iter()
+                                    .find(|r| **r > current)
+                                    .unwrap_or(&choices[0])
+                            }
+                            .to_owned();
+                        }
                         FLEXIBLE_BATTLE_PARTY_OPTION => draft.flexible_battle_party = left,
                         COMBINED_BATTLES_OPTION => draft.combined_battles = left,
                         LEARN_ELEMENTAL_ARTES_OPTION => draft.learn_elemental_artes = left,
                         LEARN_BOTH_ARTE_PATHS_OPTION => draft.learn_both_arte_paths = left,
                         _ => return None,
                     }
+                    state.preview_display_change(previous_display);
                     return Some(1);
+                }
+            }
+            Focus::DisplayConfirmation { keep, .. } => {
+                if up && !keep || down && keep {
+                    if let Focus::DisplayConfirmation { keep, .. } = &mut state.focus {
+                        *keep = up;
+                    }
+                    return Some(1);
+                }
+                if input == Some(Confirm) {
+                    if keep {
+                        state.focus = Focus::Options;
+                        state.display_input_blocked = true;
+                    } else {
+                        state.revert_display_change();
+                    }
+                    return Some(if keep { 2 } else { 3 });
+                }
+            }
+            Focus::AntiAliasing { choice } => {
+                if vertical {
+                    let choices = state.anti_aliasing_choices();
+                    let selected = choices
+                        .iter()
+                        .position(|value| *value == choice)
+                        .unwrap_or(0);
+                    state.focus = Focus::AntiAliasing {
+                        choice: choices[cycle(selected, up, choices.len())],
+                    };
+                    return Some(1);
+                }
+                if input == Some(Confirm) {
+                    state.draft.anti_aliasing = choice;
+                    state.focus = Focus::Options;
+                    return Some(2);
                 }
             }
             Focus::Colors => {
@@ -422,19 +604,6 @@ impl Menu {
                     state.binding_message = Some("Default keymap restored.".into());
                     return Some(2);
                 }
-            }
-            Focus::Position => {
-                let old = state.draft.screen_position;
-                let [x, y] = &mut state.draft.screen_position;
-                if matches!(input, Some(Menu | Details)) {
-                    *x = 0;
-                    *y = 0;
-                } else if horizontal {
-                    *x = (*x + if left { -1 } else { 1 }).clamp(-12, 32);
-                } else if vertical {
-                    *y = (*y + if up { -1 } else { 1 }).clamp(-32, 32);
-                }
-                return (old != state.draft.screen_position).then_some(1);
             }
             Focus::ForgetArtes { yes } => {
                 if horizontal || vertical {

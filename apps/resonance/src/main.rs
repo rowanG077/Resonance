@@ -28,7 +28,7 @@ struct Args {
     /// Resolve encounters as victories for exploration testing.
     #[arg(long)]
     skip_battles: bool,
-    /// Fixed render resolution for this session (default 640x480); restart to change it.
+    /// Override the saved render resolution at startup (WIDTHxHEIGHT).
     #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough"])]
     resolution: Option<resonance_presentation::Resolution>,
     /// Record the player's music/cue source to WAV without any window/audio device.
@@ -156,7 +156,7 @@ fn main() -> anyhow::Result<()> {
             overlay: args.perf_overlay,
             dump: args.perf_dump,
         },
-        args.resolution.unwrap_or_default(),
+        args.resolution,
     )
 }
 

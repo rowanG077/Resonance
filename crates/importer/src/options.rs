@@ -41,13 +41,13 @@ fn convert(exe: &[u8]) -> Result<Document> {
     let names = text::table::<14>(exe, 0x80219cc0)?;
     let help = text::table::<14>(exe, 0x8019ac94)?;
     let mut choices = named(
-        &options::OPTIONS[..14],
+        &options::OPTIONS[..13],
         names
             .into_iter()
             .zip(help)
             .map(|(name, description)| CustomizeOption { name, description }),
     );
-    for name in &options::OPTIONS[14..] {
+    for name in &options::OPTIONS[13..] {
         choices.insert(
             (*name).into(),
             serde_json::from_value(engine["options"][name].clone())
@@ -67,12 +67,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
     ] {
         labels.insert(name.into(), text::pointer(exe, address)?);
     }
-    for (name, address) in [
-        ("color", 0x8035cbd4),
-        ("volume", 0x8035cbd8),
-        ("position", 0x8035cbdc),
-        ("position_help", 0x8019b910),
-    ] {
+    for (name, address) in [("color", 0x8035cbd4), ("volume", 0x8035cbd8)] {
         labels.insert(name.into(), text::string(exe, address)?);
     }
     ensure!(
@@ -140,10 +135,9 @@ fn convert(exe: &[u8]) -> Result<Document> {
         combined_battles: false,
         learn_elemental_artes: false,
         learn_both_arte_paths: false,
-        screen_position: [
-            i16::from_be_bytes(original[44..46].try_into()?),
-            i16::from_be_bytes(original[46..48].try_into()?),
-        ],
+        anti_aliasing: Default::default(),
+        display_mode: Default::default(),
+        resolution: resonance_content::menu_data::default_display_resolution(),
     };
     let document = Document {
         options: choices,

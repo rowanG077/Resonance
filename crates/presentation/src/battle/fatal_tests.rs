@@ -249,7 +249,6 @@ impl Fixture {
             .add(crate::materials::TitleOutput {
                 source: image.clone(),
                 brightness: Vec4::ONE,
-                screen_offset: Vec2::ZERO,
             });
         let mut scene = construct_scene(world, package, image, RenderTarget::default())?;
         let art = scene.game_over.as_mut().context("fatal art missing")?;

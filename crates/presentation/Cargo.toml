@@ -9,6 +9,7 @@ resonance-model-behavior.workspace = true
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true
 bevy.workspace = true
+bevy_post_process.workspace = true
 resonance-content.workspace = true
 resonance-asset-writer.workspace = true
 resonance-game.workspace = true

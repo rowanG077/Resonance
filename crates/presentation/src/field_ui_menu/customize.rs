@@ -1,7 +1,8 @@
 use super::*;
 use resonance_content::menu_data::{
-    COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, FLEXIBLE_BATTLE_PARTY_OPTION,
-    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
+    ANTI_ALIASING_OPTION, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, DISPLAY_MODE_OPTION,
+    FLEXIBLE_BATTLE_PARTY_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
+    RESOLUTION_OPTION,
 };
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
@@ -150,7 +151,7 @@ impl Drawing<'_> {
                         };
                     }
                 }
-                4 | 5 | 13 => {
+                4 | 5 => {
                     let phase = self.tick % 60;
                     let fade = if phase < 20 { phase * 512 / 20 } else { 0 };
                     let pulse = 255 - if fade >= 256 { 511 - fade } else { fade };
@@ -161,7 +162,7 @@ impl Drawing<'_> {
                             match row {
                                 4 => "color",
                                 5 => "volume",
-                                _ => "position",
+                                _ => unreachable!(),
                             },
                         )?,
                         [x, y],
@@ -169,10 +170,39 @@ impl Drawing<'_> {
                         6,
                     )?;
                     self.opacity = opacity;
-                    if row == 13 {
-                        let [sx, sy] = settings.screen_position;
-                        self.text(&format!("X:{sx:3} Y:{sy:3}"), [x + 20., y], 20., WHITE)?;
-                    }
+                }
+                ANTI_ALIASING_OPTION => {
+                    self.text(
+                        &format!("< {} >", settings.anti_aliasing.label()),
+                        [x, y],
+                        20.,
+                        WHITE,
+                    )?;
+                }
+                DISPLAY_MODE_OPTION => {
+                    self.text(
+                        &format!("< {} >", settings.display_mode.label()),
+                        [x, y],
+                        20.,
+                        WHITE,
+                    )?;
+                }
+                RESOLUTION_OPTION => {
+                    let native = if state.native_resolution() == Some(settings.resolution) {
+                        " (Native)"
+                    } else {
+                        ""
+                    };
+                    self.fitted_text(
+                        &format!(
+                            "< {} x {}{native} >",
+                            settings.resolution[0], settings.resolution[1]
+                        ),
+                        [x, y],
+                        [20., 24.],
+                        292.,
+                        WHITE,
+                    )?;
                 }
                 6 => self.button(6, [x, y])?,
                 7..=12
@@ -413,18 +443,6 @@ impl Drawing<'_> {
                         WHITE,
                     )?;
                 }
-                13 if state.focus == Focus::Position => {
-                    self.text(
-                        menu_label(&data.labels, "position_help")?,
-                        [24., 316.],
-                        20.,
-                        WHITE,
-                    )?;
-                    self.text_size("^", [310., 356.], [16.; 2], WHITE)?;
-                    self.text_size("v", [310., 372.], [16.; 2], WHITE)?;
-                    self.text_size("<", [302., 364.], [16.; 2], WHITE)?;
-                    self.text_size(">", [318., 364.], [16.; 2], WHITE)?;
-                }
                 CUSTOMIZE_OPTIONS => self.text(
                     menu_label(
                         &data.labels,
@@ -446,6 +464,53 @@ impl Drawing<'_> {
         }
         self.offset = [0.; 2];
         self.opacity = 255;
+        if let Focus::AntiAliasing { choice } = state.focus {
+            let choices = state.anti_aliasing_choices();
+            let height = (12. + choices.len() as f32 * 26.).max(238.);
+            // Menu batches sort by plane and role, not submission order. Put
+            // an opaque backing above the option text before framing the list.
+            self.plane = 2;
+            let mut background = self.menu_color();
+            background[3] = 255;
+            self.quad_role(
+                DrawRole::Background,
+                FONT,
+                [320., 60., 600., 60. + height],
+                [0.5; 4],
+                rgba(background),
+            );
+            self.plane = 3;
+            self.framed([320., 60., 280., height], false)?;
+            for (index, mode) in choices.iter().enumerate() {
+                let y = 66. + index as f32 * 26.;
+                if *mode == choice {
+                    self.highlight([328., y, 264., 24.], 255);
+                    cursor = [330., y + 8.];
+                }
+                self.text(
+                    mode.label(),
+                    [344., y],
+                    20.,
+                    if *mode == settings.anti_aliasing {
+                        WHITE
+                    } else {
+                        GOLD
+                    },
+                )?;
+            }
+        }
+        if let Focus::DisplayConfirmation {
+            keep,
+            remaining_secs,
+            ..
+        } = state.focus
+        {
+            cursor = self.popup_layout(
+                &format!("Keep these display settings?\n{}: {} x {}\nReverting in {remaining_secs} seconds.",
+                    settings.display_mode.label(), settings.resolution[0], settings.resolution[1]),
+                Some(keep), 255, None, Some(["Keep", "Revert"]),
+            )?.context("display confirmation has no choices")?;
+        }
         if let Focus::ForgetArtes { yes } = state.focus {
             cursor = self
                 .popup(
@@ -487,11 +552,55 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         data,
     )?;
     menu.customize.transition = Default::default();
-    for row in 0..18 {
+    for row in 0..CUSTOMIZE_OPTIONS {
         menu.customize.row = row;
         menu.customize.first = row.saturating_sub(8);
         fixture.drawing(0).customize(&menu)?;
     }
+    for display_mode in resonance_content::menu_data::DisplayMode::ALL {
+        menu.customize.row = DISPLAY_MODE_OPTION;
+        menu.customize.first = DISPLAY_MODE_OPTION - 8;
+        menu.customize.draft.display_mode = display_mode;
+        fixture.drawing(0).customize(&menu)?;
+    }
+    for resolution in resonance_content::menu_data::DISPLAY_RESOLUTIONS {
+        menu.customize.row = RESOLUTION_OPTION;
+        menu.customize.first = RESOLUTION_OPTION - 8;
+        menu.customize.draft.resolution = resolution;
+        fixture.drawing(0).customize(&menu)?;
+    }
+    for anti_aliasing in resonance_content::menu_data::AntiAliasing::ALL {
+        menu.customize.row = ANTI_ALIASING_OPTION;
+        menu.customize.first = ANTI_ALIASING_OPTION - 8;
+        menu.customize.draft.anti_aliasing = anti_aliasing;
+        menu.customize.focus = Focus::AntiAliasing {
+            choice: anti_aliasing,
+        };
+        let mut transparent = menu.customize.draft.clone();
+        transparent.colors.menu[3] = 0;
+        let mut drawing = fixture.drawing(0);
+        drawing.preferences = Some(&transparent);
+        drawing.customize(&menu)?;
+        let backing = drawing
+            .batches
+            .get(&(2, DrawRole::Background, FONT))
+            .context("AA dropdown needs a backing above the underlying options")?;
+        assert!(backing.colors.iter().all(|color| color[3] == 1.));
+        assert!(backing.uv.iter().all(|uv| *uv == [0.5; 2]));
+        assert_eq!(backing.positions[0][0] + 320., 320.);
+        assert_eq!(backing.positions[2][0] + 320., 600.);
+        let top = (240. - backing.positions[0][1]) * 448. / 480.;
+        let bottom = (240. - backing.positions[2][1]) * 448. / 480.;
+        let height = (12. + menu.customize.anti_aliasing_choices().len() as f32 * 26.).max(238.);
+        assert!((top - 60.).abs() < 0.001);
+        assert!((bottom - (60. + height)).abs() < 0.001);
+        assert!(
+            DepthBand::Field.at(2, DrawRole::Background.depth())
+                > DepthBand::Field.at(1, DrawRole::Text.depth())
+        );
+        assert!(drawing.batches.contains_key(&(3, DrawRole::Text, FONT)));
+    }
+    menu.customize.focus = Focus::Options;
     for window in 0..3 {
         for background in 0..6 {
             menu.customize.row = 3;
@@ -524,7 +633,7 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
     }
     menu.customize.row = 13;
     menu.customize.first = 5;
-    menu.customize.focus = Focus::Position;
+    menu.customize.focus = Focus::Options;
     fixture.drawing(0).customize(&menu)?;
     menu.customize.draft.learn_elemental_artes = false;
     menu.customize.draft.learn_both_arte_paths = false;
