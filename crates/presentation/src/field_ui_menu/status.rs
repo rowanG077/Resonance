@@ -96,7 +96,7 @@ impl Drawing<'_> {
     fn status_member(&mut self, menu: &Menu, index: usize) -> Result<()> {
         let data = &menu.resources.as_ref().unwrap().data;
         let member = &menu.party().members[index];
-        let stats = member.stats(data);
+        let stats = self.stats.member(data, member, index);
         let title = data.title_text(u8::try_from(index + 1)?, member.title)?;
         self.text(&menu.full_name(index)?, [32., 68.], 20., WHITE)?;
         self.text_size(&title.name, [48., 94.], [20.; 2], WHITE)?;

@@ -17,6 +17,7 @@ pub mod monsters;
 mod party;
 pub mod preview;
 pub mod rename;
+pub mod stats;
 pub mod status;
 pub mod strategy;
 pub mod synopsis;

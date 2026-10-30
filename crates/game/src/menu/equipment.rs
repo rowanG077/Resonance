@@ -340,8 +340,55 @@ pub struct Page<'a> {
     /// and battle artwork display the same name for an untouched member.
     pub names: &'a [String; 9],
     pub character: usize,
+    pub stats: super::stats::Projection,
+    pub battle: Option<BattleStats<'a>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct BattleStats<'a> {
+    pub actor: &'a resonance_battle::Actor,
+    /// Committed equipment and base stats, before this menu's draft edits.
+    pub committed: &'a resonance_events::party::Member,
+    /// Saved battle formation, including temporarily absent members.
+    pub formation: &'a [u8],
 }
 impl<'a> Page<'a> {
+    pub fn current_member(self) -> anyhow::Result<&'a resonance_events::party::Member> {
+        match self.battle {
+            Some(battle) => Ok(battle.committed),
+            None => Ok(&self.party.members[self.member_index()?]),
+        }
+    }
+
+    pub fn current_stats(self) -> anyhow::Result<resonance_events::party::Stats> {
+        let index = self.member_index()?;
+        let member = self.current_member()?;
+        Ok(match self.battle {
+            Some(battle) => super::stats::live_member(self.data, member, index, battle.actor),
+            None => self.stats.member(self.data, member, index),
+        })
+    }
+
+    pub fn preview_stats(
+        self,
+        slot: usize,
+        item: u16,
+    ) -> anyhow::Result<resonance_events::party::Stats> {
+        let index = self.member_index()?;
+        let member = &self.party.members[index];
+        match self.battle {
+            Some(battle) => {
+                let mut preview = member.clone();
+                preview.equipment[slot] = item;
+                self.stats
+                    .battle_member(self.data, &preview, index, battle.formation)
+            }
+            None => Ok(self
+                .stats
+                .preview_equipment(self.data, member, index, slot, item)),
+        }
+    }
+
     pub fn member_index(self) -> anyhow::Result<usize> {
         selected_member(self.party, self.character)
     }
