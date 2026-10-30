@@ -41,6 +41,8 @@ pub mod font;
 pub mod foraging;
 pub mod game_over;
 pub mod grade;
+pub mod input;
+pub mod input_prompts;
 pub mod items;
 pub mod library;
 pub mod menu;

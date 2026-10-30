@@ -27,6 +27,179 @@ fn slot_y(slot: usize, unison: bool) -> f32 {
 }
 
 impl Drawing<'_> {
+    fn arte_bindings_page(&mut self, page: Page<'_>) -> Result<[f32; 2]> {
+        let state = page.state;
+        let member = page.member();
+        let owner = page.member_index();
+        self.opacity = 255;
+        self.offset = [0.; 2];
+        self.heading("Artes")?;
+        self.framed([16., 60., 604., 254.], true)?;
+        self.text(page.character_name(owner), [40., 64.], 24., GOLD)?;
+        let mode = page
+            .party
+            .settings
+            .battle_controls
+            .get(state.character)
+            .copied()
+            .unwrap_or(2);
+        self.text(
+            ["Manual", "Semi-auto", "Auto"][usize::from(mode)],
+            [460., 68.],
+            18.,
+            if state.focus == Focus::Control {
+                GOLD
+            } else {
+                WHITE
+            },
+        )?;
+        let mut cursor = [32., 76.];
+        if state.focus == Focus::Character {
+            self.highlight([24., 64., 240., 26.], 255);
+        }
+        if state.focus == Focus::Control {
+            self.highlight([450., 64., 158., 26.], 255);
+            cursor = [448., 76.];
+        }
+
+        let list = page.technique_list();
+        for (offset, &id) in list.iter().skip(state.first).take(8).enumerate() {
+            let y = 100. + offset as f32 * 25.;
+            if state.first + offset == state.row
+                && matches!(
+                    state.focus,
+                    Focus::List
+                        | Focus::BindingError
+                        | Focus::ReplaceBinding { .. }
+                        | Focus::Target
+                        | Focus::CannotForget
+                        | Focus::Forget { .. }
+                )
+            {
+                self.highlight([28., y, 580., 24.], 255);
+                cursor = [32., y + 8.];
+            }
+            let learned = member.techniques.contains(&id);
+            self.fitted_text(
+                &page.data.technique_text(id)?.name,
+                [40., y + 1.],
+                [18., 22.],
+                252.,
+                if !learned { DISABLED } else { WHITE },
+            )?;
+            if let Some(binding) = member.arte_bindings.iter().find(|b| b.technique == id) {
+                self.chord_icons(&binding.chord, [310., y], 24., 530.)?;
+                if binding
+                    .chord
+                    .validate(&page.party.settings.preferences.keymap)
+                    .is_err()
+                {
+                    self.text("!", [532., y], 16., 2)?;
+                }
+            } else {
+                self.text_size("-", [310., y + 2.], [14., 20.], GOLD)?;
+            }
+            if member.disabled_techniques.contains(&id) {
+                self.text("AI off", [550., y], 12., DISABLED)?;
+            }
+        }
+        if state.first > 0 {
+            self.scroll_arrow(SCROLL_UP, [300., 86.])?;
+        }
+        if state.first + 8 < list.len() {
+            self.scroll_arrow(SCROLL_DOWN, [300., 300.])?;
+        }
+
+        self.framed([16., 320., 604., 108.], true)?;
+        use resonance_content::input::StandardAction as A;
+        let map = &page.party.settings.preferences.keymap;
+        if let Some(capture) = &state.capture {
+            self.fitted_text(
+                "Hold your combo, then release all inputs.",
+                [28., 330.],
+                [16., 20.],
+                580.,
+                GOLD,
+            )?;
+            self.binding_icons(capture.inputs(), "+", [28., 358.], 28., 600.)?;
+            self.fitted_text(
+                "Release the opener first if it is not part of the combo.",
+                [28., 398.],
+                [14., 20.],
+                580.,
+                WHITE,
+            )?;
+        } else {
+            for (action, label, x, right) in [
+                (A::Confirm, "Bind", 28., 120.),
+                (A::Menu, "Use", 140., 232.),
+                (A::Alternate, "AI", 252., 328.),
+                (A::Start, "Clear", 348., 470.),
+                (A::Cancel, "Back", 490., 608.),
+            ] {
+                self.input_hint(map, action, label, [x, 330.], right)?;
+            }
+            if let Some(message) = &state.binding_message {
+                for (line, text) in self
+                    .wrap_notice(message, 16., 576.)?
+                    .iter()
+                    .take(3)
+                    .enumerate()
+                {
+                    self.text_size(text, [28., 358. + line as f32 * 22.], [16., 20.], WHITE)?;
+                }
+            } else if let Some(selected) = page.selected_technique() {
+                let text = page.data.technique_text(selected.technique)?;
+                for (line, text) in self
+                    .wrap_notice(&text.description, 16., 576.)?
+                    .iter()
+                    .take(2)
+                    .enumerate()
+                {
+                    self.text_size(text, [28., 358. + line as f32 * 22.], [16., 20.], WHITE)?;
+                }
+                self.text_size(
+                    &format!(
+                        "TP: {}",
+                        page.technique_cost(owner, selected.technique).unwrap_or(0)
+                    ),
+                    [520., 402.],
+                    [16., 20.],
+                    GOLD,
+                )?;
+            }
+        }
+        if state.focus == Focus::BindingError {
+            let error = state
+                .binding_error
+                .as_deref()
+                .context("Missing binding error")?;
+            let message = self.wrap_notice(error, 24., 540.)?.join("\n") + "\n";
+            let height = message.split('\n').count() as f32 * 26.;
+            self.popup(&message, None, 255)?;
+            let y = 224. + height / 2. - 26.;
+            self.input_hint(map, A::Confirm, "OK", [280., y], 400.)?;
+            return Ok([280., y + 8.]);
+        }
+        if let Focus::ReplaceBinding { yes } = state.focus {
+            let pending = state
+                .pending_binding
+                .as_ref()
+                .context("Missing combo replacement")?;
+            let name = page.character_name(pending.previous.character);
+            let arte = &page.data.technique_text(pending.previous.technique)?.name;
+            let message =
+                format!("This combo is attached to {name}'s {arte}. Do you want to replace it?");
+            let message = self.wrap_notice(&message, 24., 540.)?.join("\n");
+            return self
+                .popup(&message, Some(yes), 255)?
+                .context("Missing replacement choices");
+        }
+        if state.focus == Focus::Target {
+            return self.tech_target_page(page);
+        }
+        Ok(cursor)
+    }
     fn tech_hint(
         &mut self,
         data: &resonance_content::menu_data::MenuData,
@@ -46,6 +219,9 @@ impl Drawing<'_> {
     }
 
     pub(crate) fn techniques_page(&mut self, page: Page<'_>) -> Result<[f32; 2]> {
+        if !page.state.unison {
+            return self.arte_bindings_page(page);
+        }
         let data = page.data;
         let party = page.party;
         let owner = page.tech_member_index();
@@ -295,6 +471,12 @@ impl Drawing<'_> {
 
     pub(crate) fn tech_cursors_page(&mut self, page: Page<'_>) {
         let state = page.state;
+        if !state.unison {
+            if page.tech_target_visible() {
+                self.cursor([24., 108. + (state.row - state.first) as f32 * 25.], 127);
+            }
+            return;
+        }
         let plane = self.plane.max(5);
         self.plane = 5;
         if page.tech_target_visible() {
@@ -318,21 +500,6 @@ impl Drawing<'_> {
             self.cursor([32., slot_y(state.slot, state.unison) + 8.], 127);
         }
         self.plane = plane;
-    }
-
-    pub(super) fn technique_description(
-        &mut self,
-        party: &resonance_events::party::Party,
-        data: &resonance_content::menu_data::MenuData,
-        selected: resonance_events::party::TechniqueShortcut,
-        at_save_point: bool,
-    ) -> Result<()> {
-        let cost = party
-            .members
-            .get(selected.character)
-            .context("technique description member is absent")?
-            .technique_cost(data, selected.technique, at_save_point);
-        self.technique_description_cost(party, data, selected, at_save_point, Some(u32::from(cost)))
     }
 
     fn technique_description_cost(
@@ -585,5 +752,229 @@ impl Drawing<'_> {
         }
         self.opacity = 255;
         Ok(Some(anchor))
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::super::test_support::Fixture;
+    use super::*;
+    use resonance_content::input::{InputChord, PhysicalInput};
+    use resonance_events::party::Party;
+    use resonance_game::menu::{
+        MenuAction,
+        techniques::{Context, Tech},
+    };
+
+    #[test]
+    #[ignore = "requires locally cooked menus; exercises recording, replacement and drawing"]
+    fn arte_list_records_one_combo_and_confirms_transfers_across_characters() -> Result<()> {
+        let mut fixture = Fixture::load()?;
+        let connected = [false; 4];
+        let context = Context::Field {
+            at_save_point: false,
+            connected: &connected,
+        };
+        let mut tech = Tech::opening(0, context, &fixture.party, &fixture.session, &fixture.data)?;
+        assert_eq!(tech.focus, Focus::List);
+        let id = tech
+            .page(&fixture.party, &fixture.session, &fixture.data, context)
+            .selected_technique()
+            .unwrap()
+            .technique;
+        let record =
+            |tech: &mut Tech, party: &mut Party, inputs: Vec<PhysicalInput>| -> Result<()> {
+                tech.step(
+                    Some(MenuAction::Confirm),
+                    party,
+                    &fixture.session,
+                    &fixture.data,
+                    context,
+                )?;
+                assert_eq!(tech.focus, Focus::List);
+                assert!(tech.capture.is_some());
+                tech.capture_physical(party, &Default::default());
+                tech.capture_physical(party, &inputs.into_iter().collect());
+                tech.capture_physical(party, &Default::default());
+                Ok(())
+            };
+        record(
+            &mut tech,
+            &mut fixture.party,
+            vec![PhysicalInput::Key("Escape".into())],
+        )?;
+        assert_eq!(tech.binding_message.as_deref(), Some("Combo assigned."));
+        let before = fixture.party.members[0].arte_bindings.clone();
+        record(
+            &mut tech,
+            &mut fixture.party,
+            vec![PhysicalInput::Key("Space".into())],
+        )?;
+        assert_eq!(tech.focus, Focus::BindingError);
+        assert!(tech.binding_error.as_ref().unwrap().contains("Attack"));
+        let row = tech.row;
+        tech.step(
+            Some(MenuAction::Down),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert_eq!(tech.focus, Focus::BindingError);
+        assert_eq!(tech.row, row);
+        let mut drawing = fixture.drawing(0);
+        let anchor = drawing.techniques_page(tech.page(
+            &fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        ))?;
+        drawing.cursor_trail(anchor, 255);
+        fixture.export_drawing(&drawing, "RESONANCE_COMBAT_CONFLICT_PREVIEW")?;
+        drop(drawing);
+        tech.step(
+            Some(MenuAction::Cancel),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert_eq!(fixture.party.members[0].arte_bindings, before);
+        record(
+            &mut tech,
+            &mut fixture.party,
+            vec![
+                PhysicalInput::Key("ShiftLeft".into()),
+                PhysicalInput::Key("Tab".into()),
+            ],
+        )?;
+        assert_eq!(tech.focus, Focus::BindingError);
+        assert!(tech.binding_error.as_ref().unwrap().contains("overlay"));
+        let mut drawing = fixture.drawing(0);
+        let anchor = drawing.techniques_page(tech.page(
+            &fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        ))?;
+        drawing.cursor_trail(anchor, 255);
+        fixture.export_drawing(&drawing, "RESONANCE_BINDING_ERROR_PREVIEW")?;
+        drop(drawing);
+        tech.step(
+            Some(MenuAction::Confirm),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        use resonance_content::input::AxisDirection;
+        record(
+            &mut tech,
+            &mut fixture.party,
+            vec![
+                PhysicalInput::Button("South".into()),
+                PhysicalInput::Axis(AxisDirection::LeftRight),
+            ],
+        )?;
+        assert_eq!(fixture.party.members[0].arte_bindings.len(), 1);
+        let chord = InputChord(vec![
+            PhysicalInput::Key("Enter".into()),
+            PhysicalInput::Key("KeyW".into()),
+        ]);
+        record(&mut tech, &mut fixture.party, chord.0.clone())?;
+        assert_eq!(fixture.party.members[0].arte_bindings.len(), 1);
+        assert!(
+            fixture.party.members[0].arte_bindings[0]
+                .chord
+                .same_inputs(&chord)
+        );
+        let mut drawing = fixture.drawing(0);
+        let anchor = drawing.techniques_page(tech.page(
+            &fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        ))?;
+        assert!(
+            drawing
+                .batches
+                .keys()
+                .any(|key| key.2 == MaterialKey::InputIcons)
+        );
+        drawing.cursor_trail(anchor, 255);
+        fixture.export_drawing(&drawing, "RESONANCE_ARTES_PREVIEW")?;
+        drop(drawing);
+
+        // A collision on another member requires an explicit decision.
+        let owner = fixture.party.arte_binding_owner(&chord).unwrap();
+        let mut other = Tech::opening(1, context, &fixture.party, &fixture.session, &fixture.data)?;
+        let destination = other
+            .page(&fixture.party, &fixture.session, &fixture.data, context)
+            .selected_technique()
+            .unwrap();
+        let before = serde_json::to_value(&fixture.party.members)?;
+        record(&mut other, &mut fixture.party, chord.0.clone())?;
+        assert_eq!(other.focus, Focus::ReplaceBinding { yes: false });
+        assert_eq!(other.pending_binding.as_ref().unwrap().previous, owner);
+        let mut drawing = fixture.drawing(0);
+        let anchor = drawing.techniques_page(other.page(
+            &fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        ))?;
+        drawing.cursor_trail(anchor, 255);
+        fixture.export_drawing(&drawing, "RESONANCE_COMBO_POPUP_PREVIEW")?;
+        drop(drawing);
+        other.step(
+            Some(MenuAction::Cancel),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert_eq!(serde_json::to_value(&fixture.party.members)?, before);
+        record(&mut other, &mut fixture.party, chord.0.clone())?;
+        other.step(
+            Some(MenuAction::Confirm),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert_eq!(
+            serde_json::to_value(&fixture.party.members)?,
+            before,
+            "default No preserves the original owner"
+        );
+        record(&mut other, &mut fixture.party, chord.0.clone())?;
+        other.step(
+            Some(MenuAction::Right),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert_eq!(other.focus, Focus::ReplaceBinding { yes: true });
+        let result = other.step(
+            Some(MenuAction::Confirm),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert!(result.changed);
+        assert!(fixture.party.members[0].arte_bindings.is_empty());
+        assert_eq!(fixture.party.arte_binding_owner(&chord), Some(destination));
+        other.step(
+            Some(MenuAction::Details),
+            &mut fixture.party,
+            &fixture.session,
+            &fixture.data,
+            context,
+        )?;
+        assert!(fixture.party.arte_binding_owner(&chord).is_none());
+        assert!(fixture.party.members[0].techniques.contains(&id));
+        Ok(())
     }
 }

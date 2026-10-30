@@ -1,4 +1,4 @@
-//! Prepared Unison pages edit persistent and live shortcuts while battle is paused.
+//! Unison loadout edits preserve normal shortcuts and suspended battle state.
 use super::item_tests::{
     PreparedFixture, command_visit as visit, edge, enter_battle, escape,
     prepared_fixture_with_story, step,
@@ -16,7 +16,9 @@ fn fixture(story: i32) -> Result<PreparedFixture> {
         party.members[0].level = 1;
         party.members[2].level = 2;
         party.members[0].shortcuts = [1, 0, 0, 0];
+        party.members[0].unison_arte = Some(1);
         party.members[2].shortcuts = [66, 0, 0, 0];
+        party.members[2].unison_arte = Some(66);
         party.members[0].technique_uses.insert(1, 17);
         party.members[2].technique_uses.insert(66, 49);
         Ok(())
@@ -76,7 +78,7 @@ fn assign(f: &mut PreparedFixture) -> Result<()> {
     shared(f, Some(MenuAction::Confirm))?;
     assert_eq!(pose(f).focus, Focus::List);
     shared(f, Some(MenuAction::Confirm))?;
-    assert_eq!(pose(f).focus, Focus::Slots);
+    assert_eq!(pose(f).focus, Focus::Loadout);
     Ok(())
 }
 fn close(f: &mut PreparedFixture) -> Result<()> {
@@ -129,7 +131,7 @@ fn empty_unison_choices_are_disabled_and_cancel_keeps_battle_running() -> Result
     let held = f.battle.snapshot();
     let (_, events) = shared(&mut f, Some(MenuAction::Confirm))?;
     assert!(events.contains(&command::Event::Cue(4)));
-    assert_eq!(pose(&f).focus, Focus::Slots);
+    assert_eq!(pose(&f).focus, Focus::Loadout);
     assert_eq!(serde_json::to_value(&f.candidate.party)?, before);
     assert_eq!(f.battle.snapshot().actors, held.actors);
     close(&mut f)?;
@@ -139,7 +141,7 @@ fn empty_unison_choices_are_disabled_and_cancel_keeps_battle_running() -> Result
 
 #[test]
 #[ignore = "requires prepared opening battle and menus; no devices"]
-fn unison_edits_actual_party_and_live_slots_without_reloading_held_cast_or_item() -> Result<()> {
+fn unison_loadout_is_saved_independently_without_reloading_held_cast_or_item() -> Result<()> {
     for casting in [false, true] {
         let mut f = fixture(UNLOCK_STORY)?;
         ready(&mut f)?;
@@ -184,13 +186,14 @@ fn unison_edits_actual_party_and_live_slots_without_reloading_held_cast_or_item(
         let held = f.battle.snapshot();
         let pending = f.battle.pending_item();
         shared(&mut f, Some(MenuAction::Alternate))?;
-        assert_eq!(f.candidate.party.members[2].shortcuts[0], 0);
-        assert_eq!(f.battle.shortcuts(actor).unwrap()[0], None);
-        shared(&mut f, Some(MenuAction::Down))?;
+        assert_eq!(f.candidate.party.members[2].unison_arte, None);
+        assert_eq!(f.candidate.party.members[2].shortcuts, [66, 0, 0, 0]);
+        assert_eq!(f.battle.unison_arte(actor), None);
         assign(&mut f)?;
-        assert_eq!(f.candidate.party.members[2].shortcuts, [0, 66, 0, 0]);
+        assert_eq!(f.candidate.party.members[2].unison_arte, Some(66));
+        assert_eq!(f.candidate.party.members[2].shortcuts, [66, 0, 0, 0]);
         assert_eq!(
-            f.battle.shortcuts(actor).unwrap()[1],
+            f.battle.unison_arte(actor),
             Some(resonance_battle::TechniqueId(66))
         );
         assert_eq!(f.field.members[2].shortcuts, [66, 0, 0, 0]);
@@ -218,7 +221,27 @@ fn unison_edits_actual_party_and_live_slots_without_reloading_held_cast_or_item(
         let completed = f.candidate.finish(&f.battle, &outcome)?;
         let saved = serde_json::to_vec(&completed.party)?;
         let reloaded: Party = serde_json::from_slice(&saved)?;
-        assert_eq!(reloaded.members[2].shortcuts, [0, 66, 0, 0]);
+        assert_eq!(reloaded.members[2].unison_arte, Some(66));
+        assert_eq!(reloaded.members[2].shortcuts, [66, 0, 0, 0]);
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires prepared opening battle and menus; no devices"]
+fn a_solo_character_can_save_a_loadout_for_a_later_full_party() -> Result<()> {
+    let mut f = prepared_fixture_with_story(&[1], 2, &[(1, 1)], UNLOCK_STORY, |party, _, _| {
+        party.members[0].unison_arte = None;
+        Ok(())
+    })?;
+    ready(&mut f)?;
+    open(&mut f)?;
+    assign(&mut f)?;
+    assert_eq!(f.candidate.party.members[0].unison_arte, Some(1));
+    assert_eq!(
+        f.candidate.snapshot_party(&f.battle)?.members[0].unison_arte,
+        Some(1)
+    );
+    close(&mut f)?;
     Ok(())
 }

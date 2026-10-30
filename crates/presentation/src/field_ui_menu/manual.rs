@@ -49,8 +49,7 @@ impl Drawing<'_> {
                             x += self.text_width(text, 20.)?;
                         }
                         MenuSpan::Button { sprite } => {
-                            let rect = self.spec.sprite(Sprite::Buttons, usize::from(*sprite))?;
-                            self.sprite_rect(rect, [x, y, x + 24., y + 24.], [1.; 4]);
+                            self.button(usize::from(*sprite), [x, y])?;
                             x += 24.;
                         }
                     }

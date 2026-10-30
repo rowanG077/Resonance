@@ -158,10 +158,12 @@ fn render(
     server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     clock: Res<crate::Clock>,
+    prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
     let Some(mut art) = art else {
         return;
     };
+    art.set_prompt_device(prompt_device.device());
     let ready = art
         .render(
             menu.as_ref().map(|m| &m.0),
@@ -390,9 +392,12 @@ mod tests {
             root.join(&dialogue.textures[0].path),
             directory.join(&ready),
         )?;
-        fs::write(directory.join("broken.png"), b"not a PNG")?;
+        let prompt_path = resonance_content::input_prompts::IMAGE_PATH;
+        fs::create_dir_all(directory.join(prompt_path).parent().unwrap())?;
+        fs::copy(root.join(prompt_path), directory.join(prompt_path))?;
+        fs::write(directory.join("broken.ktx2"), b"not a KTX2 texture")?;
         for paranoid in [false, true] {
-            for image_path in ["missing.png", "broken.png"] {
+            for image_path in ["missing.ktx2", "broken.ktx2"] {
                 let mut app = App::new();
                 let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
                 app.add_plugins((
@@ -409,6 +414,7 @@ mod tests {
                 .init_asset::<Mesh>()
                 .init_resource::<crate::display::Display>()
                 .init_resource::<crate::Clock>()
+                .init_resource::<crate::input_icons::DeviceTracker>()
                 .init_resource::<PendingInput>()
                 .init_resource::<Preferences>()
                 .add_message::<AppExit>()
@@ -420,16 +426,27 @@ mod tests {
                 let mut materials = Assets::<Surface>::default();
                 let overlay = MenuOverlay::load_with(
                     |path| {
+                        if path == ready || path == image_path {
+                            return Ok(fs::read(directory.join(path))?);
+                        }
+                        if path.ends_with(".ktx2") {
+                            return Ok(fs::read(root.join(path))?);
+                        }
+                        if path == "ui/menu.json" {
+                            let mut menu = resonance_content::menu::MenuArt::decode(
+                                &fs::read(root.join(path))?,
+                                &diagnostics,
+                            )?;
+                            menu.prepare_resources(|path| Ok(fs::read(root.join(path))?));
+                            for texture in menu.textures.values_mut() {
+                                texture.path = image_path.into();
+                            }
+                            return Ok(serde_json::to_vec(&menu)?);
+                        }
                         let mut metadata: serde_json::Value =
                             serde_json::from_slice(&fs::read(root.join(path))?)?;
-                        if path == "ui/menu.json" {
-                            for texture in
-                                metadata["textures"].as_object_mut().unwrap().values_mut()
-                            {
-                                texture["path"] = image_path.into();
-                            }
-                        } else if path == "ui/dialogue.json" {
-                            metadata["cursor"]["path"] = ready.clone().into();
+                        if path == "ui/dialogue.json" {
+                            metadata["cursor"] = ready.clone().into();
                         } else if path == dialogue.font {
                             metadata["texture"] = ready.clone().into();
                         }
@@ -440,7 +457,6 @@ mod tests {
                     &diagnostics,
                 )?;
                 app.insert_resource(materials);
-                let image: Handle<Image> = server.load(image_path.to_owned());
                 let healthy = server.load::<Image>(ready.clone());
                 app.insert_resource(overlay);
                 let began = Instant::now();
@@ -457,14 +473,12 @@ mod tests {
                     app.update();
                     std::thread::sleep(Duration::from_millis(1));
                 }
-                let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(image.id())
-                else {
-                    panic!("intended menu image did not fail: {image_path}");
-                };
                 let entries = diagnostics.entries();
                 assert_eq!(entries.len(), 1);
                 assert_eq!(entries[0].scope, "load menu artwork");
-                assert!(entries[0].message.contains(&error.to_string()));
+                // Admission can retire the menu before requesting the broken
+                // image from the loader. Its diagnostic must identify the file.
+                assert!(entries[0].message.contains(image_path));
                 assert!(!app.world().contains_resource::<TitleMenu>());
                 assert!(!app.world().contains_resource::<MenuOverlay>());
                 assert!(app.world().contains_resource::<crate::TitleActive>());

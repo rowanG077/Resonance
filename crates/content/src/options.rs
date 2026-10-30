@@ -168,6 +168,7 @@ impl Defaults {
             volumes: self.volumes,
             stereo: self.stereo,
             button_map: buttons.try_into().unwrap(),
+            keymap: Default::default(),
             battle_voiceover: self.battle_voiceover,
             event_voiceover: self.event_voiceover,
             skit_notifications: self.skit_notifications,

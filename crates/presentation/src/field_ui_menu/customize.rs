@@ -6,8 +6,80 @@ use resonance_content::menu_data::{
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
 impl Drawing<'_> {
+    fn keymap(&mut self, menu: &Menu) -> Result<[f32; 2]> {
+        use resonance_content::input::{Keymap, StandardAction as A};
+        use resonance_game::menu::customize::VISIBLE_KEYMAP_ACTIONS;
+        let state = &menu.customize;
+        self.opacity = 255;
+        self.offset = [0.; 2];
+        self.heading("Keymap")?;
+        self.framed([16., 60., 604., 278.], true)?;
+        let first = state.keymap_first();
+        for (offset, action) in A::ALL
+            .into_iter()
+            .skip(first)
+            .take(VISIBLE_KEYMAP_ACTIONS)
+            .enumerate()
+        {
+            let y = 68. + offset as f32 * 28.;
+            if action as usize == state.button {
+                self.highlight([24., y, 588., 26.], 255);
+            }
+            self.fitted_text(action.label(), [40., y + 3.], [14., 20.], 280., GOLD)?;
+            self.binding_icons(
+                state.draft.keymap.get(action).iter(),
+                "/",
+                [336., y],
+                28.,
+                600.,
+            )?;
+        }
+        if first > 0 {
+            self.scroll_arrow(SCROLL_UP, [300., 54.])?;
+        }
+        if first + VISIBLE_KEYMAP_ACTIONS < A::ALL.len() {
+            self.scroll_arrow(SCROLL_DOWN, [300., 326.])?;
+        }
+        self.framed([16., 344., 604., 84.], true)?;
+        if let Some(capture) = &state.capture {
+            self.fitted_text(
+                "Release the opener. Hold one input, then release.",
+                [28., 352.],
+                [16., 20.],
+                580.,
+                GOLD,
+            )?;
+            self.binding_icons(capture.inputs(), "+", [28., 386.], 28., 600.)?;
+        } else {
+            let navigation = Keymap::default();
+            for (action, label, x, right) in [
+                (A::Confirm, "Record", 28., 160.),
+                (A::Alternate, "Clear", 176., 302.),
+                (A::Menu, "Defaults", 320., 464.),
+                (A::Cancel, "Back", 484., 608.),
+            ] {
+                self.input_hint(&navigation, action, label, [x, 352.], right)?;
+            }
+            let message = state
+                .binding_message
+                .as_deref()
+                .unwrap_or("Select an action to change its binding.");
+            for (line, text) in self
+                .wrap_notice(message, 14., 576.)?
+                .iter()
+                .take(2)
+                .enumerate()
+            {
+                self.text_size(text, [28., 384. + line as f32 * 20.], [14., 20.], WHITE)?;
+            }
+        }
+        Ok([32., 76. + (state.button - first) as f32 * 28.])
+    }
     pub(super) fn customize(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let state = &menu.customize;
+        if state.focus == Focus::Controls {
+            return self.keymap(menu);
+        }
         let settings = &state.draft;
         let data = menu.customize_data()?;
         let fade = u32::from(state.transition.page_fade);
@@ -102,7 +174,7 @@ impl Drawing<'_> {
                         self.text(&format!("X:{sx:3} Y:{sy:3}"), [x + 20., y], 20., WHITE)?;
                     }
                 }
-                6 => self.sprite(self.spec.sprite(Sprite::Buttons, 6)?, [x, y]),
+                6 => self.button(6, [x, y])?,
                 7..=12
                 | FLEXIBLE_BATTLE_PARTY_OPTION
                 | COMBINED_BATTLES_OPTION
@@ -327,31 +399,19 @@ impl Drawing<'_> {
                     }
                 }
                 6 => {
-                    for button in 0..7 {
-                        let [x, y] = [
-                            24. + (button / 4) as f32 * 304.,
-                            316. + (button % 4) as f32 * 28.,
-                        ];
-                        let action = settings.button_map[button];
-                        if state.focus == Focus::Controls && state.button == button {
-                            self.highlight([x, y, 280., 24.], 255);
-                            cursor = [x, y + 8.];
-                            if action > 0 {
-                                self.text("<", [x + 32., y], 16., WHITE)?;
-                            }
-                            if action < 6 {
-                                self.text(">", [x + 264., y], 16., WHITE)?;
-                            }
-                        }
-                        self.sprite(
-                            self.spec.sprite(
-                                Sprite::Buttons,
-                                usize::from(data.control_buttons[button]),
-                            )?,
-                            [x, y],
-                        );
-                        self.text(&data.actions[usize::from(action)], [x + 48., y], 20., WHITE)?;
-                    }
+                    self.text("Keymap", [32., 316.], 24., GOLD)?;
+                    self.text(
+                        "Assign keyboard keys, buttons, D-pad and stick directions.",
+                        [32., 350.],
+                        18.,
+                        WHITE,
+                    )?;
+                    self.text(
+                        "Arte combos are assigned separately in the Artes list.",
+                        [32., 384.],
+                        18.,
+                        WHITE,
+                    )?;
                 }
                 13 if state.focus == Focus::Position => {
                     self.text(
@@ -475,5 +535,195 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         "Forget both kinds?"
     );
     fixture.drawing(0).customize(&menu)?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires locally cooked menus; keymap navigation, capture and CPU drawing"]
+fn keymap_scrolls_all_actions_and_records_physical_controller_axes() -> Result<()> {
+    use super::test_support::Fixture;
+    use resonance_content::input::{AxisDirection, PhysicalInput, StandardAction};
+    let fixture = Fixture::load()?;
+    let document: resonance_content::options::Document =
+        fixture.files.json(resonance_content::options::PATH)?;
+    let mut menu = Menu::title_customize(Default::default(), document.prepare()?)?;
+    menu.customize.transition = Default::default();
+    menu.customize.focus = Focus::Controls;
+    menu.customize.row = 6;
+    for (row, _) in StandardAction::ALL.into_iter().enumerate() {
+        menu.customize.button = row;
+        let mut drawing = fixture.drawing(0);
+        let cursor = drawing.customize(&menu)?;
+        assert!((68. ..=308.).contains(&cursor[1]));
+        assert!(
+            drawing
+                .batches
+                .keys()
+                .any(|key| key.2 == MaterialKey::InputIcons)
+        );
+    }
+    menu.customize.button = StandardAction::Skit as usize;
+    menu.customize.capture = Some(Default::default());
+    menu.capture_physical(&Default::default());
+    let axis = PhysicalInput::Axis(AxisDirection::RightUp);
+    menu.capture_physical(&[axis.clone()].into());
+    menu.capture_physical(&Default::default());
+    assert!(
+        menu.customize
+            .draft
+            .keymap
+            .get(StandardAction::Skit)
+            .contains(&axis)
+    );
+    assert!(
+        menu.customize
+            .draft
+            .keymap
+            .get(StandardAction::Skit)
+            .contains(&PhysicalInput::Key("KeyZ".into()))
+    );
+    let before = menu.customize.draft.keymap.clone();
+    menu.customize.capture = Some(Default::default());
+    menu.capture_physical(&Default::default());
+    menu.capture_physical(
+        &[
+            PhysicalInput::Key("KeyA".into()),
+            PhysicalInput::Key("KeyB".into()),
+        ]
+        .into(),
+    );
+    menu.capture_physical(&Default::default());
+    assert!(menu.notice.as_ref().unwrap().contains("Choose one"));
+    assert!(menu.popup.is_some());
+    assert_eq!(menu.customize.draft.keymap, before);
+    fixture.drawing(0).customize(&menu)?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires locally cooked menus; checks keymap geometry, navigation and published cursors"]
+fn keymap_is_icon_only_bounded_and_keeps_its_window_and_single_cursor() -> Result<()> {
+    use super::test_support::Fixture;
+    use resonance_game::field::FieldInput;
+    let fixture = Fixture::load()?;
+    let document: resonance_content::options::Document =
+        fixture.files.json(resonance_content::options::PATH)?;
+    let mut menu = Menu::title_customize(Default::default(), document.prepare()?)?;
+    menu.customize.transition = Default::default();
+    menu.customize.focus = Focus::Controls;
+    menu.customize.row = 6;
+    let move_row = |menu: &mut Menu, y| {
+        menu.step(FieldInput::default());
+        menu.step(FieldInput {
+            direction: [0., y],
+            ..Default::default()
+        });
+    };
+    for _ in 0..14 {
+        move_row(&mut menu, -1.);
+    }
+    assert_eq!(menu.customize.button, 14);
+    assert_eq!(menu.customize.button_first, 6);
+    move_row(&mut menu, 1.);
+    assert_eq!(menu.customize.button, 13);
+    assert_eq!(
+        menu.customize.button_first, 6,
+        "moving within the window must not scroll it"
+    );
+    for _ in 0..7 {
+        move_row(&mut menu, 1.);
+    }
+    assert_eq!(menu.customize.button, 6);
+    assert_eq!(menu.customize.button_first, 6);
+    move_row(&mut menu, 1.);
+    assert_eq!(menu.customize.button_first, 5);
+
+    for row in 0..resonance_content::input::StandardAction::ALL.len() {
+        menu.customize.button = row;
+        menu.customize.button_first = menu.customize.keymap_first();
+        let mut draw = fixture.drawing(0);
+        draw.customize(&menu)?;
+        let slash = glyph_uv(fixture.font.glyphs[&'/'].rect);
+        let dash = glyph_uv(fixture.font.glyphs[&'-'].rect);
+        let z = glyph_uv(fixture.font.glyphs[&'Z'].rect);
+        for ((_, role, material), batch) in &draw.batches {
+            if !matches!(material, MaterialKey::Font | MaterialKey::InputIcons) {
+                continue;
+            }
+            for (quad, uv) in batch
+                .positions
+                .chunks_exact(4)
+                .zip(batch.uv.chunks_exact(4))
+            {
+                let x = quad[0][0] + 320.;
+                let y = (240. - quad[0][1]) * 448. / 480.;
+                if y >= 60.
+                    && (*material == MaterialKey::InputIcons
+                        || *role == DrawRole::Text && uv[0] != [0.5, 0.5])
+                {
+                    assert!(
+                        quad.iter()
+                            .all(|p| p[0] + 320. >= 20. && p[0] + 320. <= 612.),
+                        "horizontal overflow at row {row}"
+                    );
+                    assert!(
+                        quad.iter().all(|p| (240. - p[1]) * 448. / 480. <= 428.01),
+                        "vertical overflow at row {row}"
+                    );
+                }
+                if *material == MaterialKey::Font
+                    && *role == DrawRole::Text
+                    && x >= 330.
+                    && (66. ..=320.).contains(&y)
+                {
+                    assert!(
+                        [slash, dash, z].iter().any(|g| uv[0] == [g[0], g[1]]),
+                        "binding rendered as prose at row {row}"
+                    );
+                }
+            }
+        }
+    }
+    menu.customize.button = 19;
+    menu.customize.button_first = 11;
+    let mut world = World::new();
+    let mut art = fixture.artwork(&mut world)?;
+    let mut queue = bevy::ecs::world::CommandQueue::default();
+    let mut meshes = Assets::<Mesh>::default();
+    art.render(
+        Source::Title(Some(&menu)),
+        &fixture.font,
+        &fixture.dialogue,
+        0,
+        crate::Resolution::default(),
+        &mut Commands::new(&mut queue, &world),
+        &mut meshes,
+    )?;
+    queue.apply(&mut world);
+    let cursor_vertices: usize = art
+        .layers
+        .iter()
+        .filter(|((_, role, _), layer)| *role == DrawRole::Cursor && layer.visible)
+        .map(|(_, layer)| meshes.get(&layer.mesh).unwrap().count_vertices())
+        .sum();
+    assert_eq!(
+        cursor_vertices, 8,
+        "keymap must publish only one cursor and its shadow"
+    );
+    if let Ok(output) = std::env::var("RESONANCE_KEYMAP_PREVIEW") {
+        let batches:Vec<_> = art.layers.iter().filter(|(_,l)| l.visible).map(|((plane,role,key),layer)| {
+            let (batch,_) = layer.uploaded.as_ref().unwrap();
+            let texture = match key {
+                MaterialKey::Font=>fixture.font.texture.clone(),
+                MaterialKey::Cursor=>fixture.dialogue.cursor.path.clone(),
+                MaterialKey::InputIcons=>resonance_content::input_prompts::IMAGE_PATH.into(),
+                MaterialKey::Texture(i)=>fixture.art.textures[i].path.clone(),
+            };
+            serde_json::json!({"plane":plane,"role":format!("{role:?}"),"texture":texture,"positions":batch.positions,"uv":batch.uv,"colors":batch.colors})
+        }).collect();
+        std::fs::write(output, serde_json::to_vec(&batches)?)?;
+    }
     Ok(())
 }

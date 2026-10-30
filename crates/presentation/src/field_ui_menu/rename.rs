@@ -16,7 +16,7 @@ impl Drawing<'_> {
         if state.focus == Focus::Name {
             let x = 416. + (fade * 224 / 256) as f32;
             for (label, button, y) in [(&data.delete, 10, 58.), (&data.default, 12, 84.)] {
-                self.sprite(self.spec.sprite(Sprite::Buttons, button)?, [x, y]);
+                self.button(button, [x, y])?;
                 self.text(label, [x + 24., y], 24., WHITE)?;
             }
         }

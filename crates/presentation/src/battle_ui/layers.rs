@@ -183,7 +183,7 @@ pub(super) struct UiLayers {
     pub(super) patterned_vitals: HudLayer,
     pub(super) commands: [HudLayer; 4],
     pub(super) ribbons: [HudLayer; 3],
-    pub(super) results: [HudLayer; 3],
+    pub(super) results: [HudLayer; 4],
     pub(super) notice: Vec<HudLayer>,
     pub(super) labels: [HudLayer; 2],
     pub(super) floating: HudLayer,

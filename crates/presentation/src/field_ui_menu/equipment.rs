@@ -239,11 +239,7 @@ impl Drawing<'_> {
     ) -> Result<f32> {
         let label = data.label(key)?;
         let x = right - self.text_width(label, 20.)? - 24.;
-        self.sprite(
-            self.spec
-                .sprite(Sprite::Buttons, sprite + usize::from(self.tick % 40 < 20))?,
-            [x, 20.],
-        );
+        self.button(sprite + 1, [x, 20.])?;
         self.text_size(label, [x + 24., 20.], [20.; 2], WHITE)?;
         Ok(x)
     }

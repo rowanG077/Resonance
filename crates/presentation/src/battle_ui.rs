@@ -183,7 +183,12 @@ impl Artwork {
             font.validate_text(&enemy.name)?;
         }
         art.font.validate_text("HP TP +0123456789.")?;
-        let mut pending_images = Vec::new();
+        let inputs = crate::input_icons::prepare(&read, server)?;
+        let mut pending_images = vec![PendingImage {
+            image: inputs.image.clone(),
+            size: inputs.atlas.size,
+            required: true,
+        }];
         let mut load_image = |path: String, size, repeat, required| {
             let image = menu::menu_image(server, path, repeat);
             pending_images.push(PendingImage {
@@ -213,6 +218,8 @@ impl Artwork {
         let solid = |depth| palette.solid.clone().at(depth);
         let text = |depth| palette.font.clone().at(depth).offset_depth(1.);
         let main_text = |depth| palette.main_font.clone().at(depth).offset_depth(1.);
+        let input_atlas = &inputs.atlas;
+        let prompt_image = inputs.image.clone();
         let mut load = |texture: &resonance_content::font::UiTexture, repeat, required| {
             load_image(
                 texture.path.clone(),
@@ -249,14 +256,16 @@ impl Artwork {
                 }
             })
             .collect::<Vec<_>>();
-        let rhythm_texture = &art.unison_buttons[0];
-        let rhythm_prompt = LayerDefinition::new(
-            load(rhythm_texture, false, true),
-            [rhythm_texture.width, rhythm_texture.height],
-            Depth::Vitals,
-        );
+        let rhythm_prompt =
+            LayerDefinition::new(prompt_image.clone(), input_atlas.size, Depth::Vitals);
         let notice = notice::layers(&art, enemies, &palette, materials, &mut load);
-        let unison = unison::layers(&art, &palette, &notice, materials, &mut load);
+        let unison = unison::layers(
+            prompt_image.clone(),
+            input_atlas.size,
+            &palette,
+            &notice,
+            materials,
+        );
         let scan = items::layers(&art, &palette, materials, &mut load);
         let command_texture = load(&art.commands.texture, false, true);
         let petrified_portraits = portraits
@@ -301,6 +310,10 @@ impl Artwork {
                 make(solid(Depth::Results)),
                 make(main_text(Depth::Results)),
                 make(text(Depth::Results)),
+                make(
+                    LayerDefinition::new(prompt_image, input_atlas.size, Depth::Results)
+                        .offset_depth(2.),
+                ),
             ],
             portraits: palette.layers(portraits, materials),
             petrified_portraits: palette.layers(petrified_portraits, materials),
@@ -318,6 +331,7 @@ impl Artwork {
             (&ui.results[1].material, [font.width, font.height]),
             &dialogue.cursor,
             diagnostics,
+            inputs,
         )?;
         Ok(Self {
             resolution: Default::default(),
@@ -579,6 +593,9 @@ impl Artwork {
 
     pub fn settings(&mut self, settings: resonance_content::menu_data::CustomizeSettings) {
         self.settings = settings;
+    }
+    pub(crate) fn set_prompt_device(&mut self, device: crate::input_icons::PromptDevice) -> bool {
+        self.windows.set_prompt_device(device)
     }
 
     pub fn render_transition(

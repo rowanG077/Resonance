@@ -142,6 +142,16 @@ pub(super) struct Owner {
     publish_field: bool,
 }
 impl Owner {
+    pub(super) fn prompt_party(&self) -> Option<&resonance_events::party::Party> {
+        let Phase::Scene(scene) = &self.phase else {
+            return None;
+        };
+        scene
+            .candidate
+            .as_ref()
+            .map(|candidate| candidate.persistent_party())
+    }
+
     pub(super) fn republish(&mut self) {
         if let Phase::Scene(scene) = &mut self.phase {
             scene.published_tick = None;
@@ -1589,6 +1599,7 @@ fn render(
     mut menu_materials: ResMut<Assets<super::menu_backdrop::Material>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
+    prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
     let Some(mut owner) = owner else {
         return;
@@ -1602,6 +1613,9 @@ fn render(
     let Phase::Scene(scene) = phase else {
         return;
     };
+    if scene.hud.set_prompt_device(prompt_device.device()) {
+        scene.published_tick = None;
+    }
     if scene.state == SceneState::Warming || scene.failure.is_some() {
         return;
     }

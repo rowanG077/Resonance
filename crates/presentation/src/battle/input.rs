@@ -2,7 +2,7 @@
 use bevy::prelude::*;
 use resonance_battle::ControllerPort;
 use resonance_battle::{Actor, ActorId, ButtonInput as BattleButton, Control, ControlInput, Side};
-use resonance_content::menu_data::CustomizeSettings;
+use resonance_content::{input::StandardAction, menu_data::CustomizeSettings};
 use resonance_game::battle::command::{Input as CommandInput, InputKind};
 use resonance_game::battle::lifecycle::QuickOrder;
 use resonance_game::menu::{Input as SharedMenuInput, MenuAction};
@@ -268,6 +268,7 @@ impl ControllerSample {
                 vertical_pressed: self.pressed_direction[1],
                 attack: self.attack,
                 technique: self.technique,
+                assigned_arte: None,
                 delay_spell: self.delay_spell,
                 // Taunt is the same command when its EX skill is equipped and
                 // the gauge is not full; the core applies those conditions.
@@ -278,9 +279,6 @@ impl ControllerSample {
                 target_step: self.step,
             });
         }
-        let revenge = actor.equipment.spell_revenge
-            && activity == resonance_battle::Activity::Hurt
-            && actor.reaction.recoil.kind != resonance_battle::RecoilKind::Normal;
         let rhythm = actor.equipment.casting.rhythm
             && matches!(activity, resonance_battle::Activity::Casting { .. });
         let charge = actor.equipment.control_ex.charge;
@@ -288,10 +286,7 @@ impl ControllerSample {
             && activity == resonance_battle::Activity::Jumping
             && self.pressed_direction[1] > 0;
         if self.delay_spell == BattleButton::default()
-            && !(revenge && self.technique.pressed
-                || rhythm && self.attack.pressed
-                || charge
-                || jump)
+            && !(rhythm && self.attack.pressed || charge || jump)
         {
             return None;
         }
@@ -302,10 +297,6 @@ impl ControllerSample {
         if jump {
             input.vertical_pressed = self.pressed_direction[1];
         }
-        if revenge {
-            input.technique = self.technique;
-            input.stick = self.stick;
-        }
         Some(input)
     }
 }
@@ -314,6 +305,7 @@ impl ControllerSample {
 pub(super) struct Frame {
     slots: [ControllerSample; 4],
     connected: [bool; 4],
+    assigned_artes: Vec<(ActorId, resonance_battle::TechniqueId)>,
 }
 impl Frame {
     pub fn unison_input(
@@ -331,10 +323,8 @@ impl Frame {
                 .fold(0, |bits, (slot, button)| {
                     bits | (u8::from(button.pressed) << slot)
                 });
-            return (pressed_slots != 0).then_some(resonance_battle::UnisonInput::Select {
-                pressed_slots,
-                shortcut: resonance_battle::ShortcutSlot::from_input(sample.stick),
-            });
+            return (pressed_slots != 0)
+                .then_some(resonance_battle::UnisonInput::Select { pressed_slots });
         }
         actors.iter().enumerate().find_map(|(index, actor)| {
             (actor.side == Side::Party
@@ -409,7 +399,19 @@ impl Frame {
         actors
             .into_iter()
             .filter_map(|(id, actor, activity)| {
-                self.slots[actor.control_slot.index()].actor_input(id, actor, activity)
+                let assigned = self
+                    .assigned_artes
+                    .iter()
+                    .find(|(target, _)| *target == id)
+                    .map(|(_, arte)| *arte);
+                let mut input = self.slots[actor.control_slot.index()]
+                    .actor_input(id, actor, activity)
+                    .or_else(|| assigned.map(|_| ControlInput::neutral(id)))?;
+                input.assigned_arte = assigned;
+                // Physical arte assignments replace the old direction-slot command.
+                input.technique = Default::default();
+                input.assist = Default::default();
+                Some(input)
             })
             .collect()
     }
@@ -422,6 +424,9 @@ pub(super) struct Controls {
     slots: [LocalControls; 4],
     pads: [Option<Entity>; 4],
     keyboard: LocalControls,
+    assigned_artes: Vec<(ActorId, resonance_battle::TechniqueId)>,
+    held_bindings: std::collections::BTreeSet<(usize, usize)>,
+    consumed_inputs: [std::collections::BTreeSet<resonance_content::input::PhysicalInput>; 4],
 }
 impl Controls {
     pub(super) fn devices(&self) -> [Option<Entity>; 4] {
@@ -447,6 +452,7 @@ impl Controls {
     }
 
     pub fn discard(&mut self) {
+        self.assigned_artes.clear();
         self.keyboard.discard();
         for slot in &mut self.slots {
             slot.discard();
@@ -458,7 +464,96 @@ impl Controls {
         Frame {
             slots: self.slots.each_mut().map(|slot| slot.sample(settings)),
             connected: self.pads.map(|pad| pad.is_some()),
+            assigned_artes: std::mem::take(&mut self.assigned_artes),
         }
+    }
+
+    /// Bound inputs take priority only in ordinary combat. Keep their held
+    /// components consumed until release, so finishing a chord cannot synthesize
+    /// an attack, menu press or guard from its remaining keys. Movement modifiers
+    /// retain their normal values, and a context switch does not create fresh presses.
+    fn route_artes(
+        &mut self,
+        port: usize,
+        physical: crate::input::PhysicalState,
+        map: &resonance_content::input::Keymap,
+        resolution: crate::input::ArteResolution<'_>,
+        accepting: bool,
+    ) -> crate::input::PhysicalState {
+        if !accepting {
+            self.assigned_artes.clear();
+        }
+        let held = physical.capture_inputs();
+        let consumed = &mut self.consumed_inputs[port];
+        consumed.retain(|input| held.contains(input));
+        if accepting {
+            consumed.extend(resolution.consumed);
+        }
+        for selected in resolution.selected.into_iter().filter(|_| accepting) {
+            if !self
+                .held_bindings
+                .contains(&(selected.member, selected.index))
+                && !self
+                    .assigned_artes
+                    .iter()
+                    .any(|(target, _)| *target == selected.actor)
+            {
+                self.assigned_artes.push((
+                    selected.actor,
+                    resonance_battle::TechniqueId(selected.binding.technique),
+                ));
+            }
+        }
+        let mut filtered = physical.without(consumed);
+        for action in [
+            StandardAction::MoveLeft,
+            StandardAction::MoveRight,
+            StandardAction::MoveDown,
+            StandardAction::MoveUp,
+        ] {
+            for input in map.get(action) {
+                filtered.restore_input(&physical, input);
+            }
+        }
+        // An earlier render can have latched a normal-action edge before the
+        // complete chord arrived. Cancel that pending edge too.
+        for (button, action) in [
+            StandardAction::Confirm,
+            StandardAction::Cancel,
+            StandardAction::Alternate,
+            StandardAction::Menu,
+            StandardAction::Previous,
+            StandardAction::Next,
+            StandardAction::Skit,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if map.get(action).iter().any(|i| consumed.contains(i))
+                && !filtered.down(map, action)
+                && !filtered.edge(map, action)
+            {
+                self.slots[port].buttons[button].pressed = false;
+            }
+        }
+        for (button, action) in [
+            StandardAction::OrderLeft,
+            StandardAction::OrderRight,
+            StandardAction::OrderCancel,
+            StandardAction::OrderUp,
+            StandardAction::Start,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if map.get(action).iter().any(|i| consumed.contains(i))
+                && !filtered.down(map, action)
+                && !filtered.edge(map, action)
+            {
+                self.slots[port].extra[button].pressed = false;
+            }
+        }
+        filtered
     }
 
     fn assign_pads(&mut self, connected: &[Entity]) {
@@ -490,6 +585,38 @@ struct Sample {
     stick: Vec2,
     c_stick: Vec2,
 }
+impl Sample {
+    fn physical(
+        physical: &crate::input::PhysicalState,
+        map: &resonance_content::input::Keymap,
+    ) -> Self {
+        use StandardAction as A;
+        let actions = [
+            A::Confirm,
+            A::Cancel,
+            A::Alternate,
+            A::Menu,
+            A::Previous,
+            A::Next,
+            A::Skit,
+        ];
+        let extra = [
+            A::OrderLeft,
+            A::OrderRight,
+            A::OrderCancel,
+            A::OrderUp,
+            A::Start,
+        ];
+        Sample {
+            held: actions.map(|a| physical.down(map, a)),
+            pressed: actions.map(|a| physical.edge(map, a)),
+            extra_held: extra.map(|a| physical.down(map, a)),
+            extra_pressed: extra.map(|a| physical.edge(map, a)),
+            stick: physical.movement(map),
+            c_stick: physical.camera(map),
+        }
+    }
+}
 fn quantize(stick: Vec2) -> [i8; 2] {
     stick
         .clamp(Vec2::NEG_ONE, Vec2::ONE)
@@ -508,89 +635,105 @@ pub(super) fn gather(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<(Entity, &Gamepad)>,
     mut controls: ResMut<Controls>,
+    session: Option<Res<crate::new_game::Session>>,
+    preferences: Option<Res<crate::config::Preferences>>,
+    mut owner: Option<ResMut<super::Owner>>,
 ) {
-    use GamepadButton::*;
-    let physical = [South, East, West, North, LeftTrigger, RightTrigger, Z];
-    let bindings = [
-        &[KeyCode::Enter, KeyCode::Space][..],
-        &[KeyCode::Escape][..],
-        &[KeyCode::KeyX][..],
-        &[KeyCode::Tab][..],
-        &[KeyCode::KeyQ][..],
-        &[KeyCode::KeyE][..],
-        &[KeyCode::KeyZ][..],
-    ];
-    let axis = |positive: [KeyCode; 2], negative: [KeyCode; 2]| {
-        f32::from(positive.into_iter().any(|key| keys.pressed(key)))
-            - f32::from(negative.into_iter().any(|key| keys.pressed(key)))
+    let settings = crate::input::settings(session.as_deref(), preferences.as_deref());
+    let map = &settings.keymap;
+    let keyboard_physical = crate::input::PhysicalState::keyboard(&keys);
+    let capture_port = owner
+        .as_ref()
+        .and_then(|o| {
+            if let super::Phase::Scene(scene) = &o.phase {
+                scene.lifecycle.command_controller()
+            } else {
+                None
+            }
+        })
+        .map(|p| p.index())
+        .unwrap_or(0);
+    let mut capture_physical = if capture_port == 0 {
+        keyboard_physical.clone()
+    } else {
+        Default::default()
     };
-    let battle_key = |key: KeyCode| {
-        key != KeyCode::Tab || !keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
-    };
-    let extra_keys = [
-        KeyCode::Digit1,
-        KeyCode::Digit3,
-        KeyCode::Digit0,
-        KeyCode::Digit2,
-        KeyCode::Home,
-    ];
-    let keyboard = Sample {
-        held: bindings.map(|buttons| {
-            buttons
-                .iter()
-                .any(|key| battle_key(*key) && keys.pressed(*key))
-        }),
-        pressed: bindings.map(|buttons| {
-            buttons
-                .iter()
-                .any(|key| battle_key(*key) && keys.just_pressed(*key))
-        }),
-        extra_held: extra_keys.map(|key| keys.pressed(key)),
-        extra_pressed: extra_keys.map(|key| keys.just_pressed(key)),
-        stick: Vec2::new(
-            axis(
-                [KeyCode::ArrowRight, KeyCode::KeyD],
-                [KeyCode::ArrowLeft, KeyCode::KeyA],
-            ),
-            axis(
-                [KeyCode::ArrowUp, KeyCode::KeyW],
-                [KeyCode::ArrowDown, KeyCode::KeyS],
-            ),
-        ),
-        c_stick: Vec2::new(
-            axis([KeyCode::BracketRight; 2], [KeyCode::BracketLeft; 2]),
-            axis([KeyCode::PageUp; 2], [KeyCode::PageDown; 2]),
-        ),
-    };
+    if let Some((_, pad)) = controls.pads[capture_port].and_then(|entity| pads.get(entity).ok()) {
+        capture_physical.merge(&crate::input::PhysicalState::gamepad(pad));
+    }
+    if let Some(owner) = &mut owner
+        && let super::Phase::Scene(scene) = &mut owner.phase
+        && let Some(candidate) = &mut scene.candidate
+        && scene
+            .lifecycle
+            .capture_arte_binding(candidate, &capture_physical.capture_inputs())
+    {
+        controls.discard();
+        // Discard recorder buttons as well as their pending edges.
+        for slot in &mut controls.slots {
+            *slot = LocalControls::default();
+        }
+        scene.published_tick = None;
+        return;
+    }
+    let keyboard = Sample::physical(&keyboard_physical, map);
     let connected: Vec<_> = pads.iter().map(|(entity, _)| entity).collect();
     controls.keyboard.gather(keyboard);
     controls.assign_pads(&connected);
+    let mut held_bindings = std::collections::BTreeSet::new();
     for index in 0..4 {
-        let pad = controls.pads[index]
-            .and_then(|entity| pads.get(entity).ok())
-            .map(|(_, pad)| pad);
-        let mut sample = if index == 0 {
-            keyboard
+        let mut physical = if index == 0 {
+            keyboard_physical.clone()
         } else {
-            Sample::default()
+            Default::default()
         };
-        if let Some(pad) = pad {
-            for (index, button) in physical.into_iter().enumerate() {
-                sample.held[index] |= pad.pressed(button);
-                sample.pressed[index] |= pad.just_pressed(button);
-            }
-            sample.stick += pad.left_stick();
-            sample.c_stick += pad.right_stick();
-            for (index, button) in [DPadLeft, DPadRight, DPadDown, DPadUp, Start]
-                .into_iter()
-                .enumerate()
-            {
-                sample.extra_held[index] |= pad.pressed(button);
-                sample.extra_pressed[index] |= pad.just_pressed(button);
-            }
+        if let Some((_, pad)) = controls.pads[index].and_then(|entity| pads.get(entity).ok()) {
+            physical.merge(&crate::input::PhysicalState::gamepad(pad));
         }
-        controls.slots[index].gather(sample);
+
+        if let Some(owner) = &owner
+            && let super::Phase::Scene(scene) = &owner.phase
+            && let Some(candidate) = &scene.candidate
+        {
+            // Regular arte assignments replace the fixed technique and assist slots.
+            // The logical arte button still serves casting EX interactions.
+            let party = candidate.persistent_party();
+            let held = physical.capture_inputs();
+            let resolution = crate::input::resolve_arte_bindings(
+                index,
+                &held,
+                map,
+                scene
+                    .core
+                    .actors()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(actor_index, actor)| {
+                        let character = scene.characters.get(actor_index)?;
+                        let member = character.index();
+                        Some((
+                            ActorId::from_index(actor_index).ok()?,
+                            actor,
+                            member,
+                            party.members[member].arte_bindings.as_slice(),
+                        ))
+                    }),
+            );
+            held_bindings.extend(resolution.active.iter().copied());
+            let accepting = scene.lifecycle.command_frame().is_none()
+                && scene.lifecycle.event().is_none()
+                && scene.state == super::SceneState::Active
+                && scene.core.phase() == resonance_battle::BattlePhase::Combat
+                && !scene.core.is_paused()
+                && scene
+                    .frame
+                    .as_ref()
+                    .is_none_or(|frame| frame.unison.is_none());
+            physical = controls.route_artes(index, physical, map, resolution, accepting);
+        }
+        controls.slots[index].gather(Sample::physical(&physical, map));
     }
+    controls.held_bindings = held_bindings;
 }
 
 #[cfg(test)]
@@ -613,6 +756,182 @@ mod tests {
                 resonance_battle::Activity::Idle,
             )
         }))
+    }
+
+    fn routed_frame(
+        controls: &mut Controls,
+        keys: &mut ButtonInput<KeyCode>,
+        bindings: &[resonance_content::input::ArteBinding],
+        accepting: bool,
+    ) -> Frame {
+        let map = resonance_content::input::Keymap::default();
+        let physical = crate::input::PhysicalState::keyboard(keys);
+        let actor = actor(ControllerPort::One, Control::Manual);
+        let resolution = crate::input::resolve_arte_bindings(
+            0,
+            &physical.capture_inputs(),
+            &map,
+            [(ActorId::from_index(0).unwrap(), &actor, 0, bindings)],
+        );
+        let active = resolution.active.clone();
+        let filtered = controls.route_artes(0, physical, &map, resolution, accepting);
+        controls.slots[0].gather(Sample::physical(&filtered, &map));
+        controls.held_bindings = active;
+        keys.clear();
+        controls.sample(&Default::default())
+    }
+    fn binding(keys: &[&str]) -> resonance_content::input::ArteBinding {
+        use resonance_content::input::{ArteBinding, InputChord, PhysicalInput};
+        ArteBinding {
+            technique: 66,
+            chord: InputChord(
+                keys.iter()
+                    .map(|key| PhysicalInput::Key((*key).into()))
+                    .collect(),
+            ),
+        }
+    }
+    #[test]
+    fn cancel_is_an_arte_in_combat_and_cancel_in_menus() {
+        let mut controls = Controls::default();
+        let mut keys = ButtonInput::default();
+        let bindings = [binding(&["Escape"])];
+        keys.press(KeyCode::Escape);
+        let frame = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert_eq!(frame.assigned_artes.len(), 1);
+        assert!(!frame.slots[0].cancel.pressed);
+        assert!(
+            routed_frame(&mut controls, &mut keys, &bindings, true)
+                .assigned_artes
+                .is_empty()
+        );
+        let transition = routed_frame(&mut controls, &mut keys, &bindings, false);
+        assert!(
+            !transition.slots[0].cancel.pressed && !transition.slots[0].selection[1].pressed,
+            "a held arte input must not become a fresh menu or Unison confirmation"
+        );
+        keys.release(KeyCode::Escape);
+        routed_frame(&mut controls, &mut keys, &bindings, true);
+        keys.press(KeyCode::Escape);
+        let menu = routed_frame(&mut controls, &mut keys, &bindings, false);
+        assert!(menu.assigned_artes.is_empty());
+        assert_eq!(menu.slots[0].menu, Some(MenuAction::Cancel));
+        assert!(
+            menu.slots[0].selection[1].pressed,
+            "Unison confirmation keeps the physical face buttons"
+        );
+        assert!(
+            routed_frame(&mut controls, &mut keys, &bindings, true)
+                .assigned_artes
+                .is_empty(),
+            "closing a menu while holding Cancel must not cast"
+        );
+    }
+    #[test]
+    fn protected_single_inputs_keep_their_normal_combat_actions() {
+        for (key, name, action) in [
+            (KeyCode::Space, "Space", StandardAction::Confirm),
+            (KeyCode::KeyX, "KeyX", StandardAction::Alternate),
+            (KeyCode::Tab, "Tab", StandardAction::Menu),
+            (KeyCode::KeyQ, "KeyQ", StandardAction::Previous),
+            (KeyCode::KeyE, "KeyE", StandardAction::Next),
+            (KeyCode::KeyZ, "KeyZ", StandardAction::Skit),
+            (KeyCode::Home, "Home", StandardAction::Start),
+            (KeyCode::KeyD, "KeyD", StandardAction::MoveRight),
+            (KeyCode::KeyW, "KeyW", StandardAction::MoveUp),
+            (KeyCode::Digit1, "Digit1", StandardAction::OrderLeft),
+            (KeyCode::Digit3, "Digit3", StandardAction::OrderRight),
+            (KeyCode::Digit0, "Digit0", StandardAction::OrderCancel),
+            (KeyCode::Digit2, "Digit2", StandardAction::OrderUp),
+        ] {
+            let mut keys = ButtonInput::default();
+            let mut controls = Controls::default();
+            keys.press(key);
+            let frame = routed_frame(&mut controls, &mut keys, &[binding(&[name])], true);
+            assert!(
+                frame.assigned_artes.is_empty(),
+                "{action:?} must not be stolen by an invalid binding"
+            );
+            let sample = frame.slots[0];
+            assert!(
+                match action {
+                    StandardAction::Confirm => sample.attack.pressed,
+                    StandardAction::Alternate => sample.guard.pressed,
+                    StandardAction::Menu => sample.open.pressed,
+                    StandardAction::Previous => sample.delay_spell.pressed,
+                    StandardAction::Next => sample.target.pressed,
+                    StandardAction::Skit => sample.unison.pressed,
+                    StandardAction::Start => sample.menu == Some(MenuAction::Details),
+                    StandardAction::MoveRight => sample.stick[0] > 0,
+                    StandardAction::MoveUp => sample.stick[1] > 0,
+                    _ => sample.order.is_some(),
+                },
+                "{action:?} lost its normal behavior"
+            );
+        }
+    }
+    #[test]
+    fn combos_keep_movement_and_unrelated_actions_without_retriggering_on_release() {
+        let mut controls = Controls::default();
+        let mut keys = ButtonInput::default();
+        let bindings = [binding(&["Space", "KeyD"])];
+        keys.press(KeyCode::Space);
+        // Simulate multiple renders before a fixed update: Attack is already latched.
+        controls.slots[0].gather(Sample::physical(
+            &crate::input::PhysicalState::keyboard(&keys),
+            &Default::default(),
+        ));
+        keys.clear();
+        keys.press(KeyCode::KeyD);
+        keys.press(KeyCode::KeyX);
+        let combo = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert_eq!(combo.assigned_artes.len(), 1);
+        assert!(!combo.slots[0].attack.pressed && !combo.slots[0].attack.held);
+        assert!(
+            combo.slots[0].guard.pressed,
+            "unrelated Guard remains usable"
+        );
+        assert!(
+            combo.slots[0].stick[0] > 0,
+            "direction remains a movement modifier"
+        );
+        keys.release(KeyCode::KeyD);
+        let released_modifier = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert!(
+            !released_modifier.slots[0].attack.pressed && !released_modifier.slots[0].attack.held
+        );
+        keys.release(KeyCode::Space);
+        routed_frame(&mut controls, &mut keys, &bindings, true);
+        keys.press(KeyCode::Space);
+        assert!(
+            routed_frame(&mut controls, &mut keys, &bindings, true).slots[0]
+                .attack
+                .pressed
+        );
+        keys.press(KeyCode::KeyD);
+        keys.press(KeyCode::Enter);
+        let alternate = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert!(
+            alternate.slots[0].attack.pressed,
+            "a different Attack binding still works"
+        );
+    }
+    #[test]
+    fn contextual_controls_never_execute_arte_bindings_or_consume_their_buttons() {
+        let mut controls = Controls::default();
+        let mut keys = ButtonInput::default();
+        keys.press(KeyCode::Space);
+        keys.press(KeyCode::KeyD);
+        let frame = routed_frame(
+            &mut controls,
+            &mut keys,
+            &[binding(&["Space", "KeyD"])],
+            false,
+        );
+        assert!(frame.assigned_artes.is_empty());
+        assert!(frame.slots[0].confirm.pressed);
+        assert!(frame.slots[0].selection[0].pressed);
+        assert!(frame.slots[0].stick[0] > 0);
     }
 
     #[test]
@@ -862,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn loading_and_auto_control_do_not_retrigger_held_directions_or_assists() {
+    fn loading_keeps_navigation_edges_quiet_and_never_uses_fixed_assists() {
         let mut controls = Controls::default();
         controls.slots[2].gather(Sample {
             stick: Vec2::ONE,
@@ -876,16 +1195,16 @@ mod tests {
         actors[0].control = Control::Manual;
         let manual = inputs(&frame, &actors)[0];
         assert_eq!([manual.horizontal_pressed, manual.vertical_pressed], [0; 2]);
-        assert!(manual.assist[0].held && !manual.assist[0].pressed);
+        assert_eq!(manual.assist, [BattleButton::default(); 2]);
         controls.slots[2].gather(Sample::default());
         let released = inputs(&controls.sample(&CustomizeSettings::default()), &actors)[0];
-        assert!(released.assist[0].released);
+        assert_eq!(released.assist, [BattleButton::default(); 2]);
         controls.slots[2].gather(Sample {
             c_stick: Vec2::NEG_Y,
             ..Default::default()
         });
         let pressed = inputs(&controls.sample(&CustomizeSettings::default()), &actors)[0];
-        assert!(pressed.assist[1].held && pressed.assist[1].pressed);
+        assert_eq!(pressed.assist, [BattleButton::default(); 2]);
     }
 
     #[test]
@@ -988,10 +1307,10 @@ mod tests {
             assert!(routed[2].attack.held && !routed[2].attack.pressed);
             assert_eq!(routed[3].vertical_pressed, 1);
             assert_eq!(routed[3].stick, [0; 2]);
-            assert!(routed[4].technique.pressed);
-            assert_eq!(routed[4].stick, [STICK_RANGE as i8; 2]);
+            assert_eq!(routed[4].technique, BattleButton::default());
+            assert_eq!(routed[4].stick, [0; 2]);
             assert!(
-                routed[5].attack.pressed && routed[5].technique.pressed && routed[5].guard.pressed
+                routed[5].attack.pressed && !routed[5].technique.pressed && routed[5].guard.pressed
             );
             assert!(
                 routed[..5]

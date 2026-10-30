@@ -67,6 +67,10 @@ pub enum Focus {
     #[default]
     Shortcuts,
     List,
+    BindingError,
+    ReplaceBinding {
+        yes: bool,
+    },
     AssistCharacter,
     AssistList,
     Target,
@@ -89,9 +93,29 @@ pub struct Tech {
     pub assist: usize,
     pub target: usize,
     pub return_to: Focus,
+    pub capture: Option<super::input_capture::Capture>,
+    pub binding_message: Option<String>,
+    pub binding_error: Option<String>,
+    pub binding_technique: u16,
+    pub pending_binding: Option<BindingReplacement>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BindingReplacement {
+    pub member: usize,
+    pub technique: u16,
+    pub chord: resonance_content::input::InputChord,
+    pub previous: TechniqueShortcut,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edit {
+    Unison {
+        member: usize,
+        technique: Option<u16>,
+    },
+    RemoveBinding {
+        member: usize,
+        technique: u16,
+    },
     Control {
         slot: usize,
         value: u8,
@@ -156,6 +180,18 @@ impl Edit {
     /// Field convenience; battle commits through its prevalidated live binding join.
     pub fn apply_field(self, party: &mut Party, data: &MenuData) -> Result<EditResult> {
         let changed = match self {
+            Self::Unison { member, technique } => party
+                .assign_unison_arte(data, member, technique)
+                .map_err(anyhow::Error::msg)?,
+            Self::RemoveBinding { member, technique } => {
+                let target = party
+                    .members
+                    .get_mut(member)
+                    .ok_or_else(|| anyhow::anyhow!("unknown binding member"))?;
+                let before = target.arte_bindings.len();
+                target.arte_bindings.retain(|b| b.technique != technique);
+                before != target.arte_bindings.len()
+            }
             Self::Control { slot, value } => {
                 ensure!(
                     slot < party.formation.len() && slot < 4 && value < 3,
@@ -232,6 +268,7 @@ pub struct Visit {
 pub enum Step {
     Navigate(Visit),
     Edit(Edit),
+    BindingDecision(bool),
 }
 
 #[derive(Clone, Copy)]
@@ -294,26 +331,7 @@ impl<'a> Page<'a> {
             && !self.context.connected(self.state.character)
     }
     pub fn tech_columns(self) -> usize {
-        if self.state.unison {
-            return 1;
-        }
-        let slot = self
-            .party
-            .formation
-            .iter()
-            .position(|&id| usize::from(id - 1) == self.tech_member_index())
-            .unwrap();
-        if self
-            .party
-            .settings
-            .battle_controls
-            .get(slot)
-            .is_none_or(|&v| v == 2)
-        {
-            2
-        } else {
-            1
-        }
+        1
     }
     pub fn technique_list(self) -> Vec<u16> {
         let index = self.tech_member_index();
@@ -478,20 +496,20 @@ impl Tech {
     }
     fn reset_focus(
         &mut self,
-        party: &Party,
-        session: &SessionData,
-        data: &MenuData,
-        context: Context<'_>,
+        _party: &Party,
+        _session: &SessionData,
+        _data: &MenuData,
+        _context: Context<'_>,
     ) {
         self.unison = false;
         self.slot = 0;
         self.row = 0;
         self.first = 0;
-        self.focus = if self.page(party, session, data, context).tech_auto() {
-            Focus::List
-        } else {
-            Focus::Shortcuts
-        };
+        self.focus = Focus::List;
+        self.capture = None;
+        self.pending_binding = None;
+        self.binding_message = None;
+        self.binding_error = None;
     }
     fn cycle_character(
         &mut self,
@@ -536,6 +554,7 @@ impl Tech {
         );
         match self.request_step(input, party, session, data, context)? {
             Step::Navigate(visit) => Ok(visit),
+            Step::BindingDecision(yes) => Ok(self.finish_binding_replacement(party, yes)),
             Step::Edit(edit) => {
                 let result = edit.apply_field(party, data)?;
                 Ok(self.finish_edit(edit, result, party, session, data, context))
@@ -551,6 +570,43 @@ impl Tech {
         data: &MenuData,
         context: Context<'_>,
     ) -> Result<Step> {
+        if self.focus == Focus::BindingError {
+            let dismissed = matches!(input, Some(MenuAction::Confirm | MenuAction::Cancel));
+            if dismissed {
+                self.binding_error = None;
+                self.focus = Focus::List;
+            }
+            return Ok(Step::Navigate(self.visit(
+                dismissed.then_some(3),
+                false,
+                party,
+                session,
+                data,
+                context,
+            )));
+        }
+        if let Focus::ReplaceBinding { yes } = self.focus {
+            match input {
+                Some(MenuAction::Cancel) => return Ok(Step::BindingDecision(false)),
+                Some(MenuAction::Confirm) => return Ok(Step::BindingDecision(yes)),
+                Some(MenuAction::Left | MenuAction::Right | MenuAction::Up | MenuAction::Down) => {
+                    self.focus = Focus::ReplaceBinding { yes: !yes };
+                    return Ok(Step::Navigate(self.visit(
+                        Some(1),
+                        false,
+                        party,
+                        session,
+                        data,
+                        context,
+                    )));
+                }
+                _ => {
+                    return Ok(Step::Navigate(
+                        self.visit(None, false, party, session, data, context),
+                    ));
+                }
+            }
+        }
         let (cue, edit) = self.dispatch(input, party, session, data, context)?;
         Ok(match edit {
             Some(edit) => Step::Edit(edit),
@@ -569,6 +625,10 @@ impl Tech {
         context: Context<'_>,
     ) -> Visit {
         let cue = match edit {
+            Edit::RemoveBinding { .. } => {
+                self.binding_message = Some("Combo cleared.".into());
+                Some(1)
+            }
             Edit::Control { .. } => {
                 self.first = 0;
                 Some(1)
@@ -579,7 +639,9 @@ impl Tech {
                 self.focus = Focus::Shortcuts;
                 Some(2)
             }
-            Edit::Shortcut { selected: None, .. } | Edit::Enabled { .. } => Some(1),
+            Edit::Shortcut { selected: None, .. } | Edit::Enabled { .. } | Edit::Unison { .. } => {
+                Some(1)
+            }
             Edit::FieldForget { .. } => {
                 self.focus = self.return_to;
                 let count = self
@@ -648,6 +710,12 @@ impl Tech {
         data: &MenuData,
         context: Context<'_>,
     ) -> Result<(Option<u16>, Option<Edit>)> {
+        if self.capture.is_some() {
+            return Ok((None, None));
+        }
+        if !self.unison {
+            return self.dispatch_bindings(input, party, session, data, context);
+        }
         let Some(action) = input else {
             return Ok((None, None));
         };
@@ -661,6 +729,7 @@ impl Tech {
         let mut cue = None;
         let mut requested = None;
         match self.focus {
+            Focus::ReplaceBinding { .. } | Focus::BindingError => {}
             Focus::Closed { .. } => {}
             Focus::CannotForget => {
                 if matches!(action, MenuAction::Confirm | MenuAction::Cancel) {
@@ -933,6 +1002,280 @@ impl Tech {
             }
         }
         Ok((cue, requested))
+    }
+    /// Capture physical chords without interpreting their constituent menu buttons.
+    pub fn capture_physical(
+        &mut self,
+        party: &mut Party,
+        held: &std::collections::BTreeSet<resonance_content::input::PhysicalInput>,
+    ) -> (bool, bool) {
+        let Some(capture) = &mut self.capture else {
+            return (false, false);
+        };
+        let Some(chord) = capture.sample(held) else {
+            return (true, false);
+        };
+        if let Err(error) = chord.validate(&party.settings.preferences.keymap) {
+            self.reject_binding(error);
+            return (true, false);
+        }
+        let member = usize::from(party.formation[self.character] - 1);
+        if let Some(previous) = party.arte_binding_owner(&chord)
+            && (previous.character != member || previous.technique != self.binding_technique)
+        {
+            self.pending_binding = Some(BindingReplacement {
+                member,
+                technique: self.binding_technique,
+                chord,
+                previous,
+            });
+            self.capture = None;
+            self.focus = Focus::ReplaceBinding { yes: false };
+            return (true, false);
+        }
+        let result = party.assign_arte_binding(member, self.binding_technique, chord);
+        let changed = result.as_ref().copied().unwrap_or(false);
+        match result {
+            Ok(_) => self.binding_message = Some("Combo assigned.".into()),
+            Err(error) => self.reject_binding(error),
+        }
+        self.capture = None;
+        (true, changed)
+    }
+
+    pub fn finish_binding_replacement(&mut self, party: &mut Party, yes: bool) -> Visit {
+        let pending = self.pending_binding.take();
+        self.focus = Focus::List;
+        if !yes {
+            self.binding_message = None;
+            return Visit {
+                cue: Some(3),
+                changed: false,
+                exit: None,
+            };
+        }
+        let result = pending
+            .ok_or_else(|| "Record the combo again.".to_string())
+            .and_then(|pending| {
+                party.transfer_arte_binding(
+                    pending.member,
+                    pending.technique,
+                    pending.chord,
+                    pending.previous,
+                )
+            });
+        let changed = result.as_ref().copied().unwrap_or(false);
+        let cue = if result.is_ok() { 2 } else { 4 };
+        match result {
+            Ok(_) => self.binding_message = Some("Combo assigned.".into()),
+            Err(error) => self.reject_binding(error),
+        }
+        Visit {
+            cue: Some(cue),
+            changed,
+            exit: None,
+        }
+    }
+
+    fn reject_binding(&mut self, error: String) {
+        self.capture = None;
+        self.pending_binding = None;
+        self.binding_message = None;
+        self.binding_error = Some(error);
+        self.focus = Focus::BindingError;
+    }
+
+    fn dispatch_bindings(
+        &mut self,
+        input: Input,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Result<(Option<u16>, Option<Edit>)> {
+        use MenuAction::*;
+        let Some(action) = input else {
+            return Ok((None, None));
+        };
+        let page = self.page(party, session, data, context);
+        let member = page.member_index();
+        match self.focus {
+            Focus::Character => {
+                match action {
+                    Cancel => self.close(None),
+                    Left | Right | PreviousTab | NextTab => self.cycle_character(
+                        matches!(action, Left | PreviousTab),
+                        true,
+                        party,
+                        session,
+                        data,
+                        context,
+                    ),
+                    Up if self.character < 4 => self.focus = Focus::Control,
+                    Details if self.character < 4 => {
+                        return Ok((
+                            None,
+                            Some(Edit::Control {
+                                slot: self.character,
+                                value: (party.settings.battle_controls[self.character] + 1) % 3,
+                            }),
+                        ));
+                    }
+                    Confirm | Down => self.focus = Focus::List,
+                    _ => return Ok((None, None)),
+                }
+                Ok((Some(1), None))
+            }
+            Focus::Control => {
+                match action {
+                    Left | Right | Details => {
+                        return Ok((
+                            None,
+                            Some(Edit::Control {
+                                slot: self.character,
+                                value: (party.settings.battle_controls[self.character]
+                                    + if action == Left { 2 } else { 1 })
+                                    % 3,
+                            }),
+                        ));
+                    }
+                    Cancel | Confirm | Down => self.focus = Focus::Character,
+                    _ => return Ok((None, None)),
+                }
+                Ok((Some(1), None))
+            }
+            Focus::List | Focus::Shortcuts => {
+                let selected = page.selected_technique();
+                match action {
+                    Cancel => {
+                        if context.battle() {
+                            self.close(None);
+                        } else {
+                            self.focus = Focus::Character;
+                        }
+                    }
+                    Up if self.row == 0 => {
+                        self.focus = Focus::Character;
+                    }
+                    PreviousTab | NextTab => self.cycle_character(
+                        action == PreviousTab,
+                        false,
+                        party,
+                        session,
+                        data,
+                        context,
+                    ),
+                    Confirm => {
+                        let Some(selected) = selected.filter(|s| {
+                            party.members[s.character].techniques.contains(&s.technique)
+                        }) else {
+                            self.reject_binding(
+                                "Learn this arte before assigning an input.".into(),
+                            );
+                            return Ok((Some(4), None));
+                        };
+                        self.binding_technique = selected.technique;
+                        self.binding_message = None;
+                        self.binding_error = None;
+                        self.capture = Some(super::input_capture::Capture::chord(
+                            party
+                                .settings
+                                .preferences
+                                .keymap
+                                .get(resonance_content::input::StandardAction::Confirm)
+                                .iter()
+                                .cloned(),
+                        ));
+                    }
+                    Details => {
+                        let Some(selected) = selected else {
+                            return Ok((Some(4), None));
+                        };
+                        if party.members[member]
+                            .arte_bindings
+                            .iter()
+                            .any(|b| b.technique == selected.technique)
+                        {
+                            return Ok((
+                                None,
+                                Some(Edit::RemoveBinding {
+                                    member,
+                                    technique: selected.technique,
+                                }),
+                            ));
+                        }
+                        return Ok((Some(4), None));
+                    }
+                    Alternate => {
+                        let Some(selected) = selected.filter(|s| {
+                            party.members[s.character].techniques.contains(&s.technique)
+                        }) else {
+                            return Ok((Some(4), None));
+                        };
+                        return Ok((
+                            None,
+                            Some(Edit::Enabled {
+                                member,
+                                technique: selected.technique,
+                                enabled: party.members[member]
+                                    .disabled_techniques
+                                    .contains(&selected.technique),
+                            }),
+                        ));
+                    }
+                    Menu => {
+                        let Some(selected) = selected else {
+                            return Ok((Some(4), None));
+                        };
+                        if !party.members[member]
+                            .techniques
+                            .contains(&selected.technique)
+                            || !page.available(member, selected.technique)
+                            || !page.ready(member, selected.technique)
+                        {
+                            return Ok((Some(4), None));
+                        }
+                        if context.battle() {
+                            if page.battle_party_target() {
+                                self.begin_target(party, session, data, context);
+                            } else {
+                                self.close(Some(selected.technique));
+                            }
+                        } else if data.techniques[usize::from(selected.technique)]
+                            .field_use
+                            .is_some()
+                        {
+                            self.begin_target(party, session, data, context);
+                        } else {
+                            return Ok((Some(4), None));
+                        }
+                    }
+                    PreviousPosition if !context.battle() => {
+                        return Ok((self.begin_forget(party, session, data, context)?, None));
+                    }
+                    _ => {
+                        let count = self
+                            .page(party, session, data, context)
+                            .technique_list()
+                            .len();
+                        return Ok((self.navigate_list(action, 1, count), None));
+                    }
+                }
+                Ok((Some(2), None))
+            }
+            // Reuse execution targets and forgetting confirmation from the shared page.
+            Focus::Target | Focus::Forget { .. } | Focus::CannotForget => {
+                self.unison = true;
+                let result = self.dispatch(input, party, session, data, context);
+                self.unison = false;
+                result
+            }
+            Focus::Closed { .. } => Ok((None, None)),
+            _ => {
+                self.focus = Focus::List;
+                Ok((Some(1), None))
+            }
+        }
     }
     fn close(&mut self, technique: Option<u16>) {
         self.focus = Focus::Closed { technique };

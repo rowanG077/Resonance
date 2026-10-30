@@ -1721,3 +1721,50 @@ fn equipped_combo_limit_allows_an_extra_normal() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn assigned_artes_ignore_legacy_slots_and_keep_manual_and_auto_tp_admission() -> Result<()> {
+    for mode in [Control::Manual, Control::SemiAuto, Control::Auto] {
+        let mut prepared = shortcuts_prepared(mode);
+        if mode == Control::Auto {
+            prepared.resources.actor_setup[0].companion = Some(companion_policy(1));
+            prepared.resources.actor_setup[0].decision = Some(crate::DecisionDefinition {
+                idle_ticks: 0,
+                idle_variation: 0,
+            });
+        }
+
+        Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts =
+            [None; 4];
+        let mut battle = prepared.finish()?;
+        let initial = battle.actors[0].tp;
+        battle.step(BattleInput::from(ControlInput {
+            assigned_arte: Some(TechniqueId(34)),
+            stick: [70, 70], // The physical direction cannot choose a different arte.
+            ..ControlInput::neutral(ActorId(0))
+        }))?;
+        let action = wait_for_action(&mut battle, crate::ActionKey(9))
+            .with_context(|| format!("assigned arte in {mode:?}"))?;
+        assert!(battle.sequence(&action).is_some());
+        assert_eq!(battle.actors[0].tp, initial - 4);
+        for _ in 0..3 {
+            battle.step(BattleInput::default())?;
+        }
+        assert_eq!(battle.actors[0].tp, initial - 4);
+    }
+    let mut battle = shortcuts_battle(Control::Manual);
+    battle.actors[0].tp = 3;
+    let frame = battle.step(BattleInput::from(ControlInput {
+        assigned_arte: Some(TechniqueId(34)),
+        ..ControlInput::neutral(ActorId(0))
+    }))?;
+    assert_eq!(battle.actors[0].tp, 3);
+    assert!(frame.cues.iter().any(|cue| matches!(
+        cue,
+        Cue::Rejected {
+            reason: crate::Rejection::InsufficientTp,
+            ..
+        }
+    )));
+    Ok(())
+}

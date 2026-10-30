@@ -185,17 +185,19 @@ impl Battle {
         }
         let slot = self.actors[index].control_slot;
         let Some(input) = inputs.iter().find(|input| {
-            self.actors[input.actor.index()].control_slot == slot && input.technique.pressed
+            input.actor == actor && input.assigned_arte.is_some()
+                || self.actors[input.actor.index()].control_slot == slot && input.technique.pressed
         }) else {
             return Ok(());
         };
         let direction = crate::ShortcutSlot::from_input(input.stick);
-        let Some(action) = self.runtime[index]
-            .control
-            .as_ref()
-            .and_then(|control| control.shortcuts[direction.index()])
-            .and_then(|id| self.shortcut_action(actor, id))
-        else {
+        let catalogue = input.assigned_arte.or_else(|| {
+            self.runtime[index]
+                .control
+                .as_ref()
+                .and_then(|control| control.shortcuts[direction.index()])
+        });
+        let Some(action) = catalogue.and_then(|id| self.shortcut_action(actor, id)) else {
             return Ok(());
         };
         let Some(command) = self.prepared.technique(actor, action) else {

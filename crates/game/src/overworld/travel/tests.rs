@@ -56,6 +56,39 @@ fn rules() -> Rules {
 }
 
 #[test]
+fn foot_travel_runs_by_default_and_walk_modifier_limits_speed() -> Result<()> {
+    let terrain = terrain(TerrainSurface::Grassland);
+    let rules = rules();
+    let context = Context {
+        event_flags: &Default::default(),
+        rheairds_owned: true,
+        landing_clear: true,
+    };
+    let p = parameters();
+    let maximum = p.stick_maximum / p.foot_stick_divisor;
+    for (magnitude, walk, fraction) in [
+        (1., false, 1.),
+        (1., true, 0.5),
+        (0.5, false, 0.5),
+        (0.25, false, 0.25),
+    ] {
+        let mut travel = Travel::new(state(Mount::Foot), p.clone())?;
+        travel.step(
+            Input {
+                stick: [magnitude, 0.],
+                walk,
+                ..Default::default()
+            },
+            &context,
+            &terrain,
+            &rules,
+        )?;
+        assert!((travel.speed() - maximum * fraction).abs() < 0.001);
+    }
+    Ok(())
+}
+
+#[test]
 fn compass_steering_follows_camera_input_instead_of_accumulating() -> Result<()> {
     let terrain = terrain(TerrainSurface::Grassland);
     let rules = rules();

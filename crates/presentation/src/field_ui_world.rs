@@ -11,6 +11,9 @@ pub(crate) struct Artwork {
     camera_notice: Option<u32>,
 }
 impl Artwork {
+    pub(crate) fn set_prompt_device(&mut self, device: crate::input_icons::PromptDevice) {
+        self.common.set_prompt_device(device);
+    }
     pub fn load(
         files: &resonance_content::prepared::Files,
         skits: std::sync::Arc<resonance_content::skit::SkitCatalog>,

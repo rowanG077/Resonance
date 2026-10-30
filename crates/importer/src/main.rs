@@ -113,6 +113,7 @@ fn main() -> Result<()> {
         Some("boot") => cooker::cook_boot(&extracted, &library),
         Some("ending") => cooker::cook_ending(&extracted, &library),
         Some("title-screen") => cooker::cook_title_screen(&extracted, &library),
+        Some("input-prompts") => cooker::cook_input_prompts(&library),
         Some("ui-controls") => cooker::cook_ui_controls(&extracted, &library),
         Some("ui-emotions") => cooker::cook_ui_emotions(&extracted, &library),
         Some("ui-location-titles") => cooker::cook_ui_location_titles(

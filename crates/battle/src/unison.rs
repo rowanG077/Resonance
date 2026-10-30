@@ -1,8 +1,8 @@
 //! A team attack temporarily owns actor admission and scene placement.
 use crate::{
     ActionDefinition, ActionExecution, ActionId, ActionKey, ActionRequest, ActorId, Battle,
-    CameraPose, Cue, EffectAppearance, EffectRequest, MotionBinding, Pose, PreparedAttack,
-    ShortcutSlot, Side, Sound,
+    CameraPose, Cue, EffectAppearance, EffectRequest, MotionBinding, Pose, PreparedAttack, Side,
+    Sound, TechniqueId,
 };
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeSet, sync::Arc};
@@ -48,15 +48,18 @@ pub struct UnisonMember {
     pub windup_motion: MotionBinding,
     pub windup_pose: Pose,
     pub windup_voice: Option<Sound>,
-    /// Prepared eligible actions; the live controller owns shortcut assignments.
+    /// Prepared eligible actions and the independently selected Unison arte.
     pub artes: Vec<UnisonArte>,
+    pub selected: Option<TechniqueId>,
     pub short_weapon: bool,
 }
 
 impl UnisonMember {
-    fn selected_arte(&self, battle: &Battle, slot: ShortcutSlot) -> Option<UnisonArte> {
-        let catalogue = battle.shortcuts(self.actor)?[slot.index()]?;
-        let action = battle.shortcut_action(self.actor, catalogue)?;
+    fn selected_arte(&self, battle: &Battle) -> Option<UnisonArte> {
+        let action = battle
+            .prepared_technique(self.actor, self.selected?)?
+            .action;
+        battle.learned_technique(self.actor, action)?;
         self.artes
             .iter()
             .find(|arte| arte.action == action)
@@ -133,10 +136,7 @@ pub struct UnisonDefinition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnisonInput {
     Activate(ActorId),
-    Select {
-        pressed_slots: u8,
-        shortcut: ShortcutSlot,
-    },
+    Select { pressed_slots: u8 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +295,19 @@ pub(crate) struct State {
     feedback_generation: u64,
 }
 
+#[must_use]
+pub struct UnisonArteEdit<'a> {
+    selected: Option<&'a mut Option<TechniqueId>>,
+    value: Option<TechniqueId>,
+}
+impl UnisonArteEdit<'_> {
+    pub fn commit(self) {
+        if let Some(selected) = self.selected {
+            *selected = self.value;
+        }
+    }
+}
+
 impl State {
     pub(crate) fn release_immunity(&mut self, actor: ActorId) {
         if let Some(definition) = &mut self.definition {
@@ -415,6 +428,64 @@ impl State {
 }
 
 impl Battle {
+    pub fn unison_arte(&self, actor: ActorId) -> Option<TechniqueId> {
+        self.unison
+            .definition
+            .as_ref()?
+            .members
+            .iter()
+            .find(|m| m.actor == actor)?
+            .selected
+    }
+    pub fn prepare_unison_arte(
+        &mut self,
+        actor: ActorId,
+        value: Option<TechniqueId>,
+    ) -> Result<UnisonArteEdit<'_>> {
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat && !self.unison.active(),
+            "Unison loadout requires ordinary combat"
+        );
+        ensure!(
+            self.actor(actor)?.side == Side::Party,
+            "Unison loadout requires a party member"
+        );
+        let action = value
+            .map(|id| {
+                let row = self
+                    .prepared_technique(actor, id)
+                    .context("Unison arte is not prepared")?;
+                ensure!(
+                    row.capabilities.target == crate::TechniqueTarget::Enemy,
+                    "Arte is unavailable for Unison"
+                );
+                self.learned_technique(actor, row.action)
+                    .context("Unison arte is not learned")?;
+                Ok::<_, anyhow::Error>(row.action)
+            })
+            .transpose()?;
+        let Some(definition) = self.unison.definition.as_mut() else {
+            // A solo encounter has no live team-attack owner. The menu can
+            // still save the character's loadout for the next full party.
+            return Ok(UnisonArteEdit {
+                selected: None,
+                value,
+            });
+        };
+        let member = Arc::make_mut(definition)
+            .members
+            .iter_mut()
+            .find(|m| m.actor == actor)
+            .context("Character cannot join Unison")?;
+        ensure!(
+            action.is_none_or(|a| member.artes.iter().any(|arte| arte.action == a)),
+            "Arte is unavailable for Unison"
+        );
+        Ok(UnisonArteEdit {
+            selected: Some(&mut member.selected),
+            value,
+        })
+    }
     fn place_unison_actor(
         &mut self,
         owner: ActorId,
@@ -784,17 +855,13 @@ impl State {
             run.launch(battle, definition, run.selections[0], cues)?;
             run.orbit = Some(Orbit::new(&mut battle.random, CAMERA_PITCH));
         }
-        if let Some(UnisonInput::Select {
-            pressed_slots,
-            shortcut,
-        }) = input
-        {
+        if let Some(UnisonInput::Select { pressed_slots }) = input {
             if matches!(run.phase, UnisonPhase::Selecting | UnisonPhase::Executing) {
                 for (slot, member) in definition.members.iter().enumerate() {
                     if pressed_slots & (1 << slot) == 0 || run.blocked & (1 << slot) != 0 {
                         continue;
                     }
-                    let Some(arte) = member.selected_arte(battle, shortcut) else {
+                    let Some(arte) = member.selected_arte(battle) else {
                         continue;
                     };
                     if !battle.actors[member.actor.index()].available() {
@@ -954,9 +1021,7 @@ impl State {
                     .conditions
                     .effective()
                     .contains(crate::conditions::Condition::Curse)
-                || ShortcutSlot::ALL
-                    .into_iter()
-                    .all(|slot| member.selected_arte(battle, slot).is_none())
+                || member.selected_arte(battle).is_none()
             {
                 blocked |= 1 << slot;
             }
