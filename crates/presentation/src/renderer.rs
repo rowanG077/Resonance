@@ -1,4 +1,6 @@
 //! Backend selection, scheduling and draw configuration for Resonance's authored shaders.
+mod backend;
+pub(super) use backend::plugin;
 use bevy::{
     camera::CameraOutputMode,
     core_pipeline::schedule::{Core2d, Core3d},
@@ -10,19 +12,6 @@ use bevy::{
         view::NoIndirectDrawing,
     },
 };
-
-pub(super) fn plugin() -> bevy::render::RenderPlugin {
-    let settings = bevy::render::settings::WgpuSettings {
-        // Use the native Windows backend while retaining explicit overrides.
-        #[cfg(target_os = "windows")]
-        backends: Some(bevy::render::settings::Backends::DX12.with_env()),
-        ..default()
-    };
-    bevy::render::RenderPlugin {
-        render_creation: settings.into(),
-        ..default()
-    }
-}
 
 // Later cameras default to alpha blending. A completed scene must be copied
 // without applying its retained transparency a second time.

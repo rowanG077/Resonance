@@ -2049,11 +2049,12 @@ mastery, chef selection and fullness, and use the current recipe rules.
 
 ## Options and preferences
 
-`game/options.json` owns all 20 option names/descriptions, editor labels, themes,
+`game/options.json` owns all 21 option names/descriptions, editor labels, themes,
 reset defaults and arte-forgetting confirmations. Both field and title menus read
 this document through the active library, including enabled mods. Option keys are
 engine meanings, such as `message_speed`, `combined_battles`, `learn_both_arte_paths`,
-`display_mode`, `resolution` and `anti_aliasing`; their menu order is fixed by the engine.
+`display_mode`, `resolution`, `anti_aliasing` and `graphics_backend`; their menu order
+is fixed by the engine.
 
 Defaults use names: `difficulty` is `normal`, `hard` or `mania`, and `window` is
 `plain`, `ornate` or `gold`, matching `ui/menu.json`. `background` is
@@ -2103,6 +2104,17 @@ Sizes exceeding the GPU or saved-settings limits are omitted. Changing monitors
 refreshes the choices without changing the selected resolution automatically.
 The current valid custom config/CLI size remains selectable, so accepting it
 without navigation preserves the size and does not open another confirmation.
+`defaults.graphics_backend` is `automatic` (the default), `dx12`, `vulkan` or
+`metal`. The selector offers Automatic plus native backends detected on the active
+GPU with the renderer's required features and limits. OpenGL/ANGLE and software
+adapters on a different GPU are not offered. Automatic prefers DirectX 12 on
+Windows, Metal on macOS and Vulkan on Linux; a missing saved backend falls back
+to an available native backend. Backend changes save when you exit Customize
+and take effect after restarting the game. The menu shows the current
+backend and whether `WGPU_BACKEND` overrides the saved choice. Discovery preserves
+the saved preference even when it is unavailable on the current GPU. Existing libraries
+may omit this option and default; the loader supplies them without re-cooking.
+
 `defaults.anti_aliasing` is `off`, `smaa_low`, `smaa_medium`, `smaa_high`,
 `smaa_ultra`, `msaa2`, `msaa4` (the engine default), `msaa8` or `smaa_s2x`.
 One selector exposes only choices supported by the GPU's scene color and
