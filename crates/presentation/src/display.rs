@@ -118,8 +118,25 @@ pub(super) fn window(size: Resolution) -> Window {
 pub(super) struct InteractiveDisplay {
     applied: Option<(resonance_content::menu_data::DisplayMode, [u32; 2])>,
     monitor: Option<Entity>,
-    preview: Option<(resonance_content::menu_data::DisplayMode, [u32; 2])>,
+    preview: Option<GraphicsPreview>,
     confirmation: Option<(MenuOwner, u64, std::time::Instant)>,
+}
+
+#[derive(Clone, Copy)]
+struct GraphicsPreview {
+    display_mode: resonance_content::menu_data::DisplayMode,
+    resolution: [u32; 2],
+    anti_aliasing: resonance_content::menu_data::AntiAliasing,
+}
+
+impl From<&resonance_content::menu_data::CustomizeSettings> for GraphicsPreview {
+    fn from(settings: &resonance_content::menu_data::CustomizeSettings) -> Self {
+        Self {
+            display_mode: settings.display_mode,
+            resolution: settings.resolution,
+            anti_aliasing: settings.anti_aliasing,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -128,9 +145,14 @@ enum MenuOwner {
     Session,
 }
 
-fn monitor_resolutions(monitor: Option<&Monitor>, limit: u32) -> (Vec<[u32; 2]>, Option<[u32; 2]>) {
+fn monitor_resolutions(
+    monitor: Option<&Monitor>,
+    current: [u32; 2],
+    limit: u32,
+) -> (Vec<[u32; 2]>, Option<[u32; 2]>) {
     let native = monitor.map(|monitor| monitor.physical_size().to_array());
     let mut choices = resonance_content::menu_data::DISPLAY_RESOLUTIONS.to_vec();
+    choices.push(current);
     choices.extend(native);
     if let Some(monitor) = monitor {
         choices.extend(
@@ -152,8 +174,8 @@ fn monitor_resolutions(monitor: Option<&Monitor>, limit: u32) -> (Vec<[u32; 2]>,
     (choices, native)
 }
 
-/// Preview only display fields. The saved preferences remain untouched until
-/// Customize exits, and an abandoned menu always falls back to those settings.
+/// Preview accepted graphics choices; dropdown highlights never change the draft.
+/// Preferences stay untouched until Customize exits; abandoned menus fall back to them.
 /// Instant keeps the timeout independent of gameplay speed, pause and fixed ticks.
 pub(super) fn preview_preferences(
     mut display: ResMut<InteractiveDisplay>,
@@ -190,7 +212,7 @@ pub(super) fn preview_preferences(
     let limit = device
         .as_ref()
         .map_or(8192, |device| device.limits().max_texture_dimension_2d);
-    let (choices, native) = monitor_resolutions(monitor, limit);
+    let (choices, native) = monitor_resolutions(monitor, menu.customize.draft.resolution, limit);
     menu.customize.set_resolution_choices(choices, native);
     if let Focus::DisplayConfirmation {
         revision,
@@ -229,10 +251,7 @@ pub(super) fn preview_preferences(
     } else {
         display.confirmation = None;
     }
-    display.preview = Some((
-        menu.customize.draft.display_mode,
-        menu.customize.draft.resolution,
-    ));
+    display.preview = Some(GraphicsPreview::from(&menu.customize.draft));
 }
 
 fn mode(
@@ -287,13 +306,13 @@ pub(super) fn apply_preferences(
         return;
     };
     let monitor_entity = on_monitor.map(|m| m.0);
-    let settings = &preferences.settings;
+    let settings = applied
+        .preview
+        .unwrap_or_else(|| GraphicsPreview::from(&preferences.settings));
     aa.set_if_neq(crate::anti_aliasing::AntiAliasingSettings(
         settings.anti_aliasing,
     ));
-    let desired = applied
-        .preview
-        .unwrap_or((settings.display_mode, settings.resolution));
+    let desired = (settings.display_mode, settings.resolution);
     // Monitor information can arrive after the first window frame. Re-select
     // the exclusive video mode when it becomes available or the window moves.
     if applied.applied == Some(desired) && applied.monitor == monitor_entity {
@@ -516,7 +535,7 @@ mod tests {
             native,
             &[native, native, [1512, 982], [9000, 4000], [0, 600]],
         );
-        let (choices, reported_native) = monitor_resolutions(Some(&monitor), 4096);
+        let (choices, reported_native) = monitor_resolutions(Some(&monitor), [1279, 719], 4096);
         let mut customize = resonance_game::menu::customize::Customize::default();
         customize.set_resolution_choices(choices, reported_native);
         assert_eq!(customize.native_resolution(), Some(native));
@@ -524,6 +543,7 @@ mod tests {
         assert!(choices.contains(&native));
         assert!(choices.contains(&[1512, 982]));
         assert!(choices.contains(&[1920, 1080]));
+        assert!(choices.contains(&[1279, 719]));
         assert!(choices.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(
             choices
@@ -531,10 +551,75 @@ mod tests {
                 .all(|size| size.iter().all(|value| (1..=4096).contains(value)))
         );
 
-        let (choices, native) = monitor_resolutions(Some(&monitor), 2048);
+        let (choices, native) = monitor_resolutions(Some(&monitor), native, 2048);
         customize.set_resolution_choices(choices, native);
         assert_eq!(customize.native_resolution(), None);
         assert!(!customize.resolution_choices().contains(&[3024, 1964]));
+    }
+
+    #[test]
+    fn custom_resolution_stays_selected_when_monitor_choices_refresh() {
+        let (mut app, _) = preview_app();
+        let custom = [1279, 719];
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .resolution = custom;
+        {
+            let mut title = app
+                .world_mut()
+                .resource_mut::<crate::saves::title::TitleMenu>();
+            title.0.customize.draft.resolution = custom;
+            title.0.customize.focus = Focus::Resolution { choice: custom };
+        }
+        let assert_current = |app: &App| {
+            let state = &app
+                .world()
+                .resource::<crate::saves::title::TitleMenu>()
+                .0
+                .customize;
+            assert_eq!(state.focus, Focus::Resolution { choice: custom });
+            assert_eq!(
+                state
+                    .resolution_choices()
+                    .iter()
+                    .filter(|size| **size == custom)
+                    .count(),
+                1
+            );
+            assert!(
+                app.world()
+                    .resource::<InteractiveDisplay>()
+                    .confirmation
+                    .is_none()
+            );
+            assert_eq!(
+                app.world().resource::<Display>().0,
+                Resolution {
+                    width: custom[0],
+                    height: custom[1]
+                }
+            );
+        };
+        app.update();
+        assert_current(&app);
+        let monitor = app
+            .world_mut()
+            .spawn(monitor([1920, 1080], &[[1920, 1080]]))
+            .id();
+        let window = app
+            .world_mut()
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(window)
+            .insert(OnMonitor(monitor));
+        app.update();
+        assert_current(&app);
+        app.world_mut().entity_mut(window).remove::<OnMonitor>();
+        app.update();
+        assert_current(&app);
     }
 
     #[test]
@@ -653,6 +738,72 @@ mod tests {
         age_confirmation(&mut app, 15);
         app.update();
         assert_eq!(app.world().resource::<Display>().0, Resolution::default());
+    }
+
+    #[test]
+    fn dropdown_highlights_do_not_apply_resolution_or_antialiasing() {
+        use resonance_content::menu_data::AntiAliasing;
+        let (mut app, _) = preview_app();
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .focus = Focus::Resolution {
+            choice: [1920, 1080],
+        };
+        app.update();
+        assert_eq!(app.world().resource::<Display>().0, Resolution::default());
+        assert!(
+            app.world()
+                .resource::<InteractiveDisplay>()
+                .confirmation
+                .is_none()
+        );
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .focus = Focus::AntiAliasing {
+            choice: AntiAliasing::SmaaLow,
+        };
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<crate::anti_aliasing::AntiAliasingSettings>()
+                .0,
+            AntiAliasing::Msaa4
+        );
+        {
+            // Confirm accepts the choice into the draft; browsing only changes focus.
+            let mut title = app
+                .world_mut()
+                .resource_mut::<crate::saves::title::TitleMenu>();
+            title.0.customize.draft.anti_aliasing = AntiAliasing::SmaaLow;
+            title.0.customize.focus = Focus::Options;
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<crate::anti_aliasing::AntiAliasingSettings>()
+                .0,
+            AntiAliasing::SmaaLow
+        );
+        assert_eq!(
+            app.world()
+                .resource::<crate::config::Preferences>()
+                .settings
+                .anti_aliasing,
+            AntiAliasing::Msaa4
+        );
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<crate::anti_aliasing::AntiAliasingSettings>()
+                .0,
+            AntiAliasing::Msaa4
+        );
     }
 
     #[test]
