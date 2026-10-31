@@ -7,7 +7,7 @@ use resonance_content::library::Mappings;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::{BufWriter, Write},
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -38,32 +38,23 @@ pub fn cook_music(root: &Path, library: &Path, selected: Option<u16>) -> Result<
     }
     crate::parallel::for_each(&jobs, |index, (id, name, source)| {
         let target = output.join(format!("{name}.wav"));
-        if selected.is_some() || !target.is_file() {
-            eprintln!("  [{}/{} jobs] Music: {name} ({id})", index + 1, jobs.len());
-            let setup = bank.music_setup(0, *id)?;
-            let preset = dol::slice(&exe, REVERB_SELECTORS + u32::from(*id), 1)?[0];
-            let effects = match preset {
-                0 => field_reverbs,
-                1 | 2 => reverbs(&exe, preset)?,
-                _ => anyhow::bail!("unsupported music reverb preset {preset}"),
-            };
-            render_song(source, &target, &bank, &setup, &sustains, &tables, effects)
-                .with_context(|| format!("render music {id} ({name})"))?;
-        }
+        eprintln!("  [{}/{} jobs] Music: {name} ({id})", index + 1, jobs.len());
+        let setup = bank.music_setup(0, *id)?;
+        let preset = dol::slice(&exe, REVERB_SELECTORS + u32::from(*id), 1)?[0];
+        let effects = match preset {
+            0 => field_reverbs,
+            1 | 2 => reverbs(&exe, preset)?,
+            _ => anyhow::bail!("unsupported music reverb preset {preset}"),
+        };
+        render_song(source, &target, &bank, &setup, &sustains, &tables, effects)
+            .with_context(|| format!("render music {id} ({name})"))?;
         Ok(())
     })?;
     if selected.is_none() {
         cook_unmapped(&disc, &output, &bank, &sustains, &tables)?;
     }
     let mapping = output.join("mappings.json");
-    let mut temporary = tempfile::NamedTempFile::new_in(&output)?;
-    temporary.write_all(&resonance_asset_writer::json::encode(&Mappings::new(
-        mappings,
-    )?)?)?;
-    temporary
-        .persist_noclobber(&mapping)
-        .map_err(|error| error.error)?;
-    Ok(())
+    crate::output::json(&mapping, &Mappings::new(mappings)?)
 }
 
 /// Preserve arrangements absent from the native ID table without inventing IDs.
@@ -102,23 +93,21 @@ fn cook_unmapped(
     ];
     for (index, &(source, name)) in arrangements.iter().enumerate() {
         let target = output.join(name);
-        if !target.is_file() {
-            eprintln!(
-                "  [{}/{} jobs] Unmapped music: {name}",
-                index + 1,
-                arrangements.len()
-            );
-            render_song(
-                &disc.join("files/S").join(source),
-                &target,
-                bank,
-                &setup,
-                sustains,
-                tables,
-                dry,
-            )
-            .with_context(|| format!("render unmapped music {source}"))?;
-        }
+        eprintln!(
+            "  [{}/{} jobs] Unmapped music: {name}",
+            index + 1,
+            arrangements.len()
+        );
+        render_song(
+            &disc.join("files/S").join(source),
+            &target,
+            bank,
+            &setup,
+            sustains,
+            tables,
+            dry,
+        )
+        .with_context(|| format!("render unmapped music {source}"))?;
     }
     Ok(())
 }
@@ -190,9 +179,15 @@ fn catalogue(
 
 fn write_song(path: &Path, loaded: Arc<Loaded>, effects: [[f32; 5]; 2]) -> Result<()> {
     let parent = path.parent().context("music output has no parent")?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    fs::create_dir_all(parent)?;
+    let mut output = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
     let mut writer = hound::WavWriter::new(
-        BufWriter::new(temporary.as_file_mut()),
+        BufWriter::new(&mut output),
         hound::WavSpec {
             channels: 2,
             sample_rate: SOURCE_RATE,
@@ -205,19 +200,16 @@ fn write_song(path: &Path, loaded: Arc<Loaded>, effects: [[f32; 5]; 2]) -> Resul
     writer.finalize()?;
     if let Some(repeat) = rendered.repeat {
         resonance_asset_writer::wav::append_loop(
-            temporary.as_file_mut(),
+            &mut output,
             SOURCE_RATE,
             u32::try_from(repeat.start)?..u32::try_from(repeat.end)?,
         )?;
     }
-    let wave = hound::WavReader::open(temporary.path())?;
+    let wave = hound::WavReader::open(path)?;
     ensure!(
         u64::from(wave.duration()) == rendered.frames,
         "music frame count changed"
     );
-    temporary
-        .persist_noclobber(path)
-        .map_err(|error| error.error)?;
     Ok(())
 }
 

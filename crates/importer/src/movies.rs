@@ -95,17 +95,6 @@ pub fn cook_movies(root: &Path, library: &Path, selected: Option<u32>) -> Result
             .map(|(&id, (_, source))| Ok((id, format!("{}.mkv", movie_name(source)?))))
             .collect::<Result<BTreeMap<_, _>>>()?,
     )?;
-    // Check every selected output before the first expensive encode.
-    ensure!(
-        !library.join(MOVIES).exists(),
-        "movie mappings already exist"
-    );
-    for (_, name) in mappings.iter() {
-        ensure!(
-            !output.join(name).exists(),
-            "movie destination already exists: {name}"
-        );
-    }
     fs::create_dir_all(&output)?;
     let mut converted = BTreeSet::new();
     let mut jobs = Vec::new();
@@ -376,13 +365,12 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
     let yuv = scratch.path().join("video.yuv");
     decode_video(movie, &yuv, &header, &name)?;
     let (audio_tracks, audio_paths) = decode_audio(movie, scratch.path(), &header, &name)?;
-    let temporary = tempfile::NamedTempFile::new_in(scratch.path())?;
     let formats: Vec<_> = audio_tracks
         .iter()
         .map(|track| (track.channels, track.sample_rate, u64::from(track.frames)))
         .collect();
     let mut writer = resonance_media::encode::MovieWriter::with_audio_tracks(
-        BufWriter::new(temporary.reopen()?),
+        BufWriter::new(fs::File::create(destination)?),
         header.width as u32,
         header.height as u32,
         header.frame_micros,
@@ -448,10 +436,7 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
             break;
         }
     }
-    writer.finish()?.into_inner()?.sync_all()?;
-    temporary
-        .persist_noclobber(destination)
-        .with_context(|| format!("install movie {}", destination.display()))?;
+    writer.finish()?.into_inner()?;
     drop(waves);
     drop(video);
     scratch.close()?;
