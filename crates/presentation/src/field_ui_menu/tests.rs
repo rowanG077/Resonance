@@ -843,6 +843,9 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
 #[ignore = "requires locally cooked menus; selected artwork admission only"]
 fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()> {
     let mut fixture = Fixture::load()?;
+    let unused_cursor = fixture.art.windows[&2].cursor.unwrap();
+    fixture.art.textures.get_mut(&unused_cursor).unwrap().path =
+        "missing-unselected-gold-cursor.ktx2".into();
     fixture.art.sprites.rects.remove(&Sprite::Recipes);
     fixture.art.sprites.named_rects.remove(&Sprite::Recipes);
     fixture.art.sprites.names.clear();
