@@ -120,7 +120,7 @@ pub struct Actor {
     pub(crate) emitter: Option<crate::emitter::Emitter>,
     pub ring_station: bool,
     pub attachment: Option<Attachment>,
-    /// Identity of a carried prop, retained when a scene throws or hands it off.
+    /// Equipment-placeholder identity, retained when a scene throws or hands it off.
     pub field_weapon: Option<FieldWeapon>,
     pub motion: Option<ActorMotion>,
     /// Native movement rate remains readable after a scripted destination ends.
@@ -522,7 +522,9 @@ pub struct FieldWeapon {
 }
 
 impl FieldWeapon {
-    pub fn from_attachment(character: u32, bone: &str) -> Option<Self> {
+    /// Weapon joints also carry scene props; only known placeholders follow equipment.
+    pub fn from_attachment(resource: u32, character: u32, bone: &str) -> Option<Self> {
+        symphonia_constants::FieldEquipmentModelId::try_from(resource).ok()?;
         if !(1..=9).contains(&character) {
             return None;
         }
