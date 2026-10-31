@@ -4587,6 +4587,7 @@ dependencies = [
  "bevy",
  "bevy_post_process",
  "hound",
+ "raw-window-handle",
  "resonance-asset-writer",
  "resonance-audio",
  "resonance-audio-device",
