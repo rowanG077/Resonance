@@ -1057,7 +1057,12 @@ impl View {
                 if let Some(fade) = &self.stage.scenery_fade
                     && let Some(&minimum) = fade.minimum_alpha.get(slot)
                 {
-                    let anchor = world.transform_point3(Vec3::ZERO);
+                    // Attached scenery can move far from its attachment through
+                    // its own animation. Fade against the rendered root position.
+                    let anchor = scenery_poses[slot].first().map_or(Vec3::ZERO, |root| {
+                        Vec3::new(root[3][0], root[3][1], root[3][2])
+                    });
+                    let anchor = world.transform_point3(anchor);
                     // Only nearer scenery can obscure the combat focus. Off-axis
                     // scenery may be in front of the focus but still farther away.
                     let target = if scenery_in_foreground(
