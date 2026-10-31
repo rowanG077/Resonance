@@ -4609,6 +4609,7 @@ dependencies = [
  "tempfile",
  "time",
  "toml",
+ "wgpu",
 ]
 
 [[package]]
