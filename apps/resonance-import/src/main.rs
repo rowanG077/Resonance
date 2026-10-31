@@ -22,7 +22,7 @@ struct Args {
     /// Original GameCube disc 2 image; only its nine additional files are read.
     #[arg(value_name = "DISC_2", required = true)]
     disc2: Option<PathBuf>,
-    /// Fresh output library, also the engine's default asset directory.
+    /// Output library to overwrite, also the engine's default asset directory.
     #[arg(long, default_value = "local/all-assets")]
     output: PathBuf,
     #[command(subcommand)]
@@ -69,11 +69,6 @@ fn main() -> Result<()> {
     let Some(command) = args.command else {
         let disc1 = args.disc1.context("missing disc 1 image")?;
         let disc2 = args.disc2.context("missing disc 2 image")?;
-        ensure!(
-            !args.output.exists() || fs::read_dir(&args.output)?.next().is_none(),
-            "output {} is not empty; choose a fresh directory with --output",
-            args.output.display()
-        );
         let scratch = tempfile::tempdir()?;
         eprintln!("Reading disc 1: {}", disc1.display());
         extract(&disc1, &scratch.path().join("disc1"), Some(0))?;

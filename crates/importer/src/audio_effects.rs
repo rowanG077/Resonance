@@ -22,7 +22,7 @@ use resonance_content::library::Mappings;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::{Cursor, Write},
+    io::Cursor,
     path::Path,
     sync::Arc,
 };
@@ -106,7 +106,7 @@ pub fn cook_effects(root: &Path, library: &Path, selected: Option<u16>) -> Resul
                     relative
                 } else {
                     let relative = format!("effects/{name}.wav");
-                    write_once(&library.join("audio").join(&relative), &wave)?;
+                    crate::output::write(&library.join("audio").join(&relative), &wave)?;
                     relative
                 }
             } else {
@@ -268,7 +268,7 @@ pub fn cook_battle_cues(root: &Path, library: &Path, selected: Option<u16>) -> R
                 if let Some(wave) = resonance_audio::effect::bake::simple_wave(Arc::clone(&loaded))?
                 {
                     let relative = format!("speech/battle/{name}.wav");
-                    write_once(&library.join("audio").join(&relative), &wave)?;
+                    crate::output::write(&library.join("audio").join(&relative), &wave)?;
                     relative
                 } else {
                     let mut editable_samples = BTreeMap::new();
@@ -484,7 +484,7 @@ fn write_sample(
             writer.write_sample(value)?;
         }
         writer.finalize()?;
-        write_once(&library.join(path), &buffer.into_inner())?;
+        crate::output::write(&library.join(path), &buffer.into_inner())?;
     }
     Ok(EditableSample {
         path: path.to_owned(),
@@ -517,25 +517,5 @@ fn score(id: u16, notes: Vec<resonance_audio::data::Note>) -> Score {
 }
 
 fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
-    write_once(path, &resonance_asset_writer::json::encode(value)?)
-}
-
-fn write_once(path: &Path, bytes: &[u8]) -> Result<()> {
-    fs::create_dir_all(path.parent().context("effect has no output directory")?)?;
-    match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-    {
-        Ok(mut file) => file.write_all(bytes)?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            ensure!(
-                fs::read(path)? == bytes,
-                "conflicting shared effect resource {}",
-                path.display()
-            );
-        }
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
+    crate::output::write(path, &resonance_asset_writer::json::encode(value)?)
 }
