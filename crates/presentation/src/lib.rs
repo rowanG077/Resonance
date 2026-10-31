@@ -357,6 +357,7 @@ fn build_app(
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
     let mut plugins = DefaultPlugins
+        .set(renderer::plugin())
         .set(bevy::pbr::PbrPlugin {
             gltf_enable_standard_materials: false,
             ..default()
