@@ -1,4 +1,4 @@
-//! Replace scene-owned weapon props attached to playable characters' KK joints.
+//! Replace opted-in equipment placeholders on playable characters' KK joints.
 //! The original prop still owns choreography, visibility, flight and lifetime.
 mod choreography;
 mod equipment;
@@ -27,10 +27,15 @@ fn carried(
     actor: &resonance_events::Actor,
     world: &resonance_events::GameWorld,
 ) -> Option<resonance_events::FieldWeapon> {
+    symphonia_constants::FieldEquipmentModelId::try_from(actor.resource).ok()?;
     actor.field_weapon.or_else(|| {
         let attachment = actor.attachment.as_ref()?;
         let owner = world.actors.get(&attachment.actor)?;
-        resonance_events::FieldWeapon::from_attachment(owner.resource, &attachment.bone)
+        resonance_events::FieldWeapon::from_attachment(
+            actor.resource,
+            owner.resource,
+            &attachment.bone,
+        )
     })
 }
 

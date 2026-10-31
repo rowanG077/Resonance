@@ -22,11 +22,11 @@
     },
     "resolution": {
       "name": "Resolution",
-      "description": "Set the render resolution and window size.\nNative matches your monitor's pixel resolution.\nPreview changes; confirm within 15 seconds.\nBorderless uses the desktop size."
+      "description": "Enter opens the resolution list.\nUp/Down highlights; Enter applies.\nConfirm the preview within 15 seconds.\nNative matches your monitor's resolution."
     },
     "anti_aliasing": {
       "name": "Anti-Aliasing",
-      "description": "Smooth edges without temporal blur.\nSMAA smooths texture and geometry edges.\nMSAA and SMAA S2x depend on GPU support.\nApplies when you exit Customize."
+      "description": "Enter opens the anti-aliasing list.\nUp/Down highlights; Enter applies.\nSmooth edges without temporal blur.\nMSAA and SMAA S2x depend on GPU support."
     }
   },
   "confirmations": {

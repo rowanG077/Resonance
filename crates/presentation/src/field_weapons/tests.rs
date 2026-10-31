@@ -2,12 +2,24 @@ use super::*;
 use resonance_content::prepared::Files;
 use std::time::Instant;
 
+const SCRIPTED_PROP_RESOURCES: &[u32] = &[
+    68197,      // Classroom buckets.
+    0xffee0004, // Genis's flute in the Aska sequence.
+    0xffee0000, // Flanoir's snow-bunny charm.
+    131308,     // Specific wooden sword.
+    131359, 131360, 131421, 131422, 131441, 131442, // Story swords and effects.
+    12345,  // Unknown models remain authored props by default.
+];
+
 #[test]
 fn carried_props_keep_their_identity_after_detaching() {
     use resonance_events::{Actor, Attachment, FieldWeapon, GameWorld};
     let mut world = GameWorld::default();
     world.insert_actor(99, Actor::new(9, [0.; 3]));
-    let mut prop = Actor::new(12345, [0.; 3]);
+    let mut prop = Actor::new(
+        symphonia_constants::FieldEquipmentModelId::KratosSword.raw(),
+        [0.; 3],
+    );
     prop.attachment = Some(Attachment {
         actor: 99,
         bone: "kk00".into(),
@@ -20,6 +32,29 @@ fn carried_props_keep_their_identity_after_detaching() {
     prop.field_weapon = carried(&prop, &world);
     prop.attachment = None;
     assert_eq!(carried(&prop, &world), expected);
+}
+
+#[test]
+fn scripted_props_stay_authored_on_weapon_joints_even_with_cached_identity() {
+    use resonance_events::{Actor, Attachment, FieldWeapon, GameWorld};
+    let mut world = GameWorld::default();
+    world.insert_actor(99, Actor::new(1, [0.; 3]));
+    for &resource in SCRIPTED_PROP_RESOURCES {
+        for (slot, bone) in [(0, "kk00"), (1, "kk01")] {
+            let mut prop = Actor::new(resource, [0.; 3]);
+            prop.attachment = Some(Attachment {
+                actor: 99,
+                bone: bone.into(),
+            });
+            assert_eq!(carried(&prop, &world), None, "model {resource}");
+            prop.field_weapon = Some(FieldWeapon { character: 1, slot });
+            assert_eq!(carried(&prop, &world), None, "model {resource}");
+            prop.attachment = None;
+            assert_eq!(carried(&prop, &world), None, "model {resource}");
+            prop.resource = symphonia_constants::FieldEquipmentModelId::LloydSword.raw();
+            assert_eq!(carried(&prop, &world), prop.field_weapon);
+        }
+    }
 }
 
 #[test]
@@ -242,6 +277,40 @@ fn published(owner: Entity, item: u16, layer: usize, active: bool) -> (Instance,
         },
         Visibility::Inherited,
     )
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS; CPU only"]
+fn scripted_prop_geometry_stays_visible_without_equipment_replacements() -> Result<()> {
+    use bevy::ecs::system::RunSystemOnce;
+    let (mut app, owner, generic, _) = fixture(340, 120)?;
+    for &resource in SCRIPTED_PROP_RESOURCES {
+        app.world_mut()
+            .resource_mut::<crate::field_view::Session>()
+            .0
+            .events
+            .world
+            .actors
+            .get_mut(&120)
+            .unwrap()
+            .resource = resource;
+        let stale_weapon = app.world_mut().spawn(published(owner, 155, 0, true)).id();
+        app.world_mut().run_system_once(instances).unwrap();
+        app.world_mut().run_system_once(publish).unwrap();
+        assert!(app.world().get_entity(stale_weapon).is_err());
+        assert_eq!(
+            app.world_mut()
+                .query::<&Instance>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        assert_eq!(
+            *app.world().get::<Visibility>(generic).unwrap(),
+            Visibility::Inherited
+        );
+    }
+    Ok(())
 }
 
 #[test]

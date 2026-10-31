@@ -17,6 +17,9 @@ pub enum Focus {
     AntiAliasing {
         choice: AntiAliasing,
     },
+    Resolution {
+        choice: [u32; 2],
+    },
     DisplayConfirmation {
         previous_mode: DisplayMode,
         previous_resolution: [u32; 2],
@@ -122,6 +125,19 @@ impl Customize {
         choices.dedup();
         self.native_resolution = native.filter(|size| choices.contains(size));
         self.resolution_choices = choices;
+        if let Focus::Resolution { choice } = self.focus {
+            self.focus = Focus::Resolution {
+                choice: self.resolution_choice(choice),
+            };
+        }
+    }
+    fn resolution_choice(&self, current: [u32; 2]) -> [u32; 2] {
+        let choices = self.resolution_choices();
+        choices
+            .iter()
+            .copied()
+            .find(|size| *size >= current)
+            .unwrap_or(*choices.last().unwrap())
     }
     pub fn set_anti_aliasing_choices(&mut self, choices: &[AntiAliasing]) {
         self.anti_aliasing_choices = choices.to_vec();
@@ -401,6 +417,14 @@ impl Menu {
                         ANTI_ALIASING_OPTION => Focus::AntiAliasing {
                             choice: state.draft.anti_aliasing,
                         },
+                        RESOLUTION_OPTION => {
+                            // The current config/CLI size is a choice even without a preset.
+                            let current = state.draft.resolution;
+                            let mut choices = state.resolution_choices().to_vec();
+                            choices.push(current);
+                            state.set_resolution_choices(choices, state.native_resolution);
+                            Focus::Resolution { choice: current }
+                        }
                         5 => Focus::Volume,
                         6 => {
                             state.button = 0;
@@ -411,9 +435,7 @@ impl Menu {
                     };
                     return Some(2);
                 } else if horizontal {
-                    if state.display_input_blocked
-                        && matches!(state.row, DISPLAY_MODE_OPTION | RESOLUTION_OPTION)
-                    {
+                    if state.display_input_blocked && state.row == DISPLAY_MODE_OPTION {
                         return None;
                     }
                     let previous_display = (state.draft.display_mode, state.draft.resolution);
@@ -439,18 +461,6 @@ impl Menu {
                         10 => draft.movie_subtitles = left,
                         11 => draft.battle_auto_zoom = left,
                         12 => draft.rumble = left,
-                        ANTI_ALIASING_OPTION => {
-                            let choices = if state.anti_aliasing_choices.is_empty() {
-                                &AntiAliasing::ALL[..]
-                            } else {
-                                &state.anti_aliasing_choices
-                            };
-                            let current = choices
-                                .iter()
-                                .position(|a| *a == draft.anti_aliasing)
-                                .unwrap_or(0);
-                            draft.anti_aliasing = choices[cycle(current, left, choices.len())];
-                        }
                         DISPLAY_MODE_OPTION => {
                             let current = DisplayMode::ALL
                                 .iter()
@@ -458,24 +468,6 @@ impl Menu {
                                 .unwrap();
                             draft.display_mode =
                                 DisplayMode::ALL[cycle(current, left, DisplayMode::ALL.len())];
-                        }
-                        RESOLUTION_OPTION => {
-                            let current = draft.resolution;
-                            let choices = state.resolution_choices();
-                            // Preserve custom config/CLI sizes until the player changes the row.
-                            state.draft.resolution = if left {
-                                choices
-                                    .iter()
-                                    .rev()
-                                    .find(|r| **r < current)
-                                    .unwrap_or(choices.last().unwrap())
-                            } else {
-                                choices
-                                    .iter()
-                                    .find(|r| **r > current)
-                                    .unwrap_or(&choices[0])
-                            }
-                            .to_owned();
                         }
                         FLEXIBLE_BATTLE_PARTY_OPTION => draft.flexible_battle_party = left,
                         COMBINED_BATTLES_OPTION => draft.combined_battles = left,
@@ -502,6 +494,26 @@ impl Menu {
                         state.revert_display_change();
                     }
                     return Some(if keep { 2 } else { 3 });
+                }
+            }
+            Focus::Resolution { choice } => {
+                if vertical {
+                    let choices = state.resolution_choices();
+                    let selected = choices
+                        .iter()
+                        .position(|value| *value == choice)
+                        .unwrap_or(0);
+                    state.focus = Focus::Resolution {
+                        choice: choices[cycle(selected, up, choices.len())],
+                    };
+                    return Some(1);
+                }
+                if input == Some(Confirm) {
+                    let previous = (state.draft.display_mode, state.draft.resolution);
+                    state.draft.resolution = choice;
+                    state.focus = Focus::Options;
+                    state.preview_display_change(previous);
+                    return Some(2);
                 }
             }
             Focus::AntiAliasing { choice } => {
