@@ -5,10 +5,12 @@ use bevy::{
     prelude::*,
     window::{
         EnabledButtons, Monitor, MonitorSelection, OnMonitor, PresentMode, PrimaryWindow,
-        VideoModeSelection, WindowMode, WindowResizeConstraints, WindowResolution,
+        RawHandleWrapper, VideoModeSelection, WindowMode, WindowResizeConstraints,
+        WindowResolution,
     },
 };
 
+use raw_window_handle::RawDisplayHandle;
 use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
 
 #[cfg(test)]
@@ -236,28 +238,32 @@ pub(super) fn preview_preferences(
 fn mode(
     selected: resonance_content::menu_data::DisplayMode,
     size: [u32; 2],
-    monitor: Option<&Monitor>,
-) -> WindowMode {
+    monitor: Option<(Entity, &Monitor)>,
+    wayland: bool,
+) -> Option<WindowMode> {
     use resonance_content::menu_data::DisplayMode;
-    match selected {
+    Some(match selected {
         DisplayMode::Windowed => WindowMode::Windowed,
-        DisplayMode::Borderless => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
-        DisplayMode::Fullscreen => {
-            let video = monitor.and_then(|monitor| {
-                monitor
-                    .video_modes
-                    .iter()
-                    .filter(|video| video.physical_size == UVec2::from_array(size))
-                    .max_by_key(|video| (video.refresh_rate_millihertz, video.bit_depth))
-            });
+        DisplayMode::Fullscreen if !wayland => {
+            let (entity, monitor) = monitor?;
+            let video = monitor
+                .video_modes
+                .iter()
+                .filter(|video| video.physical_size == UVec2::from_array(size))
+                .max_by_key(|video| (video.refresh_rate_millihertz, video.bit_depth));
             WindowMode::Fullscreen(
-                MonitorSelection::Current,
+                MonitorSelection::Entity(entity),
                 video
                     .copied()
                     .map_or(VideoModeSelection::Current, VideoModeSelection::Specific),
             )
         }
-    }
+        // Winit ignores exclusive fullscreen on Wayland. Desktop fullscreen
+        // still fills this monitor while the render target retains its own size.
+        DisplayMode::Borderless | DisplayMode::Fullscreen => {
+            WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor?.0))
+        }
+    })
 }
 
 /// Apply the current display preview or committed settings. Keeping handles stable
@@ -270,11 +276,14 @@ pub(super) fn apply_preferences(
     targets: Res<Targets>,
     mut images: ResMut<Assets<Image>>,
     mut outputs: ResMut<Assets<crate::materials::TitleOutput>>,
-    mut windows: Query<(&mut Window, Option<&OnMonitor>), With<PrimaryWindow>>,
+    mut windows: Query<
+        (&mut Window, Option<&OnMonitor>, Option<&RawHandleWrapper>),
+        With<PrimaryWindow>,
+    >,
     monitors: Query<&Monitor>,
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
 ) {
-    let Ok((mut window, on_monitor)) = windows.single_mut() else {
+    let Ok((mut window, on_monitor, handle)) = windows.single_mut() else {
         return;
     };
     let monitor_entity = on_monitor.map(|m| m.0);
@@ -303,7 +312,19 @@ pub(super) fn apply_preferences(
         applied.monitor = monitor_entity;
         return;
     }
-    let monitor = monitor_entity.and_then(|entity| monitors.get(entity).ok());
+    let monitor = monitor_entity
+        .and_then(|entity| monitors.get(entity).ok().map(|monitor| (entity, monitor)));
+    // Wayland assigns the output after window creation. Winit panics if exclusive
+    // fullscreen is requested before then. Leave the request pending and retry;
+    // an explicit monitor also avoids resolving Current again in Winit's system.
+    let wayland = handle
+        .is_some_and(|handle| matches!(handle.get_display_handle(), RawDisplayHandle::Wayland(_)));
+    let Some(window_mode) = mode(desired.0, desired.1, monitor, wayland) else {
+        // Bevy refreshes OnMonitor only for changed windows. Keep polling even
+        // when the compositor assigns the output without a resize/focus event.
+        window.set_changed();
+        return;
+    };
     // Update constraints before the physical size, including when leaving fullscreen.
     window.resize_constraints = WindowResizeConstraints {
         min_width: size.width as f32,
@@ -314,7 +335,7 @@ pub(super) fn apply_preferences(
     window
         .resolution
         .set_physical_resolution(size.width, size.height);
-    window.mode = mode(desired.0, desired.1, monitor);
+    window.mode = window_mode;
     if display.0 != size {
         images
             .get_mut(&targets.source)
@@ -635,6 +656,137 @@ mod tests {
     }
 
     #[test]
+    fn wayland_fullscreen_uses_the_known_monitor_without_an_exclusive_mode_request() {
+        let output = Entity::PLACEHOLDER;
+        let monitor = monitor([3024, 1964], &[[1920, 1080]]);
+        assert_eq!(
+            mode(DisplayMode::Fullscreen, [1920, 1080], None, true),
+            None
+        );
+        assert_eq!(
+            mode(
+                DisplayMode::Fullscreen,
+                [1920, 1080],
+                Some((output, &monitor)),
+                true
+            ),
+            Some(WindowMode::BorderlessFullscreen(MonitorSelection::Entity(
+                output
+            )))
+        );
+        assert!(
+            matches!(mode(DisplayMode::Fullscreen, [1920, 1080], Some((output, &monitor)), false),
+            Some(WindowMode::Fullscreen(MonitorSelection::Entity(entity), VideoModeSelection::Specific(video)))
+            if entity == output && video.physical_size == UVec2::new(1920, 1080))
+        );
+    }
+
+    #[test]
+    fn fullscreen_startup_waits_for_a_resolved_window_monitor() {
+        for selected in [DisplayMode::Fullscreen, DisplayMode::Borderless] {
+            let (mut app, _) = preview_app();
+            app.world_mut()
+                .remove_resource::<crate::saves::title::TitleMenu>();
+            {
+                let mut preferences = app.world_mut().resource_mut::<crate::config::Preferences>();
+                preferences.settings.display_mode = selected;
+                preferences.settings.resolution = [1920, 1080];
+            }
+            let window = app
+                .world_mut()
+                .query_filtered::<Entity, With<PrimaryWindow>>()
+                .single(app.world())
+                .unwrap();
+            // Saved fullscreen settings must not reach Winit's Current selector
+            // while Wayland is still assigning the newly created window an output.
+            for _ in 0..3 {
+                app.update();
+                assert_eq!(
+                    app.world().get::<Window>(window).unwrap().mode,
+                    WindowMode::Windowed
+                );
+                assert_ne!(
+                    app.world().resource::<InteractiveDisplay>().applied,
+                    Some((selected, [1920, 1080]))
+                );
+            }
+            // A relationship alone is insufficient until its Monitor exists.
+            let output = app.world_mut().spawn_empty().id();
+            app.world_mut().entity_mut(window).insert(OnMonitor(output));
+            app.update();
+            assert_eq!(
+                app.world().get::<Window>(window).unwrap().mode,
+                WindowMode::Windowed
+            );
+            app.world_mut()
+                .entity_mut(output)
+                .insert(monitor([1920, 1080], &[[1920, 1080]]));
+            app.update();
+            let expected = match selected {
+                DisplayMode::Fullscreen => WindowMode::Fullscreen(
+                    MonitorSelection::Entity(output),
+                    VideoModeSelection::Specific(bevy::window::VideoMode {
+                        physical_size: UVec2::new(1920, 1080),
+                        bit_depth: 24,
+                        refresh_rate_millihertz: 60000,
+                    }),
+                ),
+                DisplayMode::Borderless => {
+                    WindowMode::BorderlessFullscreen(MonitorSelection::Entity(output))
+                }
+                DisplayMode::Windowed => unreachable!(),
+            };
+            assert_eq!(app.world().get::<Window>(window).unwrap().mode, expected);
+            assert_eq!(
+                app.world().resource::<Display>().0,
+                Resolution {
+                    width: 1920,
+                    height: 1080
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn fullscreen_startup_keeps_polling_for_a_late_monitor_assignment() {
+        let (mut app, _) = preview_app();
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .display_mode = DisplayMode::Fullscreen;
+        let output = app.world_mut().spawn(monitor([1920, 1080], &[])).id();
+        // Model Winit's Changed<Window> polling with a delayed output assignment.
+        app.add_systems(
+            Last,
+            move |mut commands: Commands,
+                  windows: Query<Entity, (With<PrimaryWindow>, Changed<Window>)>,
+                  mut polls: Local<u8>| {
+                for window in &windows {
+                    *polls += 1;
+                    if *polls == 3 {
+                        commands.entity(window).insert(OnMonitor(output));
+                    }
+                }
+            },
+        );
+        for _ in 0..4 {
+            app.update();
+        }
+        let mut windows = app
+            .world_mut()
+            .query_filtered::<&Window, With<PrimaryWindow>>();
+        assert_eq!(
+            windows.single(app.world()).unwrap().mode,
+            WindowMode::Fullscreen(
+                MonitorSelection::Entity(output),
+                VideoModeSelection::Current
+            )
+        );
+    }
+
+    #[test]
     fn resolution_preview_resizes_immediately_and_times_out_without_saving() {
         let (mut app, source) = preview_app();
         app.insert_resource(Time::<Virtual>::default());
@@ -851,7 +1003,7 @@ mod tests {
             match selected {
                 DisplayMode::Borderless => assert_eq!(
                     window.mode,
-                    WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+                    WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor))
                 ),
                 DisplayMode::Fullscreen => assert!(matches!(window.mode,
                     WindowMode::Fullscreen(_, VideoModeSelection::Specific(video)) if video.refresh_rate_millihertz == 144000)),
@@ -878,7 +1030,7 @@ mod tests {
                 (app.world().get::<Transform>(quad).unwrap().scale.x - 4. / 3.).abs() < 0.00001
             );
         }
-        // Startup can apply preferences before the OS reports the window's monitor.
+        // A monitor-dependent request stays pending while its monitor is unknown.
         app.world_mut().entity_mut(window_id).remove::<OnMonitor>();
         app.world_mut()
             .resource_mut::<crate::config::Preferences>()
@@ -887,7 +1039,7 @@ mod tests {
         app.update();
         assert_eq!(
             app.world().get::<Window>(window_id).unwrap().mode,
-            WindowMode::Fullscreen(MonitorSelection::Current, VideoModeSelection::Current)
+            WindowMode::Windowed
         );
         app.world_mut()
             .entity_mut(window_id)
@@ -908,7 +1060,10 @@ mod tests {
         app.update();
         assert_eq!(
             app.world().get::<Window>(window_id).unwrap().mode,
-            WindowMode::Fullscreen(MonitorSelection::Current, VideoModeSelection::Current)
+            WindowMode::Fullscreen(
+                MonitorSelection::Entity(monitor),
+                VideoModeSelection::Current
+            )
         );
         app.world_mut()
             .resource_mut::<crate::config::Preferences>()

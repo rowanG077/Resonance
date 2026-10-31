@@ -48,6 +48,8 @@ choices save in `config.toml` when you exit Customize.
 Cancel at the top restores the settings from when you opened the menu; Default
 restores the library's defaults. `--resolution WIDTHxHEIGHT` overrides the saved
 resolution at startup.
+Fullscreen waits until the window's monitor is known. On Wayland it uses desktop
+fullscreen, since exclusive video-mode switching is unavailable.
 
 Customize → Anti-Aliasing offers one selector: Off, SMAA Low/Medium/High/Ultra,
 supported 2×/4×/8× MSAA, and SMAA S2x (requires 2× MSAA support).

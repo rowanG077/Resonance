@@ -10,6 +10,7 @@ resonance-playback.workspace = true
 resonance-audio-device.workspace = true
 bevy.workspace = true
 bevy_post_process.workspace = true
+raw-window-handle.workspace = true
 resonance-content.workspace = true
 resonance-asset-writer.workspace = true
 resonance-game.workspace = true

@@ -2090,6 +2090,9 @@ Only confirmed settings can be saved on exiting Customize. Borderless fills the 
 fullscreen selects the matching monitor mode with the highest refresh rate,
 or keeps the current monitor mode if the render size has no matching mode.
 Windowed uses the selected render size as its window size.
+Monitor-dependent modes wait until the window's monitor is known and target that
+monitor explicitly. On Wayland, Fullscreen uses borderless desktop fullscreen;
+the selected render resolution is retained without requesting an exclusive mode.
 The resolution choices combine common presets with the current monitor's physical
 desktop size (labelled Native) and advertised video modes, without duplicate sizes.
 Sizes exceeding the GPU or saved-settings limits are omitted. Changing monitors
