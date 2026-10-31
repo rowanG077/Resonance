@@ -4603,6 +4603,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "symphonia-constants",
  "symphonia-script",
  "symphonia-script-tools",
  "tempfile",

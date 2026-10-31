@@ -1220,7 +1220,9 @@ impl NativeHost<'_> {
                         .and_then(|model| model.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("attachment bone is not cooked")?
                         .clone();
-                    let weapon = crate::FieldWeapon::from_attachment(owner.resource, &bone);
+                    let weapon = self.world.actors.get(&child).and_then(|actor| {
+                        crate::FieldWeapon::from_attachment(actor.resource, owner.resource, &bone)
+                    });
                     let mut ancestor = Some(parent);
                     for _ in 0..=self.world.actors.len() {
                         let Some(id) = ancestor else {

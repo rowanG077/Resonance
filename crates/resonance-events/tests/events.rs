@@ -33,21 +33,63 @@ fn steps(events: &mut EventRuntime, count: u32) {
 
 #[test]
 fn carried_weapon_identity_survives_attach_and_throw_in_one_script_update() {
-    for character in 1..=9 {
-        for slot in 0..8 {
-            let owner = 100 + character as i32;
-            let code = script(&[
-                (Call::AttachActorToMember, &[500, owner, slot]),
-                (Call::AttachActorToMember, &[500, owner, -1]),
-            ]);
+    for model in symphonia_constants::FieldEquipmentModelId::ALL {
+        for character in 1..=9 {
+            for slot in 0..8 {
+                let owner = 100 + character as i32;
+                let code = script(&[
+                    (Call::AttachActorToMember, &[500, owner, slot]),
+                    (Call::AttachActorToMember, &[500, owner, -1]),
+                ]);
+                let mut world = GameWorld::default();
+                world.insert_actor(owner, Actor::new(character, [0.; 3]));
+                world.insert_actor(500, Actor::new(model.raw(), [0.; 3]));
+                let resources = ResourceLibrary {
+                    models: [(
+                        character,
+                        ModelResource {
+                            names: (0..8).map(|slot| format!("kk{slot:02}")).collect(),
+                            ..Default::default()
+                        },
+                    )]
+                    .into(),
+                    ..Default::default()
+                };
+                let events = runtime(program(&code, &[0x20ff]), resources, world);
+                let prop = &events.world.actors[&500];
+                assert!(prop.attachment.is_none());
+                assert_eq!(
+                    prop.field_weapon,
+                    Some(FieldWeapon {
+                        character: character as u8,
+                        slot: slot as u8
+                    })
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn scripted_props_on_weapon_joints_do_not_acquire_equipment_identity() {
+    for resource in [
+        68197,      // Classroom buckets.
+        0xffee0004, // Genis's flute in the Aska sequence.
+        0xffee0000, // Flanoir's snow-bunny charm.
+        131308,     // Specific wooden sword.
+        131359, 131360, 131421, 131422, 131441, 131442, // Story swords and effects.
+        999,    // Unclassified/mod-added model.
+    ] {
+        for character in 1..=9 {
+            let code = script(&[(Call::AttachActorToMember, &[500, 100, 0])]);
             let mut world = GameWorld::default();
-            world.insert_actor(owner, Actor::new(character, [0.; 3]));
-            world.insert_actor(500, Actor::new(999, [0.; 3]));
+            world.insert_actor(100, Actor::new(character, [0.; 3]));
+            world.insert_actor(500, Actor::new(resource, [0.; 3]));
             let resources = ResourceLibrary {
                 models: [(
                     character,
                     ModelResource {
-                        names: (0..8).map(|slot| format!("kk{slot:02}")).collect(),
+                        names: vec!["kk00".into()],
                         ..Default::default()
                     },
                 )]
@@ -56,14 +98,10 @@ fn carried_weapon_identity_survives_attach_and_throw_in_one_script_update() {
             };
             let events = runtime(program(&code, &[0x20ff]), resources, world);
             let prop = &events.world.actors[&500];
-            assert!(prop.attachment.is_none());
-            assert_eq!(
-                prop.field_weapon,
-                Some(FieldWeapon {
-                    character: character as u8,
-                    slot: slot as u8
-                })
-            );
+            assert_eq!(prop.field_weapon, None, "model {resource}");
+            let attachment = prop.attachment.as_ref().unwrap();
+            assert_eq!(attachment.actor, 100);
+            assert_eq!(attachment.bone, "kk00");
         }
     }
 }

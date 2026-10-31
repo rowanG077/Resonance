@@ -16,6 +16,7 @@ resonance-asset-writer.workspace = true
 resonance-game.workspace = true
 symphonia-script.workspace = true
 symphonia-script-tools.workspace = true
+symphonia-constants.workspace = true
 resonance-persistence.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
