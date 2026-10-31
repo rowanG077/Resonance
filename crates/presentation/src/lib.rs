@@ -356,7 +356,9 @@ fn build_app(
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
+    let render_plugin = renderer::plugin(&mut app, interactive_display);
     let mut plugins = DefaultPlugins
+        .set(render_plugin)
         .set(bevy::pbr::PbrPlugin {
             gltf_enable_standard_materials: false,
             ..default()

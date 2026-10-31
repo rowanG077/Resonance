@@ -1,7 +1,7 @@
 //! Named menu options and reset defaults; saved preferences keep their own values.
 use crate::menu_data::{
-    AntiAliasing, CustomizeData, CustomizeOption, CustomizeSettings, DisplayMode, Volumes,
-    WindowColors,
+    AntiAliasing, CustomizeData, CustomizeOption, CustomizeSettings, DisplayMode, GraphicsBackend,
+    Volumes, WindowColors,
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 pub const PATH: &str = "game/options.json";
 /// Fixed engine meanings and menu order.
-pub const OPTIONS: [&str; 20] = [
+pub const OPTIONS: [&str; 21] = [
     "message_speed",
     "difficulty",
     "window",
@@ -26,6 +26,7 @@ pub const OPTIONS: [&str; 20] = [
     "display_mode",
     "resolution",
     "anti_aliasing",
+    "graphics_backend",
     "flexible_battle_party",
     "combined_battles",
     "learn_elemental_artes",
@@ -113,6 +114,8 @@ pub struct Defaults {
     pub combined_battles: bool,
     pub learn_elemental_artes: bool,
     pub learn_both_arte_paths: bool,
+    #[serde(default)]
+    pub graphics_backend: GraphicsBackend,
     pub anti_aliasing: AntiAliasing,
     pub display_mode: DisplayMode,
     pub resolution: [u32; 2],
@@ -186,6 +189,7 @@ impl Defaults {
             combined_battles: self.combined_battles,
             learn_elemental_artes: self.learn_elemental_artes,
             learn_both_arte_paths: self.learn_both_arte_paths,
+            graphics_backend: self.graphics_backend,
             anti_aliasing: self.anti_aliasing,
             display_mode: self.display_mode,
             resolution: self.resolution,
@@ -220,6 +224,7 @@ impl Defaults {
             combined_battles: settings.combined_battles,
             learn_elemental_artes: settings.learn_elemental_artes,
             learn_both_arte_paths: settings.learn_both_arte_paths,
+            graphics_backend: settings.graphics_backend,
             anti_aliasing: settings.anti_aliasing,
             display_mode: settings.display_mode,
             resolution: settings.resolution,
@@ -229,8 +234,18 @@ impl Defaults {
 impl Document {
     pub fn prepare(&self) -> Result<CustomizeData> {
         ordered(&self.confirmations, CONFIRMATIONS)?;
+        // Existing cooked libraries predate the host graphics selector.
+        let mut options = self.options.clone();
+        options
+            .entry("graphics_backend".into())
+            .or_insert_with(|| CustomizeOption {
+                name: "Graphics Backend".into(),
+                description:
+                    "Choose a supported graphics backend.\nRestart the game to apply changes."
+                        .into(),
+            });
         let data = CustomizeData {
-            options: ordered(&self.options, OPTIONS)?.into(),
+            options: ordered(&options, OPTIONS)?.into(),
             difficulties: ordered(&self.difficulties, DIFFICULTIES)?,
             actions: ordered(&self.actions, ACTIONS)?,
             color_groups: ordered(&self.color_groups, COLOR_GROUPS)?,

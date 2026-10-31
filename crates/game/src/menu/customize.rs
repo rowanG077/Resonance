@@ -2,8 +2,8 @@ use super::*;
 use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, AntiAliasing, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS,
     CustomizeSettings, DISPLAY_MODE_OPTION, DISPLAY_RESOLUTIONS, DisplayMode,
-    FLEXIBLE_BATTLE_PARTY_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
-    RESOLUTION_OPTION,
+    FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, GraphicsBackend,
+    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION,
 };
 
 pub const VISIBLE_OPTIONS: usize = 9;
@@ -16,6 +16,9 @@ pub enum Focus {
     Options,
     AntiAliasing {
         choice: AntiAliasing,
+    },
+    GraphicsBackend {
+        choice: GraphicsBackend,
     },
     Resolution {
         choice: [u32; 2],
@@ -42,6 +45,10 @@ pub struct Customize {
     pub draft: CustomizeSettings,
     #[serde(skip)]
     anti_aliasing_choices: Vec<AntiAliasing>,
+    #[serde(skip)]
+    backend_choices: Vec<GraphicsBackend>,
+    pub active_backend: Option<GraphicsBackend>,
+    pub backend_override: bool,
     #[serde(skip)]
     resolution_choices: Vec<[u32; 2]>,
     #[serde(skip)]
@@ -98,6 +105,33 @@ impl Customize {
             self.draft.resolution = previous_resolution;
             self.focus = Focus::Options;
             self.display_input_blocked = true;
+        }
+    }
+
+    pub fn backend_choices(&self) -> &[GraphicsBackend] {
+        if self.backend_choices.is_empty() {
+            &[GraphicsBackend::Automatic]
+        } else {
+            &self.backend_choices
+        }
+    }
+
+    pub fn set_backend_choices(
+        &mut self,
+        choices: &[GraphicsBackend],
+        active: GraphicsBackend,
+        overridden: bool,
+    ) {
+        self.backend_choices = choices.to_vec();
+        self.active_backend = Some(active);
+        self.backend_override = overridden;
+    }
+
+    fn backend_choice(&self, selected: GraphicsBackend) -> GraphicsBackend {
+        if self.backend_choices().contains(&selected) {
+            selected
+        } else {
+            GraphicsBackend::Automatic
         }
     }
 
@@ -405,6 +439,10 @@ impl Menu {
                         };
                         state.draft.migrate_button_map();
                         state.normalize_anti_aliasing();
+                        if state.defaults {
+                            state.draft.graphics_backend =
+                                state.backend_choice(state.draft.graphics_backend);
+                        }
                         state.preview_display_change(previous_display);
                         return Some(2);
                     }
@@ -414,6 +452,9 @@ impl Menu {
                             state.component = 0;
                             Focus::Colors
                         }
+                        GRAPHICS_BACKEND_OPTION => Focus::GraphicsBackend {
+                            choice: state.backend_choice(state.draft.graphics_backend),
+                        },
                         ANTI_ALIASING_OPTION => Focus::AntiAliasing {
                             choice: state.draft.anti_aliasing,
                         },
@@ -513,6 +554,24 @@ impl Menu {
                     state.draft.resolution = choice;
                     state.focus = Focus::Options;
                     state.preview_display_change(previous);
+                    return Some(2);
+                }
+            }
+            Focus::GraphicsBackend { choice } => {
+                if vertical {
+                    let choices = state.backend_choices();
+                    let selected = choices
+                        .iter()
+                        .position(|value| *value == choice)
+                        .unwrap_or(0);
+                    state.focus = Focus::GraphicsBackend {
+                        choice: choices[cycle(selected, up, choices.len())],
+                    };
+                    return Some(1);
+                }
+                if input == Some(Confirm) {
+                    state.draft.graphics_backend = choice;
+                    state.focus = Focus::Options;
                     return Some(2);
                 }
             }

@@ -1,4 +1,6 @@
-//! Scheduling and draw configuration for Resonance's authored shaders.
+//! Backend selection, scheduling and draw configuration for Resonance's authored shaders.
+mod backend;
+pub(super) use backend::plugin;
 use bevy::{
     camera::CameraOutputMode,
     core_pipeline::schedule::{Core2d, Core3d},

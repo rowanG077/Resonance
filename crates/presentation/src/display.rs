@@ -938,6 +938,48 @@ mod tests {
     }
 
     #[test]
+    fn resolution_timeout_preserves_the_pending_backend_selection() {
+        use resonance_content::menu_data::GraphicsBackend;
+        let (mut app, _) = preview_app();
+        app.insert_resource(Time::<Virtual>::default());
+        app.world_mut().resource_mut::<Time<Virtual>>().pause();
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .draft
+            .graphics_backend = GraphicsBackend::Vulkan;
+        preview(&mut app, DisplayMode::Windowed, [800, 600], 1);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<crate::saves::title::TitleMenu>()
+                .0
+                .customize
+                .draft
+                .graphics_backend,
+            GraphicsBackend::Vulkan
+        );
+        assert_eq!(
+            app.world()
+                .resource::<crate::config::Preferences>()
+                .settings
+                .graphics_backend,
+            GraphicsBackend::Automatic
+        );
+        age_confirmation(&mut app, 15);
+        app.update();
+        let state = &app
+            .world()
+            .resource::<crate::saves::title::TitleMenu>()
+            .0
+            .customize;
+        assert_eq!(state.focus, Focus::Options);
+        assert_eq!(state.draft.graphics_backend, GraphicsBackend::Vulkan);
+        assert_eq!(app.world().resource::<Display>().0, Resolution::default());
+    }
+
+    #[test]
     fn resolution_preview_resizes_immediately_and_times_out_without_saving() {
         let (mut app, source) = preview_app();
         app.insert_resource(Time::<Virtual>::default());
