@@ -141,9 +141,6 @@ fn main() -> Result<()> {
         }
         Some("music") => cooker::cook_music(&extracted, &library, selection(&args)?),
         Some("speech") => cooker::cook_speech(&extracted, &library),
-        Some("speech-resume") => {
-            cooker::cook_speech_resume(&extracted, &library).context("resume shared speech")
-        }
         Some("skit-script") => cooker::cook_skit_script(&extracted, &library, number(&args, 3)?),
         Some("skit-catalogue") => cooker::cook_skit_catalogue(&extracted, &library),
         Some("skits") => cooker::cook_skits(&extracted, &library),
