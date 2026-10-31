@@ -115,11 +115,6 @@ pub fn cook_battle_party_mappings(extracted: &Path, library: &Path) -> Result<Ve
             variants,
         ));
     }
-    ensure!(
-        outputs.iter().all(|(path, _)| !path.exists())
-            && !library.join("battle/party/mappings.json").exists(),
-        "battle party mappings already exist"
-    );
     for (path, variants) in outputs {
         write(&path, variants)?;
     }

@@ -824,7 +824,6 @@ pub fn cook_battle_scene_parameters(root: &Path, library: &Path, id: u16) -> Res
         .context("stored battle scene has no name")?;
     let (scene, _) = read_simple(root, id)?;
     let output = library.join(format!("battle/scenes/{name}/scene.json"));
-    ensure!(!output.exists(), "battle scene parameters already exist");
     crate::output::json(&output, &scene)?;
     Ok(())
 }
@@ -1164,12 +1163,6 @@ pub fn cook_battle_simple_scene(root: &Path, library: &Path, id: u16) -> Result<
     files.extend(model_files);
     if let Some((_, media)) = weapon {
         files.extend(media);
-    }
-    for (path, _) in &files {
-        ensure!(
-            !library.join(path).exists(),
-            "scene output already exists: {path}"
-        );
     }
     for (path, bytes) in files {
         let output = library.join(path);

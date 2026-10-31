@@ -569,10 +569,6 @@ pub fn cook_battle_equipment(root: &Path, library: &Path, item: u16) -> Result<(
     } else {
         convert(root, item)?
     };
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "equipment output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

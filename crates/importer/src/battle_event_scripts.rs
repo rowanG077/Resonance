@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 use symphonia_constants::BattleEventId;
 use symphonia_script::{Program, message, scenario};
 
-fn program(library: &Path, name: &str, bytes: &[u8], selected: bool) -> Result<()> {
+fn program(library: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     let header = scenario::parse_header(bytes)?;
     ensure!(
         header.auxiliary_offset() <= bytes.len(),
@@ -14,11 +14,9 @@ fn program(library: &Path, name: &str, bytes: &[u8], selected: bool) -> Result<(
     Program::decode(bytes)?;
     let messages = message::parse(&bytes[header.auxiliary_offset()..])?;
     let path = library.join(format!("battle/scripts/{name}.ssb"));
-    if !selected || !path.is_file() {
-        crate::output::write(&path, bytes)?;
-    }
+    crate::output::write(&path, bytes)?;
     let path = library.join(format!("battle/scripts/{name}-messages.json"));
-    if !messages.is_empty() && (!selected || !path.is_file()) {
+    if !messages.is_empty() {
         crate::output::json(&path, &messages)?;
     }
     Ok(())
@@ -40,7 +38,7 @@ pub fn cook_battle_event_scripts(root: &Path, library: &Path, selected: Option<u
             .clone();
         if selected.is_none_or(|wanted| wanted == id) {
             if !names.values().any(|name| name == &format!("{owner}.ssb")) {
-                program(library, &owner, &bytes, selected.is_some())?;
+                program(library, &owner, &bytes)?;
             }
             names.insert(u32::from(id), format!("{owner}.ssb"));
         }
@@ -61,7 +59,6 @@ pub fn cook_battle_event_scripts(root: &Path, library: &Path, selected: Option<u
             library,
             "common",
             &fs::read(root.join("disc1/files/btl.so"))?,
-            false,
         )?;
         let playable = [BattleEventId::VidarrOpening, BattleEventId::VidarrRescue]
             .into_iter()

@@ -181,7 +181,6 @@ pub fn cook_battle_formations(extracted: &Path, library: &Path) -> Result<()> {
     )?;
     let document = battle_rules::Formations::from_table(&table, &enemies, &names(&table)?)?;
     let output = library.join("battle/formations.json");
-    ensure!(!output.exists(), "battle formations already exist");
     crate::output::json(&output, &document)?;
     Ok(())
 }

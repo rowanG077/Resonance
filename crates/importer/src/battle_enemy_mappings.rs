@@ -31,7 +31,6 @@ pub fn cook_battle_enemy_mappings(root: &Path, library: &Path) -> Result<()> {
     ensure!(names.len() == 251, "incomplete enemy catalogue");
     let mappings = Mappings::new(names)?;
     let output = library.join("battle/enemies/mappings.json");
-    ensure!(!output.exists(), "battle enemy mappings already exist");
     crate::output::json(&output, &mappings)?;
     Ok(())
 }

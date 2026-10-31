@@ -27,10 +27,6 @@ pub fn cook_battle_ui_portraits(root: &Path, library: &Path) -> Result<()> {
             bytes,
         ));
     }
-    ensure!(
-        files.iter().all(|(path, _)| !path.exists()),
-        "battle portrait already exists"
-    );
     for (path, bytes) in files {
         crate::output::write(&path, &bytes)?;
     }
