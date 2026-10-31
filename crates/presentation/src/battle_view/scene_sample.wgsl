@@ -1,5 +1,6 @@
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 #import resonance::effect_color::{sample_bytes, quantize}
+#import resonance::effect_depth::depth_coverage
 
 struct Settings { clip_from_world: mat4x4<f32>, dimensions: vec4<f32> };
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -43,11 +44,18 @@ fn captured_scene(uv: vec2<f32>) -> vec3<f32> {
 }
 @fragment
 fn fragment(in: Vertex) -> @location(0) vec4<f32> {
+    // The completed scene is single-sampled even when its depth uses MSAA.
+    // Preserve reverse-Z GreaterEqual testing and fractional sample coverage.
+    var coverage = 1.;
+#ifdef DEPTH_TEST
+    coverage = depth_coverage(vec2<i32>(in.position.xy), in.position.z, 1u);
+    if coverage == 0. { discard; }
+#endif
     let opacity = round(in.color.a * 255.);
     let multiplier = (opacity + floor(opacity / 128.)) / 256.;
     let first = floor(sample_bytes(mask, in.uv).a * multiplier + 0.5);
     let alpha = floor(first * multiplier + 0.5) / 255.;
     if alpha <= 1. / 255. { discard; }
     let color = captured_scene(in.screen_uv) * in.color.rgb * 2.;
-    return vec4<f32>(quantize(color, in.position.xy), alpha);
+    return vec4<f32>(quantize(color, in.position.xy), alpha * coverage);
 }

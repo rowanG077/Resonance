@@ -19,7 +19,6 @@ pub fn cook_battle_trails(_root: &Path, library: &Path) -> Result<()> {
         "invalid battle trail color"
     );
     let output = library.join("battle/trails.json");
-    ensure!(!output.exists(), "battle trail palette already exists");
     crate::output::json(&output, &materials)?;
     Ok(())
 }

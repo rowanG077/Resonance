@@ -9,7 +9,7 @@ use bevy::{
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_asset::RenderAssets,
         render_resource::{
-            binding_types::{sampler, texture_2d, uniform_buffer},
+            binding_types::{sampler, texture_2d, texture_2d_multisampled, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
@@ -105,14 +105,22 @@ pub(super) fn install(app: &mut App) {
 
 #[derive(Resource)]
 pub(super) struct Pipeline {
-    layout: BindGroupLayoutDescriptor,
+    passes: [PassPipelines; 2],
     sampler: Sampler,
+}
+
+struct PassPipelines {
+    layout: BindGroupLayoutDescriptor,
     copy: CachedRenderPipelineId,
     particles: [CachedRenderPipelineId; 2],
 }
 impl Pipeline {
     pub fn ready(&self, cache: &PipelineCache) -> Result<bool> {
-        for id in [self.copy, self.particles[0], self.particles[1]] {
+        for id in self
+            .passes
+            .iter()
+            .flat_map(|pass| [pass.copy, pass.particles[0], pass.particles[1]])
+        {
             match cache.get_render_pipeline_state(id) {
                 CachedPipelineState::Ok(_) => {}
                 CachedPipelineState::Err(error)
@@ -134,6 +142,23 @@ fn prepare(
     fullscreen: Res<FullscreenShader>,
     cache: Res<PipelineCache>,
 ) {
+    commands.insert_resource(Pipeline {
+        passes: [false, true]
+            .map(|multisampled| prepare_passes(multisampled, &server, &fullscreen, &cache)),
+        sampler: device.create_sampler(&SamplerDescriptor {
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..default()
+        }),
+    });
+}
+
+fn prepare_passes(
+    multisampled: bool,
+    server: &AssetServer,
+    fullscreen: &FullscreenShader,
+    cache: &PipelineCache,
+) -> PassPipelines {
     let layout = BindGroupLayoutDescriptor::new(
         "battle/scene-sample",
         &BindGroupLayoutEntries::sequential(
@@ -143,6 +168,11 @@ fn prepare(
                 sampler(SamplerBindingType::Filtering),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 uniform_buffer::<Settings>(false),
+                if multisampled {
+                    texture_2d_multisampled(TextureSampleType::Depth)
+                } else {
+                    texture_2d(TextureSampleType::Depth)
+                },
             ),
         ),
     );
@@ -180,10 +210,17 @@ fn prepare(
     };
     let [copy, particle, depth_particle] = [
         (fullscreen.to_vertex_state(), "copy", None),
-        (vertex.clone(), "fragment", Some(CompareFunction::Always)),
-        (vertex, "fragment", Some(CompareFunction::GreaterEqual)),
+        (vertex.clone(), "fragment", Some(false)),
+        (vertex, "fragment", Some(true)),
     ]
-    .map(|(vertex, entry, depth_compare)| {
+    .map(|(vertex, entry, depth_test)| {
+        let mut shader_defs = Vec::new();
+        if multisampled {
+            shader_defs.push("MULTISAMPLED_DEPTH".into());
+        }
+        if depth_test == Some(true) {
+            shader_defs.push("DEPTH_TEST".into());
+        }
         cache.queue_render_pipeline(RenderPipelineDescriptor {
             label: Some(format!("battle/scene-sample/{entry}").into()),
             layout: vec![layout.clone()],
@@ -191,38 +228,33 @@ fn prepare(
             fragment: Some(FragmentState {
                 shader: shader.clone(),
                 entry_point: Some(entry.into()),
+                shader_defs,
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
-                    blend: depth_compare.map(|_| BlendState::ALPHA_BLENDING),
+                    blend: depth_test.map(|_| BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
                 ..default()
             }),
-            depth_stencil: depth_compare.map(|compare| DepthStencilState {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(compare),
-                stencil: default(),
-                bias: default(),
-            }),
             ..default()
         })
     });
-    commands.insert_resource(Pipeline {
+    PassPipelines {
         layout,
         copy,
         particles: [particle, depth_particle],
-        sampler: device.create_sampler(&SamplerDescriptor {
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        }),
-    });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn render(
-    view: ViewQuery<(&ViewTarget, &ViewDepthTexture, &ExtractedView, &Draws)>,
+    view: ViewQuery<(
+        &ViewTarget,
+        &ViewDepthTexture,
+        &Msaa,
+        &ExtractedView,
+        &Draws,
+    )>,
     pipeline: Res<Pipeline>,
     cache: Res<PipelineCache>,
     images: Res<RenderAssets<GpuImage>>,
@@ -231,7 +263,9 @@ fn render(
     mut settings: Local<UniformBuffer<Settings>>,
     mut context: RenderContext,
 ) {
-    let (target, depth, view, draws) = view.into_inner();
+    let (target, depth, msaa, view, draws) = view.into_inner();
+    let sampler = &pipeline.sampler;
+    let pipeline = &pipeline.passes[usize::from(msaa.samples() > 1)];
     if draws.batches.is_empty() {
         return;
     }
@@ -275,9 +309,10 @@ fn render(
                 &cache.get_bind_group_layout(&pipeline.layout),
                 &BindGroupEntries::sequential((
                     post.source,
-                    &pipeline.sampler,
+                    sampler,
                     &mask.texture_view,
                     settings.binding().unwrap(),
+                    depth.view(),
                 )),
             )
         })
@@ -314,11 +349,6 @@ fn render(
                     store: StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: depth.view(),
-                depth_ops: None,
-                stencil_ops: None,
-            }),
             ..default()
         });
     pass.set_vertex_buffer(0, *vertices.buffer().unwrap().slice(..));

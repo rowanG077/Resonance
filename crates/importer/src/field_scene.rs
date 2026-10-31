@@ -569,15 +569,7 @@ fn prepare(
 
 fn publish(library: &Path, files: Vec<(String, Vec<u8>)>) -> Result<()> {
     for (path, bytes) in files {
-        let target = library.join(&path);
-        if target.exists() {
-            ensure!(
-                fs::read(&target)? == bytes,
-                "conflicting field asset {path}"
-            );
-        } else {
-            crate::output::write(&target, &bytes)?;
-        }
+        crate::output::write(&library.join(&path), &bytes)?;
     }
     Ok(())
 }

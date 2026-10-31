@@ -1160,7 +1160,7 @@ pub fn cook_battle_enemy_media_group(root: &Path, library: &Path, ids: &[u8]) ->
             Ok((id, files, local_motions))
         })?;
         // Select canonical clip owners in the same enemy order as the serial cook.
-        for (id, mut files, local_motions) in prepared {
+        for (_, mut files, local_motions) in prepared {
             let mut redirects = BTreeMap::new();
             for (bytes, path) in local_motions {
                 if let Some(owner) = motions.get(&bytes) {
@@ -1179,10 +1179,6 @@ pub fn cook_battle_enemy_media_group(root: &Path, library: &Path, ids: &[u8]) ->
                     }
                 }
             }
-            ensure!(
-                files.keys().all(|path| !library.join(path).exists()),
-                "enemy {id} media already exists"
-            );
             for (path, bytes) in files {
                 crate::output::write(&library.join(path), &bytes)?;
             }

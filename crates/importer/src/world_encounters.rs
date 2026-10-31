@@ -304,7 +304,6 @@ fn convert(bytes: Vec<u8>) -> Result<Definition> {
 
 pub fn cook_world_encounters(root: &Path, library: &Path) -> Result<()> {
     let output = library.join("world/encounters.json");
-    ensure!(!output.exists(), "world encounters output already exists");
     let document = convert(fs::read(root.join("disc1/files/US_r_Top2field.rel"))?)?;
     crate::output::json(&output, &document)?;
     Ok(())

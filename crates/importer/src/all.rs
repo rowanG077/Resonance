@@ -1,4 +1,4 @@
-//! One fresh library from the native extraction, in final-owner order.
+//! Cook directly into the target library, in final-owner order.
 use anyhow::{Context, Result, ensure};
 use std::{path::Path, time::Instant};
 use symphonia_constants::{ArenaId, BattleSceneId, BattleSkillId, MonsterId};

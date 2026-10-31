@@ -343,7 +343,6 @@ pub fn cook_world_terrain_texture(
     layer: usize,
     index: usize,
 ) -> Result<()> {
-    ensure!(!output.exists(), "world texture output already exists");
     let (bytes, _) = texture(&fs::read(source)?, layer, index)?;
     crate::output::write(&output, &bytes)?;
     Ok(())

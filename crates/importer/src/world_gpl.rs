@@ -1272,7 +1272,6 @@ pub(crate) fn with_primary_palette(primary: &[u8], secondary: &[u8]) -> Result<V
 }
 
 pub fn cook_world_terrain_visual(source: &Path, output: &Path, layer: usize) -> Result<()> {
-    ensure!(!output.exists(), "world visual output already exists");
     let glb = decode(&fs::read(source)?, layer)?.0;
     crate::output::write(&output, &glb)?;
     Ok(())

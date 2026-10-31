@@ -11,10 +11,6 @@ pub fn cook_world_dust(root: &Path, library: &Path) -> Result<()> {
     let outputs = (0..4)
         .map(|index| library.join(format!("world/effects/dust-{index}.ktx2")))
         .collect::<Vec<_>>();
-    ensure!(
-        outputs.iter().all(|path| !path.exists()),
-        "world dust output already exists"
-    );
     for (index, output) in outputs.iter().enumerate() {
         let (texture, _) = tpl_texture(tpl, index)?;
         crate::output::write(&output, &texture)?;

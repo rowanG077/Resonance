@@ -1,6 +1,6 @@
 //! Original battle effect colors directly into one editable document.
 use crate::rel::Rel;
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use resonance_content::battle_effect::{ActorColors, AdmissionColors, Tints};
 use std::{fs, path::Path};
 
@@ -39,7 +39,6 @@ fn convert(root: &Path) -> Result<Tints> {
 pub fn cook_battle_effect_tints(root: &Path, library: &Path) -> Result<()> {
     let document = convert(root)?;
     let output = library.join("battle/effects/tints.json");
-    ensure!(!output.exists(), "battle effect tints already exist");
     crate::output::json(&output, &document)?;
     Ok(())
 }

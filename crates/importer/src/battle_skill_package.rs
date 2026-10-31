@@ -389,12 +389,6 @@ pub fn cook_battle_skill_package(root: &Path, library: &Path, id: u16) -> Result
         format!("{owner}/effects.json"),
         resonance_asset_writer::json::encode(&effects)?,
     ));
-    for (path, _) in &files {
-        ensure!(
-            !library.join(path).exists(),
-            "skill output already exists: {path}"
-        );
-    }
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

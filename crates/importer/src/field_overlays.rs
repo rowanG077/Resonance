@@ -2,19 +2,10 @@
 use crate::{dol, field_actors, ui_controls, world_texture};
 use anyhow::{Result, ensure};
 use serde_json::json;
-use std::{fs, path::Path};
+use std::path::Path;
 
 fn write(library: &Path, path: &str, bytes: &[u8]) -> Result<()> {
-    let target = library.join(path);
-    if target.is_file() {
-        ensure!(
-            fs::read(target)? == bytes,
-            "conflicting overlay artwork {path}"
-        );
-    } else {
-        crate::output::write(&target, bytes)?;
-    }
-    Ok(())
+    crate::output::write(&library.join(path), bytes)
 }
 
 fn image(library: &Path, name: &str, source: &[u8], repeat: bool) -> Result<()> {

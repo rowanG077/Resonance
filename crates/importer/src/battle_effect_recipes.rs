@@ -1634,7 +1634,6 @@ pub fn cook_common_effects(root: &Path, library: &Path) -> Result<()> {
         }),
     };
     let target = library.join("battle/effects/common/effects.json");
-    ensure!(!target.exists(), "common effect definition already exists");
     crate::output::json(&target, &definition)?;
     Ok(())
 }
@@ -1704,10 +1703,6 @@ pub fn cook_technique_effects(root: &Path, library: &Path) -> Result<()> {
         }),
     };
     let target = library.join("battle/effects/techniques/effects.json");
-    ensure!(
-        !target.exists(),
-        "technique effect definition already exists"
-    );
     crate::output::json(&target, &definition)?;
     Ok(())
 }

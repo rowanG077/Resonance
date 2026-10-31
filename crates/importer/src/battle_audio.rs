@@ -39,7 +39,6 @@ pub fn cook_battle_audio(root: &Path, library: &Path) -> Result<()> {
         voice_spatial: spatial(0x4668)?,
     };
     let target = library.join(PATH);
-    ensure!(!target.exists(), "battle audio definition already exists");
     crate::output::json(&target, &definition)?;
     Ok(())
 }

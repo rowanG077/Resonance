@@ -79,7 +79,6 @@ fn source(root: &Path) -> Result<Definition<String>> {
 pub fn cook_battle_defense(root: &Path, library: &Path) -> Result<()> {
     let definition = source(root)?;
     let output = library.join("battle/defense-system.json");
-    ensure!(!output.exists(), "Defense System document already exists");
     crate::output::json(&output, &definition)?;
     Ok(())
 }

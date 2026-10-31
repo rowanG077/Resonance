@@ -454,21 +454,7 @@ fn image(tpl: &[u8], index: usize, path: &str) -> Result<(UiTexture, Vec<u8>)> {
 }
 
 fn write_asset(library: &Path, relative: &str, bytes: &[u8]) -> Result<()> {
-    let path = library.join(relative);
-
-    if path.exists() {
-        let existing = fs::read(&path)?;
-        let equal = if relative.ends_with(".ktx2") {
-            resonance_asset_writer::texture::ktx2(&existing)?
-                == resonance_asset_writer::texture::ktx2(bytes)?
-        } else {
-            existing == bytes
-        };
-        ensure!(equal, "conflicting dialogue image {relative}");
-    } else {
-        crate::output::write(&path, bytes)?;
-    }
-    Ok(())
+    crate::output::write(&library.join(relative), bytes)
 }
 
 pub fn cook_dialogue_art(extracted: &Path, library: &Path) -> Result<()> {

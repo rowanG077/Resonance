@@ -300,10 +300,6 @@ fn convert(root: &Path) -> Result<Table> {
 pub fn cook_battle_projectiles(root: &Path, library: &Path) -> Result<()> {
     let table = convert(root)?;
     let output = library.join("battle/projectiles.json");
-    ensure!(
-        !output.exists(),
-        "battle projectile document already exists"
-    );
     crate::output::json(&output, &table)?;
     Ok(())
 }
