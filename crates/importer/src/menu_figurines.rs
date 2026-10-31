@@ -12,7 +12,6 @@ const STRIDE: usize = 80;
 
 pub fn cook_menu_figurines(extracted: &Path, library: &Path) -> Result<()> {
     let output = library.join("game/menu/figurines.json");
-    ensure!(!output.exists(), "figurine catalogue output already exists");
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let title = text::pointer(&exe, TITLE)?;
     let records = dol::slice(&exe, RECORDS, FIGURINE_COUNT * STRIDE)?

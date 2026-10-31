@@ -218,10 +218,6 @@ pub fn cook_world_cinematics(root: &Path, library: &Path, selected: Option<u16>)
             resonance_asset_writer::json::encode(&Mappings::new(mappings)?)?,
         );
     }
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "cinematic output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

@@ -34,10 +34,6 @@ pub fn cook_world_skies(root: &Path, library: &Path) -> Result<()> {
             format!("{owner}/model.json"),
             resonance_asset_writer::json::encode(&Model { parts: vec![part] })?,
         ));
-        ensure!(
-            files.iter().all(|(path, _)| !library.join(path).exists()),
-            "sky output already exists"
-        );
         for (path, bytes) in files {
             let output = library.join(path);
             crate::output::write(&output, &bytes)?;

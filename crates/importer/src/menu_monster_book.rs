@@ -174,7 +174,6 @@ fn labels(exe: &[u8]) -> Result<BTreeMap<String, String>> {
 
 pub fn cook_menu_monster_book(extracted: &Path, library: &Path) -> Result<()> {
     let output = library.join("game/menu/monster-book.json");
-    ensure!(!output.exists(), "monster book output already exists");
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let mut packages = EnemyPackages::open(&extracted.join("disc1"))?;
     let records = (0..MONSTER_COUNT)

@@ -117,10 +117,6 @@ pub fn cook_world_markers(root: &Path, library: &Path) -> Result<()> {
         document::MARKERS.into(),
         resonance_asset_writer::json::encode(&Mappings::new(mappings)?)?,
     )?;
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "world marker output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;
