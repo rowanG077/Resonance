@@ -407,7 +407,6 @@ fn convert(root: &Path) -> Result<Unison> {
 pub fn cook_battle_unison(root: &Path, library: &Path) -> Result<()> {
     let document = convert(root)?;
     let output = library.join("battle/unison.json");
-    ensure!(!output.exists(), "Unison document already exists");
     crate::output::json(&output, &document)?;
     Ok(())
 }

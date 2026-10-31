@@ -169,16 +169,7 @@ fn soldier(root: &Path, exe: &[u8]) -> Result<(Actor, Vec<(String, Vec<u8>)>)> {
 }
 
 fn write(library: &Path, path: &str, bytes: &[u8]) -> Result<()> {
-    let target = library.join(path);
-    if target.exists() {
-        ensure!(
-            fs::read(&target)? == bytes,
-            "event media conflicts with {path}"
-        );
-        return Ok(());
-    }
-    crate::output::write(&target, bytes)?;
-    Ok(())
+    crate::output::write(&library.join(path), bytes)
 }
 
 fn actor_path(name: &str) -> String {

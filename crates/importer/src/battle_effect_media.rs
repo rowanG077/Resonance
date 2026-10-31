@@ -51,7 +51,6 @@ pub fn cook_battle_effect_texture(
     let target = library.join(format!(
         "battle/effects/common/textures/atlas-{slot}-{texture_index}-palette-0.ktx2"
     ));
-    ensure!(!target.exists(), "battle effect atlas already exists");
     crate::output::write(&target, &ktx)?;
     Ok(())
 }
@@ -149,7 +148,6 @@ pub fn cook_battle_effect_atlases(root: &Path, library: &Path) -> Result<usize> 
                 let target = library.join(format!(
                     "battle/effects/common/textures/atlas-{slot}-{index}-palette-{page}.ktx2"
                 ));
-                ensure!(!target.exists(), "battle effect atlas already exists");
                 crate::output::write(&target, &image)?;
                 published += 1;
             }
@@ -187,7 +185,6 @@ pub fn cook_battle_effect_models(root: &Path, library: &Path) -> Result<usize> {
             } else {
                 let path = format!("{stem}-texture-{texture_index}.ktx2");
                 let target = library.join(&path);
-                ensure!(!target.exists(), "effect model image already exists");
                 crate::output::write(&target, &image)?;
                 images.push((image, path.clone()));
                 path
@@ -197,7 +194,6 @@ pub fn cook_battle_effect_models(root: &Path, library: &Path) -> Result<usize> {
         }
         let (glb, _) = world_gpl::static_model(model, paths, alpha)?;
         let target = library.join(format!("{stem}.glb"));
-        ensure!(!target.exists(), "effect model already exists");
         crate::output::write(&target, &glb)?;
     }
     Ok(count)

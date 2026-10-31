@@ -62,7 +62,6 @@ fn directory(module: &Rel, offset: usize, count: usize, archive: &Path) -> Resul
 
 fn write(library: &Path, relative: &str, names: BTreeMap<u32, String>) -> Result<()> {
     let output = library.join(relative);
-    ensure!(!output.exists(), "battle scene mappings already exist");
     crate::output::json(&output, &Mappings::new(names)?)?;
     Ok(())
 }

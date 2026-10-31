@@ -1986,7 +1986,6 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
     compact.clone().into_definition()?;
 
     let output = library.join(format!("battle/enemies/{name}/enemy.json"));
-    ensure!(!output.exists(), "enemy rules already exist");
     let entry = resonance_content::battle_enemy::document::Entry {
         rules: compact,
         artwork: artwork(&data, library, name)?,

@@ -404,10 +404,6 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
 /// Cook battle HUD data and artwork. Fonts and character portraits have their own owners.
 pub fn cook_battle_ui_hud(root: &Path, library: &Path) -> Result<()> {
     let files = convert(&root.join("disc1"))?;
-    ensure!(
-        files.iter().all(|(path, _)| !library.join(path).exists()),
-        "battle HUD already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;
