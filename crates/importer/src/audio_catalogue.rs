@@ -6,7 +6,6 @@ use std::{collections::BTreeMap, path::Path};
 
 pub fn cook_audio_catalogue(root: &Path, library: &Path) -> Result<()> {
     let output = library.join("audio/mappings.json");
-    ensure!(!output.exists(), "audio mappings already exist");
     let mut entries = BTreeMap::new();
     for mapping in [
         audio_effects::cook_effects(root, library, None)?,

@@ -1,6 +1,6 @@
 //! Small shared audio settings kept apart from individual recordings and cues.
 use crate::{audio_music, dol};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use resonance_content::{
     field_audio::{MusicReverbs, mix::Mix},
     startup,
@@ -30,7 +30,6 @@ pub fn cook_menu_audio(_root: &Path, library: &Path) -> Result<()> {
         cues,
     };
     let target = library.join("audio/menu.json");
-    ensure!(!target.exists(), "menu audio definition already exists");
     crate::output::json(&target, &document)?;
     Ok(())
 }
@@ -67,7 +66,6 @@ pub fn cook_mix_audio(root: &Path, library: &Path) -> Result<()> {
     };
     mix.validate()?;
     let target = library.join("audio/mix.json");
-    ensure!(!target.exists(), "shared audio mix already exists");
     crate::output::json(&target, &mix)?;
     Ok(())
 }
@@ -77,7 +75,6 @@ pub fn cook_synthesis_audio(root: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let tables = audio_music::tables(&exe)?;
     let target = library.join("audio/synthesis.json");
-    ensure!(!target.exists(), "shared audio synthesis already exists");
     crate::output::json(&target, &tables)?;
     Ok(())
 }

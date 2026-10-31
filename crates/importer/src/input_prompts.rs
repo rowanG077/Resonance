@@ -18,7 +18,7 @@ pub fn cook_input_prompts(library: &Path) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn cooking_exports_the_entire_atlas_and_manifest_and_preserves_existing_files() -> Result<()> {
+    fn cooking_exports_the_entire_atlas_and_manifest_and_overwrites_existing_files() -> Result<()> {
         let library = tempfile::tempdir()?;
         cook_input_prompts(library.path())?;
         assert_eq!(
@@ -31,7 +31,12 @@ mod tests {
         assert_eq!(atlas.icons.len(), defaults.icons.len());
         assert_eq!(atlas.pressed, defaults.pressed);
         assert!(atlas.icons.len() > 100);
-        assert!(cook_input_prompts(library.path()).is_err());
+        std::fs::write(library.path().join(prompts::IMAGE_PATH), b"old output")?;
+        cook_input_prompts(library.path())?;
+        assert_eq!(
+            std::fs::read(library.path().join(prompts::IMAGE_PATH))?,
+            DEFAULT_KTX2
+        );
         Ok(())
     }
 }
