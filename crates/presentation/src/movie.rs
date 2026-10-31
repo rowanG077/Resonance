@@ -3,7 +3,7 @@ use super::{PendingInput, RunOptions, materials::TitleText};
 use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use anyhow::{Context, Result, ensure};
 use bevy::{
-    camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
+    camera::{MsaaWriteback, RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
     image::ImageSampler,
     prelude::*,
@@ -264,6 +264,9 @@ pub(super) fn setup(
             order: -2,
             is_active: false,
             clear_color: ClearColorConfig::Custom(Color::BLACK),
+            // Movies replace the field, including their black borders. MSAA
+            // writeback would preserve the field fade and suppress this clear.
+            msaa_writeback: MsaaWriteback::Off,
             ..default()
         },
         super::camera::overlay_alignment(),
