@@ -1,8 +1,8 @@
 use super::*;
 use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, DISPLAY_MODE_OPTION,
-    FLEXIBLE_BATTLE_PARTY_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
-    RESOLUTION_OPTION,
+    FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION,
+    LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION,
 };
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
@@ -226,6 +226,20 @@ impl Drawing<'_> {
                         6,
                     )?;
                     self.opacity = opacity;
+                }
+                GRAPHICS_BACKEND_OPTION => {
+                    let suffix = if state.backend_choices().contains(&settings.graphics_backend) {
+                        ""
+                    } else {
+                        " (unavailable)"
+                    };
+                    self.fitted_text(
+                        &format!("{}{suffix}", settings.graphics_backend.label()),
+                        [x, y],
+                        [20., 24.],
+                        292.,
+                        WHITE,
+                    )?;
                 }
                 ANTI_ALIASING_OPTION => {
                     self.text(settings.anti_aliasing.label(), [x, y], 20., WHITE)?;
@@ -486,6 +500,33 @@ impl Drawing<'_> {
                         WHITE,
                     )?;
                 }
+                GRAPHICS_BACKEND_OPTION => {
+                    let active = state
+                        .active_backend
+                        .map_or("Unknown", |backend| backend.label());
+                    self.text(
+                        &format!("Currently running: {active}"),
+                        [32., 316.],
+                        18.,
+                        WHITE,
+                    )?;
+                    self.text(
+                        "Restart the game to apply backend changes.",
+                        [32., 344.],
+                        18.,
+                        WHITE,
+                    )?;
+                    self.text(
+                        if state.backend_override {
+                            "WGPU_BACKEND overrides this setting."
+                        } else {
+                            "Changes save when you leave Customize."
+                        },
+                        [32., 372.],
+                        18.,
+                        WHITE,
+                    )?;
+                }
                 CUSTOMIZE_OPTIONS => self.text(
                     menu_label(
                         &data.labels,
@@ -507,6 +548,18 @@ impl Drawing<'_> {
         }
         self.offset = [0.; 2];
         self.opacity = 255;
+        if let Focus::GraphicsBackend { choice } = state.focus {
+            let choices = state.backend_choices();
+            let selected = choices
+                .iter()
+                .position(|value| *value == choice)
+                .unwrap_or(0);
+            let applied = choices
+                .iter()
+                .position(|value| *value == settings.graphics_backend);
+            let labels: Vec<_> = choices.iter().map(|mode| mode.label().to_owned()).collect();
+            cursor = self.customize_choices(&labels, selected, applied)?;
+        }
         if let Focus::AntiAliasing { choice } = state.focus {
             let choices = state.anti_aliasing_choices();
             let selected = choices
@@ -641,6 +694,20 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
                 > DepthBand::Field.at(1, DrawRole::Text.depth())
         );
         assert!(drawing.batches.contains_key(&(3, DrawRole::Text, FONT)));
+    }
+    use resonance_content::menu_data::GraphicsBackend;
+    let backends = [
+        GraphicsBackend::Automatic,
+        GraphicsBackend::Dx12,
+        GraphicsBackend::Vulkan,
+    ];
+    menu.customize
+        .set_backend_choices(&backends, GraphicsBackend::Dx12, false);
+    menu.customize.row = GRAPHICS_BACKEND_OPTION;
+    menu.customize.first = GRAPHICS_BACKEND_OPTION - 8;
+    for choice in backends {
+        menu.customize.focus = Focus::GraphicsBackend { choice };
+        fixture.drawing(0).customize(&menu)?;
     }
     menu.customize.row = RESOLUTION_OPTION;
     menu.customize.first = RESOLUTION_OPTION - 8;

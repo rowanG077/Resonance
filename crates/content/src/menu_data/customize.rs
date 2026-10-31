@@ -1,13 +1,35 @@
 use super::*;
 
-pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 16;
-pub const COMBINED_BATTLES_OPTION: usize = 17;
-pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 18;
-pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 19;
+pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 17;
+pub const COMBINED_BATTLES_OPTION: usize = 18;
+pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 19;
+pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 20;
 pub const DISPLAY_MODE_OPTION: usize = 13;
 pub const RESOLUTION_OPTION: usize = 14;
 pub const ANTI_ALIASING_OPTION: usize = 15;
-pub const CUSTOMIZE_OPTIONS: usize = 20;
+pub const GRAPHICS_BACKEND_OPTION: usize = 16;
+pub const CUSTOMIZE_OPTIONS: usize = 21;
+
+/// Portable saved preference; Automatic follows the host platform's default.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphicsBackend {
+    #[default]
+    Automatic,
+    Dx12,
+    Vulkan,
+    Metal,
+}
+impl GraphicsBackend {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Automatic => "Automatic",
+            Self::Dx12 => "DirectX 12",
+            Self::Vulkan => "Vulkan",
+            Self::Metal => "Metal",
+        }
+    }
+}
 
 /// Spatial techniques only: no history, reprojection or projection jitter.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -212,6 +234,7 @@ pub struct CustomizeSettings {
     pub combined_battles: bool,
     pub learn_elemental_artes: bool,
     pub learn_both_arte_paths: bool,
+    pub graphics_backend: GraphicsBackend,
     pub anti_aliasing: AntiAliasing,
     pub display_mode: DisplayMode,
     pub resolution: [u32; 2],
@@ -252,6 +275,7 @@ impl Default for CustomizeSettings {
             combined_battles: false,
             learn_elemental_artes: false,
             learn_both_arte_paths: false,
+            graphics_backend: Default::default(),
             anti_aliasing: Default::default(),
             display_mode: Default::default(),
             resolution: default_display_resolution(),

@@ -135,6 +135,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
         combined_battles: false,
         learn_elemental_artes: false,
         learn_both_arte_paths: false,
+        graphics_backend: Default::default(),
         anti_aliasing: Default::default(),
         display_mode: Default::default(),
         resolution: resonance_content::menu_data::default_display_resolution(),

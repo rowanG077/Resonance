@@ -473,3 +473,127 @@ fn unavailable_aa_is_normalized_on_open_reset_and_cancel_without_another_frame()
     assert_eq!(menu.customize.draft.anti_aliasing, AntiAliasing::Msaa4);
     Ok(())
 }
+
+#[test]
+fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyhow::Result<()> {
+    use GraphicsBackend::*;
+    let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
+    press(&mut menu, Idle);
+    menu.customize
+        .set_backend_choices(&[Automatic, Dx12, Vulkan], Dx12, false);
+    menu.customize.row = GRAPHICS_BACKEND_OPTION;
+    menu.customize.first = GRAPHICS_BACKEND_OPTION - 8;
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    assert_eq!(
+        menu.customize.focus,
+        Focus::GraphicsBackend { choice: Dx12 }
+    );
+    assert_eq!(menu.customize.draft.graphics_backend, Automatic);
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft.graphics_backend, Automatic);
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    assert_eq!(menu.customize.draft.graphics_backend, Dx12);
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
+    assert_eq!(menu.customize.active_backend, Some(Dx12));
+    for key in [Left, Right] {
+        press(&mut menu, key);
+        assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
+        assert_eq!(menu.customize.focus, Focus::Options);
+    }
+    // Display previews still need confirmation and never undo the next-launch backend.
+    menu.customize.row = RESOLUTION_OPTION;
+    select_resolution(&mut menu, [800, 600]);
+    assert!(matches!(
+        menu.customize.focus,
+        Focus::DisplayConfirmation { .. }
+    ));
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft.resolution, [640, 480]);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
+    Ok(())
+}
+
+#[test]
+fn old_options_and_settings_gain_the_backend_selector_without_recooking() -> anyhow::Result<()> {
+    let mut doc = serde_json::to_value(options::Document::from_data(&data())?)?;
+    doc["options"]
+        .as_object_mut()
+        .unwrap()
+        .remove("graphics_backend");
+    doc["defaults"]
+        .as_object_mut()
+        .unwrap()
+        .remove("graphics_backend");
+    let doc: options::Document = serde_json::from_value(doc)?;
+    let migrated = doc.prepare()?;
+    assert_eq!(migrated.options.len(), CUSTOMIZE_OPTIONS);
+    assert_eq!(
+        migrated.option_name(GRAPHICS_BACKEND_OPTION),
+        "Graphics Backend"
+    );
+    assert_eq!(
+        migrated.defaults.graphics_backend,
+        GraphicsBackend::Automatic
+    );
+    Ok(())
+}
+
+#[test]
+fn backend_choices_handle_moved_configs_and_default_and_cancel_actions() -> anyhow::Result<()> {
+    use GraphicsBackend::*;
+    let mut data = data();
+    data.defaults.graphics_backend = Metal;
+    let mut menu = Menu::title_customize(
+        CustomizeSettings {
+            graphics_backend: Dx12,
+            ..Default::default()
+        },
+        data,
+    )?;
+    press(&mut menu, Idle);
+    menu.customize
+        .set_backend_choices(&[Automatic, Vulkan], Vulkan, true);
+    assert_eq!(menu.customize.draft.graphics_backend, Dx12);
+    assert!(menu.customize.backend_override);
+    menu.customize.row = GRAPHICS_BACKEND_OPTION;
+    menu.customize.first = GRAPHICS_BACKEND_OPTION - 8;
+    press(&mut menu, Accept);
+    assert_eq!(
+        menu.customize.focus,
+        Focus::GraphicsBackend { choice: Automatic }
+    );
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft.graphics_backend, Dx12);
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    // Reset only uses modes this host can support, even with modded defaults.
+    menu.customize.row = CUSTOMIZE_OPTIONS;
+    menu.customize.defaults = true;
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.draft.graphics_backend, Automatic);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    menu.customize.row = GRAPHICS_BACKEND_OPTION;
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
+    // The top Cancel action restores the editor's original settings.
+    menu.customize.row = CUSTOMIZE_OPTIONS;
+    menu.customize.defaults = false;
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.draft.graphics_backend, Dx12);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    Ok(())
+}
