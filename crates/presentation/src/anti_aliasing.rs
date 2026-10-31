@@ -1,5 +1,7 @@
 //! Spatial scene antialiasing. UI, movies and final presentation never run SMAA.
 use bevy::render::{
+    Render, RenderApp, RenderSystems,
+    camera::ExtractedCamera,
     render_resource::{TextureFormat, TextureFormatFeatureFlags, TextureUsages},
     renderer::{RenderAdapter, RenderDevice},
     settings::WgpuFeatures,
@@ -125,6 +127,26 @@ impl Plugin for AntiAliasingPlugin {
             .add_systems(First, constrain_menu_choices)
             .add_systems(Last, configure_cameras);
         smaa::install(app);
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render.add_systems(
+                Render,
+                configure_camera_loads.in_set(RenderSystems::PrepareViews),
+            );
+        }
+    }
+}
+
+fn configure_camera_loads(mut cameras: Query<&mut ExtractedCamera>) {
+    // Bevy 0.19's Auto writeback preserves earlier cameras even when this
+    // camera clears, initializing the attachment before its clear can run.
+    // Correct that default after extraction, before writeback preparation.
+    // Loading cameras and explicit writeback choices retain Bevy's behavior.
+    for mut camera in &mut cameras {
+        if camera.msaa_writeback == MsaaWriteback::Auto
+            && !matches!(camera.clear_color, ClearColorConfig::None)
+        {
+            camera.msaa_writeback = MsaaWriteback::Off;
+        }
     }
 }
 
