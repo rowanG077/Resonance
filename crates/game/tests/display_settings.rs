@@ -56,6 +56,18 @@ fn keep_display(menu: &mut Menu) {
     assert_eq!(menu.customize.focus, Focus::Options);
 }
 
+fn select_resolution(menu: &mut Menu, value: [u32; 2]) {
+    press(menu, Accept);
+    for _ in 0..menu.customize.resolution_choices().len() {
+        if menu.customize.focus == (Focus::Resolution { choice: value }) {
+            break;
+        }
+        press(menu, Down);
+    }
+    assert_eq!(menu.customize.focus, Focus::Resolution { choice: value });
+    press(menu, Accept);
+}
+
 #[test]
 fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow::Result<()> {
     let mut data = data();
@@ -86,27 +98,35 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
     menu.customize.first = ANTI_ALIASING_OPTION - 8;
     menu.customize.draft.anti_aliasing = AntiAliasing::SmaaS2x;
     for expected in AntiAliasing::ALL {
-        press(&mut menu, Right);
+        press(&mut menu, Accept);
+        press(&mut menu, Down);
+        press(&mut menu, Accept);
         assert_eq!(menu.customize.draft.anti_aliasing, expected);
     }
-    press(&mut menu, Left);
+    press(&mut menu, Accept);
+    press(&mut menu, Up);
+    press(&mut menu, Accept);
     assert_eq!(menu.customize.draft.anti_aliasing, AntiAliasing::Msaa8);
     menu.customize.row = RESOLUTION_OPTION;
     menu.customize.first = RESOLUTION_OPTION - 8;
-    press(&mut menu, Right);
+    select_resolution(&mut menu, [1280, 720]);
     assert_eq!(menu.customize.draft.resolution, [1280, 720]);
     keep_display(&mut menu);
-    press(&mut menu, Left);
+    select_resolution(&mut menu, [1024, 768]);
     assert_eq!(menu.customize.draft.resolution, [1024, 768]);
     keep_display(&mut menu);
     menu.customize.draft.resolution = DISPLAY_RESOLUTIONS[0];
-    press(&mut menu, Left);
+    press(&mut menu, Accept);
+    press(&mut menu, Up);
+    press(&mut menu, Accept);
     assert_eq!(
         menu.customize.draft.resolution,
         *DISPLAY_RESOLUTIONS.last().unwrap()
     );
     keep_display(&mut menu);
-    press(&mut menu, Right);
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    press(&mut menu, Accept);
     assert_eq!(menu.customize.draft.resolution, DISPLAY_RESOLUTIONS[0]);
     keep_display(&mut menu);
     // Navigation reaches the existing Cancel/Default row after the final option.
@@ -129,14 +149,82 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
 }
 
 #[test]
+fn accepting_the_current_custom_resolution_does_not_resize_or_open_confirmation()
+-> anyhow::Result<()> {
+    let settings = CustomizeSettings {
+        resolution: [1279, 719],
+        ..Default::default()
+    };
+    let mut menu = Menu::title_customize(settings, data())?;
+    press(&mut menu, Idle);
+    menu.customize.row = RESOLUTION_OPTION;
+    menu.customize.first = RESOLUTION_OPTION - 8;
+    press(&mut menu, Accept);
+    assert_eq!(
+        menu.customize.focus,
+        Focus::Resolution {
+            choice: [1279, 719]
+        }
+    );
+    assert!(menu.customize.resolution_choices().contains(&[1279, 719]));
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.draft.resolution, [1279, 719]);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    // Choosing a different size still starts the normal safety confirmation.
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.draft.resolution, [1280, 720]);
+    assert!(matches!(
+        menu.customize.focus,
+        Focus::DisplayConfirmation {
+            previous_resolution: [1279, 719],
+            ..
+        }
+    ));
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft.resolution, [1279, 719]);
+    press(&mut menu, Accept);
+    press(&mut menu, Accept);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    assert_eq!(menu.customize.draft.resolution, [1279, 719]);
+    Ok(())
+}
+
+#[test]
 fn resolution_changes_require_confirmation_and_revert_to_the_last_kept_size() -> anyhow::Result<()>
 {
     let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
     press(&mut menu, Idle);
     menu.customize.row = RESOLUTION_OPTION;
     menu.customize.first = RESOLUTION_OPTION - 8;
-    press(&mut menu, Right);
-    assert_eq!(menu.customize.draft.resolution, [800, 600]);
+    for key in [Left, Right] {
+        press(&mut menu, key);
+        assert_eq!(menu.customize.draft.resolution, [640, 480]);
+        assert_eq!(menu.customize.focus, Focus::Options);
+    }
+    press(&mut menu, Accept);
+    press(&mut menu, Down);
+    assert_eq!(
+        menu.customize.focus,
+        Focus::Resolution { choice: [800, 600] }
+    );
+    assert_eq!(
+        menu.customize.draft.resolution,
+        [640, 480],
+        "highlighting must not apply"
+    );
+    for key in [Left, Right] {
+        press(&mut menu, key);
+        assert_eq!(
+            menu.customize.focus,
+            Focus::Resolution { choice: [800, 600] }
+        );
+    }
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.focus, Focus::Options);
+    assert_eq!(menu.customize.draft.resolution, [640, 480]);
+    select_resolution(&mut menu, [800, 600]);
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation {
@@ -146,19 +234,16 @@ fn resolution_changes_require_confirmation_and_revert_to_the_last_kept_size() ->
             ..
         }
     ));
-    press(&mut menu, Right); // Holding the opener cannot edit another resolution.
-    assert_eq!(menu.customize.draft.resolution, [800, 600]);
     press(&mut menu, Cancel);
     assert_eq!(menu.customize.draft.resolution, [640, 480]);
     assert!(!menu.closed);
-    press(&mut menu, Right);
+    select_resolution(&mut menu, [800, 600]);
     press(&mut menu, Down);
     press(&mut menu, Accept);
     assert_eq!(menu.customize.draft.resolution, [640, 480]);
-    press(&mut menu, Right);
+    select_resolution(&mut menu, [800, 600]);
     keep_display(&mut menu);
-    press(&mut menu, Right);
-    assert_eq!(menu.customize.draft.resolution, [960, 720]);
+    select_resolution(&mut menu, [960, 720]);
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation {
@@ -168,6 +253,12 @@ fn resolution_changes_require_confirmation_and_revert_to_the_last_kept_size() ->
     ));
     press(&mut menu, Cancel);
     assert_eq!(menu.customize.draft.resolution, [800, 600]);
+    select_resolution(&mut menu, [800, 600]);
+    assert_eq!(
+        menu.customize.focus,
+        Focus::Options,
+        "accepting the current size needs no popup"
+    );
     press(&mut menu, Cancel);
     assert!(menu.closed);
     Ok(())
@@ -197,7 +288,7 @@ fn native_and_monitor_resolutions_join_the_presets_and_keep_confirmation() -> an
     menu.customize.row = RESOLUTION_OPTION;
     menu.customize.first = RESOLUTION_OPTION - 8;
     menu.customize.draft.resolution = [2560, 1600];
-    press(&mut menu, Right);
+    select_resolution(&mut menu, native);
     assert_eq!(menu.customize.draft.resolution, native);
     assert!(matches!(
         menu.customize.focus,
@@ -209,79 +300,86 @@ fn native_and_monitor_resolutions_join_the_presets_and_keep_confirmation() -> an
     ));
     press(&mut menu, Cancel);
     assert_eq!(menu.customize.draft.resolution, [2560, 1600]);
-    press(&mut menu, Right);
+    select_resolution(&mut menu, native);
     keep_display(&mut menu);
-    press(&mut menu, Right);
+    select_resolution(&mut menu, [3440, 1440]);
     assert_eq!(menu.customize.draft.resolution, [3440, 1440]);
     press(&mut menu, Cancel);
     assert_eq!(menu.customize.draft.resolution, native);
     // Changing monitors does not resize or silently replace a kept selection.
+    press(&mut menu, Accept);
     menu.customize
         .set_resolution_choices(DISPLAY_RESOLUTIONS.to_vec(), Some([1920, 1080]));
     assert_eq!(menu.customize.draft.resolution, native);
     assert_eq!(menu.customize.native_resolution(), Some([1920, 1080]));
+    assert_eq!(
+        menu.customize.focus,
+        Focus::Resolution {
+            choice: [3440, 1440]
+        }
+    );
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft.resolution, native);
     Ok(())
 }
 
 #[test]
 fn held_directions_cannot_restart_a_display_preview_until_released() -> anyhow::Result<()> {
-    for row in [DISPLAY_MODE_OPTION, RESOLUTION_OPTION] {
-        for direction in [Left, Right] {
-            for close in ["timeout", "cancel", "revert", "keep"] {
-                let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
-                press(&mut menu, Idle);
-                menu.customize.row = row;
-                menu.customize.first = row - 8;
-                let display = |menu: &Menu| {
-                    (
-                        menu.customize.draft.display_mode,
-                        menu.customize.draft.resolution,
-                    )
-                };
-                let previous = display(&menu);
-                for _ in 0..60 {
-                    menu.step(direction.input());
-                }
-                let candidate = display(&menu);
-                assert_ne!(candidate, previous);
-                if close == "timeout" {
-                    // The presentation host calls this on wall-clock expiry.
-                    menu.customize.revert_display_change();
-                } else {
-                    if close == "revert" {
-                        if let Focus::DisplayConfirmation { keep, .. } = &mut menu.customize.focus {
-                            *keep = false;
-                        }
-                    }
-                    let mut input = if close == "cancel" { Cancel } else { Accept }.input();
-                    input.direction = direction.input().direction;
-                    menu.step(input);
-                }
-                let expected = if close == "keep" { candidate } else { previous };
-                for _ in 0..60 {
-                    menu.step(direction.input());
-                    assert_eq!(display(&menu), expected, "row {row}, close {close}");
-                    assert_eq!(menu.customize.focus, Focus::Options);
-                }
-                menu.step(Idle.input());
+    for direction in [Left, Right] {
+        for close in ["timeout", "cancel", "revert", "keep"] {
+            let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
+            press(&mut menu, Idle);
+            menu.customize.row = DISPLAY_MODE_OPTION;
+            menu.customize.first = DISPLAY_MODE_OPTION - 8;
+            let display = |menu: &Menu| {
+                (
+                    menu.customize.draft.display_mode,
+                    menu.customize.draft.resolution,
+                )
+            };
+            let previous = display(&menu);
+            for _ in 0..60 {
                 menu.step(direction.input());
-                assert_ne!(display(&menu), expected, "a fresh press must work");
-                assert!(matches!(
-                    menu.customize.focus,
-                    Focus::DisplayConfirmation { .. }
-                ));
-                // If neutral was already observed when the dialog closed, the
-                // next fresh press works without requiring another idle tick.
-                menu.step(Idle.input());
-                menu.customize.revert_display_change();
-                let restored = display(&menu);
-                menu.step(direction.input());
-                assert_ne!(display(&menu), restored);
-                assert!(matches!(
-                    menu.customize.focus,
-                    Focus::DisplayConfirmation { .. }
-                ));
             }
+            let candidate = display(&menu);
+            assert_ne!(candidate, previous);
+            if close == "timeout" {
+                // The presentation host calls this on wall-clock expiry.
+                menu.customize.revert_display_change();
+            } else {
+                if close == "revert" {
+                    if let Focus::DisplayConfirmation { keep, .. } = &mut menu.customize.focus {
+                        *keep = false;
+                    }
+                }
+                let mut input = if close == "cancel" { Cancel } else { Accept }.input();
+                input.direction = direction.input().direction;
+                menu.step(input);
+            }
+            let expected = if close == "keep" { candidate } else { previous };
+            for _ in 0..60 {
+                menu.step(direction.input());
+                assert_eq!(display(&menu), expected, "close {close}");
+                assert_eq!(menu.customize.focus, Focus::Options);
+            }
+            menu.step(Idle.input());
+            menu.step(direction.input());
+            assert_ne!(display(&menu), expected, "a fresh press must work");
+            assert!(matches!(
+                menu.customize.focus,
+                Focus::DisplayConfirmation { .. }
+            ));
+            // If neutral was already observed when the dialog closed, the
+            // next fresh press works without requiring another idle tick.
+            menu.step(Idle.input());
+            menu.customize.revert_display_change();
+            let restored = display(&menu);
+            menu.step(direction.input());
+            assert_ne!(display(&menu), restored);
+            assert!(matches!(
+                menu.customize.focus,
+                Focus::DisplayConfirmation { .. }
+            ));
         }
     }
     Ok(())
@@ -339,8 +437,11 @@ fn aa_dropdown_filters_choices_and_cancel_keeps_the_draft() -> anyhow::Result<()
     press(&mut menu, Accept);
     assert_eq!(menu.customize.focus, Focus::Options);
     assert_eq!(menu.customize.draft.anti_aliasing, AntiAliasing::SmaaUltra);
-    press(&mut menu, Right);
-    assert_eq!(menu.customize.draft.anti_aliasing, AntiAliasing::Msaa4);
+    for key in [Left, Right] {
+        press(&mut menu, key);
+        assert_eq!(menu.customize.draft.anti_aliasing, AntiAliasing::SmaaUltra);
+        assert_eq!(menu.customize.focus, Focus::Options);
+    }
     Ok(())
 }
 
