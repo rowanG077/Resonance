@@ -29,7 +29,7 @@ use bevy::{
     prelude::*,
     render::{
         render_phase::ViewSortedRenderPhases,
-        render_resource::{CachedPipelineState, PipelineCache, TextureFormat},
+        render_resource::{CachedPipelineState, PipelineCache, TextureFormat, TextureUsages},
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
     },
@@ -693,7 +693,7 @@ impl View {
             self.camera = Some(
                 commands
                     .spawn((
-                        Camera3d::default(),
+                        scene_camera(),
                         Tonemapping::None,
                         Msaa::Off,
                         Camera {
@@ -2259,6 +2259,16 @@ impl CameraProjection for BattleProjection {
         self.0.get_frustum_corners(near, far)
     }
 }
+fn scene_camera() -> Camera3d {
+    // Scene-sampling particles read depth in their fragment shader. This camera
+    // is retained when its warmup target is replaced by the live battle target.
+    Camera3d {
+        depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING)
+            .into(),
+        ..default()
+    }
+}
+
 fn battle_projection() -> Projection {
     // Configure the vertical field of view, clipping planes, and display aspect.
     Projection::custom(BattleProjection(crate::camera::TitleProjection(
