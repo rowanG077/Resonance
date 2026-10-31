@@ -122,6 +122,36 @@ fn live_resolution_preview_recovers_in_an_open_field_menu() -> Result<()> {
         .field_mut()
         .menu = Some(menu);
     settle(&mut app)?;
+    {
+        let mut session = app.world_mut().resource_mut::<crate::new_game::Session>();
+        let menu = session.menu_mut().unwrap();
+        menu.step(FieldInput {
+            pressed_buttons: [resonance_events::input::Button::Accept].into(),
+            ..default()
+        });
+        menu.step(default());
+        menu.step(FieldInput {
+            direction: [0., 1.],
+            ..default()
+        });
+    }
+    settle(&mut app)?;
+    assert_resolution(&app, [640, 480]);
+    assert!(
+        app.world()
+            .resource::<InteractiveDisplay>()
+            .confirmation
+            .is_none()
+    );
+    capture(&mut app, &output.join("resolution-dropdown.png"))?;
+    app.world_mut()
+        .resource_mut::<crate::new_game::Session>()
+        .menu_mut()
+        .unwrap()
+        .step(FieldInput {
+            pressed_buttons: [resonance_events::input::Button::Cancel].into(),
+            ..default()
+        });
     change_resolution(&mut app);
     settle(&mut app)?;
     assert_resolution(&app, [800, 600]);
@@ -228,10 +258,23 @@ fn change_resolution(app: &mut App) {
     let mut session = app.world_mut().resource_mut::<crate::new_game::Session>();
     let menu = session.menu_mut().unwrap();
     menu.step(default());
-    menu.step(FieldInput {
-        direction: [1., 0.],
-        ..default()
-    });
+    for input in [
+        FieldInput {
+            pressed_buttons: [resonance_events::input::Button::Accept].into(),
+            ..default()
+        },
+        FieldInput {
+            direction: [0., -1.],
+            ..default()
+        },
+        FieldInput {
+            pressed_buttons: [resonance_events::input::Button::Accept].into(),
+            ..default()
+        },
+    ] {
+        menu.step(input);
+        menu.step(default());
+    }
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation { .. }

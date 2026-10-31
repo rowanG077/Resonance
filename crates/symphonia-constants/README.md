@@ -26,3 +26,9 @@ resources. Edition adapters may translate source IDs into these common identitie
 Only established story flag names and unresolved values used by behavior are
 listed. Numeric gaps do not get invented placeholder identities. Model node names
 are strings from model data; `MODEL_NODES` records only reviewed semantic aliases.
+
+`FieldEquipmentModelId` is the opt-in list of generic field equipment placeholders.
+Only these models follow the equipped item when attached to a playable character's
+weapon joint. Other models, including scene-local props and specific story swords,
+keep their authored appearance. Add reviewed placeholder identities to this enum;
+unknown IDs remain valid models and are preserved by default.

@@ -41,13 +41,16 @@ Customize → Display Mode selects Windowed, Borderless or Fullscreen. Resolutio
 sets the render size and windowed size; borderless fills the desktop, and
 fullscreen uses a matching monitor mode when available. Resolution choices include
 the current monitor's physical desktop size (marked Native), its advertised video
-modes and common presets. Use Left/Right to change
-either setting to preview it immediately. Choose Keep within 15 seconds to accept;
+modes and common presets. Enter opens the Resolution dropdown; Up/Down highlights
+a size and Enter applies it. Left/Right changes Display Mode. Choose Keep within
+15 seconds after a display change to accept;
 Revert, Escape or the timeout restores the previous display settings. Confirmed
 choices save in `config.toml` when you exit Customize.
 Cancel at the top restores the settings from when you opened the menu; Default
 restores the library's defaults. `--resolution WIDTHxHEIGHT` overrides the saved
 resolution at startup.
+Fullscreen waits until the window's monitor is known. On Wayland it uses desktop
+fullscreen, since exclusive video-mode switching is unavailable.
 
 Customize → Anti-Aliasing offers one selector: Off, SMAA Low/Medium/High/Ultra,
 supported 2×/4×/8× MSAA, and SMAA S2x (requires 2× MSAA support).
@@ -55,9 +58,10 @@ The default is 4× MSAA. S2x reconstructs the two spatial samples separately,
 then averages them within the same frame. SMAA processes the 3D scene before
 menus, dialogue and text are composited. Unsupported GPU choices are hidden.
 All modes are spatial: no temporal accumulation, reprojection or camera jitter.
-Confirm the Anti-Aliasing row to open the dropdown; Up/Down chooses a mode and
-Confirm accepts it. Cancel closes the dropdown without changing the choice.
-AA changes apply and save when you exit Customize.
+Enter opens the Anti-Aliasing dropdown; Up/Down highlights a mode and Enter
+applies it. Cancel closes either dropdown without changing the setting.
+Resolution and AA ignore Left/Right. Accepted AA choices apply immediately;
+settings save when you exit Customize.
 
 Customize → Keymap assigns keyboard keys, controller buttons, D-pad and stick
 motions to standard actions. Select an action, confirm, release the opener,

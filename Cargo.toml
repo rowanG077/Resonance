@@ -36,6 +36,7 @@ glam = { version = "0.32.1", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "ktx2", "zstd_rust", "x11", "wayland"] }
 bevy_post_process = { version = "=0.19.1", default-features = false }
+raw-window-handle = "0.6"
 resonance-content = { path = "crates/content" }
 resonance-game = { path = "crates/game" }
 resonance-importer = { path = "crates/importer" }

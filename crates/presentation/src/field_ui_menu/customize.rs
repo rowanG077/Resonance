@@ -6,7 +6,63 @@ use resonance_content::menu_data::{
 };
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
+fn resolution_label(size: [u32; 2], native: Option<[u32; 2]>) -> String {
+    let suffix = if native == Some(size) {
+        " (Native)"
+    } else {
+        ""
+    };
+    format!("{} x {}{suffix}", size[0], size[1])
+}
+
 impl Drawing<'_> {
+    fn customize_choices(
+        &mut self,
+        labels: &[String],
+        selected: usize,
+        applied: Option<usize>,
+    ) -> Result<[f32; 2]> {
+        let visible = labels.len().min(VISIBLE_OPTIONS);
+        let first = selected
+            .saturating_sub(visible / 2)
+            .min(labels.len() - visible);
+        let height = (12. + visible as f32 * 26.).max(238.);
+        // An opaque plane above the option text keeps both dropdowns readable,
+        // including when the player's menu theme is transparent.
+        self.plane = 2;
+        let mut background = self.menu_color();
+        background[3] = 255;
+        self.quad_role(
+            DrawRole::Background,
+            FONT,
+            [320., 60., 600., 60. + height],
+            [0.5; 4],
+            rgba(background),
+        );
+        self.plane = 3;
+        self.framed([320., 60., 280., height], false)?;
+        for (index, label) in labels.iter().enumerate().skip(first).take(visible) {
+            let y = 66. + (index - first) as f32 * 26.;
+            if index == selected {
+                self.highlight([328., y, 264., 24.], 255);
+            }
+            self.fitted_text(
+                label,
+                [344., y],
+                [20., 24.],
+                244.,
+                if Some(index) == applied { WHITE } else { GOLD },
+            )?;
+        }
+        if first > 0 {
+            self.scroll_arrow(SCROLL_UP, [580., 54.])?;
+        }
+        if first + visible < labels.len() {
+            self.scroll_arrow(SCROLL_DOWN, [580., 60. + height - 4.])?;
+        }
+        Ok([330., 74. + (selected - first) as f32 * 26.])
+    }
+
     fn keymap(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         use resonance_content::input::{Keymap, StandardAction as A};
         use resonance_game::menu::customize::VISIBLE_KEYMAP_ACTIONS;
@@ -172,12 +228,7 @@ impl Drawing<'_> {
                     self.opacity = opacity;
                 }
                 ANTI_ALIASING_OPTION => {
-                    self.text(
-                        &format!("< {} >", settings.anti_aliasing.label()),
-                        [x, y],
-                        20.,
-                        WHITE,
-                    )?;
+                    self.text(settings.anti_aliasing.label(), [x, y], 20., WHITE)?;
                 }
                 DISPLAY_MODE_OPTION => {
                     self.text(
@@ -188,16 +239,8 @@ impl Drawing<'_> {
                     )?;
                 }
                 RESOLUTION_OPTION => {
-                    let native = if state.native_resolution() == Some(settings.resolution) {
-                        " (Native)"
-                    } else {
-                        ""
-                    };
                     self.fitted_text(
-                        &format!(
-                            "< {} x {}{native} >",
-                            settings.resolution[0], settings.resolution[1]
-                        ),
+                        &resolution_label(settings.resolution, state.native_resolution()),
                         [x, y],
                         [20., 24.],
                         292.,
@@ -466,38 +509,30 @@ impl Drawing<'_> {
         self.opacity = 255;
         if let Focus::AntiAliasing { choice } = state.focus {
             let choices = state.anti_aliasing_choices();
-            let height = (12. + choices.len() as f32 * 26.).max(238.);
-            // Menu batches sort by plane and role, not submission order. Put
-            // an opaque backing above the option text before framing the list.
-            self.plane = 2;
-            let mut background = self.menu_color();
-            background[3] = 255;
-            self.quad_role(
-                DrawRole::Background,
-                FONT,
-                [320., 60., 600., 60. + height],
-                [0.5; 4],
-                rgba(background),
-            );
-            self.plane = 3;
-            self.framed([320., 60., 280., height], false)?;
-            for (index, mode) in choices.iter().enumerate() {
-                let y = 66. + index as f32 * 26.;
-                if *mode == choice {
-                    self.highlight([328., y, 264., 24.], 255);
-                    cursor = [330., y + 8.];
-                }
-                self.text(
-                    mode.label(),
-                    [344., y],
-                    20.,
-                    if *mode == settings.anti_aliasing {
-                        WHITE
-                    } else {
-                        GOLD
-                    },
-                )?;
-            }
+            let selected = choices
+                .iter()
+                .position(|value| *value == choice)
+                .unwrap_or(0);
+            let applied = choices
+                .iter()
+                .position(|value| *value == settings.anti_aliasing);
+            let labels: Vec<_> = choices.iter().map(|mode| mode.label().to_owned()).collect();
+            cursor = self.customize_choices(&labels, selected, applied)?;
+        }
+        if let Focus::Resolution { choice } = state.focus {
+            let choices = state.resolution_choices();
+            let selected = choices
+                .iter()
+                .position(|value| *value == choice)
+                .unwrap_or(0);
+            let applied = choices
+                .iter()
+                .position(|value| *value == settings.resolution);
+            let labels: Vec<_> = choices
+                .iter()
+                .map(|size| resolution_label(*size, state.native_resolution()))
+                .collect();
+            cursor = self.customize_choices(&labels, selected, applied)?;
         }
         if let Focus::DisplayConfirmation {
             keep,
@@ -591,7 +626,14 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         assert_eq!(backing.positions[2][0] + 320., 600.);
         let top = (240. - backing.positions[0][1]) * 448. / 480.;
         let bottom = (240. - backing.positions[2][1]) * 448. / 480.;
-        let height = (12. + menu.customize.anti_aliasing_choices().len() as f32 * 26.).max(238.);
+        let height = (12.
+            + menu
+                .customize
+                .anti_aliasing_choices()
+                .len()
+                .min(VISIBLE_OPTIONS) as f32
+                * 26.)
+            .max(238.);
         assert!((top - 60.).abs() < 0.001);
         assert!((bottom - (60. + height)).abs() < 0.001);
         assert!(
@@ -599,6 +641,31 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
                 > DepthBand::Field.at(1, DrawRole::Text.depth())
         );
         assert!(drawing.batches.contains_key(&(3, DrawRole::Text, FONT)));
+    }
+    menu.customize.row = RESOLUTION_OPTION;
+    menu.customize.first = RESOLUTION_OPTION - 8;
+    let native = [3024, 1964];
+    let mut resolutions = resonance_content::menu_data::DISPLAY_RESOLUTIONS.to_vec();
+    resolutions.push(native);
+    menu.customize
+        .set_resolution_choices(resolutions, Some(native));
+    for choice in [[640, 480], native, [5120, 1440]] {
+        menu.customize.focus = Focus::Resolution { choice };
+        let mut drawing = fixture.drawing(0);
+        let cursor = drawing.customize(&menu)?;
+        assert!(
+            (74. ..=282.).contains(&cursor[1]),
+            "scroll the selected resolution into view"
+        );
+        let backing = &drawing.batches[&(2, DrawRole::Background, FONT)];
+        assert!(backing.colors.iter().all(|color| color[3] == 1.));
+        let top = (240. - backing.positions[0][1]) * 448. / 480.;
+        let bottom = (240. - backing.positions[2][1]) * 448. / 480.;
+        assert!((top - 60.).abs() < 0.001);
+        assert!(
+            (bottom - 306.).abs() < 0.001,
+            "only nine choices fit in the dropdown"
+        );
     }
     menu.customize.focus = Focus::Options;
     for window in 0..3 {

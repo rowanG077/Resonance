@@ -2083,17 +2083,26 @@ keys. Volumes retain the 0–127 scale, `message_speed` is updates per character
 (0 means immediate), and colors are `[r, g, b, a]`.
 `defaults.display_mode` is `windowed`, `borderless` or `fullscreen`;
 `defaults.resolution` is `[width, height]` in physical pixels (each 1–8192).
-Resolution and display-mode changes preview immediately in Customize. Keep accepts
+Resolution opens a scrollable dropdown on Confirm; navigation only highlights a
+choice, and Confirm applies it. Anti-Aliasing uses the same dropdown interaction.
+Neither row responds to Left/Right. Accepted AA choices apply immediately and save
+on exiting Customize. Display Mode still uses Left/Right. Applied resolution and
+display-mode changes preview immediately in Customize. Keep accepts
 the preview; Revert, Cancel or 15 seconds without confirmation restores the previous
 settings. The timeout uses wall-clock time, independent of gameplay ticks and pause.
 Only confirmed settings can be saved on exiting Customize. Borderless fills the desktop;
 fullscreen selects the matching monitor mode with the highest refresh rate,
 or keeps the current monitor mode if the render size has no matching mode.
 Windowed uses the selected render size as its window size.
+Monitor-dependent modes wait until the window's monitor is known and target that
+monitor explicitly. On Wayland, Fullscreen uses borderless desktop fullscreen;
+the selected render resolution is retained without requesting an exclusive mode.
 The resolution choices combine common presets with the current monitor's physical
 desktop size (labelled Native) and advertised video modes, without duplicate sizes.
 Sizes exceeding the GPU or saved-settings limits are omitted. Changing monitors
 refreshes the choices without changing the selected resolution automatically.
+The current valid custom config/CLI size remains selectable, so accepting it
+without navigation preserves the size and does not open another confirmation.
 `defaults.anti_aliasing` is `off`, `smaa_low`, `smaa_medium`, `smaa_high`,
 `smaa_ultra`, `msaa2`, `msaa4` (the engine default), `msaa8` or `smaa_s2x`.
 One selector exposes only choices supported by the GPU's scene color and
