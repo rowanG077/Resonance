@@ -355,19 +355,6 @@ fn encode(extracted: &Path, library: &Path, native: &[u8], id: u32, name: &str) 
         .with_context(|| format!("convert shared animation {id} ({name})"))
 }
 
-fn publish(path: &Path, bytes: &[u8]) -> Result<()> {
-    fs::create_dir_all(path.parent().context("animation output has no parent")?)?;
-    let temporary = path.with_extension(format!(
-        "{}.tmp",
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .context("animation output has no extension")?
-    ));
-    fs::write(&temporary, bytes)?;
-    fs::rename(&temporary, path)
-        .with_context(|| format!("publish animation output {}", path.display()))
-}
-
 fn existing_motions(library: &Path) -> Result<BTreeMap<Vec<u8>, String>> {
     let mut directories = vec![library.to_owned()];
     let mut motions = BTreeMap::new();
@@ -502,7 +489,7 @@ fn cook_selected(
             if let Some(existing) = available.get(&bytes) {
                 motion = existing.clone();
             } else {
-                publish(&path, &bytes)?;
+                crate::output::write(&path, &bytes)?;
                 available.insert(bytes, motion.clone());
             }
         }
@@ -523,7 +510,7 @@ fn cook_selected(
             "duplicate animation bank name {name}"
         );
     }
-    publish(&path, &resonance_asset_writer::json::encode(&targets)?)
+    crate::output::write(&path, &resonance_asset_writer::json::encode(&targets)?)
 }
 
 /// Convert a selected native resource ID, or all known shared animations.
@@ -705,5 +692,5 @@ pub fn cook_shared_animation_bindings(
             });
     }
     let path = library.join("animations/bindings.json");
-    publish(&path, &resonance_asset_writer::json::encode(&definitions)?)
+    crate::output::write(&path, &resonance_asset_writer::json::encode(&definitions)?)
 }
