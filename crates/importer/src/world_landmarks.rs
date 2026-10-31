@@ -287,7 +287,6 @@ fn convert(exe: &[u8], module: Vec<u8>) -> Result<Landmarks> {
 
 pub fn cook_world_landmarks(root: &Path, library: &Path) -> Result<()> {
     let output = library.join("world/landmarks.json");
-    ensure!(!output.exists(), "world landmarks output already exists");
     let extracted = root.join("disc1");
     let document = convert(
         &fs::read(extracted.join("sys/main.dol"))?,

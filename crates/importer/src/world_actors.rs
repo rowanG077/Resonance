@@ -176,10 +176,6 @@ pub fn cook_world_actors_common(root: &Path, library: &Path) -> Result<()> {
                 .collect(),
         )?)?,
     );
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "world actor output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;
@@ -270,10 +266,6 @@ pub fn cook_world_actors_party(root: &Path, library: &Path) -> Result<()> {
             resonance_asset_writer::json::encode(&Model { parts })?,
         );
     }
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "party world actor output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

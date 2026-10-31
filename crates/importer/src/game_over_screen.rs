@@ -1,16 +1,12 @@
 //! Original defeat text and title artwork directly into the editable screen.
 use crate::{dol, native_archive, text, world_texture};
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use resonance_content::{font::UiTexture, game_over::Art};
 use std::{fs, path::Path};
 
 pub fn cook_game_over_screen(extracted: &Path, library: &Path) -> Result<()> {
     let image_path = library.join("ui/game-over/background.ktx2");
     let document_path = library.join("ui/game-over/game-over.json");
-    ensure!(
-        !image_path.exists() && !document_path.exists(),
-        "game-over output already exists"
-    );
 
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let filename = text::string(&exe, 0x8017_d870)?;

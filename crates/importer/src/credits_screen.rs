@@ -298,10 +298,6 @@ pub fn cook_credits_screen(extracted: &Path, library: &Path) -> Result<()> {
     json.push(b'\n');
     outputs.push(("ui/credits/credits.json".into(), json));
     let wave = library.join("audio/music/credits.wav");
-    ensure!(
-        !wave.exists() && outputs.iter().all(|(path, _)| !library.join(path).exists()),
-        "credits output already exists"
-    );
     let adx = native_archive::read_named(&files, &text::string(&exe, 0x801d_fad8)?)?;
     for (path, bytes) in outputs {
         let output = library.join(path);

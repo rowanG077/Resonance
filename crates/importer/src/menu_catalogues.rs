@@ -201,10 +201,6 @@ fn crafting(exe: &[u8]) -> Result<Crafting> {
 pub fn cook_menu_catalogues(extracted: &Path, library: &Path) -> Result<()> {
     let grade_path = library.join("game/menu/grade-shop.json");
     let crafting_path = library.join("game/menu/crafting.json");
-    ensure!(
-        !grade_path.exists() && !crafting_path.exists(),
-        "menu catalogue output already exists"
-    );
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let grade = grade_shop(&exe)?;
     let crafting = crafting(&exe)?;
