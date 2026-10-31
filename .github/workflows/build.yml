@@ -90,6 +90,13 @@ jobs:
       - name: Render and check pixels (Metal on macOS, CPU elsewhere)
         run: cargo run --locked --release -p resonance-presentation --example ci_render -- target/smoke
 
+      - name: Check camera clears and overlays with MSAA
+        if: matrix.platform == 'linux-x64'
+        run: |
+          cargo test --locked --release -p resonance-presentation --lib \
+            anti_aliasing::compositing_tests::shared_targets_respect_clear_and_load_with_msaa \
+            -- --ignored --exact
+
       - name: Upload synthetic render and audio diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
