@@ -9,9 +9,9 @@ cargo run --release -p resonance-import-cli -- /path/to/Disc1.rvz /path/to/Disc2
 ```
 
 Output defaults to `local/all-assets`, matching the engine's default asset path.
-Use `--output DIRECTORY` for another fresh destination. There is no prerequisite
-`local/extracted` directory. Existing nonempty output is rejected before reading
-the discs, so an accidental retry does not redo extraction or overwrite mods.
+Use `--output DIRECTORY` for another destination. Cooking writes directly into
+the target directory and overwrites existing output. There is no prerequisite
+`local/extracted` directory.
 
 Disc 1 is primary. Only five additional event-speech archives and four story
 movies are read from disc 2. Shared assets cook once and the
@@ -90,11 +90,10 @@ owners in explicit dependency order. Structured documents use their final editab
 types; media use the existing Rust readers and encoders. No job graph, publication
 registry, hashes, receipts or intermediate asset library is involved.
 
-Use a fresh destination. Files are created without overwriting existing files.
-On failure, completed files remain available for inspection and focused recovery;
-the command reports the failing owner. A partial output is not a playable library.
-Keep an existing working library and mod edits separately. The command does not
-stage and automatically install another generation.
+Cooking writes directly to final paths and overwrites existing output. There
+is no staged publication or interrupted-cook resume mode; rerun the cook after
+a failure. The command reports the failing owner, and files may be incomplete
+until the cook succeeds.
 
 Focused development conversions use the replacement owner's CLI:
 
@@ -273,9 +272,9 @@ To add just these files to an existing library:
 cargo run -p resonance-importer -- input-prompts local/extracted local/all-assets
 ```
 
-Like other cooking steps, this refuses to overwrite existing files. Edit the KTX2
-in place, or override it from a mod directory. The JSON's `size` must match the
-image. `icons` and `pressed` map each name to its normal and pressed
+Like other cooking steps, this overwrites existing output. Edit the KTX2
+in place after cooking, or override it from a mod directory. The JSON's `size`
+must match the image. `icons` and `pressed` map each name to its normal and pressed
 `[x, y, width, height]` pixel rectangles. A mod can
 change those rectangles or add icons for additional keys. Keep the `button`
 fallback. Runtime preparation reads both files through the normal layered

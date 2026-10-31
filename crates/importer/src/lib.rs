@@ -136,8 +136,8 @@ pub use audio_config::{cook_menu_audio, cook_mix_audio, cook_synthesis_audio};
 pub use audio_effects::{cook_battle_cues, cook_effects};
 pub use audio_music::{cook_extra_music, cook_music};
 pub use audio_speech::{
-    cook_battle_speech, cook_event_speech, cook_speech, cook_speech_resume, skit_mappings,
-    speech_ids, speech_playback_rates,
+    cook_battle_speech, cook_event_speech, cook_speech, skit_mappings, speech_ids,
+    speech_playback_rates,
 };
 pub use battle_audio::cook_battle_audio;
 pub use battle_defense::cook_battle_defense;

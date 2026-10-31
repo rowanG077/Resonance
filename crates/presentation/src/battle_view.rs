@@ -29,7 +29,7 @@ use bevy::{
     prelude::*,
     render::{
         render_phase::ViewSortedRenderPhases,
-        render_resource::{CachedPipelineState, PipelineCache, TextureFormat},
+        render_resource::{CachedPipelineState, PipelineCache, TextureFormat, TextureUsages},
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
     },
@@ -693,7 +693,7 @@ impl View {
             self.camera = Some(
                 commands
                     .spawn((
-                        Camera3d::default(),
+                        scene_camera(),
                         Tonemapping::None,
                         Msaa::Off,
                         Camera {
@@ -1057,7 +1057,12 @@ impl View {
                 if let Some(fade) = &self.stage.scenery_fade
                     && let Some(&minimum) = fade.minimum_alpha.get(slot)
                 {
-                    let anchor = world.transform_point3(Vec3::ZERO);
+                    // Attached scenery can move far from its attachment through
+                    // its own animation. Fade against the rendered root position.
+                    let anchor = scenery_poses[slot].first().map_or(Vec3::ZERO, |root| {
+                        Vec3::new(root[3][0], root[3][1], root[3][2])
+                    });
+                    let anchor = world.transform_point3(anchor);
                     // Only nearer scenery can obscure the combat focus. Off-axis
                     // scenery may be in front of the focus but still farther away.
                     let target = if scenery_in_foreground(
@@ -2259,6 +2264,16 @@ impl CameraProjection for BattleProjection {
         self.0.get_frustum_corners(near, far)
     }
 }
+fn scene_camera() -> Camera3d {
+    // Scene-sampling particles read depth in their fragment shader. This camera
+    // is retained when its warmup target is replaced by the live battle target.
+    Camera3d {
+        depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING)
+            .into(),
+        ..default()
+    }
+}
+
 fn battle_projection() -> Projection {
     // Configure the vertical field of view, clipping planes, and display aspect.
     Projection::custom(BattleProjection(crate::camera::TitleProjection(

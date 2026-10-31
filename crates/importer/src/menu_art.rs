@@ -334,17 +334,7 @@ fn prepare(extracted: &Path) -> Result<(MenuArt, BTreeMap<String, Vec<u8>>)> {
 pub fn cook_menu_art(extracted: &Path, library: &Path) -> Result<()> {
     let (art, images) = prepare(extracted)?;
     for (relative, bytes) in images {
-        let path = library.join(&relative);
-
-        if path.exists() {
-            ensure!(
-                resonance_asset_writer::texture::ktx2(&fs::read(&path)?)?
-                    == resonance_asset_writer::texture::ktx2(&bytes)?,
-                "conflicting existing menu image {relative}"
-            );
-        } else {
-            crate::output::write(&path, &bytes)?;
-        }
+        crate::output::write(&library.join(&relative), &bytes)?;
     }
     let document = library.join("ui/menu.json");
     crate::output::json(&document, &art)?;

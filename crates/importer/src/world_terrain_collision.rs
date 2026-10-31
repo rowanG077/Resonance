@@ -110,7 +110,6 @@ pub(crate) fn collision(tile: &[u8]) -> Result<Vec<u8>> {
 }
 
 pub fn cook_world_terrain_collision(source: &Path, output: &Path) -> Result<()> {
-    ensure!(!output.exists(), "world collision output already exists");
     let glb = collision(&fs::read(source)?)?;
     crate::output::write(&output, &glb)?;
     Ok(())

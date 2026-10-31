@@ -98,7 +98,6 @@ fn convert(exe: &[u8], fields: &Mappings) -> Result<Document> {
 
 pub fn cook_menu_world_map(extracted: &Path, library: &Path) -> Result<()> {
     let output = library.join("game/menu/world-map.json");
-    ensure!(!output.exists(), "world-map menu output already exists");
     let fields: Mappings = serde_json::from_slice(&fs::read(library.join(FIELDS))?)?;
     let document = convert(&fs::read(extracted.join("disc1/sys/main.dol"))?, &fields)?;
     crate::output::json(&output, &document)?;

@@ -140,10 +140,6 @@ fn convert(exe: &[u8], files: &BTreeSet<String>) -> Result<(Mappings, foraging::
 pub fn cook_field_directory(root: &Path, library: &Path) -> Result<Vec<u32>> {
     let mapping_path = library.join(FIELDS);
     let forage_path = library.join(foraging::PATH);
-    ensure!(
-        !mapping_path.exists() && !forage_path.exists(),
-        "field directory output already exists"
-    );
     let executable = root.join("disc1/sys/main.dol");
     let exe = fs::read(&executable)
         .with_context(|| format!("read GameCube executable {}", executable.display()))?;

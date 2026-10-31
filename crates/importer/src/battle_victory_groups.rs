@@ -93,7 +93,6 @@ fn convert(root: &Path) -> Result<Vec<NamedGroup>> {
 pub fn cook_battle_victory_groups(root: &Path, library: &Path) -> Result<()> {
     let groups = convert(root)?;
     let output = library.join("battle/victory/groups.json");
-    ensure!(!output.exists(), "victory groups already exist");
     crate::output::json(&output, &groups)?;
     Ok(())
 }

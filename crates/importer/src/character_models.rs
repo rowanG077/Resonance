@@ -341,10 +341,6 @@ pub(crate) fn pose_chains(
 }
 
 fn write(files: BTreeMap<String, Vec<u8>>, library: &Path) -> Result<()> {
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "party model output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

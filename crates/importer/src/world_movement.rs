@@ -114,7 +114,6 @@ fn convert(bytes: &[u8]) -> Result<MovementParameters> {
 
 pub fn cook_world_movement(root: &Path, library: &Path) -> Result<()> {
     let output = library.join("world/movement.json");
-    ensure!(!output.exists(), "world movement output already exists");
     let settings = convert(&fs::read(root.join("disc1/files/US_r_Top2field.rel"))?)?;
     crate::output::json(&output, &settings)?;
     Ok(())

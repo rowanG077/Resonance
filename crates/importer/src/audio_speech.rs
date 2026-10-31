@@ -366,27 +366,6 @@ fn write_wave(path: &Path, clock: Clock, samples: &[i16]) -> Result<()> {
     Ok(())
 }
 
-fn write_wave_atomic(path: &Path, clock: Clock, samples: &[i16], resume: bool) -> Result<()> {
-    let temporary = path.with_extension("wav.partial");
-    if resume && temporary.exists() {
-        fs::remove_file(&temporary)?;
-    }
-    ensure!(
-        !temporary.exists(),
-        "unfinished speech wave already exists: {} (use speech-resume)",
-        temporary.display()
-    );
-    ensure!(
-        !path.exists(),
-        "speech wave already exists: {}",
-        path.display()
-    );
-    write_wave(&temporary, clock, samples)?;
-    fs::hard_link(&temporary, path)?;
-    fs::remove_file(temporary)?;
-    Ok(())
-}
-
 pub(crate) fn write_adx_wave(bytes: &[u8], path: &Path) -> Result<()> {
     let (clock, samples) = decode_adx(bytes)?;
     write_wave(path, clock, &samples)
@@ -397,32 +376,8 @@ fn publish_voice(
     name: String,
     library: &Path,
     owners: &mut BTreeMap<String, Source>,
-    resume: bool,
 ) -> Result<Source> {
     let target = library.join("audio/speech").join(format!("{name}.wav"));
-    if resume && target.exists() {
-        let metadata = fs::symlink_metadata(&target)?;
-        ensure!(
-            metadata.file_type().is_file() && metadata.len() >= 44,
-            "incomplete speech wave: {}",
-            target.display()
-        );
-        let temporary = target.with_extension("wav.partial");
-        if temporary.exists() {
-            fs::remove_file(temporary)?;
-        }
-        let source = Source::Wave(format!("{name}.wav"));
-        source.resolve()?;
-        if let Some(previous) = owners.get(&name) {
-            ensure!(
-                *previous == source,
-                "voice owner {name} has conflicting definitions"
-            );
-        } else {
-            owners.insert(name, source.clone());
-        }
-        return Ok(source);
-    }
     let (clock, samples) = match bytes.get(4) {
         Some(0x10 | 0x11) => decode_ahx(bytes)?,
         Some(2..=4) => decode_adx(bytes)?,
@@ -456,7 +411,8 @@ fn publish_voice(
         }
     } else {
         if matches!(&source, Source::Wave(_)) {
-            write_wave_atomic(&target, clock, &samples, resume)?;
+            write_wave(&target, clock, &samples)
+                .with_context(|| format!("write speech wave {}", target.display()))?;
         }
         owners.insert(name, source.clone());
     }
@@ -467,15 +423,6 @@ fn publish_voice(
 /// entries for the shared speech mapping; WAVs are written to their final
 /// human-readable owners. A selected ID cooks only one line for quick review.
 pub fn cook_event_speech(root: &Path, library: &Path, selected: Option<u32>) -> Result<Mappings> {
-    event_speech(root, library, selected, false)
-}
-
-pub(crate) fn event_speech(
-    root: &Path,
-    library: &Path,
-    selected: Option<u32>,
-    resume: bool,
-) -> Result<Mappings> {
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let scenes: BTreeMap<u32, Scene> = serde_json::from_str(include_str!("event-speech.json"))?;
     let mut mappings = BTreeMap::new();
@@ -535,7 +482,7 @@ pub(crate) fn event_speech(
             }
             let name = event_name(&entry.name, &scenes)?;
             let bytes = read_member(&mut file, entry)?;
-            let source = publish_voice(&bytes, name, library, &mut owners, resume)
+            let source = publish_voice(&bytes, name, library, &mut owners)
                 .with_context(|| format!("decode event voice {id} ({})", entry.name))?;
             ensure!(
                 mappings.insert(id, source).is_none(),
@@ -552,15 +499,6 @@ pub(crate) fn event_speech(
 /// Battle streams have both their short playback ID and their full voice ID.
 /// Both map to one named recording (or one explicit silence clock).
 pub fn cook_battle_speech(root: &Path, library: &Path, selected: Option<u32>) -> Result<Mappings> {
-    battle_speech(root, library, selected, false)
-}
-
-pub(crate) fn battle_speech(
-    root: &Path,
-    library: &Path,
-    selected: Option<u32>,
-    resume: bool,
-) -> Result<Mappings> {
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let mut declaration = None;
     for row in dol::slice(&exe, DIRECTORY, 18 * 12)?.chunks_exact(12) {
@@ -616,7 +554,7 @@ pub(crate) fn battle_speech(
             .with_context(|| format!("battle voice {short} lacks a maintained name"))?;
         let name = format!("battle/{name}");
         let bytes = read_member(&mut file, entry)?;
-        let source = publish_voice(&bytes, name, library, &mut owners, resume)
+        let source = publish_voice(&bytes, name, library, &mut owners)
             .with_context(|| format!("decode battle voice {short} ({})", entry.name))?;
         ensure!(
             mappings.insert(short, source.clone()).is_none(),
@@ -638,23 +576,11 @@ pub(crate) fn battle_speech(
 
 /// One publication point for the complete human-named speech library.
 pub fn cook_speech(root: &Path, library: &Path) -> Result<()> {
-    cook_speech_mode(root, library, false)
-}
-
-/// Continue an interrupted speech cook in the same output directory. Only
-/// atomically published WAV paths are reused; the mapping is rebuilt from the
-/// native archive tables when every required WAV is present.
-pub fn cook_speech_resume(root: &Path, library: &Path) -> Result<()> {
-    cook_speech_mode(root, library, true)
-}
-
-fn cook_speech_mode(root: &Path, library: &Path, resume: bool) -> Result<()> {
     let target = library.join(SPEECH);
-    ensure!(!target.exists(), "speech mappings already exist");
     let mut mappings = skit_mappings(root, None)?;
-    for (id, source) in event_speech(root, library, None, resume)?
+    for (id, source) in cook_event_speech(root, library, None)?
         .into_iter()
-        .chain(battle_speech(root, library, None, resume)?)
+        .chain(cook_battle_speech(root, library, None)?)
     {
         ensure!(
             mappings.insert(id, source).is_none(),
@@ -675,19 +601,7 @@ fn cook_speech_mode(root: &Path, library: &Path, resume: bool) -> Result<()> {
             path.display()
         );
     }
-    fs::create_dir_all(
-        target
-            .parent()
-            .context("speech mappings have no directory")?,
-    )?;
-    let temporary = target.with_extension("json.partial");
-    if resume && temporary.exists() {
-        fs::remove_file(&temporary)?;
-    }
-    crate::output::json(&temporary, &mappings)?;
-    fs::hard_link(&temporary, target)?;
-    fs::remove_file(temporary)?;
-    Ok(())
+    crate::output::json(&target, &mappings)
 }
 
 fn native_voice_archives(exe: &[u8]) -> Result<(BTreeMap<u32, String>, u32)> {

@@ -97,10 +97,6 @@ pub fn cook_world_terrain_tile(
         format!("{owner}/{document}"),
         resonance_asset_writer::json::encode(&Terrain { collision, parts })?,
     ));
-    ensure!(
-        files.iter().all(|(path, _)| !library.join(path).exists()),
-        "terrain output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

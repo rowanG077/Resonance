@@ -257,10 +257,6 @@ pub fn cook_battle_party_model(
         format!("{base}/party.json"),
         resonance_asset_writer::json::encode(&document)?,
     );
-    ensure!(
-        files.keys().all(|path| !library.join(path).exists()),
-        "battle party output already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;

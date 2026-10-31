@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-/// Write only the supplied path; callers validate temporary files before publishing them.
+/// Write PCM16 directly to the supplied path, replacing any existing file.
 pub fn write_pcm16(
     path: &Path,
     channels: u16,

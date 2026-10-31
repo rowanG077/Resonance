@@ -125,10 +125,6 @@ fn write_directory(library: &Path, [first, second]: [Continent; 2]) -> Result<()
         library.join("world/sylvarant/world.json"),
         library.join("world/tethe-alla/world.json"),
     ];
-    ensure!(
-        paths.iter().all(|path| !path.exists()),
-        "world terrain directory already exists"
-    );
     let mappings = Mappings::new(BTreeMap::from([
         (0, NAMES[0].to_owned()),
         (1, NAMES[1].to_owned()),

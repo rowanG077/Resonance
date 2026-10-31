@@ -463,7 +463,6 @@ pub fn cook_battle_stage_mappings(root: &Path, library: &Path) -> Result<()> {
         .map(|id| (id.raw().to_string(), id.resource_name().unwrap().to_owned()))
         .collect::<BTreeMap<_, _>>();
     let output = library.join("battle/arenas/mappings.json");
-    ensure!(!output.exists(), "arena mappings already exist");
     crate::output::json(&output, &mappings)?;
     Ok(())
 }
@@ -474,10 +473,6 @@ pub fn cook_battle_stage(root: &Path, library: &Path, id: u16) -> Result<()> {
         .resource_name()
         .context("battle stage has no publication name")?;
     let files = convert(root, id, name)?;
-    ensure!(
-        files.iter().all(|(path, _)| !library.join(path).exists()),
-        "battle stage already exists"
-    );
     for (path, bytes) in files {
         let output = library.join(path);
         crate::output::write(&output, &bytes)?;
