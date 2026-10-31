@@ -11,6 +11,8 @@ use bevy_post_process::msaa_writeback::MsaaWritebackPlugin;
 use resonance_content::menu_data::AntiAliasing;
 mod smaa;
 use smaa::Smaa;
+#[cfg(test)]
+mod compositing_tests;
 
 /// Choices valid for all scene color formats and sampled refraction depth.
 /// Created once the render device is available, before the first scene frame.
