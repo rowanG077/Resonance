@@ -24,6 +24,12 @@ audio/render checks. Tests compile their test binaries and rendering example;
 distribution executables and archives are built only on release-branch pushes.
 Private disc images and cooked assets are not needed in CI.
 
+Tests and rendering checks use `--profile release-fast`, which keeps level-3
+optimization and disables LTO to reduce build/link time on all platforms,
+including Windows MSVC. The final distribution executables use `--release`
+with thin LTO and are packaged from `target/release`. Windows jobs have a
+180-minute timeout; the other platforms have 90 minutes.
+
 On a push to `release/vX.X.X`, each platform runs those same tests before
 building and packaging release executables. Every platform must pass before
 publication.
