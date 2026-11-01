@@ -12,7 +12,7 @@ mod iselia;
 mod movement;
 use super::{destinations::*, new_game};
 use crate::field_test::{SCENE_TIMEOUT, Scene, dialogue_input};
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use resonance_game::field::{FieldInput, FieldSession};
 use std::{path::PathBuf, sync::Arc};
 

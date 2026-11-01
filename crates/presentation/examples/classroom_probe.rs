@@ -1,6 +1,6 @@
 //! Silent registered rendering diagnosis. This is not a normal-route acceptance capture.
 fn main() -> anyhow::Result<()> {
-    use anyhow::Context;
+    use anyhow::Context as ContextExt;
     use std::{fs, path::Path};
     let mut args = std::env::args().skip(1);
     let spec = args.next().context("PROBE.json OUTPUT.png [COOKED_ROOT]")?;

@@ -167,7 +167,7 @@ fn setup(
     commands.spawn((
         Camera3d::default(),
         Msaa::Off,
-        Tonemapping::None,
+        Tonemapping::Linear,
         target.clone(),
         Camera {
             clear_color: Color::BLACK.into(),
@@ -215,7 +215,7 @@ fn setup(
     commands.spawn((
         Camera2d,
         Msaa::Off,
-        Tonemapping::None,
+        Tonemapping::Linear,
         target,
         RenderLayers::layer(1),
         Camera {

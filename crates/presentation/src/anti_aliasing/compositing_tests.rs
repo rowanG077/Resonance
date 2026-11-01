@@ -34,7 +34,6 @@ fn automatic_writeback_respects_clears_and_explicit_choices() {
                 sorted_camera_index_for_target: index,
                 exposure: 1.,
                 hdr: false,
-                compositing_space: None,
             })
             .id();
         for (clear, requested, expected) in [
@@ -139,7 +138,7 @@ fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
     let render_target = RenderTarget::Image(target.clone().into());
     app.world_mut().spawn((
         Camera3d::default(),
-        Tonemapping::None,
+        Tonemapping::Linear,
         render_target.clone(),
         Camera {
             clear_color: Color::srgb(0., 1., 0.).into(),
@@ -151,7 +150,7 @@ fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
         .world_mut()
         .spawn((
             Camera2d,
-            Tonemapping::None,
+            Tonemapping::Linear,
             render_target.clone(),
             RenderLayers::layer(1),
             Camera {
@@ -163,7 +162,7 @@ fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
         .id();
     app.world_mut().spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         render_target.clone(),
         RenderLayers::layer(2),
         Camera {

@@ -18,6 +18,18 @@ nix develop
 cargo build --release -p resonance -p resonance-import-cli
 ```
 
+For optimized local iteration, use:
+
+```sh
+cargo run --profile release-fast --bin resonance
+```
+
+`release-fast` keeps level-3 optimization, enables incremental compilation and
+disables link-time optimization. Its first build creates a separate cache in
+`target/release-fast`; later edits reuse it. Use `--release` for distribution and
+performance comparisons, where whole-program optimization can improve runtime
+performance. The Nix development shell uses the parallel mold linker on Linux.
+
 ## Import assets and play
 
 You need both North American GameCube disc images (GQSEAF revision 0):

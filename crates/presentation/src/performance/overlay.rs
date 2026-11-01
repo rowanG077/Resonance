@@ -56,7 +56,7 @@ pub(super) fn setup(
             is_active: monitor.shown,
             ..default()
         },
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         OverlayCamera,
         RenderLayers::layer(LAYER),

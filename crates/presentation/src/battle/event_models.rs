@@ -1,5 +1,5 @@
 //! Scene events sample the prepared battle artwork without changing combat playback.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::{
     Actor, ActorId, Battle, BattleFrame, Character, ModelDefinition, ModelSample, ModelSampler,
 };

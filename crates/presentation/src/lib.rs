@@ -2,7 +2,7 @@
 mod diagnostics;
 #[cfg(test)]
 mod test_support;
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
@@ -419,7 +419,7 @@ fn build_app(
         .add_plugins(plugins)
         .add_plugins(materials::install_output_materials)
         .add_plugins(materials::install_surface_material)
-        .add_plugins(MaterialPlugin::<glow::GlowMaterial>::default())
+        .add_plugins(glow::install)
         .add_plugins(draw_order::DrawOrderPlugin)
         .add_plugins(field_view::FieldPlugin)
         .add_plugins(overworld::OverworldPlugin)
@@ -524,7 +524,6 @@ fn build_app(
         ));
     }
     audio::validate_startup(&app, silent, capture_only)?;
-    bevy::asset::embedded_asset!(app, "title_glow.wgsl");
     let render_diagnostics = app.world().resource::<diagnostics::Diagnostics>().clone();
     app.get_sub_app_mut(bevy::render::RenderApp)
         .context("render application unavailable")?
@@ -623,7 +622,7 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         display::OutputCamera,
@@ -643,7 +642,7 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: -3,
@@ -695,7 +694,7 @@ fn setup(
                 .into(),
             ..default()
         },
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: -4,

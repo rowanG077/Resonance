@@ -1,5 +1,5 @@
 //! Shared song recordings, captured once with their effective mod-selected files.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_audio::recording::{Player, Prepared};
 use resonance_content::{library::Snapshot, music};
 use std::sync::Arc;

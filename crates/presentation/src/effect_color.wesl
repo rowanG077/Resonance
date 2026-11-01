@@ -1,4 +1,3 @@
-#define_import_path resonance::effect_color
 
 fn sample_bytes(map: texture_2d<f32>, uv: vec2<f32>) -> vec4<f32> {
     // Filter on the atlas's 1/128-texel grid, retaining whole color bytes.

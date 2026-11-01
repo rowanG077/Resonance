@@ -81,7 +81,7 @@ fn prepare_depth(
     commands.insert_resource(DepthPipelines(pipelines));
 }
 fn fill_depth(
-    view: ViewQuery<(&ViewDepthTexture, &Msaa)>,
+    view: ViewQuery<(&ViewDepthStencilTexture, &Msaa)>,
     pipelines: Res<DepthPipelines>,
     cache: Res<PipelineCache>,
     mut context: RenderContext,
@@ -101,7 +101,7 @@ fn fill_depth(
         label: Some("captured-mesh test depth"),
         color_attachments: &[],
         depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: depth.view(),
+            view: depth.attachment.depth_stencil_views().attachment_view(),
             depth_ops: Some(Operations {
                 load: LoadOp::Clear(0.),
                 store: StoreOp::Store,
@@ -147,7 +147,7 @@ fn captured_meshes_obey_per_sample_depth_in_every_aa_mode() -> anyhow::Result<()
     .add_plugins(AntiAliasingPlugin)
     .init_resource::<crate::field_audit::Applied>()
     .init_resource::<Captures>();
-    bevy::shader::load_shader_library!(&mut app, "../effect_color.wgsl");
+    crate::materials::embed_effect_color(&mut app);
     install(&mut app);
     let shader = app
         .world_mut()
@@ -198,7 +198,7 @@ fn captured_meshes_obey_per_sample_depth_in_every_aa_mode() -> anyhow::Result<()
             ..default()
         },
         Msaa::Off,
-        Tonemapping::None,
+        Tonemapping::Linear,
         RenderTarget::Image(target.clone().into()),
         Camera {
             clear_color: Color::WHITE.into(),

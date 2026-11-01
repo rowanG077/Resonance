@@ -1,5 +1,5 @@
 //! Silent battle scene capture through the ordinary scene owner.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_events::battle::{DefeatPolicy, Encounter, Setup};
 use std::{fs, path::PathBuf};
 

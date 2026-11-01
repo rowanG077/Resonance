@@ -1,6 +1,6 @@
 //! Silent live menu/save/load validation and screenshots.
 fn main() -> anyhow::Result<()> {
-    use anyhow::Context;
+    use anyhow::Context as ContextExt;
     use std::path::Path;
     let mut args = std::env::args().skip(1);
     let checkpoint = args

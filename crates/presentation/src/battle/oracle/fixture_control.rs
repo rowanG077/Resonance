@@ -1,6 +1,6 @@
 //! Replay controller changes recorded by the single-action capture fixture.
 use super::{Trace, field, random_inputs::Pin};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use serde_json::Value;
 
 pub(super) fn neutral_after_admission(source: &Trace) -> Result<bool> {

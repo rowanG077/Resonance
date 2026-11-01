@@ -1,7 +1,6 @@
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
-#import resonance::effect_color::{quantize, sample_bytes}
-#import resonance::effect_depth::depth_coverage
-
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
+import resonance_presentation::effect_color::{quantize, sample_bytes};
+import resonance_presentation::effect_depth::depth_coverage;
 struct Pulse { center: vec4<f32>, right: vec4<f32>, up: vec4<f32>, opacity: vec4<f32>, tint: vec4<f32> };
 struct Settings {
     clip_from_world: mat4x4<f32>,

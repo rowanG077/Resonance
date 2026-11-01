@@ -10,8 +10,8 @@ anyhow.workspace = true
 codec_ffv1 = "=0.1.0"
 ffv1 = { git = "https://github.com/rust-av/ffv1", rev = "bd9eabfc14c9ad53c37b32279e276619f4390ab8" }
 matroska-demuxer = "=0.8.1"
-rubato = { version = "0.16.2", default-features = false }
-symphonia = { version = "0.5.5", default-features = false, features = ["flac"] }
+rubato = { version = "5.0.1", default-features = false }
+symphonia = { version = "0.6.1", default-features = false, features = ["flac"] }
 flacenc = { version = "0.5.1", default-features = false }
 resonance-content.workspace = true
 

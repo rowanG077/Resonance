@@ -1,7 +1,7 @@
 //! Enumerate live field interactions from independent exploration checkpoints.
 //! Run discovered choice branches through scripts, dialogue and the real silent mixer.
 use super::{field_audio::validation::Playback, new_game};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_content::{
     effect::FieldEffects,
     field::FieldAssets,

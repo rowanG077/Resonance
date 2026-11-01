@@ -628,7 +628,7 @@ impl Feedback {
 
     /// Sample activation attachments only after the current actor pose has been published.
     pub fn resolve_model_effects(&self, frame: &mut BattleFrame) -> anyhow::Result<()> {
-        use anyhow::Context;
+        use anyhow::Context as ContextExt;
         use resonance_content::animation::transform_point;
         if frame
             .cues

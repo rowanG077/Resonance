@@ -10,7 +10,7 @@ mod input;
 mod oracle;
 mod rumble;
 mod transition;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{
         RenderTarget, ScalingMode,
@@ -993,7 +993,7 @@ fn prepare(
                     .spawn((
                         Camera2d,
                         Msaa::Off,
-                        Tonemapping::None,
+                        Tonemapping::Linear,
                         Camera {
                             order: -14,
                             clear_color: ClearColorConfig::None,

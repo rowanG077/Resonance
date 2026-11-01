@@ -378,8 +378,14 @@ fn compare_excluding(
     ensure!(pixels > 0, "exclusions leave no pixels to compare");
     let fraction = changed as f64 / pixels as f64;
     let report = Comparison {
-        reference_sha256: format!("{:x}", Sha256::digest(reference_bytes)),
-        actual_sha256: format!("{:x}", Sha256::digest(actual_bytes)),
+        reference_sha256: Sha256::digest(reference_bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
+        actual_sha256: Sha256::digest(actual_bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
         width,
         height,
         region,
@@ -622,7 +628,10 @@ mod tests {
         assert_eq!(report["changed_fraction"], 1.0);
         assert_eq!(
             report["reference_sha256"],
-            format!("{:x}", Sha256::digest(fs::read(&reference).unwrap()))
+            Sha256::digest(fs::read(&reference).unwrap())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
         );
         for region in [[20, 0, 1, 1], [0, 0, 0, 1], [u32::MAX, 0, 2, 1]] {
             assert!(compare(&reference, &actual, &output, 8, 0.01, Some(region)).is_err());

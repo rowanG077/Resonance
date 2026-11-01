@@ -10,9 +10,11 @@ use std::{
     time::Duration,
 };
 use symphonia::core::{
-    audio::SampleBuffer,
-    codecs::{CODEC_TYPE_FLAC, CodecParameters, Decoder, DecoderOptions},
-    formats::Packet,
+    codecs::audio::{
+        AudioCodecParameters, AudioDecoder, AudioDecoderOptions, well_known::CODEC_ID_FLAC,
+    },
+    packet::PacketRef,
+    units::{Duration as MediaDuration, Timestamp},
 };
 
 /// Validate durations from actual decoded streams, including containers whose
@@ -35,7 +37,7 @@ impl Completion {
 
 pub(crate) struct AudioReader {
     input: container::Input,
-    decoder: Box<dyn Decoder>,
+    decoder: Box<dyn AudioDecoder>,
     id: u64,
     pub sample_rate: u32,
     pub frames: Option<u64>,
@@ -78,24 +80,24 @@ impl AudioReader {
                 && private[5..8] == [0, 0, 34],
             "invalid FLAC stream info"
         );
-        let mut parameters = CodecParameters::new();
-        parameters.codec = CODEC_TYPE_FLAC;
+        let mut parameters = AudioCodecParameters::new();
+        parameters.codec = CODEC_ID_FLAC;
         parameters.with_extra_data(private[8..42].into());
-        let decoder =
-            symphonia::default::get_codecs().make(&parameters, &DecoderOptions::default())?;
+        let decoder = symphonia::default::get_codecs()
+            .make_audio_decoder(&parameters, &AudioDecoderOptions::default())?;
         ensure!(
             decoder.codec_params().sample_rate == Some(sample_rate)
                 && decoder
                     .codec_params()
                     .channels
+                    .as_ref()
                     .is_some_and(|c| c.count() == 2),
             "FLAC format disagrees with container track"
         );
         // STREAMINFO's zero count means unspecified, not an empty soundtrack.
-        let frames = decoder
-            .codec_params()
-            .n_frames
-            .filter(|&frames| frames != 0);
+        // FLAC STREAMINFO stores the total sample count in the low 36 bits.
+        let total = u64::from_be_bytes(private[18..26].try_into().unwrap()) & ((1u64 << 36) - 1);
+        let frames = (total != 0).then_some(total);
         ensure!(
             frames.is_none_or(|frames| frames <= u64::from(sample_rate) * 3600),
             "movie audio exceeds one hour"
@@ -135,18 +137,21 @@ impl AudioReader {
                 pts.abs_diff(expected) < Duration::from_millis(2),
                 "discontinuous movie audio timestamps"
             );
-            let decoded =
-                self.decoder
-                    .decode(&Packet::new_from_slice(0, audio_frames, 0, &packet.data))?;
+            let decoded = self.decoder.decode_ref(&PacketRef::new(
+                0,
+                Timestamp::new(audio_frames as i64),
+                MediaDuration::ZERO,
+                &packet.data,
+            ))?;
             ensure!(
-                decoded.spec().rate == self.sample_rate
-                    && decoded.spec().channels.count() == 2
+                decoded.spec().rate() == self.sample_rate
+                    && decoded.spec().channels().count() == 2
                     && (1..=65536).contains(&decoded.frames()),
                 "unexpected movie audio block format"
             );
             let count = decoded.frames() as u64;
-            let mut samples = SampleBuffer::<f32>::new(count, *decoded.spec());
-            samples.copy_interleaved_ref(decoded);
+            let mut samples = vec![0.0f32; decoded.samples_interleaved()];
+            decoded.copy_to_slice_interleaved(&mut samples);
             let start_frame = audio_frames;
             audio_frames += count;
             ensure!(
@@ -158,7 +163,7 @@ impl AudioReader {
                 .send(Ok(Some(AudioChunk {
                     start_frame,
                     timestamp: pts,
-                    samples: samples.samples().to_vec(),
+                    samples,
                 })))
                 .context("movie consumer closed")?;
         }

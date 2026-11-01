@@ -20,14 +20,17 @@ use bevy::{
 };
 
 #[derive(Component, Clone, ExtractComponent, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 struct Settings {
     opacity: Vec4,
 }
 
 #[derive(Component, Clone, Copy, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 struct FadingOut(bool);
 
 #[derive(Component, Clone, Copy, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 struct BattleCapture {
     update: u64,
     generation: Option<Generation>,
@@ -158,7 +161,7 @@ pub(super) fn battle(
 pub(super) struct Pass;
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "field_dissolve.wgsl");
+    bevy::asset::embedded_asset!(app, "field_dissolve.wesl");
     app.add_plugins((
         ExtractComponentPlugin::<Settings>::default(),
         ExtractComponentPlugin::<FadingOut>::default(),
@@ -246,7 +249,7 @@ fn prepare(
         layout: vec![layout.clone()],
         vertex: fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
-            shader: server.load("embedded://resonance_presentation/field_dissolve.wgsl"),
+            shader: server.load("embedded://resonance_presentation/field_dissolve.wesl"),
             targets: vec![Some(ColorTargetState {
                 format: TextureFormat::Bgra8Unorm,
                 blend: Some(BlendState::ALPHA_BLENDING),

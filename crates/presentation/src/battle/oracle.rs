@@ -1,7 +1,7 @@
 //! Catalogue execution observations through real preparation, models and effects.
 //! Comparison with independently observed source traces belongs to `compare`.
 use super::feedback::Feedback;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::ControllerPort;
 use resonance_battle::{
     ActionId, ActionRequest, Activity, ActorId, BattleInput, BattlePhase, ContactSource, Cue,

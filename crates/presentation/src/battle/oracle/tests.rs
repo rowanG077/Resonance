@@ -1,5 +1,5 @@
 use super::{Oracle, Trace, compare};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use serde_json::json;
 use std::{collections::BTreeSet, fs, path::PathBuf, process::Command};
 

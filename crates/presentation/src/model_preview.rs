@@ -3,7 +3,7 @@ pub(super) mod gpu;
 mod material;
 mod motion;
 mod source;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{
         RenderTarget,
@@ -37,7 +37,7 @@ type Pending = crate::loading::Task<source::Prepared>;
 const LAYER: usize = 29;
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "model_preview.wgsl");
+    bevy::asset::embedded_asset!(app, "model_preview.wesl");
     let shared = gpu::Shared::default();
     app.insert_resource(shared.clone())
         .init_resource::<gpu::Capture>()
@@ -199,7 +199,7 @@ fn setup(
     let camera = commands
         .spawn((
             Camera3d::default(),
-            Tonemapping::None,
+            Tonemapping::Linear,
             Msaa::Off,
             Camera {
                 order: -10,

@@ -22,7 +22,7 @@ pub(crate) use replay::{
 pub(super) mod title;
 mod title_probe;
 use super::{field_view, loading, new_game};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 pub use menu_probe::run_menu_probe;
 pub use probe::run_quicksave_probe;

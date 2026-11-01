@@ -2,7 +2,7 @@ use super::{
     Trace, attached_effects, ballistic_particles, effect_pitch, projectile_random, reaction,
     recoil, support,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::conditions::{Condition, ConditionSet, MAGICAL_AILMENTS, PHYSICAL_AILMENTS};
 use serde::Deserialize;
 use serde_json::Value;

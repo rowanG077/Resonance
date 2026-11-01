@@ -1,6 +1,6 @@
 {
   description = "Resonance development and asset conversion environment";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/34ab99075ac4f7e40cf037eef32cb1c360bb85e9";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   outputs =
     { nixpkgs, ... }:
     let
@@ -26,6 +26,14 @@
         let
           pkgs = import nixpkgs { inherit system; };
           dolphinObserver = import ./nix/dolphin.nix { inherit pkgs; };
+          linkerEnv = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            "CARGO_TARGET_${
+              pkgs.lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] pkgs.stdenv.hostPlatform.rust.rustcTarget)
+            }_LINKER" =
+              pkgs.writeShellScript "resonance-linker" ''
+                exec ${pkgs.clang}/bin/clang "$@" -fuse-ld=${pkgs.mold}/bin/mold
+              '';
+          };
           platformLibraries =
             with pkgs;
             lib.optionals stdenv.hostPlatform.isLinux [
@@ -77,16 +85,19 @@
             ];
           shell =
             extras:
-            pkgs.mkShell {
-              packages = common ++ extras;
-              RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}/lib/rustlib/src/rust/library";
-              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (
-                platformLibraries
-                ++ [
-                  pkgs.lz4
-                ]
-              );
-            };
+            pkgs.mkShell (
+              {
+                packages = common ++ extras;
+                RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}/lib/rustlib/src/rust/library";
+                LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (
+                  platformLibraries
+                  ++ [
+                    pkgs.lz4
+                  ]
+                );
+              }
+              // linkerEnv
+            );
         in
         {
           default = shell [ ];

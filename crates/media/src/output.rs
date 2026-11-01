@@ -2,11 +2,12 @@
 use anyhow::{Result, ensure};
 use resonance_playback::{Converter, SOURCE_BLOCK, SOURCE_RATE};
 use rubato::{
-    Resampler as _, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    Async, FixedAsync, Resampler as _, SincInterpolationParameters, SincInterpolationType,
+    WindowFunction,
 };
 
 pub struct Resampler {
-    context: SincFixedIn<f32>,
+    context: Async<f32>,
     input: Vec<Vec<f32>>,
     output: Vec<Vec<f32>>,
     rate: u32,
@@ -14,6 +15,7 @@ pub struct Resampler {
     output_frames: u64,
     finished: bool,
     pending: usize,
+    startup_delay: usize,
 }
 impl Resampler {
     pub fn new(rate: u32) -> Result<Self> {
@@ -21,22 +23,24 @@ impl Resampler {
             (8000..=192000).contains(&rate),
             "invalid output sample rate"
         );
-        let context = SincFixedIn::new(
+        let context = Async::new_sinc(
             f64::from(rate) / f64::from(SOURCE_RATE),
             1.0,
-            SincInterpolationParameters {
+            &SincInterpolationParameters {
                 sinc_len: 256,
-                f_cutoff: 0.95,
+                f_cutoff: Some(0.95),
                 interpolation: SincInterpolationType::Cubic,
                 oversampling_factor: 256,
                 window: WindowFunction::BlackmanHarris2,
             },
             SOURCE_BLOCK,
             2,
+            FixedAsync::Input,
         )?;
         Ok(Self {
-            input: context.input_buffer_allocate(true),
-            output: context.output_buffer_allocate(true),
+            input: vec![vec![0.0; context.input_frames_max()]; 2],
+            output: vec![vec![0.0; context.output_frames_max()]; 2],
+            startup_delay: context.output_delay(),
             context,
             rate,
             input_frames: 0,
@@ -53,11 +57,25 @@ impl Resampler {
         self.target_frames().saturating_sub(self.output_frames) as i64
     }
     fn process(&mut self, output: &mut Vec<[f32; 2]>, limit: u64) -> Result<()> {
+        let input = rubato::audioadapter_buffers::direct::SequentialSliceOfVecs::new(
+            &self.input,
+            2,
+            self.context.input_frames_max(),
+        )?;
+        let mut converted = rubato::audioadapter_buffers::direct::SequentialSliceOfVecs::new_mut(
+            &mut self.output,
+            2,
+            self.context.output_frames_max(),
+        )?;
         let (_, written) = self
             .context
-            .process_into_buffer(&self.input, &mut self.output, None)?;
-        let count = written.min(limit.saturating_sub(self.output_frames) as usize);
-        output.extend((0..count).map(|i| [self.output[0][i], self.output[1][i]]));
+            .process_into_buffer(&input, &mut converted, None)?;
+        // Rubato 5 emits the sinc filter's startup delay. Keep that latency in
+        // the producer lookahead rather than prefixing the device PCM with it.
+        let skipped = written.min(self.startup_delay);
+        self.startup_delay -= skipped;
+        let count = (written - skipped).min(limit.saturating_sub(self.output_frames) as usize);
+        output.extend((skipped..skipped + count).map(|i| [self.output[0][i], self.output[1][i]]));
         self.output_frames += count as u64;
         Ok(())
     }
@@ -132,8 +150,8 @@ mod tests {
         input[3000][1] = -0.5;
         for rate in [8000, 32028, 44100, 48000, 192000] {
             let output = convert(&input, rate, SOURCE_BLOCK);
-            // Rubato's sinc sampling origin is one output period minus one
-            // native period; the phase offset stays below one native sample.
+            // Trimming the reported filter delay aligns source and device
+            // origins to within one output sample, including upsampling.
             for (channel, source) in [(0, 1000), (1, 3000)] {
                 let peak = output
                     .iter()
@@ -143,8 +161,7 @@ mod tests {
                     .0;
                 assert!(
                     peak.abs_diff(
-                        ((source + 1) as f64 * f64::from(rate) / f64::from(SOURCE_RATE) - 1.0)
-                            .round() as usize
+                        (source as f64 * f64::from(rate) / f64::from(SOURCE_RATE)).round() as usize
                     ) <= 1,
                     "rate {rate}: source {source}, peak {peak}"
                 );

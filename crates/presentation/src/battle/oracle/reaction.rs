@@ -4,7 +4,7 @@
 //! Horizontal movement, heading, knockdown and the selected owner's pose remain
 //! exact comparisons; an unqualified trace gets no exemption.
 use super::{Trace, exactly_one};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
