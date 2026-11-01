@@ -1436,9 +1436,97 @@ Target choices are `nearest`, `farthest`, `leader`, `spread`, `flying`, `casting
 `retain`, `save`, `do-not-use`, `moderation`, `heal` and `support`. Position choices
 are `frontlines`, `dont-pursue`, `hold-position`, `long-range-skills`,
 `long-range-magic` and `skills-and-magic`. The shared `technique_strategies` section
-sets TP-reserve and healing-threshold percentages for those technique choices;
-it is not a list of character attributes. These names select the existing
-gameplay behavior; percentage edits change its thresholds.
+sets combat thresholds for those technique choices, cooked from the original
+battle tables. `tp_reserve_percent` controls offensive technique admission and
+`healing_threshold_percent` controls which injured allies need healing.
+`idle_tp_reserve_percent` independently controls when ranged companions wait
+instead of using normal attacks. These reserves use the current TP percentage
+and an inclusive boundary: TP at or below the reserve is considered low.
+
+The saved Default position retains a broad ranged technique pool when the
+character's default is `long-range-skills` or `long-range-magic`. An explicit
+Long-Range choice permits ranged artes; an explicit Long-Range Magic choice
+permits spells. For example, setting `characters.lloyd.default_strategy.position`
+to `long-range-magic` lets Default open with Demon Fang, while explicitly choosing
+Long-Range Magic waits when Demon Fang is the only enabled technique. Committed
+combos use their own eligibility rules independently of these opening filters.
+
+`buff_max_level_advantage` controls whether AI considers support buffs. At battle
+entry, the engine subtracts the enemy roster's average level from the party
+roster's average level and clamps the result to -8..8. Buffs are considered when
+this difference is at most the configured limit, including equality. This value
+stays fixed through deaths and revivals. Healing and cures remain independent of
+the buff limit; affordable support techniques can be used below the offensive TP
+reserve. `do-not-use` blocks idle technique selection. In a committed combo,
+`skills-and-magic` overrides that restriction, matching the original. Other combo
+positions use the imported reserve: lowering `do-not-use.tp_reserve_percent`
+allows affordable combo techniques above that value while idle selection stays
+suppressed. For example, changing
+`technique_strategies.support.buff_max_level_advantage` from 8 to 0 limits buffs
+to battles against enemies of equal or higher average level.
+
+`target_strategies` maps the eight action choices to combat target handlers.
+For example, setting `target_strategies.scatter` to `nearest` makes the existing
+Scatter choice prefer the closest enemy. The choices are `attack-close`,
+`attack-far`, `attack-same`, `scatter`, `aim-high`, `block-magic`, `reduce` and
+`protect-friend`. Handler values are `nearest`, `farthest`, `leader`, `spread`,
+`flying`, `casting`, `lowest_hp` and `protect`. Keep all eight choices present.
+These changes apply to personal instructions and quick orders, while saved
+choice IDs, captions and edited preset names remain stable.
+
+The imported `casting` handler preserves the original Block Magic rule: its
+behavior changes after the acting character begins a spell. Protect Friend
+includes fallen allies and gives later roster entries priority on equal HP or
+distance. Scatter retries the full roster before falling back to nearest.
+
+`companion_positioning` holds shared movement limits: `idle_arrival_distance`
+(default 10), `formation_radius` (807.5), `formation_occupancy_unit` (100), and
+`approach_timeout_ticks` (300).
+These are imported from the game and may be edited independently. Hold Position
+suppresses autonomous attacks and support, while explicit technique commands
+remain available. Idle companions keep their current spot when their formation
+point is inside the radius; post-action return still uses the formation point.
+For an outside formation point, stationary active actors block idle movement
+when their distance is strictly below `formation_occupancy_unit * (positioning_radius + 1)`.
+The positioning radius comes from the obstacle's authored size. Equality is clear. Approaching and returning
+actors are ignored. A blocked idle destination keeps the companion in place;
+post-action return retains the clamped formation destination. Lowering the unit
+from 100 to 50 permits idle movement through a more crowded formation.
+
+`companion_normal_selection` imports `airborne_target_height` (100) and
+`colette_melee_gap` (150). Colette uses neutral on Frontlines and a throw on Don't
+Pursue or either ranged position; flying targets select the low throw. At 75% HP
+or above, a grounded target closer than the configured body gap selects neutral.
+Increasing the gap makes that healthy melee override apply farther away. The
+body gap includes the posed reception spheres. Her throw normals can admit an
+early combo arte even at level 30 or above.
+
+Technique `rules.capabilities.ai_target_scope` controls autonomous admission:
+`single` (the omitted default), `group`, or `either`. This comes from the game's
+technique table and is independent of the released effect's area. For example,
+Nurse and Acuteness use `group`, while Healing Circle uses `either` and can be
+admitted for a single wounded ally. A group support visit takes priority when
+multiple allies qualify, then falls back to single admission if needed. Buff
+visits count living allies, including allies who already have that buff. Explicit
+technique commands do not use this autonomous restriction.
+
+Technique `rules.capabilities.summon` is imported from the technique table and
+classifies techniques for Sheena's autonomous Over Limit selection. During Over
+Limit she considers that group; explicit technique commands retain their own
+admission path. The imported set contains her eleven ordinary spirit summons.
+
+After updating from layout 94–101, recook `battle-party-rules`, `techniques`,
+`battle-enemy-rules` for enemy 180, and `descriptor` for layout 102. Existing saves
+retain their strategy IDs.
+
+Enemy and party `profile.traits` can include `initial_weakness_known` and
+`initial_resistance_known`. These initial information flags are imported from
+the authored profiles; Ktugach starts with weakness information. Companions also
+learn from contact and Magic Lens. Weakness preference requires known information
+and an entry-level advantage at most 2. Known absorption or immunity excludes
+that offensive candidate. Saved contact discoveries seed later encounters;
+the two new Monster Book fields default to unknown in older saves, while a
+complete scan supplies both kinds of information.
 
 Each `casting_voices` section declares its common `fallback` once as a sound and
 duration in ticks. Its `default` and `techniques` select chants and releases.
@@ -1607,7 +1695,7 @@ and `aerial-thrust`. Its small `mappings` section connects character IDs to thes
 editable names. All definitions stay in this one file.
 
 Select `characters.lloyd.attacks.neutral`, for example, to change Lloyd's neutral
-attack. `duration`, `chain_at`, `recovery` and event timestamps are gameplay
+attack. `duration`, `chain_at`, `chain_retry_at`, `recovery` and event timestamps are gameplay
 ticks. Each event is `[tick, command]`; order at the same tick is significant.
 `reach` is `[maximum, minimum]` in world units. Poses retain clip frame units and
 their explicit playback rate; a rate of zero holds the frame.
@@ -1625,7 +1713,17 @@ Grounded up selects `rising`, down selects `thrust`, and side input selects
 `low`. In the air, down selects `aerial-thrust`; other inputs select
 `aerial-slash`. `directions` lists allowed successors; `fallback` is the choice
 for other input. An omitted continuation ends the normal combo. An omitted
-`chain_at` means no chaining timestamp, rather than tick zero.
+`chain_at` means no chaining timestamp, rather than tick zero. `chain_retry_at`
+adds an optional second autonomous combo decision. Automatic actors check these
+authored ages once instead of rolling again on every later recovery update.
+The imported secondary ages are 71 for Colette's thrust and 43 for Sheena's
+finisher, including pose holds. Keep a retry at or after `chain_at` and within
+`duration`. Manual input retains its ordinary buffering window.
+
+For the first party `neutral`, `thrust` or `low` normal, a `forward` event supplies
+a minimum speed and preserves a faster approach. Other normals and later links
+assign the authored value. Automatic normal entry carries its approach speed into
+that first attack.
 
 A contact's `hit` can hold its settings directly or a name in the same
 character's `hits` section. Editing `characters.lloyd.hits.neutral` changes all four
