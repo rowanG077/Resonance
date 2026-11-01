@@ -137,6 +137,25 @@ pub enum TechniqueTarget {
     SelfTarget,
 }
 
+/// Autonomous admission scope, independent of a spell's eventual effect area.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiTargetScope {
+    #[default]
+    Single,
+    Group,
+    Either,
+}
+
+impl AiTargetScope {
+    pub fn single(self) -> bool {
+        self != Self::Group
+    }
+    pub fn group(self) -> bool {
+        self != Self::Single
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TechniqueCapabilities {
@@ -154,6 +173,10 @@ pub struct TechniqueCapabilities {
     pub chains_without_contact: bool,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub target: TechniqueTarget,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub ai_target_scope: AiTargetScope,
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub summon: bool,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub offensive: bool,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]

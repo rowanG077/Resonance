@@ -428,6 +428,8 @@ fn repeated_lens_use_preserves_knowledge_and_reports_discovery_once() {
             assert!(storage.scanned);
             assert_eq!(storage.location, learns_location);
             assert!(battle.enemy_scanned(request.target).unwrap());
+            assert!(battle.actors[request.target.index()].weakness_known);
+            assert!(battle.actors[request.target.index()].resistance_known);
             assert!(battle.ledger.enemy_was_scanned);
             assert_eq!(
                 frame

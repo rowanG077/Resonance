@@ -109,7 +109,7 @@ impl Fixture {
         let fixture = Self(tempfile::tempdir().unwrap());
         fixture.write(
             "base/content.json",
-            br#"{"version":94,"game":"tales-of-symphonia"}"#,
+            br#"{"version":102,"game":"tales-of-symphonia"}"#,
         );
         fixture
     }
@@ -151,8 +151,8 @@ fn game_identity_is_semantic_and_source_metadata_is_rejected() -> Result<()> {
     for invalid in [
         r#"{"version":1,"game":"tales-of-symphonia"}"#,
         r#"{"version":1,"game":"GQSEAF"}"#,
-        r#"{"version":94,"game":"tales-of-symphonia","revision":0}"#,
-        r#"{"version":94,"game":"tales-of-symphonia","platform":"steam"}"#,
+        r#"{"version":102,"game":"tales-of-symphonia","revision":0}"#,
+        r#"{"version":102,"game":"tales-of-symphonia","platform":"steam"}"#,
     ] {
         fixture.write("base/content.json", invalid.as_bytes());
         assert!(fixture.open(&[]).is_err(), "accepted {invalid}");
@@ -602,7 +602,10 @@ fn malformed_override_does_not_fall_back_and_no_legacy_layout_is_guessed() -> Re
     }
     fixture.write(
         "base/content.json",
-        br#"{"version":99,"game":"tales-of-symphonia"}"#,
+        &serde_json::to_vec(&Descriptor {
+            version: VERSION + 1,
+            game: GAME.into(),
+        })?,
     );
     assert!(fixture.open(&[]).is_err());
     fs::remove_file(fixture.0.path().join("base/content.json"))?;

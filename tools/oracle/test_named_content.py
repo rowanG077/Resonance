@@ -16,7 +16,7 @@ class NamedContentTests(unittest.TestCase):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(value))
-            write("content.json", dict(version=91, game="tales-of-symphonia"))
+            write("content.json", dict(version=102, game="tales-of-symphonia"))
             write("game/techniques.json", {"mappings":{"1":"thrust","210":"other-thrust","9":"spell"}})
             write("battle/unison.json", dict(mappings={"10":"thrust","216":"spell"}, placements=[
                 dict(techniques=["thrust",dict(technique="other-thrust",matches="thrust")],distance=350,duration=65),
@@ -33,7 +33,7 @@ class NamedContentTests(unittest.TestCase):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(value))
-            write("content.json", dict(version=91, game="tales-of-symphonia"))
+            write("content.json", dict(version=102, game="tales-of-symphonia"))
             write("battle/enemies/mappings.json", {"7":"wolf", "12":"boar"})
             write("battle/formations.json", dict(
                 mappings={"0":"wolves", "1":"wolves"},
@@ -61,7 +61,7 @@ class NamedContentTests(unittest.TestCase):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(value))
-            write("content.json", dict(version=91, game="tales-of-symphonia"))
+            write("content.json", dict(version=102, game="tales-of-symphonia"))
             write("battle/enemies/mappings.json", {"0":"test"})
             path = "battle/enemies/test/enemy.json"
             shot = dict(definition=dict(velocity=[0,0,1]), hit=dict(power="normal"))
@@ -99,7 +99,7 @@ class NamedContentTests(unittest.TestCase):
     def test_models_resolve_named_attachments_from_glb_without_rig_documents(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "content.json").write_text(json.dumps(dict(version=91, game="tales-of-symphonia")))
+            (root / "content.json").write_text(json.dumps(dict(version=102, game="tales-of-symphonia")))
             def mesh(name):
                 data = json.dumps(dict(asset=dict(version="2.0"), nodes=[
                     dict(name=name, extras=dict(resonance_bone=1)),
@@ -133,7 +133,7 @@ class NamedContentTests(unittest.TestCase):
                 path = root / path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(value))
-            write("content.json", dict(version=91, game="tales-of-symphonia"))
+            write("content.json", dict(version=102, game="tales-of-symphonia"))
             write("battle/scenes/mappings.json", {"214": "rain"})
             write("battle/scenes/rain/scene.json", dict(duration=120,
                 effects="battle/scenes/rain/effects.json"))
@@ -168,7 +168,7 @@ class NamedContentTests(unittest.TestCase):
     def test_compact_effect_defaults_and_fixed_values_keep_explicit_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "content.json").write_text(json.dumps(dict(version=91, game="tales-of-symphonia")))
+            (root / "content.json").write_text(json.dumps(dict(version=102, game="tales-of-symphonia")))
             value = dict(programs=[[dict(at=1, kind="spawn", particle="spark",
                 birth=dict(velocity=[None,0,None], lifetime=30, random_draws=1,
                     size=[dict(min=1,max=5,step=2,draw=0,reverse=True),None,None])) ]],
@@ -200,7 +200,7 @@ class NamedContentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "library"
             root.mkdir()
-            (root / "content.json").write_text('{"version":92,"game":"tales-of-symphonia"}')
+            (root / "content.json").write_text('{"version":102,"game":"tales-of-symphonia"}')
             (root / "old.json").write_text('{"source_sha256":"old","programs":[],"actors":[]}')
             snapshot = Snapshot(root, Path(directory) / "proof")
             with self.assertRaises(ValueError):

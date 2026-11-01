@@ -155,6 +155,7 @@ pub fn prepare_resources(
                 opening: None,
                 events,
                 chain_at: attack.chain_at,
+                chain_retry_at: attack.chain_retry_at,
                 end_at: attack.duration,
                 recovery: attack.recovery,
             }),

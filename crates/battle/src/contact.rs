@@ -553,6 +553,21 @@ impl Contact {
             battle.runtime[actor_index].recovery.last_hit_recovery = nominal >> 1;
         }
         if combat {
+            if battle.actors[actor_index].side == Side::Enemy
+                && result.protection != crate::HitProtection::Avoided
+            {
+                if result.affinity == crate::Affinity::Weak {
+                    battle.actors[actor_index].weakness_known = true;
+                    battle.ledger.discovered_weaknesses.insert(actor);
+                }
+                if matches!(
+                    result.affinity,
+                    crate::Affinity::Resistant | crate::Affinity::Absorb | crate::Affinity::Immune
+                ) {
+                    battle.actors[actor_index].resistance_known = true;
+                    battle.ledger.discovered_resistances.insert(actor);
+                }
+            }
             if result.guard == crate::GuardResult::Broken {
                 let count = &mut battle.ledger.achievements[actor.index()].guard_breaks;
                 *count = count.saturating_add(1);

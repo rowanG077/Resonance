@@ -14,6 +14,8 @@ pub fn apply(
 ) -> Result<()> {
     super::conditions::apply_profile(profile, &mut actor.conditions)?;
     actor.species = profile.species;
+    actor.weakness_known |= profile.traits.initial_weakness_known;
+    actor.resistance_known |= profile.traits.initial_resistance_known;
     actor.body.center_offset = profile.center_offset;
     actor.body.scale = profile.model_scale;
     actor.effect_scale = profile.effect_scale;

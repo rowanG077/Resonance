@@ -112,7 +112,10 @@ mod tests {
         let root = tempfile::tempdir()?;
         std::fs::write(
             root.path().join("content.json"),
-            br#"{"version":94,"game":"tales-of-symphonia"}"#,
+            serde_json::to_vec(&crate::library::Descriptor {
+                version: crate::library::VERSION,
+                game: crate::library::GAME.into(),
+            })?,
         )?;
         let snapshot =
             || Ok::<_, anyhow::Error>(crate::library::Library::open(root.path(), &[])?.snapshot());

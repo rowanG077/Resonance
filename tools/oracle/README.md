@@ -415,3 +415,11 @@ python3 -m unittest discover -s tools/oracle -p 'test_*.py'
 
 Source PCM agreement does not establish physical device latency or underrun
 behavior.
+
+The strategy probes (`strategy_buffs.py`, `strategy_targets.py`,
+`strategy_positions.py`, `strategy_movement.py`, `strategy_support.py`,
+`strategy_characters.py`, `strategy_probabilities.py`, `strategy_combos.py` and
+`strategy_transitions.py`) capture original-game decisions and outcomes for local
+investigation. Use each tool's `--help` for checkpoint requirements and suite
+selection. Write reports to an ignored local directory; they are not inputs to
+repository tests.

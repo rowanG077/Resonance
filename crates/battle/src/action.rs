@@ -78,6 +78,7 @@ impl Sequence {
                 ActionExecution::Attack(attack) => {
                     attack.chain_at.map(|at| crate::control::ComboWindow {
                         opens_at: u32::from(at),
+                        retry_at: attack.chain_retry_at.map(u32::from),
                         buffer_until: u32::from(attack.end_at),
                     })
                 }

@@ -3,7 +3,7 @@ use crate::{dol, text};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     arte::{
-        self, AdmissionFlash, ArteFamily, Casting, CastingEffects, Definition,
+        self, AdmissionFlash, AiTargetScope, ArteFamily, Casting, CastingEffects, Definition,
         LearningPrerequisite, LearningRoute, LearningRules, RegalArteFamily, TechniqueCapabilities,
         TechniqueTarget,
         document::{Document, Entry, Menu},
@@ -53,8 +53,10 @@ fn named_id(id: i16, names: &Mappings) -> Result<Option<String>> {
     Ok(Some(names.target(u32::from(id))?.to_owned()))
 }
 
-fn capabilities(flags: u32) -> TechniqueCapabilities {
+fn capabilities(flags: u32, ai_target_scope: AiTargetScope) -> TechniqueCapabilities {
     TechniqueCapabilities {
+        ai_target_scope,
+        summon: flags & 0x20000000 != 0,
         family: if flags & 0x20 != 0 {
             Some(ArteFamily::Finisher)
         } else if flags & 0x10 != 0 {
@@ -198,7 +200,15 @@ fn decode(
         tp_cost: row[8],
         element,
         learning,
-        capabilities: capabilities(flags),
+        capabilities: capabilities(
+            flags,
+            match row[0x16] {
+                0 | 1 => AiTargetScope::Single,
+                2 => AiTargetScope::Either,
+                3 => AiTargetScope::Group,
+                _ => anyhow::bail!("unsupported technique AI target scope"),
+            },
+        ),
         admission_flash: if flags & 0x80 != 0 {
             None
         } else if flags & 0x08000010 != 0 {
@@ -354,4 +364,51 @@ fn convert(exe: &[u8]) -> Result<Document> {
         techniques,
         learning,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires extracted game executable"]
+    fn imported_ai_target_scopes_survive_named_rules_and_mod_edits() -> Result<()> {
+        let root = std::env::var_os("RESONANCE_TEST_EXTRACTED")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted"));
+        let doc = convert(&fs::read(root.join("disc1/sys/main.dol"))?)?;
+        let table = doc.prepare()?.catalogue;
+        for (id, scope) in [
+            (98, AiTargetScope::Single),
+            (99, AiTargetScope::Group),
+            (102, AiTargetScope::Either),
+            (107, AiTargetScope::Single),
+            (108, AiTargetScope::Group),
+            (109, AiTargetScope::Single),
+            (120, AiTargetScope::Either),
+        ] {
+            assert_eq!(
+                table.definitions[id].capabilities.ai_target_scope, scope,
+                "{id}"
+            );
+        }
+        let mut json = serde_json::to_value(&doc)?;
+        assert!((235..=245).all(|id| table.definitions[id].capabilities.summon));
+        assert!(!table.definitions[126].capabilities.summon);
+        json["techniques"]["power-seal"]["rules"]["capabilities"]["summon"] = true.into();
+        json["techniques"]["acuteness"]["rules"]["capabilities"]["ai_target_scope"] =
+            "single".into();
+        let modified: Document = serde_json::from_value(json)?;
+        let modified = modified.prepare()?.catalogue;
+        assert!(modified.definitions[126].capabilities.summon);
+        assert_eq!(
+            modified.definitions[108].capabilities.ai_target_scope,
+            AiTargetScope::Single
+        );
+        assert_eq!(
+            modified.definitions[99].capabilities.ai_target_scope,
+            AiTargetScope::Group
+        );
+        Ok(())
+    }
 }

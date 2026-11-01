@@ -9,6 +9,17 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+const TARGET_CHOICES: [&str; 8] = [
+    "attack-close",
+    "attack-far",
+    "attack-same",
+    "scatter",
+    "aim-high",
+    "block-magic",
+    "reduce",
+    "protect-friend",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Party {
@@ -16,6 +27,9 @@ pub struct Party {
     pub martial_attacks: String,
     pub characters: BTreeMap<String, Character>,
     pub technique_strategies: BTreeMap<TechniqueStrategy, Limits>,
+    pub target_strategies: BTreeMap<String, TargetPolicy>,
+    pub companion_positioning: profile::CompanionPositioning,
+    pub companion_normal_selection: profile::CompanionNormalSelection,
     pub entry: profile::Entry,
     pub death_voice_pairs: Vec<[String; 2]>,
     pub elemental_contact_sounds: ContactSounds,
@@ -37,54 +51,7 @@ pub struct Character {
     pub item_use_offset: [f32; 3],
 }
 
-/// Names follow the selectable strategy choices. Their numeric values are only
-/// used at the existing save/menu and prepared-gameplay boundaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-#[repr(u8)]
-pub enum TechniqueStrategy {
-    AtOnce = 1,
-    KeepReserve,
-    Retain,
-    Save,
-    DoNotUse,
-    Moderation,
-    Heal,
-    Support,
-}
-
-impl TechniqueStrategy {
-    const ALL: [Self; 8] = [
-        Self::AtOnce,
-        Self::KeepReserve,
-        Self::Retain,
-        Self::Save,
-        Self::DoNotUse,
-        Self::Moderation,
-        Self::Heal,
-        Self::Support,
-    ];
-
-    fn from_id(id: u8) -> Result<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|value| *value as u8 == id)
-            .context("invalid technique strategy")
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-#[repr(u8)]
-pub enum PositionStrategy {
-    Frontlines = 1,
-    DontPursue,
-    HoldPosition,
-    LongRangeSkills,
-    LongRangeMagic,
-    SkillsAndMagic,
-}
+use crate::strategy::{PositionStrategy, TechniqueStrategy};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -102,16 +69,8 @@ impl Strategy {
         );
         Ok(Self {
             target: target.try_into()?,
-            techniques: TechniqueStrategy::from_id(techniques)?,
-            position: match position {
-                1 => PositionStrategy::Frontlines,
-                2 => PositionStrategy::DontPursue,
-                3 => PositionStrategy::HoldPosition,
-                4 => PositionStrategy::LongRangeSkills,
-                5 => PositionStrategy::LongRangeMagic,
-                6 => PositionStrategy::SkillsAndMagic,
-                _ => anyhow::bail!("invalid party position strategy"),
-            },
+            techniques: techniques.try_into()?,
+            position: position.try_into()?,
         })
     }
 
@@ -131,12 +90,7 @@ impl Strategy {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Limits {
-    pub tp_reserve_percent: u8,
-    pub healing_threshold_percent: u8,
-}
+pub use profile::CompanionLimits as Limits;
 
 /// Eight element-specific contact cues; neutral contacts belong to each character.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -376,17 +330,15 @@ impl Party {
             characters,
             technique_strategies: TechniqueStrategy::ALL
                 .into_iter()
-                .map(|strategy| {
-                    let i = strategy as usize;
-                    (
-                        strategy,
-                        Limits {
-                            tp_reserve_percent: value.companion_policy.tp_limits[i],
-                            healing_threshold_percent: value.companion_policy.healing_limits[i],
-                        },
-                    )
-                })
+                .map(|strategy| (strategy, value.companion_policy[strategy as usize]))
                 .collect(),
+            target_strategies: TARGET_CHOICES
+                .into_iter()
+                .zip(value.target_strategies)
+                .map(|(name, handler)| (name.to_owned(), handler))
+                .collect(),
+            companion_positioning: value.companion_positioning,
+            companion_normal_selection: value.companion_normal_selection,
             entry: value.entry,
             death_voice_pairs: value
                 .death_voice_pairs
@@ -413,18 +365,28 @@ impl Party {
             })
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
-        let mut companion_policy = profile::CompanionPolicy::default();
+        ensure!(
+            self.target_strategies.len() == TARGET_CHOICES.len(),
+            "strategy needs eight target handlers"
+        );
+        let target_strategies = TARGET_CHOICES
+            .map(|name| {
+                self.target_strategies
+                    .get(name)
+                    .copied()
+                    .with_context(|| format!("missing target strategy {name}"))
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?
+            .try_into()
+            .unwrap();
+        let mut companion_policy = [Limits::default(); 9];
         for choice in TechniqueStrategy::ALL {
             let limits = self
                 .technique_strategies
                 .get(&choice)
                 .context("missing technique strategy")?;
-            ensure!(
-                limits.tp_reserve_percent <= 100 && limits.healing_threshold_percent <= 100,
-                "invalid companion strategy percentage"
-            );
-            companion_policy.tp_limits[choice as usize] = limits.tp_reserve_percent;
-            companion_policy.healing_limits[choice as usize] = limits.healing_threshold_percent;
+            companion_policy[choice as usize] = *limits;
         }
         let id = |name: &str| -> Result<u8> {
             names
@@ -434,6 +396,7 @@ impl Party {
                 .with_context(|| format!("unmapped death-voice character {name}"))
         };
         let table = profile::Table {
+            target_strategies,
             normal_attacks,
             martial_attacks,
             body_colliders: std::array::from_fn(|i| rows[i].body_collider),
@@ -444,6 +407,8 @@ impl Party {
                 .try_into()
                 .unwrap(),
             companion_policy,
+            companion_positioning: self.companion_positioning,
+            companion_normal_selection: self.companion_normal_selection,
             entry: self.entry,
             chant_sequences: rows
                 .iter()

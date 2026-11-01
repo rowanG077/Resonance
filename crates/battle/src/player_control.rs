@@ -93,10 +93,13 @@ impl Battle {
             let action = candidate.action;
             let [minimum, maximum] = candidate.range;
             self.activate_counter(actor, cues);
-            self.request_selected_approach(
-                actor,
-                self.runtime[index].target,
-                action,
+            self.begin_approach(
+                crate::ActionRequest {
+                    actor: actor,
+                    target: self.runtime[index].target,
+                    action: action,
+                },
+                None,
                 ApproachParameters {
                     minimum,
                     maximum,
@@ -105,6 +108,7 @@ impl Battle {
                     speed: definition.run_speed,
                     turn_ticks: definition.turn_ticks,
                 },
+                self.approach_range_required(actor),
             )?;
         } else if commands
             && !self.actors[index]
@@ -173,6 +177,7 @@ impl Battle {
                     target: self.runtime[index].target,
                     action,
                 },
+                None,
                 ApproachParameters {
                     minimum,
                     maximum,

@@ -12,7 +12,10 @@ fn controlled(mode: Control, duration: u16) -> Battle {
     // Keep autonomous decisions inactive while testing cast controls.
     crate::companion::tests::inert_decision(&mut prepared, ActorId(0));
     prepared.resources.actor_setup[0].companion = Some(crate::CompanionDefinition {
-        normal_attack_opening: false,
+        character: crate::Character::Lloyd,
+        target_strategies: crate::TargetPolicy::PARTY,
+        positioning: crate::tests::companion_positioning(),
+        normal_selection: crate::tests::companion_normal_selection(),
         initial_policy: [1, 1, 1],
         defaults: [1, 1, 1],
         limits: [crate::PolicyLimits::default(); 9],

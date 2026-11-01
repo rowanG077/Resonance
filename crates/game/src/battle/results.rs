@@ -54,6 +54,8 @@ mod tech_connections_tests;
 #[cfg(test)]
 mod technique_use_tests;
 mod technique_uses;
+#[cfg(test)]
+mod test_support;
 mod titles;
 mod unison;
 #[cfg(test)]
@@ -769,6 +771,15 @@ impl Candidate {
             }
         }
         party.unison_gauge = battle.saved_unison_gauge();
+        for enemy in &self.setup.enemies {
+            let weakness = battle.ledger().discovered_weaknesses.contains(enemy.actor);
+            let resistance = battle.ledger().discovered_resistances.contains(enemy.actor);
+            if weakness || resistance {
+                let knowledge = party.monsters.entry(enemy.reward.monster).or_default();
+                knowledge.weakness_known |= weakness;
+                knowledge.resistance_known |= resistance;
+            }
+        }
         Ok(party)
     }
     fn construct_rewards(&mut self, battle: &mut Battle) -> Result<()> {
