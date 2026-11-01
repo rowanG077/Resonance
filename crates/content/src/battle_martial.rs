@@ -349,4 +349,87 @@ mod authored_tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn ghost_wolf_assets_are_editable_with_imported_artwork() -> Result<()> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/ghost-wolf");
+        let example: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("example.json"))?)?;
+        let technique: crate::arte::document::Entry =
+            serde_json::from_value(example["technique"].clone())?;
+        assert_eq!(technique.text["name"], "Ghost Wolf");
+        let action: AuthoredAction = serde_json::from_slice(&std::fs::read(
+            root.join(technique.rules.action.as_ref().context("action missing")?),
+        )?)?;
+        for (&slot, path) in &action.motions {
+            let bytes = std::fs::read(root.join(path))?;
+            let glb = gltf::Gltf::from_slice(&bytes)?;
+            assert!(
+                glb.skins().len() == 0
+                    && glb.meshes().len() == 0
+                    && glb.images().len() == 0
+                    && glb.materials().len() == 0
+                    && glb.textures().len() == 0,
+                "the distributable motion must not bundle game models or artwork"
+            );
+            assert!(
+                glb.nodes().all(|node| {
+                    node.children().len() == 0
+                        && node.transform().matrix()
+                            == crate::animation::Transform::default().matrix()
+                }),
+                "the distributable motion must not bundle native hierarchy or rest transforms"
+            );
+            assert!(
+                glb.buffers()
+                    .all(|buffer| matches!(buffer.source(), gltf::buffer::Source::Bin)),
+                "the distributable motion must not reference external payloads"
+            );
+            let motion = crate::animation::NamedMotion::decode(&bytes)?;
+            assert!(!motion.motion.tracks.is_empty());
+            let (at, pose) = action
+                .attack
+                .events
+                .iter()
+                .find_map(|(at, event)| match event {
+                    Event::Pose(pose) if pose.clip == slot => Some((*at, pose)),
+                    _ => None,
+                })
+                .context("authored motion is not played by the action")?;
+            assert!(!pose.repeat && pose.rate > 0.);
+            let end = pose.end.unwrap_or(motion.motion.duration_frames);
+            assert!(end <= motion.motion.duration_frames);
+            let playback_updates = (end - pose.start) / pose.rate;
+            let available_updates = f32::from(action.attack.duration - at - u16::from(pose.blend));
+            assert!(
+                (playback_updates - available_updates).abs() < 1.001,
+                "the authored performance and its gameplay timeline must finish together"
+            );
+        }
+        let imported_artwork = [
+            "battle/effects/common/textures/atlas-0-0-palette-0.ktx2",
+        ];
+        let mut requested = [false; 1];
+        // Exercise image preparation without bundling the imported game artwork.
+        let texture: std::sync::Arc<[u8]> =
+            resonance_asset_writer::ktx2::encode_rgba8(1, 1, &[255; 4])?.into();
+        let bank = crate::battle_effect::document::read(
+            action.effects.as_deref().context("effects missing")?,
+            &crate::diagnostics::Diagnostics::new(true),
+            |path| {
+                if let Some(index) = imported_artwork.iter().position(|&image| image == path) {
+                    requested[index] = true;
+                    Ok(texture.clone())
+                } else {
+                    Ok(std::fs::read(root.join(path))?.into())
+                }
+            },
+        )?;
+        assert!(requested.into_iter().all(|requested| requested));
+        for template in &bank.actors {
+            template.particle()?.validate()?;
+        }
+        assert!(bank.programs.len() >= 3);
+        Ok(())
+    }
 }
