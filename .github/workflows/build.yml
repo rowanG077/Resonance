@@ -42,6 +42,28 @@ jobs:
             echo 'publish=false' >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check out release manifest
+        if: steps.version.outputs.version != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check workspace version matches release branch
+        if: steps.version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          manifest = tomllib.loads(Path("Cargo.toml").read_text())
+          version = manifest["workspace"]["package"]["version"]
+          if f"v{version}" != os.environ["VERSION"]:
+              raise SystemExit(f"Release branch version {os.environ['VERSION']} does not match Cargo.toml version {version}")
+          PY
+
   test:
     name: ${{ matrix.platform }}
     needs: prepare
@@ -136,10 +158,14 @@ jobs:
 
       - name: Build release executables
         if: needs.prepare.outputs.publish == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cargo build --locked --release -p resonance -p resonance-import-cli
           "target/release/resonance$EXE" --help
           "target/release/resonance-import$EXE" --help
+          test "$("target/release/resonance$EXE" --version)" = "resonance ${VERSION#v}"
+          test "$("target/release/resonance-import$EXE" --version)" = "resonance-import ${VERSION#v}"
 
       - name: Package executables
         if: needs.prepare.outputs.publish == 'true'

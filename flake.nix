@@ -140,7 +140,7 @@
               '';
           workspace = pkgs.rustPlatform.buildRustPackage {
             pname = "resonance-workspace-check";
-            version = "0.1.0";
+            version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
             src = source;
             cargoLock = {
               lockFile = ./Cargo.lock;
