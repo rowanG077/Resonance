@@ -1,5 +1,6 @@
 /target/
 /local/
+/mods/ghost-wolf/source/*.blend[0-9]*
 /.direnv/
 /result*
 *.log

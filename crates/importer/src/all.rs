@@ -113,6 +113,7 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
         }
         Ok(())
     })?;
+    crate::modding_examples::cook_assets(library).context("modding example assets")?;
     heading("Battle equipment");
     let equipment = crate::cook_battle_equipment_mappings(root, library)
         .context("battle equipment mappings")?;

@@ -442,6 +442,19 @@ Ordinary integration and hit-stop still apply.
 when the action ends or is interrupted. Authored actions follow ordinary
 admission, TP spending, interruption, damage and recovery rules.
 
+See [Ghost Wolf](../mods/ghost-wolf/README.md) for a complete playable example
+with two hits, an editable Blender source, and a new animation/effect bank.
+Ordinary importing includes it automatically: the importer adds the single
+technique and its learning/defaults from `mods/ghost-wolf/example.json` into the
+newly generated game documents and publishes its runtime assets. This example
+file is an importer input, not a runtime mod manifest. Other mods still use the
+ordinary file overrides described above.
+
+Edit the `.blend` as the animation source and use the example's export helper.
+Its GLB contains authored changes relative to locally cooked poses; the importer
+resolves those references into the ordinary runtime animation. Native models,
+textures, rigs and reference poses remain local. The example's guide documents
+the Blender setup, export and ordinary import steps.
 Encounter preparation captures the action's dependencies and audio before
 combat, including capacity for artes learned mid-battle; executing it does not
 read loose assets.

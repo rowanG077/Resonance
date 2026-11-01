@@ -35,6 +35,15 @@ target/release/resonance-import cook-all
 default. Category commands in `resonance-importer` can reuse that extraction
 without reading disc images again.
 
+Importing also includes the [Ghost Wolf modding example](../mods/ghost-wolf/README.md).
+Its one technique entry and Lloyd's learning/defaults are added to the
+newly generated game documents. Once Lloyd's native assets have been cooked,
+the importer resolves the example's relative animation against its local pose
+references and writes its runtime assets under `battle/artes/ghost-wolf`.
+Other imported techniques and characters
+keep their generated values. The example guide covers editing its Blender source
+and exporting the runtime animation.
+
 Progress is always written to stderr, with a numbered asset-type heading,
 indented `i/N jobs` lines and further-indented counters within each job:
 
