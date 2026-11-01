@@ -2,7 +2,7 @@
 use super::{Character, Sequence, Sound, Technique};
 use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, bail, ensure};
-use resonance_battle::{AttackEvent, AttackPose, EffectAppearance, PreparedAttack};
+use resonance_battle::{AttackEvent, AttackPose, PreparedAttack};
 use resonance_content::{
     battle_action::{ActionPose, ContactAttachments},
     battle_martial::{Attack, PoseStart, gameplay_tick},
@@ -137,10 +137,12 @@ impl Technique {
                 .get(&clip)
                 .map(|motion| motion.duration_frames)
         })?;
-        if matches!(
-            (self.character, self.catalogue),
-            (Character::Lloyd, 20 | 22) | (Character::Regal, 191)
-        ) {
+        if self.sequence != Sequence::Asset
+            && matches!(
+                (self.character, self.catalogue),
+                (Character::Lloyd, 20 | 22) | (Character::Regal, 191)
+            )
+        {
             let contact = attack
                 .events
                 .iter_mut()
@@ -161,6 +163,11 @@ impl Technique {
                 .try_into()
                 .context("martial shoulder index exceeds limit")?;
         }
+        let effect_bank = resources
+            .authored_effects
+            .get(&self.catalogue)
+            .unwrap_or(&resources.techniques)
+            .clone();
         let recoil = resources.recoil;
         let pose = |source: ActionPose| -> Result<AttackPose> {
             crate::battle::model::action_pose(Some(model), source)
@@ -173,11 +180,7 @@ impl Technique {
             (0, AttackEvent::Braking(GROUND_BRAKING)),
         ];
         if let Some(member) = attack.effect {
-            resources.effect(true, &[member])?;
-            let appearance = EffectAppearance {
-                resource: resources.techniques.resource,
-                member,
-            };
+            let appearance = resources.prepared.effect_member(&effect_bank, member)?;
             events.push((
                 0,
                 AttackEvent::ActionEffect {
@@ -203,12 +206,11 @@ impl Technique {
                 }
                 Event::Contact(contact) => {
                     let mut hit = crate::battle::hit::authored(&contact.hit, recoil)?;
+                    if let Some(sound) = hit.sound {
+                        hit.sound = (resources.sound)(sound)?;
+                    }
                     if let Some(member) = contact.hit.effect {
-                        resources.effect(true, &[member])?;
-                        hit.effect = Some(EffectAppearance {
-                            resource: resources.techniques.resource,
-                            member,
-                        });
+                        hit.effect = Some(resources.prepared.effect_member(&effect_bank, member)?);
                     }
                     if matches!(self.sequence, Sequence::FierceDemonFang)
                         && let ContactAttachments::Groups(groups) = &contact.attachments
@@ -285,7 +287,11 @@ impl Technique {
                         priority: resonance_battle::VoicePriority::Action,
                     }
                 }
-                Event::Effect(_) | Event::Throw { .. } => {
+                Event::Effect(member) => AttackEvent::ActionEffect {
+                    appearance: resources.prepared.effect_member(&effect_bank, *member)?,
+                    origin: resonance_battle::AttackOrigin::ActorRoot,
+                },
+                Event::Throw { .. } => {
                     bail!("unsupported martial action event")
                 }
                 other => crate::battle::normal::movement_event(other)?,

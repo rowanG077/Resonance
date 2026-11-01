@@ -53,6 +53,7 @@ pub(crate) fn is_special_guard(character: Character, catalogue: u16) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Sequence {
+    Asset,
     SpecialGuard,
     Elemental,
     Authored,
@@ -158,6 +159,13 @@ pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
 }
 
 impl Technique {
+    pub(crate) fn asset(character: Character, catalogue: u16) -> Self {
+        Self {
+            character,
+            catalogue,
+            sequence: Sequence::Asset,
+        }
+    }
     pub(crate) fn is_special_guard(self) -> bool {
         self.sequence == Sequence::SpecialGuard
     }

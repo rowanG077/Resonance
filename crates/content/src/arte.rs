@@ -19,6 +19,9 @@ pub const MAX_USES: u16 = 999;
     )
 )]
 pub struct Definition<I = u16, E = u8> {
+    /// Complete asset-authored action, independent of the original arte IDs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub tp_cost: u8,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
