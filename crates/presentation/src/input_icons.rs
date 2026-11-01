@@ -104,12 +104,25 @@ impl DeviceTracker {
         keys: &ButtonInput<KeyCode>,
         pads: impl IntoIterator<Item = (Entity, &'a Gamepad)>,
         configured: &BTreeSet<PhysicalInput>,
+        keymap: &Keymap,
     ) {
+        let configured_press = |input: &PhysicalInput| {
+            configured.contains(input)
+                || configured.iter().any(|bound| {
+                    matches!(
+                        bound,
+                        PhysicalInput::Direction(_)
+                            | PhysicalInput::Axis(
+                                AxisDirection::LeftHorizontal | AxisDirection::RightHorizontal
+                            )
+                    ) && keymap.same_arte_input(bound, input)
+                })
+        };
         let overlay = keys.pressed(KeyCode::Tab)
             && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight));
         let keyboard = keys.get_just_pressed().any(|key| {
             !(overlay && matches!(key, KeyCode::Tab | KeyCode::ShiftLeft | KeyCode::ShiftRight))
-                && configured.contains(&PhysicalInput::Key(format!("{key:?}")))
+                && configured_press(&PhysicalInput::Key(format!("{key:?}")))
         });
         let mut controller = false;
         let mut connected = BTreeSet::new();
@@ -117,7 +130,7 @@ impl DeviceTracker {
             connected.insert(entity);
             if pad
                 .get_just_pressed()
-                .any(|button| configured.contains(&PhysicalInput::Button(format!("{button:?}"))))
+                .any(|button| configured_press(&PhysicalInput::Button(format!("{button:?}"))))
             {
                 controller = true;
             }
@@ -137,7 +150,7 @@ impl DeviceTracker {
             {
                 let value = values[index];
                 let input = PhysicalInput::Axis(if value < 0. { negative } else { positive });
-                if previous[index].sample(value) && configured.contains(&input) {
+                if previous[index].sample(value) && configured_press(&input) {
                     controller = true;
                 }
             }
@@ -205,7 +218,7 @@ pub(crate) fn track_device(
                 .map(|binding| &binding.chord)
         });
     let configured = configured_inputs(&map, chords);
-    tracker.sample(&keys, pads.iter(), &configured);
+    tracker.sample(&keys, pads.iter(), &configured, &map);
 }
 pub(crate) fn action_input(
     map: &Keymap,
@@ -266,6 +279,32 @@ pub(crate) fn short_label(input: &PhysicalInput) -> String {
 }
 pub(crate) fn name(input: &PhysicalInput) -> String {
     match input {
+        PhysicalInput::Direction(direction) => {
+            use resonance_content::input::{DirectionSlot::*, DirectionSource::*};
+            match (direction.source, direction.slot) {
+                (Keyboard, Horizontal) => "key_horizontal",
+                (DPad, Horizontal) => "pad_dpad_horizontal",
+                (Keyboard, Left) => "key_left",
+                (Keyboard, Right) => "key_right",
+                (Keyboard, Up) => "key_up",
+                (Keyboard, Down) => "key_down",
+                (DPad, Left) => "pad_dpad_left",
+                (DPad, Right) => "pad_dpad_right",
+                (DPad, Up) => "pad_dpad_up",
+                (DPad, Down) => "pad_dpad_down",
+                (LeftStick, Horizontal) => "stick_l_horizontal",
+                (RightStick, Horizontal) => "stick_r_horizontal",
+                (LeftStick, Left) => "stick_l_left",
+                (LeftStick, Right) => "stick_l_right",
+                (LeftStick, Up) => "stick_l_up",
+                (LeftStick, Down) => "stick_l_down",
+                (RightStick, Left) => "stick_r_left",
+                (RightStick, Right) => "stick_r_right",
+                (RightStick, Up) => "stick_r_up",
+                (RightStick, Down) => "stick_r_down",
+            }
+            .into()
+        }
         PhysicalInput::Key(key) => {
             let name = match key.as_str() {
                 "Enter" | "NumpadEnter" => "enter",
@@ -350,6 +389,8 @@ pub(crate) fn name(input: &PhysicalInput) -> String {
             AxisDirection::RightLeft => "stick_r_left",
             AxisDirection::LeftRight => "stick_l_right",
             AxisDirection::RightRight => "stick_r_right",
+            AxisDirection::LeftHorizontal => "stick_l_horizontal",
+            AxisDirection::RightHorizontal => "stick_r_horizontal",
         }
         .into(),
     }
@@ -717,6 +758,45 @@ mod device_tests {
     use resonance_content::input::InputChord;
 
     #[test]
+    fn shared_digital_slots_activate_prompts_for_either_horizontal_direction() {
+        use resonance_content::input::{ArteDirection, DirectionSlot, DirectionSource};
+        let mut map = Keymap::default();
+        map.assign(StandardAction::MoveLeft, PhysicalInput::Key("KeyJ".into()));
+        map.assign(StandardAction::MoveRight, PhysicalInput::Key("KeyL".into()));
+        for source in [DirectionSource::Keyboard, DirectionSource::DPad] {
+            let input = PhysicalInput::Direction(ArteDirection {
+                source,
+                slot: DirectionSlot::Horizontal,
+            });
+            assert!(has_specific_icon(default_atlas(), &input));
+            let configured = [input].into();
+            for (key, button) in [
+                (KeyCode::KeyJ, GamepadButton::DPadLeft),
+                (KeyCode::KeyL, GamepadButton::DPadRight),
+            ] {
+                let mut tracker = DeviceTracker::default();
+                let mut keys = ButtonInput::default();
+                let mut pad = Gamepad::default();
+                if source == DirectionSource::Keyboard {
+                    keys.press(key);
+                } else {
+                    tracker.device = PromptDevice::Keyboard;
+                    pad.digital_mut().press(button);
+                }
+                tracker.sample(&keys, [(Entity::from_bits(1), &pad)], &configured, &map);
+                assert_eq!(
+                    tracker.device(),
+                    if source == DirectionSource::Keyboard {
+                        PromptDevice::Keyboard
+                    } else {
+                        PromptDevice::Controller
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
     fn separate_apps_keep_independent_prompt_devices_and_rendered_icons() {
         let make_app = || {
             let mut app = App::new();
@@ -794,24 +874,24 @@ mod device_tests {
             "controller is the default until a valid keyboard press"
         );
         keys.press(KeyCode::F24);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Controller);
         keys.clear();
         keys.press(KeyCode::Enter);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
         keys.clear();
         pad.digital_mut().press(GamepadButton::Other(27));
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
         pad.digital_mut().clear();
         pad.digital_mut().press(GamepadButton::South);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Controller);
         pad.digital_mut().clear();
         keys.release(KeyCode::F24);
         keys.press(KeyCode::F24);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(
             tracker.device == PromptDevice::Controller,
             "unassigned keys cannot take prompts from the controller"
@@ -819,13 +899,13 @@ mod device_tests {
         keys.clear();
         keys.release(KeyCode::Enter);
         keys.press(KeyCode::Enter);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(
             tracker.device == PromptDevice::Keyboard,
             "a held controller button is not a new input"
         );
         keys.clear();
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
     }
 
@@ -849,11 +929,11 @@ mod device_tests {
         let mut tracker = DeviceTracker::default();
         let mut keys = ButtonInput::default();
         keys.press(KeyCode::Enter);
-        tracker.sample(&keys, [], &configured);
+        tracker.sample(&keys, [], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Controller);
         keys.clear();
         keys.press(KeyCode::F11);
-        tracker.sample(&keys, [], &configured);
+        tracker.sample(&keys, [], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
     }
 
@@ -865,31 +945,31 @@ mod device_tests {
         let mut pad = Gamepad::default();
         let entity = Entity::from_bits(1);
         keys.press(KeyCode::Enter);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
         keys.clear();
         pad.analog_mut().set(GamepadAxis::LeftStickX, 0.35);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(
             tracker.device == PromptDevice::Controller,
             "walking-strength tilt is a configured input"
         );
         keys.press(KeyCode::KeyA);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
         keys.clear();
         for value in [0.35, 0.37, 0.34, 0.22, 0.1, 0.] {
             pad.analog_mut().set(GamepadAxis::LeftStickX, value);
-            tracker.sample(&keys, [(entity, &pad)], &configured);
+            tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
             assert!(
                 tracker.device == PromptDevice::Keyboard,
                 "stick holding/noise/return at {value} must not reclaim prompts"
             );
         }
         pad.analog_mut().set(GamepadAxis::LeftStickX, 0.35);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Controller);
-        tracker.sample(&keys, [], &configured);
+        tracker.sample(&keys, [], &configured, &Keymap::default());
         assert!(
             tracker.axes.is_empty(),
             "disconnected devices leave no stale anchors"
@@ -909,27 +989,27 @@ mod device_tests {
         let entity = Entity::from_bits(1);
         keys.press(KeyCode::Enter);
         pad.analog_mut().set(GamepadAxis::LeftStickX, 0.8);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(
             tracker.device == PromptDevice::Keyboard,
             "the unconfigured opposite direction must be ignored"
         );
         keys.clear();
         pad.analog_mut().set(GamepadAxis::LeftStickX, -0.35);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Controller);
         keys.release(KeyCode::Enter);
         keys.press(KeyCode::Enter);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(tracker.device == PromptDevice::Keyboard);
         keys.clear();
         for value in [-0.37, -0.40, -0.43] {
             pad.analog_mut().set(GamepadAxis::LeftStickX, value);
-            tracker.sample(&keys, [(entity, &pad)], &configured);
+            tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
             assert!(tracker.device == PromptDevice::Keyboard);
         }
         pad.analog_mut().set(GamepadAxis::LeftStickX, -0.47);
-        tracker.sample(&keys, [(entity, &pad)], &configured);
+        tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
         assert!(
             tracker.device == PromptDevice::Controller,
             "slow intentional movement must not disappear between frames"
@@ -942,7 +1022,12 @@ mod device_tests {
         keys.press(KeyCode::ShiftLeft);
         keys.press(KeyCode::Tab);
         let mut tracker = DeviceTracker::default();
-        tracker.sample(&keys, [], &configured_inputs(&Keymap::default(), []));
+        tracker.sample(
+            &keys,
+            [],
+            &configured_inputs(&Keymap::default(), []),
+            &Keymap::default(),
+        );
         assert!(tracker.device == PromptDevice::Controller);
     }
 
@@ -961,37 +1046,37 @@ mod device_tests {
                 let mut pad = Gamepad::default();
                 let entity = Entity::from_bits(1);
                 keys.press(KeyCode::Enter);
-                tracker.sample(&keys, [(entity, &pad)], &configured);
+                tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
                 keys.clear();
                 for value in [0.19, 0.21, 0.18, 0.22, 0.29] {
                     pad.analog_mut().set(axis, sign * value);
-                    tracker.sample(&keys, [(entity, &pad)], &configured);
+                    tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
                     assert!(
                         tracker.device == PromptDevice::Keyboard,
                         "idle chatter on {axis:?}: {value}"
                     );
                 }
                 pad.analog_mut().set(axis, sign * 0.35);
-                tracker.sample(&keys, [(entity, &pad)], &configured);
+                tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
                 assert!(
                     tracker.device == PromptDevice::Controller,
                     "walking-strength tilt on {axis:?}"
                 );
                 keys.release(KeyCode::Enter);
                 keys.press(KeyCode::Enter);
-                tracker.sample(&keys, [(entity, &pad)], &configured);
+                tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
                 assert!(tracker.device == PromptDevice::Keyboard);
                 keys.clear();
                 for value in [0.21, 0.19, 0.21, 0.18, 0.22, 0.29, 0., 0.21] {
                     pad.analog_mut().set(axis, sign * value);
-                    tracker.sample(&keys, [(entity, &pad)], &configured);
+                    tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
                     assert!(
                         tracker.device == PromptDevice::Keyboard,
                         "return chatter on {axis:?}: {value}"
                     );
                 }
                 pad.analog_mut().set(axis, sign * 0.35);
-                tracker.sample(&keys, [(entity, &pad)], &configured);
+                tracker.sample(&keys, [(entity, &pad)], &configured, &Keymap::default());
                 assert!(
                     tracker.device == PromptDevice::Controller,
                     "fresh tilt on {axis:?}"
@@ -1021,25 +1106,45 @@ mod device_tests {
                 } else {
                     pad.digital_mut().press(GamepadButton::South);
                 }
-                tracker.sample(&keys, [(Entity::from_bits(1), &pad)], &configured);
+                tracker.sample(
+                    &keys,
+                    [(Entity::from_bits(1), &pad)],
+                    &configured,
+                    &Keymap::default(),
+                );
                 assert_eq!(tracker.device == PromptDevice::Keyboard, keyboard);
                 keys.clear();
                 pad.digital_mut().clear();
-                tracker.sample(&keys, [(Entity::from_bits(1), &pad)], &configured);
+                tracker.sample(
+                    &keys,
+                    [(Entity::from_bits(1), &pad)],
+                    &configured,
+                    &Keymap::default(),
+                );
                 assert_eq!(
                     tracker.device == PromptDevice::Keyboard,
                     keyboard,
                     "holding cannot break the tie"
                 );
                 keys.press(KeyCode::KeyA);
-                tracker.sample(&keys, [(Entity::from_bits(1), &pad)], &configured);
+                tracker.sample(
+                    &keys,
+                    [(Entity::from_bits(1), &pad)],
+                    &configured,
+                    &Keymap::default(),
+                );
                 assert!(
                     tracker.device == PromptDevice::Keyboard,
                     "subsequent keyboard input wins"
                 );
                 keys.clear();
                 pad.digital_mut().press(GamepadButton::East);
-                tracker.sample(&keys, [(Entity::from_bits(1), &pad)], &configured);
+                tracker.sample(
+                    &keys,
+                    [(Entity::from_bits(1), &pad)],
+                    &configured,
+                    &Keymap::default(),
+                );
                 assert!(
                     tracker.device == PromptDevice::Controller,
                     "subsequent controller input wins"

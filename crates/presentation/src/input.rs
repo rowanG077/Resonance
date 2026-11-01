@@ -66,10 +66,11 @@ impl PhysicalState {
             .map(|(input, _)| input.clone())
             .collect()
     }
-    pub fn capture_inputs(&self) -> BTreeSet<PhysicalInput> {
-        // A deliberate tilt beyond the movement dead zone is a chord component,
-        // including moderate/diagonal tilts that never reach the button threshold.
-        self.values
+    pub fn capture_inputs(&self, keymap: &Keymap) -> BTreeSet<PhysicalInput> {
+        // Moderate tilts count, but each stick contributes only its strongest
+        // direction. Vertical wins ties, giving bindings four cardinal directions.
+        let mut inputs: BTreeSet<_> = self
+            .values
             .iter()
             .filter(|(input, value)| {
                 **value
@@ -81,7 +82,28 @@ impl PhysicalState {
             })
             .map(|(input, _)| input.clone())
             .chain(self.pressed.iter().cloned())
-            .collect()
+            .collect();
+        for source in resonance_content::input::DirectionSource::ALL {
+            let strongest = inputs
+                .iter()
+                .filter_map(|input| {
+                    let direction = keymap.direction(input)?;
+                    (direction.source == source).then_some((input, direction.slot))
+                })
+                .max_by(|(a, a_slot), (b, b_slot)| {
+                    let strength = |input| self.values.get(input).copied().unwrap_or(0.);
+                    strength(a)
+                        .total_cmp(&strength(b))
+                        .then_with(|| a_slot.vertical().cmp(&b_slot.vertical()))
+                })
+                .map(|(input, _)| input.clone());
+            inputs.retain(|input| {
+                keymap.direction(input).is_none_or(|direction| {
+                    direction.source != source || Some(input) == strongest.as_ref()
+                })
+            });
+        }
+        inputs
     }
     pub fn without(&self, consumed: &BTreeSet<PhysicalInput>) -> Self {
         Self {
@@ -219,14 +241,19 @@ pub(crate) fn resolve_arte_bindings<'a, 'b>(
             continue;
         }
         for (index, binding) in bindings.iter().enumerate() {
-            if binding.chord.validate(map).is_ok() && binding.chord.matches(held) {
+            if binding.chord.validate(map).is_ok() && binding.chord.matches(held, map) {
                 active.insert((member, index));
-                consumed.extend(binding.chord.0.iter().cloned());
+                if !binding.chord.matches_directions(held, map) {
+                    continue;
+                }
+                let inputs = binding.chord.held_inputs(held, map);
+                consumed.extend(inputs.iter().cloned());
                 matches.push(ArteMatch {
                     actor: actor_id,
                     member,
                     index,
                     binding,
+                    inputs,
                 });
             }
         }
@@ -243,17 +270,12 @@ pub(crate) fn resolve_arte_bindings<'a, 'b>(
     let selected = matches
         .into_iter()
         .filter(|m| {
-            if selected_actors.contains(&m.actor.index())
-                || m.binding
-                    .chord
-                    .0
-                    .iter()
-                    .any(|i| selected_inputs.contains(i))
+            if selected_actors.contains(&m.actor.index()) || !m.inputs.is_disjoint(&selected_inputs)
             {
                 return false;
             }
             selected_actors.insert(m.actor.index());
-            selected_inputs.extend(m.binding.chord.0.iter().cloned());
+            selected_inputs.extend(m.inputs.iter().cloned());
             true
         })
         .collect();
@@ -273,6 +295,7 @@ pub(crate) struct ArteMatch<'a> {
     pub member: usize,
     pub index: usize,
     pub binding: &'a resonance_content::input::ArteBinding,
+    inputs: BTreeSet<PhysicalInput>,
 }
 
 #[cfg(test)]
@@ -280,6 +303,79 @@ mod tests {
     use super::*;
     use resonance_battle::{ActorId, Control, ControllerPort, Side};
     use resonance_content::input::{ArteBinding, InputChord};
+
+    #[test]
+    fn digital_directions_use_vertical_priority_and_follow_remapped_movement() {
+        let mut map = Keymap::default();
+        map.assign(StandardAction::MoveRight, PhysicalInput::Key("KeyL".into()));
+        let mut keys = ButtonInput::default();
+        for (horizontal, vertical) in [
+            (KeyCode::ArrowRight, KeyCode::ArrowUp),
+            (KeyCode::KeyL, KeyCode::KeyW),
+        ] {
+            keys.reset_all();
+            keys.press(horizontal);
+            keys.press(vertical);
+            let state = PhysicalState::keyboard(&keys);
+            assert_eq!(
+                state.capture_inputs(&map),
+                [PhysicalInput::Key(format!("{vertical:?}"))].into()
+            );
+            assert!(state.down(&map, StandardAction::MoveUp));
+        }
+        let mut pad = Gamepad::default();
+        pad.digital_mut().press(GamepadButton::DPadRight);
+        pad.digital_mut().press(GamepadButton::DPadUp);
+        let state = PhysicalState::gamepad(&pad);
+        assert_eq!(
+            state.capture_inputs(&map),
+            [PhysicalInput::Button("DPadUp".into())].into()
+        );
+        assert!(state.down(&map, StandardAction::OrderRight));
+        assert!(state.down(&map, StandardAction::OrderUp));
+    }
+
+    #[test]
+    fn each_stick_contributes_one_cardinal_binding_direction() {
+        use AxisDirection::*;
+        let map = Keymap::default();
+        for (axes, directions) in [
+            (
+                [GamepadAxis::LeftStickX, GamepadAxis::LeftStickY],
+                [LeftLeft, LeftRight, LeftDown, LeftUp],
+            ),
+            (
+                [GamepadAxis::RightStickX, GamepadAxis::RightStickY],
+                [RightLeft, RightRight, RightDown, RightUp],
+            ),
+        ] {
+            for (x, y, direction) in [
+                (0.9, 0.8, directions[1]),
+                (-0.9, 0.8, directions[0]),
+                (0.8, 0.9, directions[3]),
+                (0.8, -0.9, directions[2]),
+                (0.8, 0.8, directions[3]),
+                (-0.8, -0.8, directions[2]),
+                (0.3, 0.4, directions[3]),
+            ] {
+                let mut pad = Gamepad::default();
+                pad.analog_mut().set(axes[0], x);
+                pad.analog_mut().set(axes[1], y);
+                let mut state = PhysicalState::gamepad(&pad);
+                state.track_edges(&mut BTreeSet::new());
+                assert_eq!(
+                    state.capture_inputs(&map),
+                    [PhysicalInput::Axis(direction)].into()
+                );
+                let movement = if axes[0] == GamepadAxis::LeftStickX {
+                    state.movement(&map)
+                } else {
+                    state.camera(&map)
+                };
+                assert_eq!(movement, Vec2::new(x, y));
+            }
+        }
+    }
 
     #[test]
     fn moderate_stick_tilts_record_and_resolve_combos_with_every_standard_button() {
@@ -313,7 +409,7 @@ mod tests {
                 pad.analog_mut().set(axis, value);
                 pad.digital_mut().press(GamepadButton::South);
                 let mut capture = Capture::chord(map.get(StandardAction::Confirm).iter().cloned());
-                let sample = |pad: &Gamepad| PhysicalState::gamepad(pad).capture_inputs();
+                let sample = |pad: &Gamepad| PhysicalState::gamepad(pad).capture_inputs(&map);
                 assert!(capture.sample(&sample(&pad)).is_none());
                 pad.digital_mut().release(GamepadButton::South);
                 pad.digital_mut().clear();
