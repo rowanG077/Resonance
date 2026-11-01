@@ -1,5 +1,5 @@
 //! Session-owned party state. Rendering and event bytecode do not own inventory.
-use resonance_content::session::SessionData;
+use resonance_content::{grade::MAX_GRADE, session::SessionData};
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 mod battle_flags_tests;
@@ -14,6 +14,7 @@ mod ex_skills;
 pub use bestiary::MonsterKnowledge;
 mod items;
 pub mod new_game_plus;
+mod recovery;
 mod stats;
 mod strategy;
 mod techniques;
@@ -23,6 +24,18 @@ pub use cooking::{Cooking, CookingError, Meal};
 pub use items::EncounterModifier;
 pub use stats::{EquipmentTraits, Stats};
 pub use travel::Travel;
+
+/// Character EXP cap shared by save admission and battle rewards.
+pub const MAX_EXPERIENCE: u32 = 9_999_999;
+
+// Shared by save recovery and strict validation.
+const MAX_GALD: u32 = 99_999_999;
+const MAX_UNISON_GAUGE: u8 = 200;
+const MAX_GAME_CLEARS: u8 = 100;
+const MAX_OVERLIMIT: u8 = 100;
+const MAX_TECHNIQUE_BALANCE: i8 = 100;
+const MAX_COOKING_MASTERY: u8 = 8;
+const BASE_STAT_LIMITS: [u16; 7] = [9999, 999, 32767, 32767, 32767, 32767, 32767];
 
 fn initial_title() -> u8 {
     1
@@ -53,16 +66,24 @@ pub struct Member {
     pub titles: BTreeSet<u8>,
     /// Negative favors technical arts; positive favors strike arts.
     #[serde(default)]
+    #[serde(deserialize_with = "recovery::number")]
     pub technique_balance: i8,
     pub affinity: i32,
+    #[serde(deserialize_with = "recovery::number")]
     pub level: u8,
+    #[serde(deserialize_with = "recovery::number")]
     pub experience: u32,
+    #[serde(deserialize_with = "recovery::array")]
     pub base_stats: [u16; 7],
+    #[serde(deserialize_with = "recovery::number")]
     pub hp: u16,
+    #[serde(deserialize_with = "recovery::number")]
     pub tp: u16,
     pub ailments: Ailments,
     pub queued_buffs: BTreeSet<StatBuff>,
+    #[serde(deserialize_with = "recovery::number")]
     pub luck: u8,
+    #[serde(deserialize_with = "recovery::number")]
     pub overlimit: u8,
     pub equipment: [u16; 6],
     pub techniques: BTreeSet<u16>,
@@ -74,6 +95,7 @@ pub struct Member {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub disabled_techniques: BTreeSet<u16>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(deserialize_with = "recovery::counts")]
     pub technique_uses: BTreeMap<u16, u16>,
     #[serde(default)]
     pub assist_shortcuts: [Option<TechniqueShortcut>; 2],
@@ -81,6 +103,7 @@ pub struct Member {
     #[serde(default)]
     pub strategy: [u8; 3],
     #[serde(default)]
+    #[serde(deserialize_with = "recovery::array")]
     pub cooking: [u8; resonance_content::menu_data::RECIPE_COUNT],
     #[serde(default)]
     pub ex_skills: [u8; 4],
@@ -94,6 +117,24 @@ pub struct Member {
 }
 
 impl Member {
+    /// Validate references used by stat calculations before indexing their rules.
+    fn validate_loadout(&self, data: &SessionData, character: usize) -> anyhow::Result<()> {
+        self.validate_ex(data.rules.as_ref().map(|rules| &rules.ex_skills), character)?;
+        anyhow::ensure!(
+            self.equipment.iter().enumerate().all(|(slot, &id)| id == 0
+                || data
+                    .items
+                    .get(usize::from(id))
+                    .is_some_and(|item| item.fits_slot(character, slot))
+                    && data
+                        .rules
+                        .as_ref()
+                        .is_none_or(|rules| rules.items.get(usize::from(id)).is_some())),
+            "invalid saved equipment"
+        );
+        Ok(())
+    }
+
     /// Owned title that unlocks the selected outfit, independent of equipped title.
     pub fn costume_title(&self, titles: &[resonance_content::menu_data::Title]) -> Option<u8> {
         self.titles.iter().copied().find(|&id| {
@@ -1164,12 +1205,14 @@ impl Default for Settings {
 pub struct Party {
     /// Saved Unison gauge; battle units are this value shifted left four.
     #[serde(default)]
+    #[serde(deserialize_with = "recovery::number")]
     pub unison_gauge: u8,
     pub battles: BattleStatistics,
     #[serde(default)]
     pub new_game_plus: new_game_plus::State,
     /// Completed playthroughs, queried by original field scripts.
     #[serde(default)]
+    #[serde(deserialize_with = "recovery::number")]
     pub game_clears: u8,
     #[serde(default)]
     pub battle_rules: crate::battle::Rules,
@@ -1198,12 +1241,15 @@ pub struct Party {
     pub field_leader: u8,
     #[serde(default)]
     pub leader_locked: bool,
+    #[serde(deserialize_with = "recovery::counts")]
     pub items: BTreeMap<u16, u8>,
     pub found_items: BTreeSet<u16>,
     pub recent_items: Vec<u16>,
+    #[serde(deserialize_with = "recovery::number")]
     pub gald: u32,
     /// Grade is stored in hundredths; script purchases use whole Grade amounts.
     #[serde(default)]
+    #[serde(deserialize_with = "recovery::number")]
     pub grade_hundredths: u32,
     #[serde(default)]
     pub collectors_book_complete: bool,
@@ -1211,6 +1257,7 @@ pub struct Party {
     pub monster_book_complete: bool,
     #[serde(default)]
     pub figurine_book_complete: bool,
+    #[serde(deserialize_with = "recovery::number")]
     pub spent_gald: u32,
     pub settings: Settings,
 }
@@ -1261,7 +1308,6 @@ impl Party {
         self.settings.preferences.validate()?;
         self.battles.validate()?;
         self.travel.validate()?;
-        const MAX_GAME_CLEARS: u8 = 100;
         ensure!(
             self.game_clears <= MAX_GAME_CLEARS,
             "invalid saved game clear count"
@@ -1278,7 +1324,7 @@ impl Party {
                 && self
                     .members
                     .iter()
-                    .all(|m| m.cooking.iter().all(|&v| v <= 8)),
+                    .all(|m| m.cooking.iter().all(|&v| v <= MAX_COOKING_MASTERY)),
             "invalid saved cooking state"
         );
         ensure!(
@@ -1298,9 +1344,9 @@ impl Party {
                     .all(|id| *id > 0 && usize::from(*id) <= self.members.len())
                 && self.formation.iter().collect::<BTreeSet<_>>().len() == self.formation.len()
                 && self.settings.battle_controls.iter().all(|v| *v <= 2)
-                && self.gald <= 99_999_999
-                && self.grade_hundredths <= 99_999_999
-                && self.unison_gauge <= 200
+                && self.gald <= MAX_GALD
+                && self.grade_hundredths <= MAX_GRADE
+                && self.unison_gauge <= MAX_UNISON_GAUGE
                 && self.viewed_skits.iter().all(|&id| (1..=860).contains(&id)),
             "invalid saved party"
         );
@@ -1333,10 +1379,10 @@ impl Party {
         let mut assigned_combos = BTreeSet::new();
         for (index, (member, definition)) in self.members.iter().zip(&data.characters).enumerate() {
             ensure!(
-                member.overlimit <= 100,
+                member.overlimit <= MAX_OVERLIMIT,
                 "saved Over Limit percentage exceeds 100"
             );
-            member.validate_ex(data.rules.as_ref().map(|rules| &rules.ex_skills), index)?;
+            member.validate_loadout(data, index)?;
             let mut assigned_artes = BTreeSet::new();
             ensure!(
                 member.arte_bindings.iter().all(|binding| member
@@ -1350,22 +1396,6 @@ impl Party {
                         assigned_combos.insert(inputs)
                     }),
                 "invalid saved arte assignment"
-            );
-            ensure!(
-                member
-                    .equipment
-                    .iter()
-                    .enumerate()
-                    .all(|(slot, &id)| id == 0
-                        || data
-                            .items
-                            .get(usize::from(id))
-                            .is_some_and(|item| item.fits_slot(index, slot))
-                            && data
-                                .rules
-                                .as_ref()
-                                .is_none_or(|rules| rules.items.get(usize::from(id)).is_some())),
-                "invalid saved equipment"
             );
             let title_count = data
                 .rules
@@ -1387,14 +1417,16 @@ impl Party {
                         .titles
                         .iter()
                         .all(|&id| id != 0 && usize::from(id) <= title_count)
-                    && (-100..=100).contains(&member.technique_balance)
+                    && (-MAX_TECHNIQUE_BALANCE..=MAX_TECHNIQUE_BALANCE)
+                        .contains(&member.technique_balance)
                     && usize::from(member.level) < data.experience.len()
+                    && member.experience <= MAX_EXPERIENCE
                     && member.hp <= max_hp
                     && member.tp <= max_tp
                     && member
                         .base_stats
                         .iter()
-                        .zip([9999, 999, 32767, 32767, 32767, 32767, 32767])
+                        .zip(BASE_STAT_LIMITS)
                         .all(|(stat, limit)| *stat <= limit)
                     && member
                         .techniques
@@ -1557,7 +1589,7 @@ impl Party {
     }
     pub fn add_gald(&mut self, amount: i32) -> u32 {
         let previous = self.gald;
-        self.gald = (i64::from(previous) + i64::from(amount)).clamp(0, 99_999_999) as u32;
+        self.gald = (i64::from(previous) + i64::from(amount)).clamp(0, i64::from(MAX_GALD)) as u32;
         self.spent_gald = self
             .spent_gald
             .saturating_add(previous.saturating_sub(self.gald));
@@ -1639,7 +1671,7 @@ impl Party {
     ) -> Result<ExperienceGain, String> {
         let definition = data.characters.get(index).ok_or("unknown party member")?;
         let member = self.members.get_mut(index).ok_or("unknown party member")?;
-        member.experience = member.experience.saturating_add(amount).min(9_999_999);
+        member.experience = member.experience.saturating_add(amount).min(MAX_EXPERIENCE);
         let mut learned = ExperienceGain::default();
         while member.level < 250
             && data

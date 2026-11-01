@@ -6,7 +6,10 @@ use resonance_battle::ActorAvailability;
 use resonance_content::{
     arte::Catalogue, grade::Benefit, menu_data::Title, monster::Monster, session::SessionData,
 };
-use resonance_events::{GameplayRandom, party::Party};
+use resonance_events::{
+    GameplayRandom,
+    party::{MAX_EXPERIENCE, Party},
+};
 
 const MAX_GALD: u32 = 99_999_999;
 const GALD_FINDER_PERCENT_RANGE: u32 = 20;
@@ -464,7 +467,7 @@ impl Rewards {
                     0
                 };
                 member.experience = (u64::from(member.experience) + u64::from(experience) + bonus)
-                    .min(9_999_999) as u32;
+                    .min(u64::from(MAX_EXPERIENCE)) as u32;
             }
         }
         let mut happiness_awards = Vec::new();
@@ -481,12 +484,12 @@ impl Rewards {
                 }
                 let exp_bonus = self.experience / 20;
                 let exp_success = exp_bonus != 0
-                    && member.experience < 9_999_999
+                    && member.experience < MAX_EXPERIENCE
                     && succeeds(happiness_chance(luck), 100, || random.next_u32());
                 let exp = if exp_success { exp_bonus } else { 0 };
                 if exp_success {
                     let member = &mut party.members[index];
-                    member.experience = member.experience.saturating_add(exp).min(9_999_999);
+                    member.experience = member.experience.saturating_add(exp).min(MAX_EXPERIENCE);
                 }
                 let gald_bonus = self.gald / 20;
                 let gald_success = gald_bonus != 0

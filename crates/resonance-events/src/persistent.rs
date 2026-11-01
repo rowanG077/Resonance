@@ -63,8 +63,7 @@ impl SavedProgress {
             self.script_globals.len() == usize::from(GLOBAL_BYTES / 4),
             "invalid persistent script globals"
         );
-        self.party.bind_rules(data);
-        self.party.validate(data)?;
+        self.party.recover(data)?;
         ensure!(
             self.event_records.iter().all(|(id, r)| *id <= 200
                 && r.tick <= self.tick

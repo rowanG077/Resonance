@@ -11,6 +11,7 @@ pub(super) const REMEDY_CUE: i16 = resonance_content::field_audio::ServiceCue::R
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EncounterModifier {
     pub rate: u8,
+    #[serde(deserialize_with = "super::recovery::number")]
     pub remaining: u16,
 }
 impl EncounterModifier {
