@@ -112,6 +112,12 @@ jobs:
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
             libxkbcommon-dev libwayland-dev
 
+      - name: Fetch locked dependencies for offline shader validation
+        # The shader test reads workspace metadata offline. Compiling selected
+        # packages does not download every dependency that metadata resolves.
+        # Fetch all targets so this also works on a fresh runner's Cargo cache.
+        run: cargo fetch --locked
+
       - name: Run smoke tests without private resources
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
