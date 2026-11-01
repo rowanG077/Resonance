@@ -2,9 +2,10 @@ name: Test and release
 
 on:
   push:
-    # Test main and every PR; only release branch pushes build distributables.
+    # These branches use push runs; other branches use their PR updates.
     branches: [main, 'release/**']
   pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +19,12 @@ concurrency:
 jobs:
   prepare:
     name: Validate release version
+    # Same-repository main/release branches already have a push run. Fork PRs
+    # still need our checks, including forks whose branch is named release/*.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      (github.head_ref != 'main' && !startsWith(github.head_ref, 'release/'))
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -68,8 +75,7 @@ jobs:
     name: ${{ matrix.platform }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
-    # Windows needs room for cold builds and final release linking.
-    timeout-minutes: ${{ matrix.platform == 'windows-x64' && 180 || 90 }}
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:

@@ -17,18 +17,24 @@ and its lockfile before pushing. CI requires the workspace version and both
 executables' `--version` output to match the release branch. The branch name
 sets the GitHub release version and archive filenames.
 
-The **Test and release** workflow runs the test matrix on every pull request,
-push to `main`, and manual workflow run. It tests Windows x64, macOS Apple
-Silicon, Linux x64 and Linux ARM64 on native GitHub runners, including synthetic
-audio/render checks. Tests compile their test binaries and rendering example;
-distribution executables and archives are built only on release-branch pushes.
-Private disc images and cooked assets are not needed in CI.
+The **Test and release** workflow tests Windows x64, macOS Apple Silicon, Linux
+x64 and Linux ARM64 on native GitHub runners, including synthetic audio/render
+checks. Normal PRs run when opened, reopened or updated with new commits
+(`synchronize`). `main` runs on push. Same-repository `release/*` branches also
+run on push, and their duplicate PR jobs are skipped before starting a runner.
+Fork PRs always run the PR checks, including forks with a `release/*` branch.
+GitHub may still list a skipped PR workflow entry; only one test matrix runs.
+Manual workflow runs remain available.
+
+Tests compile their test binaries and rendering example; distribution executables
+and archives are built only on release-branch pushes. Private disc images and
+cooked assets are not needed in CI.
 
 Tests and rendering checks use `--profile release-fast`, which keeps level-3
 optimization and disables LTO to reduce build/link time on all platforms,
 including Windows MSVC. The final distribution executables use `--release`
-with thin LTO and are packaged from `target/release`. Windows jobs have a
-180-minute timeout; the other platforms have 90 minutes.
+with thin LTO and are packaged from `target/release`. Every architecture's build
+and test job has a 180-minute (three-hour) timeout.
 
 On a push to `release/vX.X.X`, each platform runs those same tests before
 building and packaging release executables. Every platform must pass before
