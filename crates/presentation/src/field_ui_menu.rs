@@ -198,6 +198,22 @@ pub(super) fn menu_image(server: &AssetServer, path: String, repeat: bool) -> Ha
         .load(path)
 }
 
+fn menu_repeat(spec: &MenuArt, index: usize, repeat: bool) -> [bool; 2] {
+    // Border strips tile along their length, but must not wrap the opaque
+    // outer edge into the transparent inner edge across their width.
+    for window in spec.windows.values() {
+        if let Some(slices) = window.slices {
+            if slices[1..=2].contains(&index) {
+                return [repeat, false];
+            }
+            if slices[3..=4].contains(&index) {
+                return [false, repeat];
+            }
+        }
+    }
+    [repeat; 2]
+}
+
 #[derive(Resource, Clone, Default, bevy::render::extract_resource::ExtractResource)]
 pub(crate) struct MenuDraws(
     pub std::sync::Arc<std::sync::Mutex<crate::model_preview::gpu::Report>>,
@@ -251,9 +267,9 @@ impl MenuDraws {
 
 struct MenuMaterial {
     image: Handle<Image>,
+    sampling: Handle<Image>,
     size: [u32; 2],
     material: Handle<Surface>,
-    repeat: bool,
     pending: Option<String>,
 }
 
@@ -342,18 +358,18 @@ impl MenuArtwork {
                     .get_mut(&MaterialKey::Texture(index))
                     .context("missing world map material")?;
                 if let Some(path) = prepared.pending.take() {
-                    prepared.image = menu_image(&self.server, path, prepared.repeat);
+                    prepared.image = menu_image(&self.server, path, false);
                     let mut surface = materials
                         .get_mut(&prepared.material)
                         .context("missing world map surface")?;
                     surface.source = prepared.image.clone();
-                    surface.sampling = prepared.image.clone();
                     surface.frame_mask = prepared.image.clone();
                     surface.color_mask = prepared.image.clone();
                 }
-                Ok(prepared.image.clone())
+                Ok([prepared.image.clone(), prepared.sampling.clone()])
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()
+            .map(|images| images.into_iter().flatten().collect())
     }
 
     pub fn action_label(&self, action: resonance_game::field::FieldAction) -> Result<&str> {
@@ -401,12 +417,38 @@ impl MenuArtwork {
         let mut spec = MenuArt::decode(&read("ui/menu.json")?, diagnostics)?;
         spec.prepare_resources(&read);
         spec.validate_structure()?;
+        let mut samplers = BTreeMap::new();
+        let mut sampler = |repeat: [bool; 2]| {
+            samplers
+                .entry(repeat)
+                .or_insert_with(|| {
+                    let [u, v] = repeat.map(|repeat| {
+                        if repeat {
+                            ImageAddressMode::Repeat
+                        } else {
+                            ImageAddressMode::ClampToEdge
+                        }
+                    });
+                    // Image files are cached by path. Bind a separate tiny sampler
+                    // image so the same pixels can be used with different wrapping.
+                    server.add(Image {
+                        sampler: ImageSampler::Descriptor(ImageSamplerDescriptor {
+                            address_mode_u: u,
+                            address_mode_v: v,
+                            ..ImageSamplerDescriptor::linear()
+                        }),
+                        ..default()
+                    })
+                })
+                .clone()
+        };
         let mut prepared = BTreeMap::new();
         for (&index, texture) in &spec.textures {
             let image = Handle::default();
+            let sampling = sampler(menu_repeat(&spec, index, texture.repeat));
             let material = materials.add(Surface {
                 source: image.clone(),
-                sampling: image.clone(),
+                sampling: sampling.clone(),
                 frame_mask: image.clone(),
                 color_mask: image.clone(),
                 coverage: Coverage::default(),
@@ -420,9 +462,9 @@ impl MenuArtwork {
                 key,
                 MenuMaterial {
                     image,
+                    sampling,
                     size: [texture.width, texture.height],
                     material,
-                    repeat: texture.repeat,
                     pending: Some(texture.path.clone()),
                 },
             );
@@ -445,17 +487,18 @@ impl MenuArtwork {
         prepared.insert(
             MaterialKey::InputIcons,
             MenuMaterial {
-                image: prompt_image,
+                image: prompt_image.clone(),
+                sampling: prompt_image,
                 size: input_atlas.size,
                 material: prompt_material,
-                repeat: false,
                 pending: None,
             },
         );
         let cursor_image = menu_image(server, cursor.path.clone(), true);
+        let cursor_sampler = sampler([true; 2]);
         let cursor_material = materials.add(Surface {
             source: cursor_image.clone(),
-            sampling: cursor_image.clone(),
+            sampling: cursor_sampler.clone(),
             frame_mask: cursor_image.clone(),
             color_mask: cursor_image.clone(),
             coverage: Coverage::default(),
@@ -468,9 +511,9 @@ impl MenuArtwork {
             MaterialKey::Cursor,
             MenuMaterial {
                 image: cursor_image,
+                sampling: cursor_sampler,
                 size: [cursor.width, cursor.height],
                 material: cursor_material,
-                repeat: true,
                 pending: None,
             },
         );
@@ -482,11 +525,10 @@ impl MenuArtwork {
                 let image = menu_image(
                     server,
                     entry.pending.take().context("missing cursor path")?,
-                    entry.repeat,
+                    spec.textures[&index].repeat,
                 );
                 let mut material = materials.get_mut(&entry.material).unwrap();
                 material.source = image.clone();
-                material.sampling = image.clone();
                 entry.image = image;
             }
         }
@@ -499,9 +541,9 @@ impl MenuArtwork {
                     .context("missing menu font material")?
                     .source
                     .clone(),
+                sampling: materials.get(material).unwrap().sampling.clone(),
                 size,
                 material: material.clone(),
-                repeat: true,
                 pending: None,
             },
         );
@@ -532,7 +574,10 @@ impl MenuArtwork {
         self.layers
             .iter()
             .filter(|(_, layer)| layer.visible)
-            .map(|(&(_, _, material), _)| &self.materials[&material].image)
+            .flat_map(|(&(_, _, material), _)| {
+                let material = &self.materials[&material];
+                [&material.image, &material.sampling]
+            })
     }
 
     pub(super) fn published(&self, session: &FieldSession) -> bool {
@@ -655,7 +700,9 @@ impl MenuArtwork {
     }
     #[cfg(test)]
     pub(super) fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
-        self.materials.values().map(|material| &material.image)
+        self.materials
+            .values()
+            .flat_map(|material| [&material.image, &material.sampling])
     }
     fn set_page(&mut self, page: Option<ActivePage>) {
         if self.active_page != page {
@@ -735,7 +782,7 @@ impl MenuArtwork {
                 .get_mut(&texture)
                 .context("missing selected menu material")?;
             if let Some(path) = prepared.pending.take() {
-                prepared.image = menu_image(&self.server, path, prepared.repeat);
+                prepared.image = menu_image(&self.server, path, false);
                 let material = prepared.material.clone();
                 let image = prepared.image.clone();
                 commands.queue(move |world: &mut World| {
@@ -743,7 +790,6 @@ impl MenuArtwork {
                         world.resource_mut::<Assets<Surface>>().get_mut(&material)
                     {
                         surface.source = image.clone();
-                        surface.sampling = image.clone();
                         surface.frame_mask = image.clone();
                         surface.color_mask = image;
                     }
