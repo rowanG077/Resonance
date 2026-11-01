@@ -51,8 +51,7 @@ pub(super) struct State {
     pieces: Vec<Piece>,
     size: Vec2,
     age: Option<u16>,
-    mesh_age: Option<u16>,
-    activated: bool,
+    mesh_age: u16,
     crack_color: Color,
 }
 
@@ -61,7 +60,7 @@ impl State {
         serde_json::json!({
             "age": self.age,
             "captured": self.capture.ready(),
-            "activated": self.activated,
+            "activated": self.age.is_some(),
         })
     }
 
@@ -151,9 +150,10 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         .insert(crate::menu_backdrop::SceneCapture(capture.clone()));
     let size = world.resource::<crate::display::Display>().0.ui_size();
     let pieces = pieces(seed);
+    // Warm the cracked pose used at activation and preserve it through the hold.
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
-        .add(mesh(&pieces, size, None));
+        .add(mesh(&pieces, size, 0));
     let material = world
         .resource_mut::<Assets<crate::menu_backdrop::Material>>()
         .add(crate::menu_backdrop::Material::visible(image));
@@ -208,8 +208,7 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         pieces,
         size,
         age: None,
-        mesh_age: None,
-        activated: false,
+        mesh_age: 0,
         crack_color: crack_color(formations),
     });
     Ok(())
@@ -287,7 +286,7 @@ fn render(
         commands.remove_resource::<State>();
         return;
     }
-    if !state.activated {
+    if state.age.is_none() {
         // Retargeting also refreshes the computed viewport and projection.
         commands.entity(state.camera).insert((
             RenderTarget::Image(state.target.clone().into()),
@@ -300,7 +299,6 @@ fn render(
                 camera.is_active = false;
             }
         }
-        state.activated = true;
         state.age = Some(0);
         debug!(
             target: "resonance_presentation::battle_entry",
@@ -316,11 +314,14 @@ fn render(
             ClearColorConfig::None
         };
     }
-    if state.age != state.mesh_age
+    // Rebuild only once the pieces start moving.
+    if let Some(age) = state.age
+        && age > HOLD_TICKS
+        && age != state.mesh_age
         && let Some(mut target) = meshes.get_mut(&state.mesh)
     {
-        *target = mesh(&state.pieces, state.size, state.age);
-        state.mesh_age = state.age;
+        *target = mesh(&state.pieces, state.size, age);
+        state.mesh_age = age;
     }
 }
 
@@ -372,18 +373,18 @@ fn pieces(seed: u64) -> Vec<Piece> {
     result
 }
 
-fn mesh(pieces: &[Piece], size: Vec2, age: Option<u16>) -> Mesh {
-    let motion = age.unwrap_or_default().saturating_sub(HOLD_TICKS) as f32;
-    let alpha = if age.is_some_and(|age| age >= END_TICK) {
+fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
+    let motion = age.saturating_sub(HOLD_TICKS) as f32;
+    let alpha = if age >= END_TICK {
         0.
     } else {
-        1. - age.unwrap_or_default().saturating_sub(FADE_START) as f32 * FADE_STEP
+        1. - age.saturating_sub(FADE_START) as f32 * FADE_STEP
     };
     let mut positions = Vec::with_capacity(pieces.len() * 3);
     let mut uv = Vec::with_capacity(positions.capacity());
     for piece in pieces {
-        let center = (piece.center - Vec2::splat(0.5)) * size;
-        let center = center * if age.is_some() { CRACK_SPREAD } else { 1. };
+        let spread = (piece.center - Vec2::splat(0.5)) * (CRACK_SPREAD - 1.);
+        let center = (piece.center - Vec2::splat(0.5) + spread) * size;
         let offset = center / (size * 0.5) * EDGE_SPEED * motion;
         let angle = piece.spin * motion;
         let rotation = Mat2::from_angle(angle * ROLL_MULTIPLIER);
@@ -392,7 +393,10 @@ fn mesh(pieces: &[Piece], size: Vec2, age: Option<u16>) -> Mesh {
             local.x *= angle.cos();
             let point = center + offset + rotation * local;
             positions.push([point.x, -point.y, 0.]);
-            uv.push(corner.to_array());
+            // Opening the gaps clips the retained picture in place. Sample at
+            // the displaced screen coordinate so the picture itself does not
+            // jump with the pieces until their motion starts after the hold.
+            uv.push((corner + spread).to_array());
         }
     }
     let count = positions.len();
@@ -424,23 +428,25 @@ mod tests {
             })
             .sum();
         assert!((area - 1.).abs() < 0.00001);
-        let preparing = mesh(&pieces, Vec2::new(640., 480.), None);
+        let size = Vec2::new(640., 480.);
+        let held = mesh(&pieces, size, 0);
         let Some(VertexAttributeValues::Float32x3(positions)) =
-            preparing.attribute(Mesh::ATTRIBUTE_POSITION)
+            held.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("fragment positions");
         };
-        for (position, corner) in positions.iter().zip(pieces.iter().flat_map(|p| p.corners)) {
-            let expected = (corner - Vec2::splat(0.5)) * Vec2::new(640., -480.);
+        let Some(VertexAttributeValues::Float32x2(uv)) = held.attribute(Mesh::ATTRIBUTE_UV_0)
+        else {
+            panic!("fragment texture coordinates");
+        };
+        for (position, uv) in positions.iter().zip(uv) {
+            // Every visible fragment still samples the outgoing screen at its
+            // original pixel coordinate, even after gaps open between pieces.
+            let expected = (Vec2::from_array(*uv) - Vec2::splat(0.5)) * Vec2::new(size.x, -size.y);
             assert!(Vec2::new(position[0], position[1]).distance(expected) < 0.0001);
         }
-        let held = mesh(&pieces, Vec2::new(640., 480.), Some(0));
-        assert_ne!(
-            preparing.attribute(Mesh::ATTRIBUTE_POSITION),
-            held.attribute(Mesh::ATTRIBUTE_POSITION)
-        );
-        let before = mesh(&pieces, Vec2::new(640., 480.), Some(HOLD_TICKS));
-        let moving = mesh(&pieces, Vec2::new(640., 480.), Some(HOLD_TICKS + 1));
+        let before = mesh(&pieces, size, HOLD_TICKS);
+        let moving = mesh(&pieces, size, HOLD_TICKS + 1);
         assert_eq!(
             held.attribute(Mesh::ATTRIBUTE_POSITION),
             before.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -449,7 +455,11 @@ mod tests {
             held.attribute(Mesh::ATTRIBUTE_POSITION),
             moving.attribute(Mesh::ATTRIBUTE_POSITION)
         );
-        let end = mesh(&pieces, Vec2::new(640., 480.), Some(END_TICK));
+        assert_eq!(
+            held.attribute(Mesh::ATTRIBUTE_UV_0),
+            moving.attribute(Mesh::ATTRIBUTE_UV_0)
+        );
+        let end = mesh(&pieces, size, END_TICK);
         let Some(VertexAttributeValues::Float32x4(colors)) = end.attribute(Mesh::ATTRIBUTE_COLOR)
         else {
             panic!("fragment colors");
