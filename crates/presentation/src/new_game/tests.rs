@@ -2054,7 +2054,10 @@ fn named_world_checkpoint_restores_all_mounts_without_running_field_entry() -> R
             resonance_game::clock::PlayTime::resume(12345),
         )?;
         let state = session.travel.state().clone();
-        let saved = SceneCheckpoint::World(session.checkpoint()?);
+        let mut saved = session.checkpoint()?;
+        saved.progress.party.gald = u32::MAX;
+        saved.progress.party.members[0].tp = u16::MAX;
+        let saved = SceneCheckpoint::World(saved);
         let bytes = resonance_persistence::encode(&header, &saved)?;
         let (_, decoded): (_, SceneCheckpoint) =
             resonance_persistence::decode(&bytes)?.into_parts();
@@ -2069,6 +2072,9 @@ fn named_world_checkpoint_restores_all_mounts_without_running_field_entry() -> R
             Session::load_world_prepared(package.clone(), saved)?
         };
         let scene = restored.overworld().unwrap();
+        let party = scene.session.events.world.party.as_ref().unwrap();
+        assert_eq!(party.gald, 99_999_999);
+        assert_eq!(party.members[0].tp, party.members[0].maximum_vitals()[1]);
         assert_eq!(scene.session.travel.state(), &state);
         assert_eq!(scene.session.play_time.total(), 12345);
         assert_eq!(scene.session.events.tick(), session.events.tick());

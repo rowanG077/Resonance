@@ -370,7 +370,14 @@ Changes to dialogue, images, models, scripts, collision or combat rules do not
 invalidate saves. Loading uses the current library and checks the resources
 needed for the saved location. There is no content fingerprint or whole-library
 compatibility scan. Unsupported save versions and missing required resources
-produce direct errors; no save repair or migration tool is provided.
+produce direct errors. Loading repairs edited amounts with clear limits: HP/TP
+are capped at the character's current maxima (including equipment and EX skills),
+EXP (9,999,999), currency, gauges, stats, cooking mastery and battle counters are
+capped at their gameplay limits, and item stacks respect the current item and
+New Game Plus limits. Negative unsigned amounts become zero; empty stacks and expired encounter
+modifiers are removed. Unknown resource IDs, malformed data and inconsistent
+progression still produce errors. Recovery happens in memory; the file changes
+only when you save again. There is no save version migration tool.
 
 Enemy rules use named attacks, projectiles and contacts within the same
 `rules.json`. Change a shared definition once; every timeline reference uses the

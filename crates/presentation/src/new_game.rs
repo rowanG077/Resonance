@@ -506,7 +506,8 @@ pub(super) fn initialize_checkpoint(
         field.events.set_global(index as u16, *value)?;
     }
     let mut party = checkpoint.progress.party.clone();
-    party.bind_rules(data);
+    // Setup and final restoration admit the same saved values through recovery.
+    party.recover(data)?;
     let world = &mut field.events.world;
     ensure!(
         world.controlled_actor == i32::from(party.field_leader),
