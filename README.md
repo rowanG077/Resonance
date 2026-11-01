@@ -88,6 +88,10 @@ motions to standard actions. Select an action, confirm, release the opener,
 then press and release the new input. The editor uses default menu controls so
 remapping navigation cannot strand its cursor.
 
+Controllers claim battle ports in order of first button press or deliberate stick
+movement, then keep their ports until disconnected. Idle HID devices exposed as
+gamepads do not reserve a port. Keyboard input shares the first battle port.
+
 The Artes page lists each character's artes with one combo per arte. Confirm
 records inputs held together and then released; recording again replaces that
 arte's combo. Stick directions include moderate tilts and can be combined with
