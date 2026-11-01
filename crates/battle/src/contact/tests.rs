@@ -765,6 +765,8 @@ fn petrification_stops_target_traversal_but_ordinary_hits_keep_recoil() -> Resul
     for petrifies in [true, false] {
         let mut target = crate::tests::actor(Side::Party);
         target.position = [-10., 0., 0.];
+        target.heading = 90.;
+        target.facing_direction = [1., 0., 0.];
         target.body.collider = Some(crate::Collider::sphere(1.));
         // Petrification retains the last hit's direction instead of applying recoil.
         target.reaction.direction = [1., 0., 0.];
@@ -784,6 +786,8 @@ fn petrification_stops_target_traversal_but_ordinary_hits_keep_recoil() -> Resul
                 AttackEvent::TraverseTarget {
                     duration: 9,
                     clearance: 70.,
+                    max_start_distance: 250.,
+                    max_distance: 190.,
                 },
             ),
         ];

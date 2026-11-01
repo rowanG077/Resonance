@@ -190,6 +190,8 @@ pub enum AttackEvent {
     TraverseTarget {
         duration: u16,
         clearance: f32,
+        max_start_distance: f32,
+        max_distance: f32,
     },
     SetPosition([f32; 3]),
     PositionFromTarget {
@@ -568,8 +570,16 @@ impl PreparedAttack {
                 AttackEvent::TraverseTarget {
                     duration,
                     clearance,
+                    max_start_distance,
+                    max_distance,
                 } => ensure!(
-                    *duration > 0 && clearance.is_finite() && *clearance > 0.,
+                    *duration > 0
+                        && clearance.is_finite()
+                        && *clearance > 0.
+                        && max_start_distance.is_finite()
+                        && *max_start_distance > 0.
+                        && max_distance.is_finite()
+                        && *max_distance > 0.,
                     "invalid target traversal"
                 ),
                 AttackEvent::PositionFromTarget { height, retreat }
@@ -1497,6 +1507,8 @@ pub(crate) fn step(
             AttackEvent::TraverseTarget {
                 duration,
                 clearance,
+                max_start_distance,
+                max_distance,
             } => {
                 let start = battle.actors[index].position;
                 let target = battle.actors[sequence.target.index()].position;
@@ -1505,16 +1517,26 @@ pub(crate) fn step(
                     start,
                     battle.actors[index].facing_direction,
                 );
-                sequence.traversal = Some(Traversal {
-                    started_at: sequence.age,
-                    duration: *duration,
-                    start,
-                    end: [
-                        target[0] + direction[0] * clearance,
-                        start[1],
-                        target[2] + direction[2] * clearance,
-                    ],
-                });
+                let offset = glam::Vec3::new(
+                    target[0] - start[0] + direction[0] * clearance,
+                    0.,
+                    target[2] - start[2] + direction[2] * clearance,
+                )
+                .clamp_length_max(*max_distance);
+                let distance = (target[0] - start[0]).hypot(target[2] - start[2]);
+                if distance <= *max_start_distance
+                    && crate::distance::dot(direction, battle.actors[index].facing_direction) > 0.
+                {
+                    sequence.traversal = Some(Traversal {
+                        started_at: sequence.age,
+                        duration: *duration,
+                        start,
+                        end: [start[0] + offset.x, start[1], start[2] + offset.z],
+                    });
+                } else {
+                    sequence.traversal = None;
+                    battle.actors[index].movement.forward = 0.;
+                }
             }
             AttackEvent::SetPosition(position) => battle.actors[index].position = *position,
             AttackEvent::PositionFromTarget { height, retreat }
@@ -1877,30 +1899,65 @@ mod tests {
     }
 
     #[test]
-    fn target_traversal_integrates_every_tick_including_admission() -> Result<()> {
+    fn target_traversal_respects_facing_and_distance_every_tick() -> Result<()> {
         for (at, duration) in [(0, 1), (1, 1), (0, 9), (16, 9)] {
-            let mut battle = movement_battle(vec![(
-                at,
-                AttackEvent::TraverseTarget {
-                    duration,
-                    clearance: 70.,
-                },
-            )])?;
-            for tick in 0..=at + duration {
-                battle.step(if tick == 0 {
-                    movement_request()
+            for (distance, max_distance, facing) in [
+                (40., 190., 1.),
+                (100., 190., 1.),
+                (120., 190., 1.),
+                (600., 190., 1.),
+                (200., 320., 1.),
+                (225., 320., 1.),
+                (250., 320., 1.),
+                (251., 320., 1.),
+                (100., 80., 1.),
+                (-100., 190., -1.),
+                (100., 190., -1.),
+                (-100., 190., 1.),
+                (100., 190., 0.),
+            ] {
+                let mut battle = movement_battle(vec![(
+                    at,
+                    AttackEvent::TraverseTarget {
+                        duration,
+                        clearance: 70.,
+                        max_start_distance: 250.,
+                        max_distance,
+                    },
+                )])?;
+                battle.actors[1].position[0] = distance;
+                battle.actors[0].heading = facing * 90.;
+                let direction = if facing == 0. {
+                    [0., 0., 1.]
                 } else {
-                    BattleInput::default()
-                })?;
-                let elapsed = (tick + 1).saturating_sub(at).min(duration);
-                let t = f32::from(elapsed) / f32::from(duration);
-                let expected = 170. * t * t * (3. - 2. * t);
-                assert!(
-                    (battle.actors[0].position[0] - expected).abs() < 0.001,
-                    "traversal at {at} for {duration} ticks missed movement at tick {tick}"
-                );
+                    [facing, 0., 0.]
+                };
+                battle.actors[0].facing_direction = direction;
+                battle.actors[0].movement.direction = direction;
+                for tick in 0..=at + duration {
+                    battle.step(if tick == 0 {
+                        movement_request()
+                    } else {
+                        BattleInput::default()
+                    })?;
+                    let elapsed = (tick + 1).saturating_sub(at).min(duration);
+                    let t = f32::from(elapsed) / f32::from(duration);
+                    let expected = if distance.abs() <= 250. && distance * facing > 0. {
+                        distance.signum()
+                            * (distance.abs() + 70.).min(max_distance)
+                            * t
+                            * t
+                            * (3. - 2. * t)
+                    } else {
+                        0.
+                    };
+                    assert!(
+                        (battle.actors[0].position[0] - expected).abs() < 0.001,
+                        "traversal at {at} for {duration} ticks missed movement at tick {tick}"
+                    );
+                }
+                assert_eq!(battle.actors[0].movement.forward, 0.);
             }
-            assert_eq!(battle.actors[0].movement.forward, 0.);
         }
         Ok(())
     }
@@ -1913,6 +1970,8 @@ mod tests {
                 AttackEvent::TraverseTarget {
                     duration: 2,
                     clearance: 70.,
+                    max_start_distance: 250.,
+                    max_distance: 190.,
                 },
             ),
             (

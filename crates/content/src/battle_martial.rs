@@ -408,8 +408,10 @@ mod authored_tests {
         }
         let imported_artwork = [
             "battle/effects/common/textures/atlas-0-0-palette-0.ktx2",
+            "battle/effects/common/textures/atlas-1-0-palette-23.ktx2",
+            "battle/effects/common/textures/atlas-1-1-palette-1.ktx2",
         ];
-        let mut requested = [false; 1];
+        let mut requested = [false; 3];
         // Exercise image preparation without bundling the imported game artwork.
         let texture: std::sync::Arc<[u8]> =
             resonance_asset_writer::ktx2::encode_rgba8(1, 1, &[255; 4])?.into();

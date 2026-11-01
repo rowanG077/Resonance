@@ -39,12 +39,13 @@ importer input; ordinary mods use the file overrides described in the
 | `example.json` | Catalogue ID/name, owning character, local motion references, initial learning, and the single technique entry: text, TP, family, range and learning rules. |
 | `battle/artes/ghost-wolf/action.json` | Motion binding, gameplay timing, movement, contacts, sounds, effects and Unison placement. |
 | `battle/artes/ghost-wolf/ghost-wolf.glb` | Exported motion deltas on named identity nodes; no native skeleton, bind matrices or idle pose. |
-| `battle/artes/ghost-wolf/effects.json` | Blue-white launch streaks, passing crescents, vapor, impact flashes and shards. |
+| `battle/artes/ghost-wolf/effects.json` | Blue-white launch streaks, swing crescents, impact flashes and shards. |
 
-The effect document references the existing cooked texture
-`battle/effects/common/textures/atlas-0-0-palette-0.ktx2`. Ordinary
-importing creates it from the user's game discs. The example does not
-bundle this game texture or copy it into its own asset directory.
+The effect document references three existing cooked textures under
+`battle/effects/common/textures`: `atlas-0-0-palette-0.ktx2`,
+`atlas-1-0-palette-23.ktx2`, and `atlas-1-1-palette-1.ktx2`. Ordinary importing
+creates them from the user's game discs. The example does not bundle these
+game textures or copy them into its own asset directory.
 
 The importer adds catalogue ID **260**, named `ghost-wolf-lloyd`, to the native
 catalogue and Lloyd's learning list. `initially_known` controls whether new
@@ -83,7 +84,8 @@ translation and scale differences, and rotations relative to that pose.
 
 1. Select **01 — Ghost Wolf controls** and use **Pose Mode**. The active action
    is **Ghost Wolf · pose adjustments**, a clean additive layer for further edits.
-   The accepted performance remains on the base track.
+   The accepted performance, including the second cut's body weight shift,
+   wrist release, follow-through and recovery, remains on the base track.
 2. Select a control, move or rotate it, and choose **K → Location & Rotation**
    to insert a keyframe. Use the Dope Sheet or Graph Editor to adjust poses and
    timing. The 25 visible controls include **Hips**, **Chest**, **Upper arm.L/R**,
@@ -122,11 +124,13 @@ to edit its FK action. Press **Tab** again to leave
 strip editing. The base contains detailed converted curves, not a small set of
 newly hand-authored poses.
 
-The scene runs at **120 FPS**, frames **0–160**, for a 1⅓-second clip. Two Blender
+The scene runs at **120 FPS**, frames **0–104**, for a 0.867-second clip. Two Blender
 frames represent one gameplay update; the three-update entry blend is applied
 by the game. Preserve the scene rate and range when changing poses. If you
 change the clip's duration, update the gameplay timeline too. The export helper
 samples the constrained rig, retaining the editing controls in the `.blend`.
+The native idle pose is reached at frame **102** and held through **104**,
+because the game's recovery transition replaces the clip before its last sample.
 
 The preview's travel and half-turn illustrate the gameplay action at a nominal
 target distance. Actual traversal and facing come from `action.json`, so keep
@@ -139,25 +143,48 @@ The arte costs **12 TP** and deals two physical, non-elemental hits at **90%**
 and **150%** power, under normal defense, accuracy, guard and interruption rules.
 Lloyd begins the right-hand cut before accelerating through the target. The
 right blade follows through past his hip while the left prepares across his
-chest; his counterclockwise turn carries the second, horizontal cut.
+chest; his counterclockwise turn accelerates through the second, horizontal cut
+and carries the blade into an extended finish. The wrist releases after the
+shoulder and elbow, bringing the blade closer to the forearm's line. The right
+hand settles beside the hip with a bent elbow during the left-hand cut, keeping
+its sword forward and outside the leg. The right
+foot plants before the cut, the pelvis coils over that leg, and the hips drive
+the chest through the turn. The left foot catches the weight in a wider stance
+as the rear heel releases; the shoulder keeps the blade's path horizontal.
+After contact, the extended finish slows down and the arm's return into guard
+eases through the end of the motion. The body and arms recover in sequence into
+the native idle pose, with no additional hit pause or control lockout.
 
 Traversal starts at gameplay update **16**, lasts **nine updates**, and aims
-**70 units** beyond the target's root. The pass is shorter from a close entry
-and remains limited by the arena boundary. Both cuts are checked at starting
-distances from 40 to 120 units. Lloyd retains the completed half-turn even when
-he cannot get behind the target; a follow-up arte may therefore face away from
-an enemy trapped at the boundary. This is intentional.
+**70 units** beyond the target's root. The target must be ahead of Lloyd and
+within **250 units** when traversal begins. Travel is capped at **320 units**,
+allowing a complete pass from that range while preventing distant targets from
+pulling Lloyd across the arena. An out-of-range or rear target leaves the cuts
+and half-turn in place. The pass is shorter from a close entry and remains
+limited by the arena boundary. Both cuts are checked at starting distances
+from 40 to 250 units, including a hovering Raybit at close range. Both
+blade contacts use a **40-unit radius**; the second remains active for updates
+**32–36** to cover the sweep against small, moving hurtboxes. Lloyd retains the
+completed half-turn even when he cannot get behind the target; a follow-up arte
+may therefore face away from an enemy trapped at the boundary. This is intentional.
 
-The action lasts **83 updates**, including the three-update entry blend, with
-**10 updates** of recovery. A higher-level arte can chain at update **48**. With
+The action lasts **55 updates**, including the three-update entry blend, with
+**3 updates** of recovery. A higher-level arte can chain at update **48**. With
 Ability Plus equipped, three forward normal attacks can lead into Ghost Wolf,
 Lightning Tiger, and Sword Rain: Alpha. A miss still completes the movement and
 recovery; interruption stops the pass and clears its collision override.
 
 The voice event uses Lloyd's native “Take this!” line from the imported speech
-library, stream 104. Native sword ribbons follow the blades. The effect bank
-adds blue-white arte light and a stronger second impact while the animation
-continues through contact. The design adapts Yuri's Ghost Wolf from Vesperia to
+library, stream 104. Native sword ribbons follow the blades. Both swings emit
+a blue-white sweep using Tiger Blade's color and alpha atlas pages. Effects
+begin at updates 16 and 30, tracing short sections of the right blade's downward
+cut and the left blade's horizontal cut. Each section follows Lloyd's travel,
+holds its sampled cutting plane, and fades over four updates. Emission ends
+before the blade reverses into recovery. These sampled offsets and angles in
+`effects.json` should be retuned when editing the blade paths in Blender.
+The sweeps appear even on a miss; confirmed hits add compact flashes and shards
+while the animation continues through contact.
+The normal battle camera handles framing. The design adapts Yuri's Ghost Wolf from Vesperia to
 Lloyd's twin blades; it does not need Vesperia assets at runtime.
 
 ## Verification

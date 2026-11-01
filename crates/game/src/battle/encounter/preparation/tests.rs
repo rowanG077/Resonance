@@ -406,6 +406,10 @@ struct GhostWolfFixture {
 #[cfg(feature = "test-support")]
 impl GhostWolfFixture {
     fn load(formation: &[u8], ability_plus: bool) -> Result<Self> {
+        Self::load_encounter(formation, ability_plus, 1)
+    }
+
+    fn load_encounter(formation: &[u8], ability_plus: bool, encounter: u16) -> Result<Self> {
         use resonance_content::{diagnostics::Diagnostics, library::Library, session::SessionData};
         use resonance_events::{
             battle::{DefeatPolicy, Encounter, Setup},
@@ -460,7 +464,7 @@ impl GhostWolfFixture {
             &party,
             Setup {
                 route: [0; 5],
-                encounter: Encounter::Formation(1),
+                encounter: Encounter::Formation(encounter),
                 arena: 13,
                 music: None,
                 defeat: DefeatPolicy::ResumeEvent,
@@ -642,15 +646,18 @@ fn ghost_wolf_contact_and_projectile_sounds_are_captured_before_playback() -> Re
 fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<()> {
     use resonance_battle::{ActionRequest, BattleInput, Cue};
     let fixture = GhostWolfFixture::load(&[1, 3], false)?;
+    let raybit = GhostWolfFixture::load_encounter(&[1, 3], false, 134)?;
     let authored = &fixture.authored;
-    let (traversal_at, traversal_duration) = authored
+    let (traversal_at, traversal_duration, traversal_limit) = authored
         .attack
         .events
         .iter()
         .find_map(|(at, event)| match event {
-            resonance_content::battle_normal::Event::TraverseTarget { duration, .. } => {
-                Some((u32::from(*at), u32::from(*duration)))
-            }
+            resonance_content::battle_normal::Event::TraverseTarget {
+                duration,
+                max_distance,
+                ..
+            } => Some((u32::from(*at), u32::from(*duration), *max_distance)),
             _ => None,
         })
         .context("Ghost Wolf traversal missing")?;
@@ -685,16 +692,55 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
         ("hit", 80.),
         ("hit", 100.),
         ("hit", 120.),
+        ("hit", 200.),
+        ("hit", 225.),
+        ("hit", 250.),
+        ("flying", 40.),
+        ("flying", 80.),
+        ("flying", -40.),
+        ("flying", -80.),
+        ("far", 600.),
+        ("far", -600.),
+        ("outside", 251.),
+        ("away", 200.),
+        ("away", -200.),
         ("miss", 120.),
         ("interrupt", 120.),
         ("cross_interrupt", 120.),
     ] {
+        let fixture = if mode == "flying" { &raybit } else { &fixture };
+        let expecting_hits = matches!(mode, "hit" | "flying");
+        let direction = if initial_distance >= 0. { 1. } else { -1. };
         let mut battle = fixture.battle(1234)?;
+        if mode == "flying" {
+            // Raybit's bobbing pose exposes both a close-entry miss and a
+            // finishing-cut miss. Preserve its native hovering altitude.
+            for _ in 0..10 {
+                battle.step(Default::default())?;
+            }
+        }
+        let target_height = if mode == "miss" {
+            500.
+        } else {
+            battle.actors()[2].position[1]
+        };
         let (owner, target) = fixture.place(
             &mut battle,
             [0., 0., 0.],
-            [initial_distance, if mode == "miss" { 500. } else { 0. }, 0.],
+            [initial_distance, target_height, 0.],
         )?;
+        if matches!(mode, "far" | "outside" | "away") {
+            battle.set_control_mode(owner, resonance_battle::Control::Manual)?;
+        }
+        if mode == "away" {
+            let mut motion = serde_json::to_value(resonance_battle::FixtureMotion::observe(
+                &battle.actors()[owner.index()],
+            ))?;
+            motion["heading"] = serde_json::json!(-direction * 90.);
+            motion["facing_direction"] = serde_json::json!([-direction, 0., 0.]);
+            motion["movement_direction"] = serde_json::json!([-direction, 0., 0.]);
+            battle.restore_fixture_motion(owner, serde_json::from_value(motion)?)?;
+        }
         let action = battle
             .prepared_technique(owner, TechniqueId(260))
             .context("authored arte unavailable")?
@@ -735,7 +781,7 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
                 interrupt,
                 ..Default::default()
             })?);
-            if mode == "hit"
+            if expecting_hits
                 && pass_end_separation.is_none()
                 && frames
                     .last()
@@ -747,8 +793,9 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
                     })
             {
                 pass_end_separation = Some(
-                    battle.actors()[owner.index()].position[0]
-                        - battle.actors()[target.index()].position[0],
+                    (battle.actors()[owner.index()].position[0]
+                        - battle.actors()[target.index()].position[0])
+                        * direction,
                 );
             }
             if interrupting_now {
@@ -764,6 +811,7 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
         }
         assert_eq!(interrupted, matches!(mode, "interrupt" | "cross_interrupt"));
         assert_eq!(battle.activity(owner), resonance_battle::Activity::Idle);
+        assert!(battle.actors()[owner.index()].position[0].abs() <= traversal_limit + 0.001);
         let contacts = battle.take_fixture_contact_damage();
         let hits = contacts
             .iter()
@@ -775,11 +823,16 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
             battle.actors()[2].hp,
             battle.actors()[0].position
         );
-        if mode == "hit" && hits.len() != 2 {
-            missed_close_passes.push((initial_distance, hits.len()));
+        if expecting_hits && hits.len() != 2 {
+            missed_close_passes.push((mode, initial_distance, hits.len()));
             continue;
         }
-        if mode == "hit" {
+        if expecting_hits {
+            assert!(
+                frames.len() <= 62,
+                "Ghost Wolf must return control within 62 updates, took {}",
+                frames.len()
+            );
             let clearance = pass_end_separation.context("traversal endpoint not observed")?;
             assert!(
                 (60.0..=85.0).contains(&clearance),
@@ -795,7 +848,7 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
                 hits[0].owner.movement.forward > 0.,
                 "the opening slash must connect during traversal"
             );
-            assert!(hits[1].owner.position[0] > hits[1].target.position[0]);
+            assert!((hits[1].owner.position[0] - hits[1].target.position[0]) * direction > 0.);
             assert!(
                 hits[1].owner.facing_direction[2].abs() > 0.1,
                 "the finishing sweep must connect while Lloyd is turning"
@@ -838,7 +891,7 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
                 "the finishing contact must occur before the turn completes"
             );
             assert!(
-                battle.actors()[0].facing_direction[0] < -0.99,
+                battle.actors()[0].facing_direction[0] * direction < -0.99,
                 "Lloyd must finish facing the enemy behind him"
             );
         } else if mode == "cross_interrupt" {
@@ -848,9 +901,21 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
                 "interrupting the pass must cancel the finishing cut"
             );
             assert_eq!(battle.actors()[0].movement.forward, 0.);
+        } else if mode == "away" {
+            assert!(
+                hits.len() <= 1,
+                "only the return cut may reach a target behind Lloyd"
+            );
+            assert_eq!(battle.actors()[owner.index()].position, [0.; 3]);
+        } else if mode == "outside" {
+            // The ordinary sword contacts still run; only traversal is out of range.
+            assert_eq!(battle.actors()[owner.index()].position, [0.; 3]);
         } else {
             assert!(hits.is_empty());
             assert_eq!(battle.actors()[2].hp, hp);
+            if mode == "far" {
+                assert_eq!(battle.actors()[owner.index()].position, [0.; 3]);
+            }
         }
         assert!(
             frames
@@ -869,6 +934,16 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
         );
         assert!(!fixture.diagnostics.has_errors());
         assert!(!battle.is_diagnostic());
+        if expecting_hits {
+            let position = battle.actors()[owner.index()].position[0];
+            let mut control = resonance_battle::ControlInput::neutral(owner);
+            control.stick = [(80. * direction) as i8, 0];
+            battle.step(BattleInput::from(control))?;
+            assert!(
+                (battle.actors()[owner.index()].position[0] - position) * direction > 0.,
+                "movement input must work immediately after Ghost Wolf finishes"
+            );
+        }
     }
     assert!(
         missed_close_passes.is_empty(),

@@ -431,10 +431,15 @@ as `flight`, `hammer`, `steal`, `fierce_fang`, `hurricane_hit`, and `callback_hi
 are rejected when populated in an asset-authored action; their specialized
 native behavior is not part of this format. The timeline supports poses, blade
 or body contacts with authored damage and shapes, shared projectiles, motion,
-braking, trails, voices, sounds and effects. `traverse_target` takes a positive
-`duration` and `clearance`: it crosses to the far side over that many gameplay
-updates, easing into and out of movement. The endpoint is captured at the start
-of the pass, so recoil does not make the caster chase a moving endpoint.
+braking, trails, voices, sounds and effects. `traverse_target` takes positive
+`duration`, `clearance`, `max_start_distance`, and `max_distance` values. The pass
+starts only when the target is in front of the actor's current facing and its
+root is within `max_start_distance`. It aims `clearance` beyond that root over
+`duration` gameplay updates, easing into and out of movement, but never travels
+farther than `max_distance`. Using the action too far away or facing away does
+not start a pass; its remaining animation and events still run.
+The endpoint is captured at the start of the pass, so recoil does not make the
+caster chase a moving endpoint.
 The first movement step runs on the scheduled tick, including tick zero.
 Movement events scheduled at `start + duration` take effect after the pass.
 Ordinary integration and hit-stop still apply.
