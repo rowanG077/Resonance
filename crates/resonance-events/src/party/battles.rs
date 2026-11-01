@@ -3,6 +3,16 @@ use super::Party;
 use anyhow::{Context, Result, ensure};
 use resonance_content::menu_data::{ExTendency, MenuData};
 
+// Shared by runtime counters, save recovery and strict validation.
+const MAX_BATTLES: u16 = 9_999;
+const MAX_HUNTING_STREAK: u8 = 5;
+const MAX_ESCAPES: u32 = 99_999;
+const MAX_SHEENA_ESCAPES: u8 = 50;
+const MAX_COMBAT_TICKS: u32 = 359_999;
+const MAX_GRADE: i32 = super::MAX_GRADE as i32;
+const MAX_KILLS: u16 = 5_000;
+const MAX_DEATHS_AND_ITEMS: u8 = 250;
+
 /// Combine equipment and single EX tendency before the final balance clamp.
 /// Compound EX skills do not contribute tendency.
 fn technique_drift(member: &super::Member, data: &MenuData) -> Result<i32> {
@@ -45,38 +55,71 @@ pub struct BattleStatistics {
     pub lloyd_non_wooden_blade_used: bool,
     pub ordinary_escape_used: bool,
     /// Ordinary escapes led by Sheena, capped at 50.
+    #[serde(deserialize_with = "super::recovery::number")]
     pub sheena_escapes: u8,
+    #[serde(deserialize_with = "super::recovery::number")]
     pub total: u16,
     /// Victories at Hard or Mania difficulty.
+    #[serde(deserialize_with = "super::recovery::number")]
     pub hard_victories: u16,
     /// Consecutive victories against the same field symbol while leading with Presea.
     #[serde(default)]
     pub hunting_symbol: Option<u32>,
     #[serde(default)]
+    #[serde(deserialize_with = "super::recovery::number")]
     pub hunting_streak: u8,
+    #[serde(deserialize_with = "super::recovery::number")]
     pub escaped: u32,
     /// Duration of the most recently completed battle, not a cumulative clock.
+    #[serde(deserialize_with = "super::recovery::number")]
     pub combat_ticks: u32,
     /// Zero before a battle or in saves without this statistic.
     #[serde(default)]
+    #[serde(deserialize_with = "super::recovery::number")]
     pub formation_count: u32,
     /// Signed hundredths, with a cap only on the positive total.
+    #[serde(deserialize_with = "super::recovery::number")]
     pub grade: i32,
+    #[serde(deserialize_with = "super::recovery::number")]
     pub maximum_combo: u16,
+    #[serde(deserialize_with = "super::recovery::number")]
     pub maximum_combo_damage: u32,
     /// One entry per character, independent of current formation order.
+    #[serde(deserialize_with = "super::recovery::array")]
     pub participation: [u16; 9],
+    #[serde(deserialize_with = "super::recovery::array")]
     pub kills: [u16; 9],
+    #[serde(deserialize_with = "super::recovery::array")]
     pub deaths: [u8; 9],
     /// Older saves use their death totals until a new playthrough resets eligibility.
     #[serde(default)]
     pub death_this_run: Option<bool>,
+    #[serde(deserialize_with = "super::recovery::array")]
     pub items: [u8; 9],
     /// Accepted victory voice groups, recorded at confirmation.
     pub victory_groups: u64,
 }
 
 impl BattleStatistics {
+    pub(super) fn recover(&mut self) {
+        self.total = self.total.min(MAX_BATTLES);
+        self.hard_victories = self.hard_victories.min(MAX_BATTLES);
+        self.hunting_streak = self.hunting_streak.min(MAX_HUNTING_STREAK);
+        self.escaped = self.escaped.min(MAX_ESCAPES);
+        self.sheena_escapes = self.sheena_escapes.min(MAX_SHEENA_ESCAPES);
+        self.combat_ticks = self.combat_ticks.min(MAX_COMBAT_TICKS);
+        self.grade = self.grade.min(MAX_GRADE);
+        for count in &mut self.participation {
+            *count = (*count).min(MAX_BATTLES);
+        }
+        for count in &mut self.kills {
+            *count = (*count).min(MAX_KILLS);
+        }
+        for count in self.deaths.iter_mut().chain(&mut self.items) {
+            *count = (*count).min(MAX_DEATHS_AND_ITEMS);
+        }
+    }
+
     pub fn has_death_this_run(&self) -> bool {
         self.death_this_run
             .unwrap_or_else(|| self.deaths.iter().any(|&n| n != 0))
@@ -84,7 +127,9 @@ impl BattleStatistics {
 
     pub fn record_deaths(&mut self, character: usize, count: u8) {
         self.death_this_run = Some(self.has_death_this_run() || count != 0);
-        self.deaths[character] = self.deaths[character].saturating_add(count).min(250);
+        self.deaths[character] = self.deaths[character]
+            .saturating_add(count)
+            .min(MAX_DEATHS_AND_ITEMS);
     }
 
     pub(super) fn for_new_game_plus(&self) -> Self {
@@ -112,17 +157,17 @@ impl BattleStatistics {
 
     pub(super) fn validate(&self) -> Result<()> {
         ensure!(
-            self.total <= 9_999
-                && self.hard_victories <= 9_999
-                && self.hunting_streak <= 5
-                && self.escaped <= 99_999
-                && self.sheena_escapes <= 50
-                && self.combat_ticks <= 359_999
-                && self.grade <= 99_999_999
-                && self.participation.iter().all(|&n| n <= 9_999)
-                && self.kills.iter().all(|&n| n <= 5_000)
-                && self.deaths.iter().all(|&n| n <= 250)
-                && self.items.iter().all(|&n| n <= 250),
+            self.total <= MAX_BATTLES
+                && self.hard_victories <= MAX_BATTLES
+                && self.hunting_streak <= MAX_HUNTING_STREAK
+                && self.escaped <= MAX_ESCAPES
+                && self.sheena_escapes <= MAX_SHEENA_ESCAPES
+                && self.combat_ticks <= MAX_COMBAT_TICKS
+                && self.grade <= MAX_GRADE
+                && self.participation.iter().all(|&n| n <= MAX_BATTLES)
+                && self.kills.iter().all(|&n| n <= MAX_KILLS)
+                && self.deaths.iter().all(|&n| n <= MAX_DEATHS_AND_ITEMS)
+                && self.items.iter().all(|&n| n <= MAX_DEATHS_AND_ITEMS),
             "invalid saved battle statistics"
         );
         Ok(())
@@ -139,15 +184,19 @@ impl BattleStatistics {
     pub fn record_ordinary_escape(&mut self, leader_character: u8) {
         self.ordinary_escape_used = true;
         if leader_character == 5 {
-            self.sheena_escapes = self.sheena_escapes.saturating_add(1).min(50);
+            self.sheena_escapes = self
+                .sheena_escapes
+                .saturating_add(1)
+                .min(MAX_SHEENA_ESCAPES);
         }
     }
 
     pub fn record_hunt(&mut self, symbol: Option<u32>) {
         self.hunting_streak = match symbol {
-            Some(_) if symbol == self.hunting_symbol => {
-                self.hunting_streak.saturating_add(1).min(5)
-            }
+            Some(_) if symbol == self.hunting_symbol => self
+                .hunting_streak
+                .saturating_add(1)
+                .min(MAX_HUNTING_STREAK),
             Some(_) => 1,
             None => 0,
         };
@@ -156,11 +205,11 @@ impl BattleStatistics {
 
     pub fn record_escape(&mut self) {
         self.record_hunt(None);
-        self.escaped = self.escaped.saturating_add(1).min(99_999);
+        self.escaped = self.escaped.saturating_add(1).min(MAX_ESCAPES);
     }
 
     pub fn add_grade(&mut self, grade: i32) {
-        self.grade = self.grade.saturating_add(grade).min(99_999_999);
+        self.grade = self.grade.saturating_add(grade).min(MAX_GRADE);
     }
 }
 
@@ -197,10 +246,10 @@ impl Party {
             self.battles
                 .observe_lloyd_battle_weapon(self.members[0].equipment[0]);
         }
-        self.battles.total = self.battles.total.saturating_add(1).min(9_999);
+        self.battles.total = self.battles.total.saturating_add(1).min(MAX_BATTLES);
         for &(id, balance) in active {
             let count = &mut self.battles.participation[usize::from(id - 1)];
-            *count = count.saturating_add(1).min(9_999);
+            *count = count.saturating_add(1).min(MAX_BATTLES);
             self.members[usize::from(id - 1)].technique_balance = balance;
         }
         self.cooking.full = false;
