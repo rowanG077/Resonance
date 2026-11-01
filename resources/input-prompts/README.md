@@ -4,9 +4,9 @@ Initial artwork: [Kenney Input Prompts 1.5A](https://kenney.nl/assets/input-prom
 CC0. The creator's license is in `License.txt`. The selected SVG originals and
 `sources.json` record the source of every included icon.
 
-`atlas.ktx2` contains 117 distinct prompts: keyboard letters, digits, function and
+`atlas.ktx2` contains 121 distinct prompts: keyboard letters, digits, function and
 special keys, A/B/X/Y, L1–L5 and R1–R5, START/BACK, individual D-pad directions,
-and left/right stick directions. Mouse artwork, grouped arrow-key islands,
+and left/right stick directions, including horizontal arte slots for each stick, keyboard and D-pad. Mouse artwork, grouped arrow-key islands,
 unused generic shapes and duplicate aliases are omitted. Keyboard and controller
 buttons are distinct controls; physical-input aliases resolve in code instead
 of occupying extra atlas tiles.
