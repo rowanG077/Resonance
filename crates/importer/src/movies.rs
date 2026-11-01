@@ -15,9 +15,9 @@ fn movie_name(source: &str) -> Result<&'static str> {
     Ok(match source.to_ascii_lowercase().as_str() {
         "mov/op.h4m" => "opening",
         "mov/s01.h4m" => "story-introduction",
-        "mov/s03.h4m" => "tower-of-salvation-reveal",
-        "mov/as1.h4m" => "tower-of-mana-activation",
-        "mov/s07.h4m" => "celsius-freezes-the-sea",
+        "mov/s03.h4m" => "tower-of-salvation-appears",
+        "mov/as1.h4m" => "mutated-tree-appears",
+        "mov/s07.h4m" => "mana-cannon-appears",
         "mov/s08.h4m" => "mana-cannon-firing",
         "mov/s09.h4m" => "tower-of-salvation-collapse",
         "mov/as2.h4m" => "worlds-reunited",

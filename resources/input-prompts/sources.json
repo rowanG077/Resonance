@@ -750,5 +750,48 @@
     "adaptation": "Original R frame/letter with original digit 3",
     "accent": "single button face",
     "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "stick_l_horizontal": {
+    "normal": "Generic/Vector/generic_stick_horizontal.svg",
+    "pressed": "Generic/Vector/generic_stick_horizontal.svg",
+    "label_sources": [
+      "Nintendo Switch/Vector/switch_stick_l_left.svg"
+    ],
+    "adaptation": "Original horizontal arrows with original L stick letter",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "stick_r_horizontal": {
+    "normal": "Generic/Vector/generic_stick_horizontal.svg",
+    "pressed": "Generic/Vector/generic_stick_horizontal.svg",
+    "label_sources": [
+      "Nintendo Switch/Vector/switch_stick_r_left.svg"
+    ],
+    "adaptation": "Original horizontal arrows with original R stick letter",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y"
+  },
+  "key_horizontal": {
+    "normal": "Keyboard & Mouse/Vector/keyboard_arrow_left_outline.svg",
+    "pressed": "Keyboard & Mouse/Vector/keyboard_arrow_left.svg",
+    "accent": "single button face",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "additional_sources": [
+      "Keyboard & Mouse/Vector/keyboard_arrow_right_outline.svg",
+      "Keyboard & Mouse/Vector/keyboard_arrow_right.svg"
+    ],
+    "adaptation": "Combined original left and right arrows in one horizontal arte prompt"
+  },
+  "pad_dpad_horizontal": {
+    "normal": "Nintendo Switch/Vector/switch_dpad_left_outline.svg",
+    "pressed": "Nintendo Switch/Vector/switch_dpad_left_outline.svg",
+    "style": "Symphonia blue/gold; green/red/blue/yellow A/B/X/Y",
+    "accent_path": {
+      "source": "Nintendo Switch/Vector/switch_dpad_left.svg",
+      "component": "original red arm path"
+    },
+    "additional_sources": [
+      "Nintendo Switch/Vector/switch_dpad_right_outline.svg",
+      "Nintendo Switch/Vector/switch_dpad_right_outline.svg"
+    ],
+    "adaptation": "Combined original left and right arrows in one horizontal arte prompt"
   }
 }

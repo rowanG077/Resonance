@@ -1389,12 +1389,17 @@ impl Party {
                     .techniques
                     .contains(&binding.technique)
                     && binding.chord.validate_shape().is_ok()
+                    && binding
+                        .chord
+                        .single_direction_per_source(&self.settings.preferences.keymap)
                     && assigned_artes.insert(binding.technique)
-                    && {
-                        let mut inputs = binding.chord.0.clone();
-                        inputs.sort();
-                        assigned_combos.insert(inputs)
-                    }),
+                    && assigned_combos.insert(
+                        binding
+                            .chord
+                            .clone()
+                            .normalized(&self.settings.preferences.keymap)
+                            .0
+                    )),
                 "invalid saved arte assignment"
             );
             let title_count = data

@@ -911,10 +911,18 @@ pub(super) fn gather_controls(
         *controls = Controls::default();
         return;
     }
+    let capture_map = title
+        .as_ref()
+        .and_then(|menu| menu.0.preferences())
+        .map(|settings| settings.keymap.clone())
+        .unwrap_or_else(|| {
+            crate::input::settings(session.as_deref(), preferences.as_deref()).keymap
+        });
     let captured = if let Some(menu) = title.as_mut() {
-        menu.0.capture_physical(&physical.capture_inputs())
+        menu.0
+            .capture_physical(&physical.capture_inputs(&capture_map))
     } else if let Some(menu) = session.as_mut().and_then(|s| s.menu_mut()) {
-        menu.capture_physical(&physical.capture_inputs())
+        menu.capture_physical(&physical.capture_inputs(&capture_map))
     } else {
         false
     };
