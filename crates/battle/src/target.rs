@@ -8,11 +8,34 @@ pub struct TargetActor {
     pub hp: i32,
     pub hp_percent: i16,
     pub flying: bool,
-    pub casting: bool,
+    /// Native Block Magic reads the acting character's spell-history latch.
+    pub has_cast_spell: bool,
     pub available: bool,
     pub hidden: bool,
     pub dying: bool,
     pub target: Option<ActorId>,
+}
+
+impl TargetActor {
+    pub(crate) fn new(
+        actor: &crate::Actor,
+        hidden: bool,
+        has_cast_spell: bool,
+        target: Option<ActorId>,
+    ) -> Self {
+        Self {
+            side: actor.side,
+            position: actor.position,
+            hp: actor.hp,
+            hp_percent: actor.hp_percent(),
+            flying: actor.movement.flying,
+            available: actor.available(),
+            dying: actor.availability == crate::ActorAvailability::Dead,
+            hidden,
+            has_cast_spell,
+            target,
+        }
+    }
 }
 
 pub use resonance_content::battle_action::TargetPolicy;
@@ -83,25 +106,34 @@ pub(crate) fn select_target_pool(
             .min_by(|&a, &b| distance(from, a).total_cmp(&distance(from, b)))
     };
     let mut spread = || {
-        let unclaimed: Vec<_> = candidates
+        let roster: Vec<_> = actors
             .iter()
-            .copied()
-            .filter(|candidate| {
-                !actors.iter().enumerate().any(|(index, actor)| {
+            .enumerate()
+            .filter(|(_, actor)| (actor.side == side) == allies)
+            .map(|(index, _)| index)
+            .collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        // Sample the whole roster, including invalid and already
+        // claimed entries. Sixteen rejected draws precede nearest fallback.
+        for _ in 0..16 {
+            let candidate = roster[usize::from(random()) % roster.len()];
+            if candidates.contains(&candidate)
+                && !actors.iter().enumerate().any(|(index, actor)| {
                     index != owner
                         && actor.side == side
-                        && eligible(actor)
+                        && actor.available
+                        && !actor.dying
                         && actor
                             .target
-                            .is_some_and(|target| target.index() == *candidate)
+                            .is_some_and(|target| target.index() == candidate)
                 })
-            })
-            .collect();
-        if unclaimed.is_empty() {
-            nearest(owner, &candidates)
-        } else {
-            Some(unclaimed[usize::from(random()) % unclaimed.len()])
+            {
+                return Some(candidate);
+            }
         }
+        nearest(owner, &candidates)
     };
     let target = match policy {
         TargetPolicy::Nearest | TargetPolicy::NearestIncapacitated => nearest(owner, &candidates),
@@ -115,7 +147,7 @@ pub(crate) fn select_target_pool(
             .min_by_key(|&index| actors[index].hp),
         TargetPolicy::Leader => actors
             .iter()
-            .find(|actor| actor.side == side && eligible(actor))
+            .find(|actor| actor.side == side)
             .and_then(|actor| actor.target)
             .map(ActorId::index)
             .filter(|target| candidates.contains(target))
@@ -123,30 +155,51 @@ pub(crate) fn select_target_pool(
         TargetPolicy::Protect => actors
             .iter()
             .enumerate()
-            .filter(|(_, actor)| actor.side == side && eligible(actor))
+            .filter(|(_, actor)| actor.side == side)
+            .rev()
             .min_by_key(|(_, actor)| actor.hp_percent)
-            .and_then(|(ally, _)| nearest(ally, &candidates)),
-        TargetPolicy::Flying | TargetPolicy::Casting => {
+            .and_then(|(ally, _)| {
+                // Resolve both ties in roster order: the last equally
+                // injured ally and last equally close opponent win.
+                candidates
+                    .iter()
+                    .copied()
+                    .rev()
+                    .min_by(|&a, &b| distance(ally, a).total_cmp(&distance(ally, b)))
+            }),
+        TargetPolicy::Flying => {
             let preferred: Vec<_> = candidates
                 .iter()
                 .copied()
-                .filter(|&index| {
-                    if policy == TargetPolicy::Flying {
-                        actors[index].flying
-                    } else {
-                        actors[index].casting
-                    }
-                })
+                .filter(|&index| actors[index].flying)
                 .collect();
             nearest(owner, &preferred).or_else(spread)
         }
-        TargetPolicy::Spread => spread(),
+        // Block Magic uses the acting character's spell history, even when
+        // no opponent is chanting.
+        TargetPolicy::Casting if actors[owner].has_cast_spell => nearest(owner, &candidates),
+        TargetPolicy::Casting | TargetPolicy::Spread => spread(),
         TargetPolicy::SelfTarget | TargetPolicy::Random => unreachable!(),
     };
     Ok(target.map(|index| ActorId(index as u8)))
 }
 
 impl crate::Battle {
+    pub(crate) fn target_roster(&self) -> Vec<TargetActor> {
+        self.actors
+            .iter()
+            .enumerate()
+            .map(|(index, actor)| {
+                TargetActor::new(
+                    actor,
+                    self.prepared.actor_setup[index].target_excluded,
+                    self.runtime[index].has_cast_spell,
+                    self.target(ActorId(index as u8)),
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn target_excluded(&self, actor: crate::ActorId) -> bool {
         self.prepared.actor_setup[actor.index()].target_excluded
     }
@@ -160,26 +213,7 @@ impl crate::Battle {
         {
             return Ok(());
         }
-        let actors: Vec<_> = self
-            .actors
-            .iter()
-            .enumerate()
-            .map(|(index, actor)| TargetActor {
-                side: actor.side,
-                position: actor.position,
-                hp: actor.hp,
-                hp_percent: actor.hp_percent(),
-                flying: actor.movement.flying,
-                casting: matches!(
-                    self.activity(crate::ActorId(index as u8)),
-                    crate::Activity::Casting { .. }
-                ),
-                available: actor.available(),
-                hidden: self.target_excluded(crate::ActorId(index as u8)),
-                dying: false,
-                target: None,
-            })
-            .collect();
+        let actors = self.target_roster();
         for index in 0..self.actors.len() {
             let owner = crate::ActorId(index as u8);
             if self.actors[index].side != side && self.target(owner) == Some(victim) {
@@ -244,7 +278,7 @@ mod tests {
             hp: 100,
             hp_percent: 100,
             flying: false,
-            casting: false,
+            has_cast_spell: false,
             available: true,
             hidden: false,
             dying: false,
@@ -377,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn spread_prefers_unclaimed_opponents_then_nearest() {
+    fn spread_retries_the_roster_then_falls_back_to_nearest() {
         let mut actors = [
             actor(Side::Party, 0.),
             actor(Side::Party, 1.),
@@ -385,7 +419,26 @@ mod tests {
             actor(Side::Enemy, 20.),
         ];
         actors[1].target = Some(ActorId(2));
-        assert_eq!(select(&actors, TargetPolicy::Spread), Some(3));
+        let mut draws = 0;
+        assert_eq!(
+            select_target(&actors, ActorId(0), TargetPolicy::Spread, &mut || {
+                draws += 1;
+                if draws == 1 { 0 } else { 1 }
+            })
+            .unwrap(),
+            Some(ActorId(3))
+        );
+        assert_eq!(draws, 2);
+        draws = 0;
+        assert_eq!(
+            select_target(&actors, ActorId(0), TargetPolicy::Spread, &mut || {
+                draws += 1;
+                0
+            })
+            .unwrap(),
+            Some(ActorId(2))
+        );
+        assert_eq!(draws, 16);
         actors[1].available = false;
         assert_eq!(select(&actors, TargetPolicy::Spread), Some(2));
         actors[1].available = true;
@@ -404,11 +457,9 @@ mod tests {
         actors[0].target = Some(ActorId(3));
         actors[1].hp_percent = 25;
         actors[3].flying = true;
-        actors[3].casting = true;
         for policy in [
             TargetPolicy::Leader,
             TargetPolicy::Flying,
-            TargetPolicy::Casting,
             TargetPolicy::Protect,
         ] {
             assert_eq!(select(&actors, policy), Some(3), "{policy:?}");
@@ -417,14 +468,60 @@ mod tests {
         for policy in [
             TargetPolicy::Leader,
             TargetPolicy::Flying,
-            TargetPolicy::Casting,
             TargetPolicy::Protect,
         ] {
             assert_eq!(select(&actors, policy), Some(2), "{policy:?}");
         }
         actors[3].hidden = false;
         actors[1].available = false;
-        assert_eq!(select(&actors, TargetPolicy::Protect), Some(2));
+        assert_eq!(select(&actors, TargetPolicy::Protect), Some(3));
+    }
+
+    #[test]
+    fn block_magic_remembers_chant_start_independently_of_cast_memory() -> Result<()> {
+        let mut prepared = crate::companion::tests::prepared()?;
+        crate::tests::assign_action(&mut prepared, 2, crate::ActionKey(7));
+        let mut battle = prepared.finish()?;
+        let owner = ActorId(2);
+        battle.set_decision_target(ActorId(0), ActorId(3))?;
+        assert_eq!(
+            battle.decision_target(owner, TargetPolicy::Casting)?,
+            Some(ActorId(4))
+        );
+        battle.start(
+            crate::ActionRequest {
+                actor: owner,
+                action: crate::ActionKey(7),
+                target: ActorId(3),
+            },
+            &mut Vec::new(),
+        )?;
+        assert!(!battle.runtime[2].has_cast_spell);
+        battle.step(crate::BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+        assert!(!battle.runtime[2].has_cast_spell);
+        let mut chanted = false;
+        for _ in 0..30 {
+            let frame = battle.step(crate::BattleInput::default())?;
+            chanted |= frame.cues.iter().any(|cue| {
+                matches!(cue, crate::Cue::Casting {
+                actor, phase: crate::CastPhase::Started, .. } if *actor == owner)
+            });
+            if chanted {
+                break;
+            }
+        }
+        assert!(chanted);
+        assert!(battle.runtime[2].has_cast_spell);
+        battle.clear_cast_memory(owner);
+        assert!(battle.runtime[2].has_cast_spell);
+        assert_eq!(
+            battle.decision_target(owner, TargetPolicy::Casting)?,
+            Some(ActorId(3))
+        );
+        Ok(())
     }
 
     fn battle() -> crate::Battle {

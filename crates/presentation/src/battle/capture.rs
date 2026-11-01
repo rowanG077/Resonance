@@ -154,8 +154,8 @@ impl Owner {
                     "actor": index, "side": if actor.side == Side::Party { 0 } else { 1 },
                     "character": scene.characters.get(index).map(|&character| character as u8),
                     "companion_policy": ActorId::from_index(index).ok()
-                        .and_then(|actor| scene.core.companion_policy(actor))
-                        .map(|policy| json!({"raw": policy.choices})),
+                        .and_then(|actor| scene.core.companion_choices(actor))
+                        .map(|policy| json!({"raw": policy})),
                     "control": match actor.control {
                         Control::Manual => "manual", Control::SemiAuto => "semi_auto",
                         Control::Auto => "auto", Control::Enemy => "enemy",

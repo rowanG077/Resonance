@@ -275,6 +275,21 @@ pub enum TargetPolicy {
     NearestIncapacitated,
 }
 
+impl TargetPolicy {
+    /// Native party strategy slots, in saved/menu order. Cooking recovers the
+    /// actual handlers independently from the REL dispatch relocations.
+    pub const PARTY: [Self; 8] = [
+        Self::Nearest,
+        Self::Farthest,
+        Self::Leader,
+        Self::Spread,
+        Self::Flying,
+        Self::Casting,
+        Self::LowestHp,
+        Self::Protect,
+    ];
+}
+
 impl TryFrom<u8> for TargetPolicy {
     type Error = anyhow::Error;
 

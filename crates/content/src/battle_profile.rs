@@ -25,7 +25,10 @@ pub struct Table {
     pub martial_attacks: crate::battle_martial::Catalogue,
     /// Default strategy values, transposed from three ten-byte asset columns.
     pub default_strategy: [[u8; 3]; 9],
-    pub companion_policy: CompanionPolicy,
+    pub target_strategies: [crate::battle_action::TargetPolicy; 8],
+    pub companion_policy: [CompanionLimits; 9],
+    pub companion_positioning: CompanionPositioning,
+    pub companion_normal_selection: CompanionNormalSelection,
     pub entry: Entry,
     /// Character-specific poses, scheduled in elapsed chanting updates.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -50,10 +53,40 @@ pub struct Table {
 
 impl Table {
     pub fn validate(&self) -> Result<()> {
+        self.companion_positioning.validate()?;
+        self.companion_normal_selection.validate()?;
+        for limits in self.companion_policy {
+            limits.validate()?;
+        }
+        ensure!(
+            self.target_strategies
+                .iter()
+                .all(|target| crate::battle_action::TargetPolicy::PARTY.contains(target)),
+            "party strategy needs a living-opponent target handler"
+        );
         for collider in self.body_colliders {
             collider.validate()?;
         }
         Ok(())
+    }
+
+    pub fn target_strategy(
+        &self,
+        member: usize,
+        choice: u8,
+    ) -> Result<crate::battle_action::TargetPolicy> {
+        let choice = if choice == 0 {
+            self.default_strategy
+                .get(member)
+                .ok_or_else(|| anyhow::anyhow!("invalid strategy member"))?[0]
+        } else {
+            choice
+        };
+        choice
+            .checked_sub(1)
+            .and_then(|index| self.target_strategies.get(index as usize))
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("invalid target strategy choice {choice}"))
     }
 
     pub fn martial_attack(
@@ -62,6 +95,53 @@ impl Table {
         character: u8,
     ) -> Result<&crate::battle_martial::Attack> {
         self.martial_attacks.attack(catalogue, character)
+    }
+}
+
+/// Shared target-height and close-range normal selection limits.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompanionNormalSelection {
+    pub airborne_target_height: f32,
+    pub colette_melee_gap: f32,
+}
+
+impl CompanionNormalSelection {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            self.airborne_target_height.is_finite()
+                && self.airborne_target_height > 0.
+                && self.colette_melee_gap.is_finite()
+                && self.colette_melee_gap > 0.,
+            "invalid companion normal selection limits"
+        );
+        Ok(())
+    }
+}
+
+/// Shared automatic party movement limits, editable in the party rules document.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompanionPositioning {
+    pub idle_arrival_distance: f32,
+    pub formation_radius: f32,
+    pub formation_occupancy_unit: f32,
+    pub approach_timeout_ticks: u16,
+}
+
+impl CompanionPositioning {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            self.idle_arrival_distance.is_finite()
+                && self.idle_arrival_distance > 0.
+                && self.formation_radius.is_finite()
+                && self.formation_radius > self.idle_arrival_distance
+                && self.formation_occupancy_unit.is_finite()
+                && self.formation_occupancy_unit > 0.
+                && self.approach_timeout_ticks > 0,
+            "invalid companion positioning limits"
+        );
+        Ok(())
     }
 }
 
@@ -110,10 +190,27 @@ fn standing_colliders_reject_non_finite_or_inverted_capsules() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CompanionPolicy {
-    pub tp_limits: [u8; 9],
-    pub healing_limits: [u8; 9],
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompanionLimits {
+    pub tp_reserve_percent: u8,
+    pub healing_threshold_percent: u8,
+    /// Maximum party-minus-enemy average level difference for buffs, fixed at entry.
+    pub buff_max_level_advantage: i8,
+    /// Above this reserve, ranged companions may wait instead of using normals.
+    pub idle_tp_reserve_percent: u8,
+}
+
+impl CompanionLimits {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            self.tp_reserve_percent <= 100
+                && self.healing_threshold_percent <= 100
+                && self.idle_tp_reserve_percent <= 100,
+            "invalid companion strategy percentage"
+        );
+        Ok(())
+    }
 }
 
 /// Artwork settings for battle entry; gameplay owns the introduction duration.
@@ -157,6 +254,10 @@ pub struct ContactSounds {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileTraits {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_weakness_known: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial_resistance_known: bool,
     #[serde(default)]
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub hosts_participants: bool,

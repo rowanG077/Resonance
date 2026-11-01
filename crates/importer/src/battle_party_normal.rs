@@ -205,11 +205,13 @@ fn decode(
     events.sort_by_key(|(at, _)| *at);
     let duration = elapsed(half(config, 0)?)?;
     let chain = half(config, 4)?;
+    let retry = half(config, 6)?;
     let recovery = half(config, 2)?;
     Ok(Attack {
         continuation,
         duration,
         chain_at: (chain != 0).then(|| elapsed(chain)).transpose()?,
+        chain_retry_at: (retry != 0).then(|| elapsed(retry)).transpose()?,
         recovery,
         reach: [half(config, 20)?, half(config, 22)?],
         events,

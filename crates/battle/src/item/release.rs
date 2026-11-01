@@ -255,6 +255,8 @@ impl Battle {
             }
         }
         if matches!(policy.effect, Effect::Scan) {
+            self.actors[request.target.index()].weakness_known = true;
+            self.actors[request.target.index()].resistance_known = true;
             self.items.revealed.insert(request.target);
             cues.push(Cue::EnemyScanned {
                 actor: request.target,

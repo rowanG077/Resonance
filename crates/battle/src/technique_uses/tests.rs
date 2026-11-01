@@ -280,7 +280,15 @@ fn usage_totals_and_proficiency_are_bounded() -> Result<()> {
 fn death_during_approach_does_not_count_an_unstarted_action() -> Result<()> {
     let mut battle = prepared(49).finish().unwrap();
     battle.actors[0].heading = -90.;
-    assert!(battle.request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters())?);
+    assert!(battle.request_approach(
+        crate::ActionRequest {
+            actor: ActorId(0),
+            target: ActorId(1),
+            action: crate::ActionKey(0)
+        },
+        ActorId(1),
+        parameters()
+    )?);
     assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     battle.actors[0].hp = 0;
     battle.actors[0].availability = crate::ActorAvailability::Dead;
@@ -297,9 +305,12 @@ fn moving_request_waits_for_arrival_and_cancelled_approach_never_counts() -> Res
         battle.actors[1].position[0] = 400.;
 
         assert!(battle.request_approach(
-            ActorId(0),
+            crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(1),
+                action: crate::ActionKey(0)
+            },
             ActorId(1),
-            crate::ActionKey(0),
             parameters()
         )?);
         assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
@@ -328,7 +339,15 @@ fn moving_request_waits_for_arrival_and_cancelled_approach_never_counts() -> Res
 fn insufficient_tp_at_arrival_does_not_count_or_start_the_action() -> Result<()> {
     let mut battle = prepared(49).finish().unwrap();
     battle.actors[0].heading = -90.;
-    assert!(battle.request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters())?);
+    assert!(battle.request_approach(
+        crate::ActionRequest {
+            actor: ActorId(0),
+            target: ActorId(1),
+            action: crate::ActionKey(0)
+        },
+        ActorId(1),
+        parameters()
+    )?);
     battle.actors[0].tp = 0;
     for _ in 0..8 {
         let frame = battle.step(BattleInput::default())?;

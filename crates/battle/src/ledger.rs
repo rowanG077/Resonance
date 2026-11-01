@@ -28,6 +28,9 @@ pub struct Ledger {
     pub party_was_hit: bool,
     /// Whether Magic Lens was actually used.
     pub enemy_was_scanned: bool,
+    /// Actor slots whose elemental information was discovered by contact.
+    pub discovered_weaknesses: crate::ActorSet,
+    pub discovered_resistances: crate::ActorSet,
     pub party_item_effect_used: bool,
     /// Actor slots, not character IDs. The session maps these on persistence.
     pub kills: Vec<u16>,
@@ -59,6 +62,8 @@ impl Ledger {
             last_party_killer: None,
             party_was_hit: false,
             enemy_was_scanned: false,
+            discovered_weaknesses: Default::default(),
+            discovered_resistances: Default::default(),
             party_item_effect_used: false,
             kills: vec![0; actors],
             deaths: vec![0; actors],

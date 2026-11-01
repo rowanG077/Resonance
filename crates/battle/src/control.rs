@@ -196,6 +196,7 @@ pub struct NormalContinuation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ComboWindow {
     pub opens_at: u32,
+    pub retry_at: Option<u32>,
     pub buffer_until: u32,
 }
 
@@ -751,14 +752,10 @@ impl Battle {
                 .actors
                 .get(index)
                 .is_some_and(|actor| actor.available())
-            || !self.actors[index].conditions.arte_queue_allowed()
         {
             return false;
         }
-        let Some(_) = self.learned_technique(actor, action) else {
-            return false;
-        };
-        self.action_quote(actor, action) <= u32::from(self.actors[index].tp)
+        self.technique_ready(actor, action)
     }
 
     pub fn queue_technique_from(
@@ -1151,8 +1148,20 @@ impl Battle {
         if sequence.started_at == self.update || sequence.age < window.opens_at {
             return Ok(false);
         }
-        if self.actors[index].control == Control::Auto && !self.visit_companion_combo(sequence)? {
-            return Ok(false);
+        if self.actors[index].control == Control::Auto {
+            // Autonomous choices occur at authored checkpoints. A rejected
+            // choice must not be sampled again on every later recovery frame.
+            // Explicit commands can use any remaining eligible combo frame.
+            // Recovery retains the final action age, so completing recovery
+            // must not revisit a checkpoint at that same age.
+            let checkpoint = sequence.running()
+                && (sequence.age == window.opens_at.max(1)
+                    || window.retry_at == Some(sequence.age));
+            if !checkpoint && self.pending_technique(actor).is_none()
+                || !self.visit_companion_combo(sequence)?
+            {
+                return Ok(false);
+            }
         }
         let Some(pending) = self.runtime[index].combo.buffered.take() else {
             return Ok(false);
@@ -1224,7 +1233,11 @@ impl Battle {
         Ok(started)
     }
 
-    fn chain_technique_available(&self, actor: ActorId, action: crate::ActionKey) -> bool {
+    pub(crate) fn chain_technique_available(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> bool {
         self.chain_count_available(actor, self.runtime[actor.index()].combo.normal_links)
             && self.chain_descriptor_available(actor, action)
     }

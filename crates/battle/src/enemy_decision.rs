@@ -187,8 +187,15 @@ impl Battle {
             allied_recipient || request.target == combat_target,
             "hostile action recipient differs from its approach target"
         );
-        let accepted =
-            self.request_approach(request.actor, combat_target, request.action, parameters)?;
+        let accepted = self.request_approach(
+            crate::ActionRequest {
+                actor: request.actor,
+                target: combat_target,
+                action: request.action,
+            },
+            combat_target,
+            parameters,
+        )?;
         if accepted {
             self.set_decision_target(request.actor, combat_target)?;
             if allied_recipient {
@@ -814,8 +821,15 @@ impl Battle {
             definition.approach_parameters(row, self.runtime[owner.index()].enemy_walk_override);
         let allied_recipient = row.target_allies
             || row.target_policy.unwrap_or(definition.strategy) == TargetPolicy::SelfTarget;
-        if self.request_approach(owner, target, action, parameters)?
-            && allied_recipient
+        if self.request_approach(
+            crate::ActionRequest {
+                actor: owner,
+                target: target,
+                action: action,
+            },
+            target,
+            parameters,
+        )? && allied_recipient
             && self.runtime[owner.index()].task().approach().is_some()
         {
             self.set_approach_action_target(owner, self.runtime[owner.index()].support_target)?;
@@ -1180,6 +1194,7 @@ mod tests {
                         contact_recovery: None,
                         opening: None,
                         chain_at: (index == 0).then_some(44),
+                        chain_retry_at: None,
                         end_at: 49,
                         recovery: 30,
                         events: vec![(

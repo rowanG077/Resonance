@@ -92,6 +92,9 @@ pub struct RecoveryTraits {
 pub struct Actor {
     pub side: Side,
     pub species: Species,
+    /// Enemy information learned before entry, from contact, or through a scan.
+    pub weakness_known: bool,
+    pub resistance_known: bool,
     pub equipment: EquipmentAttributes,
     pub combat_adjustments: crate::CombatAdjustments,
     pub control: crate::Control,
@@ -134,6 +137,8 @@ impl Actor {
     pub fn new(side: Side, control: crate::Control, equipment: EquipmentAttributes) -> Self {
         Self {
             side,
+            weakness_known: false,
+            resistance_known: false,
             control,
             hp: equipment.max_hp,
             tp: equipment.max_tp,
@@ -896,7 +901,8 @@ pub(crate) struct ActorRuntime {
     pub(crate) capture: crate::capture::State,
     task: ActorTask,
     pub(crate) idle_timer: u32,
-    pub(crate) companion_policy: Option<crate::CompanionPolicy>,
+    pub(crate) companion_policy: Option<crate::companion::ResolvedPolicy>,
+    pub(crate) has_cast_spell: bool,
     pub(crate) recovery: crate::CommonRecoveryState,
     pub(crate) angel_tear_armed: bool,
     pub(crate) support_target: ActorId,
@@ -1083,7 +1089,47 @@ enum ActionTransition {
 }
 
 impl Battle {
-    pub(crate) fn from_prepared(mut prepared: PreparedBattle) -> Self {
+    pub(crate) fn special_guard_admission_allowed(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> bool {
+        let owner = &self.actors[actor.index()];
+        self.prepared.special_guard(actor) == Some(action)
+            && self.special_guard_learned(actor, action)
+            && self.action_family_available(actor, action)
+            && owner.conditions.arte_queue_allowed()
+            && !owner.airborne()
+    }
+    pub(crate) fn technique_ready(&self, actor: ActorId, action: crate::ActionKey) -> bool {
+        self.learned_technique(actor, action).is_some()
+            && self.actors[actor.index()].conditions.arte_queue_allowed()
+            && u32::from(self.actors[actor.index()].tp) >= self.action_quote(actor, action)
+    }
+
+    pub(crate) fn special_guard_learned(&self, actor: ActorId, action: crate::ActionKey) -> bool {
+        self.prepared
+            .technique(actor, action)
+            .is_some_and(|technique| {
+                self.learning_members
+                    .iter()
+                    .find(|row| row.actor == actor)
+                    .is_some_and(|row| row.member.current().contains(&technique.catalogue))
+            })
+    }
+
+    pub(crate) fn action_quote(&self, actor: ActorId, key: crate::ActionKey) -> u32 {
+        let action = &self.prepared.actions[key];
+        self.prepared
+            .special_guard(actor)
+            .filter(|&binding| binding == key && self.special_guard_learned(actor, binding))
+            .map_or_else(
+                || crate::tp::action_quote(&self.actors[actor.index()], key, action),
+                |_| crate::tp::special_guard_debit(&self.actors[actor.index()], action.tp_cost),
+            )
+    }
+
+    pub(crate) fn from_prepared(mut prepared: PreparedBattle) -> Result<Self> {
         let mut actors = prepared.actors;
         let actor_count = actors.len();
         let learning_members = prepared.technique_learning_members;
@@ -1097,7 +1143,7 @@ impl Battle {
         } else {
             prepared.entry_remaining
         };
-        Self {
+        Ok(Self {
             runtime: prepared
                 .resources
                 .actor_setup
@@ -1106,7 +1152,7 @@ impl Battle {
                 .map(|(index, setup)| {
                     let actor = &actors[index];
                     let target = prepared.targets[index];
-                    ActorRuntime {
+                    Ok(ActorRuntime {
                         combo: Default::default(),
                         control: crate::control::Controller::from_setup(
                             ActorId(index as u8),
@@ -1127,18 +1173,19 @@ impl Battle {
                         capture: Default::default(),
                         task: ActorTask::None,
                         idle_timer: 0,
-                        companion_policy: setup.companion.as_ref().map(|companion| {
-                            crate::CompanionPolicy {
-                                choices: companion.initial_policy,
-                            }
-                        }),
+                        companion_policy: setup
+                            .companion
+                            .as_ref()
+                            .map(|definition| definition.resolve(definition.initial_policy))
+                            .transpose()?,
+                        has_cast_spell: false,
                         recovery: Default::default(),
                         angel_tear_armed: actor.equipment.recovery.lethal.angel_tear,
                         support_target: ActorId(index as u8),
                         special_guard_pending: None,
-                    }
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
             escape: crate::escape::State::new(prepared.resources.escape.as_ref()),
             items: Default::default(),
             diagnostics: resonance_content::diagnostics::Diagnostics::new(true),
@@ -1202,7 +1249,7 @@ impl Battle {
             terminal: Default::default(),
             ended: false,
             prepared: prepared.resources,
-        }
+        })
     }
 
     pub fn actors(&self) -> &[Actor] {
@@ -2965,7 +3012,8 @@ impl Battle {
         }
         {
             let technique = self
-                .selection_definition(request.actor, action)
+                .prepared
+                .technique(request.actor, action)
                 .map(|row| row.capabilities);
             self.initialize_normal(&mut sequence);
             let combo = &mut self.runtime[index].combo;
@@ -3043,47 +3091,11 @@ impl Battle {
             .ok_or_else(|| anyhow::anyhow!("invalid battle actor handle"))
     }
 
-    pub(crate) fn action_quote(&self, actor: ActorId, key: crate::ActionKey) -> u32 {
-        let action = &self.prepared.actions[key];
-        self.prepared
-            .special_guard(actor)
-            .filter(|&binding| binding == key && self.special_guard_learned(actor, binding))
-            .map_or_else(
-                || crate::tp::action_quote(&self.actors[actor.index()], key, action),
-                |_| crate::tp::special_guard_debit(&self.actors[actor.index()], action.tp_cost),
-            )
-    }
-
-    pub(crate) fn special_guard_learned(&self, actor: ActorId, action: crate::ActionKey) -> bool {
-        self.prepared
-            .technique(actor, action)
-            .is_some_and(|technique| {
-                self.learning_members
-                    .iter()
-                    .find(|row| row.actor == actor)
-                    .is_some_and(|row| row.member.current().contains(&technique.catalogue))
-            })
-    }
-
+    #[cfg(test)]
     pub(crate) fn special_guard_family_available(&self, actor: ActorId) -> bool {
         self.prepared
             .special_guard(actor)
             .is_some_and(|binding| self.action_family_available(actor, binding))
-    }
-
-    pub(crate) fn special_guard_admission_allowed(
-        &self,
-        actor: ActorId,
-        action: crate::ActionKey,
-    ) -> bool {
-        let Some(binding) = self.prepared.special_guard(actor) else {
-            return false;
-        };
-        binding == action
-            && self.special_guard_learned(actor, binding)
-            && self.special_guard_family_available(actor)
-            && self.actors[actor.index()].conditions.arte_queue_allowed()
-            && !self.actors[actor.index()].airborne()
     }
 
     pub(crate) fn special_guard_threat_pending(&self, actor: ActorId) -> bool {

@@ -126,7 +126,7 @@ mod elemental_tests {
                 })?;
                 battle.actors[0].equipment.base_element = None;
                 assert_eq!(
-                    battle.technique_available(ActorId(0), ActionKey(1)),
+                    battle.learned_technique(ActorId(0), ActionKey(1)).is_some(),
                     enabled
                 );
                 if enabled {
@@ -229,6 +229,23 @@ impl PreparedBattle {
 }
 
 impl Battle {
+    pub(crate) fn learned_technique(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> Option<PreparedTechnique> {
+        let row = self.prepared.technique(actor, action)?;
+        if self
+            .learning_members
+            .iter()
+            .find(|member| member.actor == actor)
+            .is_some_and(|member| !member.member.current().contains(&row.catalogue))
+        {
+            return None;
+        }
+        Some(*row)
+    }
+
     /// Elemental weapon bonuses select a complete arte before its use is counted.
     pub(crate) fn elemental_action(
         &mut self,
@@ -342,26 +359,6 @@ impl Battle {
     }
 
     /// Current membership selects from the actor's immutable action capacity.
-    pub(crate) fn learned_technique(
-        &self,
-        actor: ActorId,
-        action: crate::ActionKey,
-    ) -> Option<PreparedTechnique> {
-        let row = self.prepared.technique(actor, action)?;
-        if self
-            .learning_members
-            .iter()
-            .find(|member| member.actor == actor)
-            .is_some_and(|member| !member.member.current().contains(&row.catalogue))
-        {
-            return None;
-        }
-        Some(*row)
-    }
-
-    pub(crate) fn technique_available(&self, actor: ActorId, action: crate::ActionKey) -> bool {
-        self.learned_technique(actor, action).is_some()
-    }
 
     pub fn pending_technique(&self, actor: ActorId) -> Option<crate::ActionKey> {
         Some(
@@ -419,7 +416,7 @@ impl Battle {
         cues: &mut Vec<crate::Cue>,
     ) -> Result<bool> {
         let index = actor.index();
-        if self.actors[index].control != Control::Auto || !self.companion_mode_ready(actor) {
+        if self.actors[index].control != Control::Auto || !self.decision_ready(actor) {
             return Ok(false);
         }
         let Some(control) = self.runtime[index].control.as_ref() else {
@@ -437,19 +434,9 @@ impl Battle {
         } else if binding.capabilities.target == TechniqueTarget::Enemy {
             let policy = self
                 .companion_policy(actor)
-                .context("queued command has no policy")?;
-            let strategy = if policy.choices[0] == 0 {
-                self.prepared.actor_setup[index]
-                    .companion
-                    .as_ref()
-                    .context("queued command has no companion")?
-                    .defaults[0]
-            } else {
-                policy.choices[0]
-            };
-            let Some(target) =
-                self.decision_target(actor, crate::TargetPolicy::try_from(strategy)?)?
-            else {
+                .context("actor has no companion policy")?
+                .target;
+            let Some(target) = self.decision_target(actor, policy)? else {
                 return Ok(false);
             };
             target
@@ -509,7 +496,16 @@ impl Battle {
             speed: definition.run_speed,
             turn_ticks: definition.turn_ticks,
         };
-        let accepted = self.request_selected_approach(actor, target, action, parameters)?;
+        let accepted = self.begin_approach(
+            crate::ActionRequest {
+                actor: actor,
+                target: target,
+                action: action,
+            },
+            None,
+            parameters,
+            self.approach_range_required(actor),
+        )?;
         if accepted {
             self.set_decision_target(actor, target)?;
         }
@@ -520,8 +516,7 @@ impl Battle {
         let Some(action) = self.pending_technique(actor) else {
             return Ok(None);
         };
-        if !self.actors[actor.index()].conditions.arte_queue_allowed()
-            || !self.technique_available(actor, action)
+        if !self.technique_ready(actor, action)
             || self.prepared.actions.get(action).is_some_and(|definition| {
                 matches!(&definition.execution, crate::ActionExecution::Casting(_))
             })
