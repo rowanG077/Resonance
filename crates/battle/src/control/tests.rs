@@ -292,12 +292,17 @@ fn locomotion_keeps_airborne_momentum_and_resumes_run_after_guard() -> Result<()
 
 fn companion_policy(technique: u8) -> crate::CompanionDefinition {
     crate::CompanionDefinition {
-        normal_attack_opening: false,
+        character: crate::Character::Lloyd,
+        target_strategies: crate::TargetPolicy::PARTY,
+        positioning: crate::tests::companion_positioning(),
+        normal_selection: crate::tests::companion_normal_selection(),
         initial_policy: [0; 3],
         defaults: [3, 6, technique],
         limits: [crate::PolicyLimits {
-            tp: 30,
-            healing: 65,
+            tp_reserve_percent: 30,
+            healing_threshold_percent: 65,
+            buff_max_level_advantage: 8,
+            idle_tp_reserve_percent: 30,
         }; 9],
     }
 }
@@ -387,7 +392,7 @@ fn approach_policy_battle(control: Control, colette: bool) -> Battle {
     let mut prepared = prepared(control);
     prepared.actors[1].position[0] = 600.;
 
-    if colette {
+    if colette || control == Control::Auto {
         prepared.resources.actor_setup[0].companion = Some(companion_policy(2));
     }
     prepared.resources.actor_setup[0].decision = Some(crate::DecisionDefinition {
@@ -397,9 +402,12 @@ fn approach_policy_battle(control: Control, colette: bool) -> Battle {
     let mut battle = prepared.finish().unwrap();
     battle
         .request_approach(
-            ActorId(0),
+            crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(1),
+                action: crate::ActionKey(0),
+            },
             ActorId(1),
-            crate::ActionKey(0),
             crate::ApproachParameters {
                 minimum: 0.,
                 maximum: 120.,
@@ -1583,17 +1591,23 @@ fn arte_boost_shortcuts_and_approach_check_live_cost() -> Result<()> {
             turn_ticks: 8,
         };
         assert!(!battle.request_approach(
-            ActorId(0),
+            crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(1),
+                action: crate::ActionKey(7)
+            },
             ActorId(1),
-            crate::ActionKey(7),
             parameters
         )?);
         assert!(battle.runtime[0].task().approach().is_none());
         battle.actors[0].tp = 5;
         assert!(battle.request_approach(
-            ActorId(0),
+            crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(1),
+                action: crate::ActionKey(7)
+            },
             ActorId(1),
-            crate::ActionKey(7),
             parameters
         )?);
         assert_eq!(battle.actors[0].tp, 5);

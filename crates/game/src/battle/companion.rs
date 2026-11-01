@@ -1,6 +1,6 @@
 //! Resolve companion defaults and policy limits during encounter preparation.
 use super::party::Character;
-use resonance_battle::{CompanionDefinition, PolicyLimits};
+use resonance_battle::CompanionDefinition;
 use resonance_content::battle_profile;
 use resonance_events::party::Member;
 
@@ -10,12 +10,12 @@ pub fn prepare(
     member: &Member,
 ) -> CompanionDefinition {
     CompanionDefinition {
-        normal_attack_opening: matches!(character, Character::Kratos | Character::Zelos),
+        character,
         initial_policy: member.strategy,
         defaults: profiles.default_strategy[character.index()],
-        limits: std::array::from_fn(|index| PolicyLimits {
-            tp: profiles.companion_policy.tp_limits[index],
-            healing: profiles.companion_policy.healing_limits[index],
-        }),
+        target_strategies: profiles.target_strategies,
+        positioning: profiles.companion_positioning,
+        normal_selection: profiles.companion_normal_selection,
+        limits: profiles.companion_policy,
     }
 }

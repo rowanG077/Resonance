@@ -389,6 +389,10 @@ impl Assets {
             stats,
             &self.recoil,
         )?;
+        if let Some(knowledge) = self.party.monsters.get(&monster.id) {
+            actor.weakness_known |= knowledge.scanned || knowledge.weakness_known;
+            actor.resistance_known |= knowledge.scanned || knowledge.resistance_known;
+        }
         if monster.id == 191 {
             actor.body.scale = battle::enemy_stage::sword_scale(spawn.variant, actor.body.scale)?;
         }
@@ -1019,11 +1023,7 @@ impl Assets {
             handles.resource = prepared.next_resource;
             models.append(&mut prepared.models);
             render_trails.append(&mut prepared.render_trails);
-            let strategy = resonance_battle::TargetPolicy::try_from(if member.strategy[0] == 0 {
-                table.default_strategy[character.index()][0]
-            } else {
-                member.strategy[0]
-            })?;
+            let strategy = table.target_strategy(character.index(), member.strategy[0])?;
             let member = prepared;
             performances.extend(member.performances);
             prepared_equipment.extend(

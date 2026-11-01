@@ -32,7 +32,7 @@ impl Battle {
         let index = actor.index();
         if !self.can_use_aerial_spell(actor, action)
             || self.spell_active(actor, crate::SpellSlot::Secondary)
-            || !self.technique_available(actor, action)
+            || !self.learned_technique(actor, action).is_some()
             || !self.actors[index].conditions.arte_queue_allowed()
             || !self.action_family_available(actor, action)
             || !self.chain_count_available(actor, self.runtime[index].combo.normal_links)

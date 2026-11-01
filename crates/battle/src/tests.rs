@@ -1364,3 +1364,20 @@ pub(crate) fn counted_techniques(
             .unwrap(),
     }
 }
+
+pub(crate) fn companion_positioning() -> resonance_content::battle_profile::CompanionPositioning {
+    resonance_content::battle_profile::CompanionPositioning {
+        idle_arrival_distance: 10.,
+        formation_radius: 807.5,
+        formation_occupancy_unit: 100.,
+        approach_timeout_ticks: 300,
+    }
+}
+
+pub(crate) fn companion_normal_selection()
+-> resonance_content::battle_profile::CompanionNormalSelection {
+    resonance_content::battle_profile::CompanionNormalSelection {
+        airborne_target_height: 100.,
+        colette_melee_gap: 150.,
+    }
+}

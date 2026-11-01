@@ -8,7 +8,10 @@ fn prepared_controlled(enabled: bool, mode: Control) -> PreparedBattle {
     prepared.actors[0].control = mode;
     prepared.resources.unison_available = true;
     prepared.resources.actor_setup[0].companion = Some(crate::CompanionDefinition {
-        normal_attack_opening: false,
+        character: crate::Character::Lloyd,
+        target_strategies: crate::TargetPolicy::PARTY,
+        positioning: crate::tests::companion_positioning(),
+        normal_selection: crate::tests::companion_normal_selection(),
         initial_policy: [1; 3],
         defaults: [1; 3],
         limits: [crate::PolicyLimits::default(); 9],

@@ -112,6 +112,21 @@ fn party_templates_use_prepared_hp_and_preserve_session_statistics() -> Result<(
 }
 
 #[test]
+fn authored_information_is_applied_without_clearing_learned_knowledge() -> Result<()> {
+    let recoil = battle::recoil::Parameters::load(&files())?;
+    let mut template = profile();
+    template.traits.initial_weakness_known = true;
+    let mut ready = actor();
+    ready.resistance_known = true;
+    battle::profile::apply(&recoil, &template, &mut ready)?;
+    assert!(ready.weakness_known && ready.resistance_known);
+    template.traits.initial_weakness_known = false;
+    battle::profile::apply(&recoil, &template, &mut ready)?;
+    assert!(ready.weakness_known && ready.resistance_known);
+    Ok(())
+}
+
+#[test]
 fn condition_profiles_compose_saved_and_gear_layers_but_cannot_freeze_actors() -> Result<()> {
     use resonance_battle::conditions::{Conditions, Layers};
     let mut template = profile();

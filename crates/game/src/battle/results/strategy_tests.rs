@@ -1,23 +1,30 @@
 //! Native CPU scenarios at prepared Candidate and command boundaries.
-use super::item_tests::{
+use super::test_support::{
     Display, PreparedFixture, command_visit as visit, edge, enter_battle, escape, native_battle,
     prepared_fixture, step,
 };
+#[cfg(feature = "test-support")]
+use super::test_support::{LoadedFixture, load_fixture, prepared_fixture_with_party};
 use super::*;
+#[cfg(feature = "test-support")]
+use crate::battle::encounter::PrepareOptions;
 use crate::battle::{command, lifecycle};
 use crate::menu::{
     MenuAction,
     strategy::{Focus, Strategy},
 };
 use resonance_battle::{ActionRequest, Activity, BattleFrame, BattleInput, item::Release};
+#[cfg(feature = "test-support")]
+use resonance_content::diagnostics::Diagnostics;
 
 #[test]
 #[ignore = "requires cooked Strategy and encounter assets; CPU only"]
 fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Result<()> {
-    let mut f = super::item_tests::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, _| {
-        party.members[2].hp = 0;
-        Ok(())
-    })?;
+    let mut f =
+        super::test_support::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, _| {
+            party.members[2].hp = 0;
+            Ok(())
+        })?;
     enter_battle(&mut f.candidate, &mut f.battle)?;
     let lloyd = f.candidate.setup.actors[0].0;
     assert!(!f.battle.ledger().achievements[lloyd.index()].commanded_alone);
@@ -44,7 +51,7 @@ fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Re
 fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strategy() -> Result<()>
 {
     let mut f =
-        super::item_tests::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, menus| {
+        super::test_support::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, menus| {
             let mut presets = menus.strategy_presets()?;
             presets[0].name = "Custom".into();
             presets[0].members = [[2, 1, 6]; 9];
@@ -80,7 +87,7 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
         1
     );
     for &(actor, _) in &f.candidate.setup.actors {
-        assert_eq!(f.battle.companion_policy(actor).unwrap().choices, [2, 1, 6]);
+        assert_eq!(f.battle.companion_choices(actor).unwrap(), [2, 1, 6]);
     }
     f.lifecycle.step(
         &mut f.battle,
@@ -114,7 +121,7 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
     assert_eq!(f.candidate.active_order(), QuickOrder::Cancel);
     for &(actor, character) in &f.candidate.setup.actors {
         let personal = f.field.members[character.index()].strategy;
-        assert_eq!(f.battle.companion_policy(actor).unwrap().choices, personal);
+        assert_eq!(f.battle.companion_choices(actor).unwrap(), personal);
         assert_eq!(
             f.candidate.party.members[character.index()].strategy,
             personal
@@ -309,7 +316,7 @@ fn shared_strategy_holds_real_item_and_chant_then_refreshes_before_strip_return(
         let random = f.battle.random_state();
         let ledger = f.battle.ledger().clone();
         let pending = f.battle.pending_item();
-        let old_policy = f.battle.companion_policy(user).unwrap();
+        let old_policy = f.battle.companion_choices(user).unwrap();
         settle(&mut f)?;
         assert_eq!(strategy_pose(&f).focus, Focus::Character);
         shared(&mut f, Some(MenuAction::Confirm))?;
@@ -321,14 +328,14 @@ fn shared_strategy_holds_real_item_and_chant_then_refreshes_before_strip_return(
         };
         shared(&mut f, Some(MenuAction::Confirm))?;
         assert_eq!(f.candidate.party.members[2].strategy[0], choice);
-        assert_eq!(f.field.members[2].strategy, old_policy.choices);
-        assert_eq!(f.battle.companion_policy(user), Some(old_policy));
+        assert_eq!(f.field.members[2].strategy, old_policy);
+        assert_eq!(f.battle.companion_choices(user), Some(old_policy));
         shared(&mut f, Some(MenuAction::Down))?; // Skill group.
         edit_setting(&mut f, 2)?;
         shared(&mut f, Some(MenuAction::Down))?; // Position group.
         edit_setting(&mut f, 3)?;
         assert_eq!(f.candidate.party.members[2].strategy, [choice, 2, 3]);
-        assert_eq!(f.battle.companion_policy(user), Some(old_policy));
+        assert_eq!(f.battle.companion_choices(user), Some(old_policy));
         assert_eq!(f.battle.snapshot().actors, held.actors);
         assert_eq!(f.battle.snapshot().actions, held.actions);
         assert_eq!(f.battle.snapshot().targets, held.targets);
@@ -342,17 +349,11 @@ fn shared_strategy_holds_real_item_and_chant_then_refreshes_before_strip_return(
             f.lifecycle.command_frame().unwrap().view,
             command::View::Strip
         ));
-        assert_eq!(
-            f.battle.companion_policy(user).unwrap().choices,
-            [choice, 2, 3]
-        );
+        assert_eq!(f.battle.companion_choices(user).unwrap(), [choice, 2, 3]);
         let mut refreshed = held.actors.clone();
         refreshed[user.index()].guard.recovery_bonus = 25;
         let (returned, events) = visit(&mut f, Default::default())?;
-        assert_eq!(
-            f.battle.companion_policy(user).unwrap().choices,
-            [choice, 2, 3]
-        );
+        assert_eq!(f.battle.companion_choices(user).unwrap(), [choice, 2, 3]);
         assert_eq!(returned.actors, refreshed);
         assert_eq!(returned.actions, held.actions);
         assert_eq!(returned.targets, held.targets);
@@ -431,8 +432,8 @@ fn failed_strategy_return_precedes_strip_input_and_invalidates_the_lifecycle() -
     shared(&mut f, Some(MenuAction::Cancel))?;
     let first = f.candidate.setup.actors[0].0;
     let last = f.candidate.setup.actors[1].0;
-    let first_policy = f.battle.companion_policy(first);
-    let last_policy = f.battle.companion_policy(last);
+    let first_policy = f.battle.companion_choices(first);
+    let last_policy = f.battle.companion_choices(last);
     // A bad saved row prevents publication when the page closes.
     f.candidate.party.members[0].strategy = [9, 1, 1];
     let held = f.battle.snapshot();
@@ -450,8 +451,8 @@ fn failed_strategy_return_precedes_strip_input_and_invalidates_the_lifecycle() -
     assert_eq!(f.battle.snapshot().actors, held.actors);
     assert_eq!(f.battle.random_state(), random);
     assert_eq!(f.battle.ledger(), &ledger);
-    assert_eq!(f.battle.companion_policy(first), first_policy);
-    assert_eq!(f.battle.companion_policy(last), last_policy);
+    assert_eq!(f.battle.companion_choices(first), first_policy);
+    assert_eq!(f.battle.companion_choices(last), last_policy);
     assert_eq!(f.candidate.party.members[2].strategy[0], 2);
     assert!(visit(&mut f, Default::default()).is_err());
     Ok(())
@@ -553,3 +554,6 @@ fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()
     );
     Ok(())
 }
+
+#[cfg(feature = "test-support")]
+mod elemental_knowledge;

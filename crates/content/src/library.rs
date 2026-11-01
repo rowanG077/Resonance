@@ -14,7 +14,7 @@ use std::{
 mod stream;
 pub use stream::StreamReader;
 
-pub const VERSION: u32 = 94;
+pub const VERSION: u32 = 102;
 /// The game contract, independent of the release used to import its content.
 pub const GAME: &str = "tales-of-symphonia";
 pub const DESCRIPTOR: &str = "content.json";

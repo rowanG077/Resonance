@@ -63,64 +63,51 @@ impl Battle {
             || gap >= approach.parameters.minimum && gap <= approach.parameters.maximum
     }
 
+    /// Movement tracks the opponent while the action retains its own recipient.
     pub(crate) fn request_approach(
         &mut self,
-        actor: ActorId,
-        target: ActorId,
-        action: crate::ActionKey,
+        request: ActionRequest,
+        opponent: ActorId,
         parameters: ApproachParameters,
     ) -> Result<bool> {
-        let owner = self.actor(actor)?;
-        if self.terminal.result.is_some()
-            || !owner.available()
-            || !matches!(
-                self.activity(actor),
-                Activity::Idle | Activity::Guarding | Activity::Approaching | Activity::Jumping
-            )
-        {
-            return Ok(false);
-        }
+        let ActionRequest {
+            actor,
+            target: recipient,
+            action,
+        } = request;
+        self.actor(actor)?;
         let Ok(candidate) =
             self.action_candidate(actor, action, [parameters.minimum, parameters.maximum])
         else {
             return Ok(false);
         };
-        self.request_selected_approach(
-            actor,
-            target,
-            action,
+        let range_required = self.approach_range_required(actor);
+        self.begin_approach(
+            ActionRequest {
+                actor,
+                target: opponent,
+                action,
+            },
+            (recipient != opponent).then_some(recipient),
             ApproachParameters {
                 minimum: candidate.range[0],
                 maximum: candidate.range[1],
                 ..parameters
             },
+            range_required,
         )
     }
 
-    pub(crate) fn request_selected_approach(
-        &mut self,
-        actor: ActorId,
-        target: ActorId,
-        action: crate::ActionKey,
-        parameters: ApproachParameters,
-    ) -> Result<bool> {
+    pub(crate) fn approach_range_required(&self, actor: ActorId) -> bool {
         let owner = &self.actors[actor.index()];
-        let range_required = owner.control != crate::Control::Manual
-            && !(owner.control == crate::Control::Enemy && owner.movement.turning_disabled);
-        self.begin_approach(
-            ActionRequest {
-                actor,
-                target,
-                action,
-            },
-            parameters,
-            range_required,
-        )
+        owner.control != crate::Control::Manual
+            && !(owner.control == crate::Control::Enemy && owner.movement.turning_disabled)
     }
 
     pub(crate) fn begin_approach(
         &mut self,
         request: ActionRequest,
+        action_target: Option<ActorId>,
         parameters: ApproachParameters,
         range_required: bool,
     ) -> Result<bool> {
@@ -138,6 +125,9 @@ impl Battle {
             )
         {
             return Ok(false);
+        }
+        if let Some(recipient) = action_target {
+            self.actor(recipient)?;
         }
         ensure!(
             self.prepared.actions.get(action).is_some(),
@@ -181,7 +171,7 @@ impl Battle {
             ActorTask::Approach(Approach {
                 action,
                 target,
-                action_target: None,
+                action_target,
                 parameters,
                 range_required,
                 retreating,
@@ -242,7 +232,7 @@ impl Battle {
         request: ActionRequest,
         parameters: ApproachParameters,
     ) -> Result<()> {
-        self.begin_approach(request, parameters, false)?;
+        self.begin_approach(request, None, parameters, false)?;
         Ok(())
     }
 
@@ -374,8 +364,21 @@ impl Battle {
             self.set_task(index, ActorTask::Approach(approach));
             return Ok(true);
         }
-        approach.elapsed = approach.elapsed.saturating_add(u16::from(motion_ready));
+        let elapsed = u32::from(approach.elapsed) + u32::from(motion_ready);
+        approach.elapsed = elapsed.min(u32::from(u16::MAX)) as u16;
         self.emit_movement_effect(actor, approach.elapsed, cues);
+        if !in_range
+            && self.actors[index].side == crate::Side::Party
+            && self.actors[index].control == crate::Control::Auto
+            && let Some(policy) = self.companion_policy(actor)
+            && (elapsed > u32::from(policy.positioning.approach_timeout_ticks)
+                || policy.position == crate::companion::PositionStrategy::HoldPosition
+                    && self.pending_technique(actor) != Some(approach.action))
+        {
+            self.cancel_approach(index);
+            return Ok(false);
+        }
+
         if walking {
             // Finish this movement visit before admitting an action from its starting gap.
             self.move_approach(actor, approach, gap)?;
@@ -430,7 +433,9 @@ impl Battle {
                 }
                 return Ok(true);
             }
-            if !enemy {
+            let normal_momentum = self.actors[index].control == crate::Control::Auto
+                && self.prepared.actions[approach.action].normal.is_some();
+            if !enemy && !normal_momentum {
                 self.actors[index].movement.forward = 0.;
             }
             if enemy && approach.retreating {

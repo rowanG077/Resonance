@@ -33,6 +33,17 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         overlimit_voices: [None; 9],
         item_use_offsets: [[0.; 3]; 9],
         default_strategy: [[0; 3]; 9],
+        target_strategies: resonance_battle::TargetPolicy::PARTY,
+        companion_normal_selection: resonance_content::battle_profile::CompanionNormalSelection {
+            airborne_target_height: 100.,
+            colette_melee_gap: 150.,
+        },
+        companion_positioning: resonance_content::battle_profile::CompanionPositioning {
+            idle_arrival_distance: 10.,
+            formation_radius: 807.5,
+            formation_occupancy_unit: 100.,
+            approach_timeout_ticks: 300,
+        },
         companion_policy: Default::default(),
         entry: Default::default(),
         chant_sequences: Default::default(),

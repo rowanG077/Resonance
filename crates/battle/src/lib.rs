@@ -32,7 +32,7 @@ mod mobility;
 mod player_control;
 pub use approach::ApproachParameters;
 mod companion;
-pub use companion::{CompanionDefinition, CompanionPolicy, PolicyLimits, StrategyRefresh};
+pub use companion::{CompanionDefinition, PolicyLimits, StrategyRefresh};
 mod damage;
 mod death;
 mod drains;

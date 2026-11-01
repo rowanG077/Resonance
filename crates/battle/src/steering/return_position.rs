@@ -37,12 +37,35 @@ impl Battle {
             actor.control == Control::Auto && actor.side == Side::Party,
             "return position requires an automatic companion"
         );
+        // Idle companions keep their current spot when the formation point is
+        // inside the allowed radius. Post-action return uses formation_home directly.
+        let requested = self.requested_formation_home(owner)?;
+        let limits = self
+            .companion_policy(owner)
+            .map(|policy| policy.positioning);
+        if limits.is_some_and(|row| planar_length(requested) <= row.formation_radius) {
+            self.actors[owner.index()].movement.steering.home = actor.position;
+            return Ok(false);
+        }
         let home = self.formation_home(owner)?;
+        if let Some(limits) = limits
+            && self.actors.iter().enumerate().any(|(index, other)| {
+                index != owner.index()
+                    && other.available()
+                    && self.activity(ActorId(index as u8)) != crate::Activity::Approaching
+                    && planar_length([home[0] - other.position[0], 0., home[2] - other.position[2]])
+                        < limits.formation_occupancy_unit
+                            * (f32::from(other.movement.steering.positioning_radius) + 1.)
+            })
+        {
+            self.actors[owner.index()].movement.steering.home = self.actors[owner.index()].position;
+            return Ok(false);
+        }
         let destination = self.steer_to(owner, home, None)?;
+        let arrival = limits.map_or(ARRIVAL_DISTANCE, |row| row.idle_arrival_distance);
         let actor = &mut self.actors[owner.index()];
         actor.movement.steering.home = home;
-        if planar_length([home[0] - actor.position[0], 0., home[2] - actor.position[2]])
-            <= ARRIVAL_DISTANCE
+        if planar_length([home[0] - actor.position[0], 0., home[2] - actor.position[2]]) <= arrival
         {
             return Ok(false);
         }
@@ -53,15 +76,34 @@ impl Battle {
 
     pub(crate) fn formation_home(&self, owner: ActorId) -> Result<[f32; 3]> {
         let actor = self.actor(owner)?;
+        let home = self.requested_formation_home(owner)?;
+        let position = match self
+            .companion_policy(owner)
+            .map(|policy| policy.positioning)
+        {
+            Some(row) => {
+                let mut point = [home[0], 0., home[2]];
+                let length = planar_length(point);
+                if length > row.formation_radius {
+                    point = point.map(|value| value * row.formation_radius / length);
+                }
+                Some(point)
+            }
+            None => recovery_position::select(&self.actors, owner, home),
+        };
+        Ok(position.unwrap_or(actor.position))
+    }
+
+    fn requested_formation_home(&self, owner: ActorId) -> Result<[f32; 3]> {
+        let actor = self.actor(owner)?;
         let leader = self
             .actors
             .iter()
             .find(|other| other.side == actor.side)
             .context("missing formation leader")?;
-        let home = std::array::from_fn(|i| {
+        Ok(std::array::from_fn(|i| {
             leader.movement.steering.home[i] + actor.movement.steering.home_offset[i]
-        });
-        Ok(recovery_position::select(&self.actors, owner, home).unwrap_or(actor.position))
+        }))
     }
 }
 

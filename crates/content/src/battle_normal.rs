@@ -21,6 +21,9 @@ pub struct Attack<E = Event, C = Continuation> {
     pub duration: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain_at: Option<u16>,
+    /// A second autonomous combo decision on the same attack timeline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_retry_at: Option<u16>,
     pub recovery: u16,
     pub reach: [u16; 2],
     pub events: Vec<(u16, E)>,

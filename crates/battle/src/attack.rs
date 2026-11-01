@@ -333,6 +333,7 @@ pub struct PreparedAttack {
     pub contact_recovery: Option<crate::ContactRecovery>,
     /// Technique chaining opens at this age; ordinary combos come from the controller.
     pub chain_at: Option<u16>,
+    pub chain_retry_at: Option<u16>,
     /// Gameplay age at which recovery may begin, after the last event.
     pub end_at: u16,
     /// None keeps the actor's current pose.
@@ -348,6 +349,7 @@ impl PreparedAttack {
         Self {
             contact_recovery: None,
             chain_at: None,
+            chain_retry_at: None,
             end_at,
             opening: None,
             events: Vec::new(),
@@ -366,6 +368,12 @@ impl PreparedAttack {
         ensure!(
             self.chain_at.is_none_or(|at| at <= self.end_at),
             "attack chain opens after recovery"
+        );
+        ensure!(
+            self.chain_retry_at.is_none_or(
+                |retry| self.chain_at.is_some_and(|at| retry >= at) && retry <= self.end_at
+            ),
+            "attack combo retry is outside its chaining timeline"
         );
         let mut contact_end = None;
         for (index, (at, event)) in self.events.iter().enumerate() {
@@ -1462,9 +1470,25 @@ pub(crate) fn step(
                 }
             }
             AttackEvent::Move { forward, vertical } => {
+                let minimum_forward = battle.actors[index].side == crate::Side::Party
+                    && battle.runtime[index].combo.normal_links == 0
+                    && matches!(
+                        sequence.normal,
+                        Some(crate::control::NormalState::Attack(
+                            crate::NormalAttack::Neutral
+                                | crate::NormalAttack::Thrust
+                                | crate::NormalAttack::Low
+                        ))
+                    );
                 let movement = &mut battle.actors[index].movement;
                 if let Some(forward) = forward {
-                    movement.forward = *forward;
+                    // These first normal attacks retain a faster approach.
+                    // Later links and other attacks assign the authored speed.
+                    movement.forward = if minimum_forward {
+                        movement.forward.max(*forward)
+                    } else {
+                        *forward
+                    };
                 }
                 if let Some(vertical) = vertical {
                     movement.vertical = *vertical;
@@ -1960,6 +1984,77 @@ mod tests {
         assert_eq!(battle.actors[0].position[0], 0.);
         battle.step(BattleInput::default())?;
         assert_eq!(battle.actors[0].position[0], 5.);
+        Ok(())
+    }
+
+    #[test]
+    fn opening_normals_keep_faster_momentum_but_other_forward_rows_assign_speed() -> Result<()> {
+        use crate::NormalAttack::*;
+        for (normal, links, expected) in [
+            (Some(Neutral), 0, 9.),
+            (Some(Thrust), 0, 9.),
+            (Some(Low), 0, 9.),
+            (Some(Rising), 0, 6.),
+            (Some(Finisher), 0, 6.),
+            (Some(Neutral), 1, 6.),
+            (None, 0, 6.),
+        ] {
+            let mut prepared = crate::companion::tests::prepared()?;
+            prepared.actors[2].control = crate::Control::Manual;
+            let key = if let Some(normal) = normal {
+                crate::ActionKey(normal as usize)
+            } else {
+                let mut action = (*prepared.resources.actions.entries[0]).clone();
+                action.normal = None;
+                prepared.resources.actions.insert(action)
+            };
+            crate::tests::attack_mut(Arc::make_mut(
+                &mut prepared.resources.actions.entries[key.0],
+            ))
+            .events = vec![(
+                0,
+                AttackEvent::Move {
+                    forward: Some(6.),
+                    vertical: None,
+                },
+            )];
+            let mut battle = prepared.finish()?;
+            let mut cues = Vec::new();
+            battle.start_admitted_action(
+                crate::ActionRequest {
+                    actor: ActorId(2),
+                    action: key,
+                    target: ActorId(3),
+                },
+                &mut cues,
+            )?;
+            let id = cues
+                .iter()
+                .find_map(|cue| {
+                    if let Cue::Started { action, .. } = cue {
+                        Some(*action)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let mut sequence = battle.take_sequence(&id).unwrap();
+            battle.actors[2].movement.forward = 9.;
+            battle.runtime[2].combo.normal_links = links;
+            step(
+                &mut battle,
+                id,
+                &mut sequence,
+                AttackRun::Starting,
+                &mut Default::default(),
+                &mut crate::item::Unavailable,
+                &mut Vec::new(),
+            )?;
+            assert_eq!(
+                battle.actors[2].movement.forward, expected,
+                "{normal:?}, links {links}"
+            );
+        }
         Ok(())
     }
 

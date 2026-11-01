@@ -49,10 +49,18 @@ fn prepared_fixture(control: Control) -> Result<PreparedBattle> {
         normals,
     }));
     actors[0].companion = Some(CompanionDefinition {
-        normal_attack_opening: false,
+        character: crate::Character::Lloyd,
+        target_strategies: crate::TargetPolicy::PARTY,
+        positioning: crate::tests::companion_positioning(),
+        normal_selection: crate::tests::companion_normal_selection(),
         initial_policy: [0; 3],
         defaults: [1, 5, 1],
-        limits: [PolicyLimits { tp: 30, healing: 0 }; 9],
+        limits: [PolicyLimits {
+            tp_reserve_percent: 30,
+            healing_threshold_percent: 0,
+            buff_max_level_advantage: 8,
+            idle_tp_reserve_percent: 30,
+        }; 9],
     });
     if control == Control::Auto {
         actors[0].decision = Some(DecisionDefinition {
@@ -251,9 +259,12 @@ fn escape_cancels_a_pending_attack_without_spending_tp_or_counting_use() -> Resu
     let mut battle = fixture(Control::SemiAuto)?;
     Arc::make_mut(&mut battle.prepared.actions.entries[0]).tp_cost = 5;
     assert!(battle.request_approach(
-        ActorId(0),
+        crate::ActionRequest {
+            actor: ActorId(0),
+            target: ActorId(1),
+            action: crate::ActionKey(0)
+        },
         ActorId(1),
-        crate::ActionKey(0),
         crate::ApproachParameters {
             minimum: 0.,
             maximum: 20.,
@@ -339,9 +350,12 @@ fn escape_rejects_a_pending_enemy_action_without_use() -> Result<()> {
     let mut battle = enemy_fixture()?;
     Arc::make_mut(&mut battle.prepared.actions.entries[0]).tp_cost = 5;
     assert!(battle.request_approach(
-        ActorId(1),
+        crate::ActionRequest {
+            actor: ActorId(1),
+            target: ActorId(0),
+            action: crate::ActionKey(0)
+        },
         ActorId(0),
-        crate::ActionKey(0),
         crate::ApproachParameters {
             minimum: 0.,
             maximum: 200.,

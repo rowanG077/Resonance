@@ -162,6 +162,7 @@ pub struct PreparedBattle {
 pub(crate) struct BattleResources {
     pub(crate) actor_setup: Vec<ActorSetup>,
     pub(crate) formation_count: usize,
+    pub(crate) companion_level_advantage: i8,
     pub(crate) enemy_presentations: Vec<crate::EnemyPresentation>,
     pub(crate) defense_system: Option<crate::DefenseSystemDefinition>,
     pub(crate) hosted_participants: Vec<crate::HostedParticipant>,
@@ -207,6 +208,19 @@ impl PreparedBattle {
     }
 
     pub fn finish(mut self) -> Result<crate::Battle> {
+        // Fix this difference at entry using the complete rosters.
+        // Deaths and later support stat changes must not alter buff policy.
+        let average_level = |side| {
+            let levels = self.actors.iter().filter(|actor| actor.side == side);
+            let count = levels.clone().count().max(1) as i32;
+            levels
+                .map(|actor| i32::from(actor.equipment.stats.level))
+                .sum::<i32>()
+                / count
+        };
+        self.resources.companion_level_advantage = (average_level(crate::Side::Party)
+            - average_level(crate::Side::Enemy))
+        .clamp(-8, 8) as i8;
         self.validate_actions()?;
         self.validate_actor_setup()?;
         self.validate_escape()?;
@@ -222,7 +236,7 @@ impl PreparedBattle {
             }
         }
         let unison = self.unison.take();
-        let mut battle = crate::Battle::from_prepared(self);
+        let mut battle = crate::Battle::from_prepared(self)?;
         if let Some(definition) = unison {
             battle.configure_unison(definition)?;
         }
@@ -247,10 +261,14 @@ impl PreparedBattle {
     fn validate_actor_setup(&self) -> Result<()> {
         self.validate_actor_controls()?;
         self.validate_actor_enemy_decisions()?;
-        self.validate_actor_companions()?;
         self.validate_actor_special_guards()?;
         self.validate_actor_recovery_returns()?;
-        for setup in &self.resources.actor_setup {
+        for (index, setup) in self.resources.actor_setup.iter().enumerate() {
+            ensure!(
+                setup.companion.is_none()
+                    || self.actors[index].side == crate::Side::Party && setup.control.is_some(),
+                "companion policy needs a party actor with normal bindings"
+            );
             ensure!(
                 setup
                     .movement_effect
@@ -416,6 +434,7 @@ impl PreparedBattle {
             resources: BattleResources {
                 actor_setup,
                 formation_count: 1,
+                companion_level_advantage: 0,
                 enemy_presentations: Vec::new(),
                 defense_system: None,
                 hosted_participants: Vec::new(),

@@ -3,6 +3,27 @@ use crate::{BattleInput, Control, Side};
 
 const UPDATE_BUDGET: usize = 300;
 
+#[test]
+fn companion_approach_expires_after_the_maximum_configured_timeout() -> Result<()> {
+    let mut prepared = crate::companion::tests::prepared()?;
+    prepared.resources.actor_setup[2]
+        .companion
+        .as_mut()
+        .unwrap()
+        .positioning
+        .approach_timeout_ticks = u16::MAX;
+    let mut battle = prepared.finish()?;
+    let owner = ActorId(2);
+    battle.advance_companion_ai(owner, &mut Vec::new())?;
+    let mut approach = battle.runtime[2].task().approach().unwrap();
+    approach.elapsed = u16::MAX - 1;
+    battle.set_task(2, ActorTask::Approach(approach));
+    assert!(battle.update_approach(owner, &mut Vec::new())?);
+    assert!(!battle.update_approach(owner, &mut Vec::new())?);
+    assert!(battle.runtime[2].task().approach().is_none());
+    Ok(())
+}
+
 fn fixture(distance: f32, minimum: f32, maximum: f32) -> Battle {
     controlled_fixture(distance, minimum, maximum, Control::Auto)
 }
@@ -45,9 +66,12 @@ fn controlled_fixture(distance: f32, minimum: f32, maximum: f32, control: Contro
     assert!(
         battle
             .request_approach(
-                ActorId(0),
+                crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0)
+                },
                 ActorId(1),
-                crate::ActionKey(0),
                 ApproachParameters {
                     minimum,
                     maximum,
@@ -231,7 +255,15 @@ fn minimum_range_retreats_and_then_attacks() -> Result<()> {
     parameters.maximum = parameters.minimum;
     assert!(
         party
-            .request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters)
+            .request_approach(
+                crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0)
+                },
+                ActorId(1),
+                parameters
+            )
             .is_err()
     );
     Ok(())
@@ -366,7 +398,15 @@ fn opposite_initial_direction_recovers_and_reaches_a_moving_target() -> Result<(
     let mut battle = fixture(300., 0., 100.);
     let parameters = battle.runtime[0].task().approach().unwrap().parameters;
     battle.actors[0].movement.direction = [-1., 0., 0.];
-    assert!(battle.request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters,)?);
+    assert!(battle.request_approach(
+        crate::ActionRequest {
+            actor: ActorId(0),
+            target: ActorId(1),
+            action: crate::ActionKey(0)
+        },
+        ActorId(1),
+        parameters
+    )?);
     step(&mut battle)?;
     assert!(battle.actors[0].position[0] > 0.);
     assert_eq!(battle.actors[0].heading, 90.);
