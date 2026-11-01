@@ -483,7 +483,7 @@ impl Controls {
         if !accepting {
             self.assigned_artes.clear();
         }
-        let held = physical.capture_inputs();
+        let held = physical.capture_inputs(map);
         let consumed = &mut self.consumed_inputs[port];
         consumed.retain(|input| held.contains(input));
         if accepting {
@@ -666,7 +666,7 @@ pub(super) fn gather(
         && let Some(candidate) = &mut scene.candidate
         && scene
             .lifecycle
-            .capture_arte_binding(candidate, &capture_physical.capture_inputs())
+            .capture_arte_binding(candidate, &capture_physical.capture_inputs(map))
     {
         controls.discard();
         // Discard recorder buttons as well as their pending edges.
@@ -698,7 +698,7 @@ pub(super) fn gather(
             // Regular arte assignments replace the fixed technique and assist slots.
             // The logical arte button still serves casting EX interactions.
             let party = candidate.persistent_party();
-            let held = physical.capture_inputs();
+            let held = physical.capture_inputs(map);
             let resolution = crate::input::resolve_arte_bindings(
                 index,
                 &held,
@@ -769,7 +769,7 @@ mod tests {
         let actor = actor(ControllerPort::One, Control::Manual);
         let resolution = crate::input::resolve_arte_bindings(
             0,
-            &physical.capture_inputs(),
+            &physical.capture_inputs(&map),
             &map,
             [(ActorId::from_index(0).unwrap(), &actor, 0, bindings)],
         );
@@ -790,6 +790,34 @@ mod tests {
                     .collect(),
             ),
         }
+    }
+    #[test]
+    fn unbound_directions_do_not_fire_neutral_artes_even_when_released() {
+        let mut controls = Controls::default();
+        let mut keys = ButtonInput::default();
+        let bindings = [binding(&["F11"])];
+        keys.press(KeyCode::F11);
+        keys.press(KeyCode::ArrowRight);
+        assert!(
+            routed_frame(&mut controls, &mut keys, &bindings, true)
+                .assigned_artes
+                .is_empty()
+        );
+        keys.release(KeyCode::ArrowRight);
+        assert!(
+            routed_frame(&mut controls, &mut keys, &bindings, true)
+                .assigned_artes
+                .is_empty()
+        );
+        keys.release(KeyCode::F11);
+        routed_frame(&mut controls, &mut keys, &bindings, true);
+        keys.press(KeyCode::F11);
+        assert_eq!(
+            routed_frame(&mut controls, &mut keys, &bindings, true)
+                .assigned_artes
+                .len(),
+            1
+        );
     }
     #[test]
     fn cancel_is_an_arte_in_combat_and_cancel_in_menus() {

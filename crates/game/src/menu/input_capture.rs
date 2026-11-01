@@ -62,6 +62,28 @@ impl Capture {
 mod tests {
     use super::*;
     #[test]
+    fn releasing_a_button_does_not_replace_a_larger_raw_chord_with_aliased_directions() {
+        use resonance_content::input::AxisDirection;
+        let button = PhysicalInput::Button("East".into());
+        let left = PhysicalInput::Axis(AxisDirection::LeftLeft);
+        let right = PhysicalInput::Axis(AxisDirection::LeftRight);
+        let mut capture = Capture::chord([]);
+        capture.sample(&BTreeSet::new());
+        capture.sample(&[button.clone(), left.clone(), right.clone()].into());
+        capture.sample(&[left.clone(), right.clone()].into());
+        let chord = capture.sample(&BTreeSet::new()).unwrap();
+        assert_eq!(chord.0, [button, left, right]);
+    }
+    #[test]
+    fn standard_keymap_capture_retains_signed_stick_directions() {
+        use resonance_content::input::AxisDirection;
+        let left = PhysicalInput::Axis(AxisDirection::LeftLeft);
+        let mut capture = Capture::after_opening([]);
+        capture.sample(&BTreeSet::new());
+        capture.sample(&[left.clone()].into());
+        assert_eq!(capture.sample(&BTreeSet::new()).unwrap().0, [left]);
+    }
+    #[test]
     fn opener_is_ignored_and_chords_finish_only_after_all_components_release() {
         let opener = PhysicalInput::Key("Enter".into());
         let a = PhysicalInput::Button("Other(9)".into());

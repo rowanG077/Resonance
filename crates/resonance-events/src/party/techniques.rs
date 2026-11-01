@@ -274,7 +274,11 @@ impl Party {
                 member
                     .arte_bindings
                     .iter()
-                    .find(|binding| binding.chord.same_inputs(chord))
+                    .find(|binding| {
+                        binding
+                            .chord
+                            .same_inputs(chord, &self.settings.preferences.keymap)
+                    })
                     .map(|binding| TechniqueShortcut {
                         character,
                         technique: binding.technique,
@@ -308,8 +312,9 @@ impl Party {
         mut chord: resonance_content::input::InputChord,
         replace: Option<TechniqueShortcut>,
     ) -> Result<bool, String> {
-        chord.validate(&self.settings.preferences.keymap)?;
-        chord.0.sort();
+        let keymap = &self.settings.preferences.keymap;
+        chord.validate(keymap)?;
+        chord = chord.normalized(keymap);
         let target = self.members.get(member).ok_or("Unknown character.")?;
         if technique == 0 || !target.techniques.contains(&technique) {
             return Err("Learn this arte before assigning a combo.".into());
@@ -326,7 +331,7 @@ impl Party {
         if target
             .arte_bindings
             .iter()
-            .any(|b| b.technique == technique && b.chord.same_inputs(&chord))
+            .any(|b| b.technique == technique && b.chord.same_inputs(&chord, keymap))
         {
             return Ok(false);
         }
@@ -334,7 +339,8 @@ impl Party {
         // confirmed transfer removes the old owner before installing the new one.
         for (index, target) in self.members.iter_mut().enumerate() {
             target.arte_bindings.retain(|b| {
-                !(index == member && b.technique == technique) && !b.chord.same_inputs(&chord)
+                !(index == member && b.technique == technique)
+                    && !b.chord.same_inputs(&chord, keymap)
             });
         }
         self.members[member]
@@ -447,6 +453,39 @@ mod binding_tests {
         assert!(party.transfer_arte_binding(0, 11, chord, previous).is_err());
         assert_eq!(serde_json::to_value(&party).unwrap(), before);
         assert_eq!(party.settings.preferences.keymap, map);
+    }
+    #[test]
+    fn either_horizontal_sign_claims_the_same_arte_slot() {
+        use resonance_content::input::AxisDirection;
+        let mut party = Party::new(&super::super::tests::data(), Default::default()).unwrap();
+        party.members[0].techniques.extend([10, 11]);
+        let chord = |axis| {
+            InputChord(vec![
+                PhysicalInput::Button("East".into()),
+                PhysicalInput::Axis(axis),
+            ])
+        };
+        party
+            .assign_arte_binding(0, 10, chord(AxisDirection::LeftLeft))
+            .unwrap();
+        assert_eq!(
+            party.members[0].arte_bindings[0].chord,
+            chord(AxisDirection::LeftHorizontal).normalized(&party.settings.preferences.keymap)
+        );
+        let owner = party
+            .arte_binding_owner(&chord(AxisDirection::LeftRight))
+            .unwrap();
+        assert_eq!(owner.technique, 10);
+        assert!(
+            party
+                .assign_arte_binding(0, 11, chord(AxisDirection::LeftRight))
+                .is_err()
+        );
+        party
+            .transfer_arte_binding(0, 11, chord(AxisDirection::LeftRight), owner)
+            .unwrap();
+        assert_eq!(party.members[0].arte_bindings.len(), 1);
+        assert_eq!(party.members[0].arte_bindings[0].technique, 11);
     }
     #[test]
     fn saved_assignments_require_one_combo_per_arte_and_one_owner_per_combo() {
