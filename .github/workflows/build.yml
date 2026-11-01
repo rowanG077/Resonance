@@ -68,7 +68,8 @@ jobs:
     name: ${{ matrix.platform }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    # Windows needs room for cold builds and final release linking.
+    timeout-minutes: ${{ matrix.platform == 'windows-x64' && 180 || 90 }}
     strategy:
       fail-fast: false
       matrix:
@@ -122,15 +123,15 @@ jobs:
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
-          cargo test --locked --release -p resonance-importer --lib
-          cargo test --locked --release -p resonance-audio-cook --lib interpolation::tests::
-          cargo test --locked --release -p resonance-import-cli
-          cargo test --locked --release -p resonance-playback --lib
-          cargo test --locked --release -p resonance-media --lib --test rust_codecs --test audio_smoke
-          cargo test --locked --release -p resonance-persistence --test slots
-          cargo test --locked --release -p resonance-game -p resonance-events
-          cargo test --locked --release -p resonance-presentation --lib
-          cargo test --locked --release -p resonance --bin resonance
+          cargo test --locked --profile release-fast -p resonance-importer --lib
+          cargo test --locked --profile release-fast -p resonance-audio-cook --lib interpolation::tests::
+          cargo test --locked --profile release-fast -p resonance-import-cli
+          cargo test --locked --profile release-fast -p resonance-playback --lib
+          cargo test --locked --profile release-fast -p resonance-media --lib --test rust_codecs --test audio_smoke
+          cargo test --locked --profile release-fast -p resonance-persistence --test slots
+          cargo test --locked --profile release-fast -p resonance-game -p resonance-events
+          cargo test --locked --profile release-fast -p resonance-presentation --lib
+          cargo test --locked --profile release-fast -p resonance --bin resonance
 
       - name: Check effect comparison gates and generators
         if: matrix.platform == 'linux-x64'
@@ -144,12 +145,12 @@ jobs:
         run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
       - name: Render and check pixels (Metal on macOS, CPU elsewhere)
-        run: cargo run --locked --release -p resonance-presentation --example ci_render -- target/smoke
+        run: cargo run --locked --profile release-fast -p resonance-presentation --example ci_render -- target/smoke
 
       - name: Check camera clears and overlays with MSAA
         if: matrix.platform == 'linux-x64'
         run: |
-          cargo test --locked --release -p resonance-presentation --lib \
+          cargo test --locked --profile release-fast -p resonance-presentation --lib \
             anti_aliasing::compositing_tests::shared_targets_respect_clear_and_load_with_msaa \
             -- --ignored --exact
 
