@@ -516,7 +516,10 @@ fn named_opening_prepares_short_unknown_lengths_and_preserves_cancellation() -> 
     fs::create_dir(root.path().join("movies"))?;
     fs::write(
         root.path().join("content.json"),
-        br#"{"version":94,"game":"tales-of-symphonia"}"#,
+        &serde_json::to_vec(&resonance_content::library::Descriptor {
+            version: resonance_content::library::VERSION,
+            game: resonance_content::library::GAME.into(),
+        })?,
     )?;
     fs::write(
         root.path().join("movies/mappings.json"),

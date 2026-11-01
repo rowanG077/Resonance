@@ -327,7 +327,10 @@ fn named_victory_keeps_character_costume_scope_and_current_clip_bytes() -> Resul
     let work = tempfile::tempdir()?;
     fs::write(
         work.path().join("content.json"),
-        br#"{"version":94,"game":"tales-of-symphonia"}"#,
+        &serde_json::to_vec(&resonance_content::library::Descriptor {
+            version: resonance_content::library::VERSION,
+            game: resonance_content::library::GAME.into(),
+        })?,
     )?;
     fs::create_dir_all(work.path().join("battle/victory"))?;
     fs::write(work.path().join(victories::GROUPS), br#"[]"#)?;
