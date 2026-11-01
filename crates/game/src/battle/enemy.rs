@@ -727,6 +727,7 @@ impl super::encounter::resources::Resources<'_> {
                 opening: None,
                 events,
                 chain_at: attack.chain_at,
+                chain_retry_at: None,
                 end_at: attack.duration,
                 recovery: u16::from(attack.recovery_ticks),
                 contact_recovery: attack

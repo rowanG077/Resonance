@@ -114,6 +114,35 @@ fn chant(module: &Rel) -> Result<Vec<(u16, ActionPose)>> {
         .collect()
 }
 
+fn target_strategies(module: &Rel) -> Result<[resonance_content::battle_action::TargetPolicy; 8]> {
+    use resonance_content::battle_action::TargetPolicy as Target;
+    (0..8)
+        .map(|index| {
+            let &(section, function) = module
+                .pointers
+                .get(&(5, 0xd30 + index * 4))
+                .context("missing strategy target dispatch relocation")?;
+            ensure!(
+                section == 1,
+                "strategy target dispatch must refer to battle code"
+            );
+            Ok(match function {
+                0x368f8 => Target::Nearest,
+                0x367a4 => Target::Farthest,
+                0x36798 => Target::Leader,
+                0x364cc => Target::Spread,
+                0x35df0 => Target::Flying,
+                0x35bc4 => Target::Casting,
+                0x3639c => Target::LowestHp,
+                0x361d4 => Target::Protect,
+                _ => anyhow::bail!("unsupported strategy target handler {function:#x}"),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("invalid target dispatch width"))
+}
+
 fn read(module: &Rel, usual: &[u8]) -> Result<profile::Table> {
     let bytes = module.slice(5, 0x3d30, 9 * 496)?;
     for row in bytes.chunks_exact(496) {
@@ -141,7 +170,27 @@ fn read(module: &Rel, usual: &[u8]) -> Result<profile::Table> {
             }
         }
     });
+    let approach_limit = module.slice(1, 0x3100c, 4)?;
+    ensure!(
+        float(module.tail(4, 0x2890)?, 0)? == float(module.tail(4, 0x1b7c)?, 0)?,
+        "unsupported distinct companion target-height thresholds"
+    );
+    ensure!(
+        half(approach_limit, 0)? == 0x2c00,
+        "unsupported approach limit comparison"
+    );
     let table = profile::Table {
+        companion_normal_selection: profile::CompanionNormalSelection {
+            airborne_target_height: float(module.tail(4, 0x2890)?, 0)?,
+            colette_melee_gap: float(module.tail(4, 0x1b80)?, 0)?,
+        },
+        companion_positioning: profile::CompanionPositioning {
+            idle_arrival_distance: float(module.tail(4, 0x1a9c)?, 0)?,
+            formation_radius: float(module.tail(4, 0x1648)?, 0)?,
+            formation_occupancy_unit: float(module.tail(4, 0x15f4)?, 0)?,
+            approach_timeout_ticks: half(approach_limit, 2)?,
+        },
+        target_strategies: target_strategies(module)?,
         body_colliders,
         item_use_offsets: (0..9)
             .map(|i| vector(vector_rows, i * 12))
@@ -166,9 +215,17 @@ fn read(module: &Rel, usual: &[u8]) -> Result<profile::Table> {
         default_strategy: std::array::from_fn(|i| {
             std::array::from_fn(|kind| default_strategy[kind * 10 + i])
         }),
-        companion_policy: profile::CompanionPolicy {
-            tp_limits: module.slice(4, 0x2860, 9)?.try_into()?,
-            healing_limits: module.slice(4, 0x286c, 9)?.try_into()?,
+        companion_policy: {
+            let tp = module.slice(4, 0x2860, 9)?;
+            let healing = module.slice(4, 0x286c, 9)?;
+            let buffs = module.slice(4, 0x2878, 9)?;
+            let idle_tp = module.slice(4, 0x2884, 9)?;
+            std::array::from_fn(|i| profile::CompanionLimits {
+                tp_reserve_percent: tp[i],
+                healing_threshold_percent: healing[i],
+                buff_max_level_advantage: buffs[i] as i8,
+                idle_tp_reserve_percent: idle_tp[i],
+            })
         },
         entry: profile::Entry {
             replacement_motion_rate: float(module.tail(4, 0x2a04)?, 0)?,
@@ -299,4 +356,140 @@ pub fn cook_battle_party_rules(root: &Path, library: &Path) -> Result<()> {
         crate::output::write(&library.join(path), &bytes)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires extracted GQSEAF battle REL and resident archive"]
+    fn native_strategy_tables_survive_named_rules_and_mod_edits() -> Result<()> {
+        let root = std::env::var_os("RESONANCE_TEST_EXTRACTED")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted"));
+        let module = Rel::read(fs::read(root.join("disc1/files/US_r_Top2Btl.rel"))?)?;
+        let table = read(
+            &module,
+            &fs::read(root.join("disc1/files/BTL/BTLusual.dat"))?,
+        )?;
+        assert_eq!(
+            table.companion_positioning,
+            profile::CompanionPositioning {
+                idle_arrival_distance: 10.,
+                formation_radius: 807.5,
+                formation_occupancy_unit: 100.,
+                approach_timeout_ticks: 300,
+            }
+        );
+        assert_eq!(
+            table.target_strategies,
+            resonance_content::battle_action::TargetPolicy::PARTY
+        );
+        assert_eq!(
+            table.companion_policy.map(|limits| (
+                limits.tp_reserve_percent,
+                limits.healing_threshold_percent,
+                limits.buff_max_level_advantage,
+                limits.idle_tp_reserve_percent,
+            )),
+            [
+                (0, 0, 0, 0),
+                (0, 40, 0, 0),
+                (25, 70, 2, 25),
+                (50, 60, 0, 50),
+                (75, 50, 0, 75),
+                (100, 0, 10, 100),
+                (30, 65, 2, 30),
+                (25, 80, 4, 25),
+                (50, 70, 8, 50),
+            ]
+        );
+        let names = Mappings::new(
+            PartyCharacterId::ALL
+                .into_iter()
+                .map(|id| (u32::from(id.raw()), id.resource_name().unwrap().into()))
+                .collect(),
+        )?;
+        assert_eq!(table.normal_attacks[1][2].chain_retry_at, Some(71));
+        assert_eq!(table.normal_attacks[4][4].chain_retry_at, Some(43));
+        let character = resonance_content::battle_normal::document::Character::from_attacks(
+            table.normal_attacks[1].clone(),
+        )?;
+        let mut edited = serde_json::to_value(character)?;
+        edited["attacks"]["thrust"]["chain_retry_at"] = 72.into();
+        let edited: resonance_content::battle_normal::document::Character =
+            serde_json::from_value(edited)?;
+        assert_eq!(edited.prepare()?[2].chain_retry_at, Some(72));
+        let doc = Party::from_table(
+            table.clone(),
+            "normal.json".into(),
+            "martial.json".into(),
+            &names,
+        )?;
+        let mut json = serde_json::to_value(doc)?;
+        let prepare = |json| -> Result<profile::Table> {
+            serde_json::from_value::<Party>(json)?.prepare(
+                &names,
+                table.normal_attacks.clone(),
+                table.martial_attacks.clone(),
+            )
+        };
+        let restored = prepare(json.clone())?;
+        assert_eq!(
+            restored.companion_normal_selection,
+            profile::CompanionNormalSelection {
+                airborne_target_height: 100.,
+                colette_melee_gap: 150.,
+            }
+        );
+        assert_eq!(restored.target_strategies, table.target_strategies);
+        assert_eq!(restored.companion_positioning, table.companion_positioning);
+        assert_eq!(restored.companion_policy, table.companion_policy);
+        json["technique_strategies"]["support"]["buff_max_level_advantage"] = (-3).into();
+        json["technique_strategies"]["support"]["idle_tp_reserve_percent"] = 17.into();
+        json["target_strategies"]["attack-close"] = "farthest".into();
+        json["target_strategies"]["scatter"] = "farthest".into();
+        json["companion_positioning"]["formation_radius"] = 600.into();
+        json["companion_positioning"]["idle_arrival_distance"] = 7.into();
+        json["companion_positioning"]["approach_timeout_ticks"] = 123.into();
+        json["companion_positioning"]["formation_occupancy_unit"] = 50.into();
+        json["companion_normal_selection"]["colette_melee_gap"] = 99.into();
+        json["companion_normal_selection"]["airborne_target_height"] = 125.into();
+        let modified = prepare(json.clone())?;
+        assert_eq!(
+            modified.companion_normal_selection,
+            profile::CompanionNormalSelection {
+                airborne_target_height: 125.,
+                colette_melee_gap: 99.,
+            }
+        );
+        assert_eq!(
+            modified.companion_positioning,
+            profile::CompanionPositioning {
+                idle_arrival_distance: 7.,
+                formation_radius: 600.,
+                formation_occupancy_unit: 50.,
+                approach_timeout_ticks: 123,
+            }
+        );
+        let mut invalid = json.clone();
+        invalid["companion_positioning"]["idle_arrival_distance"] = 0.into();
+        assert!(prepare(invalid).is_err());
+        assert_eq!(
+            modified.target_strategy(0, 1)?,
+            resonance_content::battle_action::TargetPolicy::Farthest
+        );
+        assert_eq!(
+            modified.target_strategy(0, 0)?,
+            resonance_content::battle_action::TargetPolicy::Farthest
+        );
+        json["target_strategies"]["attack-close"] = "self_target".into();
+        assert!(prepare(json).is_err());
+        let mut expected = table.companion_policy;
+        expected[8].buff_max_level_advantage = -3;
+        expected[8].idle_tp_reserve_percent = 17;
+        assert_eq!(modified.companion_policy, expected);
+        Ok(())
+    }
 }

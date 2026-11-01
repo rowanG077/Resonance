@@ -101,7 +101,12 @@ impl Battle {
         };
         let actor = &self.actors[index];
         let home = if actor.side == Side::Party {
-            if self.companion_position(owner)? == crate::companion::PositionStrategy::Melee {
+            if self
+                .companion_policy(owner)
+                .context("actor has no companion policy")?
+                .position
+                == crate::companion::PositionStrategy::Frontlines
+            {
                 let target = self
                     .target(owner)
                     .context("recovery return requires a target")?;

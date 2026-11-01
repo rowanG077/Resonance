@@ -61,6 +61,8 @@ pub(crate) fn step(
                 unreachable!("native cast has a casting definition")
             };
             let actor = sequence.actor;
+            // Block Magic retains this history even after an interrupted cast.
+            battle.runtime[actor.index()].has_cast_spell = true;
             if let Some(threshold) = prepared.armor {
                 let armor = &mut battle.actors[actor.index()].reaction.armor;
                 armor.threshold = threshold;

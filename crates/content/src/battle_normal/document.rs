@@ -244,6 +244,7 @@ impl Character {
                 continuation: attack.continuation.try_into()?,
                 duration: attack.duration,
                 chain_at: attack.chain_at,
+                chain_retry_at: attack.chain_retry_at,
                 recovery: attack.recovery,
                 reach: attack.reach,
                 events: attack
@@ -298,6 +299,7 @@ impl Character {
                     continuation: attack.continuation.clone().into(),
                     duration: attack.duration,
                     chain_at: attack.chain_at,
+                    chain_retry_at: attack.chain_retry_at,
                     recovery: attack.recovery,
                     reach: attack.reach,
                     events: attack

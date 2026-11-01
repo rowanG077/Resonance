@@ -158,14 +158,6 @@ impl Battle {
         }
     }
 
-    pub(crate) fn selection_definition(
-        &self,
-        actor: ActorId,
-        action: crate::ActionKey,
-    ) -> Option<PreparedTechnique> {
-        self.prepared.technique(actor, action).copied()
-    }
-
     pub(crate) fn selection_range(&self, actor: ActorId, action: crate::ActionKey) -> [f32; 2] {
         if let Some(row) = self.prepared.technique(actor, action) {
             return row.player_range;
@@ -173,22 +165,20 @@ impl Battle {
         self.prepared.actor_setup[actor.index()]
             .control
             .as_ref()
-            .and_then(|control| {
-                self.prepared
-                    .actions
-                    .get(action)?
-                    .normal
-                    .map(|kind| &control.normals[kind as usize])
+            .zip(self.prepared.actions.get(action).and_then(|row| row.normal))
+            .map_or([0., 0.], |(control, kind)| {
+                let normal = &control.normals[kind as usize];
+                [normal.minimum_reach, normal.reach]
             })
-            .map_or([0., 0.], |row| [row.minimum_reach, row.reach])
     }
 
-    pub(crate) fn combo_technique(&self, actor: ActorId) -> Option<PreparedTechnique> {
-        self.selection_definition(actor, self.runtime[actor.index()].combo.last?)
+    pub(crate) fn combo_technique(&self, actor: ActorId) -> Option<&PreparedTechnique> {
+        self.prepared
+            .technique(actor, self.runtime[actor.index()].combo.last?)
     }
 
     pub(crate) fn action_family_available(&self, actor: ActorId, action: crate::ActionKey) -> bool {
-        let Some(row) = self.selection_definition(actor, action) else {
+        let Some(row) = self.prepared.technique(actor, action) else {
             return true;
         };
         let owner = &self.actors[actor.index()];
@@ -233,7 +223,7 @@ impl Battle {
         actor: ActorId,
         action: crate::ActionKey,
     ) -> bool {
-        let Some(next) = self.selection_definition(actor, action) else {
+        let Some(next) = self.prepared.technique(actor, action) else {
             return true;
         };
         if !self.aerial_arte_available(actor, next.capabilities)
@@ -289,7 +279,8 @@ impl Battle {
             .get(action)
             .ok_or(Rejection::Unavailable)?;
         let technique = self
-            .selection_definition(actor, action)
+            .prepared
+            .technique(actor, action)
             .map(|row| row.capabilities);
         let normal = definition.normal;
         if matches!(&definition.execution, crate::ActionExecution::Casting(cast)
@@ -299,7 +290,7 @@ impl Battle {
             return Err(Rejection::Unavailable);
         }
         if let Some(capabilities) = technique {
-            if !self.technique_available(actor, action)
+            if self.learned_technique(actor, action).is_none()
                 || !owner.conditions.arte_queue_allowed()
                 || !self.aerial_arte_available(actor, capabilities)
                 || !self.action_family_available(actor, action)

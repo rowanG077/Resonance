@@ -48,7 +48,7 @@ class Snapshot:
             raise ValueError("oracle evidence must be outside the editable library")
         self.files = {}
         descriptor = self.json("content.json")
-        if descriptor != {"version":92, "game": "tales-of-symphonia"}:
+        if descriptor != {"version":102, "game": "tales-of-symphonia"}:
             raise ValueError("oracle requires a current named Tales of Symphonia library")
 
     def read(self, path):

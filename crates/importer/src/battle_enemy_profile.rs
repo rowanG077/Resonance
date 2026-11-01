@@ -92,6 +92,8 @@ fn conditions(high: u32, low: u32, immunity: bool) -> Result<ConditionSet> {
 
 fn traits(flags: u32, body: u16) -> ProfileTraits {
     ProfileTraits {
+        initial_weakness_known: flags & 0x20 != 0,
+        initial_resistance_known: flags & 0x10000 != 0,
         hosts_participants: body & 1 != 0,
         flying: flags & 0x1 != 0,
         hover_bobbing: flags & 0x2 != 0,
@@ -118,6 +120,23 @@ fn traits(flags: u32, body: u16) -> ProfileTraits {
         item_target_excluded: body & 0x200 != 0,
         secondary_body_entry: body & 0x400 != 0,
         fixed_height: body & 0x4000 != 0,
+    }
+}
+
+#[cfg(test)]
+mod information_tests {
+    use super::*;
+
+    #[test]
+    fn authored_elemental_information_survives_named_profile_round_trip() {
+        let known = traits(0x10020, 0);
+        let value = serde_json::to_value(known).unwrap();
+        assert_eq!(value["initial_weakness_known"], true);
+        assert_eq!(value["initial_resistance_known"], true);
+        let decoded: ProfileTraits = serde_json::from_value(value).unwrap();
+        assert!(decoded.initial_weakness_known && decoded.initial_resistance_known);
+        let empty: ProfileTraits = serde_json::from_str("{}").unwrap();
+        assert!(!empty.initial_weakness_known && !empty.initial_resistance_known);
     }
 }
 

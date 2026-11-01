@@ -270,6 +270,15 @@ fn actor() -> Actor {
 fn files() -> Files {
     let mut files = Files::default();
     files.insert(
+        resonance_content::battle_model::document::PARTY.into(),
+        serde_json::to_vec(&serde_json::json!({
+            "1": "lloyd", "2": "colette", "3": "genis", "4": "raine", "5": "sheena",
+            "6": "zelos", "7": "presea", "8": "regal", "9": "kratos"
+        }))
+        .unwrap()
+        .into(),
+    );
+    files.insert(
         resonance_content::battle_recoil::PATH.into(),
         serde_json::to_vec(&recoil::source()).unwrap().into(),
     );

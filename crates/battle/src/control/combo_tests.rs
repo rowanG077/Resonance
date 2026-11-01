@@ -606,11 +606,12 @@ fn buffered_normal_chain_starts_once_without_payment() -> Result<()> {
 
 #[test]
 fn sky_combo_allows_airborne_normals_to_continue_rising() -> Result<()> {
-    for (mode, enabled) in [
-        (Control::Manual, false),
-        (Control::Manual, true),
-        (Control::Auto, false),
-        (Control::Auto, true),
+    for (mode, enabled, contact_age, expect_chain) in [
+        (Control::Manual, false, 14, false),
+        (Control::Manual, true, 14, true),
+        (Control::Auto, false, 14, false),
+        (Control::Auto, true, 14, true),
+        (Control::Auto, true, 16, false),
     ] {
         let mut battle = shared_fixture(mode);
         battle.runtime[0]
@@ -623,6 +624,10 @@ fn sky_combo_allows_airborne_normals_to_continue_rising() -> Result<()> {
             .map(|technique| technique.action)
             .collect();
         battle.actors[0].equipment.combo_traits.sky_combo = enabled;
+        Arc::make_mut(battle.prepared.actor_setup[0].control.as_mut().unwrap()).normals
+            [NormalAttack::AerialSlash as usize]
+            .continuation
+            .fallback = Some(NormalAttack::AerialThrust);
         let definition = battle.prepared.actor_setup[0]
             .control
             .as_ref()
@@ -636,14 +641,18 @@ fn sky_combo_allows_airborne_normals_to_continue_rising() -> Result<()> {
             &mut vec![],
         )?;
         let id = actor_sequence(&battle).0;
-        until_age(&mut battle, 14)?;
+        until_age(&mut battle, contact_age)?;
         battle.actors[0].position[1] = 100.;
         battle.actors[0].movement.vertical = -9.;
         battle.confirm_actor_contact(ActorId(0));
         battle.step(player_buttons(true, false, false, [0; 2]))?;
         battle.step(BattleInput::default())?;
-        assert_eq!(battle.sequence(&id).is_none(), enabled);
-        if enabled {
+        assert_eq!(
+            battle.sequence(&id).is_none(),
+            expect_chain,
+            "{mode:?}, contact age {contact_age}"
+        );
+        if expect_chain {
             let height = battle.actors[0].position[1];
             battle.step(BattleInput::default())?;
             assert!(battle.actors[0].movement.vertical > 0.);

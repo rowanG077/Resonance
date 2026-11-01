@@ -70,17 +70,13 @@ impl PreparedBattle {
             .actors
             .iter()
             .enumerate()
-            .map(|(index, actor)| crate::TargetActor {
-                side: actor.side,
-                position: actor.position,
-                hp: actor.hp,
-                hp_percent: actor.hp_percent(),
-                flying: actor.movement.flying,
-                casting: false,
-                available: actor.available(),
-                hidden: self.resources.actor_setup[index].target_excluded,
-                dying: actor.availability == crate::ActorAvailability::Dead,
-                target: None,
+            .map(|(index, actor)| {
+                crate::TargetActor::new(
+                    actor,
+                    self.resources.actor_setup[index].target_excluded,
+                    false,
+                    None,
+                )
             })
             .collect();
         let mut random = crate::Random::new(self.random_seed);
@@ -257,26 +253,7 @@ impl Battle {
         policy: crate::TargetPolicy,
         allies: bool,
     ) -> Result<Option<ActorId>> {
-        let actors: Vec<_> = self
-            .actors
-            .iter()
-            .enumerate()
-            .map(|(index, a)| crate::TargetActor {
-                side: a.side,
-                position: a.position,
-                hp: a.hp,
-                hp_percent: a.hp_percent(),
-                flying: a.movement.flying,
-                casting: matches!(
-                    self.activity(ActorId(index as u8)),
-                    crate::Activity::Casting { .. }
-                ),
-                available: a.available(),
-                hidden: self.target_excluded(ActorId(index as u8)),
-                dying: a.availability == crate::ActorAvailability::Dead,
-                target: self.target(ActorId(index as u8)),
-            })
-            .collect();
+        let actors = self.target_roster();
         crate::target::select_target_pool(&actors, owner, policy, allies, &mut || {
             self.random.next_u16()
         })
