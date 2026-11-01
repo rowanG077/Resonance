@@ -108,7 +108,7 @@ impl Assets {
         // Battle menus, fatal-load slots and event dialogue share the field UI.
         // Capture their current dependencies into this encounter's own snapshot.
         resonance_content::preparation::ui(snapshot, &diagnostics, cancelled)?;
-        let rules = resonance_content::battle_rules::capture(snapshot, cancelled)?;
+        let mut rules = resonance_content::battle_rules::capture(snapshot, cancelled)?;
         let mut enemies = super::super::enemies_from_formations(
             &rules.formations,
             menus.monsters()?,
@@ -329,6 +329,47 @@ impl Assets {
 
         // Select choreography from the rules already captured for this encounter.
         let catalogue = Arc::new(rules.techniques);
+        // Capture action dependencies before freezing the encounter snapshot. Reserve
+        // capacity for every learnable arte, including ones acquired during battle.
+        let mut authored_effects = BTreeMap::new();
+        for input in &mut party_actors {
+            for &id in catalogue.learned_by(input.character as u8)? {
+                let Some(path) = &catalogue.definition(usize::from(id))?.action else {
+                    continue;
+                };
+                let action: resonance_content::battle_martial::AuthoredAction =
+                    snapshot.json(path, JSON_LIMIT)?;
+                rules.unison.placements.insert(id, action.unison);
+                if let Some(path) = &action.effects {
+                    if !authored_effects.contains_key(&id) {
+                        authored_effects.insert(
+                            id,
+                            Arc::new(effects::capture(snapshot, path, &diagnostics, cancelled)?),
+                        );
+                    }
+                }
+                let scene = input
+                    .source
+                    .parts
+                    .first_mut()
+                    .context("missing authored arte body")?;
+                for (slot, path) in action.motions {
+                    ensure!(
+                        !scene.clips.iter().any(|clip| clip.resource_slot == slot),
+                        "authored arte {id} conflicts with motion slot {slot}"
+                    );
+                    snapshot.read(&path, resonance_content::preparation::ASSET_LIMIT)?;
+                    scene.clips.push(resonance_content::SceneClip {
+                        resource_slot: slot,
+                        motion: path,
+                        joints: BTreeMap::new(),
+                        duration_seconds: 0.,
+                        animation_resource: None,
+                        pose_chains: Vec::new(),
+                    });
+                }
+            }
+        }
         let recoil = crate::battle::recoil::Parameters::from_table(rules.recoil);
         let unison = Arc::new(rules.unison);
         let (scene_ids, skill_ids) =
@@ -446,6 +487,7 @@ impl Assets {
             enemy_models,
             common_effects,
             technique_effects,
+            authored_effects,
             stage_effects,
             enemy_effects,
             spell_scenes,

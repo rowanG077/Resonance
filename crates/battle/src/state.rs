@@ -2359,8 +2359,7 @@ impl Battle {
         }
         let mut movement_handled = task_movement
             || self.update_control_stop(index, already_stopping)
-            || self.update_guard(index, cues)
-            || entering_attack;
+            || self.update_guard(index, cues);
         let facing_ready = self.face_active_action(actor);
         if facing_ready
             && let Some((&id, _)) = self.runtime[index].task.action()
@@ -2382,6 +2381,13 @@ impl Battle {
             }
             next = Some((id, transition));
         }
+        // Explicit traversal starts moving on its authored tick, including admission.
+        // Other attacks retain their entry hold, and other movement gates still apply.
+        movement_handled |= entering_attack
+            && self.runtime[index]
+                .task
+                .action()
+                .is_none_or(|(_, sequence)| sequence.traversal.is_none());
         if self.summon_entry.active() {
             return Ok(next);
         }

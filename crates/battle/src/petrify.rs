@@ -2,6 +2,16 @@ use crate::{Activity, ActorAvailability, ActorId, Battle, Cue, conditions::Cure}
 
 impl Battle {
     pub(crate) fn enter_petrified(&mut self, target: ActorId, cues: &mut Vec<Cue>) {
+        if let crate::state::ActorTask::Action { sequence, .. } =
+            self.runtime[target.index()].task()
+            && sequence.traversal.is_some()
+        {
+            // Petrifying contacts skip recoil, so stop the interrupted pass's
+            // movement here without changing ordinary hit impulses or falling.
+            let movement = &mut self.actors[target.index()].movement;
+            movement.forward = 0.;
+            movement.acceleration = 0.;
+        }
         self.release_capture_links(target);
         self.cancel_pending_item(target);
         self.clear_technique_command(target);

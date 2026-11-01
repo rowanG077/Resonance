@@ -383,3 +383,78 @@ Enemy rules use named attacks, projectiles and contacts within the same
 `rules.json`. Change a shared definition once; every timeline reference uses the
 edit. The [cooked library guide](cooked-library.md#enemy-rules) describes the
 format and defaults. JSON formatting keeps short arrays and event rows inline.
+
+## Adding an asset-authored arte
+
+An entry in `game/techniques.json` can select a complete action using
+`rules.action`, a library-root path to an authored action JSON. Add a unique
+nonzero catalogue ID and name to `mappings`, and that name to the character's
+`learning` list. The ID does not need an engine dispatch entry. Ordinary family,
+range, TP, learning, menu text, AI enablement and combo assignment come from
+that technique entry. New games can know it through the character's
+`initial.techniques`; existing parties acquire it through normal learning.
+
+An authored action contains:
+
+```json
+{
+  "motions": {"110":"battle/artes/my-arte/performance.glb"},
+  "effects": "battle/artes/my-arte/effects.json",
+  "unison": {"native_id":1000,"altitude":0,"distance":80,"duration":56},
+  "attack": {
+    "duration":56,"chain_at":46,"recovery":8,
+    "events":[
+      [0,{"pose":{"clip":"slot-110","rate":0.5,"blend":3}}],
+      [0,{"voice":{"stream":3}}],
+      [6,{"effect":0}]
+    ]
+  }
+}
+```
+
+`motions` adds character-local slots for every costume selecting this arte;
+choose unused slots. Conflicts fail preparation. GLB joint names bind to the
+selected costume's actual rig. Motion files use 30 animation frames per second;
+`rate:0.5` advances half an animation frame per gameplay update. Event ages,
+contact windows, duration and recovery use gameplay updates. Hit-stop pauses
+the action clock. A `pose_sequence` additionally accounts for authored blend
+holds; ordinary `events` use absolute ages directly.
+
+The `effects` bank is optional; absent selects the shared technique bank.
+`attack.effect`, timed `effect` events and contact `hit.effect` select programs
+in this bank. Named particle templates, models and textures use the ordinary
+battle effect format. `unison` supplies the placement/timing and a unique native
+identity for Unison recipes without editing the shared Unison catalogue.
+
+The attack uses the shared martial timeline format. Native recipe fields such
+as `flight`, `hammer`, `steal`, `fierce_fang`, `hurricane_hit`, and `callback_hits`
+are rejected when populated in an asset-authored action; their specialized
+native behavior is not part of this format. The timeline supports poses, blade
+or body contacts with authored damage and shapes, shared projectiles, motion,
+braking, trails, voices, sounds and effects. `traverse_target` takes a positive
+`duration` and `clearance`: it crosses to the far side over that many gameplay
+updates, easing into and out of movement. The endpoint is captured at the start
+of the pass, so recoil does not make the caster chase a moving endpoint.
+The first movement step runs on the scheduled tick, including tick zero.
+Movement events scheduled at `start + duration` take effect after the pass.
+Ordinary integration and hit-stop still apply.
+`pass_through` controls body collision during that movement and is cleaned up
+when the action ends or is interrupted. Authored actions follow ordinary
+admission, TP spending, interruption, damage and recovery rules.
+
+See [Ghost Wolf](../mods/ghost-wolf/README.md) for a complete playable example
+with two hits, an editable Blender source, and a new animation/effect bank.
+Ordinary importing includes it automatically: the importer adds the single
+technique and its learning/defaults from `mods/ghost-wolf/example.json` into the
+newly generated game documents and publishes its runtime assets. This example
+file is an importer input, not a runtime mod manifest. Other mods still use the
+ordinary file overrides described above.
+
+Edit the `.blend` as the animation source and use the example's export helper.
+Its GLB contains authored changes relative to locally cooked poses; the importer
+resolves those references into the ordinary runtime animation. Native models,
+textures, rigs and reference poses remain local. The example's guide documents
+the Blender setup, export and ordinary import steps.
+Encounter preparation captures the action's dependencies and audio before
+combat, including capacity for artes learned mid-battle; executing it does not
+read loose assets.

@@ -759,6 +759,82 @@ fn hit_condition_label_matches_the_condition_and_application_pose() -> Result<()
 }
 
 #[test]
+fn petrification_stops_target_traversal_but_ordinary_hits_keep_recoil() -> Result<()> {
+    use crate::{ActionRequest, AttackEvent, BattleInput};
+
+    for petrifies in [true, false] {
+        let mut target = crate::tests::actor(Side::Party);
+        target.position = [-10., 0., 0.];
+        target.body.collider = Some(crate::Collider::sphere(1.));
+        // Petrification retains the last hit's direction instead of applying recoil.
+        target.reaction.direction = [1., 0., 0.];
+        let mut ally = crate::tests::actor(Side::Party);
+        ally.position = [-800., 0., 0.];
+        let mut traversal = crate::tests::action(20);
+        crate::tests::attack_mut(&mut traversal).events = vec![
+            (
+                0,
+                AttackEvent::PassThrough {
+                    enabled: true,
+                    duration: 0,
+                },
+            ),
+            (
+                0,
+                AttackEvent::TraverseTarget {
+                    duration: 9,
+                    clearance: 70.,
+                },
+            ),
+        ];
+        let mut prepared =
+            crate::tests::prepare_actors(vec![crate::tests::actor(Side::Enemy), target, ally], 1);
+        let action = prepared.resources.actions.insert(traversal);
+        let mut battle = prepared.finish()?;
+        battle.start_admitted_action(
+            ActionRequest {
+                actor: ActorId(1),
+                target: ActorId(0),
+                action,
+            },
+            &mut Vec::new(),
+        )?;
+        battle.step(BattleInput::default())?;
+        assert!(battle.actors[1].movement.forward > 0.);
+        assert!(battle.runtime[1].body_bypass);
+        let mut hit = rule(1);
+        hit.condition = petrifies.then_some(crate::HitCondition {
+            condition: HitAilment::Petrified,
+            chance: 100,
+            value: 0,
+        });
+        hit.reaction.hitstun = 20;
+        hit.reaction.recoil.impulse = [7., 0.];
+        let cues = strike(&mut battle, hit)?;
+        assert_eq!(hit_result(&cues).hp_change, -1);
+        assert!(
+            cues.iter()
+                .any(|cue| matches!(cue, Cue::Interrupted { .. }))
+        );
+        assert_eq!(battle.actors[1].is_petrified(), petrifies);
+        assert!(!battle.runtime[1].body_bypass);
+        assert_eq!(
+            battle.actors[1].movement.forward,
+            if petrifies { 0. } else { 7. }
+        );
+        let position = battle.actors[1].position;
+        crate::tests::step_idle(&mut battle, 40)?;
+        assert_eq!(battle.actors[1].movement.forward, 0.);
+        if petrifies {
+            assert_eq!(battle.actors[1].position, position);
+        } else {
+            assert_ne!(battle.actors[1].position, position);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn petrified_contact_is_skipped_without_condition_or_rng() -> Result<()> {
     let owner = crate::tests::actor(Side::Party);
     let mut target = crate::tests::actor(Side::Enemy);

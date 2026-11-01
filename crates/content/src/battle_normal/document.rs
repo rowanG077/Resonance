@@ -189,6 +189,13 @@ pub(crate) fn map_hits<H, T>(
         Event::Vertical(v) => Event::Vertical(v),
         Event::Gravity(v) => Event::Gravity(v),
         Event::Turn(v) => Event::Turn(v),
+        Event::TraverseTarget {
+            duration,
+            clearance,
+        } => Event::TraverseTarget {
+            duration,
+            clearance,
+        },
         Event::ReactionArmor(v) => Event::ReactionArmor(v),
         Event::SecondaryWind { enabled, duration } => Event::SecondaryWind { enabled, duration },
         Event::CameraDistance { distance, duration } => {

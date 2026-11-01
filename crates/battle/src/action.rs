@@ -38,6 +38,7 @@ pub(crate) struct Sequence {
     pub struck_target: Option<ActorId>,
     pub struck_damage: i32,
     pub cyclone_target: Option<(ActorId, [f32; 3])>,
+    pub traversal: Option<crate::attack::Traversal>,
     pub(crate) execution: Execution,
 }
 impl Sequence {
@@ -93,6 +94,7 @@ impl Sequence {
             struck_target: None,
             struck_damage: 0,
             cyclone_target: None,
+            traversal: None,
             execution,
         }
     }
@@ -123,6 +125,9 @@ impl Sequence {
     ) -> Result<()> {
         if !self.running() {
             return Ok(());
+        }
+        if self.traversal.take().is_some() {
+            battle.actors[self.actor.index()].movement.forward = 0.;
         }
         self.cancel_attack_events();
         self.execution = Execution::Recovering { remaining };
