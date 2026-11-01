@@ -3,7 +3,6 @@ use crate::{
     ActorAvailability, BattleInput, Side,
     tests::{actor, prepared},
 };
-use Condition::*;
 use resonance_content::battle_action::Condition as HitAilment;
 
 #[test]

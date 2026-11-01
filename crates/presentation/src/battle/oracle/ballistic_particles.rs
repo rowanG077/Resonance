@@ -1,6 +1,6 @@
 //! Validate detached random debris using the ordinary particle integrator.
 use super::{Trace, compare::equal, exactly_one, optional_field, random_inputs::Pin};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::{FixtureParticle, ParticleGeometry, ParticleTemplate};
 use resonance_content::battle_effect::{
     EffectOperation, ParticleBirth, ScheduledEvent, ValueRange,

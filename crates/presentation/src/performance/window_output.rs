@@ -68,7 +68,7 @@ fn mirror(
             order: -1,
             ..default()
         },
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         crate::display::OutputCamera,

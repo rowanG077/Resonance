@@ -78,7 +78,7 @@ impl OperationScope {
     }
     pub fn begin(&mut self) -> Result<Operation, String> {
         let id = NEXT_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| "operation ID exhausted")?;
         let state = Arc::new(Mutex::new(Progress::default()));
         let operation = Operation { id, state };

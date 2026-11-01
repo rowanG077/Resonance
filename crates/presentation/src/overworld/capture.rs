@@ -344,7 +344,7 @@ fn setup(
     let source = images.add(source);
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: 0,
@@ -372,7 +372,7 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         Camera {
@@ -390,7 +390,7 @@ fn setup(
     ));
     commands.spawn((
         Camera3d::default(),
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderTarget::Image(source.into()),
         crate::FieldCamera,

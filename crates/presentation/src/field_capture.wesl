@@ -1,5 +1,4 @@
-#import resonance::effect_depth::depth_coverage
-
+import resonance_presentation::effect_depth::depth_coverage;
 struct Settings { clip_from_world: mat4x4<f32> };
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;

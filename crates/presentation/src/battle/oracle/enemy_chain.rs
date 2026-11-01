@@ -1,6 +1,6 @@
 //! Finite observed starting choices; authored successors execute through ordinary chaining.
 use super::{Binding, Case, Trace, random_inputs::Pin};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::EnemyChoiceId;
 use resonance_battle::{
     ActionId, ActionRequest, ActorId, Battle, BattleInput, Cue, FixtureEnemyChainInput,

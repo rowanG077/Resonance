@@ -1,5 +1,5 @@
 //! Replay a free-control save offline or through a silent live window.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use std::path::PathBuf;
 
 struct Args {

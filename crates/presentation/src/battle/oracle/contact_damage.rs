@@ -1,5 +1,5 @@
 //! Serialize native contact-time inputs for the shared independent Python envelope.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::{
     Activity, Affinity, DamageKind, GuardResult, HitElement, HitResult, Power, ProtectionMode,
     Side, conditions::Condition, contact_observation::ContactObservation,

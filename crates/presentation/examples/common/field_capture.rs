@@ -1,6 +1,6 @@
 //! Shared command-line adapter; execution and readback belong to the application.
 pub fn run(sequence: bool) -> anyhow::Result<()> {
-    use anyhow::{Context, ensure};
+    use anyhow::{Context as ContextExt, ensure};
     use std::{fs, path::Path};
     let mut args = std::env::args().skip(1);
     let input = args.next().context("CAPTURE.json OUTPUT [ASSETS]")?;

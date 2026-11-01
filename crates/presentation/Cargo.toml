@@ -10,7 +10,7 @@ resonance-playback.workspace = true
 resonance-audio-device.workspace = true
 bevy.workspace = true
 # Match Bevy's native backend features; discovery needs the wgpu instance API.
-wgpu = { version = "=29.0.4", default-features = false, features = ["dx12", "metal", "vulkan"] }
+wgpu = { version = "=30.0.1", default-features = false, features = ["dx12", "metal", "vulkan"] }
 bevy_post_process.workspace = true
 raw-window-handle.workspace = true
 resonance-content.workspace = true

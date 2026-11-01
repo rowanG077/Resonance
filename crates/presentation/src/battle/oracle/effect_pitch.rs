@@ -1,6 +1,6 @@
 //! Admit authored initial rotations while retaining each instance's later transform.
 use super::Trace;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_content::battle_effect::ValueRange;
 use serde::Deserialize;
 use serde_json::Value;

@@ -68,7 +68,10 @@ fn saved_dialogue_volume_matches_dolphin_attenuation() {
     let read = |key: &str| {
         let bytes = fs::read(root.join(case[key]["path"].as_str().unwrap())).unwrap();
         assert_eq!(
-            format!("{:x}", Sha256::digest(&bytes)),
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
             case[key]["sha256"].as_str().unwrap()
         );
         let mut wave = hound::WavReader::new(Cursor::new(bytes)).unwrap();

@@ -82,7 +82,7 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
     app.world_mut().spawn((
         Camera2d,
         msaa,
-        Tonemapping::None,
+        Tonemapping::Linear,
         RenderTarget::Image(target.clone().into()),
         RenderLayers::layer(2),
         Camera {
@@ -97,7 +97,7 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
         .spawn((
             Camera3d::default(),
             msaa,
-            Tonemapping::None,
+            Tonemapping::Linear,
             RenderTarget::Image(target.clone().into()),
             Camera {
                 clear_color: ClearColorConfig::None,
@@ -142,7 +142,7 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
     app.world_mut().spawn((
         Camera2d,
         msaa,
-        Tonemapping::None,
+        Tonemapping::Linear,
         RenderTarget::Image(target.clone().into()),
         ui_layer,
         Camera {
@@ -287,15 +287,13 @@ fn compare_scene_formats(mode: AntiAliasing) -> anyhow::Result<()> {
 #[test]
 fn all_spatial_shader_variants_validate() {
     use bevy::shader::ShaderCache;
-    let mut cache = ShaderCache::new((), WgpuFeatures::all(), DownlevelFlags::all(), |_, _, _| {
-        Ok(())
-    });
+    let mut cache = ShaderCache::new((), crate::test_support::validate_shader);
     let mut shaders = Assets::<Shader>::default();
     for source in [
-        include_str!("../smaa.wgsl"),
-        include_str!("../spatial_io.wgsl"),
+        include_str!("../smaa.wesl"),
+        include_str!("../spatial_io.wesl"),
     ] {
-        let shader = Shader::from_wgsl(source, "s2x shader validation");
+        let shader = Shader::from_wesl(source, "s2x shader validation.wesl");
         let handle = shaders.add(shader.clone());
         cache.set_shader(handle.id(), shader);
         for mode in [

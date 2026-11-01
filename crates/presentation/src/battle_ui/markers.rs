@@ -1,6 +1,6 @@
 //! Target ornaments anchored to the presented actors.
 use super::{ActorMarkers, Batch, BattleFrame, hud_color};
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::Vec3;
 use resonance_battle::{ActorAvailability, Control, Side, conditions::Condition};
 

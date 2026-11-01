@@ -3,7 +3,7 @@ use crate::{
     field_view::{Failures, Part},
     loading::{Resident, Task},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 use resonance_content::{
     battle_model::{Attachment, AttachmentTextureAnimation},

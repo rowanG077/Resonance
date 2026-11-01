@@ -1,5 +1,5 @@
 //! Record a spoken line through the field mixer, without an audio device.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_events::AudioCommand;
 use std::path::Path;
 

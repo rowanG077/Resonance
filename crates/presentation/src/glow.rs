@@ -5,6 +5,11 @@ use bevy::{
     mesh::MeshVertexBufferLayoutRef, prelude::*, render::render_resource::*, shader::ShaderRef,
 };
 
+pub(super) fn install(app: &mut App) {
+    bevy::asset::embedded_asset!(app, "title_glow.wesl");
+    app.add_plugins(MaterialPlugin::<GlowMaterial>::default());
+}
+
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub(super) struct GlowMaterial {
     #[texture(0)]
@@ -13,7 +18,7 @@ pub(super) struct GlowMaterial {
 }
 impl Material for GlowMaterial {
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_glow.wgsl".into()
+        "embedded://resonance_presentation/title_glow.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Blend

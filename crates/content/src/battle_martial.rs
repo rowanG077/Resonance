@@ -406,9 +406,7 @@ mod authored_tests {
                 "the authored performance and its gameplay timeline must finish together"
             );
         }
-        let imported_artwork = [
-            "battle/effects/common/textures/atlas-0-0-palette-0.ktx2",
-        ];
+        let imported_artwork = ["battle/effects/common/textures/atlas-0-0-palette-0.ktx2"];
         let mut requested = [false; 1];
         // Exercise image preparation without bundling the imported game artwork.
         let texture: std::sync::Arc<[u8]> =

@@ -1,6 +1,6 @@
 //! Validate ballistic launch variation without requiring identical random draws.
 use super::Trace;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_content::battle_projectile::{ProjectileMotion, ProjectileOrigin};
 use serde::Deserialize;
 use serde_json::Value;

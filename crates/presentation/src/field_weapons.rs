@@ -14,7 +14,7 @@ use super::{
     materials::{MaterialSlot, TitleSurface},
     sparse_animation::{Binding, affine::Locals},
 };
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 pub(super) use choreography::apply as choreograph;
 pub(super) use publication::publish;

@@ -31,6 +31,7 @@ pub(super) struct Shared(pub Arc<Mutex<Report>>);
 
 /// A fresh token is extracted with the pose whose render submission must finish.
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct Capture(pub Option<Arc<AtomicBool>>);
 
 pub(super) fn capture_submitted(

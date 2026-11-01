@@ -8,7 +8,7 @@ mod window_output;
 mod window_probe;
 pub use window_probe::{run_frame_benchmark, run_window_probe};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::*;
 use serde::Serialize;
 use stats::{History, Sample};

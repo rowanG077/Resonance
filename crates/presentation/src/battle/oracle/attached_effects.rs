@@ -1,6 +1,6 @@
 //! Attachment matrices and their root placements publish in separate phases.
 use super::Trace;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use serde_json::Value;
 
 /// Compare attachments in the current root frame. Source roots use the fixed

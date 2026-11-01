@@ -2,7 +2,7 @@
 mod fields;
 use super::audio_output::Player as AudioPlayer;
 use super::{Events, PendingAudio, PendingInput, RunOptions, audio, movie};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 pub(super) use fields::{FieldPackage, available_fields};
 use resonance_content::{field::FieldAssets, prepared::Files};

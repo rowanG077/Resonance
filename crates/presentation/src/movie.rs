@@ -1,7 +1,7 @@
 use super::audio_output::Sink as AudioSink;
 use super::{PendingInput, RunOptions, materials::TitleText};
 use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
@@ -256,7 +256,7 @@ pub(super) fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(3),
         MovieCamera,

@@ -1,6 +1,6 @@
 //! Check each rain drop and its floor callback before comparing stochastic splashes.
 use super::{Trace, compare::equal};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_content::battle_effect::{
     EffectOperation, ParticleBirth, ParticleTemplate, ScheduledEvent,
 };
