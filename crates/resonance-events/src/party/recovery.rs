@@ -41,6 +41,8 @@ impl Party {
         );
         let max_level = data.experience.len().saturating_sub(1).min(255) as u8;
         anyhow::ensure!(max_level > 0, "missing experience levels");
+        let mut saved_combos = BTreeSet::new();
+        let mut assigned_slots = BTreeSet::new();
         for (index, member) in self.members.iter_mut().enumerate() {
             member.level = member.level.clamp(1, max_level);
             member.experience = member.experience.min(MAX_EXPERIENCE);
@@ -59,6 +61,31 @@ impl Party {
             }
             member.validate_loadout(data, index)?;
             member.clamp_vitals();
+            let mut assigned_artes = BTreeSet::new();
+            for mut binding in std::mem::take(&mut member.arte_bindings) {
+                let mut saved_inputs = binding.chord.0.clone();
+                saved_inputs.sort();
+                // Migration must not hide malformed or unknown assignments.
+                anyhow::ensure!(
+                    member.techniques.contains(&binding.technique)
+                        && binding.chord.validate_shape().is_ok()
+                        && assigned_artes.insert(binding.technique)
+                        && saved_combos.insert(saved_inputs),
+                    "invalid saved arte assignment"
+                );
+                if !binding
+                    .chord
+                    .single_direction_per_source(&self.settings.preferences.keymap)
+                {
+                    continue;
+                }
+                binding.chord = binding.chord.normalized(&self.settings.preferences.keymap);
+                // Old left/right bindings can merge. Keep the first saved owner;
+                // later conflicting slots become visibly unassigned in the menu.
+                if assigned_slots.insert(binding.chord.0.clone()) {
+                    member.arte_bindings.push(binding);
+                }
+            }
         }
         self.validate(data)
     }
