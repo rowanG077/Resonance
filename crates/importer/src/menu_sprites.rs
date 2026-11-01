@@ -40,7 +40,7 @@ impl Atlas {
     fn add(&mut self, (width, height, pixels): (u32, u32, Vec<u8>)) -> Result<[u32; 4]> {
         let (width, height) = (width as usize, height as usize);
         ensure!(
-            pixels.len() == width * height * 4,
+            width > 0 && height > 0 && pixels.len() == width * height * 4,
             "invalid menu sprite buffer"
         );
         if self.x + width + 1 > SIZE {
@@ -52,10 +52,16 @@ impl Atlas {
             self.x + width < SIZE && self.y + height < SIZE,
             "menu sprite atlas is full"
         );
-        for row in 0..height {
-            let to = ((self.y + row) * SIZE + self.x) * 4;
-            let from = row * width * 4;
-            self.pixels[to..to + width * 4].copy_from_slice(&pixels[from..from + width * 4]);
+        // Extrude the edge texels into the one-pixel gutter, including corners.
+        // Linear filtering then behaves like a standalone clamped texture.
+        for row in 0..height + 2 {
+            for column in 0..width + 2 {
+                let to = ((self.y + row - 1) * SIZE + self.x + column - 1) * 4;
+                let from = (row.saturating_sub(1).min(height - 1) * width
+                    + column.saturating_sub(1).min(width - 1))
+                    * 4;
+                self.pixels[to..to + 4].copy_from_slice(&pixels[from..from + 4]);
+            }
         }
         let rect = [self.x as u32, self.y as u32, width as u32, height as u32];
         self.x += width + 2;
