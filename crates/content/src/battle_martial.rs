@@ -6,6 +6,44 @@ use std::collections::BTreeMap;
 
 pub mod document;
 
+/// A mod-authored arte owns its timeline and optional motion/effect bank.
+/// Motion slots are local to the character; conflicting declarations are errors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredAction {
+    #[serde(deserialize_with = "read_authored_attack")]
+    pub attack: Attack,
+    #[serde(default)]
+    pub motions: BTreeMap<u16, String>,
+    #[serde(default)]
+    pub effects: Option<String>,
+    pub unison: crate::battle_unison::Placement,
+}
+
+fn read_authored_attack<'de, D>(deserializer: D) -> Result<Attack, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let attack = Attack::deserialize(deserializer)?;
+    // Native recipes use specialized preparers; the generic timeline runner
+    // must not silently discard their additional behavior.
+    for (field, present) in [
+        ("flight", attack.flight.is_some()),
+        ("hammer", attack.hammer.is_some()),
+        ("steal", attack.steal.is_some()),
+        ("fierce_fang", attack.fierce_fang.is_some()),
+        ("hurricane_hit", attack.hurricane_hit.is_some()),
+        ("callback_hits", !attack.callback_hits.is_empty()),
+    ] {
+        if present {
+            return Err(serde::de::Error::custom(format!(
+                "authored actions do not support native recipe field `{field}`"
+            )));
+        }
+    }
+    Ok(attack)
+}
+
 /// Every common action is cooked independently of the characters using it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Catalogue {
@@ -233,5 +271,165 @@ mod tests {
         let poses = [(0, 2), (11, 4), (27, 4), (42, 2)];
         assert_eq!(gameplay_tick(28, 0, &poses).unwrap(), 33);
         assert_eq!(gameplay_tick(29, 0, &poses).unwrap(), 37);
+    }
+}
+
+#[cfg(test)]
+mod authored_tests {
+    use super::*;
+
+    fn action_document() -> serde_json::Value {
+        serde_json::json!({
+            "attack": {
+                "duration": 20,
+                "chain_at": 16,
+                "recovery": 4,
+                "effect": 0,
+                "events": [[6, {"forward": 2.0}]],
+                "pose_sequence": [{"start": {"at": 0}, "pose": {"clip": "slot-110"}}]
+            },
+            "motions": {"110": "battle/artes/example/motion.glb"},
+            "effects": "battle/artes/example/effects.json",
+            "unison": {"native_id": 1000, "altitude": 0, "distance": 80, "duration": 24}
+        })
+    }
+
+    #[test]
+    fn authored_actions_preserve_generic_timeline_and_resources() -> Result<()> {
+        let document = action_document();
+        let action: AuthoredAction = serde_json::from_value(document.clone())?;
+        assert_eq!(serde_json::to_value(action)?, document);
+        Ok(())
+    }
+
+    #[test]
+    fn authored_actions_reject_native_recipes_without_changing_native_schema() -> Result<()> {
+        let hit = serde_json::json!({"kind": "slash", "power": {"percent": 100}});
+        let recipes = [
+            (
+                "flight",
+                serde_json::json!({
+                    "gravity_at": 2, "gravity": 0.5, "finish_pose": {"clip": "slot-110"}
+                }),
+            ),
+            (
+                "hammer",
+                serde_json::json!({
+                    "pattern": {"kind": "single", "alternate_events": []},
+                    "hits": [hit.clone(), hit.clone(), hit.clone()],
+                    "impact_effect": 0, "impact_sound": 60
+                }),
+            ),
+            (
+                "steal",
+                serde_json::json!({
+                    "attempt_at": 2, "bonus_at": 3, "success_duration": 10,
+                    "success_events": [], "bonus_hit": hit.clone(), "bonus_offset": [0.0, 0.0, 0.0],
+                    "bonus_forward_speed": 1.0, "bonus_velocity_jitter": [0.0, 0.0, 0.0]
+                }),
+            ),
+            (
+                "fierce_fang",
+                serde_json::json!({"hits": [hit.clone(), hit.clone()]}),
+            ),
+            ("hurricane_hit", hit.clone()),
+            ("callback_hits", serde_json::json!({"0": hit})),
+        ];
+        for (field, value) in recipes {
+            let mut document = action_document();
+            document["attack"][field] = value;
+            let _: Attack = serde_json::from_value(document["attack"].clone())?;
+            let error = serde_json::from_value::<AuthoredAction>(document).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("native recipe field `{field}`")),
+                "unexpected rejection for {field}: {error}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ghost_wolf_assets_are_editable_with_imported_artwork() -> Result<()> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/ghost-wolf");
+        let example: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("example.json"))?)?;
+        let technique: crate::arte::document::Entry =
+            serde_json::from_value(example["technique"].clone())?;
+        assert_eq!(technique.text["name"], "Ghost Wolf");
+        let action: AuthoredAction = serde_json::from_slice(&std::fs::read(
+            root.join(technique.rules.action.as_ref().context("action missing")?),
+        )?)?;
+        for (&slot, path) in &action.motions {
+            let bytes = std::fs::read(root.join(path))?;
+            let glb = gltf::Gltf::from_slice(&bytes)?;
+            assert!(
+                glb.skins().len() == 0
+                    && glb.meshes().len() == 0
+                    && glb.images().len() == 0
+                    && glb.materials().len() == 0
+                    && glb.textures().len() == 0,
+                "the distributable motion must not bundle game models or artwork"
+            );
+            assert!(
+                glb.nodes().all(|node| {
+                    node.children().len() == 0
+                        && node.transform().matrix()
+                            == crate::animation::Transform::default().matrix()
+                }),
+                "the distributable motion must not bundle native hierarchy or rest transforms"
+            );
+            assert!(
+                glb.buffers()
+                    .all(|buffer| matches!(buffer.source(), gltf::buffer::Source::Bin)),
+                "the distributable motion must not reference external payloads"
+            );
+            let motion = crate::animation::NamedMotion::decode(&bytes)?;
+            assert!(!motion.motion.tracks.is_empty());
+            let (at, pose) = action
+                .attack
+                .events
+                .iter()
+                .find_map(|(at, event)| match event {
+                    Event::Pose(pose) if pose.clip == slot => Some((*at, pose)),
+                    _ => None,
+                })
+                .context("authored motion is not played by the action")?;
+            assert!(!pose.repeat && pose.rate > 0.);
+            let end = pose.end.unwrap_or(motion.motion.duration_frames);
+            assert!(end <= motion.motion.duration_frames);
+            let playback_updates = (end - pose.start) / pose.rate;
+            let available_updates = f32::from(action.attack.duration - at - u16::from(pose.blend));
+            assert!(
+                (playback_updates - available_updates).abs() < 1.001,
+                "the authored performance and its gameplay timeline must finish together"
+            );
+        }
+        let imported_artwork = [
+            "battle/effects/common/textures/atlas-0-0-palette-0.ktx2",
+        ];
+        let mut requested = [false; 1];
+        // Exercise image preparation without bundling the imported game artwork.
+        let texture: std::sync::Arc<[u8]> =
+            resonance_asset_writer::ktx2::encode_rgba8(1, 1, &[255; 4])?.into();
+        let bank = crate::battle_effect::document::read(
+            action.effects.as_deref().context("effects missing")?,
+            &crate::diagnostics::Diagnostics::new(true),
+            |path| {
+                if let Some(index) = imported_artwork.iter().position(|&image| image == path) {
+                    requested[index] = true;
+                    Ok(texture.clone())
+                } else {
+                    Ok(std::fs::read(root.join(path))?.into())
+                }
+            },
+        )?;
+        assert!(requested.into_iter().all(|requested| requested));
+        for template in &bank.actors {
+            template.particle()?.validate()?;
+        }
+        assert!(bank.programs.len() >= 3);
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
 //! Each technique owns its complete native attack and optional feedback.
 use super::{ActionDefinition, PreparedAttack, Sequence, Sound, Technique};
 use crate::battle::encounter::resources::Resources;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use resonance_battle::{AttackEvent as Event, AttackOrigin, EffectAppearance};
 
 impl Technique {
@@ -31,6 +31,17 @@ impl Technique {
         use Sequence::*;
         let source = crate::battle::model::ModelSource::Party(self.character);
         match self.sequence {
+            Asset => {
+                let path = resources
+                    .catalogue
+                    .definition(usize::from(self.catalogue))?
+                    .action
+                    .as_deref()
+                    .context("missing authored arte action")?;
+                let action: resonance_content::battle_martial::AuthoredAction =
+                    resources.files.json(path)?;
+                return self.prepare_authored_attack(resources, model, action.attack);
+            }
             Elemental => return self.prepare_elemental(resources, model, tp_cost),
             Authored | RayThrust => {
                 return self.prepare_authored(resources, model);

@@ -1310,6 +1310,11 @@ impl Assets {
             .iter()
             .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
             .collect::<Result<BTreeMap<_, _>>>()?;
+        let authored_effects = self
+            .authored_effects
+            .iter()
+            .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let mut enemy_resources = BTreeMap::new();
         let mut enemy_weapon_groups = BTreeMap::new();
         let mut result_enemies = Vec::new();
@@ -1495,6 +1500,7 @@ impl Assets {
                 members: hammer_effect.iter().map(|effect| effect.member).collect(),
                 models: technique_models,
             },
+            authored_effects,
             enemy_effects: enemy_banks,
             spell_scenes,
             skill_scenes,

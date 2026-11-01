@@ -108,6 +108,7 @@
               ./apps
               ./crates
               ./scripts
+              ./mods
               ./tools/oracle
             ];
           };
