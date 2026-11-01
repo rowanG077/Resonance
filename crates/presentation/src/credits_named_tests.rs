@@ -56,7 +56,10 @@ fn fixture() -> Result<tempfile::TempDir> {
     write(
         p,
         "content.json",
-        br#"{"version":94,"game":"tales-of-symphonia"}"#,
+        &serde_json::to_vec(&resonance_content::library::Descriptor {
+            version: resonance_content::library::VERSION,
+            game: resonance_content::library::GAME.into(),
+        })?,
     )?;
     let characters: String = (32u8..=126).map(char::from).collect();
     json(
