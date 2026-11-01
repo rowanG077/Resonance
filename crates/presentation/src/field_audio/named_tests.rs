@@ -63,7 +63,10 @@ pub(super) fn fixture() -> Result<tempfile::TempDir> {
         ),
         (
             "content.json",
-            json!({"version":94, "game":"tales-of-symphonia"}),
+            serde_json::to_value(resonance_content::library::Descriptor {
+                version: resonance_content::library::VERSION,
+                game: resonance_content::library::GAME.into(),
+            })?,
         ),
         ("fields/mappings.json", json!({"330":"iselia"})),
         (

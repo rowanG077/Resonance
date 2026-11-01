@@ -7,6 +7,18 @@ Symphonia, built with Bevy. Its goals are:
 - Human-readable, editable assets for modding.
 - Support for creating new fields, events, skits and other content.
 
+## Download and install
+
+Download executables for Windows, macOS (Apple Silicon) and Linux from
+[GitHub Releases](https://github.com/rowanG077/Resonance/releases).
+See the [installation and usage guide](docs/installation.md) to choose an archive,
+import your two GameCube disc images and start playing. Every download includes
+the game, the asset importer and a README with these instructions.
+
+Maintainers can [publish a release](docs/releasing.md) by pushing a
+`release/vX.X.X` branch; CI builds all platforms, creates tag `vX.X.X` and
+publishes the tested archives automatically.
+
 ## Clone and build
 
 With Git and Nix installed:
