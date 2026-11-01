@@ -19,6 +19,7 @@ pub(crate) struct Resources<'a> {
     pub voices: &'a battle::voice::Resolver<'a>,
     pub common: EffectResource,
     pub techniques: EffectResource,
+    pub authored_effects: BTreeMap<u16, EffectResource>,
     pub enemy_effects: BTreeMap<u8, EffectResource>,
     pub spell_scenes: BTreeMap<u16, EffectResource>,
     pub skill_scenes: BTreeMap<u16, EffectResource>,
@@ -390,7 +391,18 @@ pub(super) fn party_techniques(
         .iter()
         .copied()
         .chain([guard.catalogue])
-        .filter_map(|id| battle::martial::technique(character, id).map(|technique| (id, technique)))
+        .filter_map(|id| {
+            let technique = if catalogue
+                .definitions
+                .get(usize::from(id))
+                .is_some_and(|rule| rule.action.is_some())
+            {
+                Some(battle::martial::Technique::asset(character, id))
+            } else {
+                battle::martial::technique(character, id)
+            };
+            technique.map(|technique| (id, technique))
+        })
         .collect())
 }
 

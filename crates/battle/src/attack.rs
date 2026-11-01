@@ -187,6 +187,10 @@ pub enum AttackEvent {
     Turn(f32),
     TurnMotion(f32),
     FaceTarget,
+    TraverseTarget {
+        duration: u16,
+        clearance: f32,
+    },
     SetPosition([f32; 3]),
     PositionFromTarget {
         height: f32,
@@ -561,6 +565,13 @@ impl PreparedAttack {
                         "invalid action position"
                     )
                 }
+                AttackEvent::TraverseTarget {
+                    duration,
+                    clearance,
+                } => ensure!(
+                    *duration > 0 && clearance.is_finite() && *clearance > 0.,
+                    "invalid target traversal"
+                ),
                 AttackEvent::PositionFromTarget { height, retreat }
                 | AttackEvent::OffsetPosition { height, retreat } => ensure!(
                     height.is_finite() && retreat.is_finite(),
@@ -717,6 +728,44 @@ fn advance_contact(
     Ok(())
 }
 
+/// A captured endpoint keeps the pass readable even while the victim recoils.
+/// Integration still belongs to ordinary actor movement, collision and hit-stop.
+pub(crate) struct Traversal {
+    started_at: u32,
+    duration: u16,
+    start: [f32; 3],
+    end: [f32; 3],
+}
+
+impl Traversal {
+    fn finished(&self, age: u32) -> bool {
+        age.saturating_sub(self.started_at) >= u32::from(self.duration)
+    }
+
+    fn advance(&self, age: u32, actor: &mut crate::Actor) {
+        let elapsed = age.saturating_sub(self.started_at);
+        actor.movement.acceleration = 0.;
+        actor.movement.braking = 0.;
+        let t = (elapsed + 1) as f32 / f32::from(self.duration);
+        let weight = t * t * (3. - 2. * t);
+        let desired = [
+            self.start[0] + (self.end[0] - self.start[0]) * weight,
+            actor.position[1],
+            self.start[2] + (self.end[2] - self.start[2]) * weight,
+        ];
+        let delta = [
+            desired[0] - actor.position[0],
+            0.,
+            desired[2] - actor.position[2],
+        ];
+        let distance = (delta[0] * delta[0] + delta[2] * delta[2]).sqrt();
+        if distance > 0.001 {
+            actor.movement.direction = [delta[0] / distance, 0., delta[2] / distance];
+        }
+        actor.movement.forward = distance;
+    }
+}
+
 pub(crate) fn step(
     battle: &mut Battle,
     id: ActionId,
@@ -788,6 +837,15 @@ pub(crate) fn step(
         0
     };
     let recovery = u32::from(attack.recovery) + combo_recovery;
+    if sequence
+        .traversal
+        .as_ref()
+        .is_some_and(|traversal| traversal.finished(sequence.age))
+    {
+        // Release the pass before this tick's authored movement takes ownership.
+        sequence.traversal = None;
+        battle.actors[index].movement.forward = 0.;
+    }
     let (mut next_event, mut delay) = match run {
         AttackRun::Starting => {
             let movement = &mut battle.actors[index].movement;
@@ -1436,6 +1494,28 @@ pub(crate) fn step(
                 crate::control::snap_heading(owner, direction);
                 owner.movement.direction = direction;
             }
+            AttackEvent::TraverseTarget {
+                duration,
+                clearance,
+            } => {
+                let start = battle.actors[index].position;
+                let target = battle.actors[sequence.target.index()].position;
+                let direction = crate::distance::planar_direction(
+                    target,
+                    start,
+                    battle.actors[index].facing_direction,
+                );
+                sequence.traversal = Some(Traversal {
+                    started_at: sequence.age,
+                    duration: *duration,
+                    start,
+                    end: [
+                        target[0] + direction[0] * clearance,
+                        start[1],
+                        target[2] + direction[2] * clearance,
+                    ],
+                });
+            }
             AttackEvent::SetPosition(position) => battle.actors[index].position = *position,
             AttackEvent::PositionFromTarget { height, retreat }
             | AttackEvent::OffsetPosition { height, retreat } => {
@@ -1688,6 +1768,9 @@ pub(crate) fn step(
         return Ok(None);
     }
     sequence.execution = crate::action::Execution::Attack(AttackRun::Active { next_event, delay });
+    if let Some(traversal) = &sequence.traversal {
+        traversal.advance(sequence.age, &mut battle.actors[index]);
+    }
     if waiting {
         cues.push(Cue::PauseActionEffects(id));
     }
@@ -1729,6 +1812,156 @@ pub(crate) fn step(
 mod tests {
     use super::*;
     use crate::{ActorId, ActorSetup, BattleInput, HitCondition, Side, conditions::Condition};
+
+    #[test]
+    fn target_traversal_eases_across_the_ground_to_its_endpoint() {
+        for direction in [[1., 0., 0.], [-1., 0., 0.], [0.6, 0., 0.8]] {
+            let mut actor = crate::tests::actor(Side::Party);
+            actor.position = [10., 12., 20.];
+            let start = actor.position;
+            let end = [
+                start[0] + direction[0] * 240.,
+                start[1],
+                start[2] + direction[2] * 240.,
+            ];
+            let traversal = Traversal {
+                started_at: 10,
+                duration: 14,
+                start,
+                end,
+            };
+            let mut steps = Vec::new();
+            for age in 10..24 {
+                assert!(!traversal.finished(age));
+                traversal.advance(age, &mut actor);
+                steps.push(actor.movement.forward);
+                actor.movement.integrate(&mut actor.position);
+            }
+            assert!(steps.iter().all(|step| *step > 0. && *step < 26.));
+            assert!(steps[0] < steps[6] && steps[13] < steps[6]);
+            for (actual, expected) in actor.position.into_iter().zip(end) {
+                assert!((actual - expected).abs() < 0.001);
+            }
+            assert!(traversal.finished(24));
+        }
+    }
+
+    fn movement_battle(events: Vec<(u16, AttackEvent)>) -> Result<Battle> {
+        let mut action = crate::tests::action(40);
+        crate::tests::attack_mut(&mut action).events = events;
+        let mut owner = crate::tests::actor(Side::Party);
+        owner.heading = 90.;
+        owner.facing_direction = [1., 0., 0.];
+        owner.movement.direction = owner.facing_direction;
+        let mut target = crate::tests::actor(Side::Enemy);
+        target.position[0] = 100.;
+        let mut prepared = crate::PreparedBattle::new(
+            vec![
+                (owner, ActorSetup::default()),
+                (target, ActorSetup::default()),
+            ],
+            vec![action].into(),
+            1,
+        )?;
+        crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
+        prepared.finish()
+    }
+
+    fn movement_request() -> BattleInput {
+        crate::ActionRequest {
+            actor: ActorId(0),
+            target: ActorId(1),
+            action: crate::ActionKey(0),
+        }
+        .into()
+    }
+
+    #[test]
+    fn target_traversal_integrates_every_tick_including_admission() -> Result<()> {
+        for (at, duration) in [(0, 1), (1, 1), (0, 9), (16, 9)] {
+            let mut battle = movement_battle(vec![(
+                at,
+                AttackEvent::TraverseTarget {
+                    duration,
+                    clearance: 70.,
+                },
+            )])?;
+            for tick in 0..=at + duration {
+                battle.step(if tick == 0 {
+                    movement_request()
+                } else {
+                    BattleInput::default()
+                })?;
+                let elapsed = (tick + 1).saturating_sub(at).min(duration);
+                let t = f32::from(elapsed) / f32::from(duration);
+                let expected = 170. * t * t * (3. - 2. * t);
+                assert!(
+                    (battle.actors[0].position[0] - expected).abs() < 0.001,
+                    "traversal at {at} for {duration} ticks missed movement at tick {tick}"
+                );
+            }
+            assert_eq!(battle.actors[0].movement.forward, 0.);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn target_traversal_expiry_preserves_following_motion_after_hit_stop() -> Result<()> {
+        let mut battle = movement_battle(vec![
+            (
+                1,
+                AttackEvent::TraverseTarget {
+                    duration: 2,
+                    clearance: 70.,
+                },
+            ),
+            (
+                3,
+                AttackEvent::Move {
+                    forward: Some(5.),
+                    vertical: None,
+                },
+            ),
+            (3, AttackEvent::Acceleration(2.)),
+            (3, AttackEvent::Braking(0.25)),
+        ])?;
+        battle.step(movement_request())?;
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.actors[0].position[0], 85.);
+        battle.actors[0].hit_stop = 3;
+        crate::tests::step_idle(&mut battle, 3)?;
+        assert_eq!(battle.actors[0].position[0], 85.);
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.actors[0].position[0], 170.);
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.actors[0].position[0], 175.);
+        let movement = &battle.actors[0].movement;
+        assert_eq!(movement.forward, 6.75);
+        assert_eq!(movement.acceleration, 2.);
+        assert_eq!(movement.braking, 0.25);
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.actors[0].position[0], 181.75);
+        Ok(())
+    }
+
+    #[test]
+    fn ordinary_move_keeps_its_admission_hold() -> Result<()> {
+        let mut battle = movement_battle(vec![
+            (
+                0,
+                AttackEvent::Move {
+                    forward: Some(5.),
+                    vertical: None,
+                },
+            ),
+            (0, AttackEvent::Braking(0.)),
+        ])?;
+        battle.step(movement_request())?;
+        assert_eq!(battle.actors[0].position[0], 0.);
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.actors[0].position[0], 5.);
+        Ok(())
+    }
 
     #[test]
     fn opponent_affliction_dispels_buffs_but_respects_immunity_and_dead_allies() -> Result<()> {

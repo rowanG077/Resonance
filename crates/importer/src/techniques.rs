@@ -193,6 +193,7 @@ fn decode(
         range as f32
     };
     let rules = Definition {
+        action: None,
         tp_cost: row[8],
         element,
         learning,

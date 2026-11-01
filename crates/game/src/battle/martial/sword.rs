@@ -289,6 +289,9 @@ pub(super) fn projectile(
     recoil: &crate::battle::recoil::Parameters,
 ) -> Result<Arc<ProjectileDefinition>> {
     let mut rule = crate::battle::hit::authored(hit, recoil)?;
+    if let Some(sound) = rule.sound {
+        rule.sound = (resources.sound)(sound)?;
+    }
     if let Some(member) = hit.effect {
         resources.effect(true, &[member])?;
         rule.effect = Some(EffectAppearance {

@@ -133,6 +133,7 @@ fn convert<I, E, J, F>(
 ) -> Result<Definition<J, F>> {
     let learning = value.learning;
     Ok(Definition {
+        action: value.action,
         tp_cost: value.tp_cost,
         element: element(value.element)?,
         learning: LearningRules {

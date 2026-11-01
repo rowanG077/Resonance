@@ -51,6 +51,11 @@ pub enum Event<H = ActionHit> {
     Vertical(f32),
     Gravity(f32),
     Turn(f32),
+    /// Cross to the far side of the target over a finite, eased movement.
+    TraverseTarget {
+        duration: u16,
+        clearance: f32,
+    },
     /// Suppress hit reactions for this many updates; zero clears the protection.
     ReactionArmor(u16),
     SecondaryWind {

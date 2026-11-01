@@ -194,6 +194,13 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
             duration: *duration,
         },
         Event::Turn(value) => AttackEvent::Turn(*value),
+        Event::TraverseTarget {
+            duration,
+            clearance,
+        } => AttackEvent::TraverseTarget {
+            duration: *duration,
+            clearance: *clearance,
+        },
         Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
         Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
             enabled: *enabled,
