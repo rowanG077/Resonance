@@ -104,6 +104,17 @@ overlapping combos take priority, including across characters. Menus, target
 selection, and Unison confirmation retain their contextual controls. Existing
 singles that conflict after a keymap edit are marked and inactive until corrected.
 
+Left and right share one horizontal arte slot for keyboard movement, the D-pad,
+and each stick. These input sources, up, and down keep separate bindings. Button-only artes require neutral
+directions: an unassigned direction does nothing rather than firing the neutral
+arte. Returning to neutral while holding the button does not fire it either;
+release and press the button again.
+Each input source supplies one direction. Sticks use their stronger axis;
+vertical wins ties, including simultaneous keyboard or D-pad presses. Combined
+directions are unsupported and are unassigned on load.
+When loading older saves, opposite horizontal assignments merge into one slot.
+The first saved assignment is kept; later conflicting assignments become unassigned.
+
 Configured prompts show the keyboard or controller assignment for the last
 configured device input used. Unassigned inputs, held buttons, stick jitter and
 stick release do not change the displayed device. Before the first valid keyboard

@@ -17,6 +17,125 @@ fn load(value: Value, data: &SessionData) -> anyhow::Result<Party> {
 }
 
 #[test]
+fn old_horizontal_assignments_migrate_with_the_first_saved_owner() -> anyhow::Result<()> {
+    use resonance_content::input::{ArteBinding, AxisDirection::*, InputChord, PhysicalInput};
+    let mut data = super::super::tests::data();
+    data.characters[0].allowed_techniques = vec![10, 11];
+    for (left, right) in [
+        (
+            PhysicalInput::Axis(LeftLeft),
+            PhysicalInput::Axis(LeftRight),
+        ),
+        (
+            PhysicalInput::Key("ArrowLeft".into()),
+            PhysicalInput::Key("ArrowRight".into()),
+        ),
+        (
+            PhysicalInput::Button("DPadLeft".into()),
+            PhysicalInput::Button("DPadRight".into()),
+        ),
+    ] {
+        for other_member in [0, 1] {
+            let mut party = Party::new(&data, Default::default())?;
+            party.members[0].techniques.extend([10, 11]);
+            party.members[other_member].techniques.insert(10);
+            let chord = |input| InputChord(vec![PhysicalInput::Button("East".into()), input]);
+            party.members[0].arte_bindings.push(ArteBinding {
+                technique: 11,
+                chord: chord(left.clone()),
+            });
+            party.members[other_member].arte_bindings.push(ArteBinding {
+                technique: 10,
+                chord: chord(right.clone()),
+            });
+            assert!(party.validate(&data).is_err());
+            let value = serde_json::to_value(SavedProgress::new(party))?;
+            let mut restored = load(value, &data)?;
+            assert_eq!(
+                restored.members[0].arte_bindings,
+                [ArteBinding {
+                    technique: 11,
+                    chord: chord(left.clone()).normalized(&restored.settings.preferences.keymap)
+                }]
+            );
+            assert_eq!(
+                restored
+                    .members
+                    .iter()
+                    .map(|m| m.arte_bindings.len())
+                    .sum::<usize>(),
+                1
+            );
+            assert!(restored.members[other_member].techniques.contains(&10));
+            let admitted = serde_json::to_value(&restored)?;
+            restored.recover(&data)?;
+            assert_eq!(serde_json::to_value(&restored)?, admitted);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn horizontal_migration_does_not_hide_invalid_assignments() -> anyhow::Result<()> {
+    use resonance_content::input::{ArteBinding, AxisDirection::*, InputChord, PhysicalInput};
+    let mut data = super::super::tests::data();
+    data.characters[0].allowed_techniques = vec![10, 11];
+    for (technique, axis) in [(999, LeftRight), (10, LeftRight), (11, LeftLeft)] {
+        let mut party = Party::new(&data, Default::default())?;
+        party.members[0].techniques.extend([10, 11]);
+        let chord = |axis| {
+            InputChord(vec![
+                PhysicalInput::Button("East".into()),
+                PhysicalInput::Axis(axis),
+            ])
+        };
+        party.members[0].arte_bindings = vec![
+            ArteBinding {
+                technique: 10,
+                chord: chord(LeftLeft),
+            },
+            ArteBinding {
+                technique,
+                chord: chord(axis),
+            },
+        ];
+        let value = serde_json::to_value(SavedProgress::new(party))?;
+        assert!(load(value, &data).is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn unsupported_combined_stick_assignments_become_unassigned_on_load() -> anyhow::Result<()> {
+    use resonance_content::input::{ArteBinding, AxisDirection::*, InputChord, PhysicalInput};
+    let mut data = super::super::tests::data();
+    data.characters[0].allowed_techniques = vec![10, 11];
+    let mut party = Party::new(&data, Default::default())?;
+    party.members[0].techniques.extend([10, 11]);
+    let free_binding = ArteBinding {
+        technique: 11,
+        chord: InputChord(vec![PhysicalInput::Key("F11".into())]),
+    };
+    party.members[0].arte_bindings = vec![
+        ArteBinding {
+            technique: 10,
+            chord: InputChord(vec![
+                PhysicalInput::Button("East".into()),
+                PhysicalInput::Axis(LeftLeft),
+                PhysicalInput::Axis(LeftUp),
+            ]),
+        },
+        free_binding.clone(),
+    ];
+    assert!(party.validate(&data).is_err());
+    let value = serde_json::to_value(SavedProgress::new(party))?;
+    let restored = load(value, &data)?;
+    assert_eq!(restored.members[0].arte_bindings, [free_binding]);
+    assert!(restored.members[0].techniques.contains(&10));
+    Ok(())
+}
+
+#[test]
 fn integer_amounts_beyond_64_bits_recover_without_float_rounding() -> anyhow::Result<()> {
     let data = super::super::tests::data();
     let original = serde_json::to_string(&saved(&data))?;
