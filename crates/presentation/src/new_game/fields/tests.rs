@@ -7,6 +7,40 @@ use resonance_content::{
 use std::fs;
 
 #[test]
+#[ignore = "requires current named content at RESONANCE_TEST_ASSETS; no output devices"]
+fn edited_save_amounts_survive_field_setup_and_progress_restoration() -> Result<()> {
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .context("set RESONANCE_TEST_ASSETS to current named content")?;
+    let package = Arc::new(FieldPackage::prepare(
+        &root,
+        332,
+        &mut Cache::default(),
+        || false,
+    )?);
+    let mut checkpoint = crate::test_support::field_checkpoint(&package.files)?;
+    let party = &mut checkpoint.progress.party;
+    party.gald = u32::MAX;
+    party.members[0].hp = u16::MAX;
+    party.members[0].tp = u16::MAX;
+    party.members[0].overlimit = u8::MAX;
+    let session = super::super::Session::load_prepared(package, Some(checkpoint), None)?;
+    let live = session.field().checkpoint()?;
+    let party = &live.progress.party;
+    assert_eq!(party.gald, 99_999_999);
+    assert_eq!(
+        [party.members[0].hp, party.members[0].tp],
+        party.members[0].maximum_vitals()
+    );
+    assert_eq!(party.members[0].overlimit, 100);
+    assert_eq!(
+        serde_json::to_value(&party)?,
+        serde_json::to_value(&session.restored_checkpoint.as_ref().unwrap().progress.party)?
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires current named content at RESONANCE_TEST_ASSETS; uses small mod overlays over the installed library"]
 fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> {
     let source = std::env::var_os("RESONANCE_TEST_ASSETS")
