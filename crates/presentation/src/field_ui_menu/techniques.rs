@@ -886,7 +886,7 @@ mod binding_tests {
         assert!(
             fixture.party.members[0].arte_bindings[0]
                 .chord
-                .same_inputs(&chord)
+                .same_inputs(&chord, &fixture.party.settings.preferences.keymap)
         );
         let mut drawing = fixture.drawing(0);
         let anchor = drawing.techniques_page(tech.page(
