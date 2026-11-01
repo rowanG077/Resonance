@@ -417,7 +417,9 @@ impl Frame {
     }
 }
 
-/// Gamepad slots survive query reordering and other pads disconnecting.
+/// Gamepads claim slots on controller input, then retain them through query
+/// reordering and other pads disconnecting. Consumer HID devices can be exposed
+/// as idle gamepads and must not reserve the leader's port.
 /// Keyboard always shares the first controller slot.
 #[derive(Resource, Default)]
 pub(super) struct Controls {
@@ -642,6 +644,22 @@ pub(super) fn gather(
     let settings = crate::input::settings(session.as_deref(), preferences.as_deref());
     let map = &settings.keymap;
     let keyboard_physical = crate::input::PhysicalState::keyboard(&keys);
+    controls
+        .keyboard
+        .gather(Sample::physical(&keyboard_physical, map));
+    let connected: Vec<_> = pads
+        .iter()
+        .filter(|(entity, pad)| {
+            controls.pads.contains(&Some(*entity))
+                || pad
+                    .get_pressed()
+                    .any(|button| !matches!(button, GamepadButton::Other(_)))
+                || pad.left_stick().abs().max_element() > 0.3
+                || pad.right_stick().abs().max_element() > 0.3
+        })
+        .map(|(entity, _)| entity)
+        .collect();
+    controls.assign_pads(&connected);
     let capture_port = owner
         .as_ref()
         .and_then(|o| {
@@ -676,10 +694,6 @@ pub(super) fn gather(
         scene.published_tick = None;
         return;
     }
-    let keyboard = Sample::physical(&keyboard_physical, map);
-    let connected: Vec<_> = pads.iter().map(|(entity, _)| entity).collect();
-    controls.keyboard.gather(keyboard);
-    controls.assign_pads(&connected);
     let mut held_bindings = std::collections::BTreeSet::new();
     for index in 0..4 {
         let mut physical = if index == 0 {
@@ -740,6 +754,61 @@ pub(super) fn gather(
 mod tests {
     use super::*;
     use ControllerPort;
+
+    #[test]
+    fn consumer_hid_does_not_reserve_a_battle_controller_port() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Controls>()
+            .add_systems(Update, gather);
+        let hid = app.world_mut().spawn(Gamepad::default()).id();
+        let controller = app.world_mut().spawn(Gamepad::default()).id();
+        app.update();
+        assert_eq!(app.world().resource::<Controls>().devices(), [None; 4]);
+        app.world_mut()
+            .get_mut::<Gamepad>(hid)
+            .unwrap()
+            .digital_mut()
+            .press(GamepadButton::Other(123));
+        app.update();
+        assert_eq!(app.world().resource::<Controls>().devices(), [None; 4]);
+
+        let mut pad = app.world_mut().get_mut::<Gamepad>(controller).unwrap();
+        pad.analog_mut().set(GamepadAxis::LeftStickX, 1.);
+        pad.digital_mut().press(GamepadButton::South);
+        app.update();
+        let controls = &mut app.world_mut().resource_mut::<Controls>();
+        assert_eq!(controls.devices(), [Some(controller), None, None, None]);
+        let frame = controls.sample(&CustomizeSettings::default());
+        let leader = actor(ControllerPort::One, Control::Manual);
+        let inputs = frame.actor_inputs([(
+            ActorId::from_index(0).unwrap(),
+            &leader,
+            resonance_battle::Activity::Idle,
+        )]);
+        assert_eq!(inputs[0].stick, [70, 0]);
+        assert!(inputs[0].attack.pressed);
+
+        let mut pad = app.world_mut().get_mut::<Gamepad>(controller).unwrap();
+        pad.analog_mut().set(GamepadAxis::LeftStickX, 0.);
+        pad.digital_mut().reset_all();
+        app.update();
+        assert_eq!(
+            app.world().resource::<Controls>().devices()[0],
+            Some(controller)
+        );
+        let second = app.world_mut().spawn(Gamepad::default()).id();
+        app.world_mut()
+            .get_mut::<Gamepad>(second)
+            .unwrap()
+            .digital_mut()
+            .press(GamepadButton::East);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Controls>().devices(),
+            [Some(controller), Some(second), None, None]
+        );
+    }
 
     fn actor(slot: ControllerPort, control: Control) -> Actor {
         let mut actor = crate::test_support::actor(Side::Party, 100, 20);
