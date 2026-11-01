@@ -4,7 +4,7 @@ import copy
 ELEMENTS = [None, "water", "wind", "fire", "earth", "lightning", "ice", "light", "darkness"]
 CAPABILITIES = dict(family=None, regal_family=None, spell=False, aerial=False,
                     uses_weapon_reach=False, chains_without_contact=False,
-                    target="enemy", offensive=False, revives=False, healing=False)
+                    target="enemy", ai_target_scope="single", summon=False, offensive=False, revives=False, healing=False)
 LEARNING = dict(route=None, parent=None, technical_successor=None, strike_successor=None,
                 parent_uses=0, prerequisites=[], excludes=[], requires_story_unlock=False)
 CASTING = dict(fixed_timing=False, support_target=False, effects="standard")
