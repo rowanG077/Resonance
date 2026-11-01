@@ -1,6 +1,6 @@
 //! Presentation-owned damage numbers, recovery notices, and gauge trails.
 use super::{Art, Batch, party, text};
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use resonance_battle::{Affinity, BattleFrame, Cue, GuardResult, RecoveryKind, Side};
 
 const MAX_FLOATING: usize = 4;

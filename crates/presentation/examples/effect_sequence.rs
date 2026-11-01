@@ -1,7 +1,7 @@
 //! Capture scripted effect sequences in a reusable renderer.
 
 fn main() -> anyhow::Result<()> {
-    use anyhow::Context;
+    use anyhow::Context as ContextExt;
     use std::{
         fs,
         io::{BufRead, Write},

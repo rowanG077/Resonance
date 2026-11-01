@@ -14,11 +14,15 @@ use resonance_events::effect::Blend;
 #[path = "surface_shader_tests.rs"]
 mod shader_tests;
 
+pub(crate) fn embed_effect_color(app: &mut App) {
+    bevy::shader::load_shader_library!(app, "effect_color.wesl");
+}
+
 fn embed_shaders(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
-    bevy::shader::load_shader_library!(app, "surface_bindings.wgsl");
-    bevy::shader::load_shader_library!(app, "effect_color.wgsl");
+    bevy::asset::embedded_asset!(app, "title_surface.wesl");
+    bevy::asset::embedded_asset!(app, "title_surface_vertex.wesl");
+    bevy::shader::load_shader_library!(app, "surface_bindings.wesl");
+    embed_effect_color(app);
 }
 
 /// Each geometry mesh has one authored draw recipe, bound per scene instance.
@@ -95,7 +99,7 @@ impl TitleOutput {
 
 impl Material2d for TitleOutput {
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_output.wgsl".into()
+        "embedded://resonance_presentation/title_output.wesl".into()
     }
 }
 
@@ -110,7 +114,7 @@ pub struct TitleText {
 
 impl Material2d for TitleText {
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_text.wgsl".into()
+        "embedded://resonance_presentation/title_text.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {
@@ -118,6 +122,7 @@ impl Material2d for TitleText {
     }
 
     fn specialize(
+        _pipeline: &bevy::sprite_render::Material2dPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: Material2dKey<Self>,
@@ -137,14 +142,15 @@ pub fn install_output_materials(app: &mut App) {
         bevy::sprite_render::Material2dPlugin::<TitleOutput>::default(),
         bevy::sprite_render::Material2dPlugin::<TitleText>::default(),
     ));
-    bevy::asset::embedded_asset!(app, "title_output.wgsl");
-    bevy::asset::embedded_asset!(app, "title_text.wgsl");
+    bevy::asset::embedded_asset!(app, "title_output.wesl");
+    bevy::asset::embedded_asset!(app, "title_text.wesl");
 }
 
 /// Register the scene material and its embedded production shaders.
 pub fn install_surface_material(app: &mut App) {
-    app.add_plugins(MaterialPlugin::<TitleSurface>::default());
+    // Bevy starts loading 3D material shaders while adding the plugin.
     embed_shaders(app);
+    app.add_plugins(MaterialPlugin::<TitleSurface>::default());
 }
 
 /// Shared scenery illumination from up to two independently moving sources.
@@ -376,10 +382,10 @@ impl From<&TitleSurface> for SurfaceKey {
 
 impl Material for TitleSurface {
     fn vertex_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_surface_vertex.wgsl".into()
+        "embedded://resonance_presentation/title_surface_vertex.wesl".into()
     }
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_surface.wgsl".into()
+        "embedded://resonance_presentation/title_surface.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {

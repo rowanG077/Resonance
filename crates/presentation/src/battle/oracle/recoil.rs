@@ -1,7 +1,7 @@
 //! Compare a single grounded travel recoil in the independently observed shot basis.
 //! Unsupported or unproved inputs retain ordinary world-position comparison.
 use super::{Trace, exactly_one, projectile_random};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use serde_json::{Value, json};
 
 #[derive(Default)]

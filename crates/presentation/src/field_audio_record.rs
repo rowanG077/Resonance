@@ -1,6 +1,6 @@
 //! Bounded evidence recording through the actual field audio adapter.
 use super::{Assets, AudioCommand, RATE};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_playback::Decodable;
 use std::{path::Path, sync::Arc};
 

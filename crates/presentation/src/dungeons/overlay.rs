@@ -62,7 +62,7 @@ pub(super) fn setup(
             is_active: false,
             ..default()
         },
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         OverlayCamera,
         RenderLayers::layer(LAYER),

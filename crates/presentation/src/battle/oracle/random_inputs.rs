@@ -1,5 +1,5 @@
 use super::Trace;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::{
     ActorId, HammerRing, ProjectileScatter,
     random_inputs::{
@@ -22,7 +22,11 @@ impl Pin {
     pub(super) fn read_bytes(&self) -> Result<Vec<u8>> {
         let bytes = std::fs::read(&self.path)?;
         ensure!(
-            format!("{:x}", Sha256::digest(&bytes)) == self.sha256,
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+                == self.sha256,
             "input evidence changed: {}",
             self.path
         );

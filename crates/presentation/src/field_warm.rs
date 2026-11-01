@@ -236,7 +236,7 @@ fn begin(
                 RenderTarget::Image(target.clone().into()),
                 RenderLayers::layer(LAYER),
                 Msaa::Off,
-                Tonemapping::None,
+                Tonemapping::Linear,
                 Projection::custom(super::camera::TitleProjection(
                     PerspectiveProjection::default(),
                 )),
@@ -256,7 +256,7 @@ fn begin(
                 RenderTarget::Image(target.into()),
                 RenderLayers::layer(LAYER),
                 Msaa::Off,
-                Tonemapping::None,
+                Tonemapping::Linear,
             ))
             .id(),
     );

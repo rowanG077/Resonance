@@ -1,6 +1,6 @@
 //! Shared preferences mirrored into the active party for gameplay and rendering.
 use crate::new_game::Session;
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::*;
 use resonance_content::menu_data::CustomizeSettings;
 use std::{fs, io::ErrorKind, path::PathBuf};

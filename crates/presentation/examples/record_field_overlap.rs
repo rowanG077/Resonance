@@ -1,5 +1,5 @@
 //! Record a cue over fading music through the actual field source, silently.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_events::AudioCommand;
 use std::path::Path;
 

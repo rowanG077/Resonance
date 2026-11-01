@@ -1,6 +1,6 @@
 //! Silent consecutive-frame rendering diagnostic, including uncapped redraws.
 fn main() -> anyhow::Result<()> {
-    use anyhow::Context;
+    use anyhow::Context as ContextExt;
     use std::{
         fs,
         io::{BufRead, Write},

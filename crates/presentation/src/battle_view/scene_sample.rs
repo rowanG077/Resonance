@@ -1,5 +1,5 @@
 //! Masked particles sample one completed battle image before UI composition.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     core_pipeline::{Core3dSystems, FullscreenShader, schedule::Core3d},
     mesh::{VertexAttributeValues, VertexBufferLayout},
@@ -14,7 +14,7 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::GpuImage,
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::ops::Range;
@@ -27,6 +27,7 @@ struct Batch {
 }
 
 #[derive(Component, Clone, Default, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct Draws {
     vertices: Vec<f32>,
     batches: Vec<Batch>,
@@ -91,7 +92,7 @@ struct Settings {
 }
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "scene_sample.wgsl");
+    bevy::asset::embedded_asset!(app, "scene_sample.wesl");
     app.add_plugins(ExtractComponentPlugin::<Draws>::default());
     app.sub_app_mut(RenderApp)
         .add_systems(RenderStartup, prepare)
@@ -176,7 +177,7 @@ fn prepare_passes(
             ),
         ),
     );
-    let shader = server.load("embedded://resonance_presentation/battle_view/scene_sample.wgsl");
+    let shader = server.load("embedded://resonance_presentation/battle_view/scene_sample.wesl");
     let vertex = VertexState {
         shader: shader.clone(),
         entry_point: Some("vertex".into()),
@@ -250,7 +251,7 @@ fn prepare_passes(
 fn render(
     view: ViewQuery<(
         &ViewTarget,
-        &ViewDepthTexture,
+        &ViewDepthStencilTexture,
         &Msaa,
         &ExtractedView,
         &Draws,
@@ -312,7 +313,11 @@ fn render(
                     sampler,
                     &mask.texture_view,
                     settings.binding().unwrap(),
-                    depth.view(),
+                    depth
+                        .attachment
+                        .depth_stencil_views()
+                        .depth_only_view()
+                        .expect("3D camera has depth"),
                 )),
             )
         })

@@ -1,7 +1,6 @@
 use super::*;
 use crate::{ActorAvailability, BattleInput, Side, tests::actor};
 use crate::{ActorId, Battle, Cue};
-use Condition::*;
 use anyhow::Result;
 use resonance_content::battle_action::Condition as HitAilment;
 

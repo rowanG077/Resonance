@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 use resonance_audio::BLOCK_FRAMES;
 #[cfg(test)]

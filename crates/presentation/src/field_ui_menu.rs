@@ -215,6 +215,7 @@ fn menu_repeat(spec: &MenuArt, index: usize, repeat: bool) -> [bool; 2] {
 }
 
 #[derive(Resource, Clone, Default, bevy::render::extract_resource::ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct MenuDraws(
     pub std::sync::Arc<std::sync::Mutex<crate::model_preview::gpu::Report>>,
 );

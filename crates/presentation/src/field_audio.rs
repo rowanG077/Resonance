@@ -15,7 +15,7 @@ pub(super) mod validation;
 #[cfg(test)]
 #[path = "field_voice_tests.rs"]
 mod voice_tests;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 pub use record::record_field_audio;
 #[cfg(test)]

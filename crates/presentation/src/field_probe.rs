@@ -1,6 +1,6 @@
 //! Field images and sequences use the ordinary application and native scenarios.
 use crate::{CheckpointReplay, RunOptions, SaveOptions, saves};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_content::menu_data::CustomizeSettings;
 use resonance_events::input::Button;
 use resonance_game::field::{FieldInput, FieldSession};

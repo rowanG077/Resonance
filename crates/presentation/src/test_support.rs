@@ -1,10 +1,11 @@
 //! Helpers shared by presentation tests.
+use bevy::shader::{ShaderCacheError, ShaderCacheSource};
 use resonance_battle::{Actor, PreparedBattle, Side};
 
 /// Independent editable copies of a complete current library. Fixtures use the
 /// same content reader as production and never translate an old cooked tree.
 fn named_fixture() -> anyhow::Result<tempfile::TempDir> {
-    use anyhow::{Context, ensure};
+    use anyhow::{Context as ContextExt, ensure};
     let source = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
         .context("set RESONANCE_TEST_ASSETS to a complete current named library")?;
@@ -145,4 +146,24 @@ pub(crate) fn boot_logos() -> resonance_game::boot::Logos {
     ]))
     .unwrap();
     resonance_game::boot::Logos::new(sequence).unwrap()
+}
+
+/// Compile every composed variant through Naga as the GPU pipeline does.
+pub(crate) fn validate_shader(
+    _: &(),
+    source: ShaderCacheSource,
+    _: &bevy::shader::ValidateShader,
+) -> Result<(), ShaderCacheError> {
+    let ShaderCacheSource::Wgsl(source) = source else {
+        panic!("expected composed WGSL");
+    };
+    let module = wgpu::naga::front::wgsl::parse_str(&source)
+        .map_err(|error| ShaderCacheError::ProcessShaderError(error.emit_to_string(&source)))?;
+    wgpu::naga::valid::Validator::new(
+        wgpu::naga::valid::ValidationFlags::all(),
+        wgpu::naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .map_err(|error| ShaderCacheError::ProcessShaderError(error.emit_to_string(&source)))?;
+    Ok(())
 }

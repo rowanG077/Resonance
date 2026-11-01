@@ -385,7 +385,7 @@ impl CameraKey {
         } else {
             glam::Vec3::Y
         };
-        let view = glam::Mat4::look_to_rh(position.into(), forward, up);
+        let view = glam::camera::rh::view::look_to_mat4(position.into(), forward, up);
         Self {
             time,
             position,

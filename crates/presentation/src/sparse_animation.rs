@@ -1,6 +1,6 @@
 //! Shared authored curves: loaded once, evaluated at the requested clip time.
 pub(crate) mod affine;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,

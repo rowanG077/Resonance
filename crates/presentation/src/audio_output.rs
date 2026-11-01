@@ -1,6 +1,6 @@
 //! Bevy lifecycle adapter. Source initialization, mixing and destruction run on
 //! one worker. Bevy's audio-device plugin is never installed.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 use resonance_playback::Decodable;
 use resonance_playback::{Control, Handle as PlaybackHandle, Mixer, Output, Suspended, Worker};

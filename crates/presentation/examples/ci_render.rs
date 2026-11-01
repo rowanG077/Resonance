@@ -1,5 +1,5 @@
 //! Synthetic, headless rendering smoke test. No game assets or window system.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     app::{AppExit, ScheduleRunnerPlugin},
     asset::RenderAssetUsages,
@@ -115,17 +115,17 @@ fn setup(
         Backends::from(adapter.backend),
         BACKEND,
         "unexpected rendering backend: {:?}",
-        *adapter.0
+        &**adapter
     );
     if REQUIRE_CPU {
         assert_eq!(
             format!("{:?}", adapter.device_type),
             "Cpu",
             "expected a CPU adapter: {:?}",
-            *adapter.0
+            &**adapter
         );
     }
-    println!("Render smoke adapter: {:?}", *adapter.0);
+    println!("Render smoke adapter: {:?}", &**adapter);
     std::fs::write(
         smoke.directory.join("adapter.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
@@ -205,7 +205,7 @@ fn setup(
             ..OrthographicProjection::default_3d()
         }),
         Transform::from_xyz(0., 0., 100.).looking_at(Vec3::ZERO, Vec3::Y),
-        Tonemapping::None,
+        Tonemapping::Linear,
         DebandDither::Disabled,
         Msaa::Off,
     ));
@@ -229,7 +229,7 @@ fn setup(
         },
         RenderTarget::Image(target.clone().into()),
         RenderLayers::layer(1),
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
     ));
     // Exercise the actual movie image shader and final output conversion in
@@ -293,7 +293,7 @@ fn setup(
             }),
             RenderTarget::Image(target.into()),
             RenderLayers::layer(layer),
-            Tonemapping::None,
+            Tonemapping::Linear,
             Msaa::Off,
         ));
     }

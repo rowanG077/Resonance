@@ -10,7 +10,7 @@ use crate::{
     materials::TitleSurface,
     scene::{SampledImages, sampled_image},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
     image::{ImageLoaderSettings, ImageSampler},

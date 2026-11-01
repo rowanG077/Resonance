@@ -186,7 +186,10 @@ pub(super) fn run(
     check_hash(disc, &pair.disc_sha256)?;
     let native_spec: Value = serde_json::from_slice(&fs::read(&replay)?)?;
     let source_script = append_dtm(&pair.replay, &fs::read(&prefix)?, pair.dolphin.start_poll)?;
-    let input_hash = format!("{:x}", Sha256::digest(&source_script));
+    let input_hash = Sha256::digest(&source_script)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let reference = references.dolphin.map(Path::canonicalize).transpose()?;
     let native_reference = references.native.map(Path::canonicalize).transpose()?;
     if let Some(path) = &reference {
@@ -740,7 +743,7 @@ pub(super) fn run(
     fs::write(
         output.join("report.json"),
         serde_json::to_vec_pretty(&json!({
-            "complete":true,"passed":passed,"case_sha256":format!("{:x}",Sha256::digest(&bytes)),
+            "complete":true,"passed":passed,"case_sha256":Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
             "native_binary_sha256":native_hash,
             "native_reference":native_reference,
             "native_recording_sha256":file_hash(&output.join("native/recording.json"))?,
@@ -2455,7 +2458,11 @@ pub(super) fn file_hash(path: &Path) -> Result<String> {
         }
         hash.update(&buffer[..n]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>())
 }
 fn validate_name(name: &str) -> Result<()> {
     ensure!(

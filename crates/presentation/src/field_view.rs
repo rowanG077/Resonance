@@ -16,7 +16,7 @@ use super::{
     field_audit::{self as audit, Applied, Request},
     materials::{TitleOutput, TitleSurface},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
@@ -2764,7 +2764,7 @@ fn setup(
     let source = images.add(source);
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: 0,
@@ -2794,7 +2794,7 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         Camera {
@@ -2818,7 +2818,7 @@ fn setup(
                 .into(),
             ..default()
         },
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         RenderTarget::Image(source.into()),
         super::FieldCamera,

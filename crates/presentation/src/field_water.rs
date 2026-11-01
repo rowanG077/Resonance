@@ -24,7 +24,7 @@ use resonance_content::field::{FieldWater, MODEL_DRAW_SPAN};
 pub(super) const REFLECTION_LAYER: usize = 24;
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "field_water.wgsl");
+    bevy::asset::embedded_asset!(app, "field_water.wesl");
     app.add_plugins(MaterialPlugin::<Surface>::default())
         .add_systems(PostUpdate, camera_activity);
 }
@@ -76,7 +76,7 @@ pub(super) struct Surface {
 
 impl Material for Surface {
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/field_water.wgsl".into()
+        "embedded://resonance_presentation/field_water.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Blend
@@ -174,7 +174,7 @@ pub(super) fn render(
                 RenderTarget::Image(image.clone().into()),
                 RenderLayers::layer(REFLECTION_LAYER),
                 ReflectionCamera,
-                Tonemapping::None,
+                Tonemapping::Linear,
                 Msaa::Off,
                 reflected_view(view, water.spec.height),
                 projection.clone(),

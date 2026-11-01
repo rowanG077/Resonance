@@ -1,7 +1,7 @@
 //! Oracle-only input pins. Current cooked documents use the production readers;
 //! original byte identities belong to independent evidence, never to mod files.
 use super::random_inputs::Pin;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_content::{battle_effect, battle_scene, diagnostics::Diagnostics};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};

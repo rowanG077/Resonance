@@ -1,6 +1,6 @@
 //! Field scenes with production event and audio stepping, without devices.
 use crate::new_game;
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use resonance_events::input::{Button, Buttons};
 use resonance_game::field::{FieldEntry, FieldInput, FieldSession};
 use std::sync::Arc;

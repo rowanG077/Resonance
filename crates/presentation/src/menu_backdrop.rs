@@ -1,5 +1,6 @@
 //! Retain the last field image on the GPU while a menu owns the screen.
 use super::{field_view::State, materials::TitleOutput};
+use anyhow::Context as ContextExt;
 use bevy::{
     core_pipeline::{
         Core3dSystems,
@@ -40,12 +41,13 @@ impl Material {
 }
 impl Material2d for Material {
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/menu_backdrop.wgsl".into()
+        "embedded://resonance_presentation/menu_backdrop.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend
     }
     fn specialize(
+        _pipeline: &bevy::sprite_render::Material2dPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _: &bevy::mesh::MeshVertexBufferLayoutRef,
         _: bevy::sprite_render::Material2dKey<Self>,
@@ -59,6 +61,7 @@ impl Material2d for Material {
 pub(super) struct Quad;
 
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct Capture {
     source: Handle<Image>,
     target: Handle<Image>,
@@ -68,6 +71,7 @@ pub(super) struct Capture {
 
 /// Retain the current scene before dialogue and field fades are composited.
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct SceneCapture(pub Capture);
 
 impl SceneCapture {
@@ -115,7 +119,6 @@ pub(super) struct BattleBackdrop {
 }
 impl BattleBackdrop {
     pub fn new(world: &mut World) -> anyhow::Result<Self> {
-        use anyhow::Context;
         let source = world
             .resource::<Assets<TitleOutput>>()
             .iter()
@@ -128,7 +131,6 @@ impl BattleBackdrop {
     }
 
     pub fn from_source(world: &mut World, source: Handle<Image>) -> anyhow::Result<Self> {
-        use anyhow::Context;
         let size = world
             .resource::<Assets<Image>>()
             .get(&source)
@@ -188,7 +190,6 @@ impl BattleBackdrop {
         commands: &mut Commands,
         materials: &mut Assets<Material>,
     ) -> anyhow::Result<()> {
-        use anyhow::Context;
         let capture = self.pending_draw;
         // PostUpdate is the publication boundary. Commands are applied before
         // extraction, and the next extracted frame follows this ordered copy.
@@ -223,7 +224,7 @@ impl BattleBackdrop {
 }
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "menu_backdrop.wgsl");
+    bevy::asset::embedded_asset!(app, "menu_backdrop.wesl");
     app.add_plugins((
         Material2dPlugin::<Material>::default(),
         ExtractComponentPlugin::<Capture>::default(),

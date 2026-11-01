@@ -10,7 +10,7 @@ mod cinematic;
 mod effects;
 mod particles;
 mod preparation;
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 pub use capture::{Probe, capture_overworld};
 use resonance_content::{

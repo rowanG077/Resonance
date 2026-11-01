@@ -1,5 +1,5 @@
 //! Branch/resource validation through the field runtime and silent presentation audio.
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use std::path::Path;
 
 fn main() -> Result<()> {

@@ -1,5 +1,5 @@
 //! Persistent attachments sample declared placement, motion and rendering layers.
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::{Mat4, Vec3};
 use resonance_battle::BattleFrame;
 use resonance_content::animation::{Matrix, multiply, pose};
