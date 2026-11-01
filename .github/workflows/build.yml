@@ -1,9 +1,9 @@
-name: Build executables
+name: Test and release
 
 on:
   push:
-    # PR updates already run the full build matrix; only build main on push.
-    branches: [main]
+    # Test main and every PR; only release branch pushes build distributables.
+    branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
 
@@ -11,12 +11,40 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # Finish a release before processing another push to the same branch.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
 
 jobs:
-  build:
+  prepare:
+    name: Validate release version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - name: Read version from branch
+        id: version
+        shell: bash
+        env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ "$REF" == refs/heads/release/* ]]; then
+            if [[ ! "$REF" =~ ^refs/heads/release/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo '::error::Release branches must be named release/vX.X.X (for example, release/v0.1.0).'
+              exit 1
+            fi
+            echo "version=${REF#refs/heads/release/}" >> "$GITHUB_OUTPUT"
+            echo "publish=$([[ "$EVENT" == push ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          else
+            echo 'version=' >> "$GITHUB_OUTPUT"
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
     name: ${{ matrix.platform }}
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -62,9 +90,6 @@ jobs:
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
             libxkbcommon-dev libwayland-dev
 
-      - name: Build release executables
-        run: cargo build --locked --release -p resonance -p resonance-import-cli
-
       - name: Run smoke tests without private resources
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
@@ -77,8 +102,7 @@ jobs:
           cargo test --locked --release -p resonance-persistence --test slots
           cargo test --locked --release -p resonance-game -p resonance-events
           cargo test --locked --release -p resonance-presentation --lib
-          "target/release/resonance$EXE" --help
-          "target/release/resonance-import$EXE" --help
+          cargo test --locked --release -p resonance --bin resonance
 
       - name: Check effect comparison gates and generators
         if: matrix.platform == 'linux-x64'
@@ -86,6 +110,10 @@ jobs:
           python3 -m venv target/oracle-tests
           target/oracle-tests/bin/pip install numpy Pillow
           target/oracle-tests/bin/python -m unittest discover -s tools/oracle -p 'test_effect*.py'
+
+      - name: Check release tooling
+        if: matrix.platform == 'linux-x64'
+        run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
       - name: Render and check pixels (Metal on macOS, CPU elsewhere)
         run: cargo run --locked --release -p resonance-presentation --example ci_render -- target/smoke
@@ -106,17 +134,56 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Package executables
+      - name: Build release executables
+        if: needs.prepare.outputs.publish == 'true'
         run: |
-          mkdir -p target/package
-          cp "target/release/resonance$EXE" "target/release/resonance-import$EXE" \
-            README.md LICENSE target/package/
-          tar -czf "target/resonance-${{ matrix.platform }}.tar.gz" -C target/package .
+          cargo build --locked --release -p resonance -p resonance-import-cli
+          "target/release/resonance$EXE" --help
+          "target/release/resonance-import$EXE" --help
+
+      - name: Package executables
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          python tools/ci/package_release.py --version "$VERSION" --platform "$PLATFORM"
 
       - name: Upload executable archives
+        if: needs.prepare.outputs.publish == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: target/resonance-${{ matrix.platform }}.tar.gz
+          path: target/dist/resonance-*
           archive: false
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish GitHub release
+    needs: [prepare, test]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download tested executable archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: resonance-*
+          path: target/dist
+          merge-multiple: true
+          # Preserve the Windows ZIP as a release asset instead of extracting it.
+          skip-decompress: true
+
+      - name: Tag commit and publish all platforms
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: bash tools/ci/publish_release.sh

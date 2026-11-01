@@ -7,7 +7,10 @@ use resonance_content::{
 pub(super) fn write_startup(root: &Path) -> Result<startup::Definition> {
     fs::write(
         root.join("content.json"),
-        br#"{"version":94,"game":"tales-of-symphonia"}"#,
+        &serde_json::to_vec(&resonance_content::library::Descriptor {
+            version: resonance_content::library::VERSION,
+            game: resonance_content::library::GAME.into(),
+        })?,
     )?;
     write_music(&root.join("music.wav"), 16, 32028, [4000, -2000])?;
     // Audio preparation intentionally does not load title images.

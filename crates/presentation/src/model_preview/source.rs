@@ -129,7 +129,10 @@ mod tests {
         fs::create_dir_all(modification.join(owner))?;
         fs::write(
             root.join("content.json"),
-            br#"{"version":94,"game":"tales-of-symphonia"}"#,
+            &serde_json::to_vec(&resonance_content::library::Descriptor {
+                version: resonance_content::library::VERSION,
+                game: resonance_content::library::GAME.into(),
+            })?,
         )?;
         let mut definition = serde_json::json!({
              "scale": 1, "elevation": 4, "hidden_geometry": [], "behavior": null,
