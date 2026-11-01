@@ -111,3 +111,8 @@ in the costume selector; changing a title keeps the selected outfit. Default
 restores the character's story outfit. The title selector compares the current
 and highlighted titles' bonuses per level as numbers, including fractional stat
 points, with colors indicating better, worse or equal growth.
+
+The importer automatically includes [Ghost Wolf](mods/ghost-wolf/README.md), an
+explicit modding example that adds a new Lloyd arte through editable action,
+animation, effect, learning and menu assets. Its Blender source is included for
+animation editing.

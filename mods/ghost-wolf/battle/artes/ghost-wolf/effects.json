@@ -1,0 +1,1741 @@
+{
+  "templates": {
+    "launch-wake": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 10,
+        "fade": [
+          0,
+          0,
+          0,
+          28
+        ],
+        "fade_from": 2,
+        "state": {
+          "offset": [
+            0,
+            55,
+            -45
+          ],
+          "colors": [
+            [
+              8,
+              55,
+              255,
+              205
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                23,
+                154,
+                0
+              ],
+              "velocity": [
+                -1.0,
+                5,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "launch-thread": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 7,
+        "fade": [
+          0,
+          0,
+          0,
+          43
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            75,
+            -31
+          ],
+          "colors": [
+            [
+              190,
+              235,
+              255,
+              235
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                5,
+                138,
+                0
+              ],
+              "velocity": [
+                -0.45,
+                6,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "velocity": [
+            0,
+            0.2,
+            -2.2
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "speed-shard": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 10,
+        "fade": [
+          0,
+          0,
+          0,
+          28
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              100,
+              200,
+              255,
+              215
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                4,
+                31,
+                0
+              ],
+              "velocity": [
+                -0.2,
+                1.1,
+                0
+              ]
+            }
+          },
+          "uv": [
+            292,
+            118,
+            120,
+            39
+          ],
+          "velocity": [
+            0,
+            0.3,
+            -3
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "ground-vapor": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 19,
+        "fade": [
+          0,
+          0,
+          0,
+          6
+        ],
+        "fade_from": 3,
+        "state": {
+          "offset": [
+            0,
+            9,
+            -10
+          ],
+          "colors": [
+            [
+              52,
+              80,
+              108,
+              92
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                18,
+                38,
+                0
+              ],
+              "velocity": [
+                0.65,
+                1.3,
+                0
+              ]
+            }
+          },
+          "uv": [
+            226,
+            2,
+            60,
+            60
+          ],
+          "velocity": [
+            0,
+            0.65,
+            -0.8
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "ground-glimmer": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 10,
+        "fade": [
+          0,
+          0,
+          0,
+          19
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            8,
+            -8
+          ],
+          "colors": [
+            [
+              90,
+              165,
+              225,
+              155
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                4,
+                9,
+                0
+              ],
+              "velocity": [
+                -0.12,
+                -0.25,
+                0
+              ]
+            }
+          },
+          "uv": [
+            141,
+            100,
+            16,
+            30
+          ],
+          "velocity": [
+            0,
+            1.5,
+            -0.8
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "impact-core": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 6,
+        "fade": [
+          0,
+          0,
+          0,
+          46
+        ],
+        "fade_from": 0,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              235,
+              248,
+              255,
+              230
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                30,
+                30,
+                0
+              ],
+              "velocity": [
+                1.5,
+                1.5,
+                0
+              ]
+            }
+          },
+          "uv": [
+            65,
+            1,
+            30,
+            30
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "impact-cross": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 8,
+        "fade": [
+          0,
+          0,
+          0,
+          33
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              105,
+              210,
+              255,
+              240
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                6,
+                126,
+                0
+              ],
+              "velocity": [
+                -0.5,
+                3,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "angles": [
+            0,
+            0,
+            28
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "impact-shard": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 11,
+        "fade": [
+          0,
+          0,
+          0,
+          25
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              125,
+              215,
+              255,
+              225
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                4,
+                28,
+                0
+              ],
+              "velocity": [
+                -0.2,
+                -0.6,
+                0
+              ]
+            }
+          },
+          "uv": [
+            292,
+            118,
+            120,
+            39
+          ],
+          "angles": [
+            0,
+            0,
+            25
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "impact-halo": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 8,
+        "fade": [
+          0,
+          0,
+          0,
+          21
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              0,
+              50,
+              255,
+              130
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                47,
+                47,
+                0
+              ],
+              "velocity": [
+                5,
+                5,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            1,
+            62,
+            62
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "release-crescent": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 6,
+        "fade": [
+          0,
+          0,
+          0,
+          27
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            79,
+            64
+          ],
+          "colors": [
+            [
+              130,
+              215,
+              255,
+              110
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                17,
+                102,
+                0
+              ],
+              "velocity": [
+                0.25,
+                2.8,
+                0
+              ]
+            }
+          },
+          "uv": [
+            281,
+            97,
+            61,
+            15
+          ],
+          "angles": [
+            0,
+            0,
+            90
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "release-thread": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 6,
+        "fade": [
+          0,
+          0,
+          0,
+          36
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            79,
+            64
+          ],
+          "colors": [
+            [
+              205,
+              240,
+              255,
+              110
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                3,
+                116,
+                0
+              ],
+              "velocity": [
+                -0.25,
+                4,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "angles": [
+            0,
+            0,
+            90
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "finisher-core": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 4,
+        "fade": [
+          0,
+          0,
+          0,
+          85
+        ],
+        "fade_from": 0,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              255,
+              255,
+              255,
+              255
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                37,
+                37,
+                0
+              ],
+              "velocity": [
+                -1.5,
+                -1.5,
+                0
+              ]
+            }
+          },
+          "uv": [
+            65,
+            1,
+            30,
+            30
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "finisher-cut": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 5,
+        "fade": [
+          0,
+          0,
+          0,
+          60
+        ],
+        "fade_from": 0,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              220,
+              248,
+              255,
+              255
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                9,
+                142,
+                0
+              ],
+              "velocity": [
+                -1.3,
+                2.5,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "angles": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "finisher-needle": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 4,
+        "fade": [
+          0,
+          0,
+          0,
+          75
+        ],
+        "fade_from": 0,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              125,
+              215,
+              255,
+              240
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                4,
+                57,
+                0
+              ],
+              "velocity": [
+                -0.65,
+                1,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "angles": [
+            0,
+            0,
+            90
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "finisher-shard": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 7,
+        "fade": [
+          0,
+          0,
+          0,
+          40
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              195,
+              235,
+              255,
+              200
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                3,
+                20,
+                0
+              ],
+              "velocity": [
+                -0.2,
+                -0.6,
+                0
+              ]
+            }
+          },
+          "uv": [
+            292,
+            118,
+            120,
+            39
+          ],
+          "angles": [
+            0,
+            0,
+            25
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "passing-crest": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 7,
+        "fade": [
+          0,
+          0,
+          0,
+          33
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            67,
+            -12
+          ],
+          "colors": [
+            [
+              8,
+              65,
+              255,
+              185
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                29,
+                154,
+                0
+              ],
+              "velocity": [
+                -1.8,
+                4.0,
+                0
+              ]
+            }
+          },
+          "uv": [
+            281,
+            97,
+            61,
+            15
+          ],
+          "angles": [
+            0,
+            0,
+            -12
+          ],
+          "velocity": [
+            0,
+            -0.35,
+            -1.2
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "passing-core": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 5,
+        "fade": [
+          0,
+          0,
+          0,
+          57
+        ],
+        "fade_from": 0,
+        "state": {
+          "offset": [
+            0,
+            65,
+            -9
+          ],
+          "colors": [
+            [
+              210,
+              245,
+              255,
+              225
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                4,
+                143,
+                0
+              ],
+              "velocity": [
+                -0.55,
+                5.0,
+                0
+              ]
+            }
+          },
+          "uv": [
+            1,
+            101,
+            125,
+            39
+          ],
+          "velocity": [
+            0,
+            -0.35,
+            -1.2
+          ],
+          "angles": [
+            0,
+            0,
+            -12
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "impact-crest": {
+      "kind": "particle",
+      "template": {
+        "lifetime": 6,
+        "fade": [
+          0,
+          0,
+          0,
+          39
+        ],
+        "fade_from": 1,
+        "state": {
+          "offset": [
+            0,
+            0,
+            0
+          ],
+          "colors": [
+            [
+              12,
+              70,
+              255,
+              195
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                28,
+                142,
+                0
+              ],
+              "velocity": [
+                -2,
+                5,
+                0
+              ]
+            }
+          },
+          "uv": [
+            281,
+            97,
+            61,
+            15
+          ],
+          "angles": [
+            0,
+            0,
+            -24
+          ],
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "visual": {
+        "blend": "additive",
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    }
+  },
+  "programs": [
+    [
+      {
+        "kind": "spawn",
+        "particle": "launch-wake"
+      },
+      {
+        "kind": "spawn",
+        "particle": "launch-thread"
+      },
+      {
+        "kind": "spawn",
+        "particle": "speed-shard",
+        "birth": {
+          "offset": [
+            -11,
+            48,
+            -25
+          ],
+          "velocity": [
+            -0.5,
+            0.3,
+            -4
+          ],
+          "angles": [
+            null,
+            null,
+            -7
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "speed-shard",
+        "at": 1,
+        "birth": {
+          "offset": [
+            9,
+            85,
+            -34
+          ],
+          "velocity": [
+            0.5,
+            0.5,
+            -3.5
+          ],
+          "angles": [
+            null,
+            null,
+            8
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "passing-crest",
+        "at": 2,
+        "birth": {
+          "offset": [
+            0,
+            67,
+            -12
+          ],
+          "angles": [
+            null,
+            null,
+            -12
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "passing-core",
+        "at": 2,
+        "birth": {
+          "offset": [
+            0,
+            65,
+            -9
+          ],
+          "angles": [
+            null,
+            null,
+            -12
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "speed-shard",
+        "at": 3,
+        "birth": {
+          "offset": [
+            -7,
+            63,
+            -55
+          ],
+          "velocity": [
+            -0.4,
+            -0.2,
+            -4.5
+          ],
+          "angles": [
+            null,
+            null,
+            -3
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "passing-crest",
+        "at": 4,
+        "birth": {
+          "offset": [
+            0,
+            63,
+            -12
+          ],
+          "angles": [
+            null,
+            null,
+            -18
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "passing-core",
+        "at": 4,
+        "birth": {
+          "offset": [
+            0,
+            61,
+            -9
+          ],
+          "angles": [
+            null,
+            null,
+            -18
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "passing-core",
+        "at": 6,
+        "birth": {
+          "offset": [
+            0,
+            59,
+            -9
+          ],
+          "angles": [
+            null,
+            null,
+            -10
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "kind": "spawn",
+        "particle": "ground-vapor",
+        "birth": {
+          "offset": [
+            -12,
+            8,
+            -8
+          ],
+          "velocity": [
+            -0.75,
+            0.5,
+            -0.75
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "ground-vapor",
+        "birth": {
+          "offset": [
+            13,
+            7,
+            2
+          ],
+          "velocity": [
+            0.65,
+            0.6,
+            0.3
+          ],
+          "size": [
+            14,
+            29,
+            0
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "ground-glimmer",
+        "birth": {
+          "offset": [
+            -17,
+            6,
+            4
+          ],
+          "velocity": [
+            -0.7,
+            1.5,
+            0.3
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "ground-glimmer",
+        "at": 1,
+        "birth": {
+          "offset": [
+            12,
+            8,
+            -4
+          ],
+          "velocity": [
+            0.6,
+            1.9,
+            -0.4
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "ground-vapor",
+        "at": 3,
+        "birth": {
+          "offset": [
+            0,
+            9,
+            -12
+          ],
+          "size": [
+            12,
+            27,
+            0
+          ],
+          "velocity": [
+            0,
+            0.4,
+            -0.6
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "kind": "spawn",
+        "particle": "impact-halo"
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-core"
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-crest"
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-cross",
+        "birth": {
+          "angles": [
+            null,
+            null,
+            28
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-cross",
+        "birth": {
+          "angles": [
+            null,
+            null,
+            -28
+          ],
+          "size": [
+            3,
+            91,
+            0
+          ]
+        }
+      },
+      {
+        "kind": "shake",
+        "duration": 2,
+        "amplitude": 2
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-shard",
+        "at": 1,
+        "birth": {
+          "velocity": [
+            -2,
+            2.8,
+            1
+          ],
+          "angles": [
+            null,
+            null,
+            42
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-shard",
+        "at": 1,
+        "birth": {
+          "velocity": [
+            2.4,
+            1.6,
+            -0.4
+          ],
+          "angles": [
+            null,
+            null,
+            -28
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-shard",
+        "at": 1,
+        "birth": {
+          "velocity": [
+            -1.2,
+            -1.7,
+            0.8
+          ],
+          "angles": [
+            null,
+            null,
+            67
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-shard",
+        "at": 1,
+        "birth": {
+          "velocity": [
+            1.6,
+            -1.5,
+            1.3
+          ],
+          "angles": [
+            null,
+            null,
+            24
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "kind": "spawn",
+        "particle": "release-crescent"
+      },
+      {
+        "kind": "spawn",
+        "particle": "release-thread"
+      }
+    ],
+    [
+      {
+        "kind": "spawn",
+        "particle": "impact-halo",
+        "birth": {
+          "size": [
+            34,
+            34,
+            0
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "finisher-core"
+      },
+      {
+        "kind": "spawn",
+        "particle": "finisher-cut"
+      },
+      {
+        "kind": "spawn",
+        "particle": "impact-crest",
+        "birth": {
+          "size": [
+            22,
+            145,
+            0
+          ],
+          "angles": [
+            null,
+            null,
+            0
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "finisher-needle"
+      },
+      {
+        "kind": "shake",
+        "duration": 3,
+        "amplitude": 3
+      },
+      {
+        "kind": "spawn",
+        "particle": "finisher-shard",
+        "at": 1,
+        "birth": {
+          "velocity": [
+            -2.6,
+            1.6,
+            0.6
+          ],
+          "angles": [
+            null,
+            null,
+            32
+          ]
+        }
+      },
+      {
+        "kind": "spawn",
+        "particle": "finisher-shard",
+        "at": 1,
+        "birth": {
+          "velocity": [
+            2.8,
+            -0.8,
+            0.5
+          ],
+          "angles": [
+            null,
+            null,
+            -20
+          ]
+        }
+      }
+    ]
+  ],
+  "artwork": {
+    "textures": {
+      "bank-0": [
+        {
+          "images": [
+            "battle/artes/ghost-wolf/symphonia-wind.ktx2"
+          ],
+          "sampler": {
+            "wrap": [
+              "clamp",
+              "clamp"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

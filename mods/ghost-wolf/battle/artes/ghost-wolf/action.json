@@ -1,0 +1,295 @@
+{
+  "motions": {
+    "110": "battle/artes/ghost-wolf/ghost-wolf.glb"
+  },
+  "effects": "battle/artes/ghost-wolf/effects.json",
+  "unison": {
+    "native_id": 1000,
+    "altitude": 0,
+    "distance": 80,
+    "duration": 93
+  },
+  "attack": {
+    "duration": 83,
+    "recovery": 10,
+    "chain_at": 48,
+    "events": [
+      [
+        0,
+        {
+          "pose": {
+            "clip": "slot-110",
+            "rate": 0.5,
+            "blend": 3
+          }
+        }
+      ],
+      [
+        0,
+        {
+          "braking": 0.0
+        }
+      ],
+      [
+        0,
+        {
+          "camera_distance": {
+            "distance": 1700.0,
+            "duration": 60
+          }
+        }
+      ],
+      [
+        0,
+        {
+          "forward": 0.0
+        }
+      ],
+      [
+        6,
+        {
+          "voice": {
+            "stream": 104
+          }
+        }
+      ],
+      [
+        13,
+        {
+          "trail": {
+            "slot": 0,
+            "duration": 14
+          }
+        }
+      ],
+      [
+        16,
+        {
+          "pass_through": true
+        }
+      ],
+      [
+        16,
+        {
+          "traverse_target": {
+            "duration": 9,
+            "clearance": 70.0
+          }
+        }
+      ],
+      [
+        16,
+        {
+          "effect": 0
+        }
+      ],
+      [
+        16,
+        {
+          "sound": 60
+        }
+      ],
+      [
+        16,
+        {
+          "contact": {
+            "duration": 10,
+            "groups": [
+              0
+            ],
+            "radius": 30.0,
+            "height": 35.0,
+            "shape": {
+              "kind": "sphere"
+            },
+            "hit": {
+              "kind": "slash",
+              "power": {
+                "percent": 90
+              },
+              "arte": true,
+              "hitstun": 40,
+              "cooldown": 255,
+              "recoil": 0,
+              "effect": 2
+            }
+          }
+        }
+      ],
+      [
+        26,
+        {
+          "turn": 1.3050000000000002
+        }
+      ],
+      [
+        26,
+        {
+          "pass_through": false
+        }
+      ],
+      [
+        26,
+        {
+          "effect": 1
+        }
+      ],
+      [
+        27,
+        {
+          "turn": 3.7350000000000008
+        }
+      ],
+      [
+        28,
+        {
+          "turn": 5.894999999999999
+        }
+      ],
+      [
+        28,
+        {
+          "trail": {
+            "slot": 1,
+            "duration": 10
+          }
+        }
+      ],
+      [
+        29,
+        {
+          "turn": 7.785000000000005
+        }
+      ],
+      [
+        30,
+        {
+          "turn": 9.404999999999996
+        }
+      ],
+      [
+        30,
+        {
+          "sound": 60
+        }
+      ],
+      [
+        31,
+        {
+          "turn": 10.754999999999999
+        }
+      ],
+      [
+        32,
+        {
+          "turn": 11.83499999999999
+        }
+      ],
+      [
+        32,
+        {
+          "contact": {
+            "duration": 3,
+            "groups": [
+              1
+            ],
+            "radius": 30.0,
+            "height": 35.0,
+            "shape": {
+              "kind": "sphere"
+            },
+            "hit": {
+              "kind": "slash",
+              "power": {
+                "percent": 150
+              },
+              "arte": true,
+              "hitstun": 32,
+              "cooldown": 255,
+              "recoil": 1,
+              "effect": 4
+            }
+          }
+        }
+      ],
+      [
+        33,
+        {
+          "turn": 12.645000000000026
+        }
+      ],
+      [
+        34,
+        {
+          "turn": 13.184999999999997
+        }
+      ],
+      [
+        35,
+        {
+          "turn": 13.454999999999988
+        }
+      ],
+      [
+        36,
+        {
+          "turn": 13.455000000000016
+        }
+      ],
+      [
+        37,
+        {
+          "turn": 13.184999999999986
+        }
+      ],
+      [
+        38,
+        {
+          "turn": 12.645000000000007
+        }
+      ],
+      [
+        39,
+        {
+          "turn": 11.834999999999976
+        }
+      ],
+      [
+        40,
+        {
+          "turn": 10.755000000000015
+        }
+      ],
+      [
+        41,
+        {
+          "turn": 9.405000000000022
+        }
+      ],
+      [
+        42,
+        {
+          "turn": 7.784999999999962
+        }
+      ],
+      [
+        43,
+        {
+          "turn": 5.89500000000001
+        }
+      ],
+      [
+        44,
+        {
+          "turn": 3.7350000000000083
+        }
+      ],
+      [
+        45,
+        {
+          "turn": 1.3049999999999962
+        }
+      ]
+    ]
+  }
+}

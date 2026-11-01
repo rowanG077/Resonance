@@ -349,4 +349,49 @@ mod authored_tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn ghost_wolf_assets_are_editable_and_self_contained() -> Result<()> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/ghost-wolf");
+        let example: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("example.json"))?)?;
+        let technique: crate::arte::document::Entry =
+            serde_json::from_value(example["technique"].clone())?;
+        assert_eq!(technique.text["name"], "Ghost Wolf");
+        let action: AuthoredAction = serde_json::from_slice(&std::fs::read(
+            root.join(technique.rules.action.as_ref().context("action missing")?),
+        )?)?;
+        for (&slot, path) in &action.motions {
+            let motion = crate::animation::NamedMotion::decode(&std::fs::read(root.join(path))?)?;
+            assert!(!motion.motion.tracks.is_empty());
+            let (at, pose) = action
+                .attack
+                .events
+                .iter()
+                .find_map(|(at, event)| match event {
+                    Event::Pose(pose) if pose.clip == slot => Some((*at, pose)),
+                    _ => None,
+                })
+                .context("authored motion is not played by the action")?;
+            assert!(!pose.repeat && pose.rate > 0.);
+            let end = pose.end.unwrap_or(motion.motion.duration_frames);
+            assert!(end <= motion.motion.duration_frames);
+            let playback_updates = (end - pose.start) / pose.rate;
+            let available_updates = f32::from(action.attack.duration - at - u16::from(pose.blend));
+            assert!(
+                (playback_updates - available_updates).abs() < 1.001,
+                "the authored performance and its gameplay timeline must finish together"
+            );
+        }
+        let bank = crate::battle_effect::document::read(
+            action.effects.as_deref().context("effects missing")?,
+            &crate::diagnostics::Diagnostics::new(true),
+            |path| Ok(std::fs::read(root.join(path))?.into()),
+        )?;
+        for template in &bank.actors {
+            template.particle()?.validate()?;
+        }
+        assert!(bank.programs.len() >= 3);
+        Ok(())
+    }
 }

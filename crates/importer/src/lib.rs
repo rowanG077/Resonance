@@ -88,6 +88,7 @@ mod menu_synopsis;
 mod menu_ui_labels;
 mod menu_world_map;
 mod mesh_mappings;
+mod modding_examples;
 mod movies;
 mod native_archive;
 mod options;

@@ -1,0 +1,23 @@
+{
+  "id": 260,
+  "name": "ghost-wolf-lloyd",
+  "character": "lloyd",
+  "initially_known": false,
+  "technique": {
+    "rules": {
+      "action": "battle/artes/ghost-wolf/action.json",
+      "tp_cost": 12,
+      "required_level": 6,
+      "learn_on_level_up": true,
+      "action_range": 100.0,
+      "capabilities": {
+        "family": "basic",
+        "offensive": true
+      }
+    },
+    "text": {
+      "name": "Ghost Wolf",
+      "description": "Lunge with twin blades, slip behind the foe,\nthen strike through a burst of spectral light."
+    }
+  }
+}
