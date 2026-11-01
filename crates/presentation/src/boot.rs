@@ -77,7 +77,7 @@ pub(super) fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         BootCamera,
         RenderLayers::layer(4),

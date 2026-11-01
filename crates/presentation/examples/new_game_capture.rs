@@ -1,5 +1,5 @@
 //! Run a semantic scenario from the normal New Game entry without output devices.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_presentation::{CheckpointRecordingOptions, record_new_game};
 use std::path::PathBuf;
 

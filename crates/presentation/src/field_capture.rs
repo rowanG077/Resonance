@@ -3,6 +3,7 @@ use super::{
     field_audit::{Applied, Request},
     field_view::State,
 };
+use anyhow::Context as ContextExt;
 use bevy::{
     mesh::{VertexAttributeValues, VertexBufferLayout},
     prelude::*,
@@ -21,13 +22,14 @@ pub(super) struct Part {
 }
 
 #[derive(Component, Clone, Default, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct Meshes(pub Vec<f32>);
 
 const VERTEX_FLOATS: u64 = 9;
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "field_capture.wgsl");
-    bevy::shader::load_shader_library!(app, "effect_depth.wgsl");
+    bevy::asset::embedded_asset!(app, "field_capture.wesl");
+    bevy::shader::load_shader_library!(app, "effect_depth.wesl");
     app.add_plugins(ExtractComponentPlugin::<Meshes>::default())
         .add_systems(
             PostUpdate,
@@ -44,7 +46,7 @@ struct Vertex {
     color: Vec4,
 }
 fn vertices(mesh: &Mesh) -> anyhow::Result<Vec<Vertex>> {
-    use anyhow::{Context, ensure};
+    use anyhow::ensure;
     ensure!(
         mesh.primitive_topology() == PrimitiveTopology::TriangleList,
         "capture requires triangles"

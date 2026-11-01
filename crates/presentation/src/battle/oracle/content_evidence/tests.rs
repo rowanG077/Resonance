@@ -7,7 +7,9 @@ fn pin(root: &Path, path: &str, bytes: &[u8]) -> Result<Value> {
     let path = root.join(path);
     fs::create_dir_all(path.parent().unwrap())?;
     fs::write(&path, bytes)?;
-    Ok(json!({"path": path, "sha256": format!("{:x}", Sha256::digest(bytes))}))
+    Ok(
+        json!({"path": path, "sha256": Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>()}),
+    )
 }
 
 #[test]

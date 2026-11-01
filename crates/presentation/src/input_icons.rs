@@ -1,5 +1,5 @@
 //! Cooked, vector-derived Kenney CC0 input prompts (256px per glyph).
-use anyhow::Context;
+use anyhow::Context as ContextExt;
 use bevy::prelude::*;
 use resonance_content::input::{AxisDirection, Keymap, PhysicalInput, StandardAction};
 use std::collections::{BTreeMap, BTreeSet};

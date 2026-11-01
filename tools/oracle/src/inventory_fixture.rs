@@ -784,7 +784,12 @@ pub(super) fn run(
     state.extend(encoded);
     let prefix = fs::read(PathBuf::from(format!("{}.dtm", source.display())))?;
     let native_bytes = serde_json::to_vec_pretty(&save)?;
-    let hash = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    let hash = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
     let report = json!({"kind":"controlled_inventory_fixture","story_origin":story_change,"formation":formation,"member_vitals":member_vitals,"learned_techniques":learn_technique,"granted_items":grants,"discover_all":discover_all,
         "observed_travel":observed_travel,"visited_locations":visit_location,"visited_shops":visit_shop,
         "observed_monsters":observed_monsters,"catalogued_monsters":catalogue_monster,

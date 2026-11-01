@@ -16,9 +16,11 @@ fn calibration_vertex(@builtin(vertex_index) index: u32) -> CalibrationVertex {
 fn calibration_fragment(in: CalibrationVertex, @builtin(sample_index) sample: u32) -> @location(0) vec4<f32> {
     return vec4(in.uv, f32(sample), 1.0);
 }
-#ifdef SPLIT_SAMPLES
+@if(SPLIT_SAMPLES)
 @group(0) @binding(0) var samples: texture_multisampled_2d<f32>;
+@if(SPLIT_SAMPLES)
 struct SamplePair { @location(0) first: vec4<f32>, @location(1) second: vec4<f32> }
+@if(SPLIT_SAMPLES)
 @fragment
 fn split_samples(@builtin(position) position: vec4<f32>) -> SamplePair {
     var out: SamplePair;
@@ -26,4 +28,3 @@ fn split_samples(@builtin(position) position: vec4<f32>) -> SamplePair {
     out.second = textureLoad(samples, vec2<i32>(position.xy), 1);
     return out;
 }
-#endif

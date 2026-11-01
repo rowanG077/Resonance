@@ -1,6 +1,6 @@
 //! Hit counts stay in the corner; completed damage totals travel there from the victim.
 use super::{Batch, BattleFrame, BitmapFont, Side, party, text};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::ActorId;
 use resonance_content::battle_ui::ComboArt;
 

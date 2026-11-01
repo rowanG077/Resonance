@@ -52,7 +52,7 @@ impl Artwork {
             && let Some(camera) = &world.field_camera
         {
             let transform = super::super::field_view::camera_transform(camera);
-            let ndc = Mat4::perspective_rh(
+            let ndc = bevy::math::proj::perspective(
                 camera.fov_degrees().to_radians(),
                 self.resolution.aspect(),
                 NEAR_CLIP,

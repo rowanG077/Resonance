@@ -67,15 +67,17 @@ fn main() -> Result<()> {
             "resampler changed the source duration"
         );
         let (mut energy, mut error, mut maximum) = (0f64, 0f64, 0f64);
-        // SincFixedIn samples at the next output instant; its lookahead is
-        // buffered input, not an extra silent prefix. Exclude signal boundaries.
+        // The 256-tap sinc filter has 128 native frames of group delay.
+        // Rubato reports whole output frames, which the converter trims; the
+        // fractional remainder determines its sub-sample origin. Exclude boundaries.
+        let filter_delay = 128.0 * f64::from(rate) / f64::from(SOURCE_RATE);
         for (frame, sample) in actual
             .iter()
             .enumerate()
             .take(rate as usize * 12 / 10)
             .skip(rate as usize * 3 / 10)
         {
-            let t = (frame + 1) as f64 / f64::from(rate) - 1.0 / f64::from(SOURCE_RATE);
+            let t = (frame as f64 + 1.0 + filter_delay.floor() - filter_delay) / f64::from(rate);
             for (channel, frequency, gain) in [(0, 997., 0.2), (1, 4001., 0.1)] {
                 let expected = gain * (std::f64::consts::TAU * frequency * t).sin();
                 let delta = f64::from(sample[channel]) - expected;

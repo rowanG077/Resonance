@@ -179,7 +179,7 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         .spawn((
             Camera2d,
             Msaa::Off,
-            Tonemapping::None,
+            Tonemapping::Linear,
             Camera {
                 order: -2,
                 clear_color: ClearColorConfig::None,

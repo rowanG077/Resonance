@@ -125,7 +125,7 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
         .spawn((
             Camera2d,
             Msaa::Off,
-            Tonemapping::None,
+            Tonemapping::Linear,
             RenderTarget::Image(target.clone().into()),
             Camera {
                 clear_color: Color::BLACK.into(),

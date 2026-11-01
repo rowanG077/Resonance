@@ -1,5 +1,5 @@
 //! Field preparation ownership and a verified, memory-backed asset reader.
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::io::{
         AssetReader, AssetReaderError, AssetSource, AssetSourceBuilder, AssetSourceId,

@@ -23,7 +23,7 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::GpuImage,
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::{
@@ -54,6 +54,7 @@ struct Pulse {
     tint: Vec4,
 }
 #[derive(Component, Clone, Default, ExtractComponent, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 struct Settings {
     clip_from_world: Mat4,
     uv: [Vec4; 2],
@@ -63,15 +64,17 @@ struct Settings {
     heat_uv: Vec4,
 }
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 struct Pulses(Vec<Pulse>);
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 struct Atlas([Handle<Image>; 3]);
 
 pub(super) fn install(app: &mut App) {
     super::field_capture::install(app);
     super::field_dissolve::install(app);
     let ready = Ready::default();
-    bevy::asset::embedded_asset!(app, "field_refraction.wgsl");
+    bevy::asset::embedded_asset!(app, "field_refraction.wesl");
     app.insert_resource(ready.clone())
         .add_plugins((
             ExtractComponentPlugin::<Atlas>::default(),
@@ -280,11 +283,12 @@ fn prepare_passes(
             ),
         ),
     );
-    let shader = server.load("embedded://resonance_presentation/field_refraction.wgsl");
+    let shader = server.load("embedded://resonance_presentation/field_refraction.wesl");
     let [id, ripple] = [
         (fullscreen.to_vertex_state(), "fragment", None),
         (
             VertexState {
+                constants: default(),
                 shader: shader.clone(),
                 entry_point: Some("quad_vertex".into()),
                 ..default()
@@ -299,6 +303,7 @@ fn prepare_passes(
             layout: vec![layout.clone()],
             vertex,
             fragment: Some(FragmentState {
+                constants: default(),
                 shader: shader.clone(),
                 shader_defs: if multisampled {
                     vec!["MULTISAMPLED_DEPTH".into()]
@@ -317,7 +322,7 @@ fn prepare_passes(
     });
     let mesh = cache.queue_render_pipeline(super::field_capture::pipeline(
         layout.clone(),
-        server.load("embedded://resonance_presentation/field_capture.wgsl"),
+        server.load("embedded://resonance_presentation/field_capture.wesl"),
         multisampled,
     ));
     PassPipelines {
@@ -337,7 +342,7 @@ struct Bindings {
 fn render(
     view: ViewQuery<(
         &ViewTarget,
-        &ViewDepthTexture,
+        &ViewDepthStencilTexture,
         &Msaa,
         &Settings,
         &Atlas,
@@ -390,7 +395,12 @@ fn render(
             heat.texture_view.id(),
         ],
         buffer.id(),
-        depth.view().id(),
+        depth
+            .attachment
+            .depth_stencil_views()
+            .depth_only_view()
+            .expect("3D camera has depth")
+            .id(),
         pulse_buffer.buffer().unwrap().id(),
     );
     if bindings.identity != Some(identity) {
@@ -420,7 +430,11 @@ fn render(
                     &pipeline.sampler,
                     &atlas.texture_view,
                     uniforms.uniforms().binding().unwrap(),
-                    depth.view(),
+                    depth
+                        .attachment
+                        .depth_stencil_views()
+                        .depth_only_view()
+                        .expect("3D camera has depth"),
                     &air.texture_view,
                     pulse_buffer.binding().unwrap(),
                     &heat.texture_view,

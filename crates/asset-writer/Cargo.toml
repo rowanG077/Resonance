@@ -10,7 +10,7 @@ serde_json.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 ktx2 = "=0.5.0"
-structured-zstd = { version = "=0.0.54", default-features = false, features = ["kernel-scalar"] }
+structured-zstd = { version = "=0.2.6", default-features = false, features = ["kernel-scalar"] }
 hound = "3.5"
 image.workspace = true
-ruzstd = "=0.8.3"
+ruzstd = "=0.9.1"

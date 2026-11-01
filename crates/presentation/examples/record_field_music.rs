@@ -1,5 +1,5 @@
 //! Record background music through the actual field source without a device.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_events::AudioCommand;
 use std::path::Path;
 

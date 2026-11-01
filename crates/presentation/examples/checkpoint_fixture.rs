@@ -1,5 +1,5 @@
 //! Wrap a typed checkpoint in the current save format; never opens a device.
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context as ContextExt, Result, bail, ensure};
 use resonance_content::session::{GameText, SessionData};
 use resonance_game::field::FieldCheckpoint;
 use serde::Deserialize;
@@ -42,7 +42,11 @@ fn register_party_stats(
     }
     let observed: Observation = serde_json::from_slice(&fs::read(observation)?)?;
     ensure!(
-        observed.state_sha256 == format!("{:x}", Sha256::digest(fs::read(source_state)?)),
+        observed.state_sha256
+            == Sha256::digest(fs::read(source_state)?)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
         "party observations belong to a different source state"
     );
     let mut snapshot = resonance_content::library::Library::open(root, &[])?.snapshot();

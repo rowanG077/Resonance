@@ -5,7 +5,7 @@ members = ["crates/battle", "apps/resonance", "apps/resonance-import", "apps/res
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.99"
 license = "MIT"
 
 [workspace.dependencies]
@@ -31,11 +31,11 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
-sha2 = "0.10"
-glam = { version = "0.32.1", default-features = false, features = ["std"] }
+sha2 = "0.11.1"
+glam = { version = "0.34.1", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "ktx2", "zstd_rust", "x11", "wayland"] }
-bevy_post_process = { version = "=0.19.1", default-features = false }
+bevy = { version = "=0.20.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "ktx2", "zstd_rust", "x11", "wayland"] }
+bevy_post_process = { version = "=0.20.1", default-features = false }
 raw-window-handle = "0.6"
 resonance-content = { path = "crates/content" }
 resonance-game = { path = "crates/game" }

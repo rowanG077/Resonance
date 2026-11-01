@@ -53,7 +53,7 @@ fn capture(
     diagnostics: Diagnostics,
     cancelled: impl Fn() -> bool,
 ) -> anyhow::Result<Prepared> {
-    use anyhow::{Context, ensure};
+    use anyhow::{Context as ContextExt, ensure};
     use resonance_content::{
         effect::{FieldEffects, sprite::ORB_SPRITE},
         field::document,

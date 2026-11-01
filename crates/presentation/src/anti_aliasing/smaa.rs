@@ -25,12 +25,13 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::GpuImage,
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::collections::HashMap;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 #[extract_component_sync_target((Self, ViewResources))]
 pub(super) struct Smaa(pub AntiAliasing);
 impl Smaa {
@@ -58,10 +59,10 @@ impl Smaa {
     }
 }
 pub(super) fn install(app: &mut App) {
-    embedded_asset!(app, "smaa.wgsl");
+    embedded_asset!(app, "smaa.wesl");
     embedded_asset!(app, "SMAAAreaLUT.ktx2");
     embedded_asset!(app, "SMAASearchLUT.ktx2");
-    embedded_asset!(app, "spatial_io.wgsl");
+    embedded_asset!(app, "spatial_io.wesl");
     app.add_plugins(ExtractComponentPlugin::<Smaa>::default());
     let server = app.world().resource::<AssetServer>();
     let load_lut = |name: &str| {
@@ -257,8 +258,8 @@ fn initialize(
         ),
     };
     commands.insert_resource(State {
-        shader: load_embedded_asset!(server.as_ref(), "smaa.wgsl"),
-        io: load_embedded_asset!(server.as_ref(), "spatial_io.wgsl"),
+        shader: load_embedded_asset!(server.as_ref(), "smaa.wesl"),
+        io: load_embedded_asset!(server.as_ref(), "spatial_io.wesl"),
         fullscreen: fullscreen.clone(),
         layouts,
         sampler: device.create_sampler(&SamplerDescriptor {
@@ -349,12 +350,14 @@ fn queue_pipelines(
                 layout.clone(),
             ],
             vertex: VertexState {
+                constants: default(),
                 shader: state.shader.clone(),
                 shader_defs: defs.clone(),
                 entry_point: Some(vertex.into()),
                 buffers: vec![],
             },
             fragment: Some(FragmentState {
+                constants: default(),
                 shader: state.shader.clone(),
                 shader_defs: defs,
                 entry_point: Some(fragment.into()),
@@ -395,6 +398,7 @@ fn queue_pipelines(
                     layout: vec![layouts.split.clone()],
                     vertex: state.fullscreen.to_vertex_state(),
                     fragment: Some(FragmentState {
+                        constants: default(),
                         shader: state.io.clone(),
                         shader_defs: vec!["SPLIT_SAMPLES".into()],
                         entry_point: Some("split_samples".into()),
@@ -407,11 +411,13 @@ fn queue_pipelines(
                 cache.queue_render_pipeline(RenderPipelineDescriptor {
                     label: Some("S2x sample position calibration".into()),
                     vertex: VertexState {
+                        constants: default(),
                         shader: state.io.clone(),
                         entry_point: Some("calibration_vertex".into()),
                         ..default()
                     },
                     fragment: Some(FragmentState {
+                        constants: default(),
                         shader: state.io.clone(),
                         entry_point: Some("calibration_fragment".into()),
                         targets: vec![target],
@@ -667,7 +673,7 @@ fn render_s2x(
         &ExtractedCamera,
         &ExtractedView,
         &ViewTarget,
-        &ViewDepthTexture,
+        &ViewDepthStencilTexture,
         Option<&ViewResources>,
         Option<&MainPassResolutionOverride>,
     )>,

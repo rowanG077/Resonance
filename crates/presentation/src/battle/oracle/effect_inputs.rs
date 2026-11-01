@@ -1,6 +1,6 @@
 //! Replay independently attributed cosmetic draws through ordinary effect emission.
 use super::{Trace, random_inputs::Pin};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_battle::{ActorId, EffectAppearance, Effects, FixtureEffectBirth};
 use resonance_content::battle_effect::{EffectOperation, declaration::Declaration};
 use serde::Deserialize;

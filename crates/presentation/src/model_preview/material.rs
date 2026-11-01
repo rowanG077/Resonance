@@ -35,12 +35,13 @@ pub(super) struct Composite {
 }
 impl Material2d for Composite {
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/model_preview.wgsl".into()
+        "embedded://resonance_presentation/model_preview.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend
     }
     fn specialize(
+        _pipeline: &bevy::sprite_render::Material2dPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _: &MeshVertexBufferLayoutRef,
         _: Material2dKey<Self>,

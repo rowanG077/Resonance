@@ -1,6 +1,6 @@
 //! Exercise the production field mixer without an audio device or discarded requests.
 use super::{Assets, Control, Frames, RATE};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_game::{
     clock::{UPDATE_RATE_DENOMINATOR, UPDATE_RATE_NUMERATOR},
     field::FieldSession,

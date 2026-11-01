@@ -4,7 +4,7 @@ use super::{
     loading::{Resident, Task},
     new_game::Session,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 use resonance_content::{
     field::{FieldAssets, document::Actors},

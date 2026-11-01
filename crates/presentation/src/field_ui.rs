@@ -26,7 +26,7 @@ mod menu;
 pub(super) use menu::MenuDraws;
 pub(super) fn install(app: &mut App) {
     app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
-    bevy::asset::embedded_asset!(app, "field_ui.wgsl");
+    bevy::asset::embedded_asset!(app, "field_ui.wesl");
     crate::input_icons::install(app);
     app.add_systems(
         PreUpdate,
@@ -45,7 +45,7 @@ mod prompt;
 mod skit;
 #[path = "field_ui_world.rs"]
 mod world;
-use anyhow::{Context, Result};
+use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
@@ -187,15 +187,16 @@ impl From<&Surface> for SurfaceKey {
 }
 impl Material2d for Surface {
     fn vertex_shader() -> ShaderRef {
-        "embedded://resonance_presentation/field_ui.wgsl".into()
+        "embedded://resonance_presentation/field_ui.wesl".into()
     }
     fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/field_ui.wgsl".into()
+        "embedded://resonance_presentation/field_ui.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend
     }
     fn specialize(
+        _pipeline: &bevy::sprite_render::Material2dPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
         layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::sprite_render::Material2dKey<Self>,
@@ -1536,7 +1537,7 @@ fn project_dialogue_point(
     resolution: super::Resolution,
 ) -> [f32; 2] {
     let projection =
-        Mat4::perspective_rh(fov_degrees.to_radians(), resolution.aspect(), 100., 40000.);
+        bevy::math::proj::perspective(fov_degrees.to_radians(), resolution.aspect(), 100., 40000.);
     let ndc = projection.project_point3(camera.to_matrix().inverse().transform_point3(point));
     if resolution == super::Resolution::default() {
         return [

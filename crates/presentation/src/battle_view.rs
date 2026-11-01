@@ -15,7 +15,7 @@ use crate::{
     materials::{MaterialSlot, TitleSurface},
     model_preview::gpu,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{
         CameraProjection, RenderTarget, SubCameraView,
@@ -694,7 +694,7 @@ impl View {
                 commands
                     .spawn((
                         scene_camera(),
-                        Tonemapping::None,
+                        Tonemapping::Linear,
                         Msaa::Off,
                         Camera {
                             order: -15,
