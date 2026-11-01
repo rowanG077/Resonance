@@ -2,7 +2,7 @@ name: Test and release
 
 on:
   push:
-    # These branches use push runs; other branches use their PR updates.
+    # Release pushes delegate to an open release PR when one exists.
     branches: [main, 'release/**']
   pull_request:
     types: [opened, synchronize, reopened]
@@ -13,67 +13,41 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  # Finish a release before processing another push to the same branch.
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+  # New commits supersede old builds, including release branches.
+  cancel-in-progress: true
 
 jobs:
   prepare:
-    name: Validate release version
-    # Same-repository main/release branches already have a push run. Fork PRs
-    # still need our checks, including forks whose branch is named release/*.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name != github.repository ||
-      (github.head_ref != 'main' && !startsWith(github.head_ref, 'release/'))
+    name: Plan CI and validate release version
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      publish: ${{ steps.version.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+      run_tests: ${{ steps.plan.outputs.run_tests }}
+      commit: ${{ steps.plan.outputs.commit }}
     steps:
-      - name: Read version from branch
-        id: version
-        shell: bash
-        env:
-          REF: ${{ github.ref }}
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [[ "$REF" == refs/heads/release/* ]]; then
-            if [[ ! "$REF" =~ ^refs/heads/release/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-              echo '::error::Release branches must be named release/vX.X.X (for example, release/v0.1.0).'
-              exit 1
-            fi
-            echo "version=${REF#refs/heads/release/}" >> "$GITHUB_OUTPUT"
-            echo "publish=$([[ "$EVENT" == push ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          else
-            echo 'version=' >> "$GITHUB_OUTPUT"
-            echo 'publish=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check out release manifest
-        if: steps.version.outputs.version != ''
+      - name: Check out source for CI planning
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Check workspace version matches release branch
-        if: steps.version.outputs.version != ''
+      - name: Select the push or PR run that owns CI
+        id: plan
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import tomllib
-          from pathlib import Path
-
-          manifest = tomllib.loads(Path("Cargo.toml").read_text())
-          version = manifest["workspace"]["package"]["version"]
-          if f"v{version}" != os.environ["VERSION"]:
-              raise SystemExit(f"Release branch version {os.environ['VERSION']} does not match Cargo.toml version {version}")
-          PY
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/ci/plan_workflow.py
 
   test:
     name: ${{ matrix.platform }}
     needs: prepare
+    if: needs.prepare.outputs.run_tests == 'true'
+    concurrency:
+      group: test-${{ matrix.platform }}-${{ needs.prepare.outputs.commit }}
+      cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     strategy:
@@ -107,6 +81,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Install Linux dependencies
@@ -200,7 +175,9 @@ jobs:
   release:
     name: Publish GitHub release
     needs: [prepare, test]
-    if: needs.prepare.outputs.publish == 'true'
+    if: >-
+      needs.prepare.outputs.publish == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -209,6 +186,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Download tested executable archives
@@ -224,5 +202,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: bash tools/ci/publish_release.sh

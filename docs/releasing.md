@@ -20,15 +20,16 @@ sets the GitHub release version and archive filenames.
 The **Test and release** workflow tests Windows x64, macOS Apple Silicon, Linux
 x64 and Linux ARM64 on native GitHub runners, including synthetic audio/render
 checks. Normal PRs run when opened, reopened or updated with new commits
-(`synchronize`). `main` runs on push. Same-repository `release/*` branches also
-run on push, and their duplicate PR jobs are skipped before starting a runner.
-Fork PRs always run the PR checks, including forks with a `release/*` branch.
-GitHub may still list a skipped PR workflow entry; only one test matrix runs.
-Manual workflow runs remain available.
+(`synchronize`). `main` runs on push. Release branches with an open PR run their
+checks and release build in the PR workflow, so the checks page shows real work.
+The corresponding push workflow detects the open PR and skips its duplicate
+matrix. Release branches without an open PR run directly on push.
+Fork PRs run tests without publishing, including forks with a `release/*` branch.
+Manual workflow runs remain available and never publish.
 
 Tests compile their test binaries and rendering example; distribution executables
-and archives are built only on release-branch pushes. Private disc images and
-cooked assets are not needed in CI.
+and archives are built only for release branches in this repository. Private disc
+images and cooked assets are not needed in CI.
 
 Tests and rendering checks use `--profile release-fast`, which keeps level-3
 optimization and disables LTO to reduce build/link time on all platforms,
@@ -36,12 +37,14 @@ including Windows MSVC. The final distribution executables use `--release`
 with thin LTO and are packaged from `target/release`. Every architecture's build
 and test job has a 180-minute (three-hour) timeout.
 
-On a push to `release/vX.X.X`, each platform runs those same tests before
-building and packaging release executables. Every platform must pass before
-publication.
+Each release platform runs those same tests before building and packaging release
+executables. Every platform must pass before publication. New commits cancel
+obsolete runs rather than waiting behind hours of older builds.
 
-After all builds pass, CI creates tag `vX.X.X` at the exact commit that triggered
-the run and creates a GitHub release. It attaches a Windows ZIP, three Unix
+After all builds pass, CI creates tag `vX.X.X` at the tested release-branch commit
+and creates a GitHub release. For release PRs, checkout, testing, packaging and
+tagging all use the PR head commit; GitHub's temporary merge commit is never
+published. CI attaches a Windows ZIP, three Unix
 `.tar.gz` archives, `README.md` and `SHA256SUMS`. The installation guide is both
 the release body and the README inside every archive. CI artifacts remain
 available for 14 days; published GitHub release assets persist.
@@ -53,12 +56,12 @@ releases, and tag rules must permit this workflow to create `v*` tags.
 
 If a build fails, fix the release branch and push again. No tag or release is
 created before all platforms pass. If publication fails after creating a tag or
-draft, rerun the failed job at the same commit: it can resume the draft and
+draft, rerun the failed job in the owning PR or push workflow at the same commit:
+it can resume the draft and
 replace incomplete uploads before publishing. A completed release is left alone
 on reruns. An existing tag pointing to another commit causes an error; create a
 new version branch rather than moving a published tag.
 
-Pushes to `main`, pull requests and manual workflow runs only run the tests and
-upload smoke-test diagnostics; they do not build distribution archives or create tags.
-To retry publication, use **Re-run failed jobs** on the original release-branch
-push run. A manual workflow run never publishes, even from a release branch.
+Pushes to `main`, ordinary PRs, fork PRs and manual workflow runs only run tests
+and upload diagnostics. To retry publication, use **Re-run failed jobs** on the
+release PR workflow, or on the release push workflow if there is no open PR.

@@ -112,7 +112,8 @@ class PublicationTests(unittest.TestCase):
         stub.chmod(0o755)
         self.state = self.root / "state.json"
         self.state.write_text(json.dumps({"calls": []}))
-        self.environment = dict(os.environ, GH_REPO="example/resonance", GITHUB_SHA="a" * 40,
+        self.environment = dict(os.environ, GH_REPO="example/resonance", RELEASE_COMMIT="a" * 40,
+                                GITHUB_SHA="b" * 40,
                                 VERSION="v1.2.3", FAKE_GH_STATE=str(self.state),
                                 PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"])
 
@@ -126,7 +127,7 @@ class PublicationTests(unittest.TestCase):
     def test_creates_exact_commit_tag_uploads_all_inputs_then_publishes(self):
         result, state = self.run_publication()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["tag"], self.environment["GITHUB_SHA"])
+        self.assertEqual(state["tag"], self.environment["RELEASE_COMMIT"])
         self.assertFalse(state["draft"])
         self.assertEqual(len(state["uploaded"]), 6)
         self.assertEqual(state["calls"][-1], ["release", "edit", "v1.2.3", "--draft=false"])
@@ -150,7 +151,7 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(any(call[:2] == ["release", "create"] for call in state["calls"]))
 
     def test_published_release_is_unchanged_on_rerun(self):
-        result, state = self.run_publication(tag=self.environment["GITHUB_SHA"], draft=False)
+        result, state = self.run_publication(tag=self.environment["RELEASE_COMMIT"], draft=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any(call[0] == "release" for call in state["calls"]))
 
