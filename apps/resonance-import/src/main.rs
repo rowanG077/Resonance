@@ -12,6 +12,8 @@ use std::{
 
 #[derive(Parser)]
 #[command(
+    name = "resonance-import",
+    version,
     about = "Import Symphonia disc images into the editable asset library",
     subcommand_negates_reqs = true
 )]

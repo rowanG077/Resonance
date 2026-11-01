@@ -3,14 +3,19 @@
 Push a branch named `release/vX.X.X`, for example:
 
 ```sh
-git switch -c release/v0.1.0
-git push -u origin release/v0.1.0
+git switch -c release/v0.2.0
+# Set [workspace.package].version in Cargo.toml to 0.2.0, then:
+cargo update --offline --workspace
+git add Cargo.toml Cargo.lock
+git commit -m "Release version 0.2.0"
+git push -u origin release/v0.2.0
 ```
 
 The branch must contain the release workflow. Use three numeric version
-components with no leading zeroes. If needed, update the workspace version in
-`Cargo.toml` and its lockfile before pushing. The branch name sets the GitHub
-release version and archive filenames.
+components with no leading zeroes. Update the workspace version in `Cargo.toml`
+and its lockfile before pushing. CI requires the workspace version and both
+executables' `--version` output to match the release branch. The branch name
+sets the GitHub release version and archive filenames.
 
 The **Test and release** workflow runs the test matrix on every pull request,
 push to `main`, and manual workflow run. It tests Windows x64, macOS Apple
