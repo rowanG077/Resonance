@@ -8,6 +8,234 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY pointing to the cooked Steam library"]
+fn installed_localized_gameplay_loads_with_utf8_names() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let overlay = tempfile::tempdir()?;
+    let source = source::Source::open(&installation, Language::French)?;
+    cook_tables(&source, overlay.path())?;
+    fs::remove_file(overlay.path().join(resonance_content::library::DESCRIPTOR))?;
+    menu_settings::cook(&source, overlay.path())?;
+    menu_catalogues::cook(&source, overlay.path())?;
+    menu_presentation::cook(&source, overlay.path())?;
+    menu_world_map::cook(&source, overlay.path())?;
+    world_landmarks::cook(&source, overlay.path())?;
+    strategy::cook(&source, overlay.path())?;
+    let font = json(&root, "fonts/dialogue.json")?;
+    menu_synopsis::cook(&source, overlay.path(), &font)?;
+    monsters::catalogue(&source, overlay.path())?;
+    figurines::catalogue(&source, overlay.path())?;
+    let library =
+        resonance_content::library::Library::open_paths(&root, &[overlay.path().to_owned()])?;
+    let mut snapshot = library.snapshot();
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files = resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
+    let session = resonance_content::session::SessionData::load(&files)?;
+    let names = &session.rules.as_ref().unwrap().initial_names;
+    assert_eq!(names[2], "Génis");
+    assert_eq!(names[6], "Préséa");
+    resonance_events::party::Party::new(&session, Default::default())?.validate(&session)?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally writes mappings to RESONANCE_TEST_CATALOGUE_OUTPUT"]
+fn installed_battle_party_mappings_cover_native_costumes() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let temporary = tempfile::tempdir()?;
+    let output = std::env::var_os("RESONANCE_TEST_CATALOGUE_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_owned());
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_party_mappings::cook(&source, &output)?;
+    let characters: Mappings = json(&output, "battle/party/mappings.json")?;
+    assert_eq!(characters.iter().count(), 9);
+    for (_, name) in characters.iter() {
+        let costumes: Mappings = json(&output, &format!("battle/party/{name}/mappings.json"))?;
+        assert_eq!(costumes.iter().count(), 7);
+        assert_eq!(costumes.target(5)?, "costume-5");
+        assert_eq!(costumes.target(6)?, "costume-6");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_LIBRARY pointing to the cooked Steam library"]
+fn cooked_gameplay_definitions_initialize_and_save_party() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files = resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
+    let session = resonance_content::session::SessionData::load(&files)?;
+    assert_eq!(session.monster_count(), 257);
+    assert_eq!(session.figurine_count(), 297);
+    let mut party = resonance_events::party::Party::new(&session, Default::default())?;
+    party.monsters.entry(256).or_default().seen = true;
+    party.figurines.insert(296);
+    party.validate(&session)?;
+    let saved = serde_json::to_vec(&party)?;
+    let mut restored: resonance_events::party::Party = serde_json::from_slice(&saved)?;
+    restored.validate(&session)?;
+    assert!(restored.monsters[&256].seen);
+    assert!(restored.figurines.contains(&296));
+    restored.monsters.entry(257).or_default();
+    assert!(restored.validate(&session).is_err());
+    restored.monsters.remove(&257);
+    restored.figurines.insert(297);
+    assert!(restored.validate(&session).is_err());
+    // Execute the ordinary native services against the final catalogue entries.
+    // Completion must inspect record 256, rather than wrap the count to a byte.
+    for id in 0..256 {
+        party.monsters.entry(id).or_default().seen = true;
+    }
+    party.monsters.remove(&256);
+    party.figurines = (0..296).collect();
+    use symphonia_script::NativeCall as Call;
+    let calls: &[(Call, &[i32])] = &[
+        (Call::FieldSystem, &[4, 0]),
+        (Call::ConfigureMonsterKnowledge, &[256, 63]),
+        (Call::FieldSystem, &[4, 0]),
+        (Call::FieldSystem, &[5, 0]),
+        (Call::ConfigureFigurine, &[0, 296]),
+        (Call::FieldSystem, &[5, 0]),
+    ];
+    let mut code = Vec::new();
+    for (index, (call, args)) in calls.iter().enumerate() {
+        for &arg in *args {
+            code.extend([
+                0x0200,
+                arg as u16,
+                (arg as u32 >> 16) as u16,
+                0x3000,
+                0x4000,
+            ]);
+        }
+        code.push(0x2000 | *call as u16);
+        code.extend([
+            0x3000,
+            0x1200,
+            0x100 + index as u16 * 4,
+            0x1200,
+            0x20,
+            0x3010,
+            0x3000,
+        ]);
+    }
+    code.push(0x20ff);
+    let mut words = vec![10, 0, 0, 1, 0, 2, 0, 42, 0, code.len() as u16];
+    words.extend(code);
+    words.push(0x20ff);
+    let program = symphonia_script::Program::decode(
+        &words
+            .into_iter()
+            .flat_map(u16::to_be_bytes)
+            .collect::<Vec<_>>(),
+    )?;
+    let resources = resonance_events::ResourceLibrary {
+        session_data: Some(std::sync::Arc::new(session)),
+        ..Default::default()
+    };
+    let mut world = resonance_events::GameWorld::default();
+    world.party = Some(party);
+    let events = resonance_events::EventRuntime::with_state(
+        std::sync::Arc::new(program),
+        std::sync::Arc::new(resources),
+        world,
+        Default::default(),
+    )?;
+    for (index, expected) in [0, 0, 1, 0, 0, 1].into_iter().enumerate() {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + index as u16 * 4, symphonia_script::Width::S32)?,
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally writes catalogue owners to RESONANCE_TEST_CATALOGUE_OUTPUT"]
+fn installed_catalogues_and_models_load_through_shared_readers() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let temporary = tempfile::tempdir()?;
+    let output = std::env::var_os("RESONANCE_TEST_CATALOGUE_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_owned());
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_party_mappings::cook(&source, &output)?;
+    monsters::models(&source, &output)?;
+    figurines::models(&source, &output)?;
+    for language in [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Italian,
+    ] {
+        let source = source::Source::open(&installation, language)?;
+        monsters::catalogue(&source, &output)?;
+        figurines::catalogue(&source, &output)?;
+        for (path, count) in [
+            (resonance_content::menu_data::MONSTER_BOOK_PATH, 257),
+            (resonance_content::menu_data::FIGURINES_PATH, 297),
+        ] {
+            let value: serde_json::Value = json(&output, path)?;
+            let (expanded, _) =
+                resonance_content::model_preview::document::expand_catalogue(value, |path| {
+                    Ok(fs::read(output.join(path))?.into())
+                })?;
+            if count == 257 {
+                let book: resonance_content::monster::MonsterBook =
+                    serde_json::from_value(expanded)?;
+                book.validate(531)?;
+                assert_eq!(book.records.len(), count);
+                if language == Language::English {
+                    assert_eq!(book.records[256].name, "Mithos the Hero");
+                }
+            } else {
+                let book: resonance_content::figurine::FigurineBook =
+                    serde_json::from_value(expanded)?;
+                book.validate()?;
+                assert_eq!(book.records.len(), count);
+            }
+        }
+    }
+    // Leave an explicitly requested library in its original English language.
+    monsters::catalogue(&source, &output)?;
+    figurines::catalogue(&source, &output)?;
+    for path in [
+        "meshes/monsters/model-0256/model.json".to_owned(),
+        format!(
+            "meshes/figurines/{}/model.json",
+            symphonia_constants::FigurineId::try_from(287_u16)?
+                .resource_name()
+                .unwrap()
+        ),
+    ] {
+        let mut model: resonance_content::model_preview::ModelPreview = json(&output, &path)?;
+        resonance_content::model_preview::document::prepare(&mut model, |path| {
+            Ok(fs::read(output.join(path))?.into())
+        })?;
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM pointing to an installed Steam copy"]
 fn installed_gameplay_menu_tables_prepare_in_all_languages() -> Result<()> {
     use resonance_content::{grade, menu_data, strategy as orders};

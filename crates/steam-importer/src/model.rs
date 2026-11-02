@@ -10,7 +10,7 @@ mod write;
 pub(super) use material::Materials;
 pub(super) use mesh::Mesh;
 pub(super) use skeleton::Node;
-pub(crate) use write::cook;
+pub(crate) use write::{cook, material_parameters};
 
 pub struct Rig {
     pub nodes: Vec<Node>,

@@ -47,17 +47,7 @@ pub(crate) fn cook(
         part.mesh = path;
         part
     };
-    outline.resource = 1;
-    outline.appearance = None;
-    outline.outline_color = Some([0, 0, 0, 127]);
-    for material in &mut outline.materials {
-        material.color = None;
-        material.multiply = None;
-        material.blend = true;
-        material.vertex_color = false;
-        material.cull = CullFace::Front;
-        material.draw_order += 65536;
-    }
+    style_outline(&mut outline);
     parts.extend([body, outline]);
     let mut collision = ModelCollision::default();
     if let Some(package) = &package {
@@ -159,4 +149,18 @@ fn cook_clips(
         });
     }
     Ok(())
+}
+
+pub(crate) fn style_outline(part: &mut ScenePart) {
+    part.resource = 1;
+    part.appearance = None;
+    part.outline_color = Some([0, 0, 0, 127]);
+    for material in &mut part.materials {
+        material.color = None;
+        material.multiply = None;
+        material.blend = true;
+        material.vertex_color = false;
+        material.cull = CullFace::Front;
+        material.draw_order += 65536;
+    }
 }

@@ -17,11 +17,11 @@ resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
 **This is an incremental port, not yet a playable library.** The latest full run
-completed all 28 implemented passes in 186 seconds and wrote entry points for all
+completed all 33 implemented passes in 198 seconds and wrote entry points for all
 509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
-reader. The four UI passes also load through shared readers; startup scene and
-battle playability remain unverified.
+reader. The shared gameplay loader now initializes a party and saves/restores the
+added collection IDs. Startup scene and battle playability remain unverified.
 
 Current passes write
 the library descriptor, common script definitions, all 1,000 battle formations and
@@ -132,11 +132,33 @@ prepares all five languages and a Unicode keyboard override through shared reade
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_gameplay_menu_tables -- --ignored
 ```
 
+The Monster Book now contains all 257 native records and the Figure Collection
+contains all 297 entries. Model previews reuse the same geometry, image, motion
+and outline writers as fields. They retain authored idle clips, carried and
+secondary bodies, figurine body-atlas rows and bone visibility rules. Specialized
+preview behaviors still need their owners; this does not establish full visual parity.
+The shared engine uses catalogue-derived collection counts and 16-bit monster
+identities through knowledge, saves, rewards, AI and model/voice lookups. Existing
+GC numeric IDs and JSON document shapes remain compatible. Counts are derived
+from records rather than written as separate authoring settings.
+
+Native battle-party costume mappings are also cooked, so title preparation uses
+the actual battle-package directory. Party battle models/rules are still pending.
+The current Steam library passes shared gameplay loading, fresh-party creation,
+save/load of monster 256 and figurine 296, and native collection-completion calls.
+A temporary French overlay also loads through that same path with UTF-8 names.
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_catalogues_and_models -- --ignored
+RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_gameplay_definitions -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_localized_gameplay -- --ignored
+```
+
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include monster/figurine catalogues and media, remaining game rules and battle artwork; legacy field motion, service actors
+owners include remaining game rules and battle artwork; legacy field motion, service actors
 and dynamic shared banks;
-enemy/equipment models and battle rules; overworld data and media; skits,
+party/enemy/equipment battle models and rules; overworld data and media; skits,
 audio, movies and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.

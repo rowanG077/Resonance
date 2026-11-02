@@ -16,8 +16,8 @@ pub(crate) fn cook(
     let payload = source.require(dependencies.first().context("model has no payload")?)?;
     let model = Model::read(&descriptor, &payload)?;
     let stem = name.rsplit_once('.').context("model has no extension")?.0;
-    let (tints, blended) =
-        material_opacity(&source.require(&format!("{stem}.mxd"))?, &model.materials)?;
+    let (tints, blended, _) =
+        material_parameters(&source.require(&format!("{stem}.mxd"))?, &model.materials)?;
     let mut textures = Vec::new();
     let mut transparent = Vec::new();
     let mut translucent = Vec::new();
@@ -111,7 +111,10 @@ pub(crate) fn cook(
 
 /// MXD owns initial material opacity. Its shader programs are not cooked into a
 /// second rendering system; geometry colors and the shared GC pass supply RGB.
-fn material_opacity(bytes: &[u8], materials: &Materials) -> Result<(Vec<[f32; 4]>, Vec<bool>)> {
+pub(crate) fn material_parameters(
+    bytes: &[u8],
+    materials: &Materials,
+) -> Result<(Vec<[f32; 4]>, Vec<bool>, Vec<u8>)> {
     let input = Reader(bytes);
     ensure!(
         input.slice(0, 4)? == b"MXD " && input.word(4)? == 100,
@@ -164,6 +167,7 @@ fn material_opacity(bytes: &[u8], materials: &Materials) -> Result<(Vec<[f32; 4]
                 values.push(Some((
                     if blended { opacity.clamp(0., 1.) } else { 1. },
                     blended,
+                    ((data.word(0x60)? >> 16) & 255) as u8,
                 )));
             }
             entries = Some(values);
@@ -176,7 +180,7 @@ fn material_opacity(bytes: &[u8], materials: &Materials) -> Result<(Vec<[f32; 4]
         .iter()
         .map(|material| {
             let Some(index) = material.parameter else {
-                return Ok((1., false));
+                return Ok((1., false, 0));
             };
             entries
                 .get(index)
@@ -188,8 +192,9 @@ fn material_opacity(bytes: &[u8], materials: &Materials) -> Result<(Vec<[f32; 4]
     Ok((
         values
             .iter()
-            .map(|&(alpha, _)| [1., 1., 1., alpha])
+            .map(|&(alpha, _, _)| [1., 1., 1., alpha])
             .collect(),
-        values.into_iter().map(|(_, blend)| blend).collect(),
+        values.iter().map(|&(_, blend, _)| blend).collect(),
+        values.into_iter().map(|(_, _, role)| role).collect(),
     ))
 }
