@@ -299,3 +299,118 @@ fn installed_field_settings_use_shared_contract() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM"]
+fn installed_global_actor_models_use_shared_documents() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let output = tempfile::tempdir()?;
+    character_models::cook(&source, output.path(), None)?;
+    let models = field_models::cook(&source, output.path())?;
+    assert!(models.mappings.0.len() > 200);
+    for resource in [131072, 131073, 131074] {
+        let path = models.mappings.model_path(resource)?;
+        let mut model: resonance_content::field::document::Model = json(output.path(), &path)?;
+        model.validate()?;
+        for part in &mut model.parts {
+            let bytes = fs::read(output.path().join(&part.mesh))?;
+            part.prepare_bones(&bytes)?;
+            let skeleton = resonance_content::animation::Skeleton::from_glb(&bytes)?;
+            for clip in &part.clips {
+                clip.decode_for_skeleton(&fs::read(output.path().join(&clip.motion))?, &skeleton)?
+                    .validate(&skeleton)?;
+            }
+        }
+        model.hidden_nodes(&model.hidden_geometry)?;
+        if let Some(path) = model.collision {
+            resonance_content::field::collision_mesh::decode_model(&fs::read(
+                output.path().join(path),
+            )?)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_LIBRARY pointing to a cooked Steam library"]
+fn cooked_field_actor_documents_assemble() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let selected = std::env::var("RESONANCE_TEST_STEAM_FIELD")
+        .ok()
+        .map(|id| id.parse::<u32>())
+        .transpose()?
+        .unwrap_or(332);
+    let fields: Mappings = json(&root, resonance_content::library::FIELDS)?;
+    let path = format!("fields/{}/field.json", fields.target(selected)?);
+    let definition: resonance_content::field::document::Definition = json(&root, &path)?;
+    definition.validate()?;
+    let assets = definition.assemble(selected, |path| {
+        Ok(std::sync::Arc::from(fs::read(root.join(path))?))
+    })?;
+    assert!(assets.actors.len() >= 63);
+    assert!(assets.actors.iter().any(|actor| actor.resource == 1));
+    assert!(
+        assets
+            .actors
+            .iter()
+            .any(|actor| actor.resource > 9 && actor.resource >> 24 != 0x23)
+    );
+    assert!(
+        assets
+            .actors
+            .iter()
+            .flat_map(|actor| &actor.parts)
+            .flat_map(|part| &part.clips)
+            .any(|clip| clip.animation_resource.is_some())
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; writes the actor category into that library"]
+fn installed_field_actors_cook() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let resources = resources::Resources::read(&source)?;
+    let mut mappings: resonance_content::field::document::ModelMappings =
+        json(&root, resonance_content::field::document::MODELS)?;
+    // Start from the party/global model passes after an interrupted actor cook.
+    mappings.0.retain(|id, _| {
+        (1..=9).contains(id)
+            || matches!(id >> 24, 0x23 | 0x24)
+            || (*id >= 0x10000 && resources.entries.contains_key(id))
+    });
+    let mut sources = BTreeMap::new();
+    for &resource in mappings.0.keys() {
+        let id = if resource >> 24 == 0x24 {
+            resource & 0xffff
+        } else {
+            resource
+        };
+        if let Ok(name) = resources.loaded(id) {
+            sources.insert(resource, name.to_owned());
+        }
+    }
+    let standalone = json(&root, "meshes/standalone/mappings.json")?;
+    let mut models = field_models::Models {
+        resources,
+        mappings,
+        standalone,
+        sources,
+    };
+    let selected = std::env::var("RESONANCE_TEST_STEAM_FIELD")
+        .ok()
+        .map(|id| id.parse::<u32>())
+        .transpose()?;
+    field_actors::cook(&source, &root, &mut models, selected)
+}

@@ -33,8 +33,19 @@ costume slots, named aliases, field/service clip bindings and an outline part.
 Where Steam has no outline geometry, the importer bakes an inverted hull for the
 existing GC pass. No Steam runtime renderer or animation player is added.
 
-Field actors, enemy documents, remaining game/menu rules and other media still
-need porting. Material animation, face atlas selection and animated visibility
+The next passes write global NPC/standalone model mappings, model documents,
+collision, ordinary field actor selections and field entry points. Party and NPC
+packages use one model writer. Script-selected TOANMB motions are baked against
+the selected rigs into existing field animation bindings; the cook shares a
+converted clip between fields that use the same source clip and rig. Unresolved
+script selectors use the existing shared dynamic-resource boundary.
+
+The Iselia classroom field (332), including its actors and selected motions,
+assembles through the current content reader. **The full cook currently stops at
+Asgard field 30 on an older retained motion stream**; that format still needs
+normalization into the shared motion converter. Dynamic animation-bank routes,
+service actors, enemy documents, remaining game/menu rules and other media also
+remain incomplete. Material animation, face atlas selection and animated visibility
 remain pending. Party model defaults retain initial hidden geometry; scenery
 node visibility still needs projection through the common playback path. Use a
 separate output directory while those owners are missing.
@@ -61,7 +72,8 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam
 
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include game/menu rules and artwork; field actors and shared banks;
+owners include game/menu rules and artwork; legacy field motion, service actors
+and dynamic shared banks;
 enemy/equipment models and battle rules; overworld data and media; skits,
 audio, movies and startup/ending assets. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
@@ -84,12 +96,24 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam
 
 The full scenery pass currently produces 509 scene documents, 1,021 model parts
 and 53 camera tracks from the installed English source. These files use the
-current scene/material grouping schema. Their shared settings and image references are also cooked. Field actor and
-shared animation bank owners are still pending; this is not yet a field startup/playability
-check.
+current scene/material grouping schema. Their shared settings and image references
+are also cooked. The focused classroom check additionally assembles actor and
+motion documents; it does not execute gameplay or prove the full library playable.
 
 To cook party models and sample their converted motions through the shared reader:
 
 ```sh
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_party_models_and_motions -- --ignored
+```
+
+After cooking the supported categories, assemble the classroom field documents:
+
+```sh
+RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_field_actor_documents_assemble -- --ignored
+```
+
+The global actor model conversion/load check uses installed Steam data only:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_global_actor_models -- --ignored
 ```

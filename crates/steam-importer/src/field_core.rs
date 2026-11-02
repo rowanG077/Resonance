@@ -7,7 +7,7 @@ use resonance_content::{
 };
 use std::{fs, path::Path};
 
-fn collision_groups(bytes: &[u8], short_indices: bool) -> Result<Vec<CollisionGroup>> {
+pub(crate) fn collision_groups(bytes: &[u8], short_indices: bool) -> Result<Vec<CollisionGroup>> {
     // Actor packages use short triangle indices even when the first header
     // word is nonzero. Field ground/region sections encode that choice there.
     let compact = !short_indices && pe::word(bytes, 0)? != 0;

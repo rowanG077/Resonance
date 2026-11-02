@@ -1,13 +1,13 @@
 //! Party bodies and field/service motions use the ordinary shared model documents.
-use crate::{animation::Animation, model, output, package::Package, pe, source::Source};
+use crate::{actor_model, animation::Animation, output, package::Package, pe, source::Source};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
-    CullFace, SceneClip,
+    SceneClip,
     animation::Skeleton,
     appearance::costume_resource,
     field::{
         FIELD_SERVICE_MOTION_RESOURCE_BASE, ServiceMotion,
-        document::{self, Model, ModelAlias, ModelMappings, ModelTarget},
+        document::{self, ModelAlias, ModelMappings, ModelTarget},
     },
 };
 use std::{collections::BTreeMap, fs, path::Path};
@@ -49,11 +49,9 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u8>) -> Res
                 continue;
             }
             eprintln!("  Party model: {target}");
-            let bytes = source.require(package_name)?;
-            let package = Package::parse(&bytes)?;
-            let descriptor = package.reference(0)?.context("party package has no body")?;
             let base = format!("meshes/{target}");
-            let (mut body, native) = model::cook(source, library, descriptor, &base, "body")?;
+            let (mut document, native) = actor_model::cook(source, library, package_name, &base)?;
+            let body = &mut document.parts[0];
             let skeleton = Skeleton::from_glb(&fs::read(library.join(&body.mesh))?)?;
             for (&slot, animation) in motions.range(12..) {
                 let path = format!("{base}/animations/{}.glb", motion_name(slot, false));
@@ -79,43 +77,22 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u8>) -> Res
                     Some(FIELD_SERVICE_MOTION_RESOURCE_BASE + u32::from(id)),
                 ));
             }
-            let mut outline = if let Some(descriptor) = package.reference(1)? {
-                model::cook(source, library, descriptor, &base, "outline")?.0
-            } else {
-                // Bake a small inverted hull once. Playback uses the same GC
-                // outline pass and rig, without a Steam-only shader feature.
-                let path = format!("{base}/meshes/outline.glb");
-                output::write(&library.join(&path), &native.outline_glb()?)?;
-                let mut part = body.clone();
-                part.mesh = path;
-                part
-            };
-            outline.resource = 1;
-            outline.clips = body.clips.clone();
-            outline.outline_color = Some([0, 0, 0, 127]);
-            for material in &mut outline.materials {
-                material.color = None;
-                material.multiply = None;
-                material.blend = true;
-                material.cull = CullFace::Front;
-                material.draw_order += 65536;
+            let clips = document.parts[0].clips.clone();
+            for part in document.parts.iter_mut().skip(1) {
+                part.clips.extend(
+                    clips
+                        .iter()
+                        .filter(|clip| {
+                            !part.clips.iter().any(|c| {
+                                c.resource_slot == clip.resource_slot
+                                    && c.animation_resource == clip.animation_resource
+                            })
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                );
             }
-            let hidden_geometry = native
-                .nodes
-                .iter()
-                .zip(native.joint_names())
-                .filter_map(|(node, name)| {
-                    (!node.visible || name.starts_with("kk")).then_some(name)
-                })
-                .collect();
-            output::json(
-                &library.join(&base).join("model.json"),
-                &Model {
-                    parts: vec![body, outline],
-                    collision: None,
-                    hidden_geometry,
-                },
-            )?;
+            output::json(&library.join(&base).join("model.json"), &document)?;
             owners.insert(package_name.to_ascii_lowercase(), target.clone());
             mappings.insert(resource, ModelTarget::Model(target));
         }
