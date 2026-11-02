@@ -69,7 +69,7 @@ pub fn prepare<'a>(
                 .context("missing item-use effect offset")?,
             used: resolver.select(source, |v| v.item_use, &mut resolve)?,
             discovery: if character == super::party::Character::Raine {
-                resolver.absolute(source, Some(voice::Sound::Cue(878)), &mut resolve)?
+                resolver.select(source, |v| v.item_discovery, &mut resolve)?
             } else {
                 None
             },

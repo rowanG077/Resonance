@@ -261,7 +261,7 @@ impl VoiceSequence {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ContactSounds {
     pub party: [u16; 9],
-    pub elements: [u8; 8],
+    pub elements: [u16; 8],
 }
 
 /// Actor capabilities resolved during asset import. False leaves ordinary behavior enabled.

@@ -328,8 +328,8 @@ impl ActorRow<'_> {
                 )?,
                 technique_command: voices.select(*source, |v| v.technique_command, &mut sound)?,
                 taunt: voices.select(*source, |v| v.taunt, &mut sound)?,
-                charge: voices.absolute(*source, Some(Sound::Stream(753)), &mut sound)?,
-                charge_failed: voices.absolute(*source, Some(Sound::Cue(1258)), &mut sound)?,
+                charge: voices.select(*source, |v| v.charge, &mut sound)?,
+                charge_failed: voices.select(*source, |v| v.charge_failed, &mut sound)?,
                 backstep: sound(Sound::Cue(137))?,
                 knockdown: sound(Sound::Cue(72))?,
             }

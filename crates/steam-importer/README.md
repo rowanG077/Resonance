@@ -28,9 +28,9 @@ reader. The shared gameplay loader now initializes a party and saves/restores th
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
 capture still has backdrop gaps and unresolved decorative bone lookups. Later
-fields and battle remain unfinished. Eight additional passes now cook
-skits, portraits, movies, field service models, normal attacks, party speech, martial actions and
-field audio against that library. Native
+fields and battle remain unfinished. Nine additional passes now cook
+skits, portraits, movies, field service models, normal attacks, party speech,
+martial actions, party profiles and field audio against that library. Native
 opening-field execution reaches player control. The shared checkpoint check
 passes save/reload, movement, invalid-load rejection and early village/classroom
 transitions using this cooked library.
@@ -171,7 +171,7 @@ with fields when the native model descriptor agrees; identical rigs and source
 motions share GLBs across costumes. All selections prepare through the common
 battle-model reader with strict diagnostics. This pass adds no engine behavior.
 Story override banks, expressions, secondary motion, victory performances,
-party combat profiles and callback-driven arte rules still need their owners.
+callback-driven arte rules still need their owners.
 
 All 63 directional normal attacks now use the GC normal-attack decoder and its
 named document writer. The Steam owner only normalizes numeric storage, voice
@@ -190,8 +190,20 @@ round-trip every decoded field through the shared reader. One small shared voice
 choice event preserves the weighted lines actually used by these tracks. Native
 voice widths, packed sound IDs and executable launch constants stay in the importer;
 there is no runtime edition flag. Grand Fall, five non-track callback members and
-six added callback-driven actions remain explicitly unsupported. Party profiles,
-projectiles/effects and encounter owners still need conversion before battles play.
+six added callback-driven actions remain explicitly unsupported. Projectiles/effects
+and encounter owners still need conversion before battles play.
+
+All nine party profiles now reuse the GC actor-profile decoder and named party
+rules writer. Source-owned strategies, item offsets, contact cues, death pairs,
+chant poses, 113 casting voice overrides and Over Limit voices enter the existing
+schema. The maintained standing capsules, companion positioning and battle-entry
+presentation follow GC. Rescue captions reuse the localized item and EX documents.
+Steam's retained resident voice-duration table still indexes GC clips, so casting
+clocks come from the converted recordings at the common 30 Hz rate. The shared
+encounter reader loads the result, all nine default bodies bind their profile
+anchors, and all 502 referenced voice recordings resolve in both English and Japanese. Extra character voices are ordinary optional profile
+fields, with original fallbacks for older libraries. Elemental contact cues use the
+same u16 IDs as other sounds; neither change introduces an edition mode.
 The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.
 A temporary French overlay also loads through that same path with UTF-8 names.
@@ -232,7 +244,7 @@ The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
 owners include remaining game rules and battle artwork; legacy field motion, automatic accessories
 and dynamic shared banks;
-party combat rules and victory performances; enemy/equipment battle models and rules;
+callback-driven arte rules and victory performances; enemy/equipment battle models and rules;
 overworld data and media;
 battle/world audio bindings and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do

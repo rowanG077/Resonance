@@ -60,7 +60,7 @@ pub fn prepare(
             guard: select(|v| v.guard)?,
             interrupted_cast: select(|v| v.interrupted_cast)?,
             stunned: if colette {
-                resolver.absolute(actor, Some(Sound::Cue(725)), &mut resolve)?
+                resolver.select(actor, |v| v.stunned, &mut resolve)?
             } else {
                 None
             },
@@ -76,7 +76,7 @@ pub fn prepare(
         .iter()
         .map(|&cue| {
             ensure!(cue != 0, "missing elemental contact cue");
-            resolve(Sound::Cue(u16::from(cue)))
+            resolve(Sound::Cue(cue))
         })
         .collect::<Result<Vec<_>>>()?
         .try_into()

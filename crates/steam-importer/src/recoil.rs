@@ -14,21 +14,7 @@ use symphonia_constants::{CharacterId, KnownId};
 
 pub(crate) fn cook(source: &Source, output: &Path) -> Result<()> {
     let image = Image::parse(&source.executable)?;
-    let mut strategy = Vec::new();
-    for index in 0..7u32 {
-        let instruction = image.slice(0x44446c + index * 7, 7)?;
-        ensure!(
-            instruction[..3] == [0xc7, 0x45, 0xdc + index as u8 * 4],
-            "Steam strategy initializer changed"
-        );
-        strategy.extend_from_slice(&instruction[3..]);
-    }
-    let tail = image.slice(0x44449d, 6)?;
-    ensure!(
-        tail[..4] == [0x66, 0xc7, 0x45, 0xf8],
-        "Steam strategy initializer tail changed"
-    );
-    strategy.extend_from_slice(&tail[4..]);
+    let strategy = strategy_defaults(&image)?;
     let double = |address| -> Result<f32> {
         let value = f64::from_le_bytes(image.slice(address, 8)?.try_into()?) as f32;
         ensure!(value.is_finite(), "non-finite Steam recoil constant");
@@ -68,4 +54,23 @@ pub(crate) fn cook(source: &Source, output: &Path) -> Result<()> {
         &output.join(battle_recoil::PATH),
         &Recoil::from_table(table, &names)?,
     )
+}
+
+pub(crate) fn strategy_defaults(image: &Image<'_>) -> Result<Vec<u8>> {
+    let mut strategy = Vec::new();
+    for index in 0..7u32 {
+        let instruction = image.slice(0x44446c + index * 7, 7)?;
+        ensure!(
+            instruction[..3] == [0xc7, 0x45, 0xdc + index as u8 * 4],
+            "Steam strategy initializer changed"
+        );
+        strategy.extend_from_slice(&instruction[3..]);
+    }
+    let tail = image.slice(0x44449d, 6)?;
+    ensure!(
+        tail[..4] == [0x66, 0xc7, 0x45, 0xf8],
+        "Steam strategy initializer tail changed"
+    );
+    strategy.extend_from_slice(&tail[4..]);
+    Ok(strategy)
 }

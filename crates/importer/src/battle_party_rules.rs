@@ -155,7 +155,7 @@ fn read(module: &Rel, usual: &[u8]) -> Result<profile::Table> {
     let vector_rows = module.slice(5, 0xc3c, 9 * 12)?;
     let contact = module.slice(4, 0x1d30, 18)?;
     let overlimit = module.slice(4, 0x1264, 18)?;
-    let elements = module.slice(5, 0x1405, 8)?.try_into()?;
+    let elements = <[u8; 8]>::try_from(module.slice(5, 0x1405, 8)?)?.map(u16::from);
     // Maintained standing capsules; native posed reception markers remain separate.
     let body_colliders = std::array::from_fn(|i| {
         if matches!(i, 2 | 6) {
@@ -250,9 +250,23 @@ fn read(module: &Rel, usual: &[u8]) -> Result<profile::Table> {
             .chunks_exact(496)
             .enumerate()
             .map(|(index, row)| {
-                battle_enemy_profile::party_profile(row, usual).with_context(|| {
-                    format!("party profile {}", PartyCharacterId::RESOURCE_NAMES[index])
-                })
+                let mut profile =
+                    battle_enemy_profile::party_profile(row, usual).with_context(|| {
+                        format!("party profile {}", PartyCharacterId::RESOURCE_NAMES[index])
+                    })?;
+                if let Some(voices) = &mut profile.voices {
+                    if index == 6 {
+                        voices.charge = Some(Sound::Stream(753));
+                        voices.charge_failed = Some(Sound::Cue(1258));
+                    }
+                    if index == 1 {
+                        voices.stunned = Some(Sound::Cue(725));
+                    }
+                    if index == 3 {
+                        voices.item_discovery = Some(Sound::Cue(878));
+                    }
+                }
+                Ok(profile)
             })
             .collect::<Result<_>>()?,
     };
@@ -411,6 +425,11 @@ mod tests {
         json["companion_normal_selection"]["colette_melee_gap"] = 99.into();
         json["companion_normal_selection"]["airborne_target_height"] = 125.into();
         let modified = prepare(json.clone())?;
+        let voices = |index: usize| modified.records[index].voices.as_ref().unwrap();
+        assert_eq!(voices(6).charge, Some(Sound::Stream(753)));
+        assert_eq!(voices(6).charge_failed, Some(Sound::Cue(1258)));
+        assert_eq!(voices(1).stunned, Some(Sound::Cue(725)));
+        assert_eq!(voices(3).item_discovery, Some(Sound::Cue(878)));
         assert_eq!(
             modified.companion_normal_selection,
             profile::CompanionNormalSelection {

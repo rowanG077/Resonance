@@ -8,6 +8,121 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked audio and party attacks"]
+fn installed_party_rules_use_shared_encounter_reader() -> Result<()> {
+    use resonance_content::{
+        battle_voice::Sound, diagnostics::Diagnostics, library::Library, prepared::Files,
+    };
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_party_rules::cook(&source, &root)?;
+    let library = Library::open_paths(&root, &[])?;
+    let mut snapshot = library.snapshot();
+    for path in [
+        battle_rules::PARTY,
+        resonance_content::battle_model::document::PARTY,
+        battle_rules::NORMAL_ATTACKS,
+        battle_rules::MARTIAL_ATTACKS,
+    ] {
+        snapshot.read(path, resonance_content::preparation::JSON_LIMIT)?;
+    }
+    let files = Files::from_snapshot(snapshot, || false, Diagnostics::new(true))?;
+    let table = battle_rules::party(&files)?;
+    assert_eq!(table.records.len(), 9);
+    let mut models = library.snapshot();
+    for (index, profile) in table.records.iter().enumerate() {
+        let (_, model) = resonance_content::battle_model::document::capture_party(
+            &mut models,
+            index as u8 + 1,
+            0,
+            &Diagnostics::new(true),
+            &|| false,
+        )?;
+        assert!(
+            model
+                .body
+                .skeleton
+                .bone(&profile.head_anchor.bone)
+                .is_some(),
+            "missing party head anchor {}",
+            index + 1
+        );
+        assert!(
+            model.body.skeleton.bone(&profile.overlimit_bone).is_some(),
+            "missing party Over Limit anchor {}",
+            index + 1
+        );
+    }
+    assert_eq!(table.normal_attacks.len(), 9);
+    assert_eq!(table.default_strategy[8], [8, 6, 2]);
+    assert_eq!(table.companion_policy[8].buff_max_level_advantage, 8);
+    assert_eq!(table.companion_positioning.approach_timeout_ticks, 300);
+    assert_eq!(table.contact_sounds.elements[0], 0x316);
+    assert_eq!(table.item_use_offsets[0], [-10., 100., 10.]);
+    assert_eq!(table.chant_sequences[&3].len(), 3);
+    assert_eq!(table.records[0].run_speed, 10.);
+    let voices = |index: usize| table.records[index].voices.as_ref().unwrap();
+    assert_eq!(voices(0).hurt[0], Some(Sound::Stream(0x8003)));
+    assert_eq!(voices(0).defeat, Some(Sound::Stream(2)));
+    assert_eq!(voices(6).charge, Some(Sound::Stream(586)));
+    assert_eq!(voices(6).charge_failed, Some(Sound::Stream(34326)));
+    assert_eq!(voices(1).stunned, Some(Sound::Stream(33046)));
+    assert_eq!(voices(3).item_discovery, Some(Sound::Stream(33546)));
+    assert_eq!(table.overlimit_voices[0], Some(Sound::Stream(0x4f6)));
+    assert!(table.overlimit_voices.iter().all(Option::is_some));
+    let policies = table
+        .voice_sequences
+        .iter()
+        .map(|policy| policy.techniques.len())
+        .sum::<usize>();
+    assert!(policies > 100);
+    let document: resonance_content::battle_rules::Party = json(&root, battle_rules::PARTY)?;
+    fn streams(value: &serde_json::Value, output: &mut std::collections::BTreeSet<u16>) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                if let Some(id) = fields.get("stream").and_then(serde_json::Value::as_u64) {
+                    output.insert(id.try_into().unwrap());
+                }
+                for value in fields.values() {
+                    streams(value, output);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    streams(value, output);
+                }
+            }
+            _ => (),
+        }
+    }
+    let mut lines = std::collections::BTreeSet::new();
+    streams(&serde_json::to_value(&document)?, &mut lines);
+    for language in ["english", "japanese"] {
+        let voices: resonance_content::field_audio::speech::Mappings =
+            json(&root, &format!("audio/speech/{language}/mappings.json"))?;
+        for &id in &lines {
+            let recording = voices
+                .get(&u32::from(id))
+                .with_context(|| format!("missing {language} party rule voice {id}"))?
+                .resolve()?;
+            let path = recording.path().context("party rule voice is silent")?;
+            let wave = resonance_audio::recording::Prepared::new(fs::File::open(root.join(path))?)?;
+            assert!(wave.frames() > 0);
+        }
+    }
+    eprintln!(
+        "Nine shared profiles, {policies} casting overrides, {} referenced voice recordings in each language",
+        lines.len()
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM; optionally writes RESONANCE_TEST_LIBRARY"]
 fn installed_martial_actions_use_shared_decoder_and_documents() -> Result<()> {
     use resonance_content::{

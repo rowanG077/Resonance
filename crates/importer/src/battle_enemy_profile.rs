@@ -169,7 +169,16 @@ fn voices(usual: &[u8], base: u32, party: bool) -> Result<Voices> {
             Sound::Cue(index as u16 + 501)
         })
     };
-    Ok(Voices {
+    Ok(voice_roles(line))
+}
+
+/// The native role order is shared even when an importer resolves different storage.
+pub fn voices_from_lines(lines: &[Sound]) -> Voices {
+    voice_roles(|index| lines.get(index).copied())
+}
+
+fn voice_roles(line: impl Fn(usize) -> Option<Sound>) -> Voices {
+    Voices {
         hurt: [line(3), line(4)],
         defeat: line(6),
         critical: line(8),
@@ -179,6 +188,10 @@ fn voices(usual: &[u8], base: u32, party: bool) -> Result<Voices> {
         technique_command: line(13),
         item_use: line(14),
         acquisition: line(15),
+        charge: None,
+        charge_failed: None,
+        stunned: None,
+        item_discovery: None,
         entry: [line(16), line(17), line(18)],
         major_enemy: line(19),
         outnumbered: line(20),
@@ -195,7 +208,7 @@ fn voices(usual: &[u8], base: u32, party: bool) -> Result<Voices> {
         escape_cancel: line(53),
         taunt: line(56),
         contact_recovery: line(57),
-    })
+    }
 }
 
 fn category<T: Copy>(items: &[T], index: usize, label: &str) -> Result<T> {
@@ -208,21 +221,50 @@ fn category<T: Copy>(items: &[T], index: usize, label: &str) -> Result<T> {
 /// `data` is the profile section of one native enemy package. The resident
 /// BTLusual archive is only needed for the 76 enemies with a nonzero voice base.
 pub(crate) fn profile(data: &[u8], nodes: &[String], usual: Option<&[u8]>) -> Result<Profile> {
-    read_profile(data, Some(nodes), usual)
+    read_profile(data, Some(nodes), |base, party| {
+        source_voices(usual, base, party)
+    })
 }
 
 pub(crate) fn party_profile(data: &[u8], usual: &[u8]) -> Result<Profile> {
-    let mut profile = read_profile(data, None, Some(usual))?;
+    let profile = read_profile(data, None, |base, party| {
+        source_voices(Some(usual), base, party)
+    })?;
+    Ok(party_anchors(profile))
+}
+
+/// Shared canonical profile decoder with already-resolved source voice roles.
+pub fn party_profile_with_voices(data: &[u8], voices: Option<Voices>) -> Result<Profile> {
+    Ok(party_anchors(read_profile(data, None, |_, _| Ok(voices))?))
+}
+
+fn party_anchors(mut profile: Profile) -> Profile {
     let anchors = crate::world_gpl::animation_target_bindings(vec![
         (0, profile.head_anchor.bone),
         (1, profile.overlimit_bone),
     ]);
     profile.head_anchor.bone = anchors[0].1.clone();
     profile.overlimit_bone = anchors[1].1.clone();
-    Ok(profile)
+    profile
 }
 
-fn read_profile(data: &[u8], nodes: Option<&[String]>, usual: Option<&[u8]>) -> Result<Profile> {
+fn source_voices(usual: Option<&[u8]>, base: u32, party: bool) -> Result<Option<Voices>> {
+    (base != 0)
+        .then(|| {
+            voices(
+                usual.context("voiced actor needs resident battle archive")?,
+                base,
+                party,
+            )
+        })
+        .transpose()
+}
+
+fn read_profile(
+    data: &[u8],
+    nodes: Option<&[String]>,
+    read_voices: impl FnOnce(u32, bool) -> Result<Option<Voices>>,
+) -> Result<Profile> {
     use resonance_content::battle_profile::{RecoilWeight, Size, Species};
     let b = data.get(..496).context("truncated actor profile")?;
     let party = nodes.is_none();
@@ -387,15 +429,7 @@ fn read_profile(data: &[u8], nodes: Option<&[String]>, usual: Option<&[u8]>) -> 
             usize::from(b[0xe7]),
             "size",
         )?,
-        voices: (voice_base != 0)
-            .then(|| {
-                voices(
-                    usual.context("voiced enemy needs resident battle archive")?,
-                    voice_base,
-                    party,
-                )
-            })
-            .transpose()?,
+        voices: read_voices(voice_base, party)?,
         death_motion: b[0x9c],
         overlimit_bone,
         overlimit_scale: float(b, 0xb0)?,

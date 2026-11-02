@@ -96,18 +96,18 @@ pub use profile::CompanionLimits as Limits;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContactSounds {
-    pub water: u8,
-    pub wind: u8,
-    pub fire: u8,
-    pub earth: u8,
-    pub lightning: u8,
-    pub ice: u8,
-    pub light: u8,
-    pub darkness: u8,
+    pub water: u16,
+    pub wind: u16,
+    pub fire: u16,
+    pub earth: u16,
+    pub lightning: u16,
+    pub ice: u16,
+    pub light: u16,
+    pub darkness: u16,
 }
 
-impl From<[u8; 8]> for ContactSounds {
-    fn from([water, wind, fire, earth, lightning, ice, light, darkness]: [u8; 8]) -> Self {
+impl From<[u16; 8]> for ContactSounds {
+    fn from([water, wind, fire, earth, lightning, ice, light, darkness]: [u16; 8]) -> Self {
         Self {
             water,
             wind,
@@ -121,7 +121,7 @@ impl From<[u8; 8]> for ContactSounds {
     }
 }
 
-impl From<ContactSounds> for [u8; 8] {
+impl From<ContactSounds> for [u16; 8] {
     fn from(v: ContactSounds) -> Self {
         [
             v.water,

@@ -25,8 +25,8 @@ pub struct Model {
 
 impl Rig {
     pub fn joint_names(&self) -> Vec<String> {
-        // These shared gameplay anchors have stable names in both cooks.
-        // Normalize before writing either the body or its animation tracks.
+        // Normalize gameplay anchor spelling before writing either the body
+        // or its animation tracks.
         static NAMES: std::sync::LazyLock<std::collections::BTreeMap<String, String>> =
             std::sync::LazyLock::new(|| {
                 serde_json::from_str(include_str!("model/joint-names.json")).unwrap()
