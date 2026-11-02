@@ -134,6 +134,14 @@ pub fn prepare_resources(
                         priority: resonance_battle::VoicePriority::Action,
                     }
                 }
+                Event::VoiceChoice(choice) => AttackEvent::VoiceChoice {
+                    choice: resolver.choice(
+                        super::model::ModelSource::Party(actor.character),
+                        *choice,
+                        &mut *sound,
+                    )?,
+                    priority: resonance_battle::VoicePriority::Action,
+                },
                 Event::Effect(member) => {
                     let common = actor.common.context("missing normal attack effect bank")?;
                     let appearance = resources.effect_member(common, *member)?;
@@ -262,6 +270,7 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
         | Event::Throw { .. }
         | Event::Sound(_)
         | Event::Voice(_)
+        | Event::VoiceChoice(_)
         | Event::Effect(_) => {
             anyhow::bail!("attack event requires actor resources")
         }

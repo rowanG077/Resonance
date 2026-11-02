@@ -286,53 +286,7 @@ pub fn cook_battle_party_rules(root: &Path, library: &Path) -> Result<()> {
             })
             .collect::<Result<_>>()?,
     };
-    #[derive(serde::Deserialize)]
-    struct Name {
-        name: String,
-        variants: BTreeMap<u8, String>,
-    }
-    let named: BTreeMap<u16, Name> =
-        serde_json::from_str(include_str!("battle-martial-names.json"))?;
-    let mut mappings = BTreeMap::new();
-    let mut techniques = BTreeMap::new();
-    for (&id, member) in &table.martial_attacks.members {
-        let name = named
-            .get(&id)
-            .map(|v| v.name.clone())
-            .unwrap_or_else(|| format!("action-{id}"));
-        let variants = member
-            .variants
-            .keys()
-            .map(|&variant| {
-                (
-                    variant,
-                    named
-                        .get(&id)
-                        .and_then(|v| v.variants.get(&variant))
-                        .cloned()
-                        .unwrap_or_else(|| format!("variant-{variant}")),
-                )
-            })
-            .collect();
-        ensure!(
-            techniques
-                .insert(
-                    name.clone(),
-                    resonance_content::battle_martial::document::Technique::from_member(
-                        member.clone(),
-                        variants
-                    )?
-                )
-                .is_none(),
-            "duplicate martial name"
-        );
-        mappings.insert(u32::from(id), name);
-    }
-    let martial = resonance_content::battle_martial::document::Catalogue {
-        mappings: Mappings::new(mappings)?,
-        bindings: table.martial_attacks.bindings.clone(),
-        techniques,
-    };
+    let martial = crate::battle_party_martial::document(&table.martial_attacks)?;
     let party = Party::from_table(
         table,
         resonance_content::battle_rules::NORMAL_ATTACKS.into(),

@@ -1,5 +1,5 @@
 //! Decode the shared party action directory into native attack events.
-use crate::battle_party_native::{float, half, member, signed, vector, word};
+use crate::battle_party_native::{float, half, member, signed, word};
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_action::WeaponSlot;
 use resonance_content::{
@@ -12,6 +12,17 @@ use resonance_content::{
 use std::collections::BTreeMap;
 
 pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> {
+    let values = |offset, count| -> Result<Vec<f32>> {
+        let bytes = module.tail(4, offset)?;
+        (0..count).map(|index| float(bytes, index * 4)).collect()
+    };
+    let source = Source {
+        projectiles: member(usual, 7)?,
+        hammer_volley: values(0x4018, 5)?.try_into().unwrap(),
+        hammer_ring: values(0x31f0, 9)?.try_into().unwrap(),
+        steal: values(0x3540, 4)?.try_into().unwrap(),
+        voice,
+    };
     let directory = member(usual, 8)?;
     let count = word(directory, 0)? as usize;
     ensure!(
@@ -50,7 +61,7 @@ pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> 
                 if half(bytes, 16 + variant * 28)? == 0 {
                     continue;
                 }
-                let prepared = prepare(id, variant, bytes, usual, module);
+                let prepared = prepare(id, variant, bytes, &source);
                 variants.insert(
                     variant
                         .try_into()
@@ -77,6 +88,14 @@ pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> 
             },
         );
     }
+    Ok(Catalogue {
+        members,
+        bindings: bindings(),
+    })
+}
+
+/// Shared action-track ownership; importers still read their own learning lists.
+pub fn bindings() -> BTreeMap<u16, BTreeMap<u8, Binding>> {
     let mut bindings: BTreeMap<u16, BTreeMap<u8, Binding>> = [
         1, 2, 4, 6, 10, 11, 12, 13, 17, 20, 35, 40, 45, 207, 208, 209, 210, 223,
     ]
@@ -137,19 +156,33 @@ pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> 
     for (catalogue, member) in (176..=191).zip(112..=127).chain((195..=201).zip(131..=137)) {
         bind(catalogue, member, 8, 0);
     }
-    Ok(Catalogue { members, bindings })
+    bindings
 }
 
-fn prepare(
-    id: u16,
-    variant: usize,
-    bytes: &[u8],
-    usual: &[u8],
-    module: &crate::rel::Rel,
-) -> Result<Attack> {
-    let mut action = attack(id, variant, bytes, false)
+/// Source-owned constants and voice storage. Numeric action rows are canonical BE.
+pub struct Source<'a> {
+    pub projectiles: &'a [u8],
+    pub hammer_volley: [f32; 5],
+    pub hammer_ring: [f32; 9],
+    pub steal: [f32; 4],
+    pub voice: fn(&[u8]) -> Result<(Event, usize)>,
+}
+
+fn voice(bytes: &[u8]) -> Result<(Event, usize)> {
+    ensure!(
+        half(bytes, 2)? == 27 && half(bytes, 6)? == 2,
+        "unsupported martial voice priority"
+    );
+    Ok((
+        Event::Voice(crate::battle_party_native::sound(half(bytes, 4)?)),
+        8,
+    ))
+}
+
+pub fn prepare(id: u16, variant: usize, bytes: &[u8], source: &Source<'_>) -> Result<Attack> {
+    let mut action = attack(id, variant, bytes, false, source.voice)
         .with_context(|| format!("martial action {id}, variant {variant}"))?;
-    let projectiles = member(usual, 7)?;
+    let projectiles = source.projectiles;
     const PROJECTILE_BYTES: usize = 400;
     for (_, event) in &mut action.events {
         if let Event::Projectile {
@@ -170,10 +203,10 @@ fn prepare(
             .context("missing Grave Blade recoil")?;
     }
     if matches!(id, 40..=42) {
-        action.hammer = Some(hammer(id, usual, module, bytes, &action)?);
+        action.hammer = Some(hammer(id, source, bytes, &action)?);
     }
     if matches!(id, 43 | 44) {
-        action.steal = Some(steal(id, usual, module, bytes, &action)?);
+        action.steal = Some(steal(id, source, bytes, &action)?);
     }
     use resonance_content::battle_projectile::DamageKind;
     let template_hits: &[(u8, usize)] = match id {
@@ -224,7 +257,13 @@ fn prepare(
     Ok(action)
 }
 
-fn attack(id: u16, variant: usize, bytes: &[u8], steal_success: bool) -> Result<Attack> {
+fn attack(
+    id: u16,
+    variant: usize,
+    bytes: &[u8],
+    steal_success: bool,
+    voice: fn(&[u8]) -> Result<(Event, usize)>,
+) -> Result<Attack> {
     let offsets = [
         word(bytes, 0)?,
         word(bytes, 4)?,
@@ -254,7 +293,7 @@ fn attack(id: u16, variant: usize, bytes: &[u8], steal_success: bool) -> Result<
         .and_then(|rows| rows.get(variant * VARIANT_BYTES..(variant + 1) * VARIANT_BYTES))
         .context("missing martial variant")?;
     let mut events = Vec::new();
-    let mut pose_sequence = matches!(id, 114..=117 | 131 | 133 | 138..=140).then(Vec::new);
+    let mut pose_sequence = matches!(id, 114..=117 | 131 | 133 | 135 | 138..=140).then(Vec::new);
     let mut holds = Vec::new();
     let mut finish_pose = None;
     let mut cursor = word(row, 20)? as usize * 12;
@@ -434,13 +473,7 @@ fn attack(id: u16, variant: usize, bytes: &[u8], steal_success: bool) -> Result<
                         8,
                     )
                 }
-                27 => {
-                    ensure!(operand(6)? == 2, "unsupported martial voice priority");
-                    (
-                        Event::Voice(crate::battle_party_native::sound(operand(4)?)),
-                        8,
-                    )
-                }
+                27 | 42 => voice(&commands[cursor..])?,
                 28 => {
                     ensure!(operand(6)? == 0, "unsupported martial sound mode");
                     (Event::Sound(operand(4)?), 8)
@@ -639,8 +672,7 @@ pub(crate) fn projectile_hit(
 
 fn hammer(
     id: u16,
-    usual: &[u8],
-    module: &crate::rel::Rel,
+    source: &Source<'_>,
     bytes: &[u8],
     primary: &Attack,
 ) -> Result<resonance_content::battle_martial::Hammer> {
@@ -653,7 +685,7 @@ fn hammer(
     } else {
         all_rules
     };
-    let projectiles = member(usual, 7)?;
+    let projectiles = source.projectiles;
     const HAMMER_PROJECTILE: usize = 7;
     const PROJECTILE_BYTES: usize = 400;
     let projectile = projectiles
@@ -664,7 +696,7 @@ fn hammer(
     let impact_sound = half(rules, 16)?;
     let pattern = match id {
         40 => {
-            let alternate = attack(40, 1, bytes, false)?;
+            let alternate = attack(40, 1, bytes, false, source.voice)?;
             ensure!(
                 (
                     primary.duration,
@@ -685,23 +717,33 @@ fn hammer(
             }
         }
         41 => {
-            let data = module.tail(4, 0x4018)?;
+            let [x, y, z, forward, jitter] = source.hammer_volley;
             HammerPattern::Volley {
-                offset: vector(data, 0)?,
-                forward: float(data, 12)?,
-                jitter: float(data, 16)?,
+                offset: [x, y, z],
+                forward,
+                jitter,
             }
         }
         42 => {
-            let data = module.tail(4, 0x31f0)?;
+            let [
+                x,
+                y,
+                z,
+                radians,
+                step,
+                speed,
+                speed_jitter,
+                lift,
+                lift_jitter,
+            ] = source.hammer_ring;
             HammerPattern::Ring {
-                offset: vector(data, 0)?,
-                radians: float(data, 12)?,
-                step: float(data, 16)?,
-                speed: float(data, 20)?,
-                speed_jitter: float(data, 24)?,
-                lift: float(data, 28)?,
-                lift_jitter: float(data, 32)?,
+                offset: [x, y, z],
+                radians,
+                step,
+                speed,
+                speed_jitter,
+                lift,
+                lift_jitter,
                 opening_hit: crate::battle_party_native::hit_rule(
                     all_rules,
                     0,
@@ -764,12 +806,11 @@ fn following_stream(
 
 fn steal(
     id: u16,
-    usual: &[u8],
-    module: &crate::rel::Rel,
+    source: &Source<'_>,
     bytes: &[u8],
     primary: &Attack,
 ) -> Result<resonance_content::battle_martial::Steal> {
-    let success = attack(id, 0, bytes, true)?;
+    let success = attack(id, 0, bytes, true, source.voice)?;
     let opening_blend = primary
         .events
         .iter()
@@ -782,19 +823,13 @@ fn steal(
         .get(word(bytes, 0)? as usize..word(bytes, 4)? as usize)
         .context("missing Item Thief hit rules")?;
     ensure!(rules.len() == 3 * 28, "invalid Item Thief hit count");
-    let projectiles = member(usual, 7)?;
+    let projectiles = source.projectiles;
     const HAMMER_PROJECTILE: usize = 7;
     const PROJECTILE_BYTES: usize = 400;
     let projectile = projectiles
         .get(HAMMER_PROJECTILE * PROJECTILE_BYTES..(HAMMER_PROJECTILE + 1) * PROJECTILE_BYTES)
         .context("missing Item Thief bonus projectile")?;
-    let parameters = module.tail(4, 0x3540)?;
-    let [zero, height, speed, jitter] = [
-        float(parameters, 0)?,
-        float(parameters, 4)?,
-        float(parameters, 8)?,
-        float(parameters, 12)?,
-    ];
+    let [zero, height, speed, jitter] = source.steal;
     ensure!(jitter >= 0., "invalid Item Thief bonus motion");
     Ok(resonance_content::battle_martial::Steal {
         attempt_at: 60 + opening_blend,
@@ -810,5 +845,59 @@ fn steal(
         bonus_offset: [zero, zero, height],
         bonus_forward_speed: speed,
         bonus_velocity_jitter: [jitter; 3],
+    })
+}
+
+/// Both importers use the same named, editable technique document.
+pub fn document(
+    catalogue: &Catalogue,
+) -> Result<resonance_content::battle_martial::document::Catalogue> {
+    use resonance_content::library::Mappings;
+    #[derive(serde::Deserialize)]
+    struct Name {
+        name: String,
+        variants: BTreeMap<u8, String>,
+    }
+    let named: BTreeMap<u16, Name> =
+        serde_json::from_str(include_str!("battle-martial-names.json"))?;
+    let mut mappings = BTreeMap::new();
+    let mut techniques = BTreeMap::new();
+    for (&id, member) in &catalogue.members {
+        let name = named
+            .get(&id)
+            .map(|v| v.name.clone())
+            .unwrap_or_else(|| format!("action-{id}"));
+        let variants = member
+            .variants
+            .keys()
+            .map(|&variant| {
+                (
+                    variant,
+                    named
+                        .get(&id)
+                        .and_then(|v| v.variants.get(&variant))
+                        .cloned()
+                        .unwrap_or_else(|| format!("variant-{variant}")),
+                )
+            })
+            .collect();
+        ensure!(
+            techniques
+                .insert(
+                    name.clone(),
+                    resonance_content::battle_martial::document::Technique::from_member(
+                        member.clone(),
+                        variants
+                    )?
+                )
+                .is_none(),
+            "duplicate martial name"
+        );
+        mappings.insert(u32::from(id), name);
+    }
+    Ok(resonance_content::battle_martial::document::Catalogue {
+        mappings: Mappings::new(mappings)?,
+        bindings: catalogue.bindings.clone(),
+        techniques,
     })
 }

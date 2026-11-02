@@ -176,6 +176,10 @@ pub enum AttackEvent {
         sound: Sound,
         priority: crate::VoicePriority,
     },
+    VoiceChoice {
+        choice: resonance_content::battle_voice::Choice,
+        priority: crate::VoicePriority,
+    },
     Sound(Option<Sound>),
     Move {
         forward: Option<f32>,
@@ -601,6 +605,7 @@ impl PreparedAttack {
                     "invalid carried animation rate"
                 ),
                 AttackEvent::UseItem(item) => ensure!(*item != 0, "empty enemy item identity"),
+                AttackEvent::VoiceChoice { choice, .. } => choice.validate()?,
                 AttackEvent::Voice { .. }
                 | AttackEvent::FaceTarget
                 | AttackEvent::Notice { .. }
@@ -1463,6 +1468,12 @@ pub(crate) fn step(
                     highlighted: highlighted_trail,
                 });
             }
+            AttackEvent::VoiceChoice { choice, priority } => {
+                let roll = (battle.random.next_u16() % 100) as u8;
+                if let Some(sound) = choice.select(roll) {
+                    battle.request_voice(actor, sound, *priority);
+                }
+            }
             AttackEvent::Voice { sound, priority } => {
                 battle.request_action_voice(
                     actor,
@@ -1827,6 +1838,7 @@ pub(crate) fn step(
                 AttackEvent::Notice { .. }
                     | AttackEvent::Trail { .. }
                     | AttackEvent::Voice { .. }
+                    | AttackEvent::VoiceChoice { .. }
                     | AttackEvent::Sound(_)
                     | AttackEvent::Pose(_)
                     | AttackEvent::PartialPose { .. }
@@ -1917,6 +1929,41 @@ mod tests {
             action: crate::ActionKey(0),
         }
         .into()
+    }
+
+    #[test]
+    fn weighted_action_voice_selects_one_line_and_validates_probability() -> Result<()> {
+        use resonance_content::battle_voice::Choice;
+        let event = |first_chance| AttackEvent::VoiceChoice {
+            choice: Choice {
+                sounds: [Some(Sound::Stream(11)), Some(Sound::Stream(22))],
+                first_chance,
+            },
+            priority: crate::VoicePriority::Action,
+        };
+        for (chance, expected) in [(0, Sound::Stream(22)), (100, Sound::Stream(11))] {
+            let mut battle = movement_battle(vec![(0, event(chance))])?;
+            let frame = battle.step(movement_request())?;
+            let lines: Vec<_> = frame
+                .cues
+                .iter()
+                .filter_map(|cue| match cue {
+                    Cue::Voice {
+                        sound, priority, ..
+                    } => Some((*sound, *priority)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(lines, [(expected, crate::VoicePriority::Action)]);
+        }
+        assert!(movement_battle(vec![(0, event(101))]).is_err());
+        let choice = Choice {
+            sounds: [Some(Sound::Stream(11)), None],
+            first_chance: 75,
+        };
+        assert_eq!(choice.select(74), Some(Sound::Stream(11)));
+        assert_eq!(choice.select(75), None);
+        Ok(())
     }
 
     #[test]

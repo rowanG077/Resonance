@@ -115,7 +115,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     )
 }
 
-fn canonical(bytes: &[u8], width: usize, fields: &[(usize, usize)]) -> Result<Vec<u8>> {
+pub(crate) fn canonical(bytes: &[u8], width: usize, fields: &[(usize, usize)]) -> Result<Vec<u8>> {
     ensure!(bytes.len().is_multiple_of(width), "partial attack record");
     let mut bytes = bytes.to_vec();
     for row in bytes.chunks_exact_mut(width) {
@@ -192,7 +192,19 @@ fn half(bytes: &[u8], at: usize) -> Result<u16> {
     ))
 }
 
-fn voice(bytes: &[u8]) -> Result<(Event, usize)> {
+pub(crate) fn voice(bytes: &[u8]) -> Result<(Event, usize)> {
+    if half(bytes, 2)? == 42 {
+        ensure!(
+            (2..=3).contains(&half(bytes, 4)?),
+            "invalid voice-choice priority"
+        );
+        let choice = resonance_content::battle_voice::Choice {
+            first_chance: half(bytes, 6)?.try_into()?,
+            sounds: [sound(word(bytes, 8)?)?, sound(word(bytes, 12)?)?],
+        };
+        choice.validate()?;
+        return Ok((Event::VoiceChoice(choice), 16));
+    }
     ensure!(
         half(bytes, 2)? == 27 && (2..=3).contains(&word(bytes, 4)?),
         "invalid voice priority"

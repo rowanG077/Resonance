@@ -8,6 +8,26 @@ pub enum Sound {
     Stream(u16),
 }
 
+/// Choose one line when its action executes; an absent line is intentional silence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Choice {
+    pub sounds: [Option<Sound>; 2],
+    pub first_chance: u8,
+}
+
+impl Choice {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.first_chance <= 100, "voice probability exceeds 100");
+        Ok(())
+    }
+
+    /// `roll` is in 0..100.
+    pub fn select(&self, roll: u8) -> Option<Sound> {
+        self.sounds[usize::from(roll >= self.first_chance)]
+    }
+}
+
 /// Authored scene time is independent of the decoded audio clip's length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimedVoice {

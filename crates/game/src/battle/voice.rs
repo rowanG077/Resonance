@@ -88,6 +88,19 @@ impl<'a> Resolver<'a> {
         self.select(actor, |_| line, resolve)
     }
 
+    pub fn choice(
+        &self,
+        actor: ModelSource,
+        mut choice: battle_voice::Choice,
+        mut resolve: impl FnMut(Sound) -> Result<Option<Sound>>,
+    ) -> Result<battle_voice::Choice> {
+        choice.validate()?;
+        for sound in &mut choice.sounds {
+            *sound = self.absolute(actor, *sound, &mut resolve)?;
+        }
+        Ok(choice)
+    }
+
     /// An unvoiced actor or absent choice produces no request.
     pub fn select(
         &self,

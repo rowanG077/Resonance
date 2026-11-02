@@ -85,6 +85,7 @@ pub enum Event<H = ActionHit> {
     },
     Sound(u16),
     Voice(Option<Sound>),
+    VoiceChoice(crate::battle_voice::Choice),
 }
 
 impl<H> Event<H> {

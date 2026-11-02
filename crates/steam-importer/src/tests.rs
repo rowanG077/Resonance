@@ -8,8 +8,71 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally writes RESONANCE_TEST_LIBRARY"]
+fn installed_martial_actions_use_shared_decoder_and_documents() -> Result<()> {
+    use resonance_content::{
+        battle_martial::document::Catalogue, battle_normal::Event, battle_voice::Sound,
+    };
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let catalogue = battle_martial::read(&source)?;
+    let document = resonance_importer::martial_attack_document(&catalogue)?;
+    let encoded = resonance_asset_writer::json::encode(&document)?;
+    let prepared = serde_json::from_slice::<Catalogue>(&encoded)?.prepare()?;
+    assert_eq!(
+        serde_json::to_value(&catalogue)?,
+        serde_json::to_value(&prepared)?
+    );
+    assert_eq!(prepared.members.len(), 125);
+    for (technique, character) in [
+        (1, 1),
+        (2, 1),
+        (4, 1),
+        (40, 2),
+        (41, 2),
+        (42, 2),
+        (45, 2),
+        (223, 2),
+        (224, 2),
+        (125, 5),
+        (207, 6),
+        (207, 9),
+        (154, 7),
+        (176, 8),
+        (196, 8),
+        (198, 8),
+        (199, 8),
+        (30, 1),
+    ] {
+        let action = prepared
+            .attack(technique, character)
+            .with_context(|| format!("technique {technique}, character {character}"))?;
+        assert!(action.duration > 0);
+        assert!(!action.events.is_empty());
+    }
+    assert!(prepared.attack(45,2)?.events.iter().any(|(_, event)| matches!(event,
+        Event::VoiceChoice(choice) if choice.first_chance == 75 && choice.sounds == [Some(Sound::Stream(144)), Some(Sound::Stream(179))])));
+    assert_eq!(prepared.bindings[&260][&7].member, 146);
+    assert_eq!(prepared.bindings[&261][&7].member, 147);
+    assert!(!prepared.bindings.contains_key(&253));
+    let temporary = tempfile::tempdir()?;
+    let root = std::env::var_os("RESONANCE_TEST_LIBRARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_owned());
+    battle_martial::cook(&source, &root)?;
+    let written: Catalogue = json(&root, battle_rules::MARTIAL_ATTACKS)?;
+    assert_eq!(
+        serde_json::to_value(written)?,
+        serde_json::to_value(document)?
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked stream audio"]
-fn installed_party_speech_covers_normal_attack_voices() -> Result<()> {
+fn installed_party_speech_covers_attack_voices() -> Result<()> {
     use resonance_content::{
         battle_normal::{Event, document::NormalAttacks},
         battle_voice::Sound,
@@ -24,8 +87,38 @@ fn installed_party_speech_covers_normal_attack_voices() -> Result<()> {
     let source = source::Source::open(&installation, Language::English)?;
     battle_normal::cook(&source, &root)?;
     battle_voices::cook(&source, &root)?;
+    battle_martial::cook(&source, &root)?;
     let attacks =
         json::<NormalAttacks>(&root, resonance_content::battle_rules::NORMAL_ATTACKS)?.prepare()?;
+    let martial = json::<resonance_content::battle_martial::document::Catalogue>(
+        &root,
+        resonance_content::battle_rules::MARTIAL_ATTACKS,
+    )?
+    .prepare()?;
+    let mut events: Vec<_> = attacks
+        .iter()
+        .flatten()
+        .flat_map(|attack| attack.events.iter().map(|(_, event)| event))
+        .collect();
+    for member in martial.members.values() {
+        for action in member.variants.values() {
+            let resonance_content::battle_scene::SceneAction::Prepared(attack) = action else {
+                continue;
+            };
+            events.extend(attack.events.iter().map(|(_, event)| event));
+            if let Some(hammer) = &attack.hammer {
+                if let resonance_content::battle_martial::HammerPattern::Single {
+                    alternate_events,
+                } = &hammer.pattern
+                {
+                    events.extend(alternate_events.iter().map(|(_, event)| event));
+                }
+            }
+            if let Some(steal) = &attack.steal {
+                events.extend(steal.success_events.iter().map(|(_, event)| event));
+            }
+        }
+    }
     for language in ["english", "japanese"] {
         let voices: speech::Mappings =
             json(&root, &format!("audio/speech/{language}/mappings.json"))?;
@@ -42,21 +135,20 @@ fn installed_party_speech_covers_normal_attack_voices() -> Result<()> {
             count += 1;
         }
         assert!(count > 100);
-        for attack in attacks.iter().flatten() {
-            for (_, event) in &attack.events {
-                let lines = match event {
-                    Event::Voice(sound) => vec![*sound],
-                    _ => continue,
+        for event in &events {
+            let lines = match event {
+                Event::Voice(sound) => [*sound, None],
+                Event::VoiceChoice(choice) => choice.sounds,
+                _ => continue,
+            };
+            for line in lines.into_iter().flatten() {
+                let Sound::Stream(id) = line else {
+                    anyhow::bail!("party speech was not normalized");
                 };
-                for line in lines.into_iter().flatten() {
-                    let Sound::Stream(id) = line else {
-                        anyhow::bail!("party speech was not normalized");
-                    };
-                    assert!(
-                        voices.contains_key(&u32::from(id)),
-                        "missing {language} normal voice {id}"
-                    );
-                }
+                assert!(
+                    voices.contains_key(&u32::from(id)),
+                    "missing {language} attack voice {id}"
+                );
             }
         }
         eprintln!("Loaded {count} {language} party voice recordings");

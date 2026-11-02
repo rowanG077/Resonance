@@ -87,6 +87,14 @@ pub(super) fn prepare(
                     priority: resonance_battle::VoicePriority::Action,
                 }
             }
+            Event::VoiceChoice(choice) => AttackEvent::VoiceChoice {
+                choice: resources.voices.choice(
+                    crate::battle::model::ModelSource::Party(actor.character),
+                    *choice,
+                    &mut resources.sound,
+                )?,
+                priority: resonance_battle::VoicePriority::Action,
+            },
             Event::Effect(member) => AttackEvent::ActionEffect {
                 appearance: resources.prepared.effect_member(bank, *member)?,
                 origin: resonance_battle::AttackOrigin::ActorRoot,

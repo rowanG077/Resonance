@@ -29,6 +29,10 @@ mod battle_font;
 mod battle_formations;
 mod battle_party_mappings;
 mod battle_party_martial;
+pub use battle_party_martial::{
+    Source as MartialAttackSource, bindings as martial_attack_bindings,
+    document as martial_attack_document, prepare as decode_martial_attack,
+};
 mod battle_party_model;
 mod battle_party_native;
 mod battle_party_normal;

@@ -209,6 +209,7 @@ pub(crate) fn map_hits<H, T>(
         Event::Trail { slot, duration } => Event::Trail { slot, duration },
         Event::Sound(v) => Event::Sound(v),
         Event::Voice(v) => Event::Voice(v),
+        Event::VoiceChoice(v) => Event::VoiceChoice(v),
     })
 }
 

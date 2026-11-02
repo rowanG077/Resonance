@@ -649,8 +649,26 @@
       "0": "regal"
     }
   },
+  "132": {
+    "name": "dragon-strike",
+    "variants": {
+      "0": "regal"
+    }
+  },
   "133": {
     "name": "crescent-dark-moon",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "134": {
+    "name": "heaven-rising",
+    "variants": {
+      "0": "regal"
+    }
+  },
+  "135": {
+    "name": "dragons-talon",
     "variants": {
       "0": "regal"
     }
@@ -712,6 +730,48 @@
     "variants": {
       "0": "variant-0",
       "1": "variant-1"
+    }
+  },
+  "146": {
+    "name": "infernal-ruin",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "147": {
+    "name": "crimson-devastation",
+    "variants": {
+      "0": "presea"
+    }
+  },
+  "148": {
+    "name": "holy-binds-kratos",
+    "variants": {
+      "0": "kratos"
+    }
+  },
+  "149": {
+    "name": "sword-rain-tempest",
+    "variants": {
+      "0": "lloyd"
+    }
+  },
+  "150": {
+    "name": "guardian-field",
+    "variants": {
+      "0": "kratos"
+    }
+  },
+  "151": {
+    "name": "holy-binds-zelos",
+    "variants": {
+      "0": "zelos"
+    }
+  },
+  "152": {
+    "name": "final-fury",
+    "variants": {
+      "0": "regal"
     }
   }
 }

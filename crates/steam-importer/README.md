@@ -28,8 +28,8 @@ reader. The shared gameplay loader now initializes a party and saves/restores th
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
 capture still has backdrop gaps and unresolved decorative bone lookups. Later
-fields and battle remain unfinished. Seven additional passes now cook
-skits, portraits, movies, field service models, normal attacks, party speech and
+fields and battle remain unfinished. Eight additional passes now cook
+skits, portraits, movies, field service models, normal attacks, party speech, martial actions and
 field audio against that library. Native
 opening-field execution reaches player control. The shared checkpoint check
 passes save/reload, movement, invalid-load rejection and early village/classroom
@@ -171,7 +171,7 @@ with fields when the native model descriptor agrees; identical rigs and source
 motions share GLBs across costumes. All selections prepare through the common
 battle-model reader with strict diagnostics. This pass adds no engine behavior.
 Story override banks, expressions, secondary motion, victory performances,
-party combat profiles and arte rules still need their owners.
+party combat profiles and callback-driven arte rules still need their owners.
 
 All 63 directional normal attacks now use the GC normal-attack decoder and its
 named document writer. The Steam owner only normalizes numeric storage, voice
@@ -181,8 +181,17 @@ GC party-table regression also passes through this shared decoder.
 
 The 18 party ABNF banks write 223 ordinary WAV recordings per voice language,
 using the existing ADX converter and speech mappings. Every voice referenced by
-the normal attacks resolves in both English and Japanese. These passes change
-no engine behavior; playable encounters still need the remaining battle owners.
+the prepared normal and martial attacks resolves in both English and Japanese.
+
+The martial pass retains all 125 nonempty native members and prepares 146 action
+tracks through the GC decoder and named document writer, including the added
+ordinary sword/kick artes and Colette's hammer/theft branches. Named documents
+round-trip every decoded field through the shared reader. One small shared voice
+choice event preserves the weighted lines actually used by these tracks. Native
+voice widths, packed sound IDs and executable launch constants stay in the importer;
+there is no runtime edition flag. Grand Fall, five non-track callback members and
+six added callback-driven actions remain explicitly unsupported. Party profiles,
+projectiles/effects and encounter owners still need conversion before battles play.
 The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.
 A temporary French overlay also loads through that same path with UTF-8 names.
