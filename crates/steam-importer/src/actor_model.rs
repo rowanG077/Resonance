@@ -1,6 +1,6 @@
 //! One actor package writes its ordinary model, clips, textures and collision.
 use crate::{animation::Animation, field_core, model, output, package::Package, source::Source};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use resonance_content::{
     CullFace, SceneClip, ScenePart,
     animation::Skeleton,
@@ -92,9 +92,10 @@ pub(crate) fn cook(
         None
     };
     let hidden_geometry = native
+        .rig
         .nodes
         .iter()
-        .zip(native.joint_names())
+        .zip(native.rig.joint_names())
         .filter_map(|(node, name)| {
             (!node.visible || name.to_ascii_lowercase().starts_with("kk")).then_some(name)
         })
@@ -122,25 +123,32 @@ fn cook_clips(
         let Some(name) = package.reference(slot)? else {
             continue;
         };
-        if name.to_ascii_lowercase().ends_with(".bin") {
-            // Actor collision occupies the last two slots; a few older packages
-            // also retain legacy motion streams, handled by their own decoder.
-            ensure!(
-                slot == 29 || slot == 30,
-                "legacy actor motion {name} is not converted yet"
-            );
+        if matches!(slot, 29 | 30) && name.to_ascii_lowercase().ends_with(".bin") {
             continue;
         }
-        ensure!(
-            name.to_ascii_lowercase().ends_with(".toanmb"),
-            "unknown actor member {name}"
-        );
-        let animation = Animation::read(&source.require(name)?)?;
+        let bytes = source.require(name)?;
+        let motion = match name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("bin") => crate::legacy_motion::convert(
+                &bytes,
+                &fs::read(library.join(&part.mesh))?,
+                &native
+                    .rig
+                    .nodes
+                    .iter()
+                    .map(|n| n.name.clone())
+                    .collect::<Vec<_>>(),
+            )?,
+            Some("toanmb") => Animation::read(&bytes)?
+                .bind(&native.rig, &skeleton)?
+                .encode(&skeleton)?,
+            _ => anyhow::bail!("unknown actor member {name}"),
+        };
         let path = format!("{owner}/animations/{label}-motion-{}.glb", 4 + slot * 4);
-        output::write(
-            &library.join(&path),
-            &animation.bind(native, &skeleton)?.encode(&skeleton)?,
-        )?;
+        output::write(&library.join(&path), &motion)?;
         part.clips.push(SceneClip {
             motion: path,
             resource_slot: (4 + slot * 4).try_into()?,

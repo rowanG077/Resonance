@@ -125,6 +125,7 @@ pub use world_gpl::animation_bindings as model_animation_bindings;
 mod world_landmarks;
 mod world_markers;
 mod world_motion;
+pub use compression::decode as expand_resource;
 pub use world_motion::encode_bound as convert_motion;
 mod world_movement;
 mod world_script;

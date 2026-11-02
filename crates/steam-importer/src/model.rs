@@ -12,14 +12,18 @@ pub(super) use mesh::Mesh;
 pub(super) use skeleton::Node;
 pub(crate) use write::cook;
 
-pub struct Model {
+pub struct Rig {
     pub nodes: Vec<Node>,
     pub animation_bindings: Vec<(u32, u32)>,
+}
+
+pub struct Model {
+    pub rig: Rig,
     pub meshes: Vec<Mesh>,
     pub materials: Materials,
 }
 
-impl Model {
+impl Rig {
     pub fn joint_names(&self) -> Vec<String> {
         // These shared gameplay anchors have stable names in both cooks.
         // Normalize before writing either the body or its animation tracks.
@@ -41,12 +45,21 @@ impl Model {
         )
     }
 
+    pub fn read(descriptor: &[u8]) -> Result<Self> {
+        let source = Reader(descriptor);
+        let sections = sections(&source)?;
+        let pose = bindings::read(&source, sections[11])?;
+        Ok(Self {
+            nodes: skeleton::read(&source, sections[0], &pose)?,
+            animation_bindings: pose.channels,
+        })
+    }
+}
+
+impl Model {
     pub fn read(descriptor: &[u8], payload: &[u8]) -> Result<Self> {
         let source = Reader(descriptor);
-        ensure!(
-            descriptor.get(12..16) == Some(b"BLDM") && source.word(16)? == 210,
-            "unsupported Steam model descriptor"
-        );
+        let sections = sections(&source)?;
         let dependencies = package::dependencies(descriptor)?;
         ensure!(
             dependencies
@@ -54,16 +67,7 @@ impl Model {
                 .is_some_and(|name| name.to_ascii_lowercase().ends_with(".tomdlp_p")),
             "Steam model has no geometry payload binding"
         );
-        let mut sections = [0; 12];
-        for (i, section) in sections.iter_mut().enumerate() {
-            *section = source.relative(20 + i * 4)?;
-            ensure!(
-                (68..descriptor.len()).contains(section),
-                "model section exceeds descriptor"
-            );
-        }
-        let pose = bindings::read(&source, sections[11])?;
-        let nodes = skeleton::read(&source, sections[0], &pose)?;
+        let rig = Rig::read(descriptor)?;
         let materials = material::read(&source, sections[7])?;
         for texture in &materials.textures {
             let descriptor = format!("{}.totexb_d", texture.name);
@@ -78,16 +82,31 @@ impl Model {
             &source,
             sections[6],
             payload,
-            &nodes,
+            &rig.nodes,
             materials.records.len(),
         )?;
         Ok(Self {
-            nodes,
-            animation_bindings: pose.channels,
+            rig,
             meshes,
             materials,
         })
     }
+}
+
+fn sections(source: &Reader<'_>) -> Result<[usize; 12]> {
+    ensure!(
+        source.0.get(12..16) == Some(b"BLDM") && source.word(16)? == 210,
+        "unsupported Steam model descriptor"
+    );
+    let mut sections = [0; 12];
+    for (i, section) in sections.iter_mut().enumerate() {
+        *section = source.relative(20 + i * 4)?;
+        ensure!(
+            (68..source.0.len()).contains(section),
+            "model section exceeds descriptor"
+        );
+    }
+    Ok(sections)
 }
 
 struct Reader<'a>(&'a [u8]);

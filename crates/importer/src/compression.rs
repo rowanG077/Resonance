@@ -23,7 +23,7 @@ pub(crate) fn cabinet(bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Expand the small native LZ resource wrapper used by motion members.
-pub(crate) fn decode(data: &[u8]) -> Result<Vec<u8>> {
+pub fn decode(data: &[u8]) -> Result<Vec<u8>> {
     let header = data.get(..9).context("truncated compressed resource")?;
     let packed = u32::from_le_bytes(header[1..5].try_into()?) as usize;
     let size = u32::from_le_bytes(header[5..9].try_into()?) as usize;

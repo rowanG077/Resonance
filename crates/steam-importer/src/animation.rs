@@ -201,7 +201,7 @@ mod tests {
     use super::*;
     use crate::{
         coordinates,
-        model::{Materials, Model, Node},
+        model::{Node, Rig},
     };
     use resonance_content::animation::{Motion, Skeleton, Transform};
 
@@ -243,7 +243,7 @@ mod tests {
             scale: [-2., 0., 3.],
             rotation: glam::Quat::from_rotation_y(0.7).to_array(),
         };
-        let native = Model {
+        let native = Rig {
             nodes: vec![Node {
                 binding: 7,
                 name: "root".into(),
@@ -255,8 +255,6 @@ mod tests {
                 inverse_bind: glam::Mat4::IDENTITY.to_cols_array(),
             }],
             animation_bindings: vec![(3, 7), (0x10014, 7), (0x20003, 7)],
-            meshes: Vec::new(),
-            materials: Materials::default(),
         };
         let mut skeleton = Skeleton::single("root");
         skeleton.bones[0].bind = coordinates::transform(rest);

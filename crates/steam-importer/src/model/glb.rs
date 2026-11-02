@@ -18,8 +18,9 @@ impl Model {
             tints.len() == self.materials.records.len(),
             "missing material tint"
         );
-        let names = self.joint_names();
+        let names = self.rig.joint_names();
         let mut nodes = self
+            .rig
             .nodes
             .iter()
             .enumerate()
@@ -29,7 +30,7 @@ impl Model {
                 })
             })
             .collect::<Vec<_>>();
-        for (i, node) in self.nodes.iter().enumerate() {
+        for (i, node) in self.rig.nodes.iter().enumerate() {
             // The pose buffer retains authored rotations even on collapsed
             // axes, and the original signs of mirrored scales.
             apply(&mut nodes[i], coordinates::transform(node.rest));
@@ -38,7 +39,7 @@ impl Model {
             }
         }
         let mut roots = Vec::new();
-        for (i, node) in self.nodes.iter().enumerate() {
+        for (i, node) in self.rig.nodes.iter().enumerate() {
             if let Some(parent) = node.parent {
                 nodes[usize::from(parent)]["children"]
                     .as_array_mut()
@@ -55,16 +56,18 @@ impl Model {
         if self.meshes.iter().any(|mesh| mesh.joints.is_some()) {
             let offset = gltf::append_floats(
                 &mut binary,
-                self.nodes
+                self.rig
+                    .nodes
                     .iter()
                     .flat_map(|n| coordinates::matrix(n.inverse_bind)),
             );
-            views.push(json!({"buffer":0,"byteOffset":offset,"byteLength":self.nodes.len()*64}));
+            views
+                .push(json!({"buffer":0,"byteOffset":offset,"byteLength":self.rig.nodes.len()*64}));
             accessors.push(
-                json!({"bufferView":0,"componentType":5126,"count":self.nodes.len(),"type":"MAT4"}),
+                json!({"bufferView":0,"componentType":5126,"count":self.rig.nodes.len(),"type":"MAT4"}),
             );
             skins.push(
-                json!({"joints":(0..self.nodes.len()).collect::<Vec<_>>(),"inverseBindMatrices":0}),
+                json!({"joints":(0..self.rig.nodes.len()).collect::<Vec<_>>(),"inverseBindMatrices":0}),
             );
         }
         let mut meshes = Vec::new();
@@ -142,7 +145,7 @@ impl Model {
         let mut document = json!({"asset":{"version":"2.0","generator":"resonance-import"},
             "scene":0,"scenes":[{"nodes":roots}],"nodes":nodes,"meshes":meshes,"skins":skins,
             "buffers":[{"byteLength":binary.len()}],"bufferViews":views,"accessors":accessors});
-        if self.nodes.iter().any(|node| !node.visible) {
+        if self.rig.nodes.iter().any(|node| !node.visible) {
             document["extensionsUsed"] = json!(["KHR_node_visibility"]);
         }
         gltf::pack_glb(&document, &binary)

@@ -1,4 +1,4 @@
-use super::super::{coordinates, model::Model};
+use super::super::{coordinates, model::Rig};
 use super::*;
 use resonance_content::animation::{Channel, FRAME_HZ, Motion, NodeTrack, Skeleton, Track};
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,7 +10,7 @@ const SOURCE_HZ: f32 = 60.;
 impl Animation {
     /// Bind node transforms to the common skeleton. Material and visibility
     /// channels are decoded, but their playback is not part of this pass.
-    pub fn bind(&self, model: &Model, skeleton: &Skeleton) -> Result<Motion> {
+    pub fn bind(&self, model: &Rig, skeleton: &Skeleton) -> Result<Motion> {
         ensure!(
             skeleton.bones.len() == model.nodes.len(),
             "Steam animation rig count differs"

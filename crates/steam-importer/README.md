@@ -16,7 +16,13 @@ GameCube extraction or old cooked library is needed. `--language` accepts
 resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
-**This is an incremental port, not yet a playable library.** Current passes write
+**This is an incremental port, not yet a playable library.** The latest full run
+completed all 15 implemented passes in 187 seconds and wrote entry points for all
+509 available fields. Nine field resource references are still unavailable or
+unconverted. The classroom and Asgard field documents assemble through the shared
+reader; startup and battle playability remain unverified.
+
+Current passes write
 the library descriptor, common script definitions, all 1,000 battle formations and
 736 encounter pools, recoil, 531 items, 255 native techniques plus the common
 elemental variants, field mappings/foraging, EX skills, and scripts/messages/collision
@@ -41,9 +47,19 @@ converted clip between fields that use the same source clip and rig. Unresolved
 script selectors use the existing shared dynamic-resource boundary.
 
 The Iselia classroom field (332), including its actors and selected motions,
-assembles through the current content reader. **The full cook currently stops at
-Asgard field 30 on an older retained motion stream**; that format still needs
-normalization into the shared motion converter. Dynamic animation-bank routes,
+assembles through the current content reader. Retained GC motion streams now
+normalize their little-endian tables and reuse the GC converter, preserving the
+original big-endian keys and tracks absent from the selected body. The Asgard
+and Iselia ranch packages that stopped earlier cooks pass the shared reader.
+Motion binding reads each source rig once without decoding geometry again;
+identical model packages share their existing cooked owner across fields.
+
+The manual, name editor and customization options are also written in the
+current GC document schemas, using the shared seven-button controls and host
+options. All five languages pass the document readers. The common name editor
+accepts localized names and edits character cells safely.
+
+Embedded legacy banks, legacy model packages and dynamic animation-bank routes,
 service actors, enemy documents, remaining game/menu rules and other media also
 remain incomplete. Material animation, face atlas selection and animated visibility
 remain pending. Party model defaults retain initial hidden geometry; scenery
@@ -57,8 +73,8 @@ from GameCube. Neither source requires a runtime edition flag. Field input check
 are adapted with ordinary bytecode expressions around the existing GC input
 native, including Steam's raw-press mode. Branch targets, event entries and message offsets are
 preserved when code grows. Source text encodings disappear into Unicode messages.
-Native skeletal motion timestamps are converted from 60 Hz to the common 30 Hz
-clock when cooked. Script seek times and sound-ID conventions still need
+TOANMB skeletal timestamps are converted from 60 Hz to the common 30 Hz clock
+when cooked; retained GC streams keep their authored GC clock. Script seek times and sound-ID conventions still need
 conversion with their media owners.
 
 Run parser tests with `cargo test -p resonance-steam-importer`. The focused installed
@@ -116,4 +132,11 @@ The global actor model conversion/load check uses installed Steam data only:
 
 ```sh
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_global_actor_models -- --ignored
+```
+
+For retained native curves and localized menu tables:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_retained_actor_motion -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_menu_settings -- --ignored
 ```

@@ -161,6 +161,29 @@ impl<'a> Bank<'a> {
         .0)
     }
 
+    pub(super) fn menu_paragraphs(&self, index: u32) -> Result<Vec<String>> {
+        let start = self
+            .strings
+            .get(index as usize)
+            .context("Steam text ID exceeds bank")?
+            .start;
+        let mut bytes = &self.bytes[start..self.limits[index as usize]];
+        let mut paragraphs = Vec::new();
+        loop {
+            ensure!(paragraphs.len() < 32, "too many Steam menu paragraphs");
+            let (text, consumed) = Self::menu_text(bytes, encoding_rs::WINDOWS_1252, &Ok)?;
+            paragraphs.push(text);
+            bytes = &bytes[consumed..];
+            if *bytes
+                .first()
+                .context("missing Steam menu paragraph terminator")?
+                == 0
+            {
+                return Ok(paragraphs);
+            }
+        }
+    }
+
     fn menu_text(
         bytes: &[u8],
         encoding: &'static encoding_rs::Encoding,

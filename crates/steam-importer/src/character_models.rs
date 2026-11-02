@@ -57,7 +57,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u8>) -> Res
                 let path = format!("{base}/animations/{}.glb", motion_name(slot, false));
                 output::write(
                     &library.join(&path),
-                    &animation.bind(&native, &skeleton)?.encode(&skeleton)?,
+                    &animation.bind(&native.rig, &skeleton)?.encode(&skeleton)?,
                 )?;
                 body.clips.push(clip(path, slot, None));
             }
@@ -69,7 +69,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u8>) -> Res
                 let path = format!("{base}/animations/{}.glb", motion_name(slot, true));
                 output::write(
                     &library.join(&path),
-                    &animation.bind(&native, &skeleton)?.encode(&skeleton)?,
+                    &animation.bind(&native.rig, &skeleton)?.encode(&skeleton)?,
                 )?;
                 body.clips.push(clip(
                     path,

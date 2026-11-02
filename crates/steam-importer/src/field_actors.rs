@@ -1,11 +1,6 @@
 //! Field-owned actor selections and baked motion bindings in the shared format.
 use crate::{
-    actor_model,
-    animation::Animation,
-    field_models::Models,
-    model, output,
-    package::{self, Package},
-    pe,
+    actor_model, animation::Animation, field_models::Models, model, output, package::Package, pe,
     source::Source,
 };
 use anyhow::{Context, Result, ensure};
@@ -35,6 +30,12 @@ pub(crate) fn cook(
     let image = pe::Image::parse(&source.executable)?;
     let mut motions = BTreeMap::<(String, String), String>::new();
     let mut pending = BTreeSet::new();
+    let mut rigs = BTreeMap::<String, (model::Rig, Skeleton)>::new();
+    let mut owners = models
+        .sources
+        .iter()
+        .map(|(&id, name)| Ok((name.to_ascii_lowercase(), models.mappings.model_path(id)?)))
+        .collect::<Result<BTreeMap<_, _>>>()?;
     for (id, name) in fields
         .iter()
         .filter(|(id, _)| selected.is_none_or(|only| only == *id))
@@ -170,11 +171,17 @@ pub(crate) fn cook(
                 pending.insert(source_name);
                 continue;
             }
-            let owner = format!("meshes/field-models/{name}/model-{resource:08x}");
-            let (document, _) = actor_model::cook(source, library, &source_name, &owner)
-                .with_context(|| format!("field {id} actor {resource:#x}: {source_name}"))?;
-            let path = format!("{owner}/model.json");
-            output::json(&library.join(&path), &document)?;
+            let path = if let Some(path) = owners.get(&source_name.to_ascii_lowercase()) {
+                path.clone()
+            } else {
+                let owner = format!("meshes/field-models/{name}/model-{resource:08x}");
+                let (document, _) = actor_model::cook(source, library, &source_name, &owner)
+                    .with_context(|| format!("field {id} actor {resource:#x}: {source_name}"))?;
+                let path = format!("{owner}/model.json");
+                output::json(&library.join(&path), &document)?;
+                owners.insert(source_name.to_ascii_lowercase(), path.clone());
+                path
+            };
             selections.insert(resource, (path, source_name));
         }
         for (&resource, (path, source_name)) in &selections {
@@ -202,7 +209,11 @@ pub(crate) fn cook(
             }));
         }
         for (resource, name) in banks {
-            let animation = Animation::read(&source.require(&name)?)?;
+            let Some(bytes) = source.read(&name)? else {
+                pending.insert(name);
+                continue;
+            };
+            let animation = Animation::read(&bytes)?;
             let mut bindings = Vec::new();
             for (&actor, (path, source_name)) in &selections {
                 let document: document::Model =
@@ -223,12 +234,13 @@ pub(crate) fn cook(
                     let motion = if let Some(path) = motions.get(&key) {
                         path.clone()
                     } else {
-                        let descriptor_bytes = source.require(descriptor)?;
-                        let dependencies = package::dependencies(&descriptor_bytes)?;
-                        let native = model::Model::read(
-                            &descriptor_bytes,
-                            &source.require(&dependencies[0])?,
-                        )?;
+                        if !rigs.contains_key(descriptor) {
+                            let rig = model::Rig::read(&source.require(descriptor)?)?;
+                            let skeleton =
+                                Skeleton::from_glb(&fs::read(library.join(&spec.mesh))?)?;
+                            rigs.insert(descriptor.to_owned(), (rig, skeleton));
+                        }
+                        let (native, skeleton) = &rigs[descriptor];
                         if !animation.targets.iter().any(|target| {
                             matches!(target.kind, 3 | 0x10014 | 0x20003)
                                 && native
@@ -237,13 +249,12 @@ pub(crate) fn cook(
                         }) {
                             continue;
                         }
-                        let skeleton = Skeleton::from_glb(&fs::read(library.join(&spec.mesh))?)?;
                         let path = format!(
                             "{root}/animations/resource-{resource:08x}/actor-{actor:08x}-part-{part}.glb"
                         );
                         output::write(
                             &library.join(&path),
-                            &animation.bind(&native, &skeleton)?.encode(&skeleton)?,
+                            &animation.bind(native, skeleton)?.encode(skeleton)?,
                         )?;
                         motions.insert(key, path.clone());
                         path
@@ -285,9 +296,12 @@ pub(crate) fn cook(
     output::json(&library.join(document::MODELS), &models.mappings)?;
     if !pending.is_empty() {
         eprintln!(
-            "  {} legacy or unconverted field resources remain",
+            "  {} field resource references are unavailable or not converted yet",
             pending.len()
         );
+        for resource in pending {
+            eprintln!("    {resource}");
+        }
     }
     Ok(())
 }

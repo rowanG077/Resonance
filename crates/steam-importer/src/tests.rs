@@ -392,6 +392,9 @@ fn installed_field_actors_cook() -> Result<()> {
     });
     let mut sources = BTreeMap::new();
     for &resource in mappings.0.keys() {
+        if (1..=9).contains(&resource) || resource >> 24 == 0x23 {
+            continue;
+        }
         let id = if resource >> 24 == 0x24 {
             resource & 0xffff
         } else {
@@ -413,4 +416,75 @@ fn installed_field_actors_cook() -> Result<()> {
         .map(|id| id.parse::<u32>())
         .transpose()?;
     field_actors::cook(&source, &root, &mut models, selected)
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM"]
+fn installed_retained_actor_motion_uses_shared_reader() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let output = tempfile::tempdir()?;
+    for name in ["ask_t01_b000_b002.pac", "faa_d02_b000_b003.pac"] {
+        let (model, _) = actor_model::cook(&source, output.path(), name, "meshes/retained-actor")?;
+        assert!(!model.parts[0].clips.is_empty());
+        for part in &model.parts {
+            let skeleton = resonance_content::animation::Skeleton::from_glb(&fs::read(
+                output.path().join(&part.mesh),
+            )?)?;
+            for clip in &part.clips {
+                let motion = clip
+                    .decode_for_skeleton(&fs::read(output.path().join(&clip.motion))?, &skeleton)?;
+                motion.validate(&skeleton)?;
+                assert!(!motion.tracks.is_empty());
+                for frame in [0., motion.duration_frames * 0.5, motion.duration_frames] {
+                    resonance_content::animation::pose::sample(&skeleton, &motion, frame)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM"]
+fn installed_menu_settings_use_current_documents_in_all_languages() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let output = tempfile::tempdir()?;
+    for language in [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Italian,
+    ] {
+        let source = source::Source::open(&installation, language)?;
+        menu_settings::cook(&source, output.path())
+            .with_context(|| format!("menu settings {language:?}"))?;
+        let manual: resonance_content::menu_data::TrainingManual =
+            json(output.path(), resonance_content::menu_data::MANUAL_PATH)?;
+        manual.validate()?;
+        assert_eq!(manual.chapters.len(), 9);
+        let rename: resonance_content::menu_data::RenameData =
+            json(output.path(), resonance_content::menu_data::RENAME_PATH)?;
+        rename.validate()?;
+        assert_eq!(rename.keyboard.chars().count(), 104);
+        assert_eq!(rename.defaults[0], "Lloyd");
+        assert_eq!(
+            rename.defaults[2],
+            if language == Language::French {
+                "Génis"
+            } else {
+                "Genis"
+            }
+        );
+        let options: resonance_content::options::Document =
+            json(output.path(), resonance_content::options::PATH)?;
+        let options = options.prepare()?;
+        options.validate()?;
+    }
+    Ok(())
 }

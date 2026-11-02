@@ -41,7 +41,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u32>) -> Re
             if let Some(name) = package.reference(section + 1)? {
                 let skeleton = Skeleton::from_glb(&fs::read(library.join(&part.mesh))?)?;
                 let bytes = Animation::read(&source.require(name)?)?
-                    .bind(&model, &skeleton)?
+                    .bind(&model.rig, &skeleton)?
                     .encode(&skeleton)
                     .with_context(|| format!("field {id} scenery motion {name}"))?;
                 let path = format!("{root}/animations/{label}-motion-0.glb");
