@@ -147,3 +147,96 @@ fn installed_field_sources_convert() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally RESONANCE_TEST_STEAM_FIELD"]
+fn installed_scenery_and_skinned_body_use_shared_assets() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let output = tempfile::tempdir()?;
+    field_directory::cook(&source, output.path())?;
+    field_settings::cook(&source, output.path())?;
+    let selected = std::env::var("RESONANCE_TEST_STEAM_FIELD")
+        .ok()
+        .map(|id| id.parse::<u32>())
+        .transpose()?
+        .unwrap_or(332);
+    field_scene::cook(&source, output.path(), Some(selected))?;
+    let names: Mappings = json(output.path(), resonance_content::library::FIELDS)?;
+    let scene: resonance_content::field::document::Scene = json(
+        output.path(),
+        &format!("fields/{}/scene.json", names.target(selected)?),
+    )?;
+    assert!(!scene.parts.is_empty());
+    for mut part in scene.parts {
+        let bytes = fs::read(output.path().join(&part.mesh))?;
+        part.prepare_bones(&bytes)?;
+        assert!(!part.bone_names.is_empty());
+        assert!(!part.materials.is_empty());
+        for image in part.textures {
+            resonance_asset_writer::texture::ktx2(&fs::read(output.path().join(image))?)?;
+        }
+    }
+    for path in scene.camera_tracks.values() {
+        let camera = resonance_content::camera_motion::CameraMotion::decode(&fs::read(
+            output.path().join(path),
+        )?)?;
+        camera.sample(0.)?;
+    }
+    // The same converter must retain weighted joints for party bodies.
+    let image = pe::Image::parse(&source.executable)?;
+    let name = image.text(pe::word(image.slice(0x8cfe80, 4)?, 0)?)?;
+    let bytes = source.require(name)?;
+    let package = package::Package::parse(&bytes)?;
+    let descriptor = package.reference(0)?.context("party package has no body")?;
+    let (part, native) = model::cook(
+        &source,
+        output.path(),
+        descriptor,
+        "characters/lloyd",
+        "body",
+    )?;
+    assert!(native.meshes.iter().any(|mesh| mesh.joints.is_some()));
+    let bytes = fs::read(output.path().join(part.mesh))?;
+    let skeleton = resonance_content::animation::Skeleton::from_glb(&bytes)?;
+    skeleton.bind_pose()?;
+    assert!(skeleton.bones.len() > 10);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM"]
+fn installed_field_settings_use_shared_contract() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let output = tempfile::tempdir()?;
+    for language in [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Italian,
+    ] {
+        let source = source::Source::open(&installation, language)?;
+        field_settings::cook(&source, output.path())?;
+        let settings: resonance_content::field::settings::Settings =
+            json(output.path(), resonance_content::field::settings::PATH)?;
+        settings.effects.validate()?;
+        settings.blink.validate()?;
+        settings.contact_shadow.validate()?;
+        assert!(!settings.save_point.tutorial.0.is_empty());
+        assert!(!settings.save_point.no_gem.0.is_empty());
+        for path in [
+            &settings.toon_ramp,
+            &settings.contact_shadow.texture,
+            &settings.effects.emote_texture,
+            &settings.effects.status_texture,
+        ] {
+            resonance_asset_writer::texture::ktx2(&fs::read(output.path().join(path))?)?;
+        }
+    }
+    Ok(())
+}

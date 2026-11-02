@@ -5149,6 +5149,7 @@ dependencies = [
  "anyhow",
  "encoding_rs",
  "flate2",
+ "glam 0.34.1",
  "resonance-asset-writer",
  "resonance-content",
  "resonance-importer",

@@ -19,16 +19,25 @@ select their corresponding language slot.
 **This is an incremental port, not yet a playable library.** Current passes write
 the library descriptor, common script definitions, all 1,000 battle formations and
 736 encounter pools, recoil, 531 items, 255 native techniques plus the common
-elemental variants, field mappings/foraging, EX skills, and scripts/messages/collision for all 509
-available field packages. Field scenery and actors, character and enemy bodies,
-the remaining game/menu rules and media still need porting. Use a separate output directory while those owners are missing.
+elemental variants, field mappings/foraging, EX skills, and scripts/messages/collision
+for all 509 available field packages. It also writes their available static scenery and
+panoramas as GLB/KTX2, plus camera tracks in the common camera format. Model
+conversion retains skeletons, weighted joints, vertex colors and texture mips;
+materials use the existing GC pass. Missing scenery referenced by shipped debug
+packages is reported rather than replaced with invented geometry.
+
+Shared field settings now include native effect atlases, localized notices,
+contact shadows and a GC-style toon ramp. Scenery motion, field actors,
+character/enemy documents, remaining game/menu rules and other media still need porting. Static node visibility and
+animated visibility also need projection through the common playback path. Use a
+separate output directory while those owners are missing.
 
 The added native techniques receive ordinary logical IDs after the common
 GameCube elemental variants. Named references resolve during import. The shared
 technique menu retains six forgetting alternatives, including the original four
 from GameCube. Neither source requires a runtime edition flag. Field input checks
-are adapted with ordinary bytecode expressions around the existing GC input native, including
-Steam's raw-press mode. Branch targets, event entries and message offsets are
+are adapted with ordinary bytecode expressions around the existing GC input
+native, including Steam's raw-press mode. Branch targets, event entries and message offsets are
 preserved when code grows. Source text encodings disappear into Unicode messages.
 Animation-clock and sound-ID conventions still need conversion with their media
 owners.
@@ -44,7 +53,7 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam
 
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include game/menu rules and artwork; field scenery, actors and settings;
+owners include game/menu rules and artwork; field motion and actors;
 party/enemy/equipment models and battle rules; overworld data and media; skits,
 audio, movies and startup/ending assets. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
@@ -58,3 +67,15 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_STEAM_FIELD=33
 
 Omit `RESONANCE_TEST_STEAM_FIELD` to convert and read all available field scripts,
 message documents and collision meshes. This check does not execute gameplay.
+
+For a focused model conversion/load check, including a weighted party body:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_scenery_and_skinned_body -- --ignored
+```
+
+The full scenery pass currently produces 509 scene documents, 1,021 model parts
+and 53 camera tracks from the installed English source. These files use the
+current scene/material grouping schema. Their shared settings and image references are also cooked. Field actor and
+animation owners are still pending; this is not yet a field startup/playability
+check.

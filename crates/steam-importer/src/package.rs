@@ -43,6 +43,10 @@ impl<'a> Package<'a> {
         Ok(Self { bytes, sections })
     }
 
+    pub fn len(&self) -> usize {
+        self.sections.len()
+    }
+
     pub fn reference(&self, index: usize) -> Result<Option<&'a str>> {
         self.member(index)?
             .map(|bytes| {
@@ -69,6 +73,40 @@ impl<'a> Package<'a> {
             .as_ref()
             .map(|range| &self.bytes[range.clone()]))
     }
+}
+
+/// DPDF filename pointers are relative to each pointer's own position.
+pub(crate) fn dependencies(bytes: &[u8]) -> Result<Vec<String>> {
+    ensure!(
+        bytes.get(..4) == Some(b"DPDF"),
+        "missing Steam dependency directory"
+    );
+    let table = 4usize
+        .checked_add(u32(bytes, 4)? as usize)
+        .context("dependency table overflow")?;
+    let count = u32(bytes, 8)? as usize;
+    ensure!(
+        table >= 12 && count <= 65536,
+        "invalid dependency directory"
+    );
+    let end = table
+        .checked_add(count * 4)
+        .context("dependency directory overflow")?;
+    bytes
+        .get(table..end)
+        .context("truncated dependency directory")?;
+    (0..count)
+        .map(|index| {
+            let pointer = table + index * 4;
+            let at = pointer
+                .checked_add(u32(bytes, pointer)? as usize)
+                .context("dependency name overflow")?;
+            ensure!(at >= end, "dependency name overlaps directory");
+            let name = crate::pe::string(bytes, at)?;
+            crate::source::validate_name(name)?;
+            Ok(name.to_owned())
+        })
+        .collect()
 }
 
 #[cfg(test)]

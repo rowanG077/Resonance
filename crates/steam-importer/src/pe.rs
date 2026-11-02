@@ -20,6 +20,16 @@ pub fn word(bytes: &[u8], at: usize) -> Result<u32> {
     ))
 }
 
+pub(crate) fn string(bytes: &[u8], at: usize) -> Result<&str> {
+    let bytes = bytes.get(at..).context("string starts outside resource")?;
+    let end = bytes
+        .iter()
+        .take(4097)
+        .position(|&b| b == 0)
+        .context("unterminated resource string")?;
+    Ok(std::str::from_utf8(&bytes[..end])?)
+}
+
 struct Section {
     memory: Range<u32>,
     raw: Range<usize>,

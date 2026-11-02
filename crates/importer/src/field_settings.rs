@@ -273,7 +273,7 @@ fn save_point(exe: &[u8]) -> Result<SavePointText> {
     })
 }
 
-fn environment() -> Result<EnvironmentDefaults> {
+pub fn environment() -> Result<EnvironmentDefaults> {
     Ok(serde_json::from_value(json!({
         "drifting":{"sprite":{"texture":path("dust"),"uv":[0.0,0.0,255.0/256.0,255.0/256.0]}},
         "fire":{"sprite":{"additive":true,"texture":path("particles"),"uv":[0.0,0.25,0.25,0.5]}},

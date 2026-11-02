@@ -249,3 +249,6 @@ pub use input_prompts::cook_input_prompts;
 
 /// Decode normalized menu controls into the common caption format.
 pub use text::decode as decode_menu_text;
+
+/// Shared GameCube-style field atmosphere, independent of the source edition.
+pub use field_settings::environment as field_environment_defaults;

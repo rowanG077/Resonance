@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+glam.workspace = true
 flate2 = "1"
 encoding_rs = "0.8"
 resonance-asset-writer.workspace = true

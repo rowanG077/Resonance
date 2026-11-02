@@ -11,6 +11,68 @@ pub struct Bank<'a> {
 }
 
 impl<'a> Bank<'a> {
+    /// Literal field-service text uses dialogue controls rather than menu controls.
+    pub(super) fn system(&self, index: u32) -> Result<Vec<resonance_content::font::TextSpan>> {
+        use resonance_content::font::TextSpan;
+        let range = self
+            .strings
+            .get(index as usize)
+            .context("system text ID exceeds bank")?;
+        let bytes = &self.bytes[range.start..self.limits[index as usize]];
+        let mut spans = Vec::new();
+        let (mut at, mut start, mut color) = (0, 0, 0);
+        loop {
+            let byte = *bytes.get(at).context("unterminated system text")?;
+            if matches!(byte, 0 | 2 | 3 | 6) {
+                if start < at {
+                    let (text, invalid) =
+                        encoding_rs::WINDOWS_1252.decode_without_bom_handling(&bytes[start..at]);
+                    ensure!(!invalid, "invalid system text encoding");
+                    spans.push(TextSpan {
+                        text: text.into_owned(),
+                        color,
+                    });
+                }
+                if byte == 0 {
+                    break;
+                }
+                let operand = *bytes.get(at + 1).context("truncated system text control")?;
+                match byte {
+                    2 => ensure!(at == 0 && operand == 1, "unknown system window control"),
+                    3 => {
+                        color = match operand {
+                            8 | 9 | 0x39 => 0,
+                            1..=6 => operand,
+                            _ => anyhow::bail!("unknown system text palette"),
+                        }
+                    }
+                    6 => {
+                        // Native save-point confirmation uses device button 18.
+                        // The shared field service uses the GameCube A button.
+                        ensure!(operand == 18, "unbound system button {operand}");
+                        spans.push(TextSpan {
+                            text: "A".into(),
+                            color: 4,
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+                at += 2;
+                start = at;
+            } else {
+                ensure!(
+                    byte >= 32 || matches!(byte, 10 | 12),
+                    "unsupported system text control"
+                );
+                at += 1;
+            }
+        }
+        for span in &spans {
+            span.validate()?;
+        }
+        Ok(spans)
+    }
+
     pub fn parse(bytes: &'a [u8]) -> Result<Self> {
         ensure!(
             bytes.get(..4) == Some(b"BRXT") && word(bytes, 4)? == 110,
