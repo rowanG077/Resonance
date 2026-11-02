@@ -212,7 +212,7 @@ impl Document {
                 "menu and battle definitions disagree for {owner}"
             );
             ensure!(
-                row.alternatives[0] != 0 || row.alternatives == [0; 4],
+                row.alternatives[0] != 0 || row.alternatives.iter().all(|&id| id == 0),
                 "inactive forgetting alternatives for {owner}"
             );
             let forget_with = row
@@ -299,14 +299,14 @@ impl Document {
                 Ok(value.map_or(0, |element| element as u8 + 1))
             })?;
             ensure!(
-                entry.menu.rank <= 2 && entry.menu.forget_with.len() <= 4,
+                entry.menu.rank <= 2 && entry.menu.forget_with.len() <= 6,
                 "invalid menu rules for {owner}"
             );
             ensure!(
                 !entry.menu.event_only || rule.learning.route.is_none(),
                 "event-only technique cannot also select a T/S route: {owner}"
             );
-            let mut alternatives = [0; 4];
+            let mut alternatives = [0; 6];
             for (slot, name) in entry.menu.forget_with.iter().enumerate() {
                 alternatives[slot] = id(name.clone())?;
             }

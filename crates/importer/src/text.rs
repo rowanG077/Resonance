@@ -63,7 +63,7 @@ pub(crate) fn source(exe: &[u8], address: u32) -> Result<(String, u32)> {
     }
 }
 
-pub(crate) fn decode(source: &str, mut color: u8) -> Result<MenuText> {
+pub fn decode(source: &str, mut color: u8) -> Result<MenuText> {
     let mut lines = vec![Vec::new()];
     let mut start = 0;
     let mut chars = source

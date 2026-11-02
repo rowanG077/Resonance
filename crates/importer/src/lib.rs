@@ -246,3 +246,6 @@ pub use world_texture::cook_world_terrain_texture;
 
 mod input_prompts;
 pub use input_prompts::cook_input_prompts;
+
+/// Decode normalized menu controls into the common caption format.
+pub use text::decode as decode_menu_text;

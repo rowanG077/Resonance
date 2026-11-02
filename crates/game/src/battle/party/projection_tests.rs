@@ -347,7 +347,7 @@ fn caption_suppression_does_not_remove_equipment_gameplay() -> Result<()> {
         level: 1,
         route: 0,
         prerequisite: 0,
-        alternatives: [0; 4],
+        alternatives: [0; 6],
         field_use: None,
     });
     let field_cost = member.technique_cost(&menus, 0, false);

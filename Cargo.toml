@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/battle", "apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/importer", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content", "crates/symphonia-constants"]
+members = ["crates/battle", "apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/importer", "crates/steam-importer", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content", "crates/symphonia-constants"]
 
 [workspace.package]
 version = "0.4.0"
@@ -41,6 +41,7 @@ raw-window-handle = "0.6"
 resonance-content = { path = "crates/content" }
 resonance-game = { path = "crates/game" }
 resonance-importer = { path = "crates/importer" }
+resonance-steam-importer = { path = "crates/steam-importer" }
 resonance-presentation = { path = "crates/presentation" }
 
 [profile.dev]

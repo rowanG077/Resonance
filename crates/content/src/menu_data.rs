@@ -108,7 +108,7 @@ pub struct Technique {
     /// 0: either route, 1: technical, 2: strike, 3: learned by an event.
     pub route: u8,
     pub prerequisite: u16,
-    pub alternatives: [u16; 4],
+    pub alternatives: [u16; 6],
     pub field_use: Option<TechniqueUse>,
 }
 

@@ -304,3 +304,11 @@ SVG once and publishes the SVG, KTX2 and layout after conversion succeeds; it
 requires ImageMagick with librsvg and Rust, without Pillow. The viewer's normal
 image loader owns texture decoding and errors; atlas preparation does not
 decompress or specially validate the KTX2.
+
+## Steam source
+
+The parallel [`crates/steam-importer`](../crates/steam-importer/README.md) follows
+this direct-writer structure and targets the same cooked format. Its incremental
+port is available through `resonance-import steam STEAM_DIRECTORY --output DIRECTORY`.
+It currently converts core tables; it does not yet produce a playable library.
+See its README for the implemented categories and focused installed-source test.

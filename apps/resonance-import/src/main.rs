@@ -14,7 +14,7 @@ use std::{
 #[command(
     name = "resonance-import",
     version,
-    about = "Import Symphonia disc images into the editable asset library",
+    about = "Import Symphonia game data into the editable asset library",
     subcommand_negates_reqs = true
 )]
 struct Args {
@@ -61,6 +61,15 @@ enum Action {
         document: String,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Convert an installed Steam copy into the editable library (currently partial).
+    Steam {
+        #[arg(value_name = "STEAM_DIRECTORY")]
+        directory: PathBuf,
+        #[arg(long, default_value = "local/steam-assets")]
+        output: PathBuf,
+        #[arg(long, default_value = "english")]
+        language: resonance_steam_importer::Language,
     },
     /// Decode native effect declarations for an external observation.
     InspectEffectTemplates,
@@ -149,6 +158,14 @@ fn main() -> Result<()> {
         } => {
             let value = serde_json::from_slice(&fs::read(input)?)?;
             resonance_importer::publish_document(&output, &document, &value)?;
+        }
+        Action::Steam {
+            directory,
+            output,
+            language,
+        } => {
+            resonance_steam_importer::cook_all(&directory, &output, language)?;
+            println!("Cooked Steam categories: {}", output.display());
         }
         Action::InspectEffectTemplates => {
             let mut bytes = Vec::new();

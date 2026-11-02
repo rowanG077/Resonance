@@ -86,7 +86,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
                 level: 1,
                 route: 0,
                 prerequisite: 0,
-                alternatives: [0; 4],
+                alternatives: [0; 6],
                 field_use: None,
             })
             .collect(),

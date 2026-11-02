@@ -502,7 +502,7 @@ pub(crate) mod tests {
             level: 0,
             route: 0,
             prerequisite: 0,
-            alternatives: if id == 2 { [2, 3, 0, 0] } else { [0; 4] },
+            alternatives: if id == 2 { [2, 3, 0, 0, 0, 0] } else { [0; 6] },
             field_use,
         })
         .collect();
@@ -585,11 +585,12 @@ pub(crate) mod tests {
 
     #[test]
     fn menu_forgetting_preserves_use_counts_and_clears_assignments() {
-        let menus = technique_menu();
+        let mut menus = technique_menu();
+        menus.techniques[2].alternatives = [2, 3, 4, 5, 6, 7];
         let mut data = data();
-        data.characters[0].allowed_techniques = vec![1, 2, 3, 4];
+        data.characters[0].allowed_techniques = vec![1, 2, 3, 4, 5, 6, 7];
         data.characters[0].level_techniques.clear();
-        data.characters[0].techniques = vec![1, 2, 3];
+        data.characters[0].techniques = vec![1, 2, 3, 4, 5, 6, 7];
         let mut party = Party::new(&data, Default::default()).unwrap();
         party.formation = vec![1, 2, 3];
         party.members[1].techniques.insert(10);

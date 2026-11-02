@@ -110,7 +110,7 @@ pub fn cook_variants(
         // Remain hidden until learned, independently of the character's route.
         definition.route = 3;
         definition.prerequisite = 0;
-        definition.alternatives = [variant.id, 0, 0, 0];
+        definition.alternatives = [variant.id, 0, 0, 0, 0, 0];
         let id = usize::from(variant.id);
         menu.resize(menu.len().max(id + 1), definition.clone());
         menu[id] = definition;
