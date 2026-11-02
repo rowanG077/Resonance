@@ -111,9 +111,8 @@ fn opening_hit(rules: &[u8], contact: &[u8]) -> Result<ActionHit> {
     })
 }
 
-fn opening_contact(module: &Rel, offset: usize) -> Result<MeleeContact> {
-    let row = module.slice(5, offset, 34)?;
-    let rules = module.slice(5, 0x978, 28)?;
+fn opening_contact(rules: &[u8], row: &[u8]) -> Result<MeleeContact> {
+    let row = row.get(..34).context("truncated Unison opening contact")?;
     ensure!(
         dol::u16(row, 32)? == u16::MAX && dol::u16(row, 22)? == 0,
         "unsupported Unison opening contact list"
@@ -134,7 +133,36 @@ fn opening_contact(module: &Rel, offset: usize) -> Result<MeleeContact> {
 }
 
 fn openers(module: &Rel) -> Result<Vec<Opener>> {
-    let pose = module.slice(5, 0x994, 12)?;
+    let config = module.slice(5, 0x960, 4)?;
+    let mut contact_ticks = [dol::u16(config, 0)?; 9];
+    contact_ticks[2] = 45;
+    contact_ticks[3] = 45;
+    decode_openers(OpenerSource {
+        config,
+        rules: module.slice(5, 0x978, 28)?,
+        pose: module.slice(5, 0x994, 12)?,
+        contacts: [module.slice(5, 0x9ac, 34)?, module.slice(5, 0x9ec, 34)?],
+        commands: module.tail(5, 0xa2c)?,
+        contact_ticks,
+    })
+}
+
+/// Canonical numeric storage; source owners supply their own contact clocks.
+pub struct OpenerSource<'a> {
+    pub config: &'a [u8],
+    pub rules: &'a [u8],
+    pub pose: &'a [u8],
+    pub contacts: [&'a [u8]; 2],
+    pub commands: &'a [u8],
+    pub contact_ticks: [u16; 9],
+}
+
+pub fn decode_openers(source: OpenerSource<'_>) -> Result<Vec<Opener>> {
+    let pose = source
+        .pose
+        .get(..12)
+        .context("truncated Unison opening pose")?;
+    ensure!(source.rules.len() >= 28, "truncated Unison opening hit");
     ensure!(
         dol::u16(pose, 0)? == 0 && pose[6] == 8 && pose[7] == 255,
         "unsupported Unison opening pose"
@@ -157,7 +185,7 @@ fn openers(module: &Rel) -> Result<Vec<Opener>> {
         .context("Unison opening timeline overflow")
     };
     let mut events = vec![(0, Event::Pose(pose))];
-    let commands = module.tail(5, 0xa2c)?;
+    let commands = source.commands;
     let mut at = 0;
     loop {
         let tick = dol::u16(commands, at)? as i16;
@@ -182,15 +210,14 @@ fn openers(module: &Rel) -> Result<Vec<Opener>> {
         events.push((elapsed(tick as u16)?, event));
         at += size;
     }
-    let config = module.slice(5, 0x960, 4)?;
+    let config = source.config;
     let duration = dol::u16(config, 0)?;
     let recovery = dol::u16(config, 2)?;
-    let contact_events = |offset| -> Result<Vec<_>> {
-        let row = module.slice(5, offset, 2)?;
+    let contact_events = |row: &[u8]| -> Result<Vec<_>> {
         let mut result = events.clone();
         result.push((
             elapsed(dol::u16(row, 0)?)?,
-            Event::Contact(opening_contact(module, offset)?),
+            Event::Contact(opening_contact(source.rules, row)?),
         ));
         result.sort_by_key(|(tick, _)| *tick);
         Ok(result)
@@ -199,12 +226,13 @@ fn openers(module: &Rel) -> Result<Vec<Opener>> {
         duration,
         recovery,
         contact_ticks: duration,
-        events: contact_events(0x9ac)?,
+        events: contact_events(source.contacts[0])?,
     };
     let mut openers = vec![common; 9];
-    openers[2].events = contact_events(0x9ec)?;
-    for index in [2, 3] {
-        openers[index].contact_ticks = 45;
+    openers[2].events = contact_events(source.contacts[1])?;
+    for (opener, ticks) in openers.iter_mut().zip(source.contact_ticks) {
+        ensure!(ticks > 0, "empty Unison opening contact interval");
+        opener.contact_ticks = ticks;
     }
     Ok(openers)
 }
@@ -266,7 +294,20 @@ fn action_names() -> Result<(Mappings, Mappings)> {
 }
 
 fn combinations(exe: &[u8]) -> Result<Vec<Combination>> {
-    let table = dol::slice(exe, 0x802086c8, 19 * 64)?;
+    decode_combinations(dol::slice(exe, 0x802086c8, 19 * 64)?, |address| {
+        text::string(exe, address)
+    })
+}
+
+/// Decode the shared recipe records, resolving source captions at import time.
+pub fn decode_combinations(
+    table: &[u8],
+    mut caption: impl FnMut(u32) -> Result<String>,
+) -> Result<Vec<Combination>> {
+    ensure!(
+        !table.is_empty() && table.len().is_multiple_of(64) && table.len() / 64 <= 255,
+        "invalid Unison combination table length"
+    );
     table
         .chunks_exact(64)
         .enumerate()
@@ -293,7 +334,7 @@ fn combinations(exe: &[u8]) -> Result<Vec<Combination>> {
             }
             Ok(Combination {
                 id: (index + 1) as u8,
-                name: text::string(exe, dol::u32(row, 0)?)?,
+                name: caption(dol::u32(row, 0)?)?,
                 native_id: dol::u16(row, 4)?,
                 participants: participants as u8,
                 recipes,
@@ -409,4 +450,49 @@ pub fn cook_battle_unison(root: &Path, library: &Path) -> Result<()> {
     let output = library.join("battle/unison.json");
     crate::output::json(&output, &document)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_EXTRACTED with GQSEAF DOL/REL"]
+    fn native_unison_rules_survive_shared_decoder_and_named_document() -> Result<()> {
+        let root =
+            std::env::var_os("RESONANCE_TEST_EXTRACTED").context("set RESONANCE_TEST_EXTRACTED")?;
+        let document = convert(Path::new(&root))?;
+        assert_eq!(document.combinations.len(), 19);
+        assert_eq!(document.characters.len(), 9);
+        assert_eq!(document.openers.len(), 3);
+        let (techniques, _) = action_names()?;
+        let characters = Mappings::new(
+            PartyCharacterId::RESOURCE_NAMES
+                .iter()
+                .enumerate()
+                .map(|(index, name)| ((index + 1) as u32, (*name).into()))
+                .collect(),
+        )?;
+        let scenes = Mappings::new(
+            document
+                .combinations
+                .iter()
+                .map(|row| {
+                    let id = row
+                        .scene
+                        .rsplit_once('-')
+                        .unwrap()
+                        .1
+                        .parse::<u32>()
+                        .unwrap();
+                    (id, row.scene.clone())
+                })
+                .collect(),
+        )?;
+        let prepared = document.prepare(&techniques, &characters, &scenes)?;
+        assert_eq!(prepared.openers[0].duration, 30);
+        assert_eq!(prepared.openers[2].contact_ticks, 45);
+        assert_eq!(prepared.placements.len(), 252);
+        Ok(())
+    }
 }

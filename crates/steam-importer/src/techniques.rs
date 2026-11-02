@@ -34,11 +34,15 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 // Keep the common elemental-variant IDs; Steam's extra native rows get ordinary
 // logical IDs after them. All source references are resolved at this boundary.
 pub(crate) fn source_name(names: &Mappings, id: u32) -> Result<&str> {
-    names.target(match id {
+    names.target(logical_id(id))
+}
+
+pub(crate) fn logical_id(native: u32) -> u32 {
+    match native {
         253 => 260,
         254 => 261,
-        _ => id,
-    })
+        id => id,
+    }
 }
 
 fn signed(row: &[u8], at: usize) -> Result<i16> {

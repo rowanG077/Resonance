@@ -28,10 +28,10 @@ reader. The shared gameplay loader now initializes a party and saves/restores th
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
 capture still has backdrop gaps and unresolved decorative bone lookups. Later
-fields and battle remain unfinished. Twelve additional passes now cook
+fields and battle remain unfinished. Thirteen additional passes now cook
 skits, portraits, movies, field service models, normal attacks, party speech,
 martial actions, party profiles, resident projectiles, Defense System rules,
-battle audio and field audio against that library. Native
+battle audio, Unison rules and field audio against that library. Native
 opening-field execution reaches player control. The shared checkpoint check
 passes save/reload, movement, invalid-load rejection and early village/classroom
 transitions using this cooked library.
@@ -213,6 +213,18 @@ uses ordinary mappings for 20 common cues, preserving existing field/menu servic
 bindings, recording sample rates and the shared spatial controls. The installed
 check loads these documents through the common readers and prepares/plays their
 recordings through the existing effect player. No engine change was needed.
+
+Unison uses the shared GC recipe and opening-strike decoders and the existing
+named document writer. It retains Steam's 29 ordered recipes (26 action owners),
+all nine openings, 254 native technique placements and authored voices; added
+techniques use their existing normalized logical IDs. The mirrored prelude is
+cooked into the GC layout. All 100 physical stored-scene identities are checked
+against installed package names and written to the common mappings, independently
+of their pending artwork owner. The shared battle-rule capture now loads every
+rule owner together; both voice languages and opening contact cues resolve. The
+real GC Unison regression also passes. No runtime edition flag or engine behavior
+was added. Scene tracks/artwork, enemies, equipment and battle environments still
+need their owners before encounters are playable.
 
 The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.

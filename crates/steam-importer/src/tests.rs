@@ -8,6 +8,95 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked party/common battle rules"]
+fn installed_unison_completes_shared_battle_rule_capture() -> Result<()> {
+    use resonance_content::{battle_voice::Sound, diagnostics::Diagnostics, library::Library};
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_unison::cook(&source, &root)?;
+    let library = Library::open_paths(&root, &[])?;
+    let mut snapshot = library.snapshot();
+    let captured = battle_rules::capture(&mut snapshot, &|| false)?;
+    let unison = captured.unison;
+    assert_eq!(unison.combinations.len(), 29);
+    assert_eq!(
+        unison
+            .combinations
+            .iter()
+            .map(|row| row.native_id)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        26
+    );
+    for id in [303, 319, 322] {
+        assert_eq!(
+            unison
+                .combinations
+                .iter()
+                .filter(|row| row.native_id == id)
+                .count(),
+            2
+        );
+    }
+    assert_eq!(unison.placements.len(), 254);
+    assert!(unison.placements.contains_key(&260) && unison.placements.contains_key(&261));
+    assert!(!unison.placements.contains_key(&253));
+    assert_eq!(unison.openers.len(), 9);
+    assert_eq!(unison.openers[0].duration, 30);
+    assert_eq!(unison.openers[0].recovery, 14);
+    assert_eq!(unison.openers[2].contact_ticks, 45);
+    assert!(unison.host.prelude.first_x < 0.);
+    let scenes: Mappings = json(&root, resonance_content::battle_scene::document::TECHNIQUES)?;
+    for row in &unison.combinations {
+        scenes.target(u32::from(row.native_id))?;
+    }
+    for language in ["english", "japanese"] {
+        let voices: resonance_content::field_audio::speech::Mappings =
+            json(&root, &format!("audio/speech/{language}/mappings.json"))?;
+        for sound in unison.voices.into_iter().flatten() {
+            let Sound::Stream(id) = sound else {
+                anyhow::bail!("Unison voice was not normalized")
+            };
+            let path = voices
+                .get(&u32::from(id))
+                .context("missing Unison voice")?
+                .resolve()?;
+            let path = path.path().context("Unison voice is unexpectedly silent")?;
+            assert!(
+                resonance_audio::recording::Prepared::new(fs::File::open(root.join(path))?)?
+                    .frames()
+                    > 0
+            );
+        }
+    }
+    let catalogue =
+        resonance_content::battle_audio::document::Catalogue::capture(&mut snapshot, &|| false)?;
+    for opener in &unison.openers {
+        for (_, event) in &opener.events {
+            if let resonance_content::battle_normal::Event::Contact(contact) = event {
+                if let Some(sound) = contact.hit.sound {
+                    catalogue.collect(
+                        &mut Default::default(),
+                        &Diagnostics::new(true),
+                        Sound::Cue(sound),
+                    )?;
+                }
+            }
+        }
+    }
+    eprintln!(
+        "All shared battle rule owners load: 29 Unison recipes, nine openings, 254 native placements and {} physical scene mappings; scene artwork is still pending",
+        scenes.iter().count()
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked audio and formations"]
 fn installed_common_battle_resources_use_shared_readers_and_player() -> Result<()> {
     use resonance_content::{

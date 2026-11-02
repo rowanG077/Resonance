@@ -178,11 +178,7 @@ pub(crate) fn read(source: &Source) -> Result<Catalogue> {
                 action.variants.contains_key(&variant),
                 "missing martial variant {member}:{variant}"
             );
-            let catalogue = match catalogue {
-                253 => 260,
-                254 => 261,
-                id => id,
-            };
+            let catalogue = crate::techniques::logical_id(u32::from(catalogue)).try_into()?;
             bindings
                 .entry(catalogue)
                 .or_default()

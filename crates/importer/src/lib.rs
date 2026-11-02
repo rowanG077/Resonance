@@ -59,6 +59,10 @@ mod battle_trails;
 mod battle_ui_hud;
 mod battle_ui_portraits;
 mod battle_unison;
+pub use battle_unison::{
+    OpenerSource as UnisonOpenerSource, decode_combinations as decode_unison_combinations,
+    decode_openers as decode_unison_openers,
+};
 mod battle_victory_groups;
 mod boot;
 mod character_attachments;
