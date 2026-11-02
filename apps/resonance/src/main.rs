@@ -2,7 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(about = "Resonance — Tales of Symphonia reimplementation")]
+#[command(version, about = "Resonance — Tales of Symphonia reimplementation")]
 #[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load", "test_overworld"]).multiple(false)))]
 struct Args {
     #[arg(long, default_value = "local/all-assets")]

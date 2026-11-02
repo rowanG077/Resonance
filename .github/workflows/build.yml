@@ -2,9 +2,10 @@ name: Test and release
 
 on:
   push:
-    # Test main and every PR; only release branch pushes build distributables.
+    # Release pushes delegate to an open release PR when one exists.
     branches: [main, 'release/**']
   pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -12,41 +13,43 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  # Finish a release before processing another push to the same branch.
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+  # New commits supersede old builds, including release branches.
+  cancel-in-progress: true
 
 jobs:
   prepare:
-    name: Validate release version
+    name: Plan CI and validate release version
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      publish: ${{ steps.version.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+      run_tests: ${{ steps.plan.outputs.run_tests }}
+      commit: ${{ steps.plan.outputs.commit }}
     steps:
-      - name: Read version from branch
-        id: version
-        shell: bash
+      - name: Check out source for CI planning
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Select the push or PR run that owns CI
+        id: plan
         env:
-          REF: ${{ github.ref }}
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [[ "$REF" == refs/heads/release/* ]]; then
-            if [[ ! "$REF" =~ ^refs/heads/release/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-              echo '::error::Release branches must be named release/vX.X.X (for example, release/v0.1.0).'
-              exit 1
-            fi
-            echo "version=${REF#refs/heads/release/}" >> "$GITHUB_OUTPUT"
-            echo "publish=$([[ "$EVENT" == push ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          else
-            echo 'version=' >> "$GITHUB_OUTPUT"
-            echo 'publish=false' >> "$GITHUB_OUTPUT"
-          fi
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/ci/plan_workflow.py
 
   test:
     name: ${{ matrix.platform }}
     needs: prepare
+    if: needs.prepare.outputs.run_tests == 'true'
+    concurrency:
+      group: test-${{ matrix.platform }}-${{ needs.prepare.outputs.commit }}
+      cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +81,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Install Linux dependencies
@@ -90,19 +94,25 @@ jobs:
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
             libxkbcommon-dev libwayland-dev
 
+      - name: Fetch locked dependencies for offline shader validation
+        # The shader test reads workspace metadata offline. Compiling selected
+        # packages does not download every dependency that metadata resolves.
+        # Fetch all targets so this also works on a fresh runner's Cargo cache.
+        run: cargo fetch --locked
+
       - name: Run smoke tests without private resources
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
-          cargo test --locked --release -p resonance-importer --lib
-          cargo test --locked --release -p resonance-audio-cook --lib interpolation::tests::
-          cargo test --locked --release -p resonance-import-cli
-          cargo test --locked --release -p resonance-playback --lib
-          cargo test --locked --release -p resonance-media --lib --test rust_codecs --test audio_smoke
-          cargo test --locked --release -p resonance-persistence --test slots
-          cargo test --locked --release -p resonance-game -p resonance-events
-          cargo test --locked --release -p resonance-presentation --lib
-          cargo test --locked --release -p resonance --bin resonance
+          cargo test --locked --profile release-fast -p resonance-importer --lib
+          cargo test --locked --profile release-fast -p resonance-audio-cook --lib interpolation::tests::
+          cargo test --locked --profile release-fast -p resonance-import-cli
+          cargo test --locked --profile release-fast -p resonance-playback --lib
+          cargo test --locked --profile release-fast -p resonance-media --lib --test rust_codecs --test audio_smoke
+          cargo test --locked --profile release-fast -p resonance-persistence --test slots
+          cargo test --locked --profile release-fast -p resonance-game -p resonance-events
+          cargo test --locked --profile release-fast -p resonance-presentation --lib
+          cargo test --locked --profile release-fast -p resonance --bin resonance
 
       - name: Check effect comparison gates and generators
         if: matrix.platform == 'linux-x64'
@@ -115,13 +125,19 @@ jobs:
         if: matrix.platform == 'linux-x64'
         run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
+      - name: Install pinned Windows software renderer and shader compiler
+        if: runner.os == 'Windows'
+        # wgpu's Windows CI uses a current WARP/DXC stack instead of the older
+        # WARP driver and FXC compiler bundled with Windows Server 2022.
+        run: python tools/ci/install_windows_renderer.py
+
       - name: Render and check pixels (Metal on macOS, CPU elsewhere)
-        run: cargo run --locked --release -p resonance-presentation --example ci_render -- target/smoke
+        run: cargo run --locked --profile release-fast -p resonance-presentation --example ci_render -- target/smoke
 
       - name: Check camera clears and overlays with MSAA
         if: matrix.platform == 'linux-x64'
         run: |
-          cargo test --locked --release -p resonance-presentation --lib \
+          cargo test --locked --profile release-fast -p resonance-presentation --lib \
             anti_aliasing::compositing_tests::shared_targets_respect_clear_and_load_with_msaa \
             -- --ignored --exact
 
@@ -136,10 +152,14 @@ jobs:
 
       - name: Build release executables
         if: needs.prepare.outputs.publish == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cargo build --locked --release -p resonance -p resonance-import-cli
           "target/release/resonance$EXE" --help
           "target/release/resonance-import$EXE" --help
+          test "$("target/release/resonance$EXE" --version)" = "resonance ${VERSION#v}"
+          test "$("target/release/resonance-import$EXE" --version)" = "resonance-import ${VERSION#v}"
 
       - name: Package executables
         if: needs.prepare.outputs.publish == 'true'
@@ -161,7 +181,9 @@ jobs:
   release:
     name: Publish GitHub release
     needs: [prepare, test]
-    if: needs.prepare.outputs.publish == 'true'
+    if: >-
+      needs.prepare.outputs.publish == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -170,6 +192,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Download tested executable archives
@@ -185,5 +208,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: bash tools/ci/publish_release.sh
