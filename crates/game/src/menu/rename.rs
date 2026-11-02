@@ -31,6 +31,33 @@ pub struct Rename {
     pub pending: bool,
 }
 
+impl Rename {
+    fn cursor_byte(&self) -> usize {
+        self.value
+            .char_indices()
+            .nth(self.position)
+            .map_or(self.value.len(), |(at, _)| at)
+    }
+    fn erase(&mut self) -> bool {
+        if self.position < self.value.chars().count() {
+            self.value.remove(self.cursor_byte());
+        } else if self.position > 0 {
+            self.position -= 1;
+            self.value.truncate(self.cursor_byte());
+        } else {
+            return false;
+        }
+        true
+    }
+    fn replace(&mut self, character: char) {
+        if self.position < self.value.chars().count() {
+            self.value.remove(self.cursor_byte());
+        }
+        self.value.insert(self.cursor_byte(), character);
+        self.position = (self.position + 1).min(5);
+    }
+}
+
 impl Menu {
     pub fn rename_data(&self) -> anyhow::Result<&menu_data::RenameData> {
         self.rename_data
@@ -132,9 +159,9 @@ impl Menu {
                     state.focus = Focus::Keyboard;
                     let key = state
                         .value
-                        .as_bytes()
-                        .get(state.position)
-                        .and_then(|c| data.keyboard.as_bytes().iter().position(|b| b == c))
+                        .chars()
+                        .nth(state.position)
+                        .and_then(|c| data.keyboard.chars().position(|key| key == c))
                         .unwrap_or(0);
                     state.column = key % 13;
                     state.row = key / 13;
@@ -146,21 +173,13 @@ impl Menu {
                     return Some(2);
                 }
                 if input == Some(Alternate) {
-                    if state.position < state.value.len() {
-                        state.value.remove(state.position);
-                    } else if state.position > 0 {
-                        state.position -= 1;
-                        state.value.truncate(state.position);
-                    } else {
-                        return None;
-                    }
-                    return Some(1);
+                    return state.erase().then_some(1);
                 }
                 if left && state.position > 0 {
                     state.position -= 1;
                     return Some(1);
                 }
-                if right && state.position < 5 && state.position < state.value.len() {
+                if right && state.position < 5 && state.position < state.value.chars().count() {
                     state.position += 1;
                     return Some(1);
                 }
@@ -171,14 +190,7 @@ impl Menu {
                     return Some(3);
                 }
                 if input == Some(Confirm) {
-                    if state.position < state.value.len() {
-                        state.value.remove(state.position);
-                    }
-                    state.value.insert(
-                        state.position,
-                        data.keyboard.as_bytes()[state.row * 13 + state.column] as char,
-                    );
-                    state.position = (state.position + 1).min(5);
+                    state.replace(data.keyboard.as_bytes()[state.row * 13 + state.column] as char);
                     return Some(2);
                 }
                 if left {
@@ -217,7 +229,7 @@ impl Menu {
                         }
                         1 => {
                             state.value = original;
-                            state.position = state.position.min(state.value.len());
+                            state.position = state.position.min(state.value.chars().count());
                             return Some(2);
                         }
                         2 => {
@@ -237,5 +249,31 @@ impl Menu {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn localized_name_cursor_edits_character_cells() {
+        let mut state = Rename {
+            value: "Génis".into(),
+            position: 2,
+            ..Default::default()
+        };
+        assert!(state.erase());
+        assert_eq!(state.value, "Géis");
+        state.position = 1;
+        state.replace('e');
+        assert_eq!((state.value.as_str(), state.position), ("Geis", 2));
+        state.position = 4;
+        assert!(state.erase());
+        assert_eq!((state.value.as_str(), state.position), ("Gei", 3));
+        state.value.clear();
+        state.position = 0;
+        assert!(!state.erase());
+        state.replace('L');
+        assert_eq!((state.value.as_str(), state.position), ("L", 1));
     }
 }

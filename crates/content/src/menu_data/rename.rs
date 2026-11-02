@@ -70,14 +70,17 @@ mod commands {
 
 impl RenameData {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.keyboard.len() == 13 * 8, "invalid name keyboard");
+        ensure!(
+            self.keyboard.is_ascii() && self.keyboard.len() == 13 * 8,
+            "invalid name keyboard"
+        );
         ensure!(
             self.texts()
-                .all(|s| !s.is_empty() && s.bytes().all(|b| (32..127).contains(&b))),
+                .all(|s| !s.is_empty() && s.chars().all(|c| !c.is_control())),
             "invalid name editor text"
         );
         ensure!(
-            self.defaults.iter().all(|n| n.len() <= 12),
+            self.defaults.iter().all(|n| n.chars().count() <= 12),
             "invalid character name"
         );
         Ok(())
@@ -88,5 +91,32 @@ impl RenameData {
             .chain(&self.commands)
             .chain([&self.keyboard, &self.heading, &self.delete, &self.default])
             .map(String::as_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn localized_name_editor_text_keeps_unicode_and_cell_limits() -> Result<()> {
+        let mut data = RenameData {
+            defaults: std::array::from_fn(|_| "Génis".into()),
+            keyboard: "abcdefghijklm".repeat(8),
+            heading: "Personnage".into(),
+            delete: "Effacer".into(),
+            default: "Défaut".into(),
+            commands: ["Confirmer".into(), "Rétablir".into(), "Annuler".into()],
+        };
+        data.defaults[0] = "é".repeat(12);
+        data.validate()?;
+        let restored: RenameData = serde_json::from_slice(&serde_json::to_vec(&data)?)?;
+        restored.validate()?;
+        assert_eq!(restored.defaults, data.defaults);
+        data.defaults[0].push('é');
+        assert!(data.validate().is_err());
+        data.defaults[0] = "Lloyd".into();
+        data.heading.push('\n');
+        assert!(data.validate().is_err());
+        Ok(())
     }
 }
