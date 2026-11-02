@@ -17,7 +17,7 @@ resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
 **This is an incremental port, not yet a playable library.** The latest full run
-completed all 22 implemented passes in 230 seconds and wrote entry points for all
+completed all 28 implemented passes in 186 seconds and wrote entry points for all
 509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
 reader. The four UI passes also load through shared readers; startup scene and
@@ -112,9 +112,29 @@ scene, audio, field or battle playback:
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_startup_and_dialogue -- --ignored
 ```
 
+Strategy choices/presets, Grade Shop purchases, crafting vendors/recipes and all
+200 journal entries now use the current named gameplay documents. Journal wrapping
+and Grade Shop exclusions reuse GC conversion helpers. Shared world landmarks own
+map positions, shop stock changes, rewards, party requirements and guidepost flags;
+the map-menu document binds named shops and field destinations to that same data.
+World travel/media and remaining controller details still need their own owners.
+All 101 shared page captions are cooked. Blank translations of required labels
+retain the shipped English text. Three shared-engine action captions (loading,
+leader selection and targeting all allies) currently use English text.
+
+Cooked text is UTF-8 for both source importers. Source code pages are decoded at
+import time. Names, preset names and keyboard grids use character positions and
+limits in the shared readers/editors. Long preset names fit within the common
+menu frame; there is no platform-specific text mode. The installed menu check
+prepares all five languages and a Unicode keyboard override through shared readers:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_gameplay_menu_tables -- --ignored
+```
+
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include remaining game/menu rules and battle artwork; legacy field motion, service actors
+owners include monster/figurine catalogues and media, remaining game rules and battle artwork; legacy field motion, service actors
 and dynamic shared banks;
 enemy/equipment models and battle rules; overworld data and media; skits,
 audio, movies and remaining startup/ending media. Completion requires exercising startup,

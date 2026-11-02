@@ -9,6 +9,132 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 
 #[test]
 #[ignore = "requires RESONANCE_TEST_STEAM pointing to an installed Steam copy"]
+fn installed_gameplay_menu_tables_prepare_in_all_languages() -> Result<()> {
+    use resonance_content::{grade, menu_data, strategy as orders};
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let output = tempfile::tempdir()?;
+    resonance_importer::cook_descriptor(output.path())?;
+    let source = source::Source::open(&installation, Language::English)?;
+    let font = dialogue_font::cook(&source, output.path())?;
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    for language in [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Italian,
+    ] {
+        let source = source::Source::open(&installation, language)?;
+        crate::items::cook(&source, output.path())?;
+        strategy::cook(&source, output.path())?;
+        menu_catalogues::cook(&source, output.path())?;
+        menu_synopsis::cook(&source, output.path(), &font)?;
+        field_directory::cook(&source, output.path())?;
+        world_landmarks::cook(&source, output.path())?;
+        menu_world_map::cook(&source, output.path())?;
+        menu_presentation::cook(&source, output.path())?;
+        let strategy: orders::Document = json(output.path(), orders::PATH)?;
+        let rules = strategy.prepare()?;
+        rules.validate_rules()?;
+        let captions = strategy.captions(&diagnostics)?;
+        for (name, members) in captions
+            .presets
+            .context("missing preset captions")?
+            .into_iter()
+            .zip(rules.presets)
+        {
+            menu_data::StrategyPreset {
+                name: name.clone(),
+                members,
+            }
+            .validate()
+            .with_context(|| format!("{language:?} strategy preset {name:?}"))?;
+        }
+        assert_eq!(strategy.groups.len(), 3);
+        assert_eq!(strategy.presets.len(), 3);
+        let shop: grade::Shop = json(output.path(), menu_data::GRADE_SHOP_PATH)?;
+        shop.validate()?;
+        assert_eq!(shop.options.len(), 26);
+        let items: resonance_content::items::Document =
+            json(output.path(), resonance_content::items::PATH)?;
+        let crafting: menu_data::crafting::document::Document =
+            json(output.path(), menu_data::CRAFTING_PATH)?;
+        let crafting = crafting.prepare(&items.mappings)?;
+        crafting.validate(531)?;
+        assert_eq!(crafting.vendors.len(), 22);
+        ensure!(!crafting.recipes.is_empty(), "missing crafting recipes");
+        let synopsis: menu_data::SynopsisData = json(output.path(), menu_data::SYNOPSIS_PATH)?;
+        synopsis.validate()?;
+        assert_eq!(synopsis.entries.len(), 200);
+        let landmarks: resonance_content::overworld::Landmarks =
+            json(output.path(), "world/landmarks.json")?;
+        landmarks.validate()?;
+        assert_eq!(
+            landmarks
+                .worlds
+                .iter()
+                .flatten()
+                .filter(|entry| entry.guidepost.is_some())
+                .count(),
+            12
+        );
+        let world_map: menu_data::world_map::document::Document =
+            json(output.path(), menu_data::WORLD_MAP_PATH)?;
+        let fields: Mappings = json(output.path(), resonance_content::library::FIELDS)?;
+        let mut world_map = world_map.prepare(&items.mappings, &fields)?;
+        let library = resonance_content::library::Library::open(output.path(), &[])?;
+        let mut snapshot = library.snapshot();
+        snapshot.read(
+            "world/landmarks.json",
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        let files = resonance_content::prepared::Files::from_snapshot(
+            snapshot,
+            || false,
+            diagnostics.clone(),
+        )?;
+        world_map.prepare_locations(&files)?;
+        world_map.validate(531)?;
+        assert_eq!(world_map.shops.len(), 52);
+        let presentation: serde_json::Value = json(output.path(), menu_data::PRESENTATION_PATH)?;
+        let labels: BTreeMap<String, String> =
+            serde_json::from_value(presentation["labels"].clone())?;
+        assert_eq!(labels.len(), 101);
+        for (key, label) in &labels {
+            ensure!(
+                !label.is_empty() && label.chars().all(|ch| !ch.is_control() || ch == '\n'),
+                "invalid {language:?} shared menu caption {key}: {label:?}"
+            );
+        }
+        let captions: menu_data::ItemCaptions =
+            serde_json::from_value(presentation["items"].clone())?;
+        assert_eq!(captions.item_categories.len(), 48);
+        assert_eq!(captions.inventory_categories.len(), 9);
+        assert!(
+            synopsis
+                .entries
+                .iter()
+                .any(|entry| !entry.updates.is_empty())
+        );
+        if language == Language::English {
+            assert_eq!(synopsis.entries[0].title, "Light of the Oracle");
+            assert_eq!(synopsis.months[0], "Jan");
+            let mut unicode = strategy.clone();
+            unicode.keyboard["rows"][0] = serde_json::json!("éあCDEFGHIJ");
+            let captions = unicode.captions(&diagnostics)?;
+            assert_eq!(captions.keyboard()?.chars().count(), 90);
+            assert!(captions.keyboard()?.starts_with("éあ"));
+            unicode.keyboard["rows"][0] = serde_json::json!("short");
+            assert!(unicode.captions(&diagnostics).is_err());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM pointing to an installed Steam copy"]
 fn installed_startup_and_dialogue_load_through_shared_readers() -> Result<()> {
     use resonance_content::{font, library::Library, startup as title};
     let installation = PathBuf::from(

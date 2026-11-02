@@ -362,3 +362,26 @@ mod tests {
         Ok(())
     }
 }
+
+/// Language-selected executable references into the common TXB bank.
+pub(crate) struct Menu<'a> {
+    pub image: super::pe::Image<'a>,
+    pub bank: Bank<'a>,
+    pub slot: u32,
+}
+impl Menu<'_> {
+    pub fn word(&self, at: u32) -> Result<u32> {
+        super::pe::word(self.image.slice(at, 4)?, 0)
+    }
+    pub fn directory(&self, at: u32) -> Result<u32> {
+        self.word(at + self.slot * 4)
+    }
+    pub fn caption(&self, at: u32, index: u32) -> Result<String> {
+        self.bank
+            .menu(self.word(at + index * 4)?, encoding_rs::WINDOWS_1252)
+    }
+    pub fn strings(&self, at: u32, count: u32) -> Result<Vec<String>> {
+        let directory = self.directory(at)?;
+        (0..count).map(|i| self.caption(directory, i)).collect()
+    }
+}

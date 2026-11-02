@@ -54,12 +54,16 @@ impl Font<'_> {
     }
 }
 
-fn wrap(source: &str, font: &Font<'_>) -> Result<Vec<SynopsisLine>> {
+/// Wrap authored journal text on the common reading panel.
+pub fn wrap_synopsis(
+    source: &str,
+    advance: impl Fn(char) -> Result<u32>,
+) -> Result<Vec<SynopsisLine>> {
     let chars: Vec<_> = source.chars().collect();
     let mut widths = BTreeMap::new();
     for &ch in &chars {
         if !ch.is_control() {
-            widths.entry(ch).or_insert(font.width(ch)?);
+            widths.entry(ch).or_insert(advance(ch)?);
         }
     }
     let mut lines = Vec::new();
@@ -149,13 +153,13 @@ fn convert(exe: &[u8]) -> Result<SynopsisData> {
             let text = if initial == 0 {
                 Vec::new()
             } else {
-                wrap(&text::string(exe, initial)?, &font)?
+                wrap_synopsis(&text::string(exe, initial)?, |ch| font.width(ch))?
             };
             let mut updates = BTreeMap::new();
             for (state, offset) in [(2, 16), (3, 20)] {
                 let pointer = dol::u32(row, offset)?;
                 if pointer != 0 {
-                    let lines = wrap(&text::string(exe, pointer)?, &font)?;
+                    let lines = wrap_synopsis(&text::string(exe, pointer)?, |ch| font.width(ch))?;
                     if lines != text {
                         updates.insert(state, lines);
                     }

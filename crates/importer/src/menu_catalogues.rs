@@ -20,7 +20,7 @@ const GRADE_LABELS: u32 = 0x8019bdc4;
 const RECIPES: u32 = 0x80220cd0;
 const VENDORS: u32 = 0x8022189c;
 
-fn exclusions(benefit: Benefit) -> Vec<Benefit> {
+pub fn grade_exclusions(benefit: Benefit) -> Vec<Benefit> {
     use Benefit::*;
     let group: &[Benefit] = match benefit {
         IncreasedHp | MinimumHp => &[IncreasedHp, MinimumHp],
@@ -69,7 +69,7 @@ fn grade_shop(exe: &[u8]) -> Result<Shop> {
                 price: dol::u32(row, 0)?,
                 name: text::string(exe, dol::u32(row, 4)?)?,
                 description: text::string(exe, dol::u32(row, 8)?)?,
-                excludes: exclusions(benefit),
+                excludes: grade_exclusions(benefit),
             })
         })
         .collect::<Result<_>>()?;

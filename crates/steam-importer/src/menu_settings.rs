@@ -1,5 +1,9 @@
 //! Localized menu tables written directly to the current GC documents.
-use crate::{output, pe, source::Source, text};
+use crate::{
+    output, pe,
+    source::Source,
+    text::{self, Menu},
+};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{menu_data::*, options};
 use std::{collections::BTreeMap, path::Path};
@@ -20,27 +24,6 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let options = customize(&menu)?;
     options.prepare()?;
     output::json(&library.join(options::PATH), &options)
-}
-struct Menu<'a> {
-    image: pe::Image<'a>,
-    bank: text::Bank<'a>,
-    slot: u32,
-}
-impl Menu<'_> {
-    fn word(&self, at: u32) -> Result<u32> {
-        pe::word(self.image.slice(at, 4)?, 0)
-    }
-    fn directory(&self, at: u32) -> Result<u32> {
-        self.word(at + self.slot * 4)
-    }
-    fn caption(&self, at: u32, index: u32) -> Result<String> {
-        self.bank
-            .menu(self.word(at + index * 4)?, encoding_rs::WINDOWS_1252)
-    }
-    fn strings(&self, at: u32, count: u32) -> Result<Vec<String>> {
-        let directory = self.directory(at)?;
-        (0..count).map(|i| self.caption(directory, i)).collect()
-    }
 }
 fn manual(source: &Menu<'_>) -> Result<TrainingManual> {
     // 0x510b50 filters this nine-by-five grid using these counts and flags.
