@@ -17,11 +17,14 @@ resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
 **This is an incremental port, not yet a playable library.** The latest full run
-completed all 34 implemented passes into an empty directory in 197 seconds and
-wrote entry points for all 509 available fields. Nine field resource references are still unavailable or
+completed all 37 implemented passes in 227 seconds and wrote entry points for all
+509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
 reader. The shared gameplay loader now initializes a party and saves/restores the
-added collection IDs. Startup scene and battle playability remain unverified.
+added collection IDs. Day/night title preparation, 120 script updates and a
+headless GPU capture at tick 120 now pass the existing shared title test. The
+capture still has backdrop gaps and unresolved decorative bone lookups. Playable
+field execution, the opening movie and battle remain unfinished.
 
 Current passes write
 the library descriptor, common script definitions, all 1,000 battle formations and
@@ -39,6 +42,11 @@ characters now have standard GLB motions. Party models include the seven native
 costume slots, named aliases, field/service clip bindings and an outline part.
 Where Steam has no outline geometry, the importer bakes an inverted hull for the
 existing GC pass. No Steam runtime renderer or animation player is added.
+Field scenes also use the GC importer's shared UV controller recipes, including
+the day/night title controllers required by the common title loader.
+Local picture resources and texture banks write the same overlay catalogues as
+GC; the installed check loads 57 banks. Steam's removed night-title menu texture
+uses a transparent handle because the common startup UI owns that lettering.
 
 The following passes write global NPC/standalone model mappings, model documents,
 collision, ordinary field actor selections and field entry points. Party and NPC
@@ -156,11 +164,35 @@ The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.
 A temporary French overlay also loads through that same path with UTF-8 names.
 
+The audio passes decode the installed AWB music and both voice languages through
+the GC importer's existing ADX decoder. They write ordinary PCM16 WAVs, standard
+RIFF loop metadata and the same music/speech mappings as GC. English is the
+default speech mapping; the Japanese mapping references its own ordinary files.
+Battle speech preserves the main bank's low-ID aliases and the legacy bank's
+additional tail. The unbacked `tos_ending.adx` music declaration remains for the
+ending-media owner; it is not replaced with another recording.
+
+All 67 PHD/PBD effect banks and the streamed-effect bank use shared recorded-effect
+documents. Native packed effect IDs are assigned ordinary positive catalogue IDs;
+menu and world service cues retain the shared IDs. Menu actions point directly to
+the authored SYS recordings. The common mix keeps recording buses dry; native
+acoustics, effect chaining/chance/pitch, actor voice banks and field-script audio
+bindings still need their owners. No source audio codec is added to the engine.
+The installed audio check loads 111 mapped music tracks (104 with authored loops),
+27,652 speech bindings and 1,563 effects, and renders the menu cues through the
+shared mixer. Library format 103 moves recorded music's volume curve into
+`audio/mix.json` for both importers, so WAV playback no longer needs synthesis
+tables. Older libraries require recooking.
+
 ```sh
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_catalogues_and_models -- --ignored
 RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_gameplay_definitions -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_localized_gameplay -- --ignored
 RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_party_battle_models -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_AUDIO_OUTPUT="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_audio_recordings -- --ignored
+RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_audio_recordings -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_field_overlays -- --ignored
+RESONANCE_TEST_ASSETS="/absolute/path/to/steam-preview" RESONANCE_NAMED_TITLE_CAPTURE="/absolute/path/to/title.png" cargo test -p resonance-presentation original_named_title_prepares_both_backgrounds -- --ignored
 ```
 
 The complete goal remains a Steam-only cook that loads through the same library
@@ -169,7 +201,7 @@ owners include remaining game rules and battle artwork; legacy field motion, ser
 and dynamic shared banks;
 party combat rules and victory performances; enemy/equipment battle models and rules;
 overworld data and media; skits,
-audio, movies and remaining startup/ending media. Completion requires exercising startup,
+remaining audio bindings, movies and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.
 

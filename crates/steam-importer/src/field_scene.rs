@@ -1,5 +1,8 @@
 //! Scenery layers, panorama and cameras written in the same field scene format as GC.
-use crate::{animation::Animation, model, output, package::Package, pe, source::Source, texture};
+use crate::{
+    animation::Animation, field_overlays, model, output, package::Package, pe, source::Source,
+    texture,
+};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     SceneClip,
@@ -110,14 +113,14 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u32>) -> Re
             water: None,
             environment: Default::default(),
             camera_tracks,
-            texture_animations: Vec::new(),
+            texture_animations: resonance_importer::field_texture_animations(id)?,
             unbound_geometry: Vec::new(),
             contact_shadow: None,
             toon_ramp: None,
             effects: "fields/settings.json".into(),
             blink: None,
             particles: None,
-            overlays: BTreeMap::new(),
+            overlays: field_overlays::cook(source, library, &package, id, &root)?,
             save_point: None,
         };
         output::json(&library.join(&root).join("scene.json"), &scene)?;

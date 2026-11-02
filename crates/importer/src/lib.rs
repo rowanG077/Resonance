@@ -140,6 +140,7 @@ pub use audio_catalogue::cook_audio_catalogue;
 pub use audio_config::{cook_menu_audio, cook_mix_audio, cook_synthesis_audio};
 pub use audio_effects::{cook_battle_cues, cook_effects};
 pub use audio_music::{cook_extra_music, cook_music};
+pub use audio_speech::write_adx_wave as convert_adx;
 pub use audio_speech::{
     cook_battle_speech, cook_event_speech, cook_speech, skit_mappings, speech_ids,
     speech_playback_rates,
@@ -195,6 +196,7 @@ pub use field_npc_models::cook_field_models;
 pub use field_npc_models::cook_field_npc_model;
 pub use field_overlays::cook_field_overlay_media;
 pub use field_resource_models::{cook_native_cameras, cook_native_models};
+pub use field_scene::field_texture_animations;
 pub use field_scene::{cook_field_scene, cook_fields};
 pub use field_settings::cook_field_settings;
 pub use field_wings::{cook_field_wings, field_wing_mappings};

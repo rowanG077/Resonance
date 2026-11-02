@@ -5152,6 +5152,7 @@ dependencies = [
  "glam 0.34.1",
  "image",
  "resonance-asset-writer",
+ "resonance-audio",
  "resonance-content",
  "resonance-events",
  "resonance-importer",

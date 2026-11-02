@@ -366,7 +366,8 @@ fn write_wave(path: &Path, clock: Clock, samples: &[i16]) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn write_adx_wave(bytes: &[u8], path: &Path) -> Result<()> {
+/// Decode a native ADX recording to ordinary PCM16 WAV, at its authored clock.
+pub fn write_adx_wave(bytes: &[u8], path: &Path) -> Result<()> {
     let (clock, samples) = decode_adx(bytes)?;
     write_wave(path, clock, &samples)
 }

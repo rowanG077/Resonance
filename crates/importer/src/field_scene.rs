@@ -132,6 +132,15 @@ fn texture_animations(id: u32) -> Result<Option<Value>> {
     Ok(selected)
 }
 
+/// Shared GameCube-style field controller recipes, independent of source geometry.
+pub fn field_texture_animations(
+    id: u32,
+) -> Result<Vec<resonance_content::field::FieldTextureAnimation>> {
+    Ok(serde_json::from_value(
+        texture_animations(id)?.unwrap_or_else(|| json!([])),
+    )?)
+}
+
 fn camera_tracks(
     archive: &[u8],
     id: u32,

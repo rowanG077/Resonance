@@ -8,6 +8,142 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; recooks scenery and local overlays"]
+fn installed_field_overlays_load_through_shared_catalogue() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    field_scene::cook(&source, &root, None)?;
+    let fields: Mappings = json(&root, resonance_content::library::FIELDS)?;
+    let mut count = 0;
+    for (_, name) in fields.iter() {
+        let scene: resonance_content::field::document::Scene =
+            json(&root, &format!("fields/{name}/scene.json"))?;
+        for path in scene.overlays.values() {
+            let art = resonance_content::effect::OverlayArt::load(path, |path| {
+                Ok(fs::read(root.join(path))?)
+            })?;
+            for path in art.references() {
+                resonance_asset_writer::texture::ktx2(&fs::read(root.join(path))?)?;
+            }
+            count += 1;
+        }
+    }
+    assert!(count > 20);
+    eprintln!("Loaded {count} local overlay banks through the shared catalogue");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally writes audio to RESONANCE_TEST_AUDIO_OUTPUT"]
+fn installed_audio_recordings_load_through_shared_players() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let temporary = tempfile::tempdir()?;
+    let root = std::env::var_os("RESONANCE_TEST_AUDIO_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_owned());
+    let source = source::Source::open(&installation, Language::English)?;
+    resonance_importer::cook_descriptor(&root)?;
+    let streams = audio_streams::cook(&source, &root)?;
+    audio_effects::cook(&source, &root, streams)?;
+    audio_settings::cook(&root)?;
+    check_audio_recordings(&root)
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_LIBRARY pointing to the cooked Steam library"]
+fn cooked_audio_recordings_load_through_shared_players() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    check_audio_recordings(&root)
+}
+
+fn check_audio_recordings(root: &Path) -> Result<()> {
+    use resonance_content::{
+        field_audio::{document, mix::Mix, speech},
+        library::Library,
+    };
+    let library = Library::open(root, &[])?;
+    let mut snapshot = library.snapshot();
+    let mix = Mix::read(&mut snapshot)?;
+    mix.validate()?;
+    let music: Mappings =
+        snapshot.json(document::MUSIC, resonance_content::preparation::JSON_LIMIT)?;
+    assert_eq!(music.iter().count(), 111);
+    let mut looping = 0;
+    for (id, _) in music.iter() {
+        let path = music.resolve(document::MUSIC, id, None)?;
+        let recording = resonance_audio::recording::Prepared::new(
+            resonance_content::music::capture(&mut snapshot, &path, &|| false)?,
+        )?;
+        looping += usize::from(recording.repeat().is_some());
+        let mut player = recording.start(32000)?;
+        for _ in 0..320 {
+            assert!(player.next_frame()?.is_some());
+        }
+    }
+    assert!(looping > 0);
+    let mut speech_count = 0;
+    for language in ["english", "japanese"] {
+        let mappings: speech::Mappings = snapshot.json(
+            &format!("audio/speech/{language}/mappings.json"),
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        assert!(mappings.len() > 10000);
+        assert!(mappings.contains_key(&0) && mappings.contains_key(&1946));
+        for entry in mappings.values() {
+            let source = entry.resolve()?;
+            let path = source
+                .path()
+                .context("expected authored speech recording")?;
+            let recording = resonance_audio::recording::Prepared::new(snapshot.open_stream(path)?)?;
+            assert!(recording.frames() > 0);
+        }
+        speech_count += mappings.len();
+    }
+    let effects = snapshot.mappings(document::EFFECTS)?;
+    let count = effects.iter().count();
+    let mut cache = resonance_audio::package::SampleCache::default();
+    // Do not retain all decoded effects in Snapshot's byte cache.
+    let mut read = |path: &str, limit: usize| -> Result<std::sync::Arc<[u8]>> {
+        let bytes = fs::read(root.join(path))?;
+        ensure!(bytes.len() <= limit, "effect exceeds shared read budget");
+        Ok(bytes.into())
+    };
+    for (id, _) in effects.iter() {
+        let path = effects.resolve(document::EFFECTS, id, None)?;
+        resonance_audio::effect::Definition::read(&path, &mut read)?.prepare_in(
+            Some(mix.field_reverbs),
+            &mut read,
+            &mut cache,
+        )?;
+    }
+    let cues: resonance_content::startup::Cues = json(root, "audio/menu.json")?;
+    let mut studio = resonance_audio::cue::Studio::new(mix.field_reverbs)?;
+    for name in ["navigate", "confirm", "back", "error"] {
+        let prepared = resonance_audio::effect::Definition::read(&cues.cues[name], &mut read)?
+            .prepare_in(Some(mix.field_reverbs), &mut read, &mut cache)?;
+        studio.play(prepared)?;
+    }
+    let mut audible = false;
+    for _ in 0..32000 {
+        audible |= studio.next_frame(Err)? != [0; 2];
+    }
+    assert!(audible);
+    eprintln!(
+        "Loaded 111 music tracks ({looping} looping), {speech_count} speech bindings and {count} effects; rendered menu cues through the shared mixer"
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked Steam field models"]
 fn installed_party_battle_models_load_through_shared_reader() -> Result<()> {
     let installation = PathBuf::from(

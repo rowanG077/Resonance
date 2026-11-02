@@ -94,6 +94,7 @@ impl Archive {
 }
 
 pub(crate) struct Source {
+    pub root: PathBuf,
     pub executable: Vec<u8>,
     pub language: Language,
     base: Archive,
@@ -111,6 +112,7 @@ impl Source {
             );
         }
         Ok(Self {
+            root: root.to_owned(),
             executable,
             language,
             base: Archive::open(root, "R01")?,
