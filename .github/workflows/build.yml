@@ -125,6 +125,12 @@ jobs:
         if: matrix.platform == 'linux-x64'
         run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
+      - name: Install pinned Windows software renderer and shader compiler
+        if: runner.os == 'Windows'
+        # wgpu's Windows CI uses a current WARP/DXC stack instead of the older
+        # WARP driver and FXC compiler bundled with Windows Server 2022.
+        run: python tools/ci/install_windows_renderer.py
+
       - name: Render and check pixels (Metal on macOS, CPU elsewhere)
         run: cargo run --locked --profile release-fast -p resonance-presentation --example ci_render -- target/smoke
 
