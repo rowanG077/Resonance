@@ -5,6 +5,7 @@ use bevy::{
     asset::RenderAssetUsages,
     camera::{CameraOutputMode, RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    pbr::Material,
     prelude::*,
     render::{
         Render, RenderApp, RenderPlugin, RenderSystems,
@@ -63,6 +64,7 @@ struct PipelineStatus {
 #[derive(Resource, Clone)]
 struct Readiness {
     overlay_shader: Handle<Shader>,
+    required_shaders: Vec<(&'static str, Handle<Shader>)>,
     status: Arc<Mutex<PipelineStatus>>,
 }
 
@@ -125,11 +127,23 @@ fn main() -> Result<()> {
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)))
     .add_systems(Startup, setup)
     .add_systems(Update, capture);
-    let ShaderRef::Path(path) = SpriteMeshMaterial::vertex_shader() else {
-        anyhow::bail!("expected the built-in sprite material shader path");
-    };
+    let required_shaders = [
+        ("overlay", SpriteMeshMaterial::vertex_shader()),
+        ("surface", <TitleSurface as Material>::fragment_shader()),
+        ("movie", TitleText::fragment_shader()),
+        ("output", TitleOutput::fragment_shader()),
+    ]
+    .into_iter()
+    .map(|(name, shader)| {
+        let ShaderRef::Path(path) = shader else {
+            anyhow::bail!("expected the {name} shader path");
+        };
+        Ok((name, app.world().resource::<AssetServer>().load(path)))
+    })
+    .collect::<Result<Vec<_>>>()?;
     let readiness = Readiness {
-        overlay_shader: app.world().resource::<AssetServer>().load(path),
+        overlay_shader: required_shaders[0].1.clone(),
+        required_shaders,
         status: default(),
     };
     app.insert_resource(readiness.clone());
@@ -375,10 +389,17 @@ fn wait_for_frame(
         })
         .expect("wait for rendered frame");
     let mut status = PipelineStatus::default();
+    let mut seen = vec![false; readiness.required_shaders.len()];
     for pipeline in pipelines.pipelines() {
         let label = match &pipeline.descriptor {
             PipelineDescriptor::RenderPipelineDescriptor(descriptor) => {
-                status.overlay_seen |= descriptor.vertex.shader == readiness.overlay_shader;
+                for (seen, (_, shader)) in seen.iter_mut().zip(&readiness.required_shaders) {
+                    *seen |= descriptor.vertex.shader == *shader
+                        || descriptor
+                            .fragment
+                            .as_ref()
+                            .is_some_and(|stage| stage.shader == *shader);
+                }
                 descriptor.label.as_deref()
             }
             PipelineDescriptor::ComputePipelineDescriptor(descriptor) => {
@@ -392,6 +413,14 @@ fn wait_for_frame(
                 label.unwrap_or("unnamed pipeline"),
                 pipeline.state
             ));
+        }
+    }
+    status.overlay_seen = seen[0];
+    for (seen, (name, _)) in seen.into_iter().zip(&readiness.required_shaders) {
+        if !seen {
+            status
+                .pending
+                .push(format!("{name}: pipeline not queued yet"));
         }
     }
     status.ready = status.overlay_seen && status.pending.is_empty();
