@@ -17,10 +17,11 @@ resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
 **This is an incremental port, not yet a playable library.** The latest full run
-completed all 18 implemented passes in 205 seconds and wrote entry points for all
+completed all 22 implemented passes in 230 seconds and wrote entry points for all
 509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
-reader; startup and battle playability remain unverified.
+reader. The four UI passes also load through shared readers; startup scene and
+battle playability remain unverified.
 
 Current passes write
 the library descriptor, common script definitions, all 1,000 battle formations and
@@ -39,7 +40,7 @@ costume slots, named aliases, field/service clip bindings and an outline part.
 Where Steam has no outline geometry, the importer bakes an inverted hull for the
 existing GC pass. No Steam runtime renderer or animation player is added.
 
-The next passes write global NPC/standalone model mappings, model documents,
+The following passes write global NPC/standalone model mappings, model documents,
 collision, ordinary field actor selections and field entry points. Party and NPC
 packages use one model writer. Script-selected TOANMB motions are baked against
 the selected rigs into existing field animation bindings; the cook shares a
@@ -94,12 +95,29 @@ interrupted cook:
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_categories_load -- --ignored
 ```
 
+Dialogue fonts, window artwork, all 531 item icons, portraits, menu frames and
+localized shop/save/action captions now use the ordinary shared UI documents.
+The menu atlas and title images are normalized to the common 640x480 canvas.
+Boot logos, title artwork, defeat artwork and story subtitles use the existing
+readers; the title definition is shared with the GC importer. The common input
+atlas is exported by the same helper as the GC cook. No runtime changes or
+Steam-specific UI mode are required.
+
+The installed-source UI check cooks the required tables, loads the bitmap font,
+captures the shared UI/title/boot documents and prepares menu images. It checks
+subtitles and defeat captions in all five languages. It does not prove title
+scene, audio, field or battle playback:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_startup_and_dialogue -- --ignored
+```
+
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include game/menu rules and artwork; legacy field motion, service actors
+owners include remaining game/menu rules and battle artwork; legacy field motion, service actors
 and dynamic shared banks;
 enemy/equipment models and battle rules; overworld data and media; skits,
-audio, movies and startup/ending assets. Completion requires exercising startup,
+audio, movies and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.
 

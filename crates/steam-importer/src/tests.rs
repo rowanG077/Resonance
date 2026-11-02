@@ -9,6 +9,110 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 
 #[test]
 #[ignore = "requires RESONANCE_TEST_STEAM pointing to an installed Steam copy"]
+fn installed_startup_and_dialogue_load_through_shared_readers() -> Result<()> {
+    use resonance_content::{font, library::Library, startup as title};
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let output = tempfile::tempdir()?;
+    resonance_importer::cook_descriptor(output.path())?;
+    let source = source::Source::open(&installation, Language::English)?;
+    let font = dialogue_font::cook(&source, output.path())?;
+    let decoded: font::BitmapFont = json(output.path(), "fonts/dialogue.json")?;
+    decoded.validate()?;
+    decoded.validate_text("New Game — Génis, Colette & Préséa · あいうえお ｱｲｳｴｵ")?;
+    assert_eq!(decoded.glyphs, font.glyphs);
+    let pixels =
+        resonance_asset_writer::texture::ktx2(&fs::read(output.path().join(&font.texture))?)?;
+    assert_eq!(
+        [pixels[0].width, pixels[0].height],
+        [font.width, font.height]
+    );
+    startup::cook(&source, output.path())?;
+    let library = Library::open(output.path(), &[])?;
+    let (definition, boot) = title::capture(&mut library.snapshot(), true, &|| false)?;
+    assert_eq!((definition.day_field, definition.night_field), (474, 531));
+    assert_eq!(definition.artwork.len(), 5);
+    let boot = boot.context("missing boot sequence")?;
+    assert_eq!(boot.0.len(), 3);
+    for path in definition
+        .artwork
+        .iter()
+        .flat_map(title::Artwork::images)
+        .chain(boot.0.iter().map(|logo| logo.image.as_str()))
+    {
+        resonance_asset_writer::texture::ktx2(&fs::read(output.path().join(path))?)?;
+    }
+    cook_tables(&source, output.path())?;
+    dialogue::cook(&source, output.path(), &font)?;
+    menu_art::cook(&source, output.path())?;
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    let mut menu = resonance_content::menu::MenuArt::decode(
+        &fs::read(output.path().join("ui/menu.json"))?,
+        &diagnostics,
+    )?;
+    menu.prepare_resources(|path| fs::read(output.path().join(path)).map_err(anyhow::Error::from));
+    menu.validate_layout(531)?;
+    assert_eq!(
+        menu.sprites
+            .group(resonance_content::menu::Sprite::ItemImages)?
+            .len(),
+        531
+    );
+    assert_eq!(menu.labels["talk"], "Talk");
+    resonance_content::preparation::ui(&mut library.snapshot(), &diagnostics, &|| false)?;
+    for language in [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Italian,
+    ] {
+        let source = source::Source::open(&installation, language)?;
+        dialogue::cook(&source, output.path(), &font)?;
+        let mut art: font::DialogueArt = json(output.path(), "ui/dialogue.json")?;
+        art.prepare_images(|path| fs::read(output.path().join(path)).map_err(anyhow::Error::from))?;
+        let track: font::MovieSubtitles = json(output.path(), "ui/story-subtitles.json")?;
+        track.validate()?;
+        assert_eq!(track.cues.len(), 15);
+        for line in track.cues.iter().flat_map(|cue| &cue.lines) {
+            font.validate_text(&line.text)?;
+        }
+        let bytes = source.require("TOS_TEXT.TXB")?;
+        let labels = menu_labels::read(
+            &source,
+            &pe::Image::parse(&source.executable)?,
+            &text::Bank::parse(&bytes)?,
+            language.slot(),
+        )?;
+        for key in resonance_content::menu::SHOP_LABELS {
+            ensure!(labels.contains_key(key), "missing shop caption {key}");
+        }
+        ensure!(
+            !labels["confirm_save_a"].contains('%'),
+            "unresolved save caption"
+        );
+        game_over::cook(&source, output.path())?;
+        let defeat: resonance_content::game_over::Art =
+            json(output.path(), resonance_content::game_over::document::PATH)?;
+        let defeat = defeat.prepare(
+            |path| fs::read(output.path().join(path)).map_err(anyhow::Error::from),
+            &diagnostics,
+        )?;
+        font.validate_text(&defeat.caption)?;
+        for choice in &defeat.choices {
+            font.validate_text(choice)?;
+        }
+        if language == Language::English {
+            assert_eq!(track.cues[1].frame, 154);
+            assert_eq!(track.cues[1].lines[0].text, "Once upon a time,");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM pointing to an installed Steam copy"]
 fn installed_categories_load_in_current_content_format() -> Result<()> {
     let installation = PathBuf::from(
         std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,

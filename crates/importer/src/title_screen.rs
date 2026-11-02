@@ -35,7 +35,8 @@ fn texture(sizes: &Sizes, name: &str) -> UiTexture {
     }
 }
 
-fn definition(sizes: &Sizes) -> Definition {
+/// Shared title layout on the GameCube UI canvas, using the cooked image sizes.
+pub fn title_definition(sizes: &Sizes) -> Definition {
     let artwork = |image, selected: Option<&str>, choice, top| Artwork {
         image: texture(sizes, image),
         selected_image: selected.map(|name| texture(sizes, name)),
@@ -127,7 +128,7 @@ pub fn cook_title_screen(extracted: &Path, library: &Path) -> Result<()> {
             resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
         ));
     }
-    let definition = definition(&sizes);
+    let definition = title_definition(&sizes);
     definition.validate()?;
     for (path, bytes) in output {
         crate::output::write(&library.join(&path), &bytes)?;

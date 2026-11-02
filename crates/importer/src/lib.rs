@@ -223,7 +223,7 @@ pub use skit_assets::{cook_skit_catalogue, cook_skit_script, cook_skits, cook_un
 pub use skit_portraits::{cook_skit_portrait, cook_skit_portraits, skit_portrait_animations};
 pub use strategy::cook_strategy;
 pub use techniques::cook_techniques;
-pub use title_screen::cook_title_screen;
+pub use title_screen::{cook_title_screen, title_definition};
 pub use titles::cook_titles;
 pub use ui_controls::cook_ui_controls;
 pub use ui_emotions::cook_ui_emotions;
