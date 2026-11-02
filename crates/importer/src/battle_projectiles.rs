@@ -35,7 +35,7 @@ fn effect(row: &[u8], at: usize) -> Effect {
 
 /// Decode one native 400-byte projectile row shared by resident spells and
 /// stored battle scenes. The caller supplies the REL's acceleration reset scale.
-pub(crate) fn scene_record(row: &[u8], reset_scale: f32) -> Result<Projectile> {
+pub fn scene_record(row: &[u8], reset_scale: f32) -> Result<Projectile> {
     ensure!(row.len() == 400, "invalid projectile record size");
     ensure!(
         [0..8, 0x10..0x11, 0x18..0x24, 0x58..0x5c, 0x9e..400]
@@ -172,7 +172,7 @@ pub(crate) fn scene_record(row: &[u8], reset_scale: f32) -> Result<Projectile> {
 
 /// Decode the simple contact rule used by resident and stored spell scenes.
 /// The native effect-bank selector has no meaning when no effect is selected.
-pub(crate) fn scene_hit(row: &[u8], recoil: u8) -> Result<ActionHit> {
+pub fn scene_hit(row: &[u8], recoil: u8) -> Result<ActionHit> {
     ensure!(row.len() >= 28, "truncated resident spell hit");
     let flags = dol::u16(row, 0)?;
     let condition = dol::u32(row, 8)?;

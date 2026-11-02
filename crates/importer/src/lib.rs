@@ -49,6 +49,7 @@ mod battle_party_victory;
 pub use battle_party_rules::cook_battle_party_rules;
 pub use battle_party_victory::{cook_battle_victories, cook_battle_victory_group};
 mod battle_projectiles;
+pub use battle_projectiles::{scene_hit as decode_spell_hit, scene_record as decode_projectile};
 mod battle_recoil;
 mod battle_scene_mappings;
 mod battle_scene_package;

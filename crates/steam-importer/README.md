@@ -28,9 +28,10 @@ reader. The shared gameplay loader now initializes a party and saves/restores th
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
 capture still has backdrop gaps and unresolved decorative bone lookups. Later
-fields and battle remain unfinished. Nine additional passes now cook
+fields and battle remain unfinished. Twelve additional passes now cook
 skits, portraits, movies, field service models, normal attacks, party speech,
-martial actions, party profiles and field audio against that library. Native
+martial actions, party profiles, resident projectiles, Defense System rules,
+battle audio and field audio against that library. Native
 opening-field execution reaches player control. The shared checkpoint check
 passes save/reload, movement, invalid-load rejection and early village/classroom
 transitions using this cooked library.
@@ -190,7 +191,7 @@ round-trip every decoded field through the shared reader. One small shared voice
 choice event preserves the weighted lines actually used by these tracks. Native
 voice widths, packed sound IDs and executable launch constants stay in the importer;
 there is no runtime edition flag. Grand Fall, five non-track callback members and
-six added callback-driven actions remain explicitly unsupported. Projectiles/effects
+six added callback-driven actions remain explicitly unsupported. Battle artwork
 and encounter owners still need conversion before battles play.
 
 All nine party profiles now reuse the GC actor-profile decoder and named party
@@ -204,6 +205,15 @@ encounter reader loads the result, all nine default bodies bind their profile
 anchors, and all 502 referenced voice recordings resolve in both English and Japanese. Extra character voices are ordinary optional profile
 fields, with original fallbacks for older libraries. Elemental contact cues use the
 same u16 IDs as other sounds; neither change introduces an edition mode.
+The resident projectile owner normalizes all 26 templates into the GC decoder,
+then writes the same projectile table, six resident spell rules, eight support
+clocks and Fire Ball launch parameters. The named Defense System definition
+includes its native repair/deployment timings and localized messages. Battle audio
+uses ordinary mappings for 20 common cues, preserving existing field/menu service
+bindings, recording sample rates and the shared spatial controls. The installed
+check loads these documents through the common readers and prepares/plays their
+recordings through the existing effect player. No engine change was needed.
+
 The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.
 A temporary French overlay also loads through that same path with UTF-8 names.

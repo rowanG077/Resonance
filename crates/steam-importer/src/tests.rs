@@ -8,6 +8,118 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked audio and formations"]
+fn installed_common_battle_resources_use_shared_readers_and_player() -> Result<()> {
+    use resonance_content::{
+        battle_audio::{Selection, document},
+        battle_voice::Sound,
+        diagnostics::Diagnostics,
+        library::Library,
+        prepared::Files,
+    };
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_projectiles::cook(&source, &root)?;
+    battle_defense::cook(&source, &root)?;
+    battle_audio::cook(&source, &root)?;
+    let library = Library::open_paths(&root, &[])?;
+    let mut snapshot = library.snapshot();
+    for path in [
+        resonance_content::battle_projectile::PATH,
+        resonance_content::battle_defense_system::PATH,
+        resonance_content::battle_enemy::document::MAPPINGS,
+    ] {
+        snapshot.read(path, resonance_content::preparation::JSON_LIMIT)?;
+    }
+    let files = Files::from_snapshot(snapshot, || false, Diagnostics::new(true))?;
+    let projectiles = battle_rules::projectiles(&files)?;
+    assert_eq!(projectiles.records.len(), 26);
+    assert!(
+        projectiles
+            .records
+            .iter()
+            .all(|row| row.unsupported_reason.is_none())
+    );
+    assert_eq!(projectiles.resident_spells.len(), 6);
+    assert_eq!(projectiles.support_durations.len(), 8);
+    assert_eq!(projectiles.records[9].velocity, [0., 8., 16.]);
+    assert_eq!(projectiles.records[9].spawn_offset, [0., 32., 90.]);
+    assert!(projectiles.resident_spells[&220].followup_hit.is_some());
+    for spell in projectiles.resident_spells.values() {
+        assert!(spell.duration > 0);
+    }
+    let fire = projectiles.fire_ball.unwrap();
+    assert!(fire.velocities.into_iter().flatten().all(f32::is_finite));
+    let defense = battle_rules::defense(&files)?;
+    assert_eq!(defense.repair_cycle.self_ticks, 1500);
+    assert_eq!(defense.deployment.ticks, 120);
+    assert_eq!(defense.orbit_count, 2);
+    assert!(!defense.messages.automatic.is_empty());
+    let mut snapshot = library.snapshot();
+    let catalogue = document::Catalogue::capture(&mut snapshot, &|| false)?;
+    assert_eq!(
+        catalogue.definition.effect_spatial,
+        [320., 5., 64., 0., 127.]
+    );
+    assert_eq!(
+        catalogue.definition.voice_spatial,
+        [320., 10., 64., 24., 104.]
+    );
+    assert!(catalogue.definition.speech_rates.is_empty());
+    let diagnostics = Diagnostics::new(true);
+    let mut selection = Selection::default();
+    for (cue, native) in battle_audio::CUES {
+        let native = audio_effects::id(native)?;
+        assert_eq!(
+            catalogue.resolved.effects[&(cue as i16)],
+            catalogue.resolved.effects[&(native as i16)]
+        );
+        catalogue.collect(&mut selection, &diagnostics, Sound::Cue(cue))?;
+    }
+    for cue in [3, 0x8003] {
+        catalogue.collect(&mut selection, &diagnostics, Sound::Stream(cue))?;
+    }
+    let selected = catalogue.select(&selection, &diagnostics)?;
+    assert_eq!(selected.effects.len(), 20);
+    assert_eq!(selected.voices.len(), 2);
+    // Existing menu/field service meanings also remain valid in this catalogue.
+    for (cue, native) in [(1, 28), (2, 27), (3, 26), (4, 7), (38, 31)] {
+        assert_eq!(
+            catalogue.resolved.effects[&cue],
+            catalogue.resolved.effects[&(audio_effects::id(native)? as i16)]
+        );
+    }
+    let mix = resonance_content::field_audio::mix::Mix::read(&mut snapshot)?;
+    let mut read = |path: &str, _: usize| -> Result<std::sync::Arc<[u8]>> {
+        Ok(fs::read(root.join(path))?.into())
+    };
+    let mut cache = resonance_audio::package::SampleCache::default();
+    let mut studio = resonance_audio::cue::Studio::new(mix.battle_reverbs)?;
+    for path in selected.effects.values() {
+        let effect = resonance_audio::effect::Definition::read(path, &mut read)?.prepare_in(
+            Some(mix.battle_reverbs),
+            &mut read,
+            &mut cache,
+        )?;
+        studio.play(effect)?;
+    }
+    let mut audible = false;
+    for _ in 0..3200 {
+        audible |= studio.next_frame(Err)? != [0; 2];
+    }
+    assert!(audible);
+    eprintln!(
+        "26 projectiles, six resident spells, eight support clocks, named Defense System and 20 common battle recordings loaded through shared readers/player"
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked audio and party attacks"]
 fn installed_party_rules_use_shared_encounter_reader() -> Result<()> {
     use resonance_content::{
