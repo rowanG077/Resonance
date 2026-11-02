@@ -1,7 +1,9 @@
 //! Scenery layers, panorama and cameras written in the same field scene format as GC.
-use crate::{model, output, package::Package, pe, source::Source, texture};
+use crate::{animation::Animation, model, output, package::Package, pe, source::Source, texture};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
+    SceneClip,
+    animation::Skeleton,
     field::{DrawStage, document::Scene},
     library::{FIELDS, Mappings},
 };
@@ -34,8 +36,26 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u32>) -> Re
                 continue;
             }
             let label = format!("part-{}", parts.len());
-            let (mut part, _model) = model::cook(source, library, descriptor, &root, &label)
+            let (mut part, model) = model::cook(source, library, descriptor, &root, &label)
                 .with_context(|| format!("field {id} scenery section {section} ({descriptor})"))?;
+            if let Some(name) = package.reference(section + 1)? {
+                let skeleton = Skeleton::from_glb(&fs::read(library.join(&part.mesh))?)?;
+                let bytes = Animation::read(&source.require(name)?)?
+                    .bind(&model, &skeleton)?
+                    .encode(&skeleton)
+                    .with_context(|| format!("field {id} scenery motion {name}"))?;
+                let path = format!("{root}/animations/{label}-motion-0.glb");
+                output::write(&library.join(&path), &bytes)?;
+                part.clips.push(SceneClip {
+                    motion: path,
+                    joints: Default::default(),
+                    resource_slot: 0,
+                    duration_seconds: 0.,
+                    animation_resource: None,
+                    pose_chains: Vec::new(),
+                });
+                part.autoplay = true;
+            }
             part.resource = section as u16;
             let stage = DrawStage::scenery(section as u16).context("unknown field layer")?;
             for material in &mut part.materials {

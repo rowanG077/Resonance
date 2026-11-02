@@ -5,7 +5,15 @@ use resonance_content::animation::Transform;
 use serde_json::{Value, json};
 
 impl Model {
+    pub(crate) fn outline_glb(&self) -> Result<Vec<u8>> {
+        self.glb_with_expansion(&vec![[1.; 4]; self.materials.records.len()], 0.5)
+    }
+
     pub(super) fn glb(&self, tints: &[[f32; 4]]) -> Result<Vec<u8>> {
+        self.glb_with_expansion(tints, 0.)
+    }
+
+    fn glb_with_expansion(&self, tints: &[[f32; 4]], expansion: f32) -> Result<Vec<u8>> {
         ensure!(
             tints.len() == self.materials.records.len(),
             "missing material tint"
@@ -70,8 +78,14 @@ impl Model {
             let positions = mesh
                 .positions
                 .iter()
-                .copied()
-                .map(coordinates::vector)
+                .zip(&mesh.normals)
+                .map(|(position, normal)| {
+                    coordinates::vector(
+                        (glam::Vec3::from_array(*position)
+                            + glam::Vec3::from_array(*normal).normalize_or_zero() * expansion)
+                            .to_array(),
+                    )
+                })
                 .collect::<Vec<_>>();
             let normals = mesh
                 .normals

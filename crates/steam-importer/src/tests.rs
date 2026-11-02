@@ -175,6 +175,17 @@ fn installed_scenery_and_skinned_body_use_shared_assets() -> Result<()> {
         part.prepare_bones(&bytes)?;
         assert!(!part.bone_names.is_empty());
         assert!(!part.materials.is_empty());
+        let skeleton = resonance_content::animation::Skeleton::from_glb(&bytes)?;
+        for clip in &part.clips {
+            let motion =
+                clip.decode_for_skeleton(&fs::read(output.path().join(&clip.motion))?, &skeleton)?;
+            motion.validate(&skeleton)?;
+            resonance_content::animation::pose::sample(
+                &skeleton,
+                &motion,
+                motion.duration_frames * 0.5,
+            )?;
+        }
         for image in part.textures {
             resonance_asset_writer::texture::ktx2(&fs::read(output.path().join(image))?)?;
         }
@@ -203,6 +214,54 @@ fn installed_scenery_and_skinned_body_use_shared_assets() -> Result<()> {
     let skeleton = resonance_content::animation::Skeleton::from_glb(&bytes)?;
     skeleton.bind_pose()?;
     assert!(skeleton.bones.len() > 10);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally RESONANCE_TEST_STEAM_CHARACTER"]
+fn installed_party_models_and_motions_use_shared_reader() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let output = tempfile::tempdir()?;
+    let selected = std::env::var("RESONANCE_TEST_STEAM_CHARACTER")
+        .ok()
+        .map(|id| id.parse::<u8>())
+        .transpose()?;
+    character_models::cook(&source, output.path(), selected)?;
+    let mappings: resonance_content::field::document::ModelMappings =
+        json(output.path(), resonance_content::field::document::MODELS)?;
+    assert_eq!(mappings.0.len(), if selected.is_some() { 7 } else { 63 });
+    let owners = mappings
+        .0
+        .values()
+        .map(|target| target.model())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut clips = 0;
+    for owner in owners {
+        let mut model: resonance_content::field::document::Model =
+            json(output.path(), &format!("meshes/{owner}/model.json"))?;
+        model.validate()?;
+        for part in &mut model.parts {
+            let bytes = fs::read(output.path().join(&part.mesh))?;
+            part.prepare_bones(&bytes)?;
+            let skeleton = resonance_content::animation::Skeleton::from_glb(&bytes)?;
+            assert!(!part.clips.is_empty());
+            for clip in &part.clips {
+                let motion = clip
+                    .decode_for_skeleton(&fs::read(output.path().join(&clip.motion))?, &skeleton)?;
+                motion.validate(&skeleton)?;
+                for frame in [0., motion.duration_frames * 0.5, motion.duration_frames] {
+                    resonance_content::animation::pose::sample(&skeleton, &motion, frame)?;
+                }
+                clips += 1;
+            }
+        }
+        model.hidden_nodes(&model.hidden_geometry)?;
+        assert!(model.parts.iter().any(|p| p.outline_color.is_some()));
+    }
+    assert!(clips > 30);
     Ok(())
 }
 

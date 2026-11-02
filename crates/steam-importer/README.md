@@ -20,16 +20,23 @@ select their corresponding language slot.
 the library descriptor, common script definitions, all 1,000 battle formations and
 736 encounter pools, recoil, 531 items, 255 native techniques plus the common
 elemental variants, field mappings/foraging, EX skills, and scripts/messages/collision
-for all 509 available field packages. It also writes their available static scenery and
+for all 509 available field packages. It also writes their available scenery and
 panoramas as GLB/KTX2, plus camera tracks in the common camera format. Model
 conversion retains skeletons, weighted joints, vertex colors and texture mips;
 materials use the existing GC pass. Missing scenery referenced by shipped debug
 packages is reported rather than replaced with invented geometry.
 
 Shared field settings now include native effect atlases, localized notices,
-contact shadows and a GC-style toon ramp. Scenery motion, field actors,
-character/enemy documents, remaining game/menu rules and other media still need porting. Static node visibility and
-animated visibility also need projection through the common playback path. Use a
+contact shadows and a GC-style toon ramp. Scenery transforms and all nine party
+characters now have standard GLB motions. Party models include the seven native
+costume slots, named aliases, field/service clip bindings and an outline part.
+Where Steam has no outline geometry, the importer bakes an inverted hull for the
+existing GC pass. No Steam runtime renderer or animation player is added.
+
+Field actors, enemy documents, remaining game/menu rules and other media still
+need porting. Material animation, face atlas selection and animated visibility
+remain pending. Party model defaults retain initial hidden geometry; scenery
+node visibility still needs projection through the common playback path. Use a
 separate output directory while those owners are missing.
 
 The added native techniques receive ordinary logical IDs after the common
@@ -39,8 +46,9 @@ from GameCube. Neither source requires a runtime edition flag. Field input check
 are adapted with ordinary bytecode expressions around the existing GC input
 native, including Steam's raw-press mode. Branch targets, event entries and message offsets are
 preserved when code grows. Source text encodings disappear into Unicode messages.
-Animation-clock and sound-ID conventions still need conversion with their media
-owners.
+Native skeletal motion timestamps are converted from 60 Hz to the common 30 Hz
+clock when cooked. Script seek times and sound-ID conventions still need
+conversion with their media owners.
 
 Run parser tests with `cargo test -p resonance-steam-importer`. The focused installed
 source test also loads the generated documents with the current content readers,
@@ -53,8 +61,8 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam
 
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include game/menu rules and artwork; field motion and actors;
-party/enemy/equipment models and battle rules; overworld data and media; skits,
+owners include game/menu rules and artwork; field actors and shared banks;
+enemy/equipment models and battle rules; overworld data and media; skits,
 audio, movies and startup/ending assets. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.
@@ -77,5 +85,11 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam
 The full scenery pass currently produces 509 scene documents, 1,021 model parts
 and 53 camera tracks from the installed English source. These files use the
 current scene/material grouping schema. Their shared settings and image references are also cooked. Field actor and
-animation owners are still pending; this is not yet a field startup/playability
+shared animation bank owners are still pending; this is not yet a field startup/playability
 check.
+
+To cook party models and sample their converted motions through the shared reader:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_party_models_and_motions -- --ignored
+```

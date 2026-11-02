@@ -1,5 +1,7 @@
 //! Direct Steam conversion into the same editable library as the GameCube importer.
+mod animation;
 mod archive;
+mod character_models;
 mod coordinates;
 mod ex_skills;
 mod field_core;
@@ -35,35 +37,38 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
     );
     let start = Instant::now();
     cook_tables(&source, output)?;
-    eprintln!("[asset type 9/11] Cooking shared field settings");
+    eprintln!("[asset type 9/12] Cooking shared field settings");
     field_settings::cook(&source, output).context("Steam field settings")?;
-    eprintln!("[asset type 10/11] Cooking field scripts and collision");
+    eprintln!("[asset type 10/12] Cooking field scripts and collision");
     field_core::cook(&source, output, None).context("Steam field scripts and collision")?;
-    eprintln!("[asset type 11/11] Cooking field scenery and cameras");
+    eprintln!("[asset type 11/12] Cooking field scenery and cameras");
     field_scene::cook(&source, output, None).context("Steam field scenery and cameras")?;
+    eprintln!("[asset type 12/12] Cooking party models and field motions");
+    character_models::cook(&source, output, None)
+        .context("Steam party models and field motions")?;
     eprintln!(
-        "Steam categories cooked in {:.3} seconds. Remaining game rules, field actors/animations and other media categories are not yet ported.",
+        "Steam categories cooked in {:.3} seconds. Remaining game rules, field actors and other media categories are not yet ported.",
         start.elapsed().as_secs_f64()
     );
     Ok(())
 }
 
 fn cook_tables(source: &source::Source, output: &Path) -> Result<()> {
-    eprintln!("[asset type 1/11] Cooking descriptor");
+    eprintln!("[asset type 1/12] Cooking descriptor");
     resonance_importer::cook_descriptor(output).context("library descriptor")?;
-    eprintln!("[asset type 2/11] Cooking scripts");
+    eprintln!("[asset type 2/12] Cooking scripts");
     resonance_importer::cook_scripts(output).context("shared script definitions")?;
-    eprintln!("[asset type 3/11] Cooking battle formations");
+    eprintln!("[asset type 3/12] Cooking battle formations");
     formations::cook(source, output).context("Steam battle formations")?;
-    eprintln!("[asset type 4/11] Cooking recoil");
+    eprintln!("[asset type 4/12] Cooking recoil");
     recoil::cook(source, output).context("Steam battle recoil")?;
-    eprintln!("[asset type 5/11] Cooking items");
+    eprintln!("[asset type 5/12] Cooking items");
     items::cook(source, output).context("Steam items")?;
-    eprintln!("[asset type 6/11] Cooking techniques");
+    eprintln!("[asset type 6/12] Cooking techniques");
     techniques::cook(source, output).context("Steam techniques")?;
-    eprintln!("[asset type 7/11] Cooking field directory and foraging");
+    eprintln!("[asset type 7/12] Cooking field directory and foraging");
     field_directory::cook(source, output).context("Steam field directory")?;
-    eprintln!("[asset type 8/11] Cooking EX skills");
+    eprintln!("[asset type 8/12] Cooking EX skills");
     ex_skills::cook(source, output).context("Steam EX skills")?;
     Ok(())
 }

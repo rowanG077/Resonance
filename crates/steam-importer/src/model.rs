@@ -14,6 +14,7 @@ pub(crate) use write::cook;
 
 pub struct Model {
     pub nodes: Vec<Node>,
+    pub animation_bindings: Vec<(u32, u32)>,
     pub meshes: Vec<Mesh>,
     pub materials: Materials,
 }
@@ -82,6 +83,7 @@ impl Model {
         )?;
         Ok(Self {
             nodes,
+            animation_bindings: pose.channels,
             meshes,
             materials,
         })
