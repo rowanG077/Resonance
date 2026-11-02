@@ -14,7 +14,10 @@ fn installed_categories_load_in_current_content_format() -> Result<()> {
         std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
     );
     let output = tempfile::tempdir()?;
-    cook_all(&installation, output.path(), Language::English)?;
+    cook_tables(
+        &source::Source::open(&installation, Language::English)?,
+        output.path(),
+    )?;
     let enemies: Mappings = json(
         output.path(),
         resonance_content::battle_enemy::document::MAPPINGS,
@@ -75,7 +78,10 @@ fn installed_categories_load_in_current_content_format() -> Result<()> {
     // Reruns overwrite interrupted output directly, without freshness state.
     let before = fs::read(output.path().join(arte::PATH))?;
     fs::write(output.path().join(arte::PATH), b"interrupted cook")?;
-    cook_all(&installation, output.path(), Language::English)?;
+    cook_tables(
+        &source::Source::open(&installation, Language::English)?,
+        output.path(),
+    )?;
     assert_eq!(fs::read(output.path().join(arte::PATH))?, before);
     for language in [
         Language::French,
@@ -83,7 +89,10 @@ fn installed_categories_load_in_current_content_format() -> Result<()> {
         Language::German,
         Language::Italian,
     ] {
-        cook_all(&installation, output.path(), language)?;
+        cook_tables(
+            &source::Source::open(&installation, language)?,
+            output.path(),
+        )?;
         let translated: items::Document = json(output.path(), items::PATH)?;
         translated.prepare()?;
         assert_ne!(
@@ -95,6 +104,46 @@ fn installed_categories_load_in_current_content_format() -> Result<()> {
         let ex: resonance_content::ex_skills::Document =
             json(output.path(), resonance_content::ex_skills::PATH)?;
         ex.prepare(&translated.mappings)?.validate_rules(531)?;
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally RESONANCE_TEST_STEAM_FIELD"]
+fn installed_field_sources_convert() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let language = std::env::var("RESONANCE_TEST_STEAM_LANGUAGE")
+        .ok()
+        .map(|value| value.parse::<Language>())
+        .transpose()?
+        .unwrap_or_default();
+    let source = source::Source::open(&installation, language)?;
+    let output = tempfile::tempdir()?;
+    field_directory::cook(&source, output.path())?;
+    let selected = std::env::var("RESONANCE_TEST_STEAM_FIELD")
+        .ok()
+        .map(|id| id.parse::<u32>())
+        .transpose()?;
+    field_core::cook(&source, output.path(), selected)?;
+    let fields: Mappings = json(output.path(), resonance_content::library::FIELDS)?;
+    for (id, name) in fields
+        .iter()
+        .filter(|(id, _)| selected.is_none_or(|only| only == *id))
+    {
+        let base = output.path().join("fields").join(name);
+        let bytes = fs::read(base.join("scripts/scenario.ssb"))?;
+        symphonia_script::Program::decode(&bytes).with_context(|| format!("cooked field {id}"))?;
+        if base.join("messages.json").exists() {
+            let _: Vec<symphonia_script::message::Message> =
+                serde_json::from_slice(&fs::read(base.join("messages.json"))?)?;
+        }
+        if base.join("collision.glb").exists() {
+            resonance_content::field::collision_mesh::decode(&fs::read(
+                base.join("collision.glb"),
+            )?)?;
+        }
     }
     Ok(())
 }

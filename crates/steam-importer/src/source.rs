@@ -5,6 +5,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use symphonia_script::message::TextEncoding;
 
 const ARCHIVES: &str = "P12E/Data/TOS_Server/Archive/Release";
 
@@ -128,14 +129,33 @@ impl Source {
             || self.base.directory.find(name).is_some())
     }
 
-    pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
+    fn read_encoded(&self, name: &str) -> Result<Option<(Vec<u8>, TextEncoding)>> {
         validate_name(name)?;
         if let Some(localized) = &self.localized {
             if let Some(bytes) = localized.read(name)? {
-                return Ok(Some(bytes));
+                return Ok(Some((bytes, TextEncoding::Windows1252)));
             }
         }
-        self.base.read(name)
+        Ok(self
+            .base
+            .read(name)?
+            .map(|bytes| (bytes, TextEncoding::ShiftJis)))
+    }
+
+    pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.read_encoded(name)?.map(|(bytes, _)| bytes))
+    }
+
+    pub fn scenario(&self, name: &str) -> Result<(Vec<u8>, TextEncoding)> {
+        ensure!(
+            name.to_ascii_lowercase().ends_with(".bin"),
+            "scenario needs a .bin reference"
+        );
+        if let Some(resource) = self.read_encoded(&format!("{name}_"))? {
+            return Ok(resource);
+        }
+        self.read_encoded(name)?
+            .with_context(|| format!("missing Steam scenario {name}"))
     }
 
     pub fn require(&self, name: &str) -> Result<Vec<u8>> {

@@ -43,6 +43,24 @@ impl<'a> Package<'a> {
         Ok(Self { bytes, sections })
     }
 
+    pub fn reference(&self, index: usize) -> Result<Option<&'a str>> {
+        self.member(index)?
+            .map(|bytes| {
+                let end = bytes
+                    .iter()
+                    .position(|&b| b == 0)
+                    .context("unterminated PAC reference")?;
+                ensure!(
+                    bytes[end..].iter().all(|&b| b == 0 || b == 0xfe),
+                    "unexpected bytes after PAC reference"
+                );
+                let name = std::str::from_utf8(&bytes[..end])?;
+                crate::source::validate_name(name)?;
+                Ok(name)
+            })
+            .transpose()
+    }
+
     pub fn member(&self, index: usize) -> Result<Option<&'a [u8]>> {
         Ok(self
             .sections

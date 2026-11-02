@@ -5155,6 +5155,8 @@ dependencies = [
  "serde",
  "serde_json",
  "symphonia-constants",
+ "symphonia-script",
+ "symphonia-script-vm",
  "tempfile",
 ]
 
