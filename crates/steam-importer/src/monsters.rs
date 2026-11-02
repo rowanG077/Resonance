@@ -15,7 +15,7 @@ use serde_json::json;
 use std::{collections::BTreeMap, path::Path};
 use symphonia_constants::MonsterId;
 
-fn count(image: &pe::Image<'_>) -> Result<usize> {
+pub(crate) fn count(image: &pe::Image<'_>) -> Result<usize> {
     let bound = image.slice(0x514405, 7)?;
     ensure!(
         bound[0] == 0x3d && bound[5] == 0x7c,

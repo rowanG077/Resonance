@@ -5,7 +5,7 @@ use resonance_content::{
     battle_voice::Sound,
     field_audio::{document, speech},
 };
-use std::{fs, ops::Range, path::Path};
+use std::{collections::BTreeSet, fs, ops::Range, path::Path};
 use symphonia_constants::PartyCharacterId;
 
 /// Keep packed native bank/row selectors inside this importer.
@@ -77,6 +77,90 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             output::json(&library.join(document::SPEECH), &mappings)?;
         }
     }
+    Ok(())
+}
+
+/// The native enemy loader registers English ABNs only. Keep that language
+/// selection in the cooked speech catalogue rather than in the battle player.
+pub(crate) fn enemies(source: &Source, library: &Path) -> Result<()> {
+    let image = pe::Image::parse(&source.executable)?;
+    ensure!(
+        image.slice(0x428bfb, 4)? == [0x66, 0x83, 0xf8, 0x50]
+            && image.slice(0x458ddc, 8)? == [0x38, 0x8a, 0x74, 2, 0, 0, 0x75, 0x2d]
+            && image.slice(0x458de4, 7)? == [0x8b, 0x1c, 0x9d, 0x58, 0x5f, 0x8e, 0],
+        "enemy voice directory changed"
+    );
+    let mut english: speech::Mappings = serde_json::from_slice(&fs::read(
+        library.join("audio/speech/english/mappings.json"),
+    )?)?;
+    let mut japanese: speech::Mappings = serde_json::from_slice(&fs::read(
+        library.join("audio/speech/japanese/mappings.json"),
+    )?)?;
+    let mut names = BTreeSet::new();
+    let mut recordings = 0;
+    let mut empty = 0;
+    for bank in 10..=80u16 {
+        let filename = format!("{bank:02}e.abn");
+        if !source.contains(&filename)? {
+            continue;
+        }
+        let bytes = source.require(&filename)?;
+        names.insert(filename);
+        for (index, range) in ranges(&bytes, bank)?.into_iter().enumerate() {
+            let Sound::Stream(id) = sound((u32::from(bank) << 16) | index as u32)?.unwrap() else {
+                unreachable!()
+            };
+            let name = format!("enemy-{bank:02}/line-{index:03}");
+            // Neither an empty native slot nor an unregistered Japanese bank
+            // plays a recording. The common silence recipe expresses both
+            // without manufacturing WAV files or changing voice identities.
+            let silence = speech::Source::Silence {
+                name,
+                silence: speech::Clock {
+                    frames: 1,
+                    sample_rate: 48000,
+                    channels: 1,
+                },
+            };
+            let entry = if range.is_empty() {
+                empty += 1;
+                silence.clone()
+            } else {
+                let target = format!("english/enemy-{bank:02}/line-{index:03}.wav");
+                audio_streams::wave(&bytes[range], &library.join("audio/speech").join(&target))?;
+                recordings += 1;
+                speech::Source::Wave(target)
+            };
+            for (mappings, entry) in [(&mut english, entry), (&mut japanese, silence)] {
+                if let Some(previous) = mappings.insert(u32::from(id), entry.clone()) {
+                    ensure!(
+                        previous == entry,
+                        "enemy voice collides with speech ID {id}"
+                    );
+                }
+            }
+        }
+    }
+    for id in 0..crate::monsters::count(&image)? {
+        let pointer = pe::word(image.slice(0x8e5f58 + id as u32 * 4, 4)?, 0)?;
+        ensure!(
+            pointer == 0 || names.contains(image.text(pointer)?),
+            "missing declared enemy voice bank for enemy {id}"
+        );
+    }
+    output::json(
+        &library.join("audio/speech/english/mappings.json"),
+        &english,
+    )?;
+    output::json(
+        &library.join("audio/speech/japanese/mappings.json"),
+        &japanese,
+    )?;
+    output::json(&library.join(document::SPEECH), &english)?;
+    eprintln!(
+        "  Enemy voices: {} banks, {recordings} recordings, {empty} empty slots",
+        names.len()
+    );
     Ok(())
 }
 
@@ -307,4 +391,107 @@ pub(crate) fn overlimit(image: &pe::Image<'_>) -> Result<[Option<Sound>; 9]> {
         .collect::<Result<Vec<_>>>()?
         .try_into()
         .map_err(|_| anyhow::anyhow!("missing Over Limit voice"))
+}
+
+#[cfg(test)]
+mod enemy_tests {
+    use super::*;
+    use crate::Language;
+    use resonance_content::{
+        battle_audio::{Selection, document::Catalogue},
+        diagnostics::Diagnostics,
+        library::Library,
+    };
+    use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked battle audio"]
+    fn installed_enemy_speech_uses_shared_catalogue_and_recording_reader() -> Result<()> {
+        let installation = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+        );
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let source = Source::open(&installation, Language::English)?;
+        let read = |path: &str| -> Result<speech::Mappings> {
+            Ok(serde_json::from_slice(&fs::read(root.join(path))?)?)
+        };
+        let previous = read("audio/speech/english/mappings.json")?;
+        enemies(&source, &root)?;
+        let english = read("audio/speech/english/mappings.json")?;
+        let japanese = read("audio/speech/japanese/mappings.json")?;
+        assert_eq!(read(document::SPEECH)?, english);
+        for (id, entry) in previous {
+            assert_eq!(
+                english.get(&id),
+                Some(&entry),
+                "existing speech {id} changed"
+            );
+        }
+        let library = Library::open_paths(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        let catalogue = Catalogue::capture(&mut snapshot, &|| false)?;
+        let diagnostics = Diagnostics::new(true);
+        let mut selection = Selection::default();
+        let mut banks = 0;
+        let mut recordings = 0;
+        let mut empty = 0;
+        for bank in 10..=80u16 {
+            let filename = format!("{bank:02}e.abn");
+            if !source.contains(&filename)? {
+                continue;
+            }
+            banks += 1;
+            let bytes = source.require(&filename)?;
+            for (index, range) in ranges(&bytes, bank)?.into_iter().enumerate() {
+                let sound = sound((u32::from(bank) << 16) | index as u32)?.unwrap();
+                let Sound::Stream(id) = sound else {
+                    unreachable!()
+                };
+                assert_eq!(
+                    u32::from(id),
+                    0x8000 + (u32::from(bank) - 1) * 256 + index as u32
+                );
+                catalogue.collect(&mut selection, &diagnostics, sound)?;
+                let entry = english
+                    .get(&u32::from(id))
+                    .context("missing English enemy slot")?;
+                if range.is_empty() {
+                    assert!(matches!(entry, speech::Source::Silence { .. }));
+                    empty += 1;
+                } else {
+                    let path = entry.resolve()?;
+                    let path = path.path().context("recorded enemy voice is silent")?;
+                    let wave = resonance_audio::recording::Prepared::new(fs::File::open(
+                        root.join(path),
+                    )?)?;
+                    let adx = &bytes[range];
+                    assert_eq!(wave.frames(), u32::from_be_bytes(adx[12..16].try_into()?));
+                    let wav = hound::WavReader::open(root.join(path))?;
+                    assert_eq!(
+                        wav.spec().sample_rate,
+                        u32::from_be_bytes(adx[8..12].try_into()?)
+                    );
+                    assert_eq!(wav.spec().channels, u16::from(adx[7]));
+                    recordings += 1;
+                }
+                let speech::Source::Silence { silence, .. } = japanese
+                    .get(&u32::from(id))
+                    .context("missing Japanese silent enemy slot")?
+                    .resolve()?
+                else {
+                    anyhow::bail!("English enemy recording leaked into Japanese speech")
+                };
+                silence.validate()?;
+            }
+        }
+        let selected = catalogue.select(&selection, &diagnostics)?;
+        assert_eq!(selected.voices.len(), recordings + empty);
+        assert!(banks > 0 && recordings > 0);
+        eprintln!(
+            "Shared battle audio reader loaded {banks} enemy banks: {recordings} recordings and {empty} empty slots; Japanese ABNs remain silent"
+        );
+        Ok(())
+    }
 }
