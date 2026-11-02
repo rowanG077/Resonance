@@ -186,10 +186,13 @@ impl Drawing<'_> {
                         if focus == Focus::Presets { 255 } else { 127 },
                     );
                 }
-                self.text(
+                self.text_size(
                     &command.name,
                     [x, 20.],
-                    17.,
+                    [
+                        (17. * 119. / self.text_width(&command.name, 17.)?).min(17.),
+                        17.,
+                    ],
                     if focus == Focus::Presets || i == state.preset {
                         WHITE
                     } else {
@@ -297,9 +300,25 @@ impl Drawing<'_> {
         self.shade([94., 116., 546., 392.]);
         self.plane = 5;
         self.frame([196., 48., 248., 48.])?;
-        self.highlight([208. + edit.position as f32 * 32., 60., 24., 24.], 255);
+        let cells = edit.value.chars().count().max(edit.position + 1).max(7);
+        let cell_width = 224. / cells as f32;
+        let glyph_width = cell_width.min(24.);
+        self.highlight(
+            [
+                208. + edit.position as f32 * cell_width,
+                60.,
+                glyph_width,
+                24.,
+            ],
+            255,
+        );
         for (i, c) in edit.value.chars().enumerate() {
-            self.text(&c.to_string(), [208. + i as f32 * 32., 60.], 24., WHITE)?;
+            self.text_size(
+                &c.to_string(),
+                [208. + i as f32 * cell_width, 60.],
+                [glyph_width, 24.],
+                WHITE,
+            )?;
         }
         self.frame([94., 116., 452., 276.])?;
         let [x, y] = key_position(edit.column, edit.row);

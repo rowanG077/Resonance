@@ -20,13 +20,15 @@ pub struct RenameData {
 mod keyboard {
     use super::*;
     pub fn serialize<S: serde::Serializer>(text: &str, serializer: S) -> Result<S::Ok, S::Error> {
-        if !text.is_ascii() || text.len() != 104 {
+        if text.chars().count() != 104 || text.chars().any(char::is_control) {
             return Err(serde::ser::Error::custom(
-                "name keyboard needs eight rows of thirteen ASCII cells",
+                "name keyboard needs eight rows of thirteen character cells",
             ));
         }
-        (0..8)
-            .map(|row| &text[row * 13..(row + 1) * 13])
+        text.chars()
+            .collect::<Vec<_>>()
+            .chunks(13)
+            .map(|row| row.iter().collect::<String>())
             .collect::<Vec<_>>()
             .serialize(serializer)
     }
@@ -34,9 +36,12 @@ mod keyboard {
         deserializer: D,
     ) -> Result<String, D::Error> {
         let rows = <[String; 8]>::deserialize(deserializer)?;
-        if rows.iter().any(|row| !row.is_ascii() || row.len() != 13) {
+        if rows
+            .iter()
+            .any(|row| row.chars().count() != 13 || row.chars().any(char::is_control))
+        {
             return Err(serde::de::Error::custom(
-                "name keyboard row needs thirteen ASCII cells",
+                "name keyboard row needs thirteen character cells",
             ));
         }
         Ok(rows.concat())
@@ -71,7 +76,7 @@ mod commands {
 impl RenameData {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.keyboard.is_ascii() && self.keyboard.len() == 13 * 8,
+            self.keyboard.chars().count() == 13 * 8,
             "invalid name keyboard"
         );
         ensure!(
@@ -101,7 +106,7 @@ mod tests {
     fn localized_name_editor_text_keeps_unicode_and_cell_limits() -> Result<()> {
         let mut data = RenameData {
             defaults: std::array::from_fn(|_| "Génis".into()),
-            keyboard: "abcdefghijklm".repeat(8),
+            keyboard: "éあcdefghijklm".repeat(8),
             heading: "Personnage".into(),
             delete: "Effacer".into(),
             default: "Défaut".into(),
@@ -112,6 +117,7 @@ mod tests {
         let restored: RenameData = serde_json::from_slice(&serde_json::to_vec(&data)?)?;
         restored.validate()?;
         assert_eq!(restored.defaults, data.defaults);
+        assert_eq!(restored.keyboard, data.keyboard);
         data.defaults[0].push('é');
         assert!(data.validate().is_err());
         data.defaults[0] = "Lloyd".into();

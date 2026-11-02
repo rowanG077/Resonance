@@ -679,8 +679,8 @@ impl MenuData {
                         .iter()
                         .zip(STRATEGY_COUNTS)
                         .all(|(group, count)| group.len() == count)
-                        && text.keyboard()?.len() == 90
-                        && text.keyboard()?.is_ascii(),
+                        && text.keyboard()?.chars().count() == 90
+                        && !text.keyboard()?.chars().any(char::is_control),
                     "invalid Strategy captions"
                 );
                 text.keys()?;

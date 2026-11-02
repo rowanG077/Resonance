@@ -1,5 +1,8 @@
 use super::*;
 
+/// Maximum editable preset length in character cells, independent of UTF-8 bytes.
+pub const STRATEGY_NAME_CHARACTERS: usize = 31;
+
 pub const STRATEGY_COUNTS: [usize; 3] = [9, 9, 7];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,8 +21,8 @@ impl StrategyPreset {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.name.is_empty()
-                && self.name.len() <= 7
-                && self.name.chars().all(|c| c.is_ascii_graphic() || c == ' ')
+                && self.name.chars().count() <= STRATEGY_NAME_CHARACTERS
+                && self.name.chars().all(|c| !c.is_control())
                 && self
                     .members
                     .iter()
@@ -29,6 +32,35 @@ impl StrategyPreset {
             "invalid strategy preset"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preset_names_preserve_localized_native_captions() {
+        for name in ["Défense", "Economie", "Reserve", "防御"] {
+            assert!(
+                StrategyPreset {
+                    name: name.into(),
+                    members: [[0; 3]; 9]
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        for name in ["", "Bad\n", &"é".repeat(STRATEGY_NAME_CHARACTERS + 1)] {
+            assert!(
+                StrategyPreset {
+                    name: name.into(),
+                    members: [[0; 3]; 9]
+                }
+                .validate()
+                .is_err()
+            );
+        }
     }
 }
 

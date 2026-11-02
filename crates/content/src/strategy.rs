@@ -286,8 +286,9 @@ impl Document {
                 let rows: [String; 9] =
                     serde_json::from_value(self.keyboard.get("rows").cloned().unwrap_or_default())?;
                 ensure!(
-                    rows.iter().all(|row| row.len() == 10 && row.is_ascii()),
-                    "strategy keyboard needs nine rows of ten ASCII cells"
+                    rows.iter()
+                        .all(|row| row.chars().count() == 10 && !row.chars().any(char::is_control)),
+                    "strategy keyboard needs nine rows of ten character cells"
                 );
                 Ok(rows.concat())
             })(),

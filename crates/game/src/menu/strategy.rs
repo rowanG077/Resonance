@@ -1,7 +1,7 @@
 pub use super::Input;
 use super::{MenuAction, Transition, TransitionStatus, fade_description};
 use anyhow::{Result, ensure};
-use resonance_content::menu_data::{MenuData, StrategyPreset};
+use resonance_content::menu_data::{MenuData, STRATEGY_NAME_CHARACTERS, StrategyPreset};
 use resonance_events::party::Party;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -67,6 +67,29 @@ pub struct NameEditor {
     pub position: usize,
     pub column: usize,
     pub row: usize,
+}
+
+impl NameEditor {
+    fn cursor_byte(&self) -> usize {
+        self.value
+            .char_indices()
+            .nth(self.position)
+            .map_or(self.value.len(), |(at, _)| at)
+    }
+    fn erase(&mut self) -> bool {
+        let at = self.cursor_byte();
+        if at == self.value.len() {
+            return false;
+        }
+        self.value.remove(at);
+        true
+    }
+    fn replace(&mut self, character: char) {
+        let at = self.cursor_byte();
+        self.erase();
+        self.value.insert(at, character);
+        self.position = (self.position + 1).min(STRATEGY_NAME_CHARACTERS - 1);
+    }
 }
 
 /// Outcome of a Strategy page update.
@@ -163,10 +186,10 @@ impl Strategy {
             self.rename.mode < 3
                 && self.rename.column <= 10
                 && self.rename.row < 9
-                && self.rename.value.is_ascii()
-                && self.rename.value.len() <= 7
-                && self.rename.position <= self.rename.value.len()
-                && self.rename.position <= 6,
+                && self.rename.value.chars().all(|ch| !ch.is_control())
+                && self.rename.value.chars().count() <= STRATEGY_NAME_CHARACTERS
+                && self.rename.position <= self.rename.value.chars().count()
+                && self.rename.position < STRATEGY_NAME_CHARACTERS,
             "invalid Strategy name editor"
         );
         if self.description_fade == 0 {
@@ -390,23 +413,20 @@ impl Strategy {
         }
         if action == Some(MenuAction::Confirm) {
             if edit.column < 10 {
-                let c = *data
+                let c = data
                     .strategy_text()?
                     .keyboard()?
-                    .as_bytes()
-                    .get(edit.row * 10 + edit.column)
-                    .filter(|c| c.is_ascii_graphic() || **c == b' ')
-                    .ok_or_else(|| anyhow::anyhow!("invalid Strategy keyboard character"))?
-                    as char;
-                if edit.position < edit.value.len() {
-                    edit.value.remove(edit.position);
-                }
-                edit.value.insert(edit.position, c);
-                edit.position = (edit.position + 1).min(6);
+                    .chars()
+                    .nth(edit.row * 10 + edit.column)
+                    .filter(|c| !c.is_control())
+                    .ok_or_else(|| anyhow::anyhow!("invalid Strategy keyboard character"))?;
+                edit.replace(c);
                 return Ok(Some(2));
             }
             return Ok(match edit.row {
-                3 if edit.position < edit.value.len() && edit.position < 6 => {
+                3 if edit.position < edit.value.chars().count()
+                    && edit.position < STRATEGY_NAME_CHARACTERS - 1 =>
+                {
                     edit.position += 1;
                     Some(1)
                 }
@@ -414,10 +434,7 @@ impl Strategy {
                     edit.position -= 1;
                     Some(1)
                 }
-                5 if edit.position < edit.value.len() => {
-                    edit.value.remove(edit.position);
-                    Some(1)
-                }
+                5 => edit.erase().then_some(1),
                 6 if edit.value.is_empty() => Some(4),
                 6 => {
                     if party.strategy_presets.is_none() {
@@ -435,7 +452,9 @@ impl Strategy {
                 }
                 8 => {
                     edit.value = original;
-                    edit.position = edit.position.min(edit.value.len().saturating_sub(1));
+                    edit.position = edit
+                        .position
+                        .min(edit.value.chars().count().saturating_sub(1));
                     Some(2)
                 }
                 _ => None,
@@ -453,12 +472,16 @@ impl Strategy {
             }
             Some(MenuAction::Down) => edit.row = (edit.row + 1) % 9,
             Some(MenuAction::NextPosition | MenuAction::NextTab) => {
-                return Ok(if edit.position < edit.value.len() && edit.position < 6 {
-                    edit.position += 1;
-                    Some(38)
-                } else {
-                    None
-                });
+                return Ok(
+                    if edit.position < edit.value.len()
+                        && edit.position < STRATEGY_NAME_CHARACTERS - 1
+                    {
+                        edit.position += 1;
+                        Some(38)
+                    } else {
+                        None
+                    },
+                );
             }
             Some(MenuAction::PreviousPosition | MenuAction::PreviousTab) => {
                 return Ok(if edit.position > 0 {
@@ -521,5 +544,38 @@ impl super::Menu {
                 Some(4)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn localized_preset_editor_uses_character_cells() {
+        let mut edit = NameEditor {
+            value: "Défense".into(),
+            position: 2,
+            ..Default::default()
+        };
+        edit.replace('A');
+        assert_eq!(edit.value, "DéAense");
+        assert_eq!(edit.position, 3);
+        assert!(edit.erase());
+        assert_eq!(edit.value, "DéAnse");
+        edit.position = edit.value.chars().count();
+        assert!(!edit.erase());
+        edit.replace('é');
+        assert_eq!(edit.value, "DéAnseé");
+        assert_eq!(edit.position, 7);
+        edit.position = 6;
+        edit.replace('Z');
+        assert_eq!(edit.value, "DéAnseZ");
+        assert_eq!(edit.value.chars().count(), 7);
+        edit.value = "é".repeat(STRATEGY_NAME_CHARACTERS);
+        edit.position = STRATEGY_NAME_CHARACTERS - 1;
+        edit.replace('Z');
+        assert_eq!(edit.value.chars().count(), STRATEGY_NAME_CHARACTERS);
+        assert_eq!(edit.position, STRATEGY_NAME_CHARACTERS - 1);
     }
 }

@@ -23,7 +23,9 @@ pub use manual::*;
 pub use presentation::*;
 pub use rename::*;
 pub use status::*;
-pub use strategy::{STRATEGY_COUNTS, StrategyData, StrategyOption, StrategyPreset};
+pub use strategy::{
+    STRATEGY_COUNTS, STRATEGY_NAME_CHARACTERS, StrategyData, StrategyOption, StrategyPreset,
+};
 pub use synopsis::*;
 pub use text::*;
 pub use title_awards::*;

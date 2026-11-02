@@ -190,7 +190,12 @@ impl Menu {
                     return Some(3);
                 }
                 if input == Some(Confirm) {
-                    state.replace(data.keyboard.as_bytes()[state.row * 13 + state.column] as char);
+                    state.replace(
+                        data.keyboard
+                            .chars()
+                            .nth(state.row * 13 + state.column)
+                            .expect("validated name keyboard"),
+                    );
                     return Some(2);
                 }
                 if left {
