@@ -269,7 +269,7 @@ fn recipient_rule(
         .as_u64()
         .and_then(|id| u8::try_from(id).ok())
         .context("invalid reaction enemy ID")?;
-    let (definition, preview) = evidence.enemy(enemy)?;
+    let (definition, preview) = evidence.enemy(u16::from(enemy))?;
     let package_digest = evidence.source_digest()?;
     ensure!(
         source.setup["detached_contacts"]["enemy_packages"]

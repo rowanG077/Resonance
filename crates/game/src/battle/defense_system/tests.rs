@@ -82,7 +82,7 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
         .collect::<Result<_>>()?;
     let core = members
         .iter()
-        .find(|(_, enemy)| *enemy == content.core.enemy)
+        .find(|(_, enemy)| *enemy == u16::from(content.core.enemy))
         .unwrap()
         .0;
     let core_model = prepared.core.models().unwrap().definition(core).unwrap();
@@ -123,15 +123,15 @@ fn prepared_defense_system_follows_content_and_rejects_missing_bindings() -> Res
         .map(|&(actor, enemy)| {
             (
                 actor,
-                if enemy == content.core.enemy {
+                u16::from(if enemy == u16::from(content.core.enemy) {
                     changed.core.enemy
-                } else if enemy == content.arm {
+                } else if enemy == u16::from(content.arm) {
                     changed.arm
-                } else if enemy == content.orbit {
+                } else if enemy == u16::from(content.orbit) {
                     changed.orbit
                 } else {
                     changed.repair.enemy
-                },
+                }),
             )
         })
         .collect();

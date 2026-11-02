@@ -20,7 +20,7 @@ pub(crate) struct Resources<'a> {
     pub common: EffectResource,
     pub techniques: EffectResource,
     pub authored_effects: BTreeMap<u16, EffectResource>,
-    pub enemy_effects: BTreeMap<u8, EffectResource>,
+    pub enemy_effects: BTreeMap<u16, EffectResource>,
     pub spell_scenes: BTreeMap<u16, EffectResource>,
     pub skill_scenes: BTreeMap<u16, EffectResource>,
     pub skill_weapons:

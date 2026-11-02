@@ -1806,7 +1806,7 @@ impl Assets {
         } else {
             let core = defense_members
                 .iter()
-                .find(|(_, enemy)| *enemy == self.defense_system.core.enemy)
+                .find(|(_, enemy)| *enemy == u16::from(self.defense_system.core.enemy))
                 .context("Defense System formation is missing its core")?
                 .0;
             Some(battle::defense_system::definition(

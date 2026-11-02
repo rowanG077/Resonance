@@ -72,6 +72,9 @@ impl Item {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuData {
+    /// Derived from catalogue records even when optional previews fail to load.
+    #[serde(skip)]
+    pub catalogue_counts: CatalogueCounts,
     pub grade_shop: crate::grade::Shop,
     #[serde(default)]
     pub items: Vec<Item>,
@@ -96,6 +99,20 @@ pub struct MenuData {
     pub ex_skills: ExSkillData,
     #[serde(default)]
     pub presentation: MenuPresentation,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CatalogueCounts {
+    pub monsters: usize,
+    pub figurines: usize,
+}
+impl Default for CatalogueCounts {
+    fn default() -> Self {
+        Self {
+            monsters: crate::monster::MONSTER_COUNT,
+            figurines: crate::figurine::FIGURINE_COUNT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -304,8 +321,8 @@ impl MenuData {
         );
         ensure!(
             self.initial_names.iter().all(|name| !name.is_empty()
-                && name.len() <= 12
-                && name.bytes().all(|b| (32..127).contains(&b))),
+                && name.chars().count() <= 12
+                && !name.chars().any(char::is_control)),
             "invalid initial character name"
         );
         for item in &self.items {

@@ -101,7 +101,7 @@ fn qualify(
     content.source_digest()?;
     let catalogue = super::content_evidence::action_catalogue(source)?;
     ensure!(
-        catalogue == serde_json::to_value(content.enemy(enemy)?.0)?,
+        catalogue == serde_json::to_value(content.enemy(u16::from(enemy))?.0)?,
         "projectile action differs from its current enemy rules"
     );
     let row = authored["index"].as_u64().context("missing action row")? as usize;

@@ -50,9 +50,9 @@ pub struct Assets {
     pub(in crate::battle) defense_system: resonance_content::battle_defense_system::Definition,
     pub(super) party_actors: Vec<PartyInput>,
     pub(super) weapons: BTreeMap<u16, battle_model::Weapon>,
-    pub(super) enemy_definitions: BTreeMap<u8, battle_enemy::Definition>,
+    pub(super) enemy_definitions: BTreeMap<u16, battle_enemy::Definition>,
     pub(super) enemy_models: BTreeMap<
-        u8,
+        u16,
         (
             battle_model::Enemy,
             BTreeMap<u16, Arc<resonance_content::animation::Motion>>,
@@ -62,7 +62,7 @@ pub struct Assets {
     pub technique_effects: Option<Arc<SourceBank>>,
     pub authored_effects: BTreeMap<u16, Arc<SourceBank>>,
     pub stage_effects: Option<Arc<SourceBank>>,
-    pub enemy_effects: BTreeMap<u8, Arc<SourceBank>>,
+    pub enemy_effects: BTreeMap<u16, Arc<SourceBank>>,
     pub spell_scenes: BTreeMap<u16, Arc<SourceBank>>,
     pub skill_scenes: BTreeMap<u16, Arc<SourceBank>>,
 }
@@ -104,7 +104,7 @@ pub(super) fn choreography_ids(
     catalogue: &arte::Catalogue,
     unison: &resonance_content::battle_unison::Catalogue,
     characters: impl IntoIterator<Item = Character>,
-    enemy_definitions: &BTreeMap<u8, battle_enemy::Definition>,
+    enemy_definitions: &BTreeMap<u16, battle_enemy::Definition>,
 ) -> Result<(BTreeSet<u16>, BTreeSet<u16>)> {
     let mut scene_ids = BTreeSet::new();
     let mut skill_ids = BTreeSet::new();

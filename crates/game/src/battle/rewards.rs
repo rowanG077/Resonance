@@ -18,7 +18,7 @@ const GALD_FINDER_PERCENT_RANGE: u32 = 20;
 /// categories are removed by the caller before any reward random draws.
 #[derive(Debug, Clone)]
 pub struct EnemyReward {
-    pub monster: u8,
+    pub monster: u16,
     pub experience: u32,
     pub gald: u32,
     pub drops: [Option<u16>; 2],
@@ -46,7 +46,7 @@ pub struct ItemAward {
     pub item: u16,
     pub count: u16,
     /// Knowledge is awarded even when the inventory stack is already full.
-    pub discoveries: Vec<(u8, usize)>,
+    pub discoveries: Vec<(u16, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +133,7 @@ pub fn award(
 ) -> Result<Awarded> {
     for enemy in input.enemies {
         ensure!(
-            usize::from(enemy.monster) < resonance_content::monster::MONSTER_COUNT,
+            usize::from(enemy.monster) < session.monster_count(),
             "invalid reward monster"
         );
     }

@@ -10,15 +10,15 @@ mod tests;
 
 pub fn definition(
     content: &Definition,
-    members: &[(ActorId, u8)],
+    members: &[(ActorId, u16)],
     core_model: &ModelDefinition,
     mut sound: impl FnMut(resonance_battle::Sound) -> Result<Option<resonance_battle::Sound>>,
 ) -> Result<DefenseSystemDefinition> {
     content.validate()?;
-    let instances = |enemy| {
+    let instances = |enemy: u8| {
         members
             .iter()
-            .filter_map(move |&(actor, id)| (id == enemy).then_some(actor))
+            .filter_map(move |&(actor, id)| (id == u16::from(enemy)).then_some(actor))
     };
     let cores: Vec<_> = instances(content.core.enemy).collect();
     let arms: Vec<_> = instances(content.arm).collect();
@@ -66,7 +66,7 @@ pub fn definition(
         messages: content.messages.clone(),
         components: members
             .iter()
-            .filter_map(|&(actor, enemy)| (enemy != content.core.enemy).then_some(actor))
+            .filter_map(|&(actor, enemy)| (enemy != u16::from(content.core.enemy)).then_some(actor))
             .collect(),
         arms: anchors
             .try_into()

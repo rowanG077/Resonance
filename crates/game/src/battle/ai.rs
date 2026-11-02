@@ -16,7 +16,7 @@ pub fn disabled_by_flags(
 }
 
 pub fn definition(
-    enemy_id: u8,
+    enemy_id: u16,
     source: &battle_enemy::Definition,
     action_ids: &[resonance_battle::ActionKey],
     difficulty: Difficulty,

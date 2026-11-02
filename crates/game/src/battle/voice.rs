@@ -42,7 +42,7 @@ pub(crate) fn entry_lines(
 /// Voice requests use the encounter's selected profiles.
 pub struct Resolver<'a> {
     party: &'a battle_profile::Table,
-    enemies: BTreeMap<u8, &'a battle_profile::Profile>,
+    enemies: BTreeMap<u16, &'a battle_profile::Profile>,
     diagnostics: Diagnostics,
 }
 
@@ -50,7 +50,7 @@ impl<'a> Resolver<'a> {
     pub fn new(
         files: &Files,
         party: &'a battle_profile::Table,
-        enemies: impl IntoIterator<Item = (u8, &'a battle_profile::Profile)>,
+        enemies: impl IntoIterator<Item = (u16, &'a battle_profile::Profile)>,
     ) -> Self {
         Self {
             party,

@@ -50,7 +50,7 @@ mod tests;
 #[serde(tag = "side", rename_all = "snake_case")]
 pub(super) enum Binding {
     Party { character: u8, arte: u16 },
-    Enemy { enemy: u8, row: usize },
+    Enemy { enemy: u16, row: usize },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -444,7 +444,7 @@ impl Oracle {
         )?;
         let placements = resonance_content::battle_rules::unison(&self.retained)?;
         for (id, _) in enemies.iter() {
-            let enemy = u8::try_from(id)?;
+            let enemy = u16::try_from(id)?;
             let captured = battle_enemy::document::capture(
                 &mut snapshot,
                 enemy,
@@ -543,7 +543,7 @@ impl Oracle {
         Ok(cases)
     }
 
-    fn enemy(&self, id: u8) -> Result<battle_enemy::document::Captured> {
+    fn enemy(&self, id: u16) -> Result<battle_enemy::document::Captured> {
         let mut snapshot = self
             .retained
             .library()

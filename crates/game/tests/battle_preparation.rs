@@ -202,7 +202,7 @@ fn single_party_fixture(
 
 fn prepare_enemy_fixture(
     files: &Files,
-    enemy: u8,
+    enemy: u16,
     variant: usize,
     resource: u32,
 ) -> Result<battle::encounter::PreparedEnemyMember> {

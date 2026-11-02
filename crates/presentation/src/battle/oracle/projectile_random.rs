@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 enum TemplateKind {
     Projectiles,
     Scene,
-    Enemy(u8),
+    Enemy(u16),
     Effects,
 }
 
@@ -86,7 +86,7 @@ struct Contact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AuthoredAction {
-    enemy: u8,
+    enemy: u16,
     content: super::content_evidence::Evidence,
     index: usize,
     clock: u64,

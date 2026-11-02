@@ -44,7 +44,7 @@ pub struct Captured {
 
 pub fn capture(
     snapshot: &mut Snapshot,
-    id: u8,
+    id: u16,
     diagnostics: &Diagnostics,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Captured> {

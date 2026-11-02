@@ -6,7 +6,7 @@ pub use resonance_content::battle_action::EnemyRequirements;
 
 /// An entry in the enemy catalogue, independent of its live actor slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EnemyId(pub u8);
+pub struct EnemyId(pub u16);
 
 /// An actor's prepared enemy-choice row, distinct from its executable action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

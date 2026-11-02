@@ -293,3 +293,20 @@ fn character_techniques_use_their_allowed_catalogue() -> Result<()> {
     assert!(session.validate().is_err());
     Ok(())
 }
+
+impl SessionData {
+    pub fn monster_count(&self) -> usize {
+        self.rules
+            .as_ref()
+            .map_or(crate::monster::MONSTER_COUNT, |rules| {
+                rules.catalogue_counts.monsters
+            })
+    }
+    pub fn figurine_count(&self) -> usize {
+        self.rules
+            .as_ref()
+            .map_or(crate::figurine::FIGURINE_COUNT, |rules| {
+                rules.catalogue_counts.figurines
+            })
+    }
+}

@@ -2,6 +2,7 @@
 use crate::model_preview::ModelPreview;
 use serde::{Deserialize, Serialize};
 
+/// Original-disc size; loaded libraries supply their own catalogue bounds.
 pub const FIGURINE_COUNT: usize = 288;
 pub const FIGURINE_VERSION: u32 = 3;
 
@@ -20,9 +21,7 @@ pub struct Figurine {
 impl Figurine {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.version == FIGURINE_VERSION
-                && usize::from(self.id) < FIGURINE_COUNT
-                && !self.name.is_empty(),
+            self.version == FIGURINE_VERSION && !self.name.is_empty(),
             "invalid figurine record"
         );
         self.preview.validate_definition()
@@ -42,7 +41,7 @@ impl FigurineBook {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            !self.title.is_empty() && self.records.len() == FIGURINE_COUNT,
+            !self.title.is_empty() && (1..=usize::from(u16::MAX) + 1).contains(&self.records.len()),
             "incomplete figurine catalogue"
         );
         for (id, record) in self.records.iter().enumerate() {

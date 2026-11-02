@@ -134,7 +134,7 @@ impl Evidence {
 
     pub fn enemy(
         &self,
-        id: u8,
+        id: u16,
     ) -> Result<(
         resonance_content::battle_enemy::Definition,
         resonance_content::model_preview::ModelPreview,

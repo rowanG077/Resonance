@@ -71,6 +71,21 @@ impl Document {
         })
     }
     pub(super) fn prepare(self, files: &Files, items: &Mappings) -> Result<MenuData> {
+        let count = |value: &Value| -> Result<usize> {
+            let rows = value
+                .get("records")
+                .and_then(Value::as_array)
+                .context("catalogue needs records")?;
+            ensure!(
+                (1..=usize::from(u16::MAX) + 1).contains(&rows.len()),
+                "invalid catalogue size"
+            );
+            Ok(rows.len())
+        };
+        let catalogue_counts = CatalogueCounts {
+            monsters: count(&self.presentation["monsters"])?,
+            figurines: count(&files.json::<Value>(FIGURINES_PATH)?)?,
+        };
         let fields: Mappings = files.json(crate::library::FIELDS)?;
         let mut presentation = self.presentation;
         let captions = presentation
@@ -91,6 +106,7 @@ impl Document {
             serde_json::json!({"names":self.world_map.names}),
         );
         Ok(MenuData {
+            catalogue_counts,
             grade_shop: self.grade_shop,
             items: Default::default(),
             titles: Default::default(),

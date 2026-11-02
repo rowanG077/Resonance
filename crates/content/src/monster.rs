@@ -2,6 +2,7 @@
 use crate::{menu_data::Element, model_preview::ModelPreview};
 use serde::{Deserialize, Serialize};
 
+/// Original-disc size; loaded libraries supply their own catalogue bounds.
 pub const MONSTER_COUNT: usize = 251;
 pub const MONSTER_VERSION: u32 = 6;
 
@@ -26,7 +27,7 @@ impl MonsterBook {
 
     pub fn validate(&self, item_count: usize) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.records.len() == MONSTER_COUNT,
+            (1..=usize::from(u16::MAX) + 1).contains(&self.records.len()),
             "incomplete monster catalogue"
         );
         for (id, record) in self.records.iter().enumerate() {
@@ -74,7 +75,7 @@ impl MonsterBook {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Monster {
     pub version: u32,
-    pub id: u8,
+    pub id: u16,
     pub name: String,
     pub location: String,
     pub category: String,
@@ -123,7 +124,6 @@ impl Monster {
     pub fn validate(&self, item_count: usize) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.version == MONSTER_VERSION
-                && usize::from(self.id) < MONSTER_COUNT
                 && !self.name.is_empty()
                 && (1..=16).contains(&self.statistics.len())
                 && self.statistics[0].hp > 0

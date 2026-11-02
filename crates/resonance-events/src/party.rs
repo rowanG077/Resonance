@@ -1220,7 +1220,7 @@ pub struct Party {
     #[serde(default)]
     pub figurines: BTreeSet<u16>,
     #[serde(default)]
-    pub monsters: BTreeMap<u8, MonsterKnowledge>,
+    pub monsters: BTreeMap<u16, MonsterKnowledge>,
     #[serde(default)]
     pub travel: Travel,
     #[serde(default)]
@@ -1314,9 +1314,10 @@ impl Party {
             "invalid saved game clear count"
         );
         ensure!(
-            self.monsters.iter().all(|(&id, knowledge)| usize::from(id)
-                < resonance_content::monster::MONSTER_COUNT
-                && knowledge.variant < 16),
+            self.monsters
+                .iter()
+                .all(|(&id, knowledge)| usize::from(id) < data.monster_count()
+                    && knowledge.variant < 16),
             "invalid saved monster knowledge"
         );
         ensure!(
@@ -1357,7 +1358,7 @@ impl Party {
         ensure!(
             self.figurines
                 .iter()
-                .all(|&id| usize::from(id) < resonance_content::figurine::FIGURINE_COUNT),
+                .all(|&id| usize::from(id) < data.figurine_count()),
             "invalid saved figurine"
         );
         ensure!(

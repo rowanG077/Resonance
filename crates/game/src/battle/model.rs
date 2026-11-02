@@ -11,7 +11,7 @@ pub(crate) use effects::{EffectCache, EffectModels};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSource {
     Party(super::party::Character),
-    Enemy(u8),
+    Enemy(u16),
     /// Equipment or a battle-only weapon resource ID.
     Weapon(u16),
     /// Independent models and textures owned by a stored spell scene.

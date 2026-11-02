@@ -133,10 +133,10 @@ pub(super) fn actor(
     Ok(actor)
 }
 
-pub const PUMPKIN_TREE: u8 = 12;
-pub const SEWER_RAT: u8 = 34;
-pub const ZOMBIE: u8 = 36;
-pub const GHOUL: u8 = 37;
+pub const PUMPKIN_TREE: u16 = 12;
+pub const SEWER_RAT: u16 = 34;
+pub const ZOMBIE: u16 = 36;
+pub const GHOUL: u16 = 37;
 
 pub(super) fn catalogue_id(
     catalogue: &resonance_content::battle_unison::Catalogue,
@@ -171,8 +171,8 @@ pub(super) fn technique_ids(source: &battle_enemy::Definition) -> std::collectio
     }
     techniques
 }
-pub const GHOST: u8 = 49;
-pub const PHANTOM: u8 = 50;
+pub const GHOST: u16 = 49;
+pub const PHANTOM: u16 = 50;
 
 fn contact_anchors(
     model: &resonance_battle::ModelDefinition,
@@ -200,7 +200,7 @@ fn contact_anchors(
 impl super::encounter::resources::Resources<'_> {
     pub(crate) fn enemy(
         &mut self,
-        enemy: u8,
+        enemy: u16,
         model: Option<&resonance_battle::ModelDefinition>,
         source: &battle_enemy::Definition,
         weapon_groups: &[Vec<std::sync::Arc<resonance_battle::WeaponDefinition>>],
@@ -787,7 +787,7 @@ impl super::encounter::resources::Resources<'_> {
     }
     fn enemy_projectile(
         &mut self,
-        enemy: u8,
+        enemy: u16,
         model: Option<&resonance_battle::ModelDefinition>,
         definition: &resonance_content::battle_projectile::Projectile,
         hit: &resonance_content::battle_action::ActionHit,
@@ -850,7 +850,7 @@ impl super::encounter::resources::Resources<'_> {
     }
     fn enemy_hit(
         &mut self,
-        enemy: u8,
+        enemy: u16,
         source: &resonance_content::battle_action::ActionHit,
     ) -> Result<resonance_battle::HitRule> {
         let mut hit = super::hit::authored(source, self.recoil)?;
@@ -865,7 +865,7 @@ impl super::encounter::resources::Resources<'_> {
 
     fn enemy_effect(
         &mut self,
-        enemy: u8,
+        enemy: u16,
         member: u16,
     ) -> Result<resonance_battle::EffectAppearance> {
         self.prepared.effect_member(

@@ -54,6 +54,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
         ],
     });
     let data = MenuData {
+        catalogue_counts: Default::default(),
         crafting: Default::default(),
         grade_shop: resonance_content::grade::Shop {
             options: vec![],

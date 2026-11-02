@@ -128,14 +128,16 @@ impl<Enemy> Definition<Enemy> {
 }
 
 impl Definition {
-    pub fn contains(&self, enemy: u8) -> bool {
-        [self.core.enemy, self.repair.enemy, self.orbit, self.arm].contains(&enemy)
+    pub fn contains(&self, enemy: u16) -> bool {
+        [self.core.enemy, self.repair.enemy, self.orbit, self.arm]
+            .map(u16::from)
+            .contains(&enemy)
     }
 
-    pub fn fixed_member(&self, enemy: u8) -> Option<FixedMember> {
+    pub fn fixed_member(&self, enemy: u16) -> Option<FixedMember> {
         [self.core, self.repair]
             .into_iter()
-            .find(|member| member.enemy == enemy)
+            .find(|member| u16::from(member.enemy) == enemy)
     }
 
     pub fn validate(&self) -> Result<()> {

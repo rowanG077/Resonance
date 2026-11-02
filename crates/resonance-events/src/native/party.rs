@@ -52,9 +52,9 @@ impl NativeHost<'_> {
                 });
             }
             NativeCall::ConfigureMonsterKnowledge => {
-                let id = u8::try_from(a[0])
+                let id = u16::try_from(a[0])
                     .ok()
-                    .filter(|&id| usize::from(id) < resonance_content::monster::MONSTER_COUNT)
+                    .filter(|&id| usize::from(id) < data.monster_count())
                     .ok_or("unknown monster")?;
                 require((-1..64).contains(&a[1]), "invalid monster knowledge flags")?;
                 let previous = party
@@ -73,10 +73,7 @@ impl NativeHost<'_> {
             }
             NativeCall::ConfigureFigurine => {
                 let id = u16::try_from(a[1]).map_err(|_| "invalid figurine")?;
-                require(
-                    usize::from(id) < resonance_content::figurine::FIGURINE_COUNT,
-                    "unknown figurine",
-                )?;
+                require(usize::from(id) < data.figurine_count(), "unknown figurine")?;
                 value = Some(i32::from(party.figurines.contains(&id)));
                 match a[0] {
                     0 => {

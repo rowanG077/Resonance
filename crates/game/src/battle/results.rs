@@ -598,7 +598,7 @@ impl Candidate {
         );
         for (slot, enemy) in setup.enemies.iter().enumerate() {
             ensure!(
-                usize::from(enemy.reward.monster) < resonance_content::monster::MONSTER_COUNT
+                usize::from(enemy.reward.monster) < session.monster_count()
                     && !setup.actors.iter().any(|&(id, _)| id == enemy.actor)
                     && !setup.enemies[..slot]
                         .iter()

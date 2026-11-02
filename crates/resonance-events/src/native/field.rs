@@ -427,22 +427,29 @@ impl NativeHost<'_> {
                             .party
                             .as_mut()
                             .ok_or("party is not initialized")?;
-                        let (complete, flag) = match command {
-                            FieldSystemCommand::CheckMonsterBook => (
-                                (0..resonance_content::monster::MONSTER_COUNT as u8).all(|id| {
-                                    party
-                                        .monsters
-                                        .get(&id)
-                                        .is_some_and(|knowledge| knowledge.script_flags() != 0)
-                                }),
-                                &mut party.monster_book_complete,
-                            ),
-                            _ => (
-                                (0..resonance_content::figurine::FIGURINE_COUNT as u16)
-                                    .all(|id| party.figurines.contains(&id)),
-                                &mut party.figurine_book_complete,
-                            ),
-                        };
+                        let (complete, flag) =
+                            match command {
+                                FieldSystemCommand::CheckMonsterBook => (
+                                    (0..self.resources.session_data.as_ref().map_or(
+                                        resonance_content::monster::MONSTER_COUNT,
+                                        |data| data.monster_count(),
+                                    ))
+                                        .all(|id| {
+                                            party.monsters.get(&(id as u16)).is_some_and(
+                                                |knowledge| knowledge.script_flags() != 0,
+                                            )
+                                        }),
+                                    &mut party.monster_book_complete,
+                                ),
+                                _ => (
+                                    (0..self.resources.session_data.as_ref().map_or(
+                                        resonance_content::figurine::FIGURINE_COUNT,
+                                        |data| data.figurine_count(),
+                                    ))
+                                        .all(|id| party.figurines.contains(&(id as u16))),
+                                    &mut party.figurine_book_complete,
+                                ),
+                            };
                         *flag |= complete;
                         value = Some(i32::from(complete));
                     }
