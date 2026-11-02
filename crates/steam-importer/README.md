@@ -28,8 +28,8 @@ reader. The shared gameplay loader now initializes a party and saves/restores th
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
 capture still has backdrop gaps and unresolved decorative bone lookups. Later
-fields and battle remain unfinished. Four additional passes now cook
-skits, portraits, movies and field service models against that library. Native
+fields and battle remain unfinished. Five additional passes now cook
+skits, portraits, movies, field service models and field audio against that library. Native
 opening-field execution reaches player control. The shared checkpoint check
 passes save/reload, movement, invalid-load rejection and early village/classroom
 transitions using this cooked library.
@@ -99,8 +99,11 @@ are adapted with ordinary bytecode expressions around the existing GC input
 native, including Steam's raw-press mode. Branch targets, event entries and message offsets are
 preserved when code grows. Source text encodings disappear into Unicode messages.
 TOANMB skeletal timestamps are converted from 60 Hz to the common 30 Hz clock
-when cooked; retained GC streams keep their authored GC clock. Script seek times and sound-ID conventions still need
-conversion with their media owners.
+when cooked; retained GC streams keep their authored GC clock. Script seek times
+still need conversion with their animation owners. Packed sound IDs are lowered
+to common cue IDs using ordinary bytecode expressions at import time. The
+input/sound converters share branch and event relocation; no VM operations or
+source-specific runtime handlers are added.
 
 Run parser tests with `cargo test -p resonance-steam-importer`. The focused installed
 source test also loads the generated documents with the current content readers,
@@ -184,8 +187,8 @@ All 67 PHD/PBD effect banks and the streamed-effect bank use shared recorded-eff
 documents. Native packed effect IDs are assigned ordinary positive catalogue IDs;
 menu and world service cues retain the shared IDs. Menu actions point directly to
 the authored SYS recordings. The common mix keeps recording buses dry; native
-acoustics, effect chaining/chance/pitch, actor voice banks and field-script audio
-bindings still need their owners. No source audio codec is added to the engine.
+acoustics, effect chaining/chance/pitch and actor voice banks still need their
+owners. No source audio codec is added to the engine.
 The installed audio check loads 111 mapped music tracks (104 with authored loops),
 27,652 speech bindings and 1,563 effects, and renders the menu cues through the
 shared mixer. Library format 103 moves recorded music's volume curve into
@@ -209,7 +212,7 @@ owners include remaining game rules and battle artwork; legacy field motion, aut
 and dynamic shared banks;
 party combat rules and victory performances; enemy/equipment battle models and rules;
 overworld data and media;
-remaining audio bindings and remaining startup/ending media. Completion requires exercising startup,
+battle/world audio bindings and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.
 
@@ -226,11 +229,27 @@ Field entry points bind movie IDs from their scripts. Save circles and the three
 treasure types use the common actor model writer and native service selections;
 their fields bind the ordinary service resource IDs.
 
+Field entry points now select native music, speech and effects through the shared
+audio documents. Dynamic selectors bind the corresponding published catalogue.
+The installed check resolves audio in all 509 fields: 492 music owners, 147
+speech owners and 21,558 effect selections.
+All 32 shared service cues select their source recordings, including ring modes,
+doors, treasure, recovery and menu actions. Native out-of-range PHD selectors
+retain the executable's no-audio behavior through the existing explicit silence
+recipe. Missing valid recordings remain errors. The binding pass reuses cooked
+audio and does not decode its recordings again.
+The shared field-mixer check also plays the Iselia recordings across classroom,
+village and opening-scene handoffs, preserving music PCM and retiring old voices.
+
 ```sh
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_skits -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_movies -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_field_services -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_field_audio -- --ignored
 ```
+
+For a binding-only rerun after the current importer has cooked the scenarios,
+set `RESONANCE_TEST_REUSE_SCENARIOS=1`; this retains their scripts and geometry.
 
 For a focused field-source conversion/load check:
 

@@ -2,10 +2,7 @@
 //! The engine continues to sample the same logical GameCube actions for both cooks.
 use anyhow::{Context, Result, ensure};
 use std::collections::BTreeMap;
-use symphonia_script::{
-    NativeCall, Program,
-    scenario::{self, Control},
-};
+use symphonia_script::{NativeCall, Program, scenario};
 
 const RESULT: u16 = 0x20;
 const MAPPED: &[(u16, u32)] = &[
@@ -107,88 +104,41 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
             restore.insert(previous[0].end_pc(), mode);
         }
     }
-    let header = analysis.header;
-    let end = if header.auxiliary_words == 0 {
-        bytes.len()
-    } else {
-        header.auxiliary_offset()
-    };
-    let source = bytes[header.code_base()..end]
-        .chunks_exact(2)
-        .map(|w| u16::from_be_bytes([w[0], w[1]]))
-        .collect::<Vec<_>>();
-    let mut output = Code::default();
-    let mut addresses = BTreeMap::new();
-    for (pc, &word) in source.iter().enumerate() {
-        let pc = pc as u32;
-        addresses.insert(
+    let mut replacements = BTreeMap::new();
+    for (pc, width) in replace {
+        let instruction = &analysis.instructions[&pc];
+        let word =
+            u16::from_be_bytes(bytes[instruction.offset..instruction.offset + 2].try_into()?);
+        replacements.insert(
             pc,
-            u16::try_from(output.words.len()).context("normalized script exceeds PC range")?,
-        );
-        if let Some(&mode) = restore.get(&pc) {
-            output.push(mode as u32);
-            output.words.push(0x3000);
-        }
-        if raw.contains_key(&pc) {
-            output.words.extend([0, 0x1200, RESULT]);
-        }
-        if let Some(&width) = replace.get(&pc) {
-            // Keep the producer's original width so later operand positions map
-            // independently of this rewrite.
-            output.words.extend(match width {
+            match width {
                 1 => vec![1],
                 2 => vec![word, 1],
                 3 => vec![word, 1, 0],
                 _ => unreachable!(),
-            });
-        } else if !replace
-            .iter()
-            .any(|(&start, &width)| start < pc && pc < start + width)
-        {
-            output.words.push(word);
-        }
-        if let Some(&is_raw) = raw.get(&pc) {
-            output.mask(if is_raw { RAW } else { MAPPED });
-        }
-    }
-    for instruction in analysis
-        .instructions
-        .values()
-        .filter(|i| matches!(i.control, Control::Jump | Control::Call | Control::Branch))
-    {
-        let at = usize::from(addresses[&instruction.pc]) + 1;
-        let target = u32::try_from(instruction.operands[0])?;
-        output.words[at] = *addresses
-            .get(&target)
-            .context("missing relocated script target")?;
-    }
-    let mut result = bytes[..header.code_base()].to_vec();
-    let entry = addresses
-        .get(&u32::from(header.default_pc))
-        .context("missing relocated entry")?;
-    result[2..4].copy_from_slice(&entry.to_be_bytes());
-    if header.auxiliary_words != 0 {
-        let auxiliary = usize::from(header.code_base_words) + output.words.len();
-        result[4..6].copy_from_slice(
-            &u16::try_from(auxiliary)
-                .context("normalized script exceeds auxiliary range")?
-                .to_be_bytes(),
+            },
         );
     }
-    for record in analysis.records.iter().filter(|r| r.active()) {
-        let pc = u32::from(
-            *addresses
-                .get(&record.pc)
-                .context("missing relocated event")?,
-        );
-        result[record.offset + 8..record.offset + 12].copy_from_slice(&pc.to_be_bytes());
+    for (pc, is_raw) in raw {
+        let mut code = Code::default();
+        if let Some(mode) = restore.remove(&pc) {
+            code.push(mode as u32);
+            code.words.push(0x3000);
+        }
+        code.words.extend([
+            0,
+            0x1200,
+            RESULT,
+            0x2000 | NativeCall::ReadMappedInput as u16,
+        ]);
+        code.mask(if is_raw { RAW } else { MAPPED });
+        replacements.insert(pc, code.words);
     }
-    result.extend(output.words.into_iter().flat_map(u16::to_be_bytes));
-    if header.auxiliary_words != 0 {
-        result.extend_from_slice(&bytes[end..]);
-    }
-    Program::decode(&result).context("normalized input script")?;
-    Ok(result)
+    ensure!(
+        restore.is_empty(),
+        "raw input argument is not adjacent to its call"
+    );
+    crate::script::rewrite(bytes, &analysis, replacements)
 }
 
 #[derive(Default)]

@@ -8,6 +8,48 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked audio and fields"]
+fn installed_field_audio_uses_shared_selections() -> Result<()> {
+    use resonance_content::{field::document::Definition, field_audio::ServiceCue};
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    // Recook scenarios from source so a focused rerun never applies source ID
+    // conversion to an already converted program. Geometry/audio are retained.
+    if std::env::var_os("RESONANCE_TEST_REUSE_SCENARIOS").is_none() {
+        field_core::cook(&source, &root, None)?;
+    }
+    audio_fields::cook(&source, &root)?;
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let fields: Mappings = json(&root, resonance_content::library::FIELDS)?;
+    let (mut music, mut voices, mut effects) = (0, 0, 0);
+    for (id, name) in fields.iter() {
+        let field: Definition = json(&root, &format!("fields/{name}/field.json"))?;
+        let audio = field
+            .audio
+            .resolve(&mut library.snapshot())
+            .with_context(|| format!("field {id} audio"))?;
+        assert!(
+            ServiceCue::ALL
+                .iter()
+                .all(|cue| audio.effects.contains_key(&(*cue as i16)))
+        );
+        music += usize::from(!audio.music.is_empty());
+        voices += usize::from(!audio.voices.is_empty());
+        effects += audio.effects.len();
+    }
+    assert!(music > 100 && voices > 100);
+    eprintln!(
+        "Field audio: {music} music owners, {voices} speech owners, {effects} effect selections"
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_LIBRARY with cooked movie 1"]
 fn cooked_movie_plays_to_completion() -> Result<()> {
     let root = PathBuf::from(

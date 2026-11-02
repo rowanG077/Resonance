@@ -2,6 +2,8 @@
 use anyhow::{Context, Result, ensure};
 use std::collections::BTreeSet;
 pub use symphonia_script::message::TextEncoding;
+mod patch;
+pub(crate) use patch::rewrite;
 
 pub struct Script {
     pub bytes: Vec<u8>,
@@ -21,6 +23,7 @@ pub(crate) fn decode(bytes: &[u8], encoding: TextEncoding) -> Result<Script> {
             encoding,
         )?
     };
+    let bytes = crate::script_audio::normalize(&bytes)?;
     Ok(Script { bytes, messages })
 }
 

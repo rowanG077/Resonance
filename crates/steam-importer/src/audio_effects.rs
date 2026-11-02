@@ -2,8 +2,8 @@
 use crate::{audio_streams, output, package::Package, pe, source::Source};
 use anyhow::{Context, Result, ensure};
 use resonance_audio::effect::{Definition, Loop, Wave};
-use resonance_content::library::Mappings;
-use std::{collections::BTreeMap, ops::Range, path::Path};
+use resonance_content::{field_audio::ServiceCue, library::Mappings};
+use std::{collections::BTreeMap, fs, ops::Range, path::Path};
 
 pub(crate) fn id(native: u16) -> Result<u16> {
     match native {
@@ -34,6 +34,119 @@ pub(crate) fn recording(
             reverbs: None,
         }),
     )
+}
+
+/// Shared services select the corresponding native recording during import.
+/// Rebinding these aliases does not decode or duplicate their WAV data.
+pub(crate) fn bind_services(source: &Source, library: &Path) -> Result<()> {
+    use ServiceCue::*;
+    const CUES: [(ServiceCue, u16); 32] = [
+        (Navigate, 28),
+        (Confirm, 27),
+        (Cancel, 26),
+        (Error, 7),
+        (TreasureReward, 25),
+        (TreasureOpen, 5),
+        (TreasureBag, 4),
+        (Door, 6),
+        (RingPrepare, 9),
+        (RingFire, 24),
+        (MenuOpen, 8),
+        (Page, 31),
+        (Recovery, 29),
+        (BattleEntry, 32),
+        (Remedy, 30),
+        (RingElectric, 0x1d16),
+        (RingLightning, 0x2a1e),
+        (RingIce, 0x2b14),
+        (RingShatter, 0x2b0c),
+        (RingEarthquake, 0x2c09),
+        (RingDarkness, 0x2d0c),
+        (RingSound, 0x2e21),
+        (RingBubble, 0x3100),
+        (RingWind, 0x2230),
+        (RingWater, 0x2126),
+        (RingBombPlace, 0x3613),
+        (RingBombBlast, 0x3605),
+        (RingBombDebris, 0x2c0e),
+        (RingMana, 0x1c0a),
+        (RingRadar, 0x200e),
+        (RingSplash, 0x2123),
+        (RingShrink, 10),
+    ];
+    let image = pe::Image::parse(&source.executable)?;
+    // Ring mode 3 toggles the size at 0x4cc87c. Only the shrink branch makes
+    // the second SYS sound request, selecting row 10 at 0x4cc891.
+    ensure!(
+        image.slice(0x4cc891, 5)? == [0xb9, 10, 0, 0, 0]
+            && image.slice(0x4cc89d, 5)? == [0xe8, 0x0e, 0x1d, 6, 0],
+        "changed shrink sound selection"
+    );
+    let path = library.join("audio/mappings.json");
+    let entries: Mappings = serde_json::from_slice(&fs::read(&path)?)?;
+    let mut mappings = entries
+        .iter()
+        .map(|(id, path)| (id, path.to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    for (service, native) in CUES {
+        let recording = entries.target(u32::from(id(native)?))?.to_owned();
+        mappings.insert(service as u32, recording);
+    }
+    ensure!(
+        ServiceCue::ALL
+            .iter()
+            .all(|cue| mappings.contains_key(&(*cue as u32))),
+        "unbound field service cue"
+    );
+    output::json(&path, &Mappings::new(mappings)?)
+}
+
+/// Some shipped scripts retain selectors beyond their PHD bank. The native
+/// playback guard rejects them without audio; represent that in the common
+/// explicit silence recipe rather than inventing a replacement recording.
+pub(crate) fn bind_unused(source: &Source, library: &Path, mapped: u32) -> Result<()> {
+    let native = mapped
+        .checked_sub(512)
+        .filter(|id| *id <= 0x43ff)
+        .context("missing streamed effect")?;
+    let image = pe::Image::parse(&source.executable)?;
+    ensure!(
+        image.slice(0x580943, 10)? == [0x66, 0x39, 0x78, 8, 0x0f, 0x82, 0x98, 0, 0, 0],
+        "changed effect bank range guard"
+    );
+    let bytes = source.require("allphd.pak")?;
+    let package = Package::parse(&bytes)?;
+    let bank = (native >> 8) as usize;
+    let rejected = if bank >= package.len() {
+        true
+    } else {
+        let header = package
+            .member(bank)?
+            .context("missing effect bank header")?;
+        // The native test is strictly greater than the bank's declared count.
+        (native & 255) > u32::from(pe::half(header, 8)?)
+    };
+    ensure!(
+        rejected,
+        "mapped effect {mapped} is missing a valid native recording"
+    );
+    output::json(
+        &library.join("audio/effects/no-sound.json"),
+        &Definition::Silence(resonance_audio::effect::Silence {
+            frames: 1,
+            sample_rate: 48_000,
+        }),
+    )?;
+    let path = library.join("audio/mappings.json");
+    let entries: Mappings = serde_json::from_slice(&fs::read(&path)?)?;
+    let mut mappings = entries
+        .iter()
+        .map(|(id, path)| (id, path.to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    mappings.insert(mapped, "effects/no-sound.json".into());
+    output::json(&path, &Mappings::new(mappings)?)?;
+    eprintln!("  Native unused effect: {native:#06x}");
+    Ok(())
 }
 
 pub(crate) fn cook(
