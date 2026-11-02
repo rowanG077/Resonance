@@ -193,13 +193,27 @@ pub(crate) fn models(source: &Source, library: &Path) -> Result<()> {
         let owner = format!("meshes/monsters/{}", symbol(id));
         let body = preview_model::reference(&bytes, 0x18)?.context("enemy has no body")?;
         let outline = preview_model::reference(&bytes, 0x1c)?.unwrap_or_default();
-        let motions = preview_model::reference(&bytes, 0x20)?
-            .map(|name| (0, name))
-            .into_iter()
-            .collect::<Vec<_>>();
+        let motions = battle_motions(&bytes)?;
         let (mut preview, _) =
             preview_model::cook(source, library, [&body, &outline], &owner, &motions)?;
-        components(source, library, &bytes, metadata, &owner, &mut preview)?;
+        for part in &mut preview.parts {
+            part.animation = part
+                .scene
+                .clips
+                .iter()
+                .any(|clip| clip.resource_slot == 0)
+                .then_some(0);
+            part.scene.autoplay = part.animation.is_some();
+        }
+        components(
+            source,
+            library,
+            &bytes,
+            metadata,
+            &owner,
+            &motions,
+            &mut preview,
+        )?;
         preview.scale = f32::from_bits(pe::word(metadata, 0x128)?);
         preview.elevation = f32::from_bits(pe::word(metadata, 0x12c)?);
         preview.hidden_geometry.extend(
@@ -218,6 +232,21 @@ pub(crate) fn models(source: &Source, library: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The source count excludes some standard reaction slots retained by the table.
+fn battle_motions(bytes: &[u8]) -> Result<Vec<(u16, String)>> {
+    let count = (pe::word(bytes, 0x14)? as usize).max(31);
+    ensure!(count <= 80, "enemy motion count exceeds directory");
+    (0..count)
+        .filter_map(
+            |slot| match preview_model::reference(bytes, 0x20 + slot * 4) {
+                Ok(Some(name)) => Some(Ok((slot as u16, name))),
+                Ok(None) => None,
+                Err(error) => Some(Err(error)),
+            },
+        )
+        .collect()
+}
+
 // Carried bodies retain their ordinary bone attachments; no menu-only renderer.
 fn components(
     source: &Source,
@@ -225,6 +254,7 @@ fn components(
     bytes: &[u8],
     metadata: &[u8],
     owner: &str,
+    body_motions: &[(u16, String)],
     preview: &mut resonance_content::model_preview::ModelPreview,
 ) -> Result<()> {
     let anchor = |prefix: &str| -> Result<String> {
@@ -250,12 +280,16 @@ fn components(
             preview_model::reference(bytes, 0x180)?.context("missing secondary monster body")?;
         let outline = preview_model::reference(bytes, 0x198)?.unwrap_or_default();
         let slot = u16::from(metadata[0xc1]);
-        let motion = preview_model::reference(bytes, 0x20 + usize::from(slot) * 4)?
-            .or(preview_model::reference(bytes, 0x1b0)?);
-        let motions = motion
-            .map(|name| (slot, name))
-            .into_iter()
+        let mut motions = body_motions
+            .iter()
+            .filter(|(id, _)| *id >= slot)
+            .cloned()
             .collect::<Vec<_>>();
+        if !motions.iter().any(|(id, _)| *id == slot)
+            && let Some(name) = preview_model::reference(bytes, 0x1b0)?
+        {
+            motions.push((slot, name));
+        }
         let (model, _) = preview_model::cook(
             source,
             library,
@@ -269,6 +303,13 @@ fn components(
             None
         };
         for mut part in model.parts {
+            part.animation = part
+                .scene
+                .clips
+                .iter()
+                .any(|clip| clip.resource_slot == slot)
+                .then_some(slot);
+            part.scene.autoplay = part.animation.is_some();
             part.attached_to = bone.clone();
             added.push(part);
         }
@@ -292,10 +333,22 @@ fn components(
         };
         let outline = package.reference(2)?.unwrap_or("");
         let component_owner = format!("{owner}/carried-{slot}");
+        let mut motions = carried_pose_motions(bytes, slot, body_motions)?;
+        if let Some(idle) = package.reference(3)? {
+            motions.insert(0, idle.into());
+        }
+        let motions = motions.into_iter().collect::<Vec<_>>();
         let (model, _) =
-            preview_model::cook(source, library, [body, outline], &component_owner, &[])?;
+            preview_model::cook(source, library, [body, outline], &component_owner, &motions)?;
         let bone = anchor(&format!("kk0{slot}"))?;
         for mut part in model.parts {
+            part.animation = part
+                .scene
+                .clips
+                .iter()
+                .any(|clip| clip.resource_slot == 0)
+                .then_some(0);
+            part.scene.autoplay = part.animation.is_some();
             part.attached_to = Some(bone.clone());
             part.additive = !before_body && flags & 0x10 != 0;
             for material in &mut part.scene.materials {
@@ -335,4 +388,34 @@ fn components(
         order += part.scene.materials.len() as u32;
     }
     Ok(())
+}
+
+/// Native command 25 explicitly samples a body motion on a carried rig. This is
+/// the same bounded command scan used by the GC media importer.
+fn carried_pose_motions(
+    bytes: &[u8],
+    slot: usize,
+    body: &[(u16, String)],
+) -> Result<BTreeMap<u16, String>> {
+    let start = usize::from(pe::half(bytes, 14)?);
+    let end = usize::from(pe::half(bytes, 16)?);
+    let commands = bytes
+        .get(start..end)
+        .context("enemy commands exceed package")?;
+    let mut motions = BTreeMap::new();
+    for at in (0..commands.len().saturating_sub(15)).step_by(2) {
+        if pe::half(commands, at + 2)? != 25 || usize::from(pe::half(commands, at + 4)?) != slot {
+            continue;
+        }
+        let clip = pe::half(commands, at + 6)?;
+        let rate = f32::from_bits(pe::word(commands, at + 8)?);
+        if rate.is_finite()
+            && rate > 0.
+            && pe::word(commands, at + 12)? <= 1
+            && let Some((_, name)) = body.iter().find(|(id, _)| *id == clip)
+        {
+            motions.insert(clip, name.clone());
+        }
+    }
+    Ok(motions)
 }

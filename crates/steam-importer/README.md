@@ -158,6 +158,16 @@ contains all 297 entries. Model previews reuse the same geometry, image, motion
 and outline writers as fields. They retain authored idle clips, carried and
 secondary bodies, figurine body-atlas rows and bone visibility rules. Specialized
 preview behaviors still need their owners; this does not establish full visual parity.
+The enemy media owner now retains all 4,759 declared body-motion slots across the
+257 enemies, with matching outline clips, secondary-body motion ranges and 44
+carried layers with authored idle/copied-pose clips. It uses the same GLB writers
+and `model.json` schema as the GC owner, preserving idle selection when the full
+motion table is added. The installed cook checks every declared body/outline slot
+and prepares eight representative models through the shared reader, including
+Golem, Vidarr, a cameo rig and the added final boss. Enemy rule/artwork bindings,
+extra effect models and secondary-motion/visibility details remain separate work.
+No engine change or source-edition flag was needed.
+
 The shared engine uses catalogue-derived collection counts and 16-bit monster
 identities through knowledge, saves, rewards, AI and model/voice lookups. Existing
 GC numeric IDs and JSON document shapes remain compatible. Counts are derived

@@ -122,8 +122,8 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
     menu_presentation::cook(&source, output).context("Steam menu presentation")?;
     eprintln!("[asset type 29/50] Cooking Monster Book records");
     monsters::catalogue(&source, output).context("Steam Monster Book")?;
-    eprintln!("[asset type 30/50] Cooking monster previews");
-    monsters::models(&source, output).context("Steam monster previews")?;
+    eprintln!("[asset type 30/50] Cooking enemy models and battle motions");
+    monsters::models(&source, output).context("Steam enemy model media")?;
     eprintln!("[asset type 31/50] Cooking figurine records");
     figurines::catalogue(&source, output).context("Steam figurine catalogue")?;
     eprintln!("[asset type 32/50] Cooking figurine previews");

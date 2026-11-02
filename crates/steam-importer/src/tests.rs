@@ -8,6 +8,110 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks enemy media"]
+fn installed_enemy_battle_motion_models_use_shared_reader() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    monsters::models(&source, &root)?;
+    check_enemy_battle_motions(&source, &root)
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked enemy media"]
+fn cooked_enemy_battle_motion_models_use_shared_reader() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    check_enemy_battle_motions(
+        &source::Source::open(&installation, Language::English)?,
+        &root,
+    )
+}
+
+fn check_enemy_battle_motions(source: &source::Source, root: &Path) -> Result<()> {
+    use resonance_content::model_preview::{ModelPreview, document};
+    let image = pe::Image::parse(&source.executable)?;
+    let mut motions = 0;
+    let mut carried = 0;
+    for id in 0..257u16 {
+        let filename = image.text(pe::word(image.slice(0x8e5b50 + u32::from(id) * 4, 4)?, 0)?)?;
+        let bytes = source.require(filename)?;
+        let path = format!("meshes/monsters/{}/model.json", monsters::symbol(id));
+        let mut preview: ModelPreview = json(root, &path)?;
+        preview.validate_definition()?;
+        let count = (pe::word(&bytes, 0x14)? as usize).max(31);
+        let expected = (0..count)
+            .filter_map(|slot| {
+                preview_model::reference(&bytes, 0x20 + slot * 4)
+                    .transpose()
+                    .map(|result| result.map(|_| slot as u16))
+            })
+            .collect::<Result<std::collections::BTreeSet<_>>>()?;
+        let actual = preview.parts[0]
+            .scene
+            .clips
+            .iter()
+            .map(|clip| clip.resource_slot)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            actual, expected,
+            "enemy {id} body motion declarations differ"
+        );
+        assert_eq!(
+            preview.parts[1]
+                .scene
+                .clips
+                .iter()
+                .map(|clip| clip.resource_slot)
+                .collect::<std::collections::BTreeSet<_>>(),
+            expected,
+            "enemy {id} outline motion declarations differ"
+        );
+        assert_eq!(
+            preview.parts[0].animation,
+            expected.contains(&0).then_some(0),
+            "enemy {id} initial pose differs"
+        );
+        motions += expected.len();
+        carried += preview
+            .parts
+            .iter()
+            .skip(2)
+            .filter(|part| {
+                part.attached_to
+                    .as_ref()
+                    .is_some_and(|bone| bone.to_ascii_lowercase().starts_with("kk"))
+                    && !part.scene.clips.is_empty()
+            })
+            .count();
+        // Exercise initial enemies, carried/secondary bodies, a cameo rig and the
+        // added final boss through the same reader used by the model viewer.
+        if [0, 58, 105, 202, 211, 219, 242, 256].contains(&id) {
+            document::prepare(&mut preview, |path| Ok(fs::read(root.join(path))?.into()))?;
+            for part in &preview.parts {
+                for clip in &part.scene.clips {
+                    assert!(clip.duration_seconds.is_finite());
+                }
+            }
+        }
+    }
+    assert!(motions > 257);
+    assert!(carried > 0);
+    eprintln!(
+        "257 enemy bodies retain {motions} native motion slots; {carried} carried layers have authored clips; representative shared-reader preparation passed"
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked party/common battle rules"]
 fn installed_unison_completes_shared_battle_rule_capture() -> Result<()> {
     use resonance_content::{battle_voice::Sound, diagnostics::Diagnostics, library::Library};
