@@ -44,6 +44,10 @@ Their SHA-256-verified DLLs
 are staged beside the test example in `target/release-fast/examples`. The test
 checks the loaded WARP driver version and still requires the DX12 CPU adapter
 and all reference pixels. These test DLLs are not included in release archives.
+Capture waits for the sprite pipeline and every queued pipeline to be ready
+instead of assuming a fixed number of startup frames is enough. The Linux
+regression check deliberately withholds the overlay shader for 80 frames and
+then runs the same pixel assertions.
 
 Each release platform runs those same tests before building and packaging release
 executables. Every platform must pass before publication. New commits cancel
