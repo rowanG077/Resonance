@@ -52,6 +52,7 @@ struct Smoke {
     overlay_shader_delay: u32,
     delayed_shader: Option<Shader>,
     shader_was_delayed: bool,
+    require_cpu: bool,
 }
 
 #[derive(Clone, Default)]
@@ -70,22 +71,36 @@ struct Readiness {
 
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let directory = args
-        .next()
-        .map(PathBuf::from)
-        .context("usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES]")?;
-    let overlay_shader_delay = args
-        .next()
-        .map(|value| value.to_string_lossy().parse::<u32>())
-        .transpose()
-        .context("overlay shader delay must be a number of frames")?
-        .unwrap_or(0);
+    let directory = args.next().map(PathBuf::from).context(
+        "usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES] [--allow-hardware]",
+    )?;
+    let mut overlay_shader_delay = None;
+    let mut allow_hardware = false;
+    for value in args {
+        if value == "--allow-hardware" {
+            allow_hardware = true;
+        } else {
+            ensure!(
+                overlay_shader_delay.is_none(),
+                "unexpected argument: {value:?}"
+            );
+            overlay_shader_delay = Some(
+                value
+                    .to_string_lossy()
+                    .parse::<u32>()
+                    .context("overlay shader delay must be a number of frames")?,
+            );
+        }
+    }
+    // Wine/Proton does not implement WARP. Local DX12 checks can explicitly use
+    // its hardware adapter; CI omits this flag and still requires the CPU driver.
+    let require_cpu = REQUIRE_CPU && !allow_hardware;
     std::fs::create_dir_all(&directory)?;
     let settings = WgpuSettings {
         backends: Some(BACKEND),
         // Exercise the shipped Metal backend on macOS, and software adapters
         // on Linux/Windows where hosted runners do not supply a hardware GPU.
-        force_fallback_adapter: REQUIRE_CPU,
+        force_fallback_adapter: require_cpu,
         // This basic scene uses the portable feature set, avoiding requests for
         // unrelated experimental extensions on software or virtual adapters.
         priority: WgpuSettingsPriority::WebGPU,
@@ -103,9 +118,10 @@ fn main() -> Result<()> {
         frames: 0,
         ready_frames: 0,
         capture_started: false,
-        overlay_shader_delay,
+        overlay_shader_delay: overlay_shader_delay.unwrap_or(0),
         delayed_shader: None,
         shader_was_delayed: false,
+        require_cpu,
     })
     .add_plugins(
         DefaultPlugins
@@ -176,7 +192,7 @@ fn setup(
         "unexpected rendering backend: {:?}",
         &**adapter
     );
-    if REQUIRE_CPU {
+    if smoke.require_cpu {
         assert_eq!(
             format!("{:?}", adapter.device_type),
             "Cpu",

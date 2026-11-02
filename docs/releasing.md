@@ -49,6 +49,22 @@ instead of assuming a fixed number of startup frames is enough. The Linux
 regression check deliberately withholds the overlay shader for 80 frames and
 then runs the same pixel assertions.
 
+The shared renderer also replaces Bevy 0.20.1's embedded sprite shader with a
+copy that uses a mutable local for the instance index. This works around
+[Naga's DX12 instance-index alias bug](https://github.com/gfx-rs/wgpu/issues/4564),
+which otherwise draws a translated sprite with another instance's transform.
+The existing pixel check catches this: the white sprite must appear in the
+upper-left corner, not at the center of the image.
+
+For local Windows reproduction on an ARM Linux host, the Windows GNU build of
+`ci_render.exe` can run through FEX and Wine/Proton's DX12 stack. Pass
+`ci_render.exe OUTPUT_DIRECTORY [DELAY_FRAMES] --allow-hardware` to use Wine's
+actual hardware adapter. Proton does not implement Microsoft's WARP adapter,
+so this option explicitly relaxes only the CPU-adapter requirement; it keeps
+DX12 and every pixel assertion. CI does not pass this option and continues to
+verify the pinned native WARP driver. The original pixel failure was reproduced
+under FEX/Wine before applying the shader workaround.
+
 Each release platform runs those same tests before building and packaging release
 executables. Every platform must pass before publication. New commits cancel
 obsolete runs rather than waiting behind hours of older builds.

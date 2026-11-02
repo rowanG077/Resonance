@@ -138,6 +138,17 @@ impl Material2d for TitleText {
 
 /// Register the movie/UI image pass and the final output conversion.
 pub fn install_output_materials(app: &mut App) {
+    // Keep Bevy's shader identity/import paths while fixing its DX12 instance
+    // index alias. Install before Material2dPlugin starts loading sprite shaders.
+    // The pixel smoke test includes a translated sprite after other 2D meshes,
+    // so reading the wrong instance's transform cannot pass unnoticed.
+    app.world()
+        .resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>()
+        .insert_asset(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/sprite_material.wesl").into(),
+            std::path::Path::new("bevy_sprite_render/sprite_mesh/sprite_material.wesl"),
+            include_bytes!("sprite_material.wesl").as_slice(),
+        );
     app.add_plugins((
         bevy::sprite_render::Material2dPlugin::<TitleOutput>::default(),
         bevy::sprite_render::Material2dPlugin::<TitleText>::default(),
