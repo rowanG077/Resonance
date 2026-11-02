@@ -128,7 +128,7 @@ impl<'a> Image<'a> {
         let offset = (rva - section.memory.start) as usize;
         ensure!(
             offset < section.raw.len(),
-            "PE address has no initialized file data"
+            "PE address {address:#x} has no initialized file data"
         );
         Ok(&self.bytes[section.raw.start + offset..section.raw.end])
     }
@@ -137,6 +137,21 @@ impl<'a> Image<'a> {
         self.tail(address)?
             .get(..length)
             .context("PE read crosses initialized section boundary")
+    }
+
+    pub fn is_zero_initialized(&self, address: u32, length: usize) -> Result<bool> {
+        let start = address
+            .checked_sub(self.base)
+            .context("PE address precedes image base")?;
+        let end = start
+            .checked_add(u32::try_from(length)?)
+            .context("PE range overflow")?;
+        let section = self
+            .sections
+            .iter()
+            .find(|s| s.memory.start <= start && end <= s.memory.end)
+            .context("PE range is outside sections")?;
+        Ok((start - section.memory.start) as usize >= section.raw.len())
     }
 
     pub fn text(&self, address: u32) -> Result<&'a str> {
@@ -188,6 +203,9 @@ mod tests {
         let image = Image::parse(&b)?;
         assert_eq!(image.text(0x401000)?, "BGM.AWB");
         assert_eq!(image.slice(0x401008, 1)?, [255]);
+        assert!(image.is_zero_initialized(0x401040, 2)?);
+        assert!(!image.is_zero_initialized(0x401008, 1)?);
+        assert!(image.is_zero_initialized(0x4010ff, 2).is_err());
         for (address, size) in [(0x40103f, 2), (0x401040, 1), (0x400100, 1), (0x3fffff, 1)] {
             assert!(image.slice(address, size).is_err());
         }

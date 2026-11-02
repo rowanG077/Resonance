@@ -33,7 +33,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 
 // Keep the common elemental-variant IDs; Steam's extra native rows get ordinary
 // logical IDs after them. All source references are resolved at this boundary.
-fn source_name(names: &Mappings, id: u32) -> Result<&str> {
+pub(crate) fn source_name(names: &Mappings, id: u32) -> Result<&str> {
     names.target(match id {
         253 => 260,
         254 => 261,

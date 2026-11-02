@@ -17,7 +17,7 @@ resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
 **This is an incremental port, not yet a playable library.** The latest full run
-completed all 15 implemented passes in 187 seconds and wrote entry points for all
+completed all 18 implemented passes in 205 seconds and wrote entry points for all
 509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
 reader; startup and battle playability remain unverified.
@@ -53,6 +53,14 @@ original big-endian keys and tracks absent from the selected body. The Asgard
 and Iselia ranch packages that stopped earlier cooks pass the shared reader.
 Motion binding reads each source rig once without decoding geometry again;
 identical model packages share their existing cooked owner across fields.
+
+Character defaults, experience and growth, all 24 recipes and ingredient groups,
+and all 177 native titles now use the same named documents as the GC importer.
+Recipe ingredient merging reuses the GC converter. Title mappings keep native
+IDs (including inserted Steam rows), with stable names across all five languages.
+The two added costume slots are ordinary shared variants, including save/load
+validation. The installed check prepares the actual character/recipe/title rules
+and constructs and serializes a fresh party in every supported language.
 
 The manual, name editor and customization options are also written in the
 current GC document schemas, using the shared seven-button controls and host
@@ -139,4 +147,10 @@ For retained native curves and localized menu tables:
 ```sh
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_retained_actor_motion -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_menu_settings -- --ignored
+```
+
+For character defaults, recipes, titles and party save/load validation:
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_character_and_recipe -- --ignored
 ```

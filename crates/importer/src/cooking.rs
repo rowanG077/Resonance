@@ -108,7 +108,7 @@ fn grade(bytes: &[u8]) -> Result<Grade> {
 }
 
 // Preserve the order of three mastery lists while merging repeated ingredients.
-fn merge_extras(grades: &[Grade; 3]) -> Vec<(u16, u8)> {
+pub fn merge_ingredients(lists: &[Vec<u16>; 3]) -> Vec<(u16, u8)> {
     fn visit(
         lists: &[Vec<u16>; 3],
         at: [usize; 3],
@@ -143,6 +143,10 @@ fn merge_extras(grades: &[Grade; 3]) -> Vec<(u16, u8)> {
         cache.insert(at, result.clone());
         result
     }
+    visit(lists, [0; 3], &mut BTreeMap::new())
+}
+
+fn merge_extras(grades: &[Grade; 3]) -> Vec<(u16, u8)> {
     let lists = std::array::from_fn(|i| {
         grades[i]
             .extras
@@ -151,7 +155,7 @@ fn merge_extras(grades: &[Grade; 3]) -> Vec<(u16, u8)> {
             .filter(|&id| id != 0)
             .collect()
     });
-    visit(&lists, [0; 3], &mut BTreeMap::new())
+    merge_ingredients(&lists)
 }
 
 fn convert(exe: &[u8]) -> Result<Document> {

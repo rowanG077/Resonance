@@ -18,5 +18,6 @@ symphonia-constants.workspace = true
 symphonia-script.workspace = true
 
 [dev-dependencies]
+resonance-events.workspace = true
 symphonia-script-vm.workspace = true
 tempfile = "3"

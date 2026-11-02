@@ -1336,7 +1336,10 @@ impl Party {
         );
         ensure!(
             self.members.len() == data.characters.len()
-                && self.members.iter().all(|m| m.costume < 5)
+                && self
+                    .members
+                    .iter()
+                    .all(|m| m.costume <= resonance_content::menu_data::Costume::Variant6 as u8)
                 && (1..=8).contains(&self.formation.len())
                 && self.formation.contains(&self.field_leader)
                 && self

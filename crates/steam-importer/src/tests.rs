@@ -488,3 +488,117 @@ fn installed_menu_settings_use_current_documents_in_all_languages() -> Result<()
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM"]
+fn installed_character_and_recipe_tables() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let output = tempfile::tempdir()?;
+    let mut title_mappings = None;
+    for language in [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Italian,
+    ] {
+        let source = source::Source::open(&installation, language)?;
+        cook_tables(&source, output.path())?;
+        let items: items::Document = json(output.path(), items::PATH)?;
+        let ex: resonance_content::ex_skills::Document =
+            json(output.path(), resonance_content::ex_skills::PATH)?;
+        let recipes: resonance_content::cooking::Document =
+            json(output.path(), resonance_content::cooking::PATH)?;
+        recipes
+            .prepare(&items.mappings, &ex.mappings)?
+            .validate(531)?;
+        assert_eq!(recipes.mappings.iter().count(), 24);
+        let characters: resonance_content::characters::Document =
+            json(output.path(), resonance_content::characters::PATH)?;
+        assert_eq!(
+            characters.initial_names()?[2],
+            if language == Language::French {
+                "Génis"
+            } else {
+                "Genis"
+            }
+        );
+        let titles: resonance_content::titles::Document =
+            json(output.path(), resonance_content::titles::PATH)?;
+        let identities = serde_json::to_value(&titles.mappings)?;
+        if let Some(previous) = &title_mappings {
+            assert_eq!(previous, &identities);
+        }
+        title_mappings = Some(identities);
+        assert_eq!(
+            titles.mappings[&resonance_content::overworld::PartyCharacter::Kratos]
+                .id("kratos/tetra-slash")?,
+            11
+        );
+        let costume_names: BTreeMap<u8, BTreeMap<u8, serde_json::Value>> =
+            serde_json::from_str(include_str!("../../importer/src/costume-names.json"))?;
+        let titles = titles.prepare(&items.mappings, |member, name| {
+            use resonance_content::menu_data::Costume;
+            let id = if let Some(id) = name.strip_prefix("costume-") {
+                id.parse::<u8>()?
+            } else {
+                *costume_names[&(member as u8)]
+                    .iter()
+                    .find(|(_, entry)| entry["name"] == name)
+                    .context("unknown native costume name")?
+                    .0
+            };
+            Ok(match id {
+                0 => Costume::Standard,
+                1 => Costume::Variant1,
+                2 => Costume::Variant2,
+                3 => Costume::Story,
+                4 => Costume::Variant4,
+                5 => Costume::Variant5,
+                6 => Costume::Variant6,
+                _ => anyhow::bail!("unknown costume slot"),
+            })
+        })?;
+        assert_eq!(titles.rules.iter().map(Vec::len).sum::<usize>(), 177);
+        let techniques: resonance_content::arte::document::Document =
+            json(output.path(), resonance_content::arte::PATH)?;
+        let definitions = characters.prepare(
+            &items.mappings,
+            &techniques.prepare()?,
+            &titles.rules,
+            &recipes.mappings,
+            &ex,
+        )?;
+        let session = resonance_content::session::SessionData {
+            version: 1,
+            items: items.prepare()?.inventory,
+            characters: definitions,
+            experience: characters.experience_curve()?,
+            rules: None,
+        };
+        session.validate()?;
+        let mut party = resonance_events::party::Party::new(&session, Default::default())?;
+        for costume in [5, 6] {
+            party.members[0].costume = costume;
+            party.validate(&session)?;
+            let restored: resonance_events::party::Party =
+                serde_json::from_slice(&serde_json::to_vec(&party)?)?;
+            restored.validate(&session)?;
+            assert_eq!(restored.members[0].costume, costume);
+        }
+        party.members[0].costume = 7;
+        assert!(party.validate(&session).is_err());
+        assert_eq!(session.characters.len(), 9);
+        assert_eq!(characters.experience_curve()?.len(), 252);
+        assert!(
+            characters
+                .full_names(&resonance_content::diagnostics::Diagnostics::new(true))?
+                .unwrap()
+                .iter()
+                .all(|format| format.contains("{name}"))
+        );
+    }
+    Ok(())
+}

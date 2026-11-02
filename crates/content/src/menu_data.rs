@@ -195,6 +195,8 @@ pub enum Costume {
     Variant2 = 2,
     Story = 3,
     Variant4 = 4,
+    Variant5 = 5,
+    Variant6 = 6,
 }
 
 impl MenuData {

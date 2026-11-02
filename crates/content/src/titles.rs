@@ -255,6 +255,8 @@ pub fn load(files: &crate::prepared::Files, items: &Mappings) -> Result<Prepared
             2 => menu_data::Costume::Variant2,
             3 => menu_data::Costume::Story,
             4 => menu_data::Costume::Variant4,
+            5 => menu_data::Costume::Variant5,
+            6 => menu_data::Costume::Variant6,
             _ => anyhow::bail!("unsupported title costume slot {id}"),
         })
     })

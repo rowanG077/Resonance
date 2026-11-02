@@ -3,6 +3,8 @@ mod actor_model;
 mod animation;
 mod archive;
 mod character_models;
+mod characters;
+mod cooking;
 mod coordinates;
 mod ex_skills;
 mod field_actors;
@@ -27,6 +29,7 @@ mod source;
 mod techniques;
 mod text;
 mod texture;
+mod titles;
 use anyhow::{Context, Result, ensure};
 pub use source::Language;
 use std::{path::Path, time::Instant};
@@ -43,20 +46,20 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
     );
     let start = Instant::now();
     cook_tables(&source, output)?;
-    eprintln!("[asset type 9/15] Cooking shared field settings");
+    eprintln!("[asset type 12/18] Cooking shared field settings");
     field_settings::cook(&source, output).context("Steam field settings")?;
-    eprintln!("[asset type 10/15] Cooking field scripts and collision");
+    eprintln!("[asset type 13/18] Cooking field scripts and collision");
     field_core::cook(&source, output, None).context("Steam field scripts and collision")?;
-    eprintln!("[asset type 11/15] Cooking field scenery and cameras");
+    eprintln!("[asset type 14/18] Cooking field scenery and cameras");
     field_scene::cook(&source, output, None).context("Steam field scenery and cameras")?;
-    eprintln!("[asset type 12/15] Cooking party models and field motions");
+    eprintln!("[asset type 15/18] Cooking party models and field motions");
     character_models::cook(&source, output, None)
         .context("Steam party models and field motions")?;
-    eprintln!("[asset type 13/15] Cooking shared field models");
+    eprintln!("[asset type 16/18] Cooking shared field models");
     let mut models = field_models::cook(&source, output).context("Steam shared field models")?;
-    eprintln!("[asset type 14/15] Cooking field actors and animation bindings");
+    eprintln!("[asset type 17/18] Cooking field actors and animation bindings");
     field_actors::cook(&source, output, &mut models, None).context("Steam field actors")?;
-    eprintln!("[asset type 15/15] Cooking manual, name editor and options");
+    eprintln!("[asset type 18/18] Cooking manual, name editor and options");
     menu_settings::cook(&source, output).context("Steam menu settings")?;
     eprintln!(
         "Steam categories cooked in {:.3} seconds. Remaining legacy field resources, dynamic animation bank routes, game rules and other media are not yet ported.",
@@ -66,22 +69,28 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
 }
 
 fn cook_tables(source: &source::Source, output: &Path) -> Result<()> {
-    eprintln!("[asset type 1/15] Cooking descriptor");
+    eprintln!("[asset type 1/18] Cooking descriptor");
     resonance_importer::cook_descriptor(output).context("library descriptor")?;
-    eprintln!("[asset type 2/15] Cooking scripts");
+    eprintln!("[asset type 2/18] Cooking scripts");
     resonance_importer::cook_scripts(output).context("shared script definitions")?;
-    eprintln!("[asset type 3/15] Cooking battle formations");
+    eprintln!("[asset type 3/18] Cooking battle formations");
     formations::cook(source, output).context("Steam battle formations")?;
-    eprintln!("[asset type 4/15] Cooking recoil");
+    eprintln!("[asset type 4/18] Cooking recoil");
     recoil::cook(source, output).context("Steam battle recoil")?;
-    eprintln!("[asset type 5/15] Cooking items");
+    eprintln!("[asset type 5/18] Cooking items");
     items::cook(source, output).context("Steam items")?;
-    eprintln!("[asset type 6/15] Cooking techniques");
+    eprintln!("[asset type 6/18] Cooking techniques");
     techniques::cook(source, output).context("Steam techniques")?;
-    eprintln!("[asset type 7/15] Cooking field directory and foraging");
+    eprintln!("[asset type 7/18] Cooking field directory and foraging");
     field_directory::cook(source, output).context("Steam field directory")?;
-    eprintln!("[asset type 8/15] Cooking EX skills");
+    eprintln!("[asset type 8/18] Cooking EX skills");
     ex_skills::cook(source, output).context("Steam EX skills")?;
+    eprintln!("[asset type 9/18] Cooking recipes and ingredient groups");
+    cooking::cook(source, output).context("Steam cooking rules")?;
+    eprintln!("[asset type 10/18] Cooking titles and award bindings");
+    titles::cook(source, output).context("Steam titles")?;
+    eprintln!("[asset type 11/18] Cooking character defaults and progression");
+    characters::cook(source, output).context("Steam characters")?;
     Ok(())
 }
 

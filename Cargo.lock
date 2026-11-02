@@ -5152,6 +5152,7 @@ dependencies = [
  "glam 0.34.1",
  "resonance-asset-writer",
  "resonance-content",
+ "resonance-events",
  "resonance-importer",
  "serde",
  "serde_json",
