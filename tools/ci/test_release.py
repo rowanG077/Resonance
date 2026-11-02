@@ -22,6 +22,9 @@ class ArchiveTests(unittest.TestCase):
             for name in ("resonance", "resonance-import", "resonance.exe", "resonance-import.exe"):
                 (binaries / name).write_bytes(b"synthetic executable")
             (binaries / "private-disc.iso").write_bytes(b"must not ship")
+            (binaries / "d3d10warp.dll").write_bytes(b"test-only renderer")
+            (binaries / "dxcompiler.dll").write_bytes(b"test-only shader compiler")
+            (binaries / "dxil.dll").write_bytes(b"test-only shader validator")
             for platform in PLATFORMS:
                 with self.subTest(platform=platform):
                     archive = package("v1.2.3", platform, binaries, root / "dist")

@@ -37,6 +37,14 @@ including Windows MSVC. The final distribution executables use `--release`
 with thin LTO and are packaged from `target/release`. Every architecture's build
 and test job has a 180-minute (three-hour) timeout.
 
+The Windows pixel check uses Microsoft's pinned WARP software renderer and DXC
+shader compiler, following
+[wgpu's Windows CI setup](https://github.com/gfx-rs/wgpu/blob/trunk/.github/workflows/ci.yml).
+Their SHA-256-verified DLLs
+are staged beside the test example in `target/release-fast/examples`. The test
+checks the loaded WARP driver version and still requires the DX12 CPU adapter
+and all reference pixels. These test DLLs are not included in release archives.
+
 Each release platform runs those same tests before building and packaging release
 executables. Every platform must pass before publication. New commits cancel
 obsolete runs rather than waiting behind hours of older builds.

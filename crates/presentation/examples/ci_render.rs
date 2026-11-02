@@ -137,6 +137,13 @@ fn setup(
     )
     .unwrap();
 
+    if let Ok(expected) = std::env::var("RESONANCE_CI_WARP_VERSION") {
+        assert_eq!(
+            adapter.driver, expected,
+            "CI must load the pinned WARP DLL beside ci_render.exe"
+        );
+    }
+
     let target = images.add(Image::new_target_texture(
         128,
         128,
