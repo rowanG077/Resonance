@@ -101,6 +101,7 @@ fn meal_admission_and_outcomes_do_not_depend_on_random_seeds() -> Result<()> {
             .cook(&menus, || rolls.next().unwrap_or(0))
             .map_err(|error| anyhow::anyhow!("{error:?}"))?;
         assert_eq!(dish.success, success);
+        assert_eq!(attempt.cooking.last_success, success);
         assert_eq!(dish.effects.is_empty(), !has_effects);
         assert_eq!(attempt.items[&1], 2);
         assert_eq!(attempt.members[0].cooking[0], if success { 1 } else { 2 });

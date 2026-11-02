@@ -16,15 +16,23 @@ GameCube extraction or old cooked library is needed. `--language` accepts
 resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
-**This is an incremental port, not yet a playable library.** The latest full run
-completed all 37 implemented passes in 227 seconds and wrote entry points for all
+Movie conversion also needs `ffmpeg` on `PATH`, with the USM demuxer (tested with
+FFmpeg 9.0.2). It runs only during importing; the game uses its existing Rust
+FFV1/FLAC player.
+
+**This is an incremental port, not yet a complete playable library.** The last full run
+completed the first 37 passes in 227 seconds and wrote entry points for all
 509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
 reader. The shared gameplay loader now initializes a party and saves/restores the
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
-capture still has backdrop gaps and unresolved decorative bone lookups. Playable
-field execution, the opening movie and battle remain unfinished.
+capture still has backdrop gaps and unresolved decorative bone lookups. Later
+fields and battle remain unfinished. Four additional passes now cook
+skits, portraits, movies and field service models against that library. Native
+opening-field execution reaches player control. The shared checkpoint check
+passes save/reload, movement, invalid-load rejection and early village/classroom
+transitions using this cooked library.
 
 Current passes write
 the library descriptor, common script definitions, all 1,000 battle formations and
@@ -77,7 +85,7 @@ options. All five languages pass the document readers. The common name editor
 accepts localized names and edits character cells safely.
 
 Embedded legacy banks, legacy model packages and dynamic animation-bank routes,
-service actors, enemy documents, remaining game/menu rules and other media also
+enemy documents, remaining game/menu rules and other media also
 remain incomplete. Material animation, face atlas selection and animated visibility
 remain pending. Party model defaults retain initial hidden geometry; scenery
 node visibility still needs projection through the common playback path. Use a
@@ -197,13 +205,32 @@ RESONANCE_TEST_ASSETS="/absolute/path/to/steam-preview" RESONANCE_NAMED_TITLE_CA
 
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
-owners include remaining game rules and battle artwork; legacy field motion, service actors
+owners include remaining game rules and battle artwork; legacy field motion, automatic accessories
 and dynamic shared banks;
 party combat rules and victory performances; enemy/equipment battle models and rules;
-overworld data and media; skits,
-remaining audio bindings, movies and remaining startup/ending media. Completion requires exercising startup,
+overworld data and media;
+remaining audio bindings and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.
+
+The skit owner writes 471 scenarios, 343 availability rules, 106 portraits and
+2,768 timed media entries into the shared skit documents. Portrait images are
+normalized to GC dimensions. English skits retain the native muted voice clocks;
+Japanese recordings remain ordinary selectable speech files. Cooking-result,
+chef and mild-poison predicates use the shared party state.
+
+The movie owner converts all 13 shipped script movies (25 native IDs) into the
+same named Matroska format as GC, keeping both audio tracks and putting English
+first for voiced scenes. The separate ending movie still needs its owner.
+Field entry points bind movie IDs from their scripts. Save circles and the three
+treasure types use the common actor model writer and native service selections;
+their fields bind the ordinary service resource IDs.
+
+```sh
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_skits -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_movies -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_field_services -- --ignored
+```
 
 For a focused field-source conversion/load check:
 

@@ -10,12 +10,15 @@ glam.workspace = true
 image.workspace = true
 flate2 = "1"
 encoding_rs = "0.8"
+hound = "3.5"
 resonance-asset-writer.workspace = true
 resonance-audio.workspace = true
 resonance-content.workspace = true
 resonance-importer.workspace = true
+resonance-media.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 symphonia-constants.workspace = true
 symphonia-script.workspace = true
 

@@ -121,7 +121,7 @@ speech or movie conversion to check an unrelated fix.
 Temporary disk data is allowed only when a converter needs it. Movie decoding
 retains reordered video frames and audio locally for the Rust MKV encoder, then
 removes the scratch directory. It does not publish an intermediate movie format.
-Cooking uses in-process codecs; FFmpeg, vgmstream and KTX command-line tools are
+GameCube cooking uses in-process codecs; FFmpeg, vgmstream and KTX command-line tools are
 not required. Audio interpolation filters are generated in Rust.
 
 ## Library and field preparation
@@ -310,5 +310,7 @@ decompress or specially validate the KTX2.
 The parallel [`crates/steam-importer`](../crates/steam-importer/README.md) follows
 this direct-writer structure and targets the same cooked format. Its incremental
 port is available through `resonance-import steam STEAM_DIRECTORY --output DIRECTORY`.
-It currently converts core tables; it does not yet produce a playable library.
+Steam movie conversion requires FFmpeg with USM support on `PATH`; playback uses
+the same cooked Matroska files and shared Rust player as GameCube. The importer
+does not yet produce a complete playable library.
 See its README for the implemented categories and focused installed-source test.

@@ -8,6 +8,164 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_LIBRARY with cooked movie 1"]
+fn cooked_movie_plays_to_completion() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let movie = resonance_media::MovieDecoder::load(&mut library.snapshot(), 1)?;
+    let began = std::time::Instant::now();
+    let (mut video_frames, mut audio_samples) = (0, 0);
+    loop {
+        ensure!(began.elapsed().as_secs() < 120, "movie playback stalled");
+        match movie.try_next()? {
+            Some(resonance_media::MovieEvent::Video(frame)) => {
+                assert_eq!(frame.index, video_frames);
+                video_frames += 1;
+            }
+            Some(resonance_media::MovieEvent::Audio(chunk)) => audio_samples += chunk.samples.len(),
+            Some(resonance_media::MovieEvent::End) => break,
+            None => std::thread::sleep(std::time::Duration::from_millis(1)),
+        }
+    }
+    assert_eq!(video_frames, 1918);
+    assert!(audio_samples > 48_000 * 2 * 60);
+    eprintln!("Played {video_frames} video frames and {audio_samples} audio samples");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked fields"]
+fn installed_field_services_use_shared_models() -> Result<()> {
+    use resonance_content::field::{
+        SAVE_POINT_RESOURCE, TREASURE_RESOURCE_BASE,
+        document::{self, ModelMappings},
+    };
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    field_services::cook(&source, &root)?;
+    let mappings: ModelMappings = json(&root, document::MODELS)?;
+    for id in [
+        SAVE_POINT_RESOURCE,
+        TREASURE_RESOURCE_BASE,
+        TREASURE_RESOURCE_BASE + 1,
+        TREASURE_RESOURCE_BASE + 2,
+    ] {
+        let model: document::Model = json(&root, &mappings.model_path(id)?)?;
+        model.validate()?;
+        assert!(
+            model
+                .parts
+                .iter()
+                .any(|part| part.clips.iter().any(|clip| clip.resource_slot == 12))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked fields"]
+fn installed_movies_use_shared_player() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let selected = std::env::var("RESONANCE_TEST_MOVIE")
+        .ok()
+        .map(|id| id.parse::<u32>())
+        .transpose()?;
+    let source = source::Source::open(&installation, Language::English)?;
+    movies::cook(&source, &root, selected)?;
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let mut snapshot = library.snapshot();
+    let movie = resonance_media::MovieDecoder::load(&mut snapshot, selected.unwrap_or(1))?;
+    assert_eq!(movie.format().width, 640);
+    assert_eq!(movie.format().sample_rate, 48_000);
+    assert!(movie.format().audio_frames.is_none_or(|frames| frames > 0));
+    let times = movie.video_timestamps()?;
+    assert!(times.len() > 100);
+    let field_names: Mappings = json(&root, resonance_content::library::FIELDS)?;
+    let mut bindings = 0;
+    for (_, name) in field_names.iter() {
+        let field: resonance_content::field::document::Definition =
+            json(&root, &format!("fields/{name}/field.json"))?;
+        bindings += usize::from(field.movies.contains(&selected.unwrap_or(1)));
+    }
+    assert!(bindings > 0, "cooked movie has no field bindings");
+    eprintln!("Movie: {} frames, {bindings} field bindings", times.len());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked Steam audio"]
+fn installed_skits_use_shared_catalogue_and_vm() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    skits::cook(&source, &root)?;
+    skit_portraits::cook(&source, &root)?;
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let mut snapshot = library.snapshot();
+    let catalogue = std::sync::Arc::new(resonance_content::skit::document::capture(
+        &mut snapshot,
+        &|| false,
+    )?);
+    catalogue.validate()?;
+    assert!(catalogue.resources.len() > 400 && catalogue.skits.len() > 300);
+    assert_eq!(catalogue.portrait_recipes.len(), 230);
+    assert!(
+        !catalogue.media.is_empty() && catalogue.media.values().all(|media| media.voice.is_none())
+    );
+    for resource in catalogue.resources.values() {
+        symphonia_script::Program::decode(&fs::read(root.join(&resource.script))?)?;
+    }
+    let resource = &catalogue.resources[&1];
+    let program = symphonia_script::Program::decode(&fs::read(root.join(&resource.script))?)?;
+    let mut world = resonance_events::GameWorld::default();
+    world.skit = Some(Default::default());
+    let resources = resonance_events::ResourceLibrary {
+        skits: Some(catalogue.clone()),
+        messages: resource
+            .messages
+            .as_deref()
+            .map(|path| json(&root, path))
+            .transpose()?
+            .unwrap_or_default(),
+        actor_names: resonance_events::ResourceLibrary::character_names(),
+        ..Default::default()
+    };
+    let mut events = resonance_events::EventRuntime::with_state(
+        std::sync::Arc::new(program),
+        std::sync::Arc::new(resources),
+        world,
+        Default::default(),
+    )?;
+    for _ in 0..120 {
+        events.step()?;
+    }
+    eprintln!(
+        "Loaded {} skit scripts, {} availability rules, {} portraits, {} timed media; advanced native skit 1 through the shared VM",
+        catalogue.resources.len(),
+        catalogue.skits.len(),
+        catalogue.portraits.len(),
+        catalogue.media.len()
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; recooks scenery and local overlays"]
 fn installed_field_overlays_load_through_shared_catalogue() -> Result<()> {
     let installation = PathBuf::from(
@@ -100,11 +258,17 @@ fn check_audio_recordings(root: &Path) -> Result<()> {
         assert!(mappings.contains_key(&0) && mappings.contains_key(&1946));
         for entry in mappings.values() {
             let source = entry.resolve()?;
-            let path = source
-                .path()
-                .context("expected authored speech recording")?;
-            let recording = resonance_audio::recording::Prepared::new(snapshot.open_stream(path)?)?;
-            assert!(recording.frames() > 0);
+            match source {
+                speech::Source::Wave(path) => {
+                    let recording =
+                        resonance_audio::recording::Prepared::new(snapshot.open_stream(&path)?)?;
+                    assert!(recording.frames() > 0);
+                }
+                speech::Source::Silence { silence, .. } => {
+                    assert_eq!(language, "english");
+                    silence.validate()?;
+                }
+            }
         }
         speech_count += mappings.len();
     }

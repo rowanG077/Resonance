@@ -131,7 +131,7 @@ impl Source {
             || self.base.directory.find(name).is_some())
     }
 
-    fn read_encoded(&self, name: &str) -> Result<Option<(Vec<u8>, TextEncoding)>> {
+    pub(crate) fn read_encoded(&self, name: &str) -> Result<Option<(Vec<u8>, TextEncoding)>> {
         validate_name(name)?;
         if let Some(localized) = &self.localized {
             if let Some(bytes) = localized.read(name)? {

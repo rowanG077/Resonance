@@ -35,7 +35,14 @@ impl Context<'_> {
             Flag(id) => self.events.world.event_flags.contains(id),
             Viewed(id) => self.party.viewed_skits.contains(id),
             Member(id) => self.party.formation.contains(&(*id as u8)),
+            MildPoison(id) => self
+                .party
+                .members
+                .get(usize::from(*id as u8 - 1))
+                .is_some_and(|member| member.ailments.poison.has_mild()),
             Item(id) => self.party.items.get(id).is_some_and(|count| *count > 0),
+            CookingFull => self.party.cooking.full,
+            CookingSuccess => self.party.cooking.last_success,
             Terrain(required) => self
                 .overworld
                 .is_some_and(|(_, terrain)| terrain == Some(*required)),
@@ -108,6 +115,7 @@ impl Context<'_> {
                 Some((self.events.world.played_ticks / 60).min(i64::MAX as u64) as i64)
             }
             WorldArea => self.overworld.map(|(area, _)| i64::from(area)),
+            Chef => Some(i64::from(self.party.cooking.chef) + 1),
         })
     }
 }

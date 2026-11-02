@@ -145,6 +145,9 @@ pub enum SkitCondition {
     Flag(u16),
     Viewed(u16),
     Member(PartyCharacter),
+    MildPoison(PartyCharacter),
+    CookingFull,
+    CookingSuccess,
     Item(u16),
     Terrain(crate::overworld::Terrain),
     Range {
@@ -177,6 +180,7 @@ pub enum SkitValue {
     ExplorationSeconds,
     PlayedSeconds,
     WorldArea,
+    Chef,
 }
 
 impl SkitCondition {

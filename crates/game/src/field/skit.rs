@@ -282,6 +282,76 @@ mod tests {
     }
 
     #[test]
+    fn cooking_conditions_use_the_last_result_and_one_based_chef() {
+        use resonance_content::skit::SkitValue;
+        let mut events = events();
+        let rule = SkitCondition::All(vec![
+            SkitCondition::CookingFull,
+            SkitCondition::Not(Box::new(SkitCondition::CookingSuccess)),
+            SkitCondition::Range {
+                value: SkitValue::Chef,
+                min: Some(4),
+                max: Some(4),
+            },
+        ]);
+        for (full, success, chef, expected) in [
+            (false, false, 3, false),
+            (true, false, 3, true),
+            (true, true, 3, false),
+            (true, false, 4, false),
+        ] {
+            let cooking = &mut events.world.party.as_mut().unwrap().cooking;
+            cooking.full = full;
+            cooking.last_success = success;
+            cooking.chef = chef;
+            let context = conditions::Context {
+                events: &events,
+                party: events.world.party.as_ref().unwrap(),
+                map: 10,
+                exploration_ticks: 0,
+                overworld: None,
+            };
+            assert_eq!(context.matches(&rule).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn poison_condition_uses_the_selected_members_persistent_ailment() {
+        use resonance_content::overworld::PartyCharacter;
+        use resonance_events::party::Poison;
+        let mut events = events();
+        for (poison, expected) in [
+            (Poison::None, false),
+            (Poison::Mild, true),
+            (Poison::Severe, false),
+            (Poison::Both, true),
+        ] {
+            events.world.party.as_mut().unwrap().members[0]
+                .ailments
+                .poison = poison;
+            let party = events.world.party.as_ref().unwrap();
+            let context = conditions::Context {
+                events: &events,
+                party,
+                map: 10,
+                exploration_ticks: 0,
+                overworld: None,
+            };
+            assert_eq!(
+                context
+                    .matches(&SkitCondition::MildPoison(PartyCharacter::Lloyd))
+                    .unwrap(),
+                expected
+            );
+            assert!(
+                !context
+                    .matches(&SkitCondition::MildPoison(PartyCharacter::Colette))
+                    .unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn opening_a_prompt_consumes_only_the_transient_notice() {
         let mut skits = Skits::new(Some(catalog(600, SkitCondition::None)));
         skits.selected = Some(0);

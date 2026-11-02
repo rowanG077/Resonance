@@ -9,6 +9,8 @@ pub struct Cooking {
     /// Index into members, independent of formation order.
     pub chef: u8,
     pub full: bool,
+    #[serde(default)]
+    pub last_success: bool,
 }
 impl Default for Cooking {
     fn default() -> Self {
@@ -17,6 +19,7 @@ impl Default for Cooking {
             recipe: 0,
             chef: 0,
             full: false,
+            last_success: false,
         }
     }
 }
@@ -252,6 +255,7 @@ impl Party {
             }
         }
         self.cooking.full = true;
+        self.cooking.last_success = meal.success;
         Ok(meal)
     }
 }

@@ -184,7 +184,55 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<BTreeMap<u32, Stri
         )?;
     }
     output::json(&library.join(document::SPEECH), &voices[0])?;
+    silence_skits(source, library)?;
     Ok(effects)
+}
+
+/// The native English setting mutes the three skit banks. Preserve their exact
+/// clocks in the existing silence representation; Japanese keeps its recordings.
+pub(crate) fn silence_skits(source: &Source, library: &Path) -> Result<()> {
+    let image = pe::Image::parse(&source.executable)?;
+    let branch = image.slice(0x5710b9, 30)?;
+    ensure!(
+        branch[..2] == [0x83, 0xc6]
+            && branch[3..6] == [0x66, 0x83, 0xfe]
+            && branch[7..]
+                == [
+                    0x77, 0x24, 0xa1, 0x68, 0x3f, 0xad, 0, 0x80, 0xb8, 0x74, 2, 0, 0, 0, 0x75, 7,
+                    0xb9, 0x40, 0xfc, 0xff, 0xff, 0xeb, 0x35
+                ],
+        "changed skit voice mute branch"
+    );
+    let first = u32::try_from(-i32::from(branch[2] as i8))?;
+    let last = first + u32::from(branch[6]);
+    ensure!(first > 0 && last < 17, "invalid muted speech bank range");
+    let bases = (first..=last)
+        .map(|slot| pe::word(image.slice(0x8adc78 + slot * 12, 12)?, 4))
+        .collect::<Result<BTreeSet<_>>>()?;
+    let mut voices: speech::Mappings = serde_json::from_slice(&fs::read(
+        library.join("audio/speech/english/mappings.json"),
+    )?)?;
+    for (id, source) in &mut voices {
+        if !bases.contains(&(*id & 0xffff0000)) {
+            continue;
+        }
+        if let speech::Source::Wave(path) = source {
+            let wave = hound::WavReader::open(library.join("audio/speech").join(&path))?;
+            let spec = wave.spec();
+            let silence = speech::Clock {
+                frames: wave.duration(),
+                sample_rate: spec.sample_rate,
+                channels: spec.channels,
+            };
+            silence.validate()?;
+            *source = speech::Source::Silence {
+                name: path.strip_suffix(".wav").unwrap_or(path).to_owned(),
+                silence,
+            };
+        }
+    }
+    output::json(&library.join("audio/speech/english/mappings.json"), &voices)?;
+    output::json(&library.join(document::SPEECH), &voices)
 }
 
 /// Reuse GC's decoder; standard RIFF sampler metadata retains ADX's loop clock.
