@@ -17,8 +17,8 @@ resources take precedence over the English base archive. Executable text tables
 select their corresponding language slot.
 
 **This is an incremental port, not yet a playable library.** The latest full run
-completed all 33 implemented passes in 198 seconds and wrote entry points for all
-509 available fields. Nine field resource references are still unavailable or
+completed all 34 implemented passes into an empty directory in 197 seconds and
+wrote entry points for all 509 available fields. Nine field resource references are still unavailable or
 unconverted. The classroom and Asgard field documents assemble through the shared
 reader. The shared gameplay loader now initializes a party and saves/restores the
 added collection IDs. Startup scene and battle playability remain unverified.
@@ -142,8 +142,16 @@ identities through knowledge, saves, rewards, AI and model/voice lookups. Existi
 GC numeric IDs and JSON document shapes remain compatible. Counts are derived
 from records rather than written as separate authoring settings.
 
-Native battle-party costume mappings are also cooked, so title preparation uses
-the actual battle-package directory. Party battle models/rules are still pending.
+Native battle-party costume mappings preserve all seven slots and the aliases
+in the actual battle-package directory, rather than assuming GC's costume aliases.
+Party battle models now use the same `party.json` documents as GC: 63 standard
+selections, 3,036 motion bindings, explicit null slots, weapon attachment targets,
+Colette's animated wings and Lloyd's duel clip. Body/outline geometry is shared
+with fields when the native model descriptor agrees; identical rigs and source
+motions share GLBs across costumes. All selections prepare through the common
+battle-model reader with strict diagnostics. This pass adds no engine behavior.
+Story override banks, expressions, secondary motion, victory performances and
+the party combat rules still need their owners.
 The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.
 A temporary French overlay also loads through that same path with UTF-8 names.
@@ -152,13 +160,15 @@ A temporary French overlay also loads through that same path with UTF-8 names.
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" cargo test -p resonance-steam-importer installed_catalogues_and_models -- --ignored
 RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_gameplay_definitions -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_localized_gameplay -- --ignored
+RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer cooked_party_battle_models -- --ignored
 ```
 
 The complete goal remains a Steam-only cook that loads through the same library
 readers and engine as the GC output, with GameCube-style presentation. Remaining
 owners include remaining game rules and battle artwork; legacy field motion, service actors
 and dynamic shared banks;
-party/enemy/equipment battle models and rules; overworld data and media; skits,
+party combat rules and victory performances; enemy/equipment battle models and rules;
+overworld data and media; skits,
 audio, movies and remaining startup/ending media. Completion requires exercising startup,
 a field and battle from that library. The table and field-source checks alone do
 not establish that end state.

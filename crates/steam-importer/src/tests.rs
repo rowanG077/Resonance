@@ -8,6 +8,80 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked Steam field models"]
+fn installed_party_battle_models_load_through_shared_reader() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_party_mappings::cook(&source, &root)?;
+    battle_party_model::cook(&source, &root)?;
+    check_party_battle_models(&root)
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_LIBRARY pointing to the cooked Steam library"]
+fn cooked_party_battle_models_load_through_shared_reader() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    check_party_battle_models(&root)
+}
+
+fn check_party_battle_models(root: &Path) -> Result<()> {
+    use resonance_content::{battle_model::document, diagnostics::Diagnostics, library::Library};
+    let library = Library::open(&root, &[])?;
+    let diagnostics = Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    let mut count = 0;
+    for character in 1..=9u8 {
+        for costume in 0..7u8 {
+            let (_, model) =
+                document::capture_party(&mut snapshot, character, costume, &diagnostics, &|| {
+                    false
+                })?;
+            assert_eq!(model.parts.len(), 2);
+            assert!(model.parts[1].outline_color.is_some());
+            assert!(
+                model.parts[0]
+                    .clips
+                    .iter()
+                    .any(|clip| clip.resource_slot == 0)
+            );
+            assert!(!model.body.attachments.is_empty());
+            assert_eq!(
+                model.body.attachments.len(),
+                model
+                    .body
+                    .skeleton
+                    .bones
+                    .iter()
+                    .filter(|bone| bone.name.to_ascii_lowercase().starts_with("kk"))
+                    .count(),
+            );
+            if character == 1 {
+                assert!(
+                    model.parts[0]
+                        .clips
+                        .iter()
+                        .any(|clip| clip.resource_slot == 100)
+                );
+            }
+            if character == 2 {
+                assert!(model.wings.is_some());
+            }
+            count += model.parts[0].clips.len();
+        }
+    }
+    assert!(!diagnostics.has_errors());
+    eprintln!("Loaded 63 battle body selections with {count} bound motions");
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY pointing to the cooked Steam library"]
 fn installed_localized_gameplay_loads_with_utf8_names() -> Result<()> {
     let installation = PathBuf::from(
@@ -63,6 +137,12 @@ fn installed_battle_party_mappings_cover_native_costumes() -> Result<()> {
         assert_eq!(costumes.iter().count(), 7);
         assert_eq!(costumes.target(5)?, "costume-5");
         assert_eq!(costumes.target(6)?, "costume-6");
+        if name != "colette" && name != "presea" {
+            assert_eq!(costumes.target(3)?, "default");
+        }
+        if name == "kratos" {
+            assert_eq!(costumes.target(4)?, "default");
+        }
     }
     Ok(())
 }
