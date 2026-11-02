@@ -8,11 +8,16 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderPlugin, RenderSystems,
-        render_resource::{BlendState, Extent3d, PollType, TextureDimension, TextureFormat},
+        render_resource::{
+            BlendState, CachedPipelineState, Extent3d, PipelineCache, PipelineDescriptor, PollType,
+            TextureDimension, TextureFormat,
+        },
         renderer::{RenderAdapterInfo, RenderDevice},
         settings::{Backends, RenderCreation, WgpuSettings, WgpuSettingsPriority},
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
+    shader::ShaderRef,
+    sprite_render::{Material2d, SpriteMeshMaterial},
     window::ExitCondition,
 };
 use resonance_presentation::{
@@ -20,6 +25,7 @@ use resonance_presentation::{
 };
 use std::{
     path::PathBuf,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -40,13 +46,38 @@ struct Smoke {
     movie_target: Option<Handle<Image>>,
     completed: u8,
     frames: u32,
+    ready_frames: u32,
+    capture_started: bool,
+    overlay_shader_delay: u32,
+    delayed_shader: Option<Shader>,
+    shader_was_delayed: bool,
+}
+
+#[derive(Clone, Default)]
+struct PipelineStatus {
+    ready: bool,
+    overlay_seen: bool,
+    pending: Vec<String>,
+}
+
+#[derive(Resource, Clone)]
+struct Readiness {
+    overlay_shader: Handle<Shader>,
+    status: Arc<Mutex<PipelineStatus>>,
 }
 
 fn main() -> Result<()> {
-    let directory = std::env::args_os()
-        .nth(1)
+    let mut args = std::env::args_os().skip(1);
+    let directory = args
+        .next()
         .map(PathBuf::from)
-        .context("usage: ci_render OUTPUT_DIRECTORY")?;
+        .context("usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES]")?;
+    let overlay_shader_delay = args
+        .next()
+        .map(|value| value.to_string_lossy().parse::<u32>())
+        .transpose()
+        .context("overlay shader delay must be a number of frames")?
+        .unwrap_or(0);
     std::fs::create_dir_all(&directory)?;
     let settings = WgpuSettings {
         backends: Some(BACKEND),
@@ -68,6 +99,11 @@ fn main() -> Result<()> {
         movie_target: None,
         completed: 0,
         frames: 0,
+        ready_frames: 0,
+        capture_started: false,
+        overlay_shader_delay,
+        delayed_shader: None,
+        shader_was_delayed: false,
     })
     .add_plugins(
         DefaultPlugins
@@ -89,7 +125,16 @@ fn main() -> Result<()> {
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)))
     .add_systems(Startup, setup)
     .add_systems(Update, capture);
+    let ShaderRef::Path(path) = SpriteMeshMaterial::vertex_shader() else {
+        anyhow::bail!("expected the built-in sprite material shader path");
+    };
+    let readiness = Readiness {
+        overlay_shader: app.world().resource::<AssetServer>().load(path),
+        status: default(),
+    };
+    app.insert_resource(readiness.clone());
     app.sub_app_mut(RenderApp)
+        .insert_resource(readiness)
         .add_systems(Render, wait_for_frame.after(RenderSystems::Render));
     let exit = app.run();
     ensure!(exit == AppExit::Success, "rendering smoke test failed");
@@ -216,9 +261,16 @@ fn setup(
         DebandDither::Disabled,
         Msaa::Off,
     ));
+    // Give the sprite a real image dependency instead of the default fallback.
+    // Material preparation must wait for this image before computing its size.
+    let white = images.add(pixel([255; 4]));
     // A second camera exercises the sprite/UI overlay path and target compositing.
     commands.spawn((
-        Sprite::from_color(Color::WHITE, Vec2::splat(12.)),
+        Sprite {
+            image: white,
+            custom_size: Some(Vec2::splat(12.)),
+            ..default()
+        },
         Transform::from_xyz(-48., 48., 0.),
         RenderLayers::layer(1),
     ));
@@ -308,7 +360,11 @@ fn setup(
     smoke.target = Some(target);
 }
 
-fn wait_for_frame(device: Res<RenderDevice>) {
+fn wait_for_frame(
+    device: Res<RenderDevice>,
+    pipelines: Res<PipelineCache>,
+    readiness: Res<Readiness>,
+) {
     // Headless rendering has no vsync to limit queued frames. Wait on the render
     // thread after submission so slow CPU adapters cannot build up a backlog
     // that outlives the screenshot and exceeds wgpu's shutdown timeout.
@@ -318,16 +374,82 @@ fn wait_for_frame(device: Res<RenderDevice>) {
             timeout: Some(Duration::from_secs(60)),
         })
         .expect("wait for rendered frame");
+    let mut status = PipelineStatus::default();
+    for pipeline in pipelines.pipelines() {
+        let label = match &pipeline.descriptor {
+            PipelineDescriptor::RenderPipelineDescriptor(descriptor) => {
+                status.overlay_seen |= descriptor.vertex.shader == readiness.overlay_shader;
+                descriptor.label.as_deref()
+            }
+            PipelineDescriptor::ComputePipelineDescriptor(descriptor) => {
+                descriptor.label.as_deref()
+            }
+            PipelineDescriptor::MeshPipelineDescriptor(descriptor) => descriptor.label.as_deref(),
+        };
+        if !matches!(pipeline.state, CachedPipelineState::Ok(_)) {
+            status.pending.push(format!(
+                "{}: {:?}",
+                label.unwrap_or("unnamed pipeline"),
+                pipeline.state
+            ));
+        }
+    }
+    status.ready = status.overlay_seen && status.pending.is_empty();
+    *readiness.status.lock().unwrap() = status;
 }
 
-fn capture(mut commands: Commands, mut smoke: ResMut<Smoke>, mut exit: MessageWriter<AppExit>) {
+fn capture(
+    mut commands: Commands,
+    mut smoke: ResMut<Smoke>,
+    readiness: Res<Readiness>,
+    mut shaders: ResMut<Assets<Shader>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let status = readiness.status.lock().unwrap().clone();
     if smoke.started.elapsed() > Duration::from_secs(60) {
-        error!("Rendering timed out before screenshot completion");
+        error!(
+            "Rendering timed out: overlay pipeline seen={}, pending={:?}",
+            status.overlay_seen, status.pending
+        );
         exit.write(AppExit::error());
         return;
     }
     smoke.frames += 1;
-    if smoke.frames == 20 {
+    // The optional delay reproduces a cold sprite shader arriving after the old
+    // fixed 20-frame warm-up. Shader removal/reinsertion exercises real cache retry.
+    if smoke.overlay_shader_delay != 0 {
+        if !smoke.shader_was_delayed {
+            smoke.delayed_shader = shaders.remove(readiness.overlay_shader.id());
+            smoke.shader_was_delayed = smoke.delayed_shader.is_some();
+            return;
+        }
+        if smoke.frames < smoke.overlay_shader_delay {
+            return;
+        }
+        if let Some(shader) = smoke.delayed_shader.take() {
+            shaders
+                .insert(readiness.overlay_shader.id(), shader)
+                .unwrap();
+            smoke.ready_frames = 0;
+            return;
+        }
+    }
+    if smoke.capture_started {
+        return;
+    }
+    smoke.ready_frames = if status.ready {
+        smoke.ready_frames + 1
+    } else {
+        0
+    };
+    // Two completed ready render frames allow extraction and bind-group updates
+    // to settle before readback. A frame count alone says nothing about readiness.
+    if smoke.ready_frames >= 2 {
+        smoke.capture_started = true;
+        println!(
+            "Capturing after {} frames with all pipelines ready",
+            smoke.frames
+        );
         for (movie, target) in [
             (false, smoke.target.clone().unwrap()),
             (true, smoke.movie_target.clone().unwrap()),
