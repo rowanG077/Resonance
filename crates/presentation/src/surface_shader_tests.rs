@@ -11,8 +11,9 @@ use std::{fs, path::Path, process::Command};
 fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<()> {
     // Resolve the locked dependency versions, including patched/local Bevy
     // checkouts, instead of copying shader declarations into this test.
-    // Fresh CI runners only cache dependencies for their own platform. Without
-    // this filter, offline metadata also tries to download other targets' crates.
+    // CI runs `cargo fetch --locked` first: metadata can need manifests beyond
+    // the packages/features compiled by these tests. Filter the resolved graph
+    // to the native platform while keeping shader validation itself offline.
     let platform = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
         .args(["--print", "host-tuple"])
         .output()?;
