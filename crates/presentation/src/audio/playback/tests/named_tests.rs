@@ -35,6 +35,28 @@ fn definition(root: &Path) -> Result<startup::Definition> {
     )?)?)
 }
 
+#[test]
+fn recorded_music_uses_the_shared_mix_without_synthesis_tables() -> Result<()> {
+    let root = disk_assets();
+    fs::remove_file(root.path().join(resonance_audio::effect::recipe::TABLES))?;
+    let library = Library::open(root.path(), &[])?;
+    let original =
+        crate::audio::Recording::capture(&mut library.snapshot(), "music.wav", &|| false)?;
+    let modification = tempfile::tempdir()?;
+    let path = resonance_content::field_audio::mix::PATH;
+    let mut mix: resonance_content::field_audio::mix::Mix =
+        serde_json::from_slice(&fs::read(root.path().join(path))?)?;
+    mix.music_gains.iter_mut().for_each(|gain| *gain *= *gain);
+    fs::create_dir_all(modification.path().join("audio"))?;
+    fs::write(modification.path().join(path), serde_json::to_vec(&mix)?)?;
+    let changed = Library::open_paths(root.path(), &[modification.path().to_owned()])?;
+    let changed =
+        crate::audio::Recording::capture(&mut changed.snapshot(), "music.wav", &|| false)?;
+    assert_eq!(changed.gains[64], original.gains[64] * original.gains[64]);
+    assert_ne!(changed.gains[64], original.gains[64]);
+    Ok(())
+}
+
 fn write_music(path: &Path, frames: usize, rate: u32, pcm: [i16; 2]) -> Result<()> {
     write_music_loop(path, frames, rate, pcm, Some(0..frames as u32))
 }

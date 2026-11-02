@@ -1,7 +1,7 @@
 //! Shared song recordings, captured once with their effective mod-selected files.
 use anyhow::{Context as ContextExt, Result, ensure};
 use resonance_audio::recording::{Player, Prepared};
-use resonance_content::{library::Snapshot, music};
+use resonance_content::{field_audio::mix, library::Snapshot, music, preparation::JSON_LIMIT};
 use std::{
     collections::BTreeMap,
     fs::{File, Metadata},
@@ -39,7 +39,7 @@ impl Identity {
 
 struct Entry {
     identity: Identity,
-    tables: Arc<[u8]>,
+    mix_bytes: Arc<[u8]>,
     recording: Weak<Recording>,
 }
 
@@ -56,23 +56,23 @@ impl Cache {
     ) -> Result<Arc<Recording>> {
         let file = music::capture(snapshot, path, cancelled)?;
         let identity = Identity::new(&file.metadata()?);
-        let tables = snapshot.read(resonance_audio::effect::recipe::TABLES, 4 * 1024 * 1024)?;
+        let mix_bytes = snapshot.read(mix::PATH, JSON_LIMIT)?;
         self.0.retain(|_, entry| entry.recording.strong_count() > 0);
         if let Some(entry) = self.0.get(path)
             && identity.as_ref() == Some(&entry.identity)
-            && resonance_content::same_bytes(&tables, &entry.tables)
+            && resonance_content::same_bytes(&mix_bytes, &entry.mix_bytes)
             && let Some(recording) = entry.recording.upgrade()
         {
             ensure!(!cancelled(), "music preparation cancelled");
             return Ok(recording);
         }
-        let recording = Recording::prepare(file, &tables, path, cancelled)?;
+        let recording = Recording::prepare(file, &mix_bytes, path, cancelled)?;
         if let Some(identity) = identity {
             self.0.insert(
                 path.into(),
                 Entry {
                     identity,
-                    tables,
+                    mix_bytes,
                     recording: Arc::downgrade(&recording),
                 },
             );
@@ -134,27 +134,23 @@ impl Recording {
     ) -> Result<Arc<Self>> {
         let captured = music::capture(snapshot, path, cancelled)
             .with_context(|| format!("music recording {path}"))?;
-        let tables = snapshot.read(resonance_audio::effect::recipe::TABLES, 4 * 1024 * 1024)?;
-        Self::prepare(captured, &tables, path, cancelled)
+        let mix_bytes = snapshot.read(mix::PATH, JSON_LIMIT)?;
+        Self::prepare(captured, &mix_bytes, path, cancelled)
     }
 
     fn prepare(
         captured: File,
-        tables: &[u8],
+        mix_bytes: &[u8],
         path: &str,
         cancelled: &impl Fn() -> bool,
     ) -> Result<Arc<Self>> {
         let main = Prepared::new(captured).with_context(|| format!("music WAV {path}"))?;
-        // Baking removes the synthesizer that used to apply this curve. Keep
-        // the user's music slider on the same scale as the live effect mixer.
-        #[derive(serde::Deserialize)]
-        struct Tables {
-            mix: resonance_audio::mix::Tables,
-        }
-        let tables: Tables = serde_json::from_slice(tables)
-            .with_context(|| format!("decode {}", resonance_audio::effect::recipe::TABLES))?;
-        tables.mix.validate()?;
-        let gains = std::array::from_fn(|i| tables.mix.volume[i]);
+        let mix = serde_json::from_slice::<mix::Mix>(mix_bytes)
+            .with_context(|| format!("decode {}", mix::PATH))?;
+        let gains = mix
+            .music_gains
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("invalid music volume curve"))?;
         ensure!(!cancelled(), "music preparation cancelled");
         Ok(Arc::new(Self { main, gains }))
     }

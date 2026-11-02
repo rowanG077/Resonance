@@ -15,6 +15,7 @@ pub(super) struct Document {
     /// Named reverb -> music IDs. keep_current deliberately leaves bus A alone.
     music_reverbs: BTreeMap<String, Vec<u16>>,
     voice_gains: Vec<f32>,
+    music_gains: Vec<f32>,
 }
 
 impl From<Mix> for Document {
@@ -65,6 +66,7 @@ impl From<Mix> for Document {
             battle_reverbs,
             music_reverbs,
             voice_gains: mix.voice_gains,
+            music_gains: mix.music_gains,
         }
     }
 }
@@ -151,6 +153,7 @@ impl TryFrom<Document> for Mix {
         let mix = Self {
             music_reverbs: MusicReverbs { presets, selectors },
             voice_gains: doc.voice_gains,
+            music_gains: doc.music_gains,
             field_reverbs,
             battle_reverbs,
         };

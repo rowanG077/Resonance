@@ -17,6 +17,7 @@ fn original() -> Mix {
             selectors: vec![0, 1, 2, 0],
         },
         voice_gains: (0..128).map(|v| v as f32 / 127.).collect(),
+        music_gains: (0..128).map(|v| v as f32 / 127.).collect(),
         field_reverbs: [field, effects],
         battle_reverbs: [battle, effects],
     }
@@ -37,6 +38,7 @@ fn named_mix_preserves_parameters_gains_and_every_music_action() -> Result<()> {
     assert_eq!(after.field_reverbs, before.field_reverbs);
     assert_eq!(after.battle_reverbs, before.battle_reverbs);
     assert_eq!(after.voice_gains, before.voice_gains);
+    assert_eq!(after.music_gains, before.music_gains);
     for id in 0..4 {
         assert_eq!(
             after.music_reverbs.for_song(id)?,
@@ -129,6 +131,7 @@ fn named_mix_rejects_missing_choices_unknown_names_and_invalid_units() -> Result
         ("/reverbs/field/decay_seconds", json!(-1)),
         ("/reverbs/field/predelay_seconds", json!(100)),
         ("/voice_gains", json!([])),
+        ("/music_gains", json!([])),
     ] {
         let mut doc = document()?;
         *doc.pointer_mut(pointer).context("fixture field")? = value;

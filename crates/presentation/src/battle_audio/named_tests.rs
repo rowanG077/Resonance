@@ -168,13 +168,11 @@ fn health_conversations_bind_party_branches_and_play_original_audio() -> Result<
 #[test]
 fn recorded_music_volume_curve_survives_battle_entry_song_changes_and_return() -> Result<()> {
     let root = fixture()?;
-    let path = resonance_audio::effect::recipe::TABLES;
-    let mut tables: serde_json::Value = serde_json::from_slice(&fs::read(root.path().join(path))?)?;
-    let gains: Vec<_> = (0..129)
-        .map(|i| (i.min(127) as f32 / 127.).powi(2))
-        .collect();
-    tables["mix"]["volume"] = serde_json::to_value(&gains)?;
-    write(root.path(), path, &serde_json::to_vec(&tables)?)?;
+    let path = resonance_content::field_audio::mix::PATH;
+    let mut mix: serde_json::Value = serde_json::from_slice(&fs::read(root.path().join(path))?)?;
+    let gains: Vec<_> = (0..128).map(|i| (i as f32 / 127.).powi(2)).collect();
+    mix["music_gains"] = serde_json::to_value(&gains)?;
+    write(root.path(), path, &serde_json::to_vec(&mix)?)?;
     let mixer = Cache::default().capture_test_field(
         "fields/iselia/field.json",
         &mut Library::open(root.path(), &[])?.snapshot(),

@@ -60,6 +60,7 @@ pub fn cook_mix_audio(root: &Path, library: &Path) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     let mix = Mix {
         music_reverbs,
+        music_gains: volume[..128].to_vec(),
         voice_gains,
         field_reverbs,
         battle_reverbs,

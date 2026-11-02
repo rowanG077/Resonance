@@ -18,7 +18,7 @@ pub use stream::StreamReader;
 mod capture;
 pub use capture::Capture;
 
-pub const VERSION: u32 = 107;
+pub const VERSION: u32 = 108;
 /// The game contract, independent of the release used to import its content.
 pub const GAME: &str = "tales-of-symphonia";
 pub const DESCRIPTOR: &str = "content.json";

@@ -119,7 +119,8 @@ pub(super) fn fixture() -> Result<tempfile::TempDir> {
                 "music_reverbs":{"keep_current":[0,1,2,3,4,5,6,7]},
                 "field_reverbs":{"auxiliary_a":"field","auxiliary_b":"field"},
                 "battle_reverbs":{"auxiliary_a":"battle","auxiliary_b":"field"},
-                "voice_gains":(0..128).map(|value| value as f32 / 127.).collect::<Vec<_>>()
+                "voice_gains":(0..128).map(|value| value as f32 / 127.).collect::<Vec<_>>(),
+                "music_gains":(0..128).map(|value| value as f32 / 127.).collect::<Vec<_>>()
             }),
         ),
     ] {

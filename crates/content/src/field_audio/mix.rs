@@ -13,6 +13,7 @@ pub const PATH: &str = "audio/mix.json";
 #[serde(try_from = "document::Document")]
 pub struct Mix {
     pub music_reverbs: MusicReverbs,
+    pub music_gains: Vec<f32>,
     pub voice_gains: Vec<f32>,
     pub field_reverbs: [[f32; 5]; 2],
     pub battle_reverbs: [[f32; 5]; 2],
@@ -40,6 +41,7 @@ impl Mix {
 
     pub fn validate(&self) -> Result<()> {
         self.music_reverbs.validate()?;
+        super::validate_voice_gains(&self.music_gains)?;
         super::validate_voice_gains(&self.voice_gains)?;
         validate_reverbs(self.field_reverbs)?;
         validate_reverbs(self.battle_reverbs)

@@ -524,6 +524,21 @@ mod tests {
             reverbs: Some([[0., 0., 1., 0., 0.]; 2]),
         };
         fs::create_dir_all(root.path().join("audio")).unwrap();
+        let mix = resonance_content::field_audio::mix::Mix {
+            music_reverbs: resonance_content::field_audio::MusicReverbs {
+                presets: Vec::new(),
+                selectors: Vec::new(),
+            },
+            music_gains: program.tables.mix.volume[..128].to_vec(),
+            voice_gains: (0..128).map(|level| level as f32 / 127.).collect(),
+            field_reverbs: program.reverbs.unwrap(),
+            battle_reverbs: program.reverbs.unwrap(),
+        };
+        fs::write(
+            root.path().join(resonance_content::field_audio::mix::PATH),
+            serde_json::to_vec(&mix).unwrap(),
+        )
+        .unwrap();
         fs::write(
             root.path().join(resonance_audio::effect::recipe::TABLES),
             serde_json::to_vec(&program.tables).unwrap(),
@@ -584,6 +599,7 @@ mod tests {
                 selectors: vec![],
             },
             voice_gains: (0..128).map(|v| v as f32 / 127.).collect(),
+            music_gains: (0..128).map(|v| v as f32 / 127.).collect(),
             field_reverbs: reverbs,
             battle_reverbs: [[0.5, 0.5, 2., 0.5, 0.]; 2],
         };
