@@ -20,13 +20,16 @@ pub(crate) fn read(module: &Rel) -> Result<Vec<[Attack; 7]>> {
                         at(module.pointer(directory.0, directory.1 + variant * 16 + index * 4)?)
                     };
                     decode(
-                        part(0)?,
-                        rules,
-                        part(1)?,
-                        part(2)?,
-                        part(3)?,
+                        Source {
+                            config: part(0)?,
+                            rules,
+                            contacts: part(1)?,
+                            poses: part(2)?,
+                            commands: part(3)?,
+                        },
                         continuation(selectors, variant)?,
                         &flights,
+                        voice,
                     )
                     .with_context(|| format!("party {} normal attack {variant}", character + 1))
                 })
@@ -37,7 +40,7 @@ pub(crate) fn read(module: &Rel) -> Result<Vec<[Attack; 7]>> {
         .collect()
 }
 
-fn continuation(bytes: &[u8], index: usize) -> Result<Continuation> {
+pub fn continuation(bytes: &[u8], index: usize) -> Result<Continuation> {
     let row = bytes
         .get(index * 4..index * 4 + 4)
         .context("truncated normal selector")?;
@@ -52,7 +55,7 @@ fn continuation(bytes: &[u8], index: usize) -> Result<Continuation> {
     })
 }
 
-fn weapon_flights(bytes: &[u8]) -> Result<[WeaponFlight; 3]> {
+pub fn weapon_flights(bytes: &[u8]) -> Result<[WeaponFlight; 3]> {
     let mut profiles = Vec::with_capacity(3);
     for index in 0..3 {
         let row = bytes
@@ -78,15 +81,28 @@ fn weapon_flights(bytes: &[u8]) -> Result<[WeaponFlight; 3]> {
     Ok(profiles.try_into().unwrap())
 }
 
-fn decode(
-    config: &[u8],
-    rules: &[u8],
-    contacts: &[u8],
-    poses: &[u8],
-    commands: &[u8],
+/// Canonical numeric fields with a source-owned voice command decoder.
+pub struct Source<'a> {
+    pub config: &'a [u8],
+    pub rules: &'a [u8],
+    pub contacts: &'a [u8],
+    pub poses: &'a [u8],
+    pub commands: &'a [u8],
+}
+
+pub fn decode(
+    source: Source<'_>,
     continuation: Continuation,
     flights: &[WeaponFlight; 3],
+    voice: fn(&[u8]) -> Result<(Event, usize)>,
 ) -> Result<Attack> {
+    let Source {
+        config,
+        rules,
+        contacts,
+        poses,
+        commands,
+    } = source;
     let config = config
         .get(..24)
         .context("truncated normal attack configuration")?;
@@ -148,13 +164,7 @@ fn decode(
                     6,
                 )
             }
-            27 => {
-                ensure!(
-                    (2..=3).contains(&half(commands, cursor + 6)?),
-                    "invalid normal voice priority"
-                );
-                (Event::Voice(native::sound(operand)), 8)
-            }
+            27 => voice(&commands[cursor..])?,
             28 => {
                 ensure!(
                     half(commands, cursor + 6)? == 1,
@@ -216,6 +226,14 @@ fn decode(
         reach: [half(config, 20)?, half(config, 22)?],
         events,
     })
+}
+
+fn voice(command: &[u8]) -> Result<(Event, usize)> {
+    ensure!(
+        half(command, 2)? == 27 && (2..=3).contains(&half(command, 6)?),
+        "invalid normal voice priority"
+    );
+    Ok((Event::Voice(native::sound(half(command, 4)?)), 8))
 }
 
 fn stream(

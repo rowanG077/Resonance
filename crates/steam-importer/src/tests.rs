@@ -8,6 +8,102 @@ fn json<T: serde::de::DeserializeOwned>(root: &Path, path: &str) -> Result<T> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked stream audio"]
+fn installed_party_speech_covers_normal_attack_voices() -> Result<()> {
+    use resonance_content::{
+        battle_normal::{Event, document::NormalAttacks},
+        battle_voice::Sound,
+        field_audio::speech,
+    };
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    battle_normal::cook(&source, &root)?;
+    battle_voices::cook(&source, &root)?;
+    let attacks =
+        json::<NormalAttacks>(&root, resonance_content::battle_rules::NORMAL_ATTACKS)?.prepare()?;
+    for language in ["english", "japanese"] {
+        let voices: speech::Mappings =
+            json(&root, &format!("audio/speech/{language}/mappings.json"))?;
+        let mut count = 0;
+        for (&id, voice) in voices.range(0x8000..0x8900) {
+            let path = voice
+                .resolve()?
+                .path()
+                .context("actor voice unexpectedly silent")?
+                .to_owned();
+            let recording =
+                resonance_audio::recording::Prepared::new(fs::File::open(root.join(path))?)?;
+            assert!(recording.frames() > 0, "empty actor voice {id}");
+            count += 1;
+        }
+        assert!(count > 100);
+        for attack in attacks.iter().flatten() {
+            for (_, event) in &attack.events {
+                let lines = match event {
+                    Event::Voice(sound) => vec![*sound],
+                    _ => continue,
+                };
+                for line in lines.into_iter().flatten() {
+                    let Sound::Stream(id) = line else {
+                        anyhow::bail!("party speech was not normalized");
+                    };
+                    assert!(
+                        voices.contains_key(&u32::from(id)),
+                        "missing {language} normal voice {id}"
+                    );
+                }
+            }
+        }
+        eprintln!("Loaded {count} {language} party voice recordings");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; optionally writes RESONANCE_TEST_LIBRARY"]
+fn installed_normal_attacks_use_shared_decoder_and_documents() -> Result<()> {
+    use resonance_content::{
+        battle_normal::{Event, document::NormalAttacks},
+        battle_rules,
+    };
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let temporary = tempfile::tempdir()?;
+    let root = std::env::var_os("RESONANCE_TEST_LIBRARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_owned());
+    battle_normal::cook(
+        &source::Source::open(&installation, Language::English)?,
+        &root,
+    )?;
+    let document: NormalAttacks = json(&root, battle_rules::NORMAL_ATTACKS)?;
+    let attacks = document.prepare()?;
+    assert_eq!(attacks.len(), 9);
+    let mut contacts = 0;
+    for attack in attacks.iter().flatten() {
+        assert!(attack.duration > 0);
+        for (_, event) in &attack.events {
+            match event {
+                Event::Contact(contact) => {
+                    assert!(contact.duration > 0);
+                    contacts += 1;
+                }
+                _ => (),
+            }
+        }
+    }
+    assert!(contacts > 60);
+    eprintln!("63 normal attacks, {contacts} contacts");
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with cooked audio and fields"]
 fn installed_field_audio_uses_shared_selections() -> Result<()> {
     use resonance_content::{field::document::Definition, field_audio::ServiceCue};

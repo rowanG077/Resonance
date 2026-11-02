@@ -28,8 +28,9 @@ reader. The shared gameplay loader now initializes a party and saves/restores th
 added collection IDs. Day/night title preparation, 120 script updates and a
 headless GPU capture at tick 120 now pass the existing shared title test. The
 capture still has backdrop gaps and unresolved decorative bone lookups. Later
-fields and battle remain unfinished. Five additional passes now cook
-skits, portraits, movies, field service models and field audio against that library. Native
+fields and battle remain unfinished. Seven additional passes now cook
+skits, portraits, movies, field service models, normal attacks, party speech and
+field audio against that library. Native
 opening-field execution reaches player control. The shared checkpoint check
 passes save/reload, movement, invalid-load rejection and early village/classroom
 transitions using this cooked library.
@@ -169,8 +170,19 @@ Colette's animated wings and Lloyd's duel clip. Body/outline geometry is shared
 with fields when the native model descriptor agrees; identical rigs and source
 motions share GLBs across costumes. All selections prepare through the common
 battle-model reader with strict diagnostics. This pass adds no engine behavior.
-Story override banks, expressions, secondary motion, victory performances and
-the party combat rules still need their owners.
+Story override banks, expressions, secondary motion, victory performances,
+party combat profiles and arte rules still need their owners.
+
+All 63 directional normal attacks now use the GC normal-attack decoder and its
+named document writer. The Steam owner only normalizes numeric storage, voice
+commands and sound identities. It retains the 61 ordinary contacts, thrown
+weapons, poses, movement, combo/recovery ages and weapon visibility. The native
+GC party-table regression also passes through this shared decoder.
+
+The 18 party ABNF banks write 223 ordinary WAV recordings per voice language,
+using the existing ADX converter and speech mappings. Every voice referenced by
+the normal attacks resolves in both English and Japanese. These passes change
+no engine behavior; playable encounters still need the remaining battle owners.
 The current Steam library passes shared gameplay loading, fresh-party creation,
 save/load of monster 256 and figurine 296, and native collection-completion calls.
 A temporary French overlay also loads through that same path with UTF-8 names.
@@ -187,11 +199,12 @@ All 67 PHD/PBD effect banks and the streamed-effect bank use shared recorded-eff
 documents. Native packed effect IDs are assigned ordinary positive catalogue IDs;
 menu and world service cues retain the shared IDs. Menu actions point directly to
 the authored SYS recordings. The common mix keeps recording buses dry; native
-acoustics, effect chaining/chance/pitch and actor voice banks still need their
+acoustics, effect chaining/chance/pitch and enemy voice banks still need their
 owners. No source audio codec is added to the engine.
-The installed audio check loads 111 mapped music tracks (104 with authored loops),
+The base audio check loads 111 mapped music tracks (104 with authored loops),
 27,652 speech bindings and 1,563 effects, and renders the menu cues through the
-shared mixer. Library format 103 moves recorded music's volume curve into
+shared mixer. Field and party passes add their cue and voice bindings afterward.
+Library format 103 moves recorded music's volume curve into
 `audio/mix.json` for both importers, so WAV playback no longer needs synthesis
 tables. Older libraries require recooking.
 
@@ -246,6 +259,8 @@ RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/abso
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_movies -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_field_services -- --ignored
 RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_field_audio -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_normal_attacks -- --ignored
+RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia" RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview" cargo test -p resonance-steam-importer installed_party_speech -- --ignored
 ```
 
 For a binding-only rerun after the current importer has cooked the scenarios,

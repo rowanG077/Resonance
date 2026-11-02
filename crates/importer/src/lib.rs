@@ -32,6 +32,10 @@ mod battle_party_martial;
 mod battle_party_model;
 mod battle_party_native;
 mod battle_party_normal;
+pub use battle_party_normal::{
+    Source as NormalAttackSource, continuation as normal_attack_continuation,
+    decode as decode_normal_attack, weapon_flights as decode_weapon_flights,
+};
 mod battle_party_rules;
 mod battle_party_victory;
 pub use battle_party_rules::cook_battle_party_rules;
