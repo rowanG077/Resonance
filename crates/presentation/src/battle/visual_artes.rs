@@ -677,6 +677,24 @@ fn capture_case(
     warm(app)?;
     fixture_motion(scene_mut(app), row)?;
     if enemy_plan.is_some() {
+        // Ordinary enemy selection waits for its flight entry to settle. This
+        // explicit request fixture must retain that same physical prerequisite.
+        let mut hover_wait = 0;
+        while !scene_mut(app).core.actors()[actor.index()]
+            .movement
+            .hover_ready()
+            && hover_wait < entry_budget
+        {
+            step(scene_mut(app), BattleInput::default())?;
+            hover_wait += 1;
+        }
+        progress["assistance"]["hover_settling_ticks"] = json!(hover_wait);
+        ensure!(
+            scene_mut(app).core.actors()[actor.index()]
+                .movement
+                .hover_ready(),
+            "enemy flight entry did not settle within its entry budget"
+        );
         enemy_fixture::selected_action(
             &mut scene_mut(app).core,
             actor,
