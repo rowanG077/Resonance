@@ -434,7 +434,111 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::Language;
+    use resonance_content::battle_effect::EffectOperation;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires installed Steam and cooked library; refreshes only Sacred Light after native color-rate normalization"]
+    fn installed_sacred_light_preserves_native_color_envelope_and_emission_times() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        // Both complete add-and-clamp blocks operate on EBX+8*EAX+0x20;
+        // both subtract-and-clamp blocks do likewise. EAX only advances after
+        // the second subtraction, so these are repeated updates, not endpoints.
+        ensure!(
+            image.slice(0x48bf03, 104)? == image.slice(0x48bf6b, 104)?
+                && image.slice(0x48bff5, 96)? == image.slice(0x48c055, 96)?
+                && image.slice(0x48bf03, 9)?
+                    == [0x0f, 0xb6, 0x4b, 0x30, 0x66, 0x01, 0x4c, 0xc3, 0x20]
+                && image.slice(0x48bff5, 9)?
+                    == [0x0f, 0xb6, 0x4b, 0x34, 0x66, 0x29, 0x4c, 0xc3, 0x20]
+                && image.slice(0x48c0b5, 4)? == [0x40, 0x83, 0xf8, 0x02],
+            "native repeated RGBA update contract changed"
+        );
+        let name = image.text(pe::word(image.slice(0x8e98a8 + 263 * 4, 4)?, 0)?)?;
+        ensure!(
+            name.eq_ignore_ascii_case("BTLmagic_063.pac"),
+            "Sacred Light source changed"
+        );
+        let package = source.require(name)?;
+        let native = member(&package, 4)?.context("Sacred Light has no effects")?;
+        let actors = pe::word(native, 8)? as usize;
+        let decoded = battle_effects::decode(native, &[], |_, _| Ok(()))?;
+        for (index, (brighten, until, fade, from, rgb)) in [
+            (8, 16, 8, 124, 64),
+            (2, 64, 4, 168, 32),
+            (2, 64, 4, 138, 32),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let row = &native[actors + index * 360..][..360];
+            ensure!(
+                row[0] == 3
+                    && row[51] == brighten
+                    && row[55] == fade
+                    && row[56] == until
+                    && row[57] == from,
+                "Sacred Light native envelope changed"
+            );
+            let template = decoded.templates[index].template()?;
+            ensure!(
+                template.state.colors == [[rgb, rgb, rgb, 0], [0; 4]]
+                    && template.state.brighten == [0, 0, 0, brighten * 2]
+                    && template.fade == [0, 0, 0, fade * 2]
+                    && template.state.brighten_until == Some(u32::from(until))
+                    && template.fade_from == u32::from(from),
+                "rate conversion changed initial colors or native envelope timing: actor {index}, colors {:?}, brighten {:?}/{:?}, fade {:?}/{}",
+                template.state.colors,
+                template.state.brighten,
+                template.state.brighten_until,
+                template.fade,
+                template.fade_from
+            );
+        }
+        let starts = decoded.programs[1]
+            .iter()
+            .filter_map(|event| match event.operation {
+                EffectOperation::Spawn { particle, .. } if particle < 3 => {
+                    Some((event.at, particle))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        ensure!(
+            starts == [(0, 1), (30, 2), (60, 0)],
+            "native model emission timestamps changed"
+        );
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        let mappings: Mappings =
+            serde_json::from_slice(&fs::read(root.join(document::TECHNIQUES))?)?;
+        let owner = format!("battle/scenes/{}", mappings.target(263)?);
+        cook_one(&source, &root, &image, &atlases, &residents, 263, &owner)?;
+        let cooked = resonance_content::battle_effect::document::read(
+            &format!("{owner}/effects.json"),
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            |path| Ok(fs::read(root.join(path))?.into()),
+        )?;
+        for member in 0..cooked.programs.len() {
+            cooked.program(member)?;
+        }
+        for declaration in &decoded.templates[..3] {
+            ensure!(
+                cooked.actors.contains(declaration),
+                "published model envelope differs from decoded source"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires installed Steam and cooked library; republishes only four summon attachment owners"]

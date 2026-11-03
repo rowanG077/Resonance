@@ -65,8 +65,9 @@ pub(super) fn read(bytes: &[u8]) -> Result<BTreeMap<u8, SceneAction>> {
                 (2, 2),
                 (4, 2),
                 (6, 2),
-                (8, 2),
-                (10, 2),
+                // The startup effect is one native LE word. The shared GC
+                // header reads its low half at BE+10 after normalization.
+                (8, 4),
                 (12, 4),
                 (16, 4),
                 (20, 4),
@@ -187,7 +188,7 @@ mod tests {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
         bytes[16..18].copy_from_slice(&30u16.to_le_bytes());
-        bytes[26..28].copy_from_slice(&u16::MAX.to_le_bytes());
+        bytes[24..28].copy_from_slice(&1u32.to_le_bytes());
         let hit = &mut bytes[128..156];
         hit[0..2].copy_from_slice(&0x20u16.to_le_bytes());
         hit[2] = 10;
@@ -223,6 +224,10 @@ mod tests {
             anyhow::bail!("participant action was not prepared")
         };
         ensure!(
+            action.effect == Some(1),
+            "participant startup effect lost its native low half"
+        );
+        ensure!(
             action
                 .events
                 .iter()
@@ -243,6 +248,83 @@ mod tests {
                 .any(|(_, event)| matches!(event,Event::Contact(contact) if contact.radius==10.)),
             "contact geometry was not compiled"
         );
+        bytes[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
+        let without_effect = read(&bytes)?;
+        ensure!(
+            without_effect[&0].prepared()?.effect.is_none(),
+            "participant no-effect sentinel changed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires installed Steam and cooked library; refreshes only three thrust-family scene action owners"]
+    fn installed_thrust_participants_keep_native_startup_effect_index() -> Result<()> {
+        use crate::Language;
+        use std::path::PathBuf;
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        // Shared participant initializer reads row+8, then selects local bank6.
+        ensure!(
+            image.slice(0x42821b, 10)? == [0x66, 0x0f, 0xbe, 0x7a, 8, 0x83, 0xc4, 0x0c, 0xb1, 6],
+            "participant startup effect consumer changed"
+        );
+        for (id, owner) in [
+            (302u32, "cross-thrust-0302"),
+            (303, "mirage-thrust-and-power-thrust-0303"),
+            (304, "dark-serpent-0304"),
+        ] {
+            let name = image.text(pe::word(image.slice(0x8e98a8 + id * 4, 4)?, 0)?)?;
+            let package = source.require(name)?;
+            let parameters =
+                member(&package, 0x190)?.context("missing thrust participant table")?;
+            let actions = read(parameters)?;
+            for (&variant, action) in &actions {
+                let native = pe::word(parameters, 16 + usize::from(variant) * 28 + 8)?;
+                ensure!(
+                    native == if variant == 3 { u32::MAX } else { 1 },
+                    "native thrust startup effect changed"
+                );
+                ensure!(
+                    action.prepared()?.effect == (native != u32::MAX).then_some(native as u16),
+                    "normalized thrust startup effect changed"
+                );
+            }
+            let path = root.join(format!("battle/scenes/{owner}/scene.json"));
+            let mut document: Definition = serde_json::from_slice(&fs::read(&path)?)?;
+            // Only the startup index changes: source clocks, poses, hit rules,
+            // and all other fields in the existing scene owner remain intact.
+            let mut expected = serde_json::to_value(&document.actions)?;
+            for (&variant, action) in &actions {
+                let old = expected
+                    .get_mut(variant.to_string())
+                    .context("missing existing participant")?;
+                match action.prepared()?.effect {
+                    Some(effect) => {
+                        old["effect"] = effect.into();
+                    }
+                    None => {
+                        old.as_object_mut()
+                            .context("invalid participant")?
+                            .remove("effect");
+                    }
+                }
+            }
+            ensure!(
+                expected == serde_json::to_value(&actions)?,
+                "thrust refresh changed more than startup effects"
+            );
+            document.actions = actions;
+            output::json(&path, &document)?;
+        }
         Ok(())
     }
 }

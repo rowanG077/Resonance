@@ -17,9 +17,11 @@ use std::{
     path::Path,
 };
 
+mod embedded_outline;
 mod fixed_atlas;
 mod model_color;
 mod opacity;
+mod rates;
 mod resident;
 pub(crate) use model_color::normalize as normalize_model_color;
 pub(crate) use opacity::bind as bind_scene_opacity;
@@ -331,6 +333,7 @@ pub(crate) fn decode_including(
         include,
         |actor, declaration| bind(source.strides[usize::from(actor)], declaration),
     )?;
+    rates::normalize(&mut definition);
     for event in definition.programs.iter_mut().flatten() {
         if let EffectOperation::Sound { id, .. } = &mut event.operation {
             *id = *source
@@ -395,6 +398,13 @@ fn models(
             &motions,
         )?;
         normalize_model_color(source, library, &body, &preview.parts[0].scene, &mut native)?;
+        if outline.is_empty() && embedded_outline::present(&native) {
+            // A generated front-cull pass would expose the source's reversed black shell
+            // across the entire model. The source body already supplies its silhouette.
+            preview
+                .parts
+                .retain(|part| part.scene.outline_color.is_none());
+        }
         for part in &mut preview.parts {
             part.animation = None;
             part.scene.autoplay = false;

@@ -84,6 +84,10 @@ optional visual metadata without changing equipped items or combat attributes.
 Native arena brightness and alpha comparisons are normalized during importing.
 Startup-effect selectors, palette roles and opacity bindings likewise become
 shared effect data rather than runtime edition choices.
+Steam's native particle update applies RGBA brighten and fade rates twice per
+tick. The importer converts those rates to the shared single-update contract,
+including constructor overrides. Initial colors, alpha units, fade thresholds
+and native emission timestamps remain unchanged.
 Field scenery preserves native alpha cutoffs and draws translucent glass after
 opaque scenery, restoring the exterior visible through Iselia's classroom panes.
 
