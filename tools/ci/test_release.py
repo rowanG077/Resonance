@@ -376,12 +376,14 @@ if args[0] == "api":
         sys.exit("unexpected API call")
 elif args[:2] == ["release", "create"]:
     state["draft"] = True
+    state["notes"] = Path(args[args.index("--notes-file") + 1]).read_text()
 elif args[:2] == ["release", "upload"]:
     if state.get("upload_failure"):
         sys.exit(1)
     state["uploaded"] = args[3:-1]
 elif args[:2] == ["release", "edit"]:
     state["draft"] = False
+    state["notes"] = Path(args[args.index("--notes-file") + 1]).read_text()
 else:
     sys.exit("unexpected gh call")
 path.write_text(json.dumps(state))
@@ -397,6 +399,9 @@ class PublicationTests(unittest.TestCase):
         (self.root / "docs").mkdir()
         (self.root / "target/dist").mkdir(parents=True)
         (self.root / "docs/installation.md").write_text("Installation instructions")
+        (self.root / "changelog/releases").mkdir(parents=True)
+        self.notes = "## 1.2.3\n\n### Added\n- Session logs and crash reports.\n"
+        (self.root / "changelog/releases/v1.2.3.md").write_text(self.notes)
         for platform in PLATFORMS:
             suffix = ".zip" if platform.startswith("windows") else ".tar.gz"
             (self.root / f"target/dist/resonance-v1.2.3-{platform}{suffix}").write_bytes(platform.encode())
@@ -424,7 +429,9 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(state["tag"], self.environment["RELEASE_COMMIT"])
         self.assertFalse(state["draft"])
         self.assertEqual(len(state["uploaded"]), 10)
-        self.assertEqual(state["calls"][-1], ["release", "edit", "v1.2.3", "--draft=false"])
+        self.assertEqual(state["notes"], self.notes)
+        self.assertEqual(state["calls"][-1], ["release", "edit", "v1.2.3",
+                                             "--notes-file", "changelog/releases/v1.2.3.md", "--draft=false"])
         for line in (self.root / "target/dist/SHA256SUMS").read_text().splitlines():
             digest, filename = line.split("  ")
             self.assertEqual(digest, hashlib.sha256((self.root / "target/dist" / filename).read_bytes()).hexdigest())
@@ -439,9 +446,10 @@ class PublicationTests(unittest.TestCase):
         result, state = self.run_publication(upload_failure=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(state["draft"])
-        result, state = self.run_publication(tag=state["tag"], draft=True)
+        result, state = self.run_publication(tag=state["tag"], draft=True, notes="outdated notes")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(state["draft"])
+        self.assertEqual(state["notes"], self.notes)
         self.assertFalse(any(call[:2] == ["release", "create"] for call in state["calls"]))
 
     def test_published_release_is_unchanged_on_rerun(self):
@@ -457,6 +465,12 @@ class PublicationTests(unittest.TestCase):
 
     def test_missing_platform_cannot_create_a_tag(self):
         (self.root / "target/dist/resonance-v1.2.3-windows-x64.zip").unlink()
+        result, state = self.run_publication()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state["calls"], [])
+
+    def test_missing_versioned_notes_cannot_create_a_tag(self):
+        (self.root / "changelog/releases/v1.2.3.md").unlink()
         result, state = self.run_publication()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(state["calls"], [])

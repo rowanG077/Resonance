@@ -11,7 +11,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def plan(event_name, ref, sha, repository, event, open_prs=()):
+def plan(event_name, ref, sha, repository, event, open_prs=(), *, publish_release=False):
     branch = ref.removeprefix("refs/heads/")
     same_repository = True
     commit = sha
@@ -33,7 +33,10 @@ def plan(event_name, ref, sha, repository, event, open_prs=()):
     )
     return {
         "run_tests": not delegated,
-        "publish": release and not delegated and event_name in ("push", "pull_request"),
+        "publish": release and not delegated and (
+            event_name in ("push", "pull_request")
+            or (event_name == "workflow_dispatch" and publish_release)
+        ),
         "version": version,
         "commit": commit,
     }
@@ -56,7 +59,9 @@ def main():
         if result.returncode:
             raise RuntimeError(f"Cannot look up open release PRs: {result.stderr.strip()}")
         open_prs = json.loads(result.stdout)
-    decision = plan(event_name, ref, os.environ["GITHUB_SHA"], repository, event, open_prs)
+    publish_release = event.get("inputs", {}).get("publish_release") in (True, "true")
+    decision = plan(event_name, ref, os.environ["GITHUB_SHA"], repository, event, open_prs,
+                    publish_release=publish_release)
     if decision["version"]:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
         version = manifest["workspace"]["package"]["version"]
