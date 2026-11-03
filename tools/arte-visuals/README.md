@@ -36,6 +36,12 @@ the old manifest; listed names and name matches remain explicit metadata.
 Numeric IDs and cooked keys can retain different meanings between
 editions: Steam Holy Binds, for example, reuses GC's unused Eternal Chaos key.
 
+The inventory is broader than the focused enemy review. Compare distinct enemy
+arte/effect families; exhaustive row checks and repeated basic attacks are
+deferred. Row totals describe retained context, rather than the remaining number
+of required family comparisons. Keep unrun rows pending instead of turning a
+representative family review into passes for every row.
+
 `counterpart` contains candidates, not an approved baseline. Party matching uses
 the same character and nonplaceholder name. A blank-name fallback requires the
 same character, cooked key, and unchanged rules. Unison matching uses its name and

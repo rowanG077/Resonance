@@ -5,6 +5,12 @@ current catalogue from `catalogue.py`; never inherit an old edition's numeric
 exclusions. Full-game walkthroughs and mechanical equivalence sweeps are not
 part of this visual pass.
 
+For enemies, compare distinct arte/effect families. Repeated basic attacks and
+exhaustive per-row checking are deferred. Keep those rows in the inventory as
+context; their absence from the focused pass does not imply a missing arte or
+a visual failure. Choose representatives by semantic action and effect
+dependencies, rather than sharing exclusions or verdicts by numeric ID.
+
 The native GPU harness writes `capture-report.json` with actual PNGs. An
 original-game reference report has `source_kind: "dolphin"`; a render using
 GameCube assets in Resonance has `source_kind: "resonance"`. These references
