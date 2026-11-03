@@ -417,6 +417,10 @@ fn components(
 #[path = "monsters/carried_material.rs"]
 mod carried_material_tests;
 
+#[cfg(test)]
+#[path = "monsters/defense_attachments.rs"]
+mod defense_attachment_tests;
+
 /// Native command 25 explicitly samples a body motion on a carried rig. This is
 /// the same bounded command scan used by the GC media importer.
 fn carried_pose_motions(

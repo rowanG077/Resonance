@@ -9,5 +9,9 @@
   "KK00": "kk00",
   "KK01": "kk01",
   "OBJ_NUNO01": "obj_nuno01",
+  "PA00_ARM_R": "PA00_Arm_R",
+  "PA01_ARM_R": "PA01_Arm_R",
+  "PA02_ARM_L": "PA02_Arm_L",
+  "PA03_ARM_L": "PA03_Arm_L",
   "WORLD2": "world2"
 }
