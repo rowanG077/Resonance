@@ -61,9 +61,7 @@ impl Battle {
             BattlePhase::Results
         } else if self.terminal.result.is_some() {
             BattlePhase::Ending
-        } else if self.enemy_presentation.opening()
-            || self.entry_remaining > crate::prepare::ENTRY_SETTLE_UPDATES
-        {
+        } else if self.enemy_presentation.opening() || self.entry_remaining != 0 {
             BattlePhase::Entry
         } else {
             BattlePhase::Combat

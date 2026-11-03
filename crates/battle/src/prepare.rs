@@ -7,8 +7,7 @@ use std::{collections::BTreeSet, sync::Arc};
 pub use resonance_content::battle_voice::Sound;
 
 pub(crate) const ENTRY_PAN_UPDATES: u8 = 59;
-pub(crate) const ENTRY_SETTLE_UPDATES: u8 = 46;
-pub(crate) const ENTRY_RESUME_UPDATE: u8 = ENTRY_PAN_UPDATES + ENTRY_SETTLE_UPDATES + 1;
+pub(crate) const ENTRY_RESUME_UPDATE: u8 = ENTRY_PAN_UPDATES + 1;
 
 #[derive(Debug, Clone)]
 pub enum ActionExecution {
@@ -366,7 +365,7 @@ impl PreparedBattle {
         Ok(self)
     }
 
-    /// Pan across the encounter, then hold combat while the camera settles.
+    /// Pan across the encounter, then enable combat on the next update.
     pub fn with_entry(mut self) -> Self {
         self.entry_remaining = ENTRY_RESUME_UPDATE;
         if let Some(camera) = &mut self.camera {
@@ -637,17 +636,14 @@ mod tests {
                     crate::BattlePhase::Combat
                 }
             );
-            assert_eq!(frame.clock.paused(), (60..=105).contains(&update));
+            assert!(!frame.clock.paused());
             assert_eq!(battle.ledger.elapsed_ticks, u32::from(update));
             assert_eq!(
                 battle.ledger.combat_ticks,
                 u32::from(update.saturating_sub(59))
             );
-            assert_eq!(
-                frame.actors[0].guard.recent_hurt_ticks,
-                200 - update.min(59) - u8::from(update == 106)
-            );
-            if update <= 60 {
+            assert_eq!(frame.actors[0].guard.recent_hurt_ticks, 200 - update);
+            if update <= 59 {
                 let camera = frame.camera.unwrap();
                 assert!(
                     (camera.focus[0] - 700. * (1. - f32::from(update.min(59)) / 59.)).abs() < 0.01
