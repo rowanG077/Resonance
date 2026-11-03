@@ -12,6 +12,50 @@ use std::{
 
 type Source = Box<dyn crate::Source>;
 type Factory = Box<dyn FnOnce() -> Result<Source> + Send>;
+
+/// One worker failure shared by output polling, source handles and new requests.
+/// The first observer receives the original error. Later observers still fail
+/// with its originating backtrace, even if another observer consumed the error.
+#[derive(Default)]
+pub(crate) struct Failure {
+    failed: AtomicBool,
+    detail: Mutex<FailureDetail>,
+}
+
+#[derive(Default)]
+struct FailureDetail {
+    error: Option<anyhow::Error>,
+    report: Option<String>,
+}
+
+impl Failure {
+    pub(crate) fn is_failed(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
+    }
+
+    fn record(&self, error: anyhow::Error) {
+        self.detail.lock().expect("audio fault lock poisoned").error = Some(error);
+        self.failed.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn check(&self) -> Result<()> {
+        if !self.is_failed() {
+            return Ok(());
+        }
+        let mut detail = self.detail.lock().expect("audio fault lock poisoned");
+        if let Some(error) = detail.error.take() {
+            detail.report = Some(format!(
+                "audio mixer failed: {error:#}\n\nOriginating audio worker backtrace:\n{:#}",
+                error.backtrace()
+            ));
+            return Err(error.context("audio mixer failed"));
+        }
+        anyhow::bail!(
+            "{}",
+            detail.report.as_deref().unwrap_or("audio mixer failed")
+        );
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Priming,
@@ -31,7 +75,7 @@ struct Span {
     rate: u64,
 }
 struct Shared {
-    failure: Arc<AtomicBool>,
+    failure: Arc<Failure>,
     clock: Arc<Clock>,
     paused: AtomicBool,
     double_speed: AtomicBool,
@@ -91,7 +135,7 @@ impl Handle {
                 && self.audible_frames() >= self.rendered_frames())
     }
     pub fn state(&self) -> State {
-        if self.shared.failure.load(Ordering::Acquire) {
+        if self.shared.failure.is_failed() {
             return State::Failed;
         }
         if self.shared.stopped.load(Ordering::Acquire) {
@@ -125,7 +169,7 @@ pub struct Control {
     clock: Arc<Clock>,
     rendered: Arc<AtomicU64>,
     next_epoch: Arc<AtomicU64>,
-    failure: Arc<AtomicBool>,
+    failure: Arc<Failure>,
 }
 impl Control {
     /// Schedule at an absolute native mix frame; late requests use the earliest
@@ -136,10 +180,7 @@ impl Control {
         paused: bool,
         factory: impl FnOnce() -> Result<Source> + Send + 'static,
     ) -> Result<Handle> {
-        ensure!(
-            !self.failure.load(Ordering::Acquire),
-            "audio mixer has failed"
-        );
+        self.failure.check()?;
         let handle = Handle {
             epoch: self.next_epoch.fetch_add(1, Ordering::Relaxed),
             shared: Arc::new(Shared {
@@ -182,8 +223,11 @@ pub struct Mixer {
     pub(crate) frame: u64,
 }
 impl Mixer {
-    pub(crate) fn fail(&self) {
-        self.control.failure.store(true, Ordering::Release);
+    pub(crate) fn fail(&self, error: anyhow::Error) {
+        self.control.failure.record(error);
+    }
+    pub(crate) fn failure(&self) -> Arc<Failure> {
+        self.control.failure.clone()
     }
     pub(crate) fn clock(&self) -> Arc<Clock> {
         self.control.clock.clone()
@@ -195,7 +239,7 @@ impl Mixer {
             clock,
             rendered: Arc::new(AtomicU64::new(0)),
             next_epoch: Arc::new(AtomicU64::new(1)),
-            failure: Arc::new(AtomicBool::new(false)),
+            failure: Arc::new(Failure::default()),
         };
         (
             control.clone(),
