@@ -317,8 +317,8 @@ fn clear_title_input(world: &mut World) {
 }
 fn fail(world: &mut World, error: anyhow::Error) {
     let diagnostics = super::diagnostics::policy(world);
-    if diagnostics.report("game-over transition", error).is_err() {
-        world.write_message(AppExit::error());
+    if let Err(error) = diagnostics.report("game-over transition", error) {
+        crate::diagnostics::fatal(world, "game-over transition", error);
     } else if let Err(error) = return_to_title(world) {
         let _ = diagnostics.report("game-over recovery", error);
     }
@@ -326,11 +326,9 @@ fn fail(world: &mut World, error: anyhow::Error) {
 
 fn audio_result(world: &mut World, result: Result<()>) -> bool {
     if let Err(error) = result
-        && super::diagnostics::policy(world)
-            .report("game-over audio", error)
-            .is_err()
+        && let Err(error) = super::diagnostics::policy(world).report("game-over audio", error)
     {
-        world.write_message(AppExit::error());
+        crate::diagnostics::fatal(world, "game-over audio", error);
         return false;
     }
     true

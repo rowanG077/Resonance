@@ -1,8 +1,12 @@
 {
   description = "Resonance development and asset conversion environment";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.qlog = {
+    url = "github:qbaylogic/qlog";
+    flake = false;
+  };
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, qlog, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -26,6 +30,22 @@
         let
           pkgs = import nixpkgs { inherit system; };
           dolphinObserver = import ./nix/dolphin.nix { inherit pkgs; };
+          # Upstream's uv.lock omits colorama; package its declared dependencies.
+          qlogPackage = pkgs.python3Packages.buildPythonApplication {
+            pname = "qlog";
+            version = (builtins.fromTOML (builtins.readFile "${qlog}/pyproject.toml")).project.version;
+            src = qlog;
+            pyproject = true;
+            build-system = [ pkgs.python3Packages.setuptools ];
+            dependencies = with pkgs.python3Packages; [
+              colorama
+              cssselect
+              lxml
+              pyyaml
+              requests
+            ];
+            pythonImportsCheck = [ "qlog.cli" ];
+          };
           linkerEnv = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             "CARGO_TARGET_${
               pkgs.lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] pkgs.stdenv.hostPlatform.rust.rustcTarget)
@@ -62,6 +82,8 @@
               ninja
               pkg-config
               git
+              gh
+              qlogPackage
               ripgrep
               jq
               (python3.withPackages (p: [

@@ -348,7 +348,7 @@ pub(super) fn prepare_field(
     roots: Query<(), With<PartRoot>>,
     animated: Query<&AnimatedPart>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     if !field.ready {
         for part in &animated {
@@ -356,8 +356,7 @@ pub(super) fn prepare_field(
                 if let Some(bevy::asset::LoadState::Failed(error)) =
                     server.get_load_state(clip.id())
                 {
-                    error!("Title animation failed to load: {error}");
-                    exit.write(AppExit::error());
+                    exit.fail("Title animation failed to load", error.into());
                     return;
                 }
             }

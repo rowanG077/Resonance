@@ -48,14 +48,17 @@ impl Diagnostics {
         {
             entry.occurrences = entry.occurrences.saturating_add(1);
         } else {
-            eprintln!(
-                "ERROR [{scope}] {message} ({})",
-                if self.paranoid() {
-                    "stopping: --paranoid"
-                } else {
-                    "continuing"
-                }
-            );
+            let action = if self.paranoid() {
+                "stopping: --paranoid"
+            } else {
+                "continuing"
+            };
+            if tracing::dispatcher::has_been_set() {
+                tracing::error!("[{scope}] {message} ({action})");
+            } else {
+                // Importers and other tools can use diagnostics without a logger.
+                eprintln!("ERROR [{scope}] {message} ({action})");
+            }
             entries.push(Diagnostic {
                 scope: scope.into(),
                 message,
@@ -83,6 +86,29 @@ impl Diagnostics {
 
     pub fn entries(&self) -> Vec<Diagnostic> {
         self.0.entries.lock().unwrap().clone()
+    }
+
+    /// Stream diagnostics without cloning the inventory. A bounded writer can
+    /// stop formatting as soon as the support-report budget is exhausted.
+    pub fn write_summary(&self, out: &mut impl std::fmt::Write) -> std::fmt::Result {
+        let entries = self
+            .0
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        writeln!(
+            out,
+            "Content diagnostics: {} distinct errors",
+            entries.len()
+        )?;
+        for entry in entries.iter().rev() {
+            writeln!(
+                out,
+                "[{}] {} ({} occurrences)",
+                entry.scope, entry.message, entry.occurrences
+            )?;
+        }
+        Ok(())
     }
 }
 

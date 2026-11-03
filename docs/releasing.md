@@ -25,7 +25,8 @@ checks and release build in the PR workflow, so the checks page shows real work.
 The corresponding push workflow detects the open PR and skips its duplicate
 matrix. Release branches without an open PR run directly on push.
 Fork PRs run tests without publishing, including forks with a `release/*` branch.
-Manual workflow runs remain available and never publish.
+Manual workflow runs only test by default; the explicit `publish_release` option
+can resume publication on a `release/vX.Y.Z` branch.
 
 Tests compile their test binaries and rendering example; distribution executables
 and archives are built only for release branches in this repository. Private disc
@@ -69,18 +70,25 @@ Each release platform runs those same tests before building and packaging releas
 executables. Every platform must pass before publication. New commits cancel
 obsolete runs rather than waiting behind hours of older builds.
 
+Release preparation consolidates entries into `changelog/releases/vX.Y.Z.md`,
+archives the fragments under that version, and pushes a bot commit to the release
+branch. It dispatches CI for the new commit; reruns without new entries add no commit.
+
 After all builds pass, CI creates tag `vX.X.X` at the tested release-branch commit
 and creates a GitHub release. For release PRs, checkout, testing, packaging and
 tagging all use the PR head commit; GitHub's temporary merge commit is never
 published. CI attaches a Windows ZIP, three Unix
-`.tar.gz` archives, `README.md` and `SHA256SUMS`. The installation guide is both
-the release body and the README inside every archive. CI artifacts remain
-available for 14 days; published GitHub release assets persist.
+`.tar.gz` archives, a matching `-symbols` archive for each platform, `README.md`
+and `SHA256SUMS`. The consolidated changelog is the GitHub release body. The installation
+guide remains the attached README and the README inside every archive. CI artifacts
+remain available for 14 days; published GitHub release assets persist.
 
-Only the publication job receives `contents: write`; it uses the repository's
-automatic `GITHUB_TOKEN`. No personal access token or additional secret is needed.
+Changelog preparation and publication receive `contents: write`; preparation also
+receives `actions: write` to dispatch CI. Both use the automatic `GITHUB_TOKEN`.
+No personal access token or additional secret is needed.
 Repository or organization policy must permit GitHub Actions to create tags and
 releases, and tag rules must permit this workflow to create `v*` tags.
+Release-branch protection must also allow the bot's changelog commit.
 
 If a build fails, fix the release branch and push again. No tag or release is
 created before all platforms pass. If publication fails after creating a tag or
@@ -90,6 +98,9 @@ replace incomplete uploads before publishing. A completed release is left alone
 on reruns. An existing tag pointing to another commit causes an error; create a
 new version branch rather than moving a published tag.
 
-Pushes to `main`, ordinary PRs, fork PRs and manual workflow runs only run tests
+Pushes to `main`, ordinary PRs, fork PRs and default manual runs only run tests
 and upload diagnostics. To retry publication, use **Re-run failed jobs** on the
 release PR workflow, or on the release push workflow if there is no open PR.
+
+Keep each release's `-symbols` archives for [debugging user crashes](crash-debugging.md).
+CI verifies source resolution against the packaged executables before publication.

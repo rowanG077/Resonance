@@ -39,7 +39,7 @@ impl Source {
             .document
             .clone()
             .context("preview needs a named model document")?;
-        super::Pending::spawn(move |cancelled| {
+        super::Pending::spawn(format!("model preview {path}"), move |cancelled| {
             capture(&library, &path, || {
                 cancelled.load(std::sync::atomic::Ordering::Relaxed)
             })

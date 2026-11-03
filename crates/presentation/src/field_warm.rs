@@ -663,19 +663,18 @@ fn complete(
     }
 }
 
-fn guard(shared: Res<Shared>, resident: Res<Resident>, mut exit: MessageWriter<AppExit>) {
+fn guard(shared: Res<Shared>, resident: Res<Resident>, mut exit: crate::diagnostics::Fatal) {
     let report = shared.0.lock().unwrap();
     let failure = report.failure.clone().or_else(|| {
         (resident.unprepared_reads.load(Ordering::Relaxed) > 0)
             .then(|| format!("field {:?} attempted an undeclared asset read", report.map))
     });
     if let Some(error) = failure
-        && resident
+        && let Err(error) = resident
             .diagnostics
             .report("field GPU", anyhow::anyhow!(error))
-            .is_err()
     {
-        exit.write(AppExit::error());
+        exit.fail("field GPU", error);
     }
 }
 

@@ -185,11 +185,8 @@ fn unavailable(world: &mut World, error: anyhow::Error) {
         held: pending.held,
         ..Default::default()
     };
-    if crate::diagnostics::policy(world)
-        .report("load menu artwork", error)
-        .is_err()
-    {
-        world.write_message(AppExit::error());
+    if let Err(error) = crate::diagnostics::policy(world).report("load menu artwork", error) {
+        crate::diagnostics::fatal(world, "load menu artwork", error);
     }
 }
 

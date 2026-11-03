@@ -22,6 +22,7 @@ resonance-media = { path = "crates/media" }
 resonance-audio-cook = { path = "crates/audio-cook" }
 resonance-audio = { path = "crates/audio" }
 thiserror = "2"
+tracing = "0.1"
 symphonia-script = { path = "crates/symphonia-script" }
 symphonia-script-vm = { path = "crates/symphonia-script-vm" }
 symphonia-script-compiler = { path = "crates/symphonia-script-compiler" }
@@ -60,10 +61,15 @@ opt-level = 2
 [profile.release]
 opt-level = 3
 lto = "thin"
-strip = "debuginfo"
+# Keep debugging data in the build artifacts; packaging strips distribution
+# copies and retains these originals in the matching symbols archive.
+debug = 1
+strip = "none"
 
 # Optimized local iteration without whole-program LTO on every executable.
 [profile.release-fast]
 inherits = "release"
 lto = "off"
 incremental = true
+# Local iteration does not produce distribution debugging artifacts.
+debug = 0

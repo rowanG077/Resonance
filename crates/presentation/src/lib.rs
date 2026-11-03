@@ -1,5 +1,6 @@
 //! Desktop presentation for the high-level title controller.
 mod diagnostics;
+pub use diagnostics::{crash_context, write_crash_context_to};
 #[cfg(test)]
 mod test_support;
 use anyhow::{Context as ContextExt, Result};
@@ -236,23 +237,31 @@ pub fn run_with_display(
         .or_else(|| options.saves.load.as_ref().map(|_| CaptureAt::LoadedField))
         .zip(options.capture.clone());
     let headless = options.headless();
+    info!(
+        "Starting presentation; headless={headless}, checkpoint={checkpoint:?}, resolution={resolution:?}"
+    );
     anyhow::ensure!(
         !headless || resolution.unwrap_or_default() == Resolution::default(),
         "oracle recordings require native resolution"
     );
-    let (mut app, recording) = build_app(options, DisplaySource::Player(resolution))?;
-    performance::install(&mut app, performance, headless)?;
-    if let Some((at, output)) = checkpoint {
-        return playthrough::capture(app, at, &output);
-    }
-    if let Some(output) = recording {
-        return playthrough::record(app, output);
-    }
-    anyhow::ensure!(
-        app.run() == AppExit::Success,
-        "Resonance exited with an error"
-    );
-    Ok(())
+    let (mut app, recording) = build_app(options, DisplaySource::Player(resolution))
+        .context("initializing game presentation")?;
+    performance::install(&mut app, performance, headless)
+        .context("initializing performance diagnostics")?;
+    let failures = app.world().resource::<diagnostics::FatalErrors>().clone();
+    let result = if let Some((at, output)) = checkpoint {
+        playthrough::capture(app, at, &output)
+    } else if let Some(output) = recording {
+        playthrough::record(app, output)
+    } else {
+        match app.run() {
+            AppExit::Success => Ok(()),
+            exit => Err(anyhow::anyhow!(
+                "Resonance exited with {exit:?}; see game context and logs"
+            )),
+        }
+    };
+    failures.finish(result)
 }
 
 enum DisplaySource {
@@ -279,9 +288,20 @@ fn build_app(
     options.skip_intro |= options.saves.load.is_some()
         || options.replay.is_some()
         || matches!(options.capture_at, Some(CaptureAt::TitleTick(_)));
-    let assets = fs::canonicalize(&options.assets)
-        .context("missing cooked assets; run resonance-import cook-all first")?;
-    let library = resonance_content::library::Library::open_paths(&assets, &options.mods)?;
+    let assets = fs::canonicalize(&options.assets).with_context(|| {
+        format!(
+            "missing cooked assets at {}; run resonance-import cook-all first",
+            options.assets.display()
+        )
+    })?;
+    info!(
+        "Opening content library: {}; mods={:?}",
+        assets.display(),
+        options.mods
+    );
+    let library = resonance_content::library::Library::open_paths(&assets, &options.mods)
+        .with_context(|| format!("opening content library {}", assets.display()))?;
+    info!("Preparing title and startup media");
     let title_field::Prepared {
         scene,
         events,
@@ -293,7 +313,8 @@ fn build_app(
         &library,
         !options.skip_intro && !matches!(options.capture_at, Some(CaptureAt::MovieFrame(_))),
         diagnostics.clone(),
-    )?;
+    )
+    .context("preparing title, scripts, audio and startup media")?;
     let replay = options
         .replay
         .as_ref()
@@ -314,6 +335,7 @@ fn build_app(
     let boot = boot::Playback::from_assets(boot)?;
     let initial_clock = PresentationClock::new(options.presentation_start.unwrap_or(0));
     let mut app = App::new();
+    diagnostics::install(&mut app);
     app.insert_resource(session_screen::Title {
         events: Some(events.fresh()?),
         audio: music.clone(),
@@ -324,7 +346,8 @@ fn build_app(
     let interactive_display = matches!(display_source, DisplaySource::Player(_))
         && !options.headless()
         && options.replay.is_none();
-    saves::install(&mut app, &options.saves, interactive_display)?;
+    saves::install(&mut app, &options.saves, interactive_display)
+        .context("initializing saves and preferences")?;
     let resolution = match display_source {
         DisplaySource::Fixed(size) => size,
         DisplaySource::Player(override_size) if !interactive_display => {
@@ -357,6 +380,9 @@ fn build_app(
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
     let render_plugin = renderer::plugin(&mut app, interactive_display);
+    info!(
+        "Installing rendering and window plugins; interactive={interactive_display}, capture={capture_only}, resolution={resolution:?}"
+    );
     let mut plugins = DefaultPlugins
         .set(render_plugin)
         .set(bevy::pbr::PbrPlugin {
@@ -376,6 +402,9 @@ fn build_app(
             },
             ..default()
         });
+    if bevy::log::tracing::dispatcher::has_been_set() {
+        plugins = plugins.disable::<bevy::log::LogPlugin>();
+    }
     if capture_only {
         // File captures have neither a window/event loop nor an audio device.
         plugins = plugins
@@ -517,7 +546,7 @@ fn build_app(
     credits::install(&mut app);
     testing::install(&mut app);
     if !capture_only {
-        audio_output::install(&mut app, silent)?;
+        audio_output::install(&mut app, silent).context("initializing audio output")?;
     } else {
         app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
             resonance_game::clock::UPDATE_STEP,
@@ -537,6 +566,8 @@ fn build_app(
     battle::install(&mut app);
     game_over::install(&mut app)?;
     renderer::configure(&mut app);
+    diagnostics::record(app.world(), true);
+    info!("Presentation initialized");
     Ok((app, recording))
 }
 
@@ -570,13 +601,12 @@ fn setup(
     options: Res<RunOptions>,
     display: Res<display::Display>,
     device: Res<bevy::render::renderer::RenderDevice>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let size = match display.0.validate(device.limits().max_texture_dimension_2d) {
         Ok(()) => display.0,
         Err(error) => {
-            error!("{error:#}");
-            exit.write(AppExit::error());
+            exit.fail("render resolution", error);
             // Complete startup with small valid resources so other startup
             // systems can finish while AppExit is handled, without allocating
             // the invalid requested framebuffer.
@@ -840,7 +870,7 @@ fn gather_input(
 #[allow(clippy::too_many_arguments)] // Input, clock, readiness, and cue playback resources.
 fn advance(
     mut commands: Commands,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
     mut menu: ResMut<Menu>,
     replay: Option<Res<Replay>>,
     clock: Res<Clock>,
@@ -877,8 +907,7 @@ fn advance(
     if let Some(events) = &mut events
         && let Err(error) = events.0.step()
     {
-        error!("title script: {error:#}");
-        exit.write(AppExit::error());
+        exit.fail("title script", error);
         return;
     }
     match menu.0.step(input) {
@@ -939,7 +968,7 @@ fn layout(
     boot: Res<boot::Playback>,
     title_menu: Option<Res<saves::title::TitleMenu>>,
     diagnostics: Res<crate::diagnostics::Diagnostics>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let state = &menu.0;
     TitleOutput::update(&mut outputs, |b| {
@@ -951,12 +980,11 @@ fn layout(
     });
     for (quad, handle, mut transform) in &mut quads {
         let Some(mut material) = materials.get_mut(&handle.0) else {
-            if diagnostics
+            if let Err(error) = diagnostics
                 .0
                 .report("title layout", anyhow::anyhow!("missing title material"))
-                .is_err()
             {
-                exit.write(AppExit::error());
+                exit.fail("title layout", error);
                 return;
             }
             continue;

@@ -392,8 +392,7 @@ fn advance(world: &mut World) {
     playback.ticks = playback.ticks.max(ticks);
     let complete = playback.tail.is_some_and(|age| age >= playback.final_hold);
     if let Err(error) = playback.operation.advance(playback.ticks) {
-        error!("Credits clock failed: {error}");
-        world.write_message(AppExit::error());
+        crate::diagnostics::fatal(world, "Credits clock failed", anyhow::Error::msg(error));
         return;
     }
     let mut session = world.resource_mut::<crate::new_game::Session>();
@@ -402,8 +401,11 @@ fn advance(world: &mut World) {
     if complete {
         let request = session.events_mut().world.screen_request.take().unwrap();
         if let Err(error) = request.operation.complete(Some(0)) {
-            error!("Credits completion failed: {error}");
-            world.write_message(AppExit::error());
+            crate::diagnostics::fatal(
+                world,
+                "Credits completion failed",
+                anyhow::Error::msg(error),
+            );
         }
         retire(world);
     }

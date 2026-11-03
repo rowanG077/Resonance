@@ -1590,7 +1590,7 @@ mod tests {
         let mut app = App::new();
         let updates = std::sync::Arc::new(AtomicU32::new(0));
         let observed = updates.clone();
-        let pending = loading::Pending::spawn(move |_| {
+        let pending = loading::Pending::spawn("test replay preparation", move |_| {
             thread::sleep(std::time::Duration::from_millis(20));
             assert_eq!(observed.load(Ordering::Relaxed), 0);
             Err(anyhow::anyhow!("prepared error"))
@@ -1615,7 +1615,9 @@ mod tests {
                 .poll()
                 .unwrap()
                 .expect("worker result ready before update");
-            assert_eq!(result.err().unwrap().to_string(), "prepared error");
+            let error = result.err().unwrap();
+            assert_eq!(error.root_cause().to_string(), "prepared error");
+            assert!(error.to_string().contains("test replay preparation"));
             world.resource_mut::<crate::timing::Ready>().0 = true;
         });
         let mut timed_out = false;

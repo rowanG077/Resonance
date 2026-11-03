@@ -112,9 +112,10 @@ fn start(world: &mut World, command: Command) -> Result<()> {
             let library = world
                 .resource::<loading::Resident>()
                 .library(&world.resource::<super::super::RunOptions>().assets)?;
-            world.insert_resource(Pending(loading::Task::spawn(move |_| {
-                read_slots(&store, &library).map(Completion::Slots)
-            })?));
+            world.insert_resource(Pending(loading::Task::spawn(
+                "save slot listing",
+                move |_| read_slots(&store, &library).map(Completion::Slots),
+            )?));
         }
         Command::Save(index) => {
             let session = world.resource::<new_game::Session>();
@@ -141,18 +142,21 @@ fn start(world: &mut World, command: Command) -> Result<()> {
                 .iter()
                 .map(|&id| (id, party.members[usize::from(id - 1)].maximum_vitals()))
                 .collect();
-            world.insert_resource(Pending(loading::Task::spawn(move |_| {
-                store.write(Kind::Save, &slot, &bytes)?;
-                Ok(Completion::Saved(
-                    index,
-                    Slot::Saved {
-                        location,
-                        played_ticks,
-                        party: Box::new(party),
-                        vitals,
-                    },
-                ))
-            })?));
+            world.insert_resource(Pending(loading::Task::spawn(
+                format!("write save slot {index}"),
+                move |_| {
+                    store.write(Kind::Save, &slot, &bytes)?;
+                    Ok(Completion::Saved(
+                        index,
+                        Slot::Saved {
+                            location,
+                            played_ticks,
+                            party: Box::new(party),
+                            vitals,
+                        },
+                    ))
+                },
+            )?));
         }
         Command::Load(index) => {
             let slot = slot_id(index)?;

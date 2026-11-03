@@ -65,7 +65,8 @@ impl Store {
         Ok(slots)
     }
     pub fn read(&self, kind: Kind, slot: &SlotId) -> Result<Vec<u8>> {
-        read_bounded(&self.path(kind, slot))
+        let path = self.path(kind, slot);
+        read_bounded(&path).with_context(|| format!("reading save {}", path.display()))
     }
     pub fn write(&self, kind: Kind, slot: &SlotId, bytes: &[u8]) -> Result<()> {
         decode::<serde::de::IgnoredAny>(bytes)?;
@@ -87,7 +88,10 @@ impl Store {
         thread::Builder::new()
             .name("save-writer".into())
             .spawn(move || {
-                let _ = sender.send(store.write(kind, &slot, &bytes));
+                let result = store
+                    .write(kind, &slot, &bytes)
+                    .with_context(|| format!("writing save {}", store.path(kind, &slot).display()));
+                let _ = sender.send(result);
             })?;
         Ok(WriteTask(receiver))
     }

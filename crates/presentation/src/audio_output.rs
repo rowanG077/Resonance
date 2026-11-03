@@ -62,7 +62,10 @@ impl Drop for Device {
     }
 }
 pub(super) fn install(app: &mut App, silent: bool) -> Result<()> {
-    let device = resonance_audio_device::Device::default_output()?;
+    info!("Opening default audio output; silent={silent}");
+    let device = resonance_audio_device::Device::default_output()
+        .context("selecting default audio device")?;
+    info!("Selected audio device: {:?}", device.description);
     let output = device.output();
     let (control, mixer) = Mixer::new(output.clock.clone());
     let converter = resonance_media::output::Resampler::new(device.description.rate)?;
@@ -76,7 +79,9 @@ pub(super) fn install(app: &mut App, silent: bool) -> Result<()> {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    let stream = device.start(output.clone(), silent)?;
+    let stream = device
+        .start(output.clone(), silent)
+        .with_context(|| format!("starting audio stream {:?}", device.description))?;
     info!("Audio output: {:?}; silent={silent}", device.description);
     app.insert_non_send(Device {
         stream: Some(stream),
@@ -204,8 +209,16 @@ fn update(world: &mut World) {
         Ok(())
     })();
     if let Err(error) = result {
-        error!("Audio playback failed: {error:#}");
-        world.write_message(AppExit::error());
+        let error = error.context(format!(
+            "recovering={}; pending device={:?}; output={:?}",
+            device.recovering,
+            device
+                .pending_device
+                .as_ref()
+                .map(|device| &device.description),
+            device.output.diagnostics()
+        ));
+        super::diagnostics::fatal(world, "audio playback", error);
     }
     if device.report.elapsed() >= Duration::from_secs(30) {
         info!("Audio output: {:?}", device.output.diagnostics());

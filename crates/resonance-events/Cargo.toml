@@ -10,6 +10,7 @@ serde.workspace = true
 symphonia-script.workspace = true
 symphonia-script-vm.workspace = true
 anyhow.workspace = true
+tracing.workspace = true
 resonance-content.workspace = true
 
 [dev-dependencies]

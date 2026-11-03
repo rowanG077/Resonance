@@ -16,9 +16,26 @@
         "type": "github"
       }
     },
+    "qlog": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791973212,
+        "narHash": "sha256-EDQkWkgz7skHRbi1Ie+IidOPGmvgS8M2aATDE6fB1Ls=",
+        "owner": "qbaylogic",
+        "repo": "qlog",
+        "rev": "104e262c1c91939486bb507b962b12d6020b99a7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qbaylogic",
+        "repo": "qlog",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "qlog": "qlog"
       }
     }
   },
