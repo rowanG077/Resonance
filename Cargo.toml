@@ -61,10 +61,15 @@ opt-level = 2
 [profile.release]
 opt-level = 3
 lto = "thin"
-strip = "debuginfo"
+# Keep debugging data in the build artifacts; packaging strips distribution
+# copies and retains these originals in the matching symbols archive.
+debug = 1
+strip = "none"
 
 # Optimized local iteration without whole-program LTO on every executable.
 [profile.release-fast]
 inherits = "release"
 lto = "off"
 incremental = true
+# Local iteration does not produce distribution debugging artifacts.
+debug = 0
