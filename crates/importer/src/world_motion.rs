@@ -547,6 +547,7 @@ pub(crate) fn encode(bytes: &[u8], model_glb: &[u8]) -> Result<Vec<u8>> {
 /// Bake native half-frame attachment positions for collision. Visual glTF
 /// motion is approximated within a bounded tolerance, but collision samples
 /// can use the same source curves directly while the native member is here.
+#[cfg(test)]
 pub(crate) fn sample_bound_points(
     bytes: &[u8],
     skeleton: &Skeleton,

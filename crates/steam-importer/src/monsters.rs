@@ -37,7 +37,7 @@ pub(crate) fn symbol(id: u16) -> String {
         .map(str::to_owned)
         .unwrap_or_else(|| format!("model-{id:04}"))
 }
-fn package<'a>(image: &'a pe::Image<'_>, id: u16) -> Result<&'a str> {
+pub(crate) fn package<'a>(image: &'a pe::Image<'_>, id: u16) -> Result<&'a str> {
     image.text(pe::word(image.slice(0x8e5b50 + u32::from(id) * 4, 4)?, 0)?)
 }
 pub(crate) fn catalogue(source: &Source, library: &Path) -> Result<()> {
@@ -134,7 +134,7 @@ pub(crate) fn catalogue(source: &Source, library: &Path) -> Result<()> {
         &json!({"records":records,"labels":labels}),
     )
 }
-fn metadata(bytes: &[u8]) -> Result<&[u8]> {
+pub(crate) fn metadata(bytes: &[u8]) -> Result<&[u8]> {
     ensure!(bytes.starts_with(b"em8\0"), "invalid enemy package");
     let at = usize::from(pe::half(bytes, 4)?);
     ensure!(at >= 0x1f8, "enemy metadata overlaps header");

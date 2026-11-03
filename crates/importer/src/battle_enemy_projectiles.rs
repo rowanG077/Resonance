@@ -1,9 +1,9 @@
 //! Enemy-local 400-byte shots and authored emission edits.
-use crate::{battle_enemy_rules, battle_projectiles, dol, world_gpl, world_motion};
+use crate::{battle_enemy_rules, battle_projectiles, dol};
 use anyhow::{Context, Result, ensure};
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use resonance_content::{
-    animation::Skeleton,
+    animation::{Motion, Skeleton},
     battle_effect::{
         EffectOperation, ParticleBirth, ParticleGeometry, declaration::Declaration,
         document::Definition,
@@ -37,6 +37,31 @@ fn finite(row: &[u8], at: usize) -> Result<f32> {
     let value = f32::from_bits(dol::u32(row, at)?);
     ensure!(value.is_finite(), "non-finite enemy projectile at {at:#x}");
     Ok(value)
+}
+
+/// Bake the same bound animation that the shared model player will draw.
+fn contact_points(
+    skeleton: &Skeleton,
+    motion: &Motion,
+    bones: &[u16],
+    lifetime: u32,
+) -> Result<Vec<Vec<[f32; 3]>>> {
+    let end = lifetime.min((motion.duration_frames * 2.).ceil() as u32);
+    (0..=end)
+        .map(|age| {
+            bones
+                .iter()
+                .map(|&bone| {
+                    skeleton.sample_point(
+                        motion,
+                        (age as f32 * 0.5).min(motion.duration_frames),
+                        bone,
+                        [0.; 3],
+                    )
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn damage_kind(value: u8) -> Result<DamageKind> {
@@ -141,13 +166,7 @@ fn modified(data: &[u8], contact: &[u8]) -> Result<([u8; 400], u8, bool)> {
     anyhow::bail!("unterminated enemy projectile modifiers")
 }
 
-fn record(
-    row: &[u8; 400],
-    missile: bool,
-    data: &[u8],
-    library: &Path,
-    name: &str,
-) -> Result<Projectile> {
+fn record(row: &[u8; 400], missile: bool, library: &Path, name: &str) -> Result<Projectile> {
     let flags = dol::u32(row, 8)? & !0x10;
     let model_contact = flags & 0x800 != 0;
     let point_history = flags & 0x4000 != 0;
@@ -242,7 +261,7 @@ fn record(
             .ground_ricochet = true;
     }
     if model_contact {
-        shot.motion.contact_path = model_contact_path(row, &shot, data, library, name)?;
+        shot.motion.contact_path = model_contact_path(row, &shot, library, name)?;
     }
     Ok(shot)
 }
@@ -250,7 +269,6 @@ fn record(
 fn model_contact_path(
     row: &[u8; 400],
     shot: &Projectile,
-    data: &[u8],
     library: &Path,
     name: &str,
 ) -> Result<Vec<Vec<[f32; 3]>>> {
@@ -404,11 +422,8 @@ fn model_contact_path(
         library.join(&clip.motion).is_file(),
         "missing model-contact clip"
     );
-    let source_model = member(data, 0x180 + usize::from(binding.slot) * 4)?;
-    let source_motion = member(data, 0x1b0 + usize::from(binding.slot) * 4)?;
-    let bindings = world_gpl::animation_bindings(source_model)?;
-    let positions =
-        world_motion::sample_bound_points(source_motion, &skeleton, &bindings, &bones, lifetime)?;
+    let motion = Motion::decode(&fs::read(library.join(&clip.motion))?)?;
+    let positions = contact_points(&skeleton, &motion, &bones, lifetime)?;
     let [x, y, z] = template.state.angles.map(f32::to_radians);
     let transform = Mat4::from_scale_rotation_translation(
         Vec3::from_array(*value),
@@ -450,7 +465,7 @@ pub(crate) fn with_model_effect(
         "model effect variant needs a model contact"
     );
     row[0x5d] = member_id;
-    record(&row, model_missile(&row)?, data, library, name)
+    record(&row, model_missile(&row)?, library, name)
 }
 
 /// Convert one emitted shot. The action owner interns equal returned recipes.
@@ -462,7 +477,7 @@ pub(crate) fn projectile(
     name: &str,
 ) -> Result<Shot> {
     let (row, recoil, missile) = modified(data, contact)?;
-    let mut definition = record(&row, missile, data, library, name)?;
+    let mut definition = record(&row, missile, library, name)?;
     if definition.motion.origin != ProjectileOrigin::TargetFloor {
         definition.motion.origin = if contact[5] == 0 {
             ProjectileOrigin::Actor
@@ -515,4 +530,81 @@ pub(crate) fn projectile(
         hit,
         feedback,
     })
+}
+
+#[cfg(test)]
+mod cooked_contact_tests {
+    use super::*;
+    use crate::{battle_enemy_effects, enemy_package::EnemyPackages, world_gpl, world_motion};
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_EXTRACTED with GC enemy packages"]
+    fn cooked_gc_contact_motion_matches_native_reference_points() -> Result<()> {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_EXTRACTED").context("set RESONANCE_TEST_EXTRACTED")?,
+        );
+        let library = tempfile::tempdir()?;
+        battle_enemy_effects::cook_battle_enemy_effects(&root, library.path(), 0)?;
+        let path = library
+            .path()
+            .join("battle/enemies/torent-0000/effects/effects.json");
+        let definition: Definition = serde_json::from_slice(&fs::read(path)?)?;
+        let mut selected = None;
+        for (slot, value) in definition
+            .artwork
+            .context("missing GC effect models")?
+            .models
+        {
+            let model: Model = serde_json::from_value(value)?;
+            let scene = &model.layers[0].scene;
+            let Some(clip) = scene.clips.iter().find(|clip| clip.resource_slot == 0) else {
+                continue;
+            };
+            let skeleton = Skeleton::from_glb(&fs::read(library.path().join(&scene.mesh))?)?;
+            let bones = skeleton
+                .bones
+                .iter()
+                .enumerate()
+                .filter(|(_, bone)| bone.name.to_ascii_lowercase().starts_with("at00_"))
+                .map(|(index, _)| index as u16)
+                .collect::<Vec<_>>();
+            if bones.is_empty() {
+                continue;
+            }
+            let motion = Motion::decode(&fs::read(library.path().join(&clip.motion))?)?;
+            selected = Some((slot, skeleton, motion, bones));
+            break;
+        }
+        let (slot, skeleton, motion, bones) =
+            selected.context("GC effect owner has no animated contact rig")?;
+        let mut packages = EnemyPackages::open(&root.join("disc1"))?;
+        let source = packages.read(0)?;
+        let bindings =
+            world_gpl::animation_bindings(member(&source, 0x180 + usize::from(slot) * 4)?)?;
+        let native = world_motion::sample_bound_points(
+            member(&source, 0x1b0 + usize::from(slot) * 4)?,
+            &skeleton,
+            &bindings,
+            &bones,
+            120,
+        )?;
+        let cooked = contact_points(&skeleton, &motion, &bones, 120)?;
+        assert_eq!(native.len(), cooked.len());
+        let error = native
+            .iter()
+            .flatten()
+            .flatten()
+            .zip(cooked.iter().flatten().flatten())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        ensure!(
+            error < 1.,
+            "cooked contact trajectory differs from native reference by {error}"
+        );
+        eprintln!(
+            "GC cooked contact trajectory matches {} native samples; maximum component error {error}",
+            native.len()
+        );
+        Ok(())
+    }
 }

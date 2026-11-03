@@ -168,6 +168,7 @@ pub use battle_effect_media::{
     cook_battle_effect_atlases, cook_battle_effect_models, cook_battle_effect_texture,
 };
 pub use battle_effect_recipes::cook_technique_effects;
+pub use battle_effect_recipes::decode_effect_bank;
 pub use battle_effect_recipes::{cook_battle_effects, cook_common_effects};
 pub use battle_effect_tints::cook_battle_effect_tints;
 pub use battle_enemy_effects::{cook_battle_enemy_effects, cook_battle_enemy_effects_group};

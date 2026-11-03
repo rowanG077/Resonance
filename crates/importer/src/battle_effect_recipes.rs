@@ -557,7 +557,11 @@ impl<'a> NativeBank<'a> {
                 .unwrap_or(bytes.len());
             bytes.get(start..end).context("effect section exceeds bank")
         };
-        let actors = section(0)?;
+        let actors = if offsets[1..].contains(&offsets[0]) {
+            &[][..]
+        } else {
+            section(0)?
+        };
         let remainder = actors.len() % 352;
         let tail = &actors[actors.len() - remainder..];
         ensure!(
@@ -1389,7 +1393,7 @@ impl<'a> NativeBank<'a> {
                         let prefix = format!("ef{:02}", argument - 250);
                         let mut first = true;
                         for (bone, name) in bones.iter().enumerate() {
-                            if name.starts_with(&prefix) {
+                            if name.to_ascii_lowercase().starts_with(&prefix) {
                                 ensure!(
                                     (1..128).contains(&bone),
                                     "effect origin group bone is out of range"
@@ -1601,6 +1605,29 @@ pub(crate) fn name_programs(
         }
     }
     Ok((names, templates))
+}
+
+/// Compile canonical effect records into the same editable bank used by GC.
+/// Asset owners bind their palette sets before equal declarations are interned.
+pub fn decode_effect_bank(
+    bytes: &[u8],
+    bones: &[String],
+    bind: impl FnMut(u8, &mut Declaration) -> Result<()>,
+) -> Result<Definition> {
+    let bank = NativeBank::read(bytes)?;
+    let mut programs = (0..bank.program_count())
+        .map(|index| {
+            bank.grouped_program(index, bones)
+                .with_context(|| format!("effect program {index}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let (template_names, templates) = name_programs(&bank, &mut programs, &[], bind)?;
+    Ok(Definition {
+        programs,
+        template_names,
+        templates,
+        artwork: None,
+    })
 }
 
 pub fn cook_common_effects(root: &Path, library: &Path) -> Result<()> {
