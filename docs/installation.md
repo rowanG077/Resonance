@@ -101,9 +101,18 @@ For more details, see the
 [editing guide](https://github.com/rowanG077/Resonance/blob/main/docs/editable-content.md)
 and [project README](https://github.com/rowanG077/Resonance#readme).
 
+## Logs and crash reports
+
+After a crash, ZIP and send the entire matching `logs/session-TIMESTAMP-PID/` folder in your launch directory.
+If that directory is unwritable, look under `logs` in the default per-user save location listed above (regardless of `--save-directory`).
+The folder contains logs, build identification, recent game context, text reports and any native crash dump; older sessions are pruned automatically.
+Nothing is uploaded automatically; review reports before sharing, since dumps may contain private process memory.
+Use `--no-crash-dumps` to disable native dumps while keeping text reports. Maintainers: see [crash debugging](https://github.com/rowanG077/Resonance/blob/main/docs/crash-debugging.md).
+
 ## Verify downloads
 
-The release includes `SHA256SUMS` with SHA-256 hashes for all four archives.
+The release includes `SHA256SUMS` with SHA-256 hashes for the four game archives
+and four matching symbols archives.
 On Linux run `sha256sum --ignore-missing -c SHA256SUMS`. On macOS run
 `shasum -a 256 /path/to/archive.tar.gz` and compare its hash with the listed one.
 On Windows run `Get-FileHash .\resonance-vX.X.X-windows-x64.zip -Algorithm SHA256`

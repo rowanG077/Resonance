@@ -73,7 +73,8 @@ After all builds pass, CI creates tag `vX.X.X` at the tested release-branch comm
 and creates a GitHub release. For release PRs, checkout, testing, packaging and
 tagging all use the PR head commit; GitHub's temporary merge commit is never
 published. CI attaches a Windows ZIP, three Unix
-`.tar.gz` archives, `README.md` and `SHA256SUMS`. The installation guide is both
+`.tar.gz` archives, a matching `-symbols` archive for each platform, `README.md`
+and `SHA256SUMS`. The installation guide is both
 the release body and the README inside every archive. CI artifacts remain
 available for 14 days; published GitHub release assets persist.
 
@@ -93,3 +94,6 @@ new version branch rather than moving a published tag.
 Pushes to `main`, ordinary PRs, fork PRs and manual workflow runs only run tests
 and upload diagnostics. To retry publication, use **Re-run failed jobs** on the
 release PR workflow, or on the release push workflow if there is no open PR.
+
+Keep each release's `-symbols` archives for [debugging user crashes](crash-debugging.md).
+CI verifies source resolution against the packaged executables before publication.
