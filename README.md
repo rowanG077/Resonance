@@ -77,12 +77,14 @@ Fullscreen waits until the window's monitor is known. On Wayland it uses desktop
 fullscreen, since exclusive video-mode switching is unavailable.
 
 Customize → Graphics Backend lists the native backends detected on the current
-GPU: DirectX 12 and Vulkan on Windows, Metal on macOS, and Vulkan on Linux where
-available. Automatic prefers DirectX 12 on Windows. Enter opens the list;
+GPU, including OpenGL where supported. Automatic prefers DirectX 12 on Windows,
+Metal on macOS and Vulkan on Linux. Enter opens the list;
 Up/Down highlights a backend and Enter selects it. Changes save when you exit
 Customize and take effect after restarting the game. The menu shows the backend
 currently running.
 `WGPU_BACKEND` takes precedence over the saved setting for troubleshooting.
+OpenGL needs an EGL loader; `WGPU_BACKEND=gl` forces it. Unsupported MSAA and
+SMAA S2x settings fall back to SMAA Ultra on OpenGL.
 
 Customize → Anti-Aliasing offers one selector: Off, SMAA Low/Medium/High/Ultra,
 supported 2×/4×/8× MSAA, and SMAA S2x (requires 2× MSAA support).

@@ -5,13 +5,9 @@ use bevy::{
     camera::{CameraOutputMode, RenderTarget},
     core_pipeline::tonemapping::Tonemapping,
     render::{
-        RenderPlugin,
-        pipelined_rendering::PipelinedRenderingPlugin,
         renderer::RenderAdapter,
-        settings::{Backends, RenderCreation, WgpuSettings, WgpuSettingsPriority},
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
-    window::ExitCondition,
 };
 
 const DEPTH_SHADER: &str = r#"
@@ -118,35 +114,10 @@ fn fill_depth(
 #[ignore = "requires a GPU; tests captured-scene mesh depth coverage with every supported AA mode"]
 fn captured_meshes_obey_per_sample_depth_in_every_aa_mode() -> anyhow::Result<()> {
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                    backends: Some(if cfg!(target_os = "macos") {
-                        Backends::METAL
-                    } else if cfg!(target_os = "windows") {
-                        Backends::DX12
-                    } else {
-                        Backends::VULKAN
-                    }),
-                    priority: WgpuSettingsPriority::WebGPU,
-                    ..default()
-                })),
-                synchronous_pipeline_compilation: true,
-                ..default()
-            })
-            .disable::<PipelinedRenderingPlugin>()
-            .disable::<bevy::winit::WinitPlugin>()
-            .disable::<bevy::gilrs::GilrsPlugin>(),
-    )
-    .add_plugins(AntiAliasingPlugin)
-    .init_resource::<crate::field_audit::Applied>()
-    .init_resource::<Captures>();
+    app.add_plugins(crate::test_support::render_plugins())
+        .add_plugins(AntiAliasingPlugin)
+        .init_resource::<crate::field_audit::Applied>()
+        .init_resource::<Captures>();
     crate::materials::embed_effect_color(&mut app);
     install(&mut app);
     let shader = app

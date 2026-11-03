@@ -2,6 +2,7 @@
 
 import argparse
 from bisect import bisect_left
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import tarfile
+import time
 import zipfile
 
 from package_release import strip_executable
@@ -239,6 +241,27 @@ def verify_analysis(output):
     print(f"{module[1]} {module[2]} crashes resolved with portable symbols on {sys.platform}; evidence: {output}")
 
 
+@contextmanager
+def temporary_installation(binary, output):
+    """Copy an executable and allow its Windows crash monitor to exit before cleanup."""
+    temporary = tempfile.TemporaryDirectory(dir=output)
+    try:
+        installed = Path(temporary.name) / binary.name
+        shutil.copy2(binary, installed)
+        yield installed
+    finally:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                temporary.cleanup()
+                break
+            except PermissionError:
+                # Windows keeps the executable locked until the monitor exits.
+                if sys.platform != "win32" or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
+
+
 def verify(output, binary=None, symbols=None, runner=None):
     """Collect real application crashes, then verify the portable analysis path."""
     output = output.resolve()
@@ -263,9 +286,7 @@ def verify(output, binary=None, symbols=None, runner=None):
     if build_distribution:
         # Keep native debug data outside the disposable user installation.
         # PR smoke checks use the same stripping/signing as release packaging.
-        with tempfile.TemporaryDirectory(dir=output) as temporary:
-            installed = Path(temporary) / binary.name
-            shutil.copy2(binary, installed)
+        with temporary_installation(binary, output) as installed:
             host = "windows-x64" if binary.suffix.lower() == ".exe" else (
                 "macos-arm64" if sys.platform == "darwin" else "linux")
             strip_executable(installed, host)
@@ -275,12 +296,10 @@ def verify(output, binary=None, symbols=None, runner=None):
     if binary.suffix.lower() == ".exe" or sys.platform.startswith("linux"):
         modes.append(("stack-overflow", "overflow-session", "overflow.stderr"))
     for mode, destination, stderr in modes:
-        with tempfile.TemporaryDirectory(dir=output) as temporary:
+        with temporary_installation(binary, output) as installed:
             # No adjacent PDB, dSYM or developer executable. This is also the
             # self-contained fixture consumed by the Linux analysis CI job.
-            root = Path(temporary)
-            installed = root / binary.name
-            shutil.copy2(binary, installed)
+            root = installed.parent
             session = crash(installed, root / "reports", mode, output / stderr, runner=runner)
             destination = output / destination
             if destination.exists():

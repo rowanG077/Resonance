@@ -19,6 +19,8 @@ pub enum GraphicsBackend {
     Dx12,
     Vulkan,
     Metal,
+    #[serde(rename = "opengl")]
+    OpenGl,
 }
 impl GraphicsBackend {
     pub fn label(self) -> &'static str {
@@ -27,6 +29,7 @@ impl GraphicsBackend {
             Self::Dx12 => "DirectX 12",
             Self::Vulkan => "Vulkan",
             Self::Metal => "Metal",
+            Self::OpenGl => "OpenGL",
         }
     }
 }

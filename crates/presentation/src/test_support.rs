@@ -167,3 +167,44 @@ pub(crate) fn validate_shader(
     .map_err(|error| ShaderCacheError::ProcessShaderError(error.emit_to_string(&source)))?;
     Ok(())
 }
+
+/// Headless native renderer shared by GPU tests; WGPU_BACKEND may select OpenGL.
+pub(crate) fn render_plugins() -> bevy::app::PluginGroupBuilder {
+    use bevy::{
+        prelude::*,
+        render::{
+            RenderPlugin,
+            settings::{Backends, WgpuSettings, WgpuSettingsPriority},
+        },
+    };
+    let backends = (if cfg!(target_os = "macos") {
+        Backends::METAL
+    } else if cfg!(target_os = "windows") {
+        Backends::DX12
+    } else {
+        Backends::VULKAN
+    })
+    .with_env();
+    crate::renderer::native_render_plugins(RenderPlugin {
+        render_creation: WgpuSettings {
+            backends: Some(backends),
+            priority: if backends.contains(Backends::GL) {
+                WgpuSettingsPriority::Functionality
+            } else {
+                WgpuSettingsPriority::WebGPU
+            },
+            ..default()
+        }
+        .into(),
+        synchronous_pipeline_compilation: true,
+        ..default()
+    })
+    .set(WindowPlugin {
+        primary_window: None,
+        exit_condition: bevy::window::ExitCondition::DontExit,
+        ..default()
+    })
+    .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
+    .disable::<bevy::winit::WinitPlugin>()
+    .disable::<bevy::gilrs::GilrsPlugin>()
+}

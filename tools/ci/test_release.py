@@ -12,7 +12,7 @@ import zipfile
 from unittest.mock import patch
 
 from package_release import EXECUTABLES, PLATFORMS, ROOT, package, package_symbols, strip_executable
-from crash_symbols import analyze, check_crash_frame, check_debug_id, crash, source_range, symbolize_text, verify_analysis, verify_archives
+from crash_symbols import analyze, check_crash_frame, check_debug_id, crash, source_range, symbolize_text, temporary_installation, verify_analysis, verify_archives
 
 
 class ArchiveTests(unittest.TestCase):
@@ -344,6 +344,39 @@ class ArchiveTests(unittest.TestCase):
                 self.assertEqual(crash(binary, root, "access-violation", root / "stderr", runner=runner), session)
                 self.assertEqual(run.call_args.args[0],
                                  [str(runner), str(binary), "--crash-self-test", str(root), "access-violation"])
+
+    def test_windows_installation_cleanup_retries_locks_but_still_times_out(self):
+        remove = tempfile.TemporaryDirectory.cleanup
+        for permanent in (False, True):
+            with self.subTest(permanent=permanent), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                binary = root / "resonance.exe"
+                binary.write_bytes(b"executable")
+                attempts = []
+
+                def cleanup(directory):
+                    attempts.append(directory)
+                    if permanent or len(attempts) == 1:
+                        raise PermissionError("crash monitor still running")
+                    remove(directory)
+
+                with patch("crash_symbols.sys.platform", "win32"), \
+                     patch("crash_symbols.tempfile.TemporaryDirectory.cleanup", new=cleanup), \
+                     patch("crash_symbols.time.monotonic", side_effect=[0, 1, 6]), \
+                     patch("crash_symbols.time.sleep") as sleep:
+                    def install():
+                        with temporary_installation(binary, root) as installed:
+                            self.assertEqual(installed.read_bytes(), b"executable")
+                        self.assertFalse(installed.parent.exists())
+
+                    if permanent:
+                        with self.assertRaises(PermissionError):
+                            install()
+                    else:
+                        install()
+                    self.assertEqual(len(attempts), 2)
+                    sleep.assert_called_once_with(0.05)
+                attempts[-1].cleanup()
 
 
 # A stateful GitHub CLI stand-in lets us verify exact commits, retries and the
