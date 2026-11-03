@@ -48,6 +48,7 @@ pub(crate) fn cook(
         part
     };
     style_outline(&mut outline);
+    style_body(&mut body);
     parts.extend([body, outline]);
     let mut collision = ModelCollision::default();
     if let Some(package) = &package {
@@ -149,6 +150,14 @@ fn cook_clips(
         });
     }
     Ok(())
+}
+
+pub(crate) fn style_body(part: &mut ScenePart) {
+    // The GC body pass writes depth even when feather or wing edges blend.
+    // Otherwise the later backface outline shell covers the shaded surface.
+    for material in &mut part.materials {
+        material.depth_write = true;
+    }
 }
 
 pub(crate) fn style_outline(part: &mut ScenePart) {

@@ -70,7 +70,7 @@ pub(crate) fn cook(
     owner: &str,
     motions: &[(u16, String)],
 ) -> Result<(ModelPreview, model::Model)> {
-    let (body, native) = part(source, library, bodies[0], owner, "body", motions)?;
+    let (mut body, native) = part(source, library, bodies[0], owner, "body", motions)?;
     let mut outline = if bodies[1].is_empty() {
         let mut part = body.clone();
         part.mesh = format!("{owner}/meshes/outline.glb");
@@ -80,6 +80,7 @@ pub(crate) fn cook(
         part(source, library, bodies[1], owner, "outline", motions)?.0
     };
     actor_model::style_outline(&mut outline);
+    actor_model::style_body(&mut body);
     let hidden_geometry = native
         .rig
         .nodes

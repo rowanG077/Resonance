@@ -47,6 +47,14 @@ fn check_enemy_battle_motions(source: &source::Source, root: &Path) -> Result<()
         let path = format!("meshes/monsters/{}/model.json", monsters::symbol(id));
         let mut preview: ModelPreview = json(root, &path)?;
         preview.validate_definition()?;
+        ensure!(
+            preview.parts[0]
+                .scene
+                .materials
+                .iter()
+                .all(|material| material.depth_write),
+            "enemy {id} body must occlude its backface outline, including blended feather/wing edges"
+        );
         let count = (pe::word(&bytes, 0x14)? as usize).max(31);
         let expected = (0..count)
             .filter_map(|slot| {
@@ -94,7 +102,7 @@ fn check_enemy_battle_motions(source: &source::Source, root: &Path) -> Result<()
             .count();
         // Exercise initial enemies, carried/secondary bodies, a cameo rig and the
         // added final boss through the same reader used by the model viewer.
-        if [0, 58, 105, 202, 211, 219, 242, 256].contains(&id) {
+        if [0, 58, 105, 122, 202, 205, 206, 207, 211, 219, 242, 256].contains(&id) {
             document::prepare(&mut preview, |path| Ok(fs::read(root.join(path))?.into()))?;
             for part in &preview.parts {
                 for clip in &part.scene.clips {
