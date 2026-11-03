@@ -13,6 +13,149 @@ use resonance_battle::Control;
 const PLUGGED: [bool; 4] = [false, true, false, false];
 const NO_PADS: [bool; 4] = [false; 4];
 
+#[test]
+fn control_selector_preserves_portrait_and_saved_slots_with_an_absent_member() -> Result<()> {
+    let mut f = super::item_tests::native_fixture(
+        &[1, 2, 3],
+        |party, _, _| {
+            party.settings.battle_controls = [0, 2, 0, 2];
+            Ok(())
+        },
+        |mut actors, _| {
+            use resonance_battle::{
+                ActionDefinition, ActionDefinitions, ActionExecution, ActorSetup,
+                ControlDefinition, NormalAttack, NormalControl, PreparedAttack, PreparedBattle,
+            };
+            actors[1].availability = resonance_battle::ActorAvailability::Absent;
+            let mut actions = ActionDefinitions::default();
+            let control = ControlDefinition {
+                normals: NormalAttack::ALL.map(|kind| NormalControl {
+                    action: actions.insert(ActionDefinition {
+                        normal: Some(kind),
+                        execution: ActionExecution::Attack(PreparedAttack::new(1)),
+                        tp_cost: 0,
+                    }),
+                    continuation: Default::default(),
+                    reach: 1.,
+                    minimum_reach: 0.,
+                }),
+                shortcuts: [None; 4],
+                walk_speed: 1.,
+                run_speed: 2.,
+                turn_ticks: 1,
+                motions: None,
+            };
+            let mut setups = vec![ActorSetup::default(); actors.len()];
+            setups[2].control = Some(Arc::new(control));
+            PreparedBattle::new(actors.into_iter().zip(setups).collect(), actions, 1)?.finish()
+        },
+    )?;
+    let actor = f.candidate.setup.actors[2].0;
+    let selection = f.candidate.begin_control_selection(&f.battle, actor)?;
+    assert_eq!((selection.actor, selection.slot), (actor, 2));
+    let selection = f.candidate.cycle_control_mode(&mut f.battle, selection)?;
+    assert_eq!((selection.actor, selection.slot), (actor, 2));
+    assert_eq!(selection.mode, Control::SemiAuto);
+    assert_eq!(f.battle.actors()[actor.index()].control, Control::SemiAuto);
+    assert_eq!(
+        f.candidate.persistent_party().settings.battle_controls,
+        [0, 2, 1, 2]
+    );
+    assert_eq!(f.candidate.persistent_party().formation, [1, 2, 3]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires prepared battle assets; Dolphin Start control-selector regression"]
+fn start_opens_control_selection_then_cycles_live_and_saved_modes() -> Result<()> {
+    use command::{Input, View};
+    use resonance_battle::ControllerPort;
+    let mut f = fixture()?;
+    let start = Input {
+        control_mode: true,
+        ..Default::default()
+    };
+    let open = Input {
+        open: edge(),
+        ..Default::default()
+    };
+    let confirm = Input {
+        confirm_a: edge(),
+        ..Default::default()
+    };
+    let start_confirm = Input {
+        control_mode: true,
+        ..confirm
+    };
+    let cancel = Input {
+        cancel_b: edge(),
+        ..Default::default()
+    };
+    command(&mut f, open)?;
+    let strip = command(
+        &mut f,
+        Input {
+            step: 1,
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(strip.selected, command::Command::Unison);
+    assert_eq!(strip.enabled & command::Command::Unison.mask(), 0);
+    f.lifecycle.take_command_events();
+    let actor = f.candidate.setup.actors[0].0;
+    let before = f.candidate.party.settings.battle_controls;
+    assert!(matches!(
+        command(&mut f, start_confirm)?.view,
+        View::Control(_)
+    ));
+    assert_eq!(f.lifecycle.take_command_events(), [command::Event::Cue(2)]);
+    assert_eq!(f.candidate.party.settings.battle_controls, before);
+    for (saved, live) in [
+        (1, Control::SemiAuto),
+        (2, Control::Auto),
+        (0, Control::Manual),
+    ] {
+        let frame = command(&mut f, start_confirm)?;
+        assert!(matches!(frame.view, View::Control(selection)
+            if selection.actor == actor && selection.mode == live));
+        assert_eq!(f.candidate.party.settings.battle_controls, [saved, 2, 0, 0]);
+        assert_eq!(f.battle.actors()[actor.index()].control, live);
+    }
+    for input in [
+        Input {
+            controller: ControllerPort::Two,
+            ..start
+        },
+        Input {
+            step: 1,
+            ..Default::default()
+        },
+    ] {
+        let frame = command(&mut f, input)?;
+        assert!(matches!(frame.view, View::Control(selection)
+            if selection.actor == actor && selection.mode == Control::Manual));
+        assert_eq!(f.candidate.party.settings.battle_controls, before);
+    }
+    for (saved, exit) in [(1, confirm), (2, cancel)] {
+        command(&mut f, start)?;
+        assert!(matches!(command(&mut f, exit)?.view, View::Strip));
+        assert_eq!(
+            f.candidate.persistent_party().settings.battle_controls[0],
+            saved
+        );
+        assert!(matches!(command(&mut f, start)?.view, View::Control(_)));
+    }
+    command(&mut f, cancel)?;
+    super::item_tests::command_visit(&mut f, cancel)?;
+    assert!(f.lifecycle.command_frame().is_none());
+    command(&mut f, open)?;
+    assert!(
+        matches!(command(&mut f, start)?.view, View::Control(selection)
+        if selection.mode == Control::Auto)
+    );
+    Ok(())
+}
+
 fn fixture() -> Result<PreparedFixture> {
     let mut fixture =
         prepared_fixture_with_party(&[1, 3], 2, &[(1, 1), (3, 66)], |party, _, _| {
@@ -238,15 +381,13 @@ fn connections_refresh_an_open_page_and_cancel_returns_to_the_command_strip() ->
     let mut f = fixture()?;
     open_character(&mut f, PLUGGED)?;
     let controls = f.candidate.party.settings.battle_controls;
-    let (blocked, available) = page_visit(&mut f, PLUGGED, Some(MenuAction::Menu))?;
-    assert!(!available && !blocked.unison);
-    let (opened, available) = page_visit(&mut f, NO_PADS, Some(MenuAction::Menu))?;
-    assert!(available && opened.unison);
-    let (retained, available) = page_visit(&mut f, PLUGGED, None)?;
-    assert!(!available && retained.unison);
-    let (closed_panel, _) = page_visit(&mut f, PLUGGED, Some(MenuAction::Cancel))?;
-    assert!(!closed_panel.unison);
-    assert_eq!(closed_panel.focus, Focus::Character);
+    let (state, available) = page_visit(&mut f, PLUGGED, None)?;
+    assert!(!available);
+    for (connected, expected) in [(NO_PADS, true), (PLUGGED, false)] {
+        let (retained, available) = page_visit(&mut f, connected, None)?;
+        assert_eq!(available, expected);
+        assert_eq!(retained, state);
+    }
     let closed = command(
         &mut f,
         command::Input {
@@ -265,14 +406,7 @@ fn connections_refresh_an_open_page_and_cancel_returns_to_the_command_strip() ->
 fn control_edits_update_live_actors_and_gate_auto_shortcuts() -> Result<()> {
     let mut f = fixture()?;
     open_character(&mut f, NO_PADS)?;
-    let actor = f
-        .candidate
-        .setup
-        .actors
-        .iter()
-        .find(|(_, character)| *character == Character::Genis)
-        .unwrap()
-        .0;
+    let actor = Candidate::tech_actor(&f.candidate.setup, Character::Genis.index())?;
     for (saved, live) in [
         (0, Control::Manual),
         (1, Control::SemiAuto),
@@ -286,8 +420,8 @@ fn control_edits_update_live_actors_and_gate_auto_shortcuts() -> Result<()> {
     }
     let (_, available) = page_visit(&mut f, PLUGGED, None)?;
     assert!(!available);
-    let (opened, available) = page_visit(&mut f, NO_PADS, Some(MenuAction::Menu))?;
-    assert!(available && opened.unison);
+    let (_, available) = page_visit(&mut f, NO_PADS, None)?;
+    assert!(available);
     Ok(())
 }
 

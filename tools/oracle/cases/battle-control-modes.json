@@ -1,0 +1,17 @@
+{
+  "game_id": "GQSEAF",
+  "polls": 5000,
+  "rtc": 1700000000,
+  "inputs": [
+    {"poll": 600, "duration": 4, "buttons": ["y"]},
+    {"poll": 840, "duration": 4, "buttons": ["start"]},
+    {"poll": 1080, "duration": 4, "buttons": ["right"]},
+    {"poll": 1320, "duration": 4, "buttons": ["start"]},
+    {"poll": 1560, "duration": 4, "buttons": ["left"]},
+    {"poll": 1800, "duration": 4, "buttons": ["start"]},
+    {"poll": 2040, "duration": 4, "buttons": ["a"]},
+    {"poll": 2280, "duration": 4, "buttons": ["start"]},
+    {"poll": 2520, "duration": 4, "buttons": ["down"]},
+    {"poll": 2760, "duration": 4, "buttons": ["start"]}
+  ]
+}
