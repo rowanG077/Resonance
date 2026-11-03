@@ -2,6 +2,7 @@
 use super::*;
 use battle_scene::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
 mod angel;
+mod tetraspell;
 mod time_stop;
 use angel::{divine_judgment, grand_cross};
 
@@ -10,6 +11,9 @@ pub(super) fn read(
     id: u16,
     points: &[[f32; 3]],
 ) -> Result<Option<SpellRecipe>> {
+    if id == 298 {
+        return tetraspell::read(image).map(Some);
+    }
     if id == 271 {
         return grand_cross(image).map(Some);
     }

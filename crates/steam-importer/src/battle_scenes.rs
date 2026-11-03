@@ -1184,6 +1184,71 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    #[ignore = "requires native Steam and current library; cooks only Tetraspell298"]
+    fn installed_tetraspell_publishes_its_native_five_contact_recipe() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let owner = "battle/scenes/tetraspell-0298";
+        cook_one(
+            &source,
+            &root,
+            &image,
+            &effect_atlas::Directory::read(&image)?,
+            &effect_atlas::residents(&source, &image)?,
+            298,
+            owner,
+        )?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let (scene, bank) = document::capture(
+            &mut library.snapshot(),
+            document::Kind::Technique,
+            298,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            &|| false,
+        )?;
+        ensure!(
+            scene.effects == format!("{owner}/effects.json"),
+            "Tetraspell lost its own artwork bank"
+        );
+        ensure!(scene.duration == 316, "Tetraspell native lifetime changed");
+        let battle_scene::SpellRecipe::FixedPattern(pattern) = scene
+            .spell_recipe
+            .as_ref()
+            .context("Tetraspell has no recipe")?;
+        ensure!(
+            pattern.lifetime == 316 && pattern.opponent_stop_ticks == 316,
+            "Tetraspell lost its native lifetime or opponent stop"
+        );
+        ensure!(
+            pattern
+                .contacts
+                .iter()
+                .map(|row| (row.tick, row.projectile, row.hit_variant))
+                .collect::<Vec<_>>()
+                == [
+                    (16, 1, 0),
+                    (80, 2, 1),
+                    (150, 3, 2),
+                    (160, 1, 0),
+                    (220, 4, 3)
+                ],
+            "Tetraspell contacts were aliased or retimed"
+        );
+        pattern.validate()?;
+        scene.spell_recipe.as_ref().unwrap().validate(&scene)?;
+        bank.program(1)?;
+        Ok(())
+    }
     #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks four dynamic scene owners"]
     fn installed_dynamic_scenes_keep_fairy_paths_and_live_sacred_light() -> Result<()> {

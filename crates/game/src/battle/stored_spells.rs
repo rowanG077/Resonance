@@ -9,7 +9,8 @@ pub const ANGEL_FEATHERS: u16 = 56;
 pub const ERUPTION: u16 = 67;
 pub const STALAGMITE: u16 = 75;
 pub const GRAVE: u16 = 77;
-pub const SCENES: [(u16, u16); 40] = [
+pub const SCENES: [(u16, u16); 41] = [
+    (97, 298),
     (227, 266),
     (60, 271),
     (144, 281),

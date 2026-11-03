@@ -112,6 +112,9 @@ pub(super) fn bind(image: &pe::Image<'_>, id: u16, rules: &mut Definition) -> Re
         let style = styles.get(&280).context("missing shared finisher style")?;
         rules.stage_color = Some(style.stage_color);
         rules.camera = Some(style.camera);
+        if id == 298 {
+            rules.duration = pe::word(image.slice(0x41a356, 4)?, 0)?.try_into()?;
+        }
     }
     rules.strike_points = if id >= 300 {
         unison_points::read(image, id)?

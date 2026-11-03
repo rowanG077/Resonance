@@ -17,6 +17,38 @@ const ENCOUNTER_COMPLETION_BUDGET: u32 = 600;
 const SPELL_COMPLETION_BUDGET: u32 = 1000;
 
 #[test]
+#[ignore = "requires current Steam Tetraspell publication; prepares only Mithos's actual encounter"]
+fn mithos_native_tetraspell_prepares_its_own_scene_package() -> Result<()> {
+    let fixture = prepare(79, false)?;
+    let owner = fixture
+        .prepared
+        .results
+        .enemies
+        .iter()
+        .find(|enemy| enemy.reward.monster == 239)
+        .context("Mithos is absent from its actual encounter")?
+        .actor;
+    let choices = fixture
+        .prepared
+        .core
+        .enemy_choices(owner)
+        .context("Mithos choices were not prepared")?;
+    ensure!(
+        choices.get(22).is_some(),
+        "Mithos's Tetraspell row22 is absent"
+    );
+    ensure!(
+        fixture.prepared.effects.iter().any(|effect| effect
+            .source
+            .document
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/tetraspell-0298/effects.json"))),
+        "Tetraspell must keep its own native298 artwork"
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires current Steam publications at RESONANCE_TEST_ASSETS; prepares only Abyssion's encounter"]
 fn abyssion_native_divine_power_prepares_its_own_scene_package() -> Result<()> {
     let fixture = prepare(86, false)?;
