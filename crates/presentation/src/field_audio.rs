@@ -1907,7 +1907,11 @@ mod tests {
             } else {
                 let loaded = result?;
                 assert!(loaded.recordings.is_empty());
-                assert_eq!(loaded.sounds.keys().copied().collect::<Vec<_>>(), [3]);
+                assert!(loaded.sounds.contains_key(&3));
+                assert_eq!(
+                    loaded.sounds.len(),
+                    1 + resonance_content::field_audio::FOOTSTEP_EFFECTS.len()
+                );
                 assert_eq!(loaded.voices.len(), 2);
             }
             assert!(diagnostics.has_errors());

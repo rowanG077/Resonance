@@ -47,6 +47,7 @@ impl GameWorld {
             .get_mut(&self.controlled_actor)
             .context("controlled actor is missing")?;
         let mut actor = Actor::new(resource, previous.position);
+        actor.interaction_disabled = true;
         actor.autonomy = Some(crate::Autonomy::new(crate::Behavior::Player, 0., [0.; 3]));
         // Model initialization evaluates its default clip before the first
         // activity selection; a later idle handler may choose the event pose.
