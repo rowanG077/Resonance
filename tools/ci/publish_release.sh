@@ -18,7 +18,8 @@ assets=(
   "target/dist/resonance-$VERSION-linux-x64-symbols.tar.gz"
   "target/dist/resonance-$VERSION-linux-arm64-symbols.tar.gz"
 )
-for asset in "${assets[@]}" docs/installation.md; do
+notes="changelog/releases/$VERSION.md"
+for asset in "${assets[@]}" docs/installation.md "$notes"; do
   [[ -s "$asset" ]] || { echo "Missing release input: $asset" >&2; exit 1; }
 done
 
@@ -45,7 +46,7 @@ if [[ "$draft" == false ]]; then
 fi
 if [[ -z "$draft" ]]; then
   gh release create "$VERSION" --verify-tag --draft \
-    --title "Resonance $VERSION" --notes-file docs/installation.md
+    --title "Resonance $VERSION" --notes-file "$notes"
 fi
 
 cp docs/installation.md target/dist/README.md
@@ -54,4 +55,4 @@ cp docs/installation.md target/dist/README.md
   sha256sum "${assets[@]#target/dist/}" > SHA256SUMS
 )
 gh release upload "$VERSION" "${assets[@]}" target/dist/README.md target/dist/SHA256SUMS --clobber
-gh release edit "$VERSION" --draft=false
+gh release edit "$VERSION" --notes-file "$notes" --draft=false

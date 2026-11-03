@@ -7,6 +7,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish a release branch after preparing its changelog
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,12 +46,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/ci/plan_workflow.py
 
+  changelog:
+    name: Consolidate release changelog
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    outputs:
+      commit: ${{ steps.notes.outputs.commit }}
+      changed: ${{ steps.notes.outputs.changed }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: true
+
+      - name: Install pinned changelog tool
+        run: |
+          python3 -m venv target/qlog
+          QLOG_REV=$(python3 -c 'import json; print(json.load(open("flake.lock"))["nodes"]["qlog"]["locked"]["rev"])')
+          target/qlog/bin/pip install "git+https://github.com/qbaylogic/qlog.git@$QLOG_REV"
+          echo "$PWD/target/qlog/bin" >> "$GITHUB_PATH"
+
+      - name: Consolidate and commit notes
+        id: notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: python3 tools/ci/prepare_changelog.py --version "$VERSION" --branch "$RELEASE_BRANCH" --commit "$RELEASE_COMMIT"
+
+      - name: Run CI for the changelog commit
+        if: steps.notes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: gh workflow run build.yml --ref "$RELEASE_BRANCH" -f publish_release=true
+
   test:
     name: ${{ matrix.platform }}
-    needs: prepare
-    if: needs.prepare.outputs.run_tests == 'true'
+    needs: [prepare, changelog]
+    if: >-
+      ${{ !cancelled() && needs.prepare.outputs.run_tests == 'true' &&
+          (needs.changelog.result == 'success' || needs.changelog.result == 'skipped') &&
+          needs.changelog.outputs.changed != 'true' }}
     concurrency:
-      group: test-${{ matrix.platform }}-${{ needs.prepare.outputs.commit }}
+      group: test-${{ matrix.platform }}-${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
       cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
@@ -81,7 +130,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Install Linux dependencies
@@ -175,7 +224,7 @@ jobs:
       - name: Package executables and debugging symbols
         if: needs.prepare.outputs.publish == 'true'
         env:
-          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_COMMIT: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
         run: |
@@ -213,14 +262,15 @@ jobs:
 
   analyze-crashes:
     name: Analyze every platform's crashes on Linux
-    needs: [prepare, test]
+    needs: [prepare, changelog, test]
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Download crash fixtures and portable symbols
@@ -242,7 +292,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: [prepare, test, analyze-crashes]
+    needs: [prepare, changelog, test, analyze-crashes]
     if: >-
       needs.prepare.outputs.publish == 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -254,7 +304,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Download tested executable archives
@@ -270,6 +320,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_COMMIT: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: bash tools/ci/publish_release.sh

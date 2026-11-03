@@ -70,6 +70,15 @@ class WorkflowPlanTests(unittest.TestCase):
             with self.subTest(branch=branch), self.assertRaises(ValueError):
                 plan("push", f"refs/heads/{branch}", HEAD, REPOSITORY, {})
 
+    def test_explicit_dispatch_publishes_only_a_release_branch(self):
+        for branch, expected in [("release/v0.2.0", True), ("main", False), ("rowan/logging", False)]:
+            with self.subTest(branch=branch):
+                result = plan("workflow_dispatch", f"refs/heads/{branch}", HEAD,
+                              REPOSITORY, {}, publish_release=True)
+                self.assertTrue(result["run_tests"])
+                self.assertEqual(result["publish"], expected)
+                self.assertEqual(result["commit"], HEAD)
+
 
 if __name__ == "__main__":
     unittest.main()
