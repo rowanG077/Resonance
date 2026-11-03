@@ -389,10 +389,9 @@ impl Battle {
             || walking
                 && approach.retreating
                 && gap > approach.parameters.minimum - self.actors[index].movement.forward;
-        let airborne_selection = entry_pending
-            && in_range
-            && self.actors[index].airborne()
-            && !self.actors[index].movement.flying;
+        let airborne_momentum =
+            self.actors[index].airborne() && !self.actors[index].movement.flying;
+        let airborne_selection = entry_pending && in_range && airborne_momentum;
         let direction =
             if enemy && !approach.retreating && (!approach.range_required || airborne_selection) {
                 self.actors[index].movement.direction
@@ -435,7 +434,9 @@ impl Battle {
             }
             let normal_momentum = self.actors[index].control == crate::Control::Auto
                 && self.prepared.actions[approach.action].normal.is_some();
-            if !enemy && !normal_momentum {
+            // Jump commands carry their flight speed into the action. Authored
+            // movement events may replace it once the attack starts.
+            if !enemy && !normal_momentum && !airborne_momentum {
                 self.actors[index].movement.forward = 0.;
             }
             if enemy && approach.retreating {
@@ -517,10 +518,13 @@ impl Battle {
                 self.runtime[index].combo = Default::default();
             }
             self.start_admitted_action(request, cues)?;
+            // The preceding selection visit already held flight once. Resume
+            // it on admission, just as the airborne action callback does.
             return Ok(matches!(
                 self.prepared.actions[request.action].execution,
                 crate::ActionExecution::Attack(_)
-            ) && !self.enemy_physical_arte(actor, request.action));
+            ) && !self.enemy_physical_arte(actor, request.action)
+                && !(self.actors[index].side == crate::Side::Party && airborne_momentum));
         }
         if !walking {
             self.move_approach(actor, approach, gap)?;

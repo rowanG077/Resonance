@@ -172,6 +172,21 @@ fn approach_enters_range_and_commits_payment_and_learning_once() -> Result<()> {
 }
 
 #[test]
+fn grounded_party_approach_still_stops_before_an_arte() -> Result<()> {
+    for control in [Control::Manual, Control::SemiAuto, Control::Auto] {
+        let mut battle = controlled_fixture(100., 0., 200., control);
+        battle.actors[0].movement.forward = 7.;
+        for _ in 0..4 {
+            step(&mut battle)?;
+            assert_eq!(battle.actors[0].movement.forward, 0., "{control:?}");
+            assert_eq!(battle.actors[0].position[0], 0.);
+        }
+        assert_eq!(battle.activity(ActorId(0)), Activity::Action);
+    }
+    Ok(())
+}
+
+#[test]
 fn minimum_range_retreats_and_then_attacks() -> Result<()> {
     for (control, minimum, maximum) in [
         (Control::Auto, 100., 150.),

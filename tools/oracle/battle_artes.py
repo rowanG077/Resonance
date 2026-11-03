@@ -352,7 +352,7 @@ def run(output, disc):
 
 
 def batch(args, manifest):
-    """Reuse one paused worker; every case still has its own input and receipt."""
+    """Reuse paused workers for identical movies, retaining a receipt per case."""
     output = args.output.resolve()
     if not output.is_relative_to(Path("local/battle-capture-work").resolve()):
         raise ValueError("batch output must be under local/battle-capture-work")
@@ -364,8 +364,21 @@ def batch(args, manifest):
             raise ValueError(f"{key}: {manifest['pending_setups'][reason]}")
     output.mkdir(parents=True, exist_ok=False)
     worker = None
+    worker_movie = None
+    worker_results = []
     results = []
     report = {"complete": False, "worker_closed": False, "cases": results}
+
+    def close_worker():
+        nonlocal worker
+        if worker is not None:
+            closing, worker = worker, None
+            closing.close(complete=bool(worker_results) and all(result["complete"] for result in worker_results))
+            for result in worker_results:
+                result["worker_closed"] = True
+                write(output / result["case"].replace(":", "-") / "outcome.json", result)
+            report["worker_closed"] = True
+
     try:
         for key in args.case:
             case_output = output / key.replace(":", "-")
@@ -376,21 +389,28 @@ def batch(args, manifest):
             else:
                 prepare_case(prepare_args, manifest)
             record = read(case_output / "fixture.json")
+            if worker is not None and record["movie_sha256"] != worker_movie:
+                close_worker()
             if worker is None:
                 marker = record["fixture"]["marker_address"]
+                worker_output = output / f"worker-{len(results):03}"
+                report["worker_closed"] = False
                 worker = BattleFixture(str(args.disc), case_output / "input.dtm", case_output / "entry.s01",
-                                       output / "worker", marker, read(case_output / "locations.json"),
+                                       worker_output, marker, read(case_output / "locations.json"),
                                        disc_sha256=record["disc_sha256"])
+                worker_movie = record["movie_sha256"]
+                worker_results = []
             elif record["fixture"]["marker_address"] != marker:
                 raise ValueError("prepared case changed the shared marker address")
             outcome = {"case": key, "complete": False, "worker_closed": False,
-                       "resident_worker": str(output / "worker")}
+                       "resident_worker": str(worker_output)}
             try:
                 outcome.update(capture_case(worker, case_output, record))
             except Exception as error:
                 outcome["error"] = str(error)
             write(case_output / "outcome.json", outcome)
             results.append(outcome)
+            worker_results.append(outcome)
             print(json.dumps(outcome), flush=True)
             # A semantic failure is a retained result. A broken capture cannot
             # safely supply the next case's registered state, so stop the worker.
@@ -400,12 +420,10 @@ def batch(args, manifest):
     except Exception as error:
         report["error"] = str(error)
     finally:
-        if worker is not None:
-            worker.close(complete=report["complete"])
-            report["worker_closed"] = True
-            for result in results:
-                result["worker_closed"] = True
-                write(output / result["case"].replace(":", "-") / "outcome.json", result)
+        try:
+            close_worker()
+        except Exception as error:
+            report.update(complete=False, error=str(error))
         write(output / "outcome.json", report)
     return report
 

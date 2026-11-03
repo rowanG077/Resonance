@@ -9,7 +9,7 @@ import time
 import effect_workers
 from battle_state import inspect_battle
 from effect_fixture import prepare
-from state import State, digest
+from state import State, digest, inspect
 
 DTM_HEADER_BYTES = 256
 DTM_INPUT_BYTES = 8
@@ -39,6 +39,18 @@ FRAME_ADVANCE_PRESS_SECONDS = 0.1
 
 class _BattleValidationError(RuntimeError):
     pass
+
+
+def validate_replayed_inputs(requested, executed, first_poll, end_poll):
+    """Compare consumed controller data, excluding history and DTM metadata."""
+    start = DTM_HEADER_BYTES + first_poll * DTM_INPUT_BYTES
+    end = DTM_HEADER_BYTES + end_poll * DTM_INPUT_BYTES
+    if (first_poll < 0 or end_poll < first_poll
+            or end > len(requested) or end > len(executed)):
+        raise _BattleValidationError("replayed controller input is truncated or has invalid cursors")
+    if requested[start:end] != executed[start:end]:
+        raise _BattleValidationError(
+            "Dolphin executed different controller input; use a fresh worker for each distinct movie")
 
 
 class BattleFixture(effect_workers.DolphinFixture):
@@ -200,8 +212,28 @@ class BattleFixture(effect_workers.DolphinFixture):
         return self._capture(super().warmup, state, target, expected, count)
 
     def load(self, state):
+        requested = Path(str(state) + ".dtm").read_bytes()
+        cursor = inspect(State(state))["movie"]["input_count"]
+        # A read-only Dolphin movie retains its boot-time input buffer when
+        # loading another state. Reject a fork before accepting observations.
+        boot_movie = (self.output / "input.dtm").read_bytes()
+        requested_end = (len(requested) - DTM_HEADER_BYTES) // DTM_INPUT_BYTES
+        validate_replayed_inputs(requested, boot_movie, cursor, requested_end)
         super().load(state)
+        self._replay_input = (requested, cursor)
         self._step_loaded_state = (state, self.watcher.rows)
+
+    def snapshot(self, target):
+        super().snapshot(target)
+        replay = getattr(self, "_replay_input", None)
+        if replay is not None:
+            requested, first_poll = replay
+            end_poll = inspect(State(target))["movie"]["input_count"]
+            validate_replayed_inputs(requested, Path(str(target) + ".dtm").read_bytes(),
+                                     first_poll, end_poll)
+            self.metadata.setdefault("replay_inputs", []).append(dict(
+                snapshot=str(target), first_poll=first_poll, end_poll=end_poll,
+                consumed_controller_input_verified=True))
 
     def step(self):
         """Advance one presentation while retaining every emitted VI observation."""
