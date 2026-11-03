@@ -2202,12 +2202,13 @@ Sizes exceeding the GPU or saved-settings limits are omitted. Changing monitors
 refreshes the choices without changing the selected resolution automatically.
 The current valid custom config/CLI size remains selectable, so accepting it
 without navigation preserves the size and does not open another confirmation.
-`defaults.graphics_backend` is `automatic` (the default), `dx12`, `vulkan` or
-`metal`. The selector offers Automatic plus native backends detected on the active
-GPU with the renderer's required features and limits. OpenGL/ANGLE and software
-adapters on a different GPU are not offered. Automatic prefers DirectX 12 on
+`defaults.graphics_backend` is `automatic` (the default), `dx12`, `vulkan`,
+`metal` or `opengl`. The selector offers Automatic plus compatible backends
+detected on the active GPU with the renderer's required features and limits.
+Software adapters on a different GPU are not offered. Automatic prefers DirectX 12 on
 Windows, Metal on macOS and Vulkan on Linux; a missing saved backend falls back
-to an available native backend. Backend changes save when you exit Customize
+to an available backend, including OpenGL. OpenGL falls back from MSAA/S2x to
+SMAA Ultra. Backend changes save when you exit Customize
 and take effect after restarting the game. The menu shows the current
 backend and whether `WGPU_BACKEND` overrides the saved choice. Discovery preserves
 the saved preference even when it is unavailable on the current GPU. Existing libraries
@@ -2222,8 +2223,8 @@ The renderer uses spatial [SMAA](https://www.iryoku.com/smaa/) with real
 area/search lookup textures. All presets and S2x share one reconstruction pipeline. S2x preserves the two MSAA samples, calibrates
 hardware sample ordering, reconstructs each using its subpixel area tables,
 and averages the results in linear light. Edge detection uses encoded color; sRGB input reads are re-encoded for its thresholds.
-sRGB views decode filtering inputs and encode the reconstructed output for all SMAA modes, including
-when the scene stores encoded bytes in an unorm target. S2x runs before scene effects;
+SMAA decodes filtering inputs and encodes the reconstructed output, using sRGB views
+or explicit conversion on OpenGL. S2x runs before scene effects;
 regular SMAA runs after those effects. No AA mode uses frame history or jitter.
 UI and movie cameras never run the morphological pass; shared scene/UI targets
 use matching MSAA counts to preserve composition. Refraction preserves

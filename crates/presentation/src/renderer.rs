@@ -1,5 +1,6 @@
 //! Backend selection, scheduling and draw configuration for Resonance's authored shaders.
 mod backend;
+mod opengl;
 pub(super) use backend::plugin;
 use bevy::{
     camera::CameraOutputMode,
@@ -12,6 +13,24 @@ use bevy::{
         view::NoIndirectDrawing,
     },
 };
+/// Default plugins with the display-aware native renderer installed.
+pub fn native_render_plugins(render: bevy::render::RenderPlugin) -> bevy::app::PluginGroupBuilder {
+    DefaultPlugins
+        .build()
+        .add_before::<bevy::render::RenderPlugin>(opengl::NativeRenderPlugin(render))
+        .disable::<bevy::render::RenderPlugin>()
+}
+
+pub(crate) fn scene_color_format(
+    adapter: Option<&bevy::render::renderer::RenderAdapterInfo>,
+) -> bevy::render::render_resource::TextureFormat {
+    use bevy::render::render_resource::TextureFormat;
+    if adapter.is_some_and(|adapter| adapter.backend == wgpu::Backend::Gl) {
+        opengl::COLOR_FORMAT
+    } else {
+        TextureFormat::Bgra8Unorm
+    }
+}
 
 // Later cameras default to alpha blending. A completed scene must be copied
 // without applying its retained transparency a second time.

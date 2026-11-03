@@ -141,6 +141,7 @@ pub(super) fn pipeline(
     layout: BindGroupLayoutDescriptor,
     shader: Handle<Shader>,
     multisampled_depth: bool,
+    format: TextureFormat,
 ) -> RenderPipelineDescriptor {
     let shader_defs = if multisampled_depth {
         vec!["MULTISAMPLED_DEPTH".into()]
@@ -182,7 +183,7 @@ pub(super) fn pipeline(
             shader_defs,
             entry_point: Some("fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::Bgra8Unorm,
+                format,
                 blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],
