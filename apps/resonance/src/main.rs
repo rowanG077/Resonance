@@ -1,6 +1,9 @@
 use clap::Parser;
 use std::path::PathBuf;
 
+mod crash_dumps;
+mod logging;
+
 #[derive(Parser)]
 #[command(version, about = "Resonance — Tales of Symphonia reimplementation")]
 #[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load", "test_overworld"]).multiple(false)))]
@@ -76,6 +79,9 @@ struct Args {
     /// Stop on missing or unsupported content instead of logging and continuing.
     #[arg(long)]
     paranoid: bool,
+    /// Keep text crash reports, but disable the native minidump monitor.
+    #[arg(long)]
+    no_crash_dumps: bool,
     /// Show wall-clock FPS, frame-time percentiles and low FPS (F3 toggles).
     #[arg(long, conflicts_with_all = ["record_music", "capture", "record_playthrough"])]
     perf_overlay: bool,
@@ -98,7 +104,42 @@ impl Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut args = Args::parse();
+    // SAFETY: This is the first operation in main, before starting any threads
+    // or installing plugins. Respect an explicit opt-out, but capture the
+    // originating anyhow stack for ordinary user launches by default.
+    if std::env::var_os("RUST_LIB_BACKTRACE").is_none() {
+        unsafe { std::env::set_var("RUST_LIB_BACKTRACE", "1") };
+    }
+    if let Some(result) = crash_dumps::monitor_command() {
+        return result;
+    }
+    if let Some(result) = crash_dumps::self_test_command() {
+        return result;
+    }
+    let args = Args::parse();
+    let reports = logging::init();
+    let _dumps = if args.no_crash_dumps {
+        None
+    } else {
+        crash_dumps::install(&reports)
+    };
+    let result = run(args);
+    if let Err(error) = &result {
+        bevy::log::error!("{error:#}");
+        reports.error(error);
+    } else {
+        bevy::log::info!("Resonance exited normally");
+    }
+    result
+}
+
+fn run(mut args: Args) -> anyhow::Result<()> {
+    bevy::log::info!(
+        assets = ?args.assets, mods = ?args.mods, scripts = ?args.scripts,
+        load = ?args.load, saves = ?args.save_directory, resolution = ?args.resolution,
+        silent = args.silent, paranoid = args.paranoid, capture = ?args.capture,
+        "Launch options"
+    );
     // Keep the fixture and default save slots alive for this run only. The
     // ordinary checkpoint loader then owns rendering, audio and flight input.
     let _playground = if args.test_overworld {

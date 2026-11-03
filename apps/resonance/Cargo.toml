@@ -5,6 +5,30 @@ edition.workspace = true
 license.workspace = true
 [dependencies]
 resonance-presentation.workspace = true
+resonance-persistence.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+bevy.workspace = true
 tempfile = "3"
+time.workspace = true
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+crash-handler = "0.8.1"
+minidumper = "0.11"
+libc = "0.2"
+debugid = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+object = { version = "0.40", default-features = false, features = ["read_core", "macho", "std"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+minidump-writer = "0.13"
+object = { version = "0.40", default-features = false, features = ["read_core", "pe", "std"] }
+minidump-common = "0.26"
+scroll = "0.12"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+object = { version = "0.40", default-features = false, features = ["read_core", "elf", "std"] }
+minidump-common = "0.26"
+procfs-core = { version = "0.18", default-features = false }
+scroll = "0.12"
