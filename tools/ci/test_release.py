@@ -3,7 +3,6 @@
 import hashlib
 import json
 import os
-import shutil
 from pathlib import Path
 import subprocess
 import tarfile
@@ -347,7 +346,7 @@ class ArchiveTests(unittest.TestCase):
                                  [str(runner), str(binary), "--crash-self-test", str(root), "access-violation"])
 
     def test_windows_installation_cleanup_retries_locks_but_still_times_out(self):
-        remove = shutil.rmtree
+        remove = tempfile.TemporaryDirectory.cleanup
         for permanent in (False, True):
             with self.subTest(permanent=permanent), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -355,14 +354,14 @@ class ArchiveTests(unittest.TestCase):
                 binary.write_bytes(b"executable")
                 attempts = []
 
-                def cleanup(path, *args, **kwargs):
-                    attempts.append(path)
+                def cleanup(directory):
+                    attempts.append(directory)
                     if permanent or len(attempts) == 1:
                         raise PermissionError("crash monitor still running")
-                    remove(path, *args, **kwargs)
+                    remove(directory)
 
                 with patch("crash_symbols.sys.platform", "win32"), \
-                     patch("crash_symbols.shutil.rmtree", side_effect=cleanup), \
+                     patch("crash_symbols.tempfile.TemporaryDirectory.cleanup", new=cleanup), \
                      patch("crash_symbols.time.monotonic", side_effect=[0, 1, 6]), \
                      patch("crash_symbols.time.sleep") as sleep:
                     def install():
@@ -377,6 +376,7 @@ class ArchiveTests(unittest.TestCase):
                         install()
                     self.assertEqual(len(attempts), 2)
                     sleep.assert_called_once_with(0.05)
+                attempts[-1].cleanup()
 
 
 # A stateful GitHub CLI stand-in lets us verify exact commits, retries and the

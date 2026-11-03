@@ -46,6 +46,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/ci/plan_workflow.py
 
+      - name: Check release tooling
+        if: steps.plan.outputs.run_tests == 'true'
+        run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
+
   changelog:
     name: Consolidate release changelog
     needs: prepare
@@ -179,10 +183,6 @@ jobs:
           python3 -m venv target/oracle-tests
           target/oracle-tests/bin/pip install numpy Pillow
           target/oracle-tests/bin/python -m unittest discover -s tools/oracle -p 'test_effect*.py'
-
-      - name: Check release tooling
-        if: matrix.platform == 'linux-x64'
-        run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
       - name: Install pinned Windows software renderer and shader compiler
         if: runner.os == 'Windows'
