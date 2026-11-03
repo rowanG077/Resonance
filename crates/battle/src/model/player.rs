@@ -585,7 +585,6 @@ impl Models {
         for (index, actor) in frame.actors.iter().enumerate().take(self.models.len()) {
             let ticking = !already_advanced
                 && (clock == BattleClock::Running
-                    || clock == BattleClock::EntrySettle
                     || clock == BattleClock::SummonTransition
                     || clock == BattleClock::Rescue(ActorId(index as u8))
                     || clock == BattleClock::Learning(ActorId(index as u8)))

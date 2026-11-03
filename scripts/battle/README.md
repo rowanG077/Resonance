@@ -27,5 +27,4 @@ catalogue presence is not a guarantee that every technique is implemented.
 
 Test observable outcomes and a few representative action sequences. Avoid tests
 that merely restate internal command order or require obsolete implementation
-quirks. See [battle support and validation](../../docs/battle-status.md) for current
-limits and the behavior checks being rebaselined.
+quirks.
