@@ -378,6 +378,7 @@ impl Frame {
             confirm_a: sample.confirm,
             cancel_b: sample.cancel,
             cancel_y: sample.cancel_selector,
+            control_mode: sample.menu == Some(MenuAction::Details),
             picker_directions: match sample.step {
                 -1 => 1,
                 1 => 2,
@@ -1324,9 +1325,17 @@ mod tests {
         assert_eq!(frame.slots[2].menu, Some(MenuAction::Cancel));
         controls.slots[2].buttons[0].pressed = true;
         controls.slots[2].extra[4].pressed = true;
-        assert_eq!(
-            controls.sample(&CustomizeSettings::default()).slots[2].menu,
-            Some(MenuAction::Details)
+        let frame = controls.sample(&CustomizeSettings::default());
+        assert_eq!(frame.slots[2].menu, Some(MenuAction::Details));
+        assert!(
+            frame
+                .command_input(Some(ControllerPort::Three), &[], InputKind::Command)
+                .control_mode
+        );
+        assert!(
+            !frame
+                .command_input(Some(ControllerPort::One), &[], InputKind::Command)
+                .control_mode
         );
     }
 

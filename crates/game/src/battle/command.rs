@@ -14,6 +14,8 @@ pub struct Input {
     pub cancel_b: ButtonInput,
     /// Actor selectors use physical Y, independent of the mapped menu action.
     pub cancel_y: ButtonInput,
+    /// Start opens the control selector, then cycles its selected actor's mode.
+    pub control_mode: bool,
     /// Independent left/right events (bits1/2), including digital repeat.
     pub picker_directions: u8,
     /// The shared menu ORs all four physical input channels.
@@ -90,7 +92,8 @@ impl Setup {
         self.actors.iter().find_map(|&id| {
             let actor = battle.actors().get(id.index())?;
             let slot = actor.control_slot;
-            if slot != controller
+            if actor.availability == resonance_battle::ActorAvailability::Absent
+                || slot != controller
                 || matches!(actor.control, Control::Auto | Control::Enemy)
                     && slot != ControllerPort::One
             {
@@ -128,6 +131,7 @@ pub struct Frame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
     Strip,
+    Control(ControlSelection),
     User(ActorSelection),
     Inventory(ListFrame),
     Tech(crate::menu::techniques::Tech),
@@ -137,6 +141,13 @@ pub enum View {
     Ally(ActorSelection),
     Enemy { target: ActorId },
     TechTarget { target: Option<ActorId> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlSelection {
+    pub actor: ActorId,
+    pub slot: u8,
+    pub mode: Control,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -186,7 +197,9 @@ impl Command {
         if input.controller != controller {
             return StripIntent::Stay;
         }
-        if input.confirm_a.pressed && enabled & self.mask() != 0 {
+        if input.control_mode {
+            StripIntent::Control
+        } else if input.confirm_a.pressed && enabled & self.mask() != 0 {
             StripIntent::Choose(self)
         } else if input.cancel_b.pressed || input.open.pressed {
             StripIntent::Close
@@ -200,6 +213,7 @@ impl Command {
 enum StripIntent {
     Stay,
     Close,
+    Control,
     Choose(Command),
 }
 
@@ -233,6 +247,7 @@ struct Session {
 #[derive(Debug)]
 enum Page {
     Strip,
+    Control(ControlSelection),
     Items(items::Owner),
     Tech(Box<crate::menu::techniques::BattlePage>),
     TechTarget(TechTarget),
@@ -247,12 +262,13 @@ impl Page {
             Self::Tech(_) | Self::Strategy(_) | Self::Unison(_) | Self::Equipment(_) => {
                 InputKind::SharedMenu
             }
-            Self::Strip | Self::TechTarget(_) => InputKind::Command,
+            Self::Strip | Self::Control(_) | Self::TechTarget(_) => InputKind::Command,
         }
     }
     fn view(&self) -> View {
         match self {
             Self::Strip => View::Strip,
+            Self::Control(selection) => View::Control(selection.clone()),
             Self::TechTarget(target) => View::TechTarget {
                 target: target.selected,
             },
@@ -403,7 +419,10 @@ impl Owner {
                         self.selected = self.selected.next(input.step);
                         result.events.push(Event::Cue(1));
                     }
-                    if input.confirm_a.pressed && enabled & self.selected.mask() == 0 {
+                    if !input.control_mode
+                        && input.confirm_a.pressed
+                        && enabled & self.selected.mask() == 0
+                    {
                         result.events.push(Event::Cue(4));
                     }
                 }
@@ -415,6 +434,12 @@ impl Owner {
                     StripIntent::Close => {
                         result.events.push(Event::Cue(3));
                         None
+                    }
+                    StripIntent::Control => {
+                        result.events.push(Event::Cue(2));
+                        Some(Page::Control(
+                            candidate.begin_control_selection(battle, session.admission.actor)?,
+                        ))
                     }
                     StripIntent::Choose(command) => {
                         result.events.push(Event::Cue(2));
@@ -458,6 +483,23 @@ impl Owner {
                             }
                         }
                     }
+                }
+            }
+            Page::Control(mut selection) => {
+                if input.controller != session.admission.controller {
+                    Some(Page::Control(selection))
+                } else if input.control_mode {
+                    selection = candidate.cycle_control_mode(battle, selection)?;
+                    result.events.push(Event::Cue(1));
+                    Some(Page::Control(selection))
+                } else if input.cancel_b.pressed || input.cancel_y.pressed || input.open.pressed {
+                    result.events.push(Event::Cue(3));
+                    Some(Page::Strip)
+                } else if input.confirm_a.pressed {
+                    result.events.push(Event::Cue(2));
+                    Some(Page::Strip)
+                } else {
+                    Some(Page::Control(selection))
                 }
             }
             Page::Tech(mut tech) => {
@@ -683,23 +725,35 @@ mod tests {
         assert_ne!(enabled_rows(false, 2500) & Command::Escape.mask(), 0);
     }
     #[test]
-    fn admission_uses_live_control_and_allows_defeated_party_members() {
-        let mut ko = actor(Side::Party);
-        ko.hp = 0;
-        ko.control = Control::SemiAuto;
-        let prepared =
-            PreparedBattle::new(vec![(ko, Default::default())], Default::default(), 1).unwrap();
-        let id = prepared.actor_ids().next().unwrap();
-        let setup = Setup {
-            actors: vec![id],
-            enabled: 0xdd,
-            coliseum: false,
-        };
-        let mut battle = prepared.finish().unwrap();
-        assert!(setup.admission(&battle, ControllerPort::Two).is_none());
-        assert!(setup.admission(&battle, ControllerPort::One).is_some());
-        battle.recognize_result();
-        assert!(setup.admission(&battle, ControllerPort::One).is_none());
+    fn admission_excludes_absent_members_but_allows_dead_and_petrified_members() {
+        use resonance_battle::ActorAvailability::*;
+        for availability in [Active, Dead, Petrified, Absent] {
+            let mut member = actor(Side::Party);
+            member.control = Control::SemiAuto;
+            member.availability = availability;
+            if availability == Dead {
+                member.hp = 0;
+            }
+            let prepared =
+                PreparedBattle::new(vec![(member, Default::default())], Default::default(), 1)
+                    .unwrap();
+            let id = prepared.actor_ids().next().unwrap();
+            let setup = Setup {
+                actors: vec![id],
+                enabled: 0xdd,
+                coliseum: false,
+            };
+            let mut battle = prepared.finish().unwrap();
+            assert!(setup.admission(&battle, ControllerPort::Two).is_none());
+            assert_eq!(
+                setup.admission(&battle, ControllerPort::One).is_some(),
+                availability != Absent
+            );
+            if availability == Dead {
+                battle.recognize_result();
+                assert!(setup.admission(&battle, ControllerPort::One).is_none());
+            }
+        }
     }
 
     #[test]

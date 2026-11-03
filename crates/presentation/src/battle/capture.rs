@@ -35,6 +35,11 @@ fn actor_selection(selection: &ActorSelection) -> Value {
 fn command_view(view: &View) -> Value {
     match view {
         View::Strip => json!({"kind": "strip"}),
+        View::Control(selection) => json!({"kind": "control", "actor": selection.actor.index(),
+        "slot": selection.slot, "mode": match selection.mode {
+            Control::Manual => "manual", Control::SemiAuto => "semi_auto",
+            Control::Auto => "auto", Control::Enemy => "enemy",
+        }}),
         View::TechTarget { target } => {
             json!({"kind": "tech_target", "target": target.map(|id| id.index())})
         }
