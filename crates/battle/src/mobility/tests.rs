@@ -141,34 +141,78 @@ fn jump_charge_requires_six_qualifying_visits_and_preserves_unguarded_up() {
 }
 
 #[test]
-fn jump_can_be_replaced_by_its_prepared_aerial_normal() {
-    let mut battle = battle();
-    battle.actors[0].control = Control::Manual;
-    for _ in 0..7 {
-        battle.step(input([0, 70], false, 0)).unwrap();
-    }
-    assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
-    let mut attack = input([0, 0], false, 0);
-    attack.controllers[0].attack.pressed = true;
-    battle.step(attack).unwrap();
-    for _ in 0..3 {
-        if matches!(battle.activity(ActorId(0)), Activity::Action) {
-            break;
+fn aerial_normals_preserve_jump_momentum_until_landing() -> anyhow::Result<()> {
+    for mode in [Control::Manual, Control::SemiAuto] {
+        for (stick, normal) in [
+            ([0, 0], crate::NormalAttack::AerialSlash),
+            ([0, -70], crate::NormalAttack::AerialThrust),
+        ] {
+            let mut battle = battle();
+            battle.actors[0].control = mode;
+            for _ in 0..7 {
+                battle.step(input([0, 70], mode == Control::SemiAuto, 0))?;
+            }
+            assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
+            let direction = [0.6, 0., 0.8];
+            let owner = &mut battle.actors[0];
+            owner.position[1] = 100.;
+            owner.movement.direction = direction;
+            owner.facing_direction = direction;
+            owner.movement.forward = 7.;
+            owner.movement.vertical = 4.;
+
+            let mut attack = input(stick, false, 0);
+            attack.controllers[0].attack.pressed = true;
+            battle.step(attack)?;
+            assert_eq!(
+                battle.actors[0].movement.forward, 7.,
+                "{mode:?}, {normal:?}"
+            );
+            let selected = battle.actors[0].position;
+            assert_eq!(selected, [direction[0] * 7., 104., direction[2] * 7.]);
+            // GC keeps the selection visit's flight, holds the next visit,
+            // then resumes integration on the attack's admission visit.
+            battle.step(BattleInput::default())?;
+            assert_eq!(battle.actors[0].position, selected);
+            battle.step(BattleInput::default())?;
+            assert_eq!(battle.activity(ActorId(0)), Activity::Action);
+            assert!(battle.actors[0].movement.airborne_action);
+            assert_eq!(
+                battle.actors[0].position,
+                [selected[0] * 2., 107., selected[2] * 2.]
+            );
+            assert_eq!(
+                battle.runtime[0]
+                    .task()
+                    .action()
+                    .unwrap()
+                    .1
+                    .definition
+                    .normal,
+                Some(normal)
+            );
+
+            let mut moving_updates = 0;
+            while battle.actors[0].airborne() {
+                assert_eq!(
+                    battle.actors[0].movement.forward, 7.,
+                    "{mode:?}, {normal:?}"
+                );
+                assert_eq!(battle.actors[0].movement.direction, direction);
+                let position = battle.actors[0].position;
+                battle.step(BattleInput::default())?;
+                let next = battle.actors[0].position;
+                assert!((next[0] - position[0] - 4.2).abs() < 0.001);
+                assert!((next[2] - position[2] - 5.6).abs() < 0.001);
+                moving_updates += 1;
+                assert!(moving_updates < 60, "aerial normal never landed");
+            }
+            assert!(moving_updates > 10);
+            step_until(&mut battle, Activity::Idle, 40);
+            assert_eq!(battle.actors[0].movement.forward, 0.);
         }
-        battle.step(BattleInput::default()).unwrap();
     }
-    assert!(matches!(battle.activity(ActorId(0)), Activity::Action));
-    assert!(battle.actors[0].movement.airborne_action);
-    assert!(battle.runtime[0].task().mobility().is_none());
-    assert!(
-        battle
-            .sequences()
-            .map(|(_, sequence)| sequence)
-            .any(|sequence| matches!(
-                &sequence.definition.execution,
-                crate::ActionExecution::Attack(_)
-            ) && sequence.action == crate::ActionKey(5))
-    );
+    Ok(())
 }
 
 #[test]
