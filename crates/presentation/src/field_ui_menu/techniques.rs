@@ -44,7 +44,7 @@ impl Drawing<'_> {
             .copied()
             .unwrap_or(2);
         self.text(
-            ["Manual", "Semi-auto", "Auto"][usize::from(mode)],
+            ["Manual", "Semi-Auto", "Auto"][usize::from(mode)],
             [460., 68.],
             18.,
             if state.focus == Focus::Control {
@@ -130,13 +130,27 @@ impl Drawing<'_> {
                 WHITE,
             )?;
         } else {
-            for (action, label, x, right) in [
-                (A::Confirm, "Bind", 28., 120.),
-                (A::Menu, "Use", 140., 232.),
-                (A::Alternate, "AI", 252., 328.),
-                (A::Start, "Clear", 348., 470.),
-                (A::Cancel, "Back", 490., 608.),
-            ] {
+            let hints: &[(A, &str, f32, f32)] = match state.focus {
+                Focus::Character if state.character < 4 => &[
+                    (A::Confirm, "Artes", 28., 160.),
+                    (A::Start, "Mode", 200., 360.),
+                    (A::Cancel, "Back", 490., 608.),
+                ],
+                Focus::Control => &[
+                    (A::MoveLeft, "Previous", 28., 180.),
+                    (A::MoveRight, "Next", 200., 340.),
+                    (A::Confirm, "Done", 360., 470.),
+                    (A::Cancel, "Back", 490., 608.),
+                ],
+                _ => &[
+                    (A::Confirm, "Bind", 28., 120.),
+                    (A::Menu, "Use", 140., 232.),
+                    (A::Alternate, "AI", 252., 328.),
+                    (A::Start, "Clear", 348., 470.),
+                    (A::Cancel, "Back", 490., 608.),
+                ],
+            };
+            for &(action, label, x, right) in hints {
                 self.input_hint(map, action, label, [x, 330.], right)?;
             }
             if let Some(message) = &state.binding_message {
