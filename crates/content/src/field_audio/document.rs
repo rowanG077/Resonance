@@ -79,7 +79,9 @@ impl Definition {
 
     pub fn resolve(&self, snapshot: &mut Snapshot) -> Result<Resolved> {
         let music = resolve_resources(snapshot, MUSIC, &self.music)?;
-        let effects = resolve_resources(snapshot, EFFECTS, &self.effects)?;
+        let mut effects = self.effects.clone();
+        effects.extend(super::FOOTSTEP_EFFECTS);
+        let effects = resolve_resources(snapshot, EFFECTS, &effects)?;
         let mut voices = BTreeMap::new();
         let speech = if self.speech.is_empty() {
             BTreeMap::new()

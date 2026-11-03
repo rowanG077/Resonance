@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 
+/// Native movement sounds, selected outside scenario bytecode. Keep these in
+/// prepared field/world banks, including libraries imported before footsteps.
+pub const FOOTSTEP_EFFECTS: [u32; 14] = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 27];
+
 /// Sounds emitted by native field services rather than scenario instructions.
 /// The cooker includes this catalogue in every field; service dispatch rejects
 /// undeclared IDs so adding a native cue cannot bypass resource preparation.
