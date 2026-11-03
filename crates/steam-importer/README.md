@@ -88,6 +88,8 @@ Steam's native particle update applies RGBA brighten and fade rates twice per
 tick. The importer converts those rates to the shared single-update contract,
 including constructor overrides. Initial colors, alpha units, fade thresholds
 and native emission timestamps remain unchanged.
+Carried models retain their source-declared layers and embedded outlines; their
+half-range vertex RGB converts to the shared color range with alpha preserved.
 Field scenery preserves native alpha cutoffs and draws translucent glass after
 opaque scenery, restoring the exterior visible through Iselia's classroom panes.
 
@@ -105,9 +107,10 @@ opaque scenery, restoring the exterior visible through Iselia's classroom panes.
   fidelity work. The arte-title backing remains a source-media gap. Steam
   fonts/menu artwork cannot reproduce every GameCube asset exactly.
 - These checks do not establish whole-game progression or full GameCube visual
-  fidelity. The current visual pass covers party artes, enemy action rows and
-  Unison recipes; minor texture differences are allowed. Full-game walkthroughs
-  and mechanical equivalence sweeps are deferred.
+  fidelity. The current visual pass covers executable party bindings, canonical
+  Unison families and distinct enemy arte/effect families; minor texture
+  differences are allowed. Exhaustive enemy-row checks, repeated basic attacks,
+  full-game walkthroughs and mechanical equivalence sweeps are deferred.
 
 See [arte visual review](../../tools/arte-visuals/review.md) for capture provenance,
 reference selection and independent review status. Generated inventories,

@@ -184,9 +184,20 @@ fn variant(row: &[u8]) -> Result<MonsterStats> {
 }
 
 pub(crate) fn models(source: &Source, library: &Path) -> Result<()> {
+    models_selected(source, library, None)
+}
+
+pub(crate) fn models_selected(
+    source: &Source,
+    library: &Path,
+    selected: Option<&[u16]>,
+) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
     for id in 0..count(&image)? {
         let id = id as u16;
+        if selected.is_some_and(|ids| !ids.contains(&id)) {
+            continue;
+        }
         eprintln!("  Monster model: {} ({id})", symbol(id));
         let bytes = source.require(package(&image, id)?)?;
         let metadata = metadata(&bytes)?;
@@ -338,8 +349,20 @@ fn components(
             motions.insert(0, idle.into());
         }
         let motions = motions.into_iter().collect::<Vec<_>>();
-        let (model, _) =
+        let (mut model, mut native) =
             preview_model::cook(source, library, [body, outline], &component_owner, &motions)?;
+        crate::battle_effects::normalize_model_color(
+            source,
+            library,
+            body,
+            &model.parts[0].scene,
+            &mut native,
+        )?;
+        if outline.is_empty() {
+            // Match the GC carried directory: the source body owns any baked shell;
+            // only an explicit second resource supplies another outline layer.
+            model.parts.truncate(1);
+        }
         let bone = anchor(&format!("kk0{slot}"))?;
         for mut part in model.parts {
             part.animation = part
@@ -389,6 +412,10 @@ fn components(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "monsters/carried_material.rs"]
+mod carried_material_tests;
 
 /// Native command 25 explicitly samples a body motion on a carried rig. This is
 /// the same bounded command scan used by the GC media importer.
