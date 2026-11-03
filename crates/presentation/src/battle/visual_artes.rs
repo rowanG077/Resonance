@@ -677,6 +677,30 @@ fn capture_case(
     warm(app)?;
     fixture_motion(scene_mut(app), row)?;
     if enemy_plan.is_some() {
+        // Combat can begin while a finite entrance scene-history effect is
+        // still fading. Let it expire before requesting the selected row so
+        // its appearance is not mistaken for action-owned feedback.
+        let mut entrance_feedback_wait = 0;
+        while scene_mut(app).frame.as_ref().is_some_and(|frame| {
+            frame
+                .enemy_presentation
+                .as_ref()
+                .is_some_and(|presentation| presentation.feedback.is_some())
+        }) && entrance_feedback_wait < entry_budget
+        {
+            step(scene_mut(app), BattleInput::default())?;
+            entrance_feedback_wait += 1;
+        }
+        progress["assistance"]["entrance_feedback_settling_ticks"] = json!(entrance_feedback_wait);
+        ensure!(
+            !scene_mut(app).frame.as_ref().is_some_and(|frame| {
+                frame
+                    .enemy_presentation
+                    .as_ref()
+                    .is_some_and(|presentation| presentation.feedback.is_some())
+            }),
+            "enemy entrance feedback did not settle within its entry budget"
+        );
         // Ordinary enemy selection waits for its flight entry to settle. This
         // explicit request fixture must retain that same physical prerequisite.
         let mut hover_wait = 0;
