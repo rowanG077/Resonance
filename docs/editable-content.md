@@ -203,6 +203,10 @@ Sound banks live under `audio/effects/<bank>/`, with their instrument WAVs under
 `audio/instruments/<bank>/`. Fields and battles use the same effects
 mapping. `battle/audio.json` holds the shared battle playback settings.
 
+Footsteps follow walking/running animation contacts, using field material bits 5–8
+or world terrain to select sounds. They use Effects volume and work with existing
+imports; effects 11–23 and 27 are always prepared.
+
 Effect mappings point directly to a WAV, a compact JSON recipe, or a shared
 silence definition (`kind: silence`, `version`, `frames`, `sample_rate`). Silent
 instruments use an inline `silence` clock instead of a `path` in their recipe's

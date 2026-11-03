@@ -148,7 +148,7 @@ impl Scene {
         }
         let cues = self.session.step(input)?;
         if previous_tick != self.session.events.tick() {
-            self.effects.step(&self.session, &self.models)?;
+            self.effects.step(&mut self.session, &self.models)?;
         }
         for cue in cues {
             if let game::travel::Cue::Barrier { position, heading } = cue {
@@ -1246,6 +1246,15 @@ fn animate(
         }
         let Some((slot, start)) = instance.clip else {
             continue;
+        };
+        let start = if let Model::Actor(actor) = instance.model {
+            scene
+                .effects
+                .particles
+                .gait_start(actor, slot)
+                .unwrap_or(start)
+        } else {
+            start
         };
         let part = &art.models[&instance.model][instance.part];
         let Some(index) = part.spec.clips.iter().position(|c| c.resource_slot == slot) else {

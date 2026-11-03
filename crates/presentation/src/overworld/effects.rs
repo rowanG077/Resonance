@@ -73,7 +73,7 @@ impl Effects {
 
     pub fn step(
         &mut self,
-        session: &game::Session,
+        session: &mut game::Session,
         models: &BTreeMap<Model, Vec<ScenePart>>,
     ) -> Result<()> {
         self.particles.step(session, models)?;
