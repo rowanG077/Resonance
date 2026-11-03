@@ -1,7 +1,7 @@
 //! Some rigid effect models already contain their expanded, inward-facing black shell.
 use super::*;
 use glam::Vec3;
-use resonance_content::animation::{Channel, Interpolation, Motion};
+use resonance_content::animation::Motion;
 
 fn volume(mesh: &model::Mesh) -> f32 {
     mesh.indices
@@ -82,39 +82,98 @@ fn covered(model: &model::Model, same_frame: impl Fn(&model::Mesh, &model::Mesh)
     })
 }
 
-fn constant<const N: usize>(channel: &Option<Channel<N>>, rest: [f32; N]) -> bool {
-    channel.as_ref().is_none_or(|channel| {
-        channel.interpolation != Interpolation::CubicSpline
-            && channel.values.iter().all(|value| *value == rest)
-    })
-}
-
-fn static_clip(bytes: &[u8]) -> Result<bool> {
-    Ok(Motion::decode(bytes)?.tracks.iter().all(|track| {
-        track.nodes.iter().all(|node| {
-            constant(&node.translation, node.bind.translation)
-                && constant(&node.rotation, node.bind.rotation)
-                && constant(&node.scale, node.bind.scale)
-        })
-    }))
-}
-
-fn coincident_roots(model: &model::Model, first: usize, second: usize) -> bool {
-    let (Some(first), Some(second)) = (model.rig.nodes.get(first), model.rig.nodes.get(second))
-    else {
+fn same_frame(
+    model: &model::Model,
+    motions: &[Motion],
+    first: Option<u16>,
+    second: Option<u16>,
+) -> bool {
+    if first == second {
+        return true;
+    }
+    let (Some(first), Some(second)) = (first, second) else {
         return false;
     };
-    first.parent.is_none()
-        && second.parent.is_none()
-        && first.visible
-        && second.visible
-        && first.rest == second.rest
-        && first.global == second.global
+    let (Some(a), Some(b)) = (
+        model.rig.nodes.get(usize::from(first)),
+        model.rig.nodes.get(usize::from(second)),
+    ) else {
+        return false;
+    };
+    a.visible
+        && b.visible
+        && a.rest == b.rest
+        && a.global == b.global
+        && motions.iter().all(|motion| {
+            let track = |bone| motion.tracks.iter().find(|track| track.bone == bone);
+            match (track(first), track(second)) {
+                (Some(a), Some(b)) => !a.nodes.is_empty() && a.nodes == b.nodes,
+                _ => false,
+            }
+        })
 }
 
-/// Separate rigid roots may carry one source surface/shell pair. Accept them
-/// only when their frames coincide and every published model clip stays at rest.
-/// Animated or hierarchically separated nodes retain the generated outline.
+fn grouped_coverage(model: &model::Model, motions: &[Motion]) -> bool {
+    let mut groups: Vec<Vec<&model::Mesh>> = Vec::new();
+    for body in model.meshes.iter().filter(|mesh| !black_shell(mesh)) {
+        if body.joints.is_some() || body.positions.is_empty() || body.indices.is_empty() {
+            return false;
+        }
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|group| same_frame(model, motions, group[0].node, body.node))
+        {
+            group.push(body);
+        } else {
+            groups.push(vec![body]);
+        }
+    }
+    !groups.is_empty()
+        && groups.iter().all(|group| {
+            let indices = group.iter().map(|body| body.indices.len()).sum::<usize>();
+            let body_volume = group.iter().map(|body| volume(body)).sum::<f32>();
+            let body_min = std::array::from_fn::<_, 3, _>(|axis| {
+                group
+                    .iter()
+                    .flat_map(|body| &body.positions)
+                    .map(|position| position[axis])
+                    .fold(f32::INFINITY, f32::min)
+            });
+            let body_max = std::array::from_fn::<_, 3, _>(|axis| {
+                group
+                    .iter()
+                    .flat_map(|body| &body.positions)
+                    .map(|position| position[axis])
+                    .fold(f32::NEG_INFINITY, f32::max)
+            });
+            model
+                .meshes
+                .iter()
+                .filter(|mesh| black_shell(mesh))
+                .any(|shell| {
+                    if shell.joints.is_some()
+                        || shell.positions.is_empty()
+                        || indices != shell.indices.len()
+                        || !same_frame(model, motions, group[0].node, shell.node)
+                    {
+                        return false;
+                    }
+                    let shell_volume = volume(shell);
+                    let (shell_min, shell_max) = bounds(shell);
+                    shell_volume < 0.
+                        && body_volume > 0.
+                        && -shell_volume / body_volume > 1.
+                        && (0..3).all(|axis| {
+                            (0.001..=2.).contains(&(body_min[axis] - shell_min[axis]))
+                                && (0.001..=2.).contains(&(shell_max[axis] - body_max[axis]))
+                        })
+                })
+        })
+}
+
+/// A source shell may cover several material parts, including animated rigid
+/// nodes. Different nodes must have identical source frames and exact imported
+/// world-node track chains in every clip; no pose sampling or tolerance is used.
 pub(super) fn present_with_clips(
     model: &model::Model,
     library: &Path,
@@ -123,50 +182,30 @@ pub(super) fn present_with_clips(
     if present(model) {
         return Ok(true);
     }
-    if !covered(model, |body, shell| {
-        if body.node == shell.node {
-            return true;
-        }
-        let (Some(body), Some(shell)) = (body.node, shell.node) else {
-            return false;
-        };
-        coincident_roots(model, usize::from(body), usize::from(shell))
-    }) {
+    if !model.meshes.iter().any(black_shell) {
         return Ok(false);
     }
+    let names = model.rig.joint_names();
+    let mut motions = Vec::new();
     for clip in &scene.clips {
         let bytes = std::fs::read(library.join(&clip.motion))?;
-        if !static_clip(&bytes)? {
+        let Ok(motion) = Motion::decode_world_nodes(&bytes, &names) else {
+            // An unbound or unsupported clip cannot prove shell correspondence.
             return Ok(false);
-        }
-        let motion = Motion::decode_world_nodes(&bytes, &model.rig.joint_names())?;
-        for first in 0..model.rig.nodes.len() {
-            for second in first + 1..model.rig.nodes.len() {
-                if !coincident_roots(model, first, second) {
-                    continue;
-                }
-                let frame = |bone| -> Result<_> {
-                    let track = motion
-                        .tracks
-                        .iter()
-                        .find(|track| usize::from(track.bone) == bone)
-                        .context("static source root has no clip binding")?;
-                    let bind = track.nodes.first().context("empty source root track")?.bind;
-                    track.sample_matrix(0., bind)
-                };
-                if frame(first)? != frame(second)? {
-                    return Ok(false);
-                }
-            }
-        }
+        };
+        motions.push(motion);
     }
-    Ok(true)
+    Ok(covered(model, |body, shell| {
+        same_frame(model, &motions, body.node, shell.node)
+    }) || grouped_coverage(model, &motions))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_content::animation::{NodeTrack, Skeleton, Track, Transform};
+    use resonance_content::animation::{
+        Channel, Interpolation, NodeTrack, Skeleton, Track, Transform,
+    };
 
     fn translating_clip() -> Result<Vec<u8>> {
         let mut node = NodeTrack::new(Transform::default());
@@ -186,9 +225,50 @@ mod tests {
     }
 
     #[test]
-    fn a_later_translation_key_is_not_a_static_shell_binding() -> Result<()> {
-        assert!(!static_clip(&translating_clip()?)?);
-        Ok(())
+    fn animated_frames_require_equal_complete_tracks() {
+        let model = model::Model {
+            rig: model::Rig {
+                nodes: (0..2)
+                    .map(|index| model::Node {
+                        binding: index,
+                        name: format!("root-{index}"),
+                        flags: 0x100,
+                        parent: None,
+                        rest: Transform::default(),
+                        visible: true,
+                        global: glam::Mat4::IDENTITY.to_cols_array(),
+                        inverse_bind: glam::Mat4::IDENTITY.to_cols_array(),
+                    })
+                    .collect(),
+                animation_bindings: Vec::new(),
+            },
+            meshes: Vec::new(),
+            materials: Default::default(),
+        };
+        let mut node = NodeTrack::new(Transform::default());
+        node.rotation = Some(Channel {
+            interpolation: Interpolation::Linear,
+            times: vec![0., 1.],
+            values: vec![
+                Transform::default().rotation,
+                glam::Quat::from_rotation_x(0.25).to_array(),
+            ],
+        });
+        let mut motion = Motion {
+            duration_frames: 30.,
+            tracks: (0..2)
+                .map(|bone| Track {
+                    bone,
+                    nodes: vec![node.clone()],
+                })
+                .collect(),
+        };
+        assert!(same_frame(&model, &[motion.clone()], Some(0), Some(1)));
+        motion.tracks[1].nodes[0].rotation.as_mut().unwrap().values[1] =
+            glam::Quat::from_rotation_x(0.5).to_array();
+        assert!(!same_frame(&model, &[motion.clone()], Some(0), Some(1)));
+        motion.tracks.pop();
+        assert!(!same_frame(&model, &[motion], Some(0), Some(1)));
     }
 
     #[test]
@@ -338,6 +418,125 @@ mod tests {
                 Sha256::digest(std::fs::read(library.join(path))?) == hash,
                 "shell selection must not rewrite model, clip or texture bytes"
             );
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; reads only enemy168 source and its already-published skull model"]
+    fn installed_skull_groups_material_parts_and_requires_exact_animated_shell_tracks() -> Result<()>
+    {
+        use sha2::{Digest, Sha256};
+        let source = Source::open(
+            &std::path::PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let package = source.require(monsters::package(&image, 168)?)?;
+        ensure!(preview_model::reference(&package, 0x198)?.is_none());
+        let descriptor =
+            preview_model::reference(&package, 0x180)?.context("missing source skull")?;
+        let bytes = source.require(&descriptor)?;
+        let dependencies = crate::package::dependencies(&bytes)?;
+        let mut native = model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+        ensure!(
+            !present(&native),
+            "fixture no longer needs grouped coverage"
+        );
+        ensure!(
+            native.meshes[0].indices.len() + native.meshes[1].indices.len()
+                == native.meshes[3].indices.len(),
+            "source skull head material split changed"
+        );
+        let path = library.join("battle/enemies/man-eater-0168/effects/effects.json");
+        let mut effects: Definition = serde_json::from_slice(&std::fs::read(path)?)?;
+        let before = serde_json::to_value(&effects)?;
+        let skull_value = effects
+            .artwork
+            .as_mut()
+            .context("missing artwork")?
+            .models
+            .get_mut(&0)
+            .context("missing skull slot")?;
+        let mut skull: resonance_content::battle_model::document::Model =
+            serde_json::from_value(skull_value.clone())?;
+        let scene = &skull.layers[0].scene;
+        ensure!(scene.clips.len() == 1, "source skull clip set changed");
+        let media = std::iter::once(scene.mesh.clone())
+            .chain(scene.clips.iter().map(|clip| clip.motion.clone()))
+            .chain(scene.textures.iter().cloned())
+            .map(|path| {
+                let hash = Sha256::digest(std::fs::read(library.join(&path))?);
+                Ok((path, hash))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            present_with_clips(&native, &library, scene)?,
+            "animated source skull shell must cover its grouped material parts"
+        );
+
+        let skeleton = Skeleton::from_glb(&std::fs::read(library.join(&scene.mesh))?)?;
+        let mut motion = Motion::decode_for_skeleton(
+            &std::fs::read(library.join(&scene.clips[0].motion))?,
+            &skeleton,
+        )?;
+        let shell = motion
+            .tracks
+            .iter_mut()
+            .find(|track| track.bone == 3)
+            .context("missing animated skull head shell")?;
+        let rotation = shell.nodes[0]
+            .rotation
+            .as_mut()
+            .context("source head shell is no longer animated")?;
+        ensure!(rotation.values.len() > 1);
+        *rotation.values.last_mut().unwrap() = glam::Quat::from_rotation_x(0.5).to_array();
+        let temporary = tempfile::tempdir()?;
+        std::fs::write(
+            temporary.path().join("divergent.glb"),
+            motion.encode_nodes(&skeleton)?,
+        )?;
+        let mut divergent = scene.clone();
+        divergent.clips[0].motion = "divergent.glb".into();
+        ensure!(
+            !present_with_clips(&native, temporary.path(), &divergent)?,
+            "one divergent shell key must retain the generated outline"
+        );
+
+        native.meshes.push(model::Mesh {
+            node: Some(0),
+            flags: 1,
+            material: 0,
+            name: "uncovered-coloured-part".into(),
+            positions: vec![[100., 0., 0.], [100., 1., 0.], [100., 0., 1.]],
+            normals: vec![[1., 0., 0.]; 3],
+            colors: vec![[1.; 4]; 3],
+            texcoords: Vec::new(),
+            joints: None,
+            weights: None,
+            indices: vec![0, 1, 2],
+        });
+        ensure!(
+            !present_with_clips(&native, &library, scene)?,
+            "an uncovered material part must retain the generated outline"
+        );
+        native.meshes.pop();
+
+        skull
+            .layers
+            .retain(|part| part.scene.outline_color.is_none());
+        ensure!(skull.layers.len() == 1);
+        *skull_value = serde_json::to_value(skull)?;
+        let after = serde_json::to_value(&effects)?;
+        ensure!(before["programs"] == after["programs"]);
+        ensure!(before["templates"] == after["templates"]);
+        for (path, hash) in media {
+            ensure!(Sha256::digest(std::fs::read(library.join(path))?) == hash);
         }
         Ok(())
     }
