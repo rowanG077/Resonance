@@ -14,6 +14,8 @@ mod heavy_tests;
 mod normal_guard_tests;
 #[path = "paralysis_tests.rs"]
 mod paralysis_tests;
+#[path = "party_tests.rs"]
+mod party_tests;
 
 fn prepared(control: Control) -> PreparedBattle {
     let mut actions = Default::default();

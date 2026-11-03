@@ -72,7 +72,7 @@ impl Battle {
         self.clear_technique_command(id);
         self.interrupt_actor(id, cues);
         if self.actors[id.index()].side == Side::Party {
-            let first = self.actors.iter().position(|a| a.side == Side::Party) == Some(id.index());
+            let first = self.actors[id.index()].control_slot == crate::ControllerPort::One;
             self.ledger.death(id, first);
             self.react_to_ally_death(id);
         }

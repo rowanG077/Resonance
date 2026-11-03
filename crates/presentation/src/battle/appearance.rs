@@ -102,9 +102,15 @@ impl Appearance {
             .then(|| {
                 selector
                     .or_else(|| {
-                        frame.actors.iter().position(|actor| {
-                            actor.side == Side::Party && actor.control != Control::Auto
-                        })
+                        frame
+                            .actors
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, actor)| {
+                                actor.side == Side::Party && actor.control != Control::Auto
+                            })
+                            .min_by_key(|(_, actor)| actor.control_slot.index())
+                            .map(|(index, _)| index)
                     })
                     .and_then(|index| frame.targets[index])
             })
@@ -331,5 +337,16 @@ mod tests {
             assert_eq!(outline(&frame.actors[2], true, 2, 173), [red, 0, 0, 86]);
         }
         assert_eq!(outline(&frame.actors[2], true, 2, 0)[3], 0);
+
+        // Player one now controls an actor stored after player two.
+        frame.recognized_result = None;
+        frame.cues.clear();
+        frame.actors[0].control_slot = resonance_battle::ControllerPort::Two;
+        frame.actors.push(actors[0].clone());
+        frame.targets[0] = Some(ids[1]);
+        frame.targets.push(Some(ids[2]));
+        render(&mut frame, true);
+        assert_eq!(frame.models[1].tint, [27, 54, 27, 173]);
+        assert_eq!(frame.models[2].tint, [64, 64, 64, 173]);
     }
 }

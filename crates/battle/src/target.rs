@@ -234,21 +234,19 @@ impl crate::Battle {
         if self.phase() != crate::BattlePhase::Combat {
             return Ok(());
         }
-        let Some(first) = self
-            .actors
-            .iter()
-            .position(|actor| actor.side == Side::Party)
-        else {
+        let Some(leader) = self.preferred_party_leader() else {
             return Ok(());
         };
-        let mut controlled = self.actors.iter().enumerate().filter_map(|(index, actor)| {
-            (actor.side == Side::Party && actor.control != crate::Control::Auto).then_some(index)
-        });
-        let leader = controlled.next().unwrap_or(first);
-        if controlled.next().is_some() || !self.actors[leader].available() {
+        if self
+            .actors
+            .iter()
+            .filter(|actor| actor.side == Side::Party && actor.control != crate::Control::Auto)
+            .nth(1)
+            .is_some()
+            || !self.actors[leader.index()].available()
+        {
             return Ok(());
         }
-        let leader = crate::ActorId(leader as u8);
         let Some(selected) = self.target(leader) else {
             return Ok(());
         };

@@ -106,6 +106,10 @@ Controllers claim battle ports in order of first button press or deliberate stic
 movement, then keep their ports until disconnected. Idle HID devices exposed as
 gamepads do not reserve a port. Keyboard input shares the first battle port.
 
+In battle, open the command menu with Tab (Y on GameCube), then press Z
+(Unison / Taunt) to cycle player one's character through the Auto slots.
+Other players stay put; the new party order persists after battle, with control modes tied to slots.
+
 The Artes page lists each character's artes with one combo per arte. Confirm
 records inputs held together and then released; recording again replaces that
 arte's combo. Stick directions include moderate tilts and can be combined with
