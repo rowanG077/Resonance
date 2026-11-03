@@ -37,6 +37,24 @@ fn decode(bytes: &[u8], voices: Option<Voices>) -> Result<Profile> {
     resonance_importer::decode_party_profile(&canonical_profile(bytes)?, voices)
 }
 
+pub(crate) fn enemy(bytes: &[u8], nodes: &[String]) -> Result<(Profile, bool)> {
+    let voices = battle_voices::actor(
+        &[0, 1, 2, 3, 4, 0x10000000, 0x10000001, 0x10000002, 5, 6],
+        bytes,
+    )?;
+    let mut row = canonical_profile(bytes)?;
+    let immunities = u64::from_be_bytes(row[0x18..0x20].try_into()?);
+    // Still an explicit import gap: do not invent a meaning for this source
+    // immunity or add a platform flag to the runtime. The owner cook reports
+    // every affected profile; other unknown bits still fail the shared reader.
+    let unmapped_immunity = immunities & 0x40 != 0;
+    row[0x18..0x20].copy_from_slice(&(immunities & !0x40).to_be_bytes());
+    Ok((
+        resonance_importer::decode_enemy_profile(&row, nodes, voices)?,
+        unmapped_immunity,
+    ))
+}
+
 pub(crate) fn canonical_profile(bytes: &[u8]) -> Result<Vec<u8>> {
     ensure!(bytes.len() >= 512, "truncated Steam actor profile");
     let mut row = [0; 496];
@@ -64,6 +82,23 @@ pub(crate) fn canonical_profile(bytes: &[u8]) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use resonance_content::battle_conditions::Condition;
+
+    #[test]
+    fn enemy_decoder_reports_only_the_known_unmapped_immunity() -> Result<()> {
+        let mut row = [0; 512];
+        row[0x84..0x88].copy_from_slice(&1_f32.to_le_bytes());
+        row[0x18..0x20].copy_from_slice(&0x60_u64.to_le_bytes());
+        let nodes = vec!["body".to_owned()];
+        let (profile, unmapped) = enemy(&row, &nodes)?;
+        assert!(unmapped);
+        assert!(profile.immunities.contains(Condition::Petrified));
+        assert_eq!(profile.head_anchor.bone, "body");
+        row[0x18..0x20].copy_from_slice(&0x20_u64.to_le_bytes());
+        assert!(!enemy(&row, &nodes)?.1);
+        row[0x18..0x20].copy_from_slice(&(1_u64 << 46).to_le_bytes());
+        assert!(enemy(&row, &nodes).is_err());
+        Ok(())
+    }
 
     #[test]
     fn shifted_fields_and_whole_condition_masks_use_the_shared_decoder() -> Result<()> {

@@ -9,6 +9,10 @@ use std::{
     path::Path,
 };
 
+mod owner;
+mod presentation;
+pub(crate) use owner::cook;
+
 fn section(bytes: &[u8], field: usize) -> Result<&[u8]> {
     let start = usize::from(pe::half(bytes, field)?);
     ensure!(start >= 0x1f8, "enemy section overlaps header");
@@ -317,8 +321,8 @@ fn physical_effect(bytes: &[u8], effect: u16) -> Result<u16> {
 
 /// Compile an enemy's Steam tables into shared editable action definitions.
 /// Model-contact recipes require their effect artwork to have been cooked first.
-/// Native recipes without a shared decoder return an error; this does not yet
-/// publish complete enemy owners in the full cook.
+/// Unknown native recipes return an error. Known callback-only artes without
+/// a complete shared recipe remain explicitly unavailable in the cooked owner.
 pub fn actions(
     bytes: &[u8],
     common: &[u8],
@@ -345,6 +349,10 @@ pub fn actions(
             // Native callback 0x405c57 selects action six, at age 120.
             affliction_action: 6,
             physical_effect: Some(&resolve_effect),
+            unsupported_techniques: &[(
+                152,
+                "Final Fury (152): stored skill scene and native action callbacks are not yet imported",
+            )],
         },
     )?;
     for (choice, row) in result

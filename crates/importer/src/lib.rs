@@ -21,6 +21,7 @@ mod battle_enemy_mappings;
 mod battle_enemy_media;
 mod battle_enemy_profile;
 pub use battle_enemy_profile::{
+    enemy_profile_with_voices as decode_enemy_profile,
     party_profile_with_voices as decode_party_profile,
     voices_from_lines as decode_actor_voice_roles,
 };

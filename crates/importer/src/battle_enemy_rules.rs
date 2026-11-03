@@ -121,6 +121,9 @@ pub struct EnemyActionSource<'a> {
     pub flash: Option<EnemyActionFlash>,
     pub affliction_action: u8,
     pub physical_effect: Option<&'a dyn Fn(u16) -> Result<u16>>,
+    /// Source callbacks that have no complete shared recipe yet. Retain their
+    /// choice metadata with an explicit unavailable reason in the cooked owner.
+    pub unsupported_techniques: &'a [(u16, &'a str)],
 }
 
 const GC_ACTION_SOURCE: EnemyActionSource<'static> = EnemyActionSource {
@@ -128,6 +131,7 @@ const GC_ACTION_SOURCE: EnemyActionSource<'static> = EnemyActionSource {
     flash: None,
     affliction_action: 5,
     physical_effect: None,
+    unsupported_techniques: &[],
 };
 
 fn command_voice(row: &[u8]) -> Result<(Option<Sound>, bool, usize)> {
@@ -1315,6 +1319,16 @@ fn actions(
             continue;
         }
         let technique = half(row, 64)?;
+        if let Some((_, reason)) = native
+            .unsupported_techniques
+            .iter()
+            .find(|(id, _)| *id == technique)
+        {
+            let mut unavailable = choice(row, flags, requirements, Value::Null)?;
+            unavailable["unsupported_reason"] = json!(reason);
+            rows.push(unavailable);
+            continue;
+        }
         if technique >= 200 {
             rows.push(choice(
                 row,

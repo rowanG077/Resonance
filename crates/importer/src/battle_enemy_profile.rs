@@ -238,6 +238,15 @@ pub fn party_profile_with_voices(data: &[u8], voices: Option<Voices>) -> Result<
     Ok(party_anchors(read_profile(data, None, |_, _| Ok(voices))?))
 }
 
+/// Canonical enemy profile with joints and voice roles resolved by its importer.
+pub fn enemy_profile_with_voices(
+    data: &[u8],
+    nodes: &[String],
+    voices: Option<Voices>,
+) -> Result<Profile> {
+    read_profile(data, Some(nodes), |_, _| Ok(voices))
+}
+
 fn party_anchors(mut profile: Profile) -> Profile {
     let anchors = crate::world_gpl::animation_target_bindings(vec![
         (0, profile.head_anchor.bone),
