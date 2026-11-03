@@ -1361,13 +1361,11 @@ fn advance(
         };
         let clock = frame.clock;
         let paused = clock.feedback_paused();
-        let settle = matches!(
-            clock,
-            resonance_battle::BattleClock::Running | resonance_battle::BattleClock::EntrySettle
-        ) && matches!(
-            scene.core.phase(),
-            resonance_battle::BattlePhase::Entry | resonance_battle::BattlePhase::Combat
-        );
+        let settle = clock == resonance_battle::BattleClock::Running
+            && matches!(
+                scene.core.phase(),
+                resonance_battle::BattlePhase::Entry | resonance_battle::BattlePhase::Combat
+            );
         if scene.lifecycle.event().is_none() {
             let core_cues = frame.cues.len();
             scene.feedback.resolve(&mut frame);

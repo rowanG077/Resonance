@@ -714,8 +714,6 @@ pub enum BattleClock {
     #[default]
     Running,
     Held,
-    /// The entry camera settles while actor animations continue.
-    EntrySettle,
     /// Gameplay waits while pause-enabled activation effects continue.
     TimedHold,
     Rescue(ActorId),
@@ -1676,11 +1674,6 @@ impl Battle {
         } else {
             None
         };
-        let entry_hold = entry_tick.is_some()
-            && (1..=crate::prepare::ENTRY_SETTLE_UPDATES).contains(&self.entry_remaining);
-        if entry_hold {
-            self.clock = BattleClock::EntrySettle;
-        }
         if !self.clock.paused() && !self.unison.active() {
             self.retarget_selected_opponent()?;
         }
@@ -1701,9 +1694,7 @@ impl Battle {
                     &self.actors,
                     self.runtime[camera.definition.leader.index()].target,
                     self.runtime[camera.definition.leader.index()].target_settle_remaining != 0,
-                    if self.clock.feedback_paused() && !entry_hold
-                        || self.entry_remaining == crate::prepare::ENTRY_SETTLE_UPDATES
-                    {
+                    if self.clock.feedback_paused() {
                         crate::camera::Update::Held
                     } else if let BattleClock::Learning(actor) = self.clock {
                         crate::camera::Update::Spell(actor)
@@ -1718,16 +1709,14 @@ impl Battle {
             }
         }
         // Combat waits for framing while the scene keeps animating.
-        if !entry_hold {
-            if self.unison.holds_world() && !self.clock.paused() {
-                self.paused_actors.clear();
-            } else if self.clock == BattleClock::SpellTransition {
-                self.advance_volleys(&mut cues, true)?;
-            } else if self.clock.paused() {
-                self.advance_timed_hold();
-            } else {
-                self.advance_gameplay(input, &mut cues, items)?;
-            }
+        if self.unison.holds_world() && !self.clock.paused() {
+            self.paused_actors.clear();
+        } else if self.clock == BattleClock::SpellTransition {
+            self.advance_volleys(&mut cues, true)?;
+        } else if self.clock.paused() {
+            self.advance_timed_hold();
+        } else {
+            self.advance_gameplay(input, &mut cues, items)?;
         }
         if self.phase() == crate::BattlePhase::Results
             && let Some(camera) = &mut self.camera

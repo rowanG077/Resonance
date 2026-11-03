@@ -453,16 +453,12 @@ fn direct_requests_require_owned_roots_before_any_batch_payment_or_execution() {
             .actions
             .is_empty()
     );
-    for _ in 0..60 {
-        if battle.phase() == crate::BattlePhase::Combat {
-            break;
-        }
+    for _ in 1..crate::prepare::ENTRY_PAN_UPDATES {
         let frame = battle.step(request(0)).unwrap();
         assert!(frame.actions.is_empty());
         assert_eq!(frame.actors[0].tp, 40);
     }
-    assert_eq!(battle.phase(), crate::BattlePhase::Combat);
-    step_idle(&mut battle, u32::from(crate::prepare::ENTRY_SETTLE_UPDATES)).unwrap();
+    assert_eq!(battle.phase(), crate::BattlePhase::Entry);
 
     let frame = battle.step(request(0)).unwrap();
     assert_eq!(frame.actors[0].tp, 12);
