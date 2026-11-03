@@ -768,6 +768,11 @@ fn capture_case(
     let mut active_scene_at = None;
     let mut impacted = false;
     let mut cleaned = false;
+    let baseline_stage_color = scene_mut(app).view.stage_color();
+    let mut stage_changed = false;
+    let mut stage_restored_at = None;
+    let mut completion_at = None;
+    let mut observation_end_at = None;
     let case_name = row["id"]
         .as_str()
         .context("case id missing")?
@@ -890,6 +895,7 @@ fn capture_case(
         let impact = !impacted && cues.iter().any(|cue| matches!(cue, Cue::Hit { .. }));
         released |= release;
         impacted |= impact;
+        let completed_before = action_completed;
         action_completed |= cues
             .iter()
             .any(|cue| matches!(cue, Cue::Completed { action } if Some(*action) == invocation));
@@ -928,6 +934,25 @@ fn capture_case(
                     .as_ref()
                     .is_some_and(|frame| frame.unison.is_none());
         }
+        let completion = !completed_before && action_completed;
+        if completion {
+            completion_at = Some(age);
+            progress["completion_age"] = json!(age);
+        }
+        let stage_color = scene_mut(app).view.stage_color();
+        let clock = scene_mut(app).frame.as_ref().map(|frame| frame.clock);
+        let stage_at_baseline = stage_color == baseline_stage_color;
+        stage_changed |= !stage_at_baseline;
+        let stage_restored = stage_changed
+            && stage_at_baseline
+            && stage_restored_at.is_none()
+            && clock.is_some_and(|clock| !clock.feedback_paused());
+        if stage_restored {
+            stage_restored_at = Some(age);
+        }
+        progress["stage_observation"] = json!({"baseline":baseline_stage_color,
+            "current":stage_color,"changed":stage_changed,"restored_age":stage_restored_at,
+            "clock":format!("{clock:?}")});
         progress["action_completed"] = json!(action_completed);
         progress["action_interrupted"] = json!(action_interrupted);
         progress["action_terminated"] = json!(action_completed || action_interrupted);
@@ -942,10 +967,30 @@ fn capture_case(
                 .as_ref()
                 .is_some_and(|frame| frame.projectiles.is_empty())
             && scene_mut(app).effects.active_programs().next().is_none();
-        let cleanup =
-            (action_completed || action_interrupted) && !cleaned && !live_action && visual_empty;
+        let cleanup = (action_completed || action_interrupted)
+            && !cleaned
+            && !live_action
+            && visual_empty
+            && stage_at_baseline;
         cleaned |= cleanup;
-        let interesting = scene_active || release || impact || cleanup;
+        let observation_complete = age >= last_age
+            && stage_at_baseline
+            && (cleaned
+                || (!live_action
+                    && visual_empty
+                    && age >= released_at.map_or(1800, |start| start + 900)));
+        let observation_end = tick == 3599 && !observation_complete;
+        if observation_end {
+            observation_end_at = Some(age);
+            progress["observation_end_age"] = json!(age);
+        }
+        let interesting = scene_active
+            || release
+            || impact
+            || completion
+            || stage_restored
+            || cleanup
+            || observation_end;
         let after_release = released_at.is_some_and(|start| {
             [4, 8, 16, 24, 40, 64, 96, 160, 240, 360].contains(&(age - start))
         });
@@ -958,15 +1003,15 @@ fn capture_case(
             fs::create_dir_all(output.join(&case_name))?;
             fixture_camera(scene_mut(app), row, age)?;
             screenshot(app, output.join(&path), row, age)?;
-            captures.push(json!({"age":age,"path":path,"moment":if scene_active {"scene_active"} else if release {"release"} else if impact {"impact"} else if cleanup {"cleanup"} else {"fixed_age"}}));
+            captures.push(json!({"age":age,"path":path,
+                "moment":if observation_end {"observation_end"} else if cleanup {"cleanup"}
+                    else if stage_restored {"stage_restored"} else if completion {"action_completed"}
+                    else if scene_active {"scene_active"} else if release {"release"}
+                    else if impact {"impact"} else {"fixed_age"},
+                "action_completed_now":completion,"stage_restored_now":stage_restored}));
             progress["images"] = json!(captures);
         }
-        if age >= last_age
-            && (cleaned
-                || (!live_action
-                    && visual_empty
-                    && age >= released_at.map_or(1800, |start| start + 900)))
-        {
+        if observation_complete {
             break;
         }
     }
@@ -987,7 +1032,11 @@ fn capture_case(
         "action_key":action.0,"assignment":row.get("assignment"),"assistance":progress.get("assistance"),"images":captures,"released":released,"release_age":released_at,"active_scene_age":active_scene_at,"impacted":impacted,
         "action_completed":action_completed,"action_interrupted":action_interrupted,
         "action_terminated":action_completed||action_interrupted,"termination_reason":termination_reason,
-        "cleanup_seen":cleaned,"fixture":row.get("fixture"),"review":{"status":"pending"}}))
+        "cleanup_seen":cleaned,"completion_age":completion_at,
+        "stage_observation":progress.get("stage_observation"),
+        "observation_end_age":observation_end_at,
+        "observation_budget_exhausted":observation_end_at.is_some(),
+        "fixture":row.get("fixture"),"review":{"status":"pending"}}))
 }
 
 fn write_report(output: &Path, edition: &str, root: &Path, cases: &[Value]) -> Result<()> {
