@@ -64,6 +64,33 @@ fn crash_child() {
 }
 
 #[test]
+fn dump_file_creation_failure_stops_the_server_loop() {
+    use super::*;
+
+    let directory = tempfile::tempdir().unwrap();
+    let prefix = directory.path().join("crash");
+    std::fs::create_dir(prefix.with_extension("dmp")).unwrap();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let handler = Monitor {
+        prefix: prefix.clone(),
+        header: "test build".into(),
+        context: directory.path().join("context"),
+        fault: Mutex::new(Fault::default()),
+        connected: Arc::new(AtomicBool::new(true)),
+        writing: Arc::new(AtomicBool::new(false)),
+        shutdown: shutdown.clone(),
+    };
+    assert!(handler.create_minidump_file().is_err());
+    assert!(shutdown.load(Ordering::Acquire));
+    let text = std::fs::read_to_string(prefix.with_extension("native.txt")).unwrap();
+    assert!(
+        text.contains("Could not create crash dump/report"),
+        "{text}"
+    );
+    assert!(!text.contains("Native dump saved"), "{text}");
+}
+
+#[test]
 fn real_crashes_create_dumps_and_text_reports() {
     use std::{
         fs,

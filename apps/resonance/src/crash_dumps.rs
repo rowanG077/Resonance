@@ -326,6 +326,7 @@ mod native {
         fault: Mutex<Fault>,
         connected: Arc<AtomicBool>,
         writing: Arc<AtomicBool>,
+        shutdown: Arc<AtomicBool>,
     }
     impl Monitor {
         fn finalize_dump(&self, dump: &mut minidumper::MinidumpBinary) -> Result<()> {
@@ -433,6 +434,10 @@ mod native {
                 Ok((file, path))
             })();
             if let Err(error) = &result {
+                // minidumper can return to its event loop without notifying us
+                // of disconnection when file creation fails on macOS. This
+                // monitor handles one crash; stop it and clean up its IPC files.
+                self.shutdown.store(true, Ordering::Release);
                 self.status(&format!("Could not create crash dump/report: {error}"));
             }
             result
@@ -538,6 +543,7 @@ mod native {
         let mut server = super::windows::Server::bind(socket)?;
         let connected = Arc::new(AtomicBool::new(false));
         let writing = Arc::new(AtomicBool::new(false));
+        let shutdown = Arc::new(AtomicBool::new(false));
         let handler = Monitor {
             prefix: prefix.to_owned(),
             header: fs::read_to_string(header)?,
@@ -545,6 +551,7 @@ mod native {
             fault: Mutex::new(Fault::default()),
             connected: connected.clone(),
             writing: writing.clone(),
+            shutdown: shutdown.clone(),
         };
         std::thread::Builder::new()
             .name("crash-monitor-watchdog".into())
@@ -571,7 +578,7 @@ mod native {
                 }
             })?;
         #[cfg(not(windows))]
-        let result = server.run(Box::new(handler), &AtomicBool::new(false), None);
+        let result = server.run(Box::new(handler), &shutdown, None);
         #[cfg(windows)]
         let result = server.run(handler);
         if let Err(error) = result {

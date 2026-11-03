@@ -123,15 +123,19 @@ pub fn hold_session(directory: &Path) -> io::Result<File> {
 
 fn create_session(root: &Path, directory: &Path) -> io::Result<File> {
     fs::create_dir_all(root)?;
-    // Publish the directory only after holding its lock. A simultaneous launch
-    // can never mistake a partially initialized session for a completed one.
+    // Pruning ignores directories without a .lock file. Publish an already
+    // locked file, so a simultaneous launch cannot delete this active session.
+    // Renaming its parent directory fails on Windows while the file is open.
     let staging = tempfile::Builder::new()
         .prefix(".session-")
         .tempdir_in(root)?;
     let lock = private_file(&staging.path().join(".lock"))?;
     lock.try_lock_shared().map_err(io::Error::other)?;
-    fs::rename(staging.path(), directory)?;
-    let _ = staging.keep();
+    fs::create_dir(directory)?;
+    if let Err(error) = fs::rename(staging.path().join(".lock"), directory.join(".lock")) {
+        let _ = fs::remove_dir(directory);
+        return Err(error);
+    }
     Ok(lock)
 }
 
