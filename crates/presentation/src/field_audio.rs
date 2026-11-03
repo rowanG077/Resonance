@@ -1297,14 +1297,12 @@ pub(super) fn update(world: &mut World) {
         Ok(())
     })();
     if let Err(error) = result
-        && super::diagnostics::policy(world)
-            .report("field audio adapter", error)
-            .is_err()
+        && let Err(error) = super::diagnostics::policy(world).report("field audio adapter", error)
     {
         if let Some(mut session) = world.get_resource_mut::<super::new_game::Session>() {
             session.events_mut().cancel();
         }
-        world.write_message(AppExit::error());
+        crate::diagnostics::fatal(world, "field audio adapter", error);
     }
 }
 

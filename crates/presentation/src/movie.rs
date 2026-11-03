@@ -336,7 +336,7 @@ pub(super) fn update(
     mut images: ResMut<Assets<Image>>,
     mut audio_assets: ResMut<Assets<MovieAudio>>,
     sinks: Query<&AudioSink>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
     ready: Res<super::timing::Ready>,
     boot: Res<super::boot::Playback>,
     preferences: Option<Res<super::config::Preferences>>,
@@ -379,12 +379,11 @@ pub(super) fn update(
         &sinks,
         settings,
     ) {
-        error!("movie playback failed: {error:#}");
         if let Some(completion) = movie.completion.take() {
             completion.cancel();
         }
         movie.finish(&mut commands, &mut pending);
-        exit.write(AppExit::error());
+        exit.fail("movie playback", error);
     } else if movie.ended
         && let Some(entity) = movie.audio_entity
         && let Ok(sink) = sinks.get(entity)

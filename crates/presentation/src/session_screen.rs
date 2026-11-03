@@ -48,8 +48,7 @@ pub(crate) fn update(world: &mut World) {
         Target::Credits => super::credits::start(world),
     };
     if let Err(error) = result {
-        error!("Session screen failed: {error:#}");
-        world.write_message(AppExit::error());
+        crate::diagnostics::fatal(world, "Session screen failed", error);
     }
 }
 
@@ -277,16 +276,14 @@ fn advance(world: &mut World) {
                     .unwrap() = mesh;
             }
             Err(error) => {
-                error!("Game over text failed: {error:#}");
-                world.write_message(AppExit::error());
+                crate::diagnostics::fatal(world, "Game over text failed", error);
             }
         }
     }
     if input.accept {
         let load = world.resource::<GameOver>().selected == 0;
         if let Err(error) = return_to_title(world, load) {
-            error!("Title return failed: {error:#}");
-            world.write_message(AppExit::error());
+            crate::diagnostics::fatal(world, "Title return failed", error);
         }
     }
 }

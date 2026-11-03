@@ -284,7 +284,7 @@ fn advance(
     mut controls: ResMut<Controls>,
     mut menu_controls: ResMut<super::field_view::Controls>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let mut input = controls.0;
     if owner.as_ref().is_some_and(|s| s.overworld().is_some()) {
@@ -311,8 +311,7 @@ fn advance(
         scenario.acknowledge_input();
     }
     if let Err(error) = scene.step(input) {
-        error!("Overworld update failed: {error:#}");
-        exit.write(AppExit::error());
+        exit.fail("Overworld update failed", error);
     }
 }
 
@@ -427,7 +426,7 @@ fn prepare(
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     clips: Res<Assets<sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let Some(art) = art.as_mut() else {
         return;
@@ -451,8 +450,7 @@ fn prepare(
         Ok(())
     })();
     if let Err(error) = result {
-        error!("World graphics failed: {error:#}");
-        exit.write(AppExit::error());
+        exit.fail("World graphics failed", error);
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -466,7 +464,7 @@ fn instances(
     server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -491,8 +489,7 @@ fn instances(
         ) {
             Ok(ui) => art.ui = Some(ui),
             Err(error) => {
-                error!("World interface failed: {error:#}");
-                exit.write(AppExit::error());
+                exit.fail("World interface failed", error);
                 return;
             }
         }
@@ -630,7 +627,7 @@ fn bind(
     nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
     meshes: Query<&super::materials::MaterialSlot>,
     resident: Res<super::loading::Resident>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
     images: Res<Assets<Image>>,
 ) {
     let Some(art) = art.filter(|a| a.ready && a.spawned) else {
@@ -714,8 +711,7 @@ fn bind(
             Ok(())
         })();
         if let Err(error) = result {
-            error!("World model binding failed: {error:#}");
-            exit.write(AppExit::error());
+            exit.fail("World model binding failed", error);
             return;
         }
     }
@@ -1236,7 +1232,7 @@ fn animate(
     roots: Query<&Instance>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<sparse_animation::affine::Locals>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -1304,8 +1300,7 @@ fn animate(
             .binding
             .sample(clip, seconds, &mut nodes, &mut affine)
         {
-            error!("World animation failed: {error:#}");
-            exit.write(AppExit::error());
+            exit.fail("World animation failed", error);
             return;
         }
     }
@@ -1400,7 +1395,7 @@ fn ui(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
     prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
     let Some(scene) = owner.get() else {
@@ -1422,8 +1417,7 @@ fn ui(
         &mut images,
         &mut materials,
     ) {
-        error!("World interface failed: {error:#}");
-        exit.write(AppExit::error());
+        exit.fail("World interface failed", error);
     }
 }
 

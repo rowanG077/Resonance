@@ -142,6 +142,34 @@ pub(super) struct Owner {
     publish_field: bool,
 }
 impl Owner {
+    pub(super) fn crash_context(&self) -> String {
+        let mut text = String::new();
+        let _ = self.write_crash_context(&mut text);
+        text
+    }
+
+    pub(super) fn write_crash_context(&self, out: &mut impl std::fmt::Write) -> std::fmt::Result {
+        write!(out, "Battle: ")?;
+        match &self.phase {
+            Phase::Loading(_) => write!(out, "loading")?,
+            Phase::Failed => write!(out, "failed")?,
+            Phase::Scene(scene) => {
+                write!(
+                    out,
+                    "scene; state={:?}; published tick={:?}; seed={}",
+                    scene.state, scene.published_tick, scene.entry_seed
+                )?;
+                if let Some(error) = &scene.failure {
+                    write!(out, "; failure={error:#}")?;
+                }
+            }
+        }
+        writeln!(
+            out,
+            "; input tick={}; setup={:?}",
+            self.input_tick, self.request.setup
+        )
+    }
     pub(super) fn prompt_party(&self) -> Option<&resonance_events::party::Party> {
         let Phase::Scene(scene) = &self.phase else {
             return None;
@@ -187,6 +215,12 @@ fn diagnostics(world: &World) -> resonance_content::diagnostics::Diagnostics {
 /// A missing mandatory battle input cannot produce a meaningful outcome. Keep
 /// the application usable without completing its caller or saving guessed state.
 fn finish_failed(world: &mut World, owner: Owner) {
+    // manage() has removed this owner from the world. Preserve it before
+    // recording the world or retiring the scene, including when logs are off.
+    let context = owner.crash_context();
+    super::diagnostics::remember_failure("battle", &context);
+    error!("Battle failure: {context}");
+    super::diagnostics::record(world, true);
     if diagnostics(world).paranoid() {
         let request = owner.request.clone();
         retire(world, owner, false);
@@ -196,7 +230,7 @@ fn finish_failed(world: &mut World, owner: Owner) {
             input_tick: 0,
             publish_field: false,
         });
-        world.write_message(AppExit::error());
+        super::diagnostics::fatal(world, "battle", anyhow::anyhow!(context));
     } else {
         retire(world, owner, false);
         if let Err(error) = super::game_over::return_to_title(world) {
@@ -229,7 +263,7 @@ struct Scene {
     target: RenderTarget,
     state: SceneState,
     menu_ready: bool,
-    failure: Option<String>,
+    failure: Option<anyhow::Error>,
     completed: Option<results::Completed>,
     entry_seed: u64,
     preparing_since: std::time::Instant,
@@ -356,6 +390,12 @@ fn manage(world: &mut World) {
         if !request.is_pending() {
             return;
         }
+        info!(
+            "Battle requested: id={}, setup={:?}",
+            request.id(),
+            request.setup
+        );
+        super::diagnostics::record(world, true);
         let _audio_owner = debug_span!(
             "battle_audio_owner",
             request = request.id(),
@@ -376,7 +416,9 @@ fn manage(world: &mut World) {
         let phase = match result {
             Ok(task) => Phase::Loading(task),
             Err(error) => {
-                let _ = diagnostics(world).report("battle preparation", error);
+                if let Err(error) = diagnostics(world).report("battle preparation", error) {
+                    super::diagnostics::fatal(world, "battle preparation", error);
+                }
                 Phase::Failed
             }
         };
@@ -424,10 +466,12 @@ fn manage(world: &mut World) {
     }
     if let Phase::Scene(scene) = &mut owner.phase {
         if scene.failure.is_none() {
-            scene.failure = scene.view.check().err().map(|error| format!("{error:#}"));
+            scene.failure = scene.view.check().err();
         }
         if let Some(error) = scene.failure.take() {
-            let _ = scene.diagnostics.report("battle", anyhow::anyhow!(error));
+            if let Err(error) = scene.diagnostics.report("battle", error) {
+                super::diagnostics::fatal(world, "battle", error);
+            }
             finish_failed(world, owner);
             return;
         }
@@ -453,13 +497,17 @@ fn manage(world: &mut World) {
                 unreachable!()
             };
             let Some(art) = scene.game_over.take() else {
-                scene.failure = Some("fatal defeat has no prepared game-over artwork".into());
+                scene.failure = Some(anyhow::anyhow!(
+                    "fatal defeat has no prepared game-over artwork"
+                ));
                 world.insert_resource(owner);
                 return;
             };
             if !art.ready(world.resource::<Assets<Image>>()) {
                 scene.game_over = Some(art);
-                scene.failure = Some("game-over artwork lost its prepared resources".into());
+                scene.failure = Some(anyhow::anyhow!(
+                    "game-over artwork lost its prepared resources"
+                ));
                 world.insert_resource(owner);
                 return;
             }
@@ -468,7 +516,9 @@ fn manage(world: &mut World) {
             // no successful field callback or battle-audio End is issued.
             dispose(world, owner, None);
             if let Err(error) = super::game_over::enter(world, art) {
-                error!("Game-over entry failed: {error:#}");
+                if let Err(error) = diagnostics(world).report("Game-over entry", error) {
+                    super::diagnostics::fatal(world, "Game-over entry", error);
+                }
                 world.insert_resource(Owner {
                     request,
                     phase: Phase::Failed,
@@ -480,7 +530,7 @@ fn manage(world: &mut World) {
         }
         if let Err(error) = commit(world, &owner.request, completed) {
             if let Phase::Scene(scene) = &mut owner.phase {
-                scene.failure = Some(format!("{error:#}"));
+                scene.failure = Some(error);
             }
             world.insert_resource(owner);
         } else {
@@ -500,12 +550,14 @@ fn manage(world: &mut World) {
         match result.and_then(|package| scene(world, package)) {
             Ok(mut scene) => {
                 if let Err(error) = begin_audio(world, &scene) {
-                    scene.failure = Some(format!("{error:#}"));
+                    scene.failure = Some(error);
                 }
                 owner.phase = Phase::Scene(Box::new(scene));
             }
             Err(error) => {
-                let _ = diagnostics(world).report("battle preparation", error);
+                if let Err(error) = diagnostics(world).report("battle preparation", error) {
+                    super::diagnostics::fatal(world, "battle preparation", error);
+                }
                 owner.phase = Phase::Failed;
                 world
                     .resource::<super::loading::Resident>()
@@ -560,8 +612,7 @@ fn retry_audio(world: &mut World) {
         }
         Err(error) => {
             world.insert_resource(playback);
-            error!("Battle audio handoff failed: {error:#}");
-            world.write_message(AppExit::error());
+            crate::diagnostics::fatal(world, "Battle audio handoff failed", error);
         }
     }
 }
@@ -1076,6 +1127,12 @@ fn prepare(
             return Ok(());
         }
         scene.state = SceneState::Active;
+        info!(
+            "Battle activated; seed={}; tick={:?}; preparation={:.3}s",
+            scene.entry_seed,
+            scene.published_tick,
+            scene.preparing_since.elapsed().as_secs_f64()
+        );
         resident.active.store(true, Ordering::Release);
         Ok(())
     })();
@@ -1083,7 +1140,7 @@ fn prepare(
         error!("Battle scene preparation failed: {error:#}");
         // Keep the candidate and field owner intact for diagnostics; no caller
         // completion or persistent writeback can occur on this path.
-        scene.failure = Some(format!("{error:#}"));
+        scene.failure = Some(error);
         resident.active.store(false, Ordering::Release);
     }
 }
@@ -1144,8 +1201,7 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
             world.insert_resource(playback);
         }
         if let Err(error) = result {
-            error!("Battle audio return failed: {error:#}");
-            world.write_message(AppExit::error());
+            crate::diagnostics::fatal(world, "Battle audio return failed", error);
         }
     }
     if let Phase::Scene(scene) = owner.phase {
@@ -1382,7 +1438,7 @@ fn advance(
         Ok(())
     })();
     if let Err(error) = result {
-        scene.failure = Some(format!("{error:#}"));
+        scene.failure = Some(error);
     }
 }
 
@@ -1823,7 +1879,7 @@ fn render(
         Ok(())
     })();
     if let Err(error) = result {
-        scene.failure = Some(format!("{error:#}"));
+        scene.failure = Some(error);
     }
 }
 

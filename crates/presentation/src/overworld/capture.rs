@@ -414,14 +414,13 @@ fn capture(
     framebuffer: Res<crate::Framebuffer>,
     ready: Res<crate::RenderReady>,
     resident: Res<crate::loading::Resident>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     if capture.requested {
         return;
     }
     if capture.start.elapsed().as_secs() > 180 {
-        error!("World capture timed out");
-        exit.write(AppExit::error());
+        exit.fail("World capture", anyhow::anyhow!("timed out"));
         return;
     }
     if art.is_none_or(|a| !a.ready)
@@ -439,8 +438,7 @@ fn capture(
     if capture.simulation_ticks > 0 {
         capture.simulation_ticks -= 1;
         if let Err(error) = scene.0.step(Default::default()) {
-            error!("World capture simulation failed: {error:#}");
-            exit.write(AppExit::error());
+            exit.fail("World capture simulation failed", error);
         } else {
             clock.0.advance();
         }
@@ -464,14 +462,13 @@ fn capture(
         .collect();
     let state = serde_json::json!({"kind":"overworld-development-observer", "presentation_tick": clock.0.tick(), "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
-        move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+        move |event: On<ScreenshotCaptured>, mut exit: crate::diagnostics::Fatal| {
             match crate::screenshot::write(&event.image, &path, Some(&state)) {
                 Ok(()) => {
-                    exit.write(AppExit::Success);
+                    exit.success();
                 }
                 Err(error) => {
-                    error!("World capture failed: {error:#}");
-                    exit.write(AppExit::error());
+                    exit.fail("World capture failed", error);
                 }
             }
         },
