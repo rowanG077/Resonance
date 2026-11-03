@@ -1,0 +1,2620 @@
+{
+  "version": 1,
+  "recorded": "2026-11-03",
+  "reference": "Original GQSEAF GameCube executable in Dolphin 2606",
+  "dol_sha256": "72dabc9590bb96796b0a89942b637c8f5106d86ddbed6587e689e6caaf136493",
+  "formation": 1,
+  "enemy": "zombie-0036",
+  "source_setup": {
+    "assets": "Original extracted disc; imported assets are not the reference simulator",
+    "prelude": "Declared level 99 party grants, raised vitals, technical route and saved OverLimit; natural battle entry and neutral settling",
+    "case_mutations": "Saved shortcuts and learned masks, idle placement, control mode, unused target controller port and inert case marker; all writes retained in per-case fixture.json",
+    "action_pose_physics_timer_injection": false,
+    "audio_output": "No Audio Output; muted",
+    "movie_policy": "One fresh process per distinct input timeline; consumed controller polls compared against retained Dolphin movie"
+  },
+  "scope": {
+    "established": [
+      "Unfinished Fire Ball and First Aid cancellation during normal chains, Manual and Semi-Auto Kratos",
+      "Cornered Twin Tiger Blade and Hunting Beast pickups with Demon Fang",
+      "Double Demon Fang and Demonic Chaos pickups after cornered Twin Tiger Blade",
+      "Failure after slow Beast recovery or distant open-space Twin Tiger Blade",
+      "Two successive Twin Tiger Blade pickups joined through an ordinary Demon Fang-to-arcane chain",
+      "One airborne admission hold followed by unbraked flight",
+      "A longer fixed-timing Twin Tiger Blade loop gets three Demon Fang pickups; the fourth fails after mid-attack knockdown and window expiry",
+      "Earlier/repeated Demon Fang inputs do not rescue plain Beast or open-space Twin Tiger Blade on the controlled Zombie",
+      "Naturally equipped Follow-up does not rescue either ordinary Demon Fang route on the Zombie",
+      "A buffered Beast-to-Demonic Chaos Arcane chain picks up the cornered Zombie with two or six updates of window remaining at the contact visit; waiting for Beast idle or using the open-space setup fails",
+      "Open-space Twin Tiger Blade-to-Demon Fang fails against first-stage Sword Dancer and Dragon Knight as well as Zombie"
+    ],
+    "native_additions": [
+      "Representative Zelos/Kratos spell-cancel cases cover both control modes, one-normal and full chains, with zero prior spell uses",
+      "Pickup regressions retain Demon Fang variants, Beast-to-Demonic Chaos timing/position boundaries, Follow-up, and Sword Dancer/Dragon Knight model behavior",
+      "Without random stun, Twin Tiger Blade and Hunting Beast loops preserve the combo until window expiry on opposite arena edges, using Manual and Semi-Auto respectively"
+    ],
+    "limits": [
+      "Controlled Zombie recipient, not every enemy profile or natural AI behavior",
+      "Short recorded loops do not establish an unbounded infinite combo",
+      "No general certification of all world-space positions, damage, EX setups, aerial spell release or bosses"
+    ],
+    "excluded_experiments": [
+      "probe/source-run/contact-run/contact-steady: preliminary timing or shared-movie/target-controller experiments; excluded from accepted cases",
+      "lloyd-long-repeat: sandbox display startup failed",
+      "lloyd-long-repeat-v2: capture exceeded the movie duration and stalled; excluded from accepted evidence",
+      "local/battle-physics-gaps-20261103/twin-open-sword-dancer: opening consumed the initial arte input; it never executed and is excluded",
+      "Earlier native exploratory probes that dropped published post-contact model requests or removed enemy behavior are superseded by FixtureBattle and the final asset-backed regressions"
+    ]
+  },
+  "cases": [
+    {
+      "id": "kratos-213-mode-0",
+      "kind": "spell_cancel",
+      "source_control": "manual",
+      "catalogue": 213,
+      "initial_uses": 0,
+      "hit_ticks": [
+        243,
+        274,
+        304,
+        334
+      ],
+      "hit_intervals": [
+        31,
+        30,
+        30
+      ],
+      "cast_starts": [
+        253,
+        283,
+        313
+      ],
+      "uninterrupted_received_combo": true,
+      "tp_before": 500,
+      "tp_after": 500,
+      "observations": "local/battle-physics-audit-20261103/contact-final/character9-mode0-arte213/capture/observations.json",
+      "observations_sha256": "3c7beb8c88e247e7bb02fe1f70802f88da5dbd45acaff9e0005f2f6d492b6b78",
+      "input_state_sha256": "a437f98638700197fa09c8d45e1934b0c203e03b7c9854ebafe047ff09f1acae",
+      "requested_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "executed_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25157,
+      "first_combat_tick": 217,
+      "last_combat_tick": 456,
+      "observations_count": 240,
+      "fixture": "local/battle-physics-audit-20261103/contact-final/character9-mode0-arte213/fixture.json",
+      "fixture_sha256": "97ada3716a717f91bcaaf3d9fd19b3d3b7157da521daf7cccd5e9021fc8d9dac",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/contact-final/character9-mode0-arte213/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "kratos-221-mode-0",
+      "kind": "spell_cancel",
+      "source_control": "manual",
+      "catalogue": 221,
+      "initial_uses": 0,
+      "hit_ticks": [
+        243,
+        274,
+        304,
+        334
+      ],
+      "hit_intervals": [
+        31,
+        30,
+        30
+      ],
+      "cast_starts": [
+        253,
+        283,
+        313
+      ],
+      "uninterrupted_received_combo": true,
+      "tp_before": 500,
+      "tp_after": 500,
+      "observations": "local/battle-physics-audit-20261103/contact-final/character9-mode0-arte221/capture/observations.json",
+      "observations_sha256": "9f7e52f05acddf5b20c61332c8f2b083d6d9477a4d13079f6031e75797e06826",
+      "input_state_sha256": "f82ba94112100f64947e62c091cd48f974f616af6be88bada35d8d5a0468aaa1",
+      "requested_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "executed_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25157,
+      "first_combat_tick": 217,
+      "last_combat_tick": 456,
+      "observations_count": 240,
+      "fixture": "local/battle-physics-audit-20261103/contact-final/character9-mode0-arte221/fixture.json",
+      "fixture_sha256": "0767ca4830d013b02c3d8b6642158d8264786ecbe9b6c4b88dd8c117c4346303",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/contact-final/character9-mode0-arte221/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "kratos-213-mode-1",
+      "kind": "spell_cancel",
+      "source_control": "semi_auto",
+      "catalogue": 213,
+      "initial_uses": 0,
+      "hit_ticks": [
+        243,
+        274,
+        304,
+        334
+      ],
+      "hit_intervals": [
+        31,
+        30,
+        30
+      ],
+      "cast_starts": [
+        253,
+        283,
+        313
+      ],
+      "uninterrupted_received_combo": true,
+      "tp_before": 500,
+      "tp_after": 500,
+      "observations": "local/battle-physics-audit-20261103/contact-final/character9-mode1-arte213/capture/observations.json",
+      "observations_sha256": "fe7b578356f2b06885709f3be74c288f31dafd84633e1b552c7068a0ba3fa0c8",
+      "input_state_sha256": "5c53c55f5b18f1e5a461f7c5eb62ad3a9d70f74bdf0dcc1ae7a8c9a876405c94",
+      "requested_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "executed_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25157,
+      "first_combat_tick": 217,
+      "last_combat_tick": 456,
+      "observations_count": 240,
+      "fixture": "local/battle-physics-audit-20261103/contact-final/character9-mode1-arte213/fixture.json",
+      "fixture_sha256": "6c68f5bc6addca55a44c731a76e27736525a263962f20941bf9cfbdd902ff645",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/contact-final/character9-mode1-arte213/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "kratos-221-mode-1",
+      "kind": "spell_cancel",
+      "source_control": "semi_auto",
+      "catalogue": 221,
+      "initial_uses": 0,
+      "hit_ticks": [
+        243,
+        274,
+        304,
+        334
+      ],
+      "hit_intervals": [
+        31,
+        30,
+        30
+      ],
+      "cast_starts": [
+        253,
+        283,
+        313
+      ],
+      "uninterrupted_received_combo": true,
+      "tp_before": 500,
+      "tp_after": 500,
+      "observations": "local/battle-physics-audit-20261103/contact-final/character9-mode1-arte221/capture/observations.json",
+      "observations_sha256": "b101f0c4916f6ed655824d729741d60b837a78d0e9d3f9ecf8757362ee8bfcb2",
+      "input_state_sha256": "937098abbc6b20b55e0593e3d3a2c1cfe32c6bfc5af57433791bde0e3b52d554",
+      "requested_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "executed_movie_sha256": "16d64a8e2b906058d4bf16ddd0dae035d49958def1f395654e48861f4d5bbd37",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25157,
+      "first_combat_tick": 217,
+      "last_combat_tick": 456,
+      "observations_count": 240,
+      "fixture": "local/battle-physics-audit-20261103/contact-final/character9-mode1-arte221/fixture.json",
+      "fixture_sha256": "e978349f5635ef3c8836c4efc275a4c0b70c0e5ab799ee85232d9e0554ba747b",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/contact-final/character9-mode1-arte221/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "knockdown-9-corner",
+      "kind": "knockdown_pickup",
+      "arte": 9,
+      "corner": true,
+      "idle_tick": 324,
+      "idle_window": 38,
+      "follow_poll": 218,
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -47
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -48
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -46
+        },
+        {
+          "tick": 293,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -92
+        },
+        {
+          "tick": 345,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window_before": 18,
+          "hp_change": -72
+        }
+      ],
+      "pickup": true,
+      "observations": "local/battle-physics-audit-20261103/lloyd-pickup/arte9-corner-pickup/capture/observations.json",
+      "observations_sha256": "4d8360675cf12b65b39c9b8e61726fb9f39e697059d9458e76e57ea770f6b7ba",
+      "input_state_sha256": "e945b3eea16e6d5ac6c80cb21fcc9b80e5319486f0f695d1b84115a4edf46d46",
+      "requested_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "executed_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/lloyd-pickup/arte9-corner-pickup/fixture.json",
+      "fixture_sha256": "23ad9faa0491879659fe268ea3b511c1ac8fb656a354c77cee0265110b3456ac",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/lloyd-pickup/arte9-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "knockdown-22-corner",
+      "kind": "knockdown_pickup",
+      "arte": 22,
+      "corner": true,
+      "idle_tick": 374,
+      "idle_window": 29,
+      "follow_poll": 318,
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 22,
+          "before": 3,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -59
+        },
+        {
+          "tick": 267,
+          "native": 22,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -73
+        },
+        {
+          "tick": 304,
+          "native": 22,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -81
+        },
+        {
+          "tick": 395,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window_before": 9,
+          "hp_change": -73
+        }
+      ],
+      "pickup": true,
+      "observations": "local/battle-physics-audit-20261103/lloyd-pickup/arte22-corner-pickup/capture/observations.json",
+      "observations_sha256": "0503ada7b6fa85000f4c637e5e55d04175ae2175b8e0bbf561ab7c862ad55f46",
+      "input_state_sha256": "9e2db341582da66701c67f849959438bce1c1393d46eadb20a19ebbbb355a5d2",
+      "requested_movie_sha256": "7e80b65b885e377a7e76a1188f16763e4fd4b05692882193daea99d1cba08047",
+      "executed_movie_sha256": "7e80b65b885e377a7e76a1188f16763e4fd4b05692882193daea99d1cba08047",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/lloyd-pickup/arte22-corner-pickup/fixture.json",
+      "fixture_sha256": "efff66d15babc48ed82916d91e58001f3fe42684719675d2b1df1beee17f0019",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/lloyd-pickup/arte22-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "knockdown-20-corner",
+      "kind": "knockdown_pickup",
+      "arte": 20,
+      "corner": true,
+      "idle_tick": 321,
+      "idle_window": 6,
+      "follow_poll": 212,
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -58
+        },
+        {
+          "tick": 268,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -92
+        },
+        {
+          "tick": 351,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window_before": 0,
+          "hp_change": -17
+        }
+      ],
+      "pickup": false,
+      "observations": "local/battle-physics-audit-20261103/lloyd-pickup/arte20-corner-pickup/capture/observations.json",
+      "observations_sha256": "7634b318aceb248d28ca433586b6d5f04ebd6cfd9345fca8aa35a5e0c6675e0a",
+      "input_state_sha256": "890c8cf87140039c7da229f0af6619ca1684cc3d930dfc433f61969f808df51d",
+      "requested_movie_sha256": "7eef4cd9888e35bfb9c72bce4a8232932ecdb798585c53bab69fc8b8514a3b7f",
+      "executed_movie_sha256": "7eef4cd9888e35bfb9c72bce4a8232932ecdb798585c53bab69fc8b8514a3b7f",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/lloyd-pickup/arte20-corner-pickup/fixture.json",
+      "fixture_sha256": "b96c3e25c70ab172bfe95e0493dc9e4dad89a2ba102cfba20bb126cc8b870fc3",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/lloyd-pickup/arte20-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "knockdown-9-open",
+      "kind": "knockdown_pickup",
+      "arte": 9,
+      "corner": false,
+      "idle_tick": 324,
+      "idle_window": 38,
+      "follow_poll": 218,
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -47
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -48
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -46
+        },
+        {
+          "tick": 294,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window_before": 0,
+          "hp_change": -92
+        },
+        {
+          "tick": 368,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window_before": 0,
+          "hp_change": -18
+        }
+      ],
+      "pickup": false,
+      "observations": "local/battle-physics-audit-20261103/lloyd-pickup/arte9-open-pickup/capture/observations.json",
+      "observations_sha256": "9a8b18706381222f68d2803b3196f5ff3a36972acd2b396c8b0956268867a3ef",
+      "input_state_sha256": "4ab6b480f4db70649d5ebf6870e6efe40aa4bad66f816c4fda9a99421334b854",
+      "requested_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "executed_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/lloyd-pickup/arte9-open-pickup/fixture.json",
+      "fixture_sha256": "7e73b3bbf08abf404ccf75f98054d3d323a5ccff46ac42747633240c18baf6f1",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/lloyd-pickup/arte9-open-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "fang-variant-2",
+      "kind": "knockdown_pickup_variant",
+      "fang": 2,
+      "pickup": true,
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 293,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 343,
+          "native": 2,
+          "before": 14,
+          "after": 9,
+          "window": 20
+        },
+        {
+          "tick": 365,
+          "native": 2,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        }
+      ],
+      "observations": "local/battle-physics-audit-20261103/fang-variants/fang2-arte9-corner-pickup/capture/observations.json",
+      "observations_sha256": "c5a032c495e2cfa5c070f3360dd027af3bdeab0715d771309c5cb2f32212c37d",
+      "input_state_sha256": "fec48f3483f99d320d8f543a2dcd6895feee8910995e4a30b2cf5b7b5566502e",
+      "requested_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "executed_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/fang-variants/fang2-arte9-corner-pickup/fixture.json",
+      "fixture_sha256": "fa933625d01f5ccb8411b939308ae73e05bcf931272234432f7e32c785554653",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/fang-variants/fang2-arte9-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "fang-variant-3",
+      "kind": "knockdown_pickup_variant",
+      "fang": 3,
+      "pickup": true,
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 293,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 343,
+          "native": 3,
+          "before": 14,
+          "after": 9,
+          "window": 20
+        },
+        {
+          "tick": 365,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 392,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 397,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 403,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        }
+      ],
+      "observations": "local/battle-physics-audit-20261103/fang-variants/fang3-arte9-corner-pickup/capture/observations.json",
+      "observations_sha256": "649dcee049d42db9ed21a958cf7789203cbac8e68683938359248ce7ee4614e0",
+      "input_state_sha256": "8c683c6b14585e074bf80f910ed9d1838477be141d2b1c44b08826c60a488bb1",
+      "requested_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "executed_movie_sha256": "66ba8f54bf9b4e3a4be502d5832c4abdb835a784ed53ff7f4f4b1f73d35915bc",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/fang-variants/fang3-arte9-corner-pickup/fixture.json",
+      "fixture_sha256": "acd5f04cd596adb01c443d7c9500818b01e38c2989a722b7fb84f761e829ee1b",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/fang-variants/fang3-arte9-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "twin-tiger-blade-demon-fang-repeat",
+      "kind": "repeat_pickup",
+      "second_faller_idle_tick": 453,
+      "second_faller_window": 36,
+      "second_fang_poll": 476,
+      "pickups": [
+        {
+          "tick": 345,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 18
+        },
+        {
+          "tick": 474,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 16
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 293,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 345,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 18
+        },
+        {
+          "tick": 362,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 1
+        },
+        {
+          "tick": 386,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 396,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 422,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0
+        },
+        {
+          "tick": 474,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 16
+        }
+      ],
+      "passed": true,
+      "observations": "local/battle-physics-audit-20261103/lloyd-repeat/repeat-pickup-arte9-corner-pickup/capture/observations.json",
+      "observations_sha256": "3bdaa38c23db2013ba4fd9c8e8803dcf72e2a7005c2ae884b0d74b0296c17c16",
+      "input_state_sha256": "e945b3eea16e6d5ac6c80cb21fcc9b80e5319486f0f695d1b84115a4edf46d46",
+      "requested_movie_sha256": "b94fdc234da84b3be6fb3c5559566a040c0ff37b06b780e5ea44955733a8506d",
+      "executed_movie_sha256": "b94fdc234da84b3be6fb3c5559566a040c0ff37b06b780e5ea44955733a8506d",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25337,
+      "first_combat_tick": 217,
+      "last_combat_tick": 546,
+      "observations_count": 330,
+      "fixture": "local/battle-physics-audit-20261103/lloyd-repeat/repeat-pickup-arte9-corner-pickup/fixture.json",
+      "fixture_sha256": "a9f668eed0188891cbbd6d6ec4c6fbb37c4d6fcd46e15216643338c2fe7926a6",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/lloyd-repeat/repeat-pickup-arte9-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "lloyd-running-jump-aerial-slash",
+      "kind": "airborne_attack_admission",
+      "expected_admission_hold_updates": 1,
+      "flight_samples": [
+        {
+          "tick": 263,
+          "action": 12,
+          "phase": "0x6000000",
+          "x": -152.5,
+          "y": 20.5,
+          "dx": 10.0,
+          "dy": 20.5
+        },
+        {
+          "tick": 264,
+          "action": 12,
+          "phase": "0x6000000",
+          "x": -142.5,
+          "y": 40.0,
+          "dx": 10.0,
+          "dy": 19.5
+        },
+        {
+          "tick": 265,
+          "action": 12,
+          "phase": "0x6000000",
+          "x": -132.5,
+          "y": 58.5,
+          "dx": 10.0,
+          "dy": 18.5
+        },
+        {
+          "tick": 266,
+          "action": 12,
+          "phase": "0x6000000",
+          "x": -122.5,
+          "y": 76.0,
+          "dx": 10.0,
+          "dy": 17.5
+        },
+        {
+          "tick": 267,
+          "action": 5,
+          "phase": "0x6400000",
+          "x": -112.5,
+          "y": 92.5,
+          "dx": 10.0,
+          "dy": 16.5
+        },
+        {
+          "tick": 268,
+          "action": 5,
+          "phase": "0x3000000",
+          "x": -112.5,
+          "y": 92.5,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "tick": 269,
+          "action": 5,
+          "phase": "0x3000000",
+          "x": -102.5,
+          "y": 108.0,
+          "dx": 10.0,
+          "dy": 15.5
+        },
+        {
+          "tick": 270,
+          "action": 5,
+          "phase": "0x3000000",
+          "x": -92.5,
+          "y": 122.5,
+          "dx": 10.0,
+          "dy": 14.5
+        },
+        {
+          "tick": 271,
+          "action": 5,
+          "phase": "0x3000000",
+          "x": -82.5,
+          "y": 136.0,
+          "dx": 10.0,
+          "dy": 13.5
+        }
+      ],
+      "observations": "local/battle-physics-audit-20261103/aerial/arte1-open-baseline/capture/observations.json",
+      "observations_sha256": "aadc1b0a9789bb61b6c9983cbc51595d8538d036ab13c397e90c2ab7e643b532",
+      "input_state_sha256": "6f866b8f2f180e461677773473b4acb8d5856784cd74415584caeb3668ae81bf",
+      "requested_movie_sha256": "dc57be5b1aafbf6f83e8120b433ec89ad91c50cd2bfda6f8d06997e412f08633",
+      "executed_movie_sha256": "dc57be5b1aafbf6f83e8120b433ec89ad91c50cd2bfda6f8d06997e412f08633",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 24977,
+      "first_combat_tick": 217,
+      "last_combat_tick": 366,
+      "observations_count": 150,
+      "fixture": "local/battle-physics-audit-20261103/aerial/arte1-open-baseline/fixture.json",
+      "fixture_sha256": "47b50b844ccbdea8efdc794b5f848621806c8e701dbe135440d5827cb8434aa3",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/aerial/arte1-open-baseline/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970"
+    },
+    {
+      "id": "twin-tiger-blade-demon-fang-long-loop-limit",
+      "kind": "repeat_pickup_limit",
+      "source_control": "manual",
+      "catalogue": 9,
+      "pickup_catalogue": 1,
+      "successful_pickups": 3,
+      "first_failed_pickup": {
+        "tick": 731,
+        "native": 1,
+        "before": 14,
+        "after": 14,
+        "window": 0,
+        "damage": 17
+      },
+      "idles": [
+        {
+          "tick": 324,
+          "recipient": 14,
+          "window": 38
+        },
+        {
+          "tick": 453,
+          "recipient": 14,
+          "window": 36
+        },
+        {
+          "tick": 582,
+          "recipient": 14,
+          "window": 33
+        },
+        {
+          "tick": 711,
+          "recipient": 14,
+          "window": 0
+        },
+        {
+          "tick": 840,
+          "recipient": 16,
+          "window": 0
+        },
+        {
+          "tick": 969,
+          "recipient": 3,
+          "window": 0
+        },
+        {
+          "tick": 1098,
+          "recipient": 14,
+          "window": 38
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 47
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 48
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 46
+        },
+        {
+          "tick": 293,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 345,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 18,
+          "damage": 72
+        },
+        {
+          "tick": 362,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 1,
+          "damage": 40
+        },
+        {
+          "tick": 386,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 39
+        },
+        {
+          "tick": 396,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 40
+        },
+        {
+          "tick": 422,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 81
+        },
+        {
+          "tick": 474,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 16,
+          "damage": 73
+        },
+        {
+          "tick": 491,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 41
+        },
+        {
+          "tick": 515,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 38
+        },
+        {
+          "tick": 525,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 40
+        },
+        {
+          "tick": 551,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 81
+        },
+        {
+          "tick": 603,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 13,
+          "damage": 70
+        },
+        {
+          "tick": 620,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 41
+        },
+        {
+          "tick": 644,
+          "native": 9,
+          "before": 9,
+          "after": 14,
+          "window": 0,
+          "damage": 40
+        },
+        {
+          "tick": 654,
+          "native": 9,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 10
+        },
+        {
+          "tick": 731,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 17
+        },
+        {
+          "tick": 748,
+          "native": 9,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 10
+        },
+        {
+          "tick": 775,
+          "native": 9,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 14
+        },
+        {
+          "tick": 783,
+          "native": 9,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 10
+        },
+        {
+          "tick": 860,
+          "native": 1,
+          "before": 16,
+          "after": 16,
+          "window": 0,
+          "damage": 17
+        },
+        {
+          "tick": 877,
+          "native": 9,
+          "before": 3,
+          "after": 3,
+          "window": 0,
+          "damage": 5
+        },
+        {
+          "tick": 903,
+          "native": 9,
+          "before": 3,
+          "after": 3,
+          "window": 0,
+          "damage": 5
+        },
+        {
+          "tick": 912,
+          "native": 9,
+          "before": 3,
+          "after": 3,
+          "window": 0,
+          "damage": 5
+        },
+        {
+          "tick": 940,
+          "native": 9,
+          "before": 3,
+          "after": 3,
+          "window": 0,
+          "damage": 9
+        },
+        {
+          "tick": 989,
+          "native": 1,
+          "before": 3,
+          "after": 3,
+          "window": 0,
+          "damage": 9
+        },
+        {
+          "tick": 1006,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 41
+        },
+        {
+          "tick": 1031,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 38
+        },
+        {
+          "tick": 1041,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 41
+        },
+        {
+          "tick": 1067,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 84
+        }
+      ],
+      "pickups": [
+        {
+          "tick": 345,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 18,
+          "damage": 72
+        },
+        {
+          "tick": 474,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 16,
+          "damage": 73
+        },
+        {
+          "tick": 603,
+          "native": 1,
+          "before": 14,
+          "after": 9,
+          "window": 13,
+          "damage": 70
+        }
+      ],
+      "observations": "local/battle-physics-audit-20261103/lloyd-long-repeat-v3/long-repeat-arte9-corner-pickup/capture/observations.json",
+      "observations_sha256": "5db8aa24ccd9e079ac9b3acd29c43d7f2839740540b3a699ff1a8382052ceef4",
+      "input_state_sha256": "e945b3eea16e6d5ac6c80cb21fcc9b80e5319486f0f695d1b84115a4edf46d46",
+      "requested_movie_sha256": "2074c96e0bcf539a9c22923fc8c92b3a997c7392ce299b462fd906fef28fa016",
+      "executed_movie_sha256": "2074c96e0bcf539a9c22923fc8c92b3a997c7392ce299b462fd906fef28fa016",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 26477,
+      "first_combat_tick": 217,
+      "last_combat_tick": 1116,
+      "observations_count": 900,
+      "fixture": "local/battle-physics-audit-20261103/lloyd-long-repeat-v3/long-repeat-arte9-corner-pickup/fixture.json",
+      "fixture_sha256": "1b63623f2ac43ea3931296de1c7e0d24a1bee34a1cb2a0223551602036e5acfe",
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-audit-20261103/lloyd-long-repeat-v3/long-repeat-arte9-corner-pickup/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "limits": [
+        "Six fixed-timing attempts on the controlled Zombie; later contacts include protected damage and a new chain after recovery",
+        "Mid-attack knockdown in the fourth Twin Tiger Blade is consistent with accumulated stagger; this is not proof that every Lloyd route has the same limit"
+      ],
+      "native_idle_windows": [
+        38,
+        36,
+        33,
+        0
+      ],
+      "native_model_phase": "Requests emitted after contact resolution are applied before the next physics update; neutral enemies retain authored model-part behavior"
+    },
+    {
+      "spec": {
+        "name": "beast-spam",
+        "arte": 20,
+        "corner": true,
+        "events": [
+          {
+            "start": 108,
+            "end": 112,
+            "buttons": "b"
+          },
+          {
+            "start": 116,
+            "end": 120,
+            "buttons": "b"
+          },
+          {
+            "start": 124,
+            "end": 128,
+            "buttons": "b"
+          },
+          {
+            "start": 132,
+            "end": 136,
+            "buttons": "b"
+          },
+          {
+            "start": 140,
+            "end": 144,
+            "buttons": "b"
+          },
+          {
+            "start": 148,
+            "end": 152,
+            "buttons": "b"
+          },
+          {
+            "start": 156,
+            "end": 160,
+            "buttons": "b"
+          },
+          {
+            "start": 164,
+            "end": 168,
+            "buttons": "b"
+          },
+          {
+            "start": 172,
+            "end": 176,
+            "buttons": "b"
+          },
+          {
+            "start": 180,
+            "end": 184,
+            "buttons": "b"
+          },
+          {
+            "start": 188,
+            "end": 192,
+            "buttons": "b"
+          },
+          {
+            "start": 196,
+            "end": 200,
+            "buttons": "b"
+          },
+          {
+            "start": 204,
+            "end": 208,
+            "buttons": "b"
+          },
+          {
+            "start": 212,
+            "end": 216,
+            "buttons": "b"
+          },
+          {
+            "start": 220,
+            "end": 224,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 321,
+          "window": 6
+        },
+        {
+          "tick": 383,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 227,
+          "native": 20
+        },
+        {
+          "tick": 323,
+          "native": 1
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 268,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 351,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 17
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/beast-spam/capture/observations.json",
+      "observations_sha256": "0d53c82237594c9b1879b8e3f386ad2c7661bfd8072177e998811307f4b8203d",
+      "fixture": "local/battle-physics-gaps-20261103/beast-spam/fixture.json",
+      "fixture_sha256": "1c11a7d08422fa4b650bcaa0920dbeb79d0ac13e53a3321bd4cee378acf209bf",
+      "input_state_sha256": "f73154b8906473d5a3f24f4481bc91d0634dba28e9613c6adab238ddfdee4bd3",
+      "requested_movie_sha256": "8321216d087321d1c386e65c3cff41a3b11408f6b95e2561711dc14a2930c422",
+      "executed_movie_sha256": "8321216d087321d1c386e65c3cff41a3b11408f6b95e2561711dc14a2930c422",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25477,
+      "observations_count": 400,
+      "first_combat_tick": 217,
+      "last_combat_tick": 616,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/beast-spam/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-beast-spam",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/beast-spam.json",
+      "case_input_sha256": "78d955857c4a14fff52fb6eeb6e1fec7af1ec48e1d05e2864573126f9936d243",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "twin-open-spam",
+        "arte": 9,
+        "corner": false,
+        "events": [
+          {
+            "start": 164,
+            "end": 168,
+            "buttons": "b"
+          },
+          {
+            "start": 172,
+            "end": 176,
+            "buttons": "b"
+          },
+          {
+            "start": 180,
+            "end": 184,
+            "buttons": "b"
+          },
+          {
+            "start": 188,
+            "end": 192,
+            "buttons": "b"
+          },
+          {
+            "start": 196,
+            "end": 200,
+            "buttons": "b"
+          },
+          {
+            "start": 204,
+            "end": 208,
+            "buttons": "b"
+          },
+          {
+            "start": 212,
+            "end": 216,
+            "buttons": "b"
+          },
+          {
+            "start": 220,
+            "end": 224,
+            "buttons": "b"
+          },
+          {
+            "start": 228,
+            "end": 232,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 324,
+          "window": 38
+        },
+        {
+          "tick": 387,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 227,
+          "native": 9
+        },
+        {
+          "tick": 327,
+          "native": 1
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 232,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 47
+        },
+        {
+          "tick": 257,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 48
+        },
+        {
+          "tick": 267,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 46
+        },
+        {
+          "tick": 294,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 369,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 18
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/twin-open-spam/capture/observations.json",
+      "observations_sha256": "091b5049195a072afa0dc132f2ea8d2a26139c9b35f1f57b3f32bde5330e99e5",
+      "fixture": "local/battle-physics-gaps-20261103/twin-open-spam/fixture.json",
+      "fixture_sha256": "30efb188453f9dfbc4000e5a69d94d1ae78c43fcc29b383e68f2709ae5362298",
+      "input_state_sha256": "521e5dc3c6decb9cfbbc7748f0d9792f5858ecf37764c14437dacc202d4ff5cc",
+      "requested_movie_sha256": "95c4a6bf179257f8ddebd63385b2e9c77fbc67eb1fe25fb9d16aa2dba537ff8e",
+      "executed_movie_sha256": "95c4a6bf179257f8ddebd63385b2e9c77fbc67eb1fe25fb9d16aa2dba537ff8e",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25477,
+      "observations_count": 400,
+      "first_combat_tick": 217,
+      "last_combat_tick": 616,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/twin-open-spam/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-twin-open-spam",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/twin-open-spam.json",
+      "case_input_sha256": "89d80e730aa30b07b7957f3d569331260cf2b2d115621ad1107ecc0287f0a79a",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "beast-demonic-chaos-corner110",
+        "arte": 20,
+        "fang": 3,
+        "corner": true,
+        "distance": 110,
+        "events": [
+          {
+            "start": 32,
+            "end": 36,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 404,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 227,
+          "native": 20
+        },
+        {
+          "tick": 300,
+          "native": 3
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 268,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 326,
+          "native": 3,
+          "before": 14,
+          "after": 9,
+          "window": 2,
+          "damage": 61
+        },
+        {
+          "tick": 345,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 368,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 26
+        },
+        {
+          "tick": 373,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 26
+        },
+        {
+          "tick": 378,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 25
+        }
+      ],
+      "pickups": [
+        {
+          "tick": 326,
+          "native": 3,
+          "before": 14,
+          "after": 9,
+          "window": 2,
+          "damage": 61
+        }
+      ],
+      "observations": "local/battle-physics-gaps-20261103/beast-demonic-chaos-corner110/capture/observations.json",
+      "observations_sha256": "52efa629235a846c651d909c66f1280f1218120043a7859207cd4ac6582bc1ec",
+      "fixture": "local/battle-physics-gaps-20261103/beast-demonic-chaos-corner110/fixture.json",
+      "fixture_sha256": "389edd3c34c6876d8bd7b0859eba9d3d874e5cbca18dd798e3a2ad7a077d6ae8",
+      "input_state_sha256": "aac93b9863e6175391e8eb99e782df1066b7ea61e0b6e7f546d1b222248e702f",
+      "requested_movie_sha256": "d12cc26e1596b37548cc81fb4bf40a1fa59a5013c626e5fa8524181fdc7f0670",
+      "executed_movie_sha256": "d12cc26e1596b37548cc81fb4bf40a1fa59a5013c626e5fa8524181fdc7f0670",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25477,
+      "observations_count": 400,
+      "first_combat_tick": 217,
+      "last_combat_tick": 616,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/beast-demonic-chaos-corner110/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-beast-demonic-chaos-corner110",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": true,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/beast-demonic-chaos-corner110.json",
+      "case_input_sha256": "c9cc33b7928e58d9140442c08f97ff3b0d8f6f87b10542d7127bfe90195467e6",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "beast-demonic-chaos-corner170",
+        "arte": 20,
+        "fang": 3,
+        "corner": true,
+        "distance": 170,
+        "events": [
+          {
+            "start": 32,
+            "end": 36,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 404,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 227,
+          "native": 20
+        },
+        {
+          "tick": 300,
+          "native": 3
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 268,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 322,
+          "native": 3,
+          "before": 14,
+          "after": 9,
+          "window": 6,
+          "damage": 58
+        },
+        {
+          "tick": 342,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 62
+        },
+        {
+          "tick": 366,
+          "native": 3,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 24
+        },
+        {
+          "tick": 371,
+          "native": 3,
+          "before": 9,
+          "after": 15,
+          "window": 0,
+          "damage": 24
+        },
+        {
+          "tick": 376,
+          "native": 3,
+          "before": 15,
+          "after": 9,
+          "window": 0,
+          "damage": 24
+        }
+      ],
+      "pickups": [
+        {
+          "tick": 322,
+          "native": 3,
+          "before": 14,
+          "after": 9,
+          "window": 6,
+          "damage": 58
+        }
+      ],
+      "observations": "local/battle-physics-gaps-20261103/beast-demonic-chaos-corner170/capture/observations.json",
+      "observations_sha256": "2119562bc28a58b92918a78ee015c54987725a4f41a66fc0d0e89d0e0e16adf0",
+      "fixture": "local/battle-physics-gaps-20261103/beast-demonic-chaos-corner170/fixture.json",
+      "fixture_sha256": "6c5ee62497d9a9e71344bde4054bf7b577b2af86e0da1ca1dc1f97041aa2a754",
+      "input_state_sha256": "97954e90cae23ca1e467c5f2cf15ce1a0907a54b7d229e31d1f50c6439db4f88",
+      "requested_movie_sha256": "d12cc26e1596b37548cc81fb4bf40a1fa59a5013c626e5fa8524181fdc7f0670",
+      "executed_movie_sha256": "d12cc26e1596b37548cc81fb4bf40a1fa59a5013c626e5fa8524181fdc7f0670",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25477,
+      "observations_count": 400,
+      "first_combat_tick": 217,
+      "last_combat_tick": 616,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/beast-demonic-chaos-corner170/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-beast-demonic-chaos-corner170",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": true,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/beast-demonic-chaos-corner170.json",
+      "case_input_sha256": "c6f2fe9c74bc9002b6a4f4d0daa11d236b627fba6852fca845f1dc39eb1241b6",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "beast-chaos-after-idle",
+        "arte": 20,
+        "fang": 3,
+        "corner": true,
+        "events": [
+          {
+            "start": 212,
+            "end": 216,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 321,
+          "window": 6
+        },
+        {
+          "tick": 427,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 227,
+          "native": 20
+        },
+        {
+          "tick": 323,
+          "native": 3
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 268,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 349,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 17
+        },
+        {
+          "tick": 370,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 18
+        },
+        {
+          "tick": 393,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 7
+        },
+        {
+          "tick": 398,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 7
+        },
+        {
+          "tick": 403,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 7
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/beast-chaos-after-idle/capture/observations.json",
+      "observations_sha256": "7d54e2d49a0911eee0714095cdb286f1d34d53596fbe62b9cc3f359333659f9f",
+      "fixture": "local/battle-physics-gaps-20261103/beast-chaos-after-idle/fixture.json",
+      "fixture_sha256": "34f23144d819fde4d2cbde117d627a4648ff6232adfe3488bf6e298d0dd6dadc",
+      "input_state_sha256": "aac93b9863e6175391e8eb99e782df1066b7ea61e0b6e7f546d1b222248e702f",
+      "requested_movie_sha256": "3fdae548b1cb424ec5e25c9c09ff1f3d84b9208d1321ca8f7129bf03accaa21f",
+      "executed_movie_sha256": "3fdae548b1cb424ec5e25c9c09ff1f3d84b9208d1321ca8f7129bf03accaa21f",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25477,
+      "observations_count": 400,
+      "first_combat_tick": 217,
+      "last_combat_tick": 616,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/beast-chaos-after-idle/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-beast-chaos-after-idle",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/beast-chaos-after-idle.json",
+      "case_input_sha256": "9a65fbb8ba82aa79be055e0ae8937865d74ec5fef1e8ff5c60b78f2a8e20d341",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "beast-chaos-open",
+        "arte": 20,
+        "fang": 3,
+        "corner": false,
+        "events": [
+          {
+            "start": 32,
+            "end": 36,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 404,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 227,
+          "native": 20
+        },
+        {
+          "tick": 300,
+          "native": 3
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 268,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 348,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 14
+        },
+        {
+          "tick": 369,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 14
+        },
+        {
+          "tick": 392,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 6
+        },
+        {
+          "tick": 397,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 6
+        },
+        {
+          "tick": 402,
+          "native": 3,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 6
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/beast-chaos-open/capture/observations.json",
+      "observations_sha256": "4a0840661cbe4241255c82d0a091eed4168a31ec41aa44b80743f431a2f84d21",
+      "fixture": "local/battle-physics-gaps-20261103/beast-chaos-open/fixture.json",
+      "fixture_sha256": "1ffa6450cc1ccb8a76d8fd9958f001751f75de5a5f532da58d4f02f34e4646ea",
+      "input_state_sha256": "247ff2fd43e9072fc3a6187128b898089c7756a6c7e7499cc5c3fcd3c2a5e6bb",
+      "requested_movie_sha256": "d12cc26e1596b37548cc81fb4bf40a1fa59a5013c626e5fa8524181fdc7f0670",
+      "executed_movie_sha256": "d12cc26e1596b37548cc81fb4bf40a1fa59a5013c626e5fa8524181fdc7f0670",
+      "consumed_input_verified": true,
+      "first_poll": 24667,
+      "end_poll": 25477,
+      "observations_count": 400,
+      "first_combat_tick": 217,
+      "last_combat_tick": 616,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/beast-chaos-open/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-beast-chaos-open",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/beast-chaos-open.json",
+      "case_input_sha256": "89428a33bb19d0d4f8daae74c99a23828a5ac8a457c571616227a84955caa0b8",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "beast-follow-up",
+        "arte": 20,
+        "corner": true,
+        "source": "local/battle-capture-work/battle-physics-gaps-20261103-zombie-follow-up/entry/settled.s01",
+        "lead_polls": 440,
+        "frames": 600,
+        "events": [
+          {
+            "start": 548,
+            "end": 552,
+            "buttons": "b"
+          },
+          {
+            "start": 556,
+            "end": 560,
+            "buttons": "b"
+          },
+          {
+            "start": 564,
+            "end": 568,
+            "buttons": "b"
+          },
+          {
+            "start": 572,
+            "end": 576,
+            "buttons": "b"
+          },
+          {
+            "start": 580,
+            "end": 584,
+            "buttons": "b"
+          },
+          {
+            "start": 588,
+            "end": 592,
+            "buttons": "b"
+          },
+          {
+            "start": 596,
+            "end": 600,
+            "buttons": "b"
+          },
+          {
+            "start": 604,
+            "end": 608,
+            "buttons": "b"
+          },
+          {
+            "start": 612,
+            "end": 616,
+            "buttons": "b"
+          },
+          {
+            "start": 620,
+            "end": 624,
+            "buttons": "b"
+          },
+          {
+            "start": 628,
+            "end": 632,
+            "buttons": "b"
+          },
+          {
+            "start": 636,
+            "end": 640,
+            "buttons": "b"
+          },
+          {
+            "start": 644,
+            "end": 648,
+            "buttons": "b"
+          },
+          {
+            "start": 652,
+            "end": 656,
+            "buttons": "b"
+          },
+          {
+            "start": 660,
+            "end": 664,
+            "buttons": "b"
+          },
+          {
+            "start": 668,
+            "end": 672,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 336,
+          "window": 6
+        },
+        {
+          "tick": 398,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 242,
+          "native": 20
+        },
+        {
+          "tick": 338,
+          "native": 1
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 259,
+          "native": 20,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 58
+        },
+        {
+          "tick": 283,
+          "native": 20,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 366,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 17
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/beast-follow-up/capture/observations.json",
+      "observations_sha256": "fa869962eb7b698f7a9074741782c439609d489b069be4d0c4f93d3fc10bce22",
+      "fixture": "local/battle-physics-gaps-20261103/beast-follow-up/fixture.json",
+      "fixture_sha256": "d07b5b6ecaa791ada37d9257e0619e4c5acf00e953ae2d058d582a6795d09b05",
+      "input_state_sha256": "f152efc019bf880f0e9db0a66ab1f502818368699dea8aecdce20c40c48638e4",
+      "requested_movie_sha256": "6c6365f03f8e0c78e82f79f496d21a81aba59e1fba2999c3404620342798c4e8",
+      "executed_movie_sha256": "6c6365f03f8e0c78e82f79f496d21a81aba59e1fba2999c3404620342798c4e8",
+      "consumed_input_verified": true,
+      "first_poll": 24257,
+      "end_poll": 25467,
+      "observations_count": 600,
+      "first_combat_tick": 12,
+      "last_combat_tick": 611,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/beast-follow-up/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-beast-follow-up",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/beast-follow-up.json",
+      "case_input_sha256": "f449718ea398aa6052d347e0519fb45e6a1b41bbab5bc22b7cf6bd71bd49a401",
+      "equipped_ex_skills": [
+        16,
+        0,
+        0,
+        0
+      ],
+      "equipment_applied_before_natural_entry": true,
+      "entry_fixture": "local/battle-capture-work/battle-physics-gaps-20261103-zombie-follow-up/entry/fixture.json",
+      "entry_fixture_sha256": "8e724013b96d1ea24397cec9767413a62b00c750e7dc1852872ee75504700afa",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "twin-open-follow-up",
+        "arte": 9,
+        "corner": false,
+        "source": "local/battle-capture-work/battle-physics-gaps-20261103-zombie-follow-up/entry/settled.s01",
+        "lead_polls": 440,
+        "frames": 600,
+        "events": [
+          {
+            "start": 604,
+            "end": 608,
+            "buttons": "b"
+          },
+          {
+            "start": 612,
+            "end": 616,
+            "buttons": "b"
+          },
+          {
+            "start": 620,
+            "end": 624,
+            "buttons": "b"
+          },
+          {
+            "start": 628,
+            "end": 632,
+            "buttons": "b"
+          },
+          {
+            "start": 636,
+            "end": 640,
+            "buttons": "b"
+          },
+          {
+            "start": 644,
+            "end": 648,
+            "buttons": "b"
+          },
+          {
+            "start": 652,
+            "end": 656,
+            "buttons": "b"
+          },
+          {
+            "start": 660,
+            "end": 664,
+            "buttons": "b"
+          },
+          {
+            "start": 668,
+            "end": 672,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 339,
+          "window": 38
+        },
+        {
+          "tick": 402,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 242,
+          "native": 9
+        },
+        {
+          "tick": 342,
+          "native": 1
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 247,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 47
+        },
+        {
+          "tick": 272,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 48
+        },
+        {
+          "tick": 282,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 46
+        },
+        {
+          "tick": 309,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 92
+        },
+        {
+          "tick": 384,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 18
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/twin-open-follow-up/capture/observations.json",
+      "observations_sha256": "7f5cf65f599aff8eaf6a46ce49cc75fcec30cc96c09cd3381648c791edd7a6c9",
+      "fixture": "local/battle-physics-gaps-20261103/twin-open-follow-up/fixture.json",
+      "fixture_sha256": "53c00b3497e38128d5a3cff875410f0ad31a2b7b4aa63e53095166d3c3932ddd",
+      "input_state_sha256": "cd13f32a050b9ba287d64ec7f1379a95734ca3e7fd11b307311e41a77c7dc999",
+      "requested_movie_sha256": "1f329ace281e362639076a2cc06af28cb90f4db6c66fff1143218a7612f90020",
+      "executed_movie_sha256": "1f329ace281e362639076a2cc06af28cb90f4db6c66fff1143218a7612f90020",
+      "consumed_input_verified": true,
+      "first_poll": 24257,
+      "end_poll": 25467,
+      "observations_count": 600,
+      "first_combat_tick": 12,
+      "last_combat_tick": 611,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/twin-open-follow-up/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-twin-open-follow-up",
+      "kind": "pickup_boundary",
+      "formation": 1,
+      "enemy": "zombie-0036",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/twin-open-follow-up.json",
+      "case_input_sha256": "cda2ef48409e40cdb0c5c27bdefa25ab60e92f63b3a07a415b1c755c99cd4724",
+      "equipped_ex_skills": [
+        16,
+        0,
+        0,
+        0
+      ],
+      "equipment_applied_before_natural_entry": true,
+      "entry_fixture": "local/battle-capture-work/battle-physics-gaps-20261103-zombie-follow-up/entry/fixture.json",
+      "entry_fixture_sha256": "8e724013b96d1ea24397cec9767413a62b00c750e7dc1852872ee75504700afa",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "twin-open-sword-dancer-v2",
+        "arte": 9,
+        "corner": false,
+        "source": "local/battle-capture-work/battle-physics-gaps-20261103-sword-dancer/entry/settled.s01",
+        "events": [
+          {
+            "start": 604,
+            "end": 608,
+            "buttons": "b"
+          },
+          {
+            "start": 612,
+            "end": 616,
+            "buttons": "b"
+          },
+          {
+            "start": 620,
+            "end": 624,
+            "buttons": "b"
+          },
+          {
+            "start": 628,
+            "end": 632,
+            "buttons": "b"
+          },
+          {
+            "start": 636,
+            "end": 640,
+            "buttons": "b"
+          },
+          {
+            "start": 644,
+            "end": 648,
+            "buttons": "b"
+          },
+          {
+            "start": 652,
+            "end": 656,
+            "buttons": "b"
+          },
+          {
+            "start": 660,
+            "end": 664,
+            "buttons": "b"
+          },
+          {
+            "start": 668,
+            "end": 672,
+            "buttons": "b"
+          }
+        ],
+        "lead_polls": 440,
+        "frames": 600
+      },
+      "idles": [
+        {
+          "tick": 336,
+          "window": 32
+        },
+        {
+          "tick": 399,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 239,
+          "native": 9
+        },
+        {
+          "tick": 339,
+          "native": 1
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 244,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 269,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 279,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 306,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 371,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 1
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/twin-open-sword-dancer-v2/capture/observations.json",
+      "observations_sha256": "3dd3fac913233b8075d9f63076eddae125167e8bbb5d3261678dcb386d1048ef",
+      "fixture": "local/battle-physics-gaps-20261103/twin-open-sword-dancer-v2/fixture.json",
+      "fixture_sha256": "b1f16d62d39fb594ea29072031b2405f24e7e8d913224d87d655f887c42b6271",
+      "input_state_sha256": "e160c4cf63950ab7b0f539815aa43944698f5ee4aa4d3975fdb8e8d9489fca62",
+      "requested_movie_sha256": "f949b49848e94a456e74effc133d14230bb7064498bd2cda231c6609911bc111",
+      "executed_movie_sha256": "f949b49848e94a456e74effc133d14230bb7064498bd2cda231c6609911bc111",
+      "consumed_input_verified": true,
+      "first_poll": 24857,
+      "end_poll": 26067,
+      "observations_count": 600,
+      "first_combat_tick": 9,
+      "last_combat_tick": 608,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/twin-open-sword-dancer-v2/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-twin-open-sword-dancer-v2",
+      "kind": "pickup_boundary",
+      "formation": 87,
+      "enemy": "sword-dancer-0191",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/twin-open-sword-dancer-v2.json",
+      "case_input_sha256": "86d3c9db2d9cf9c1ed9ab864d71f85627eafb3980dcddb32275ad4afef5b4eca",
+      "entry_fixture": "local/battle-capture-work/battle-physics-gaps-20261103-sword-dancer/entry/fixture.json",
+      "entry_fixture_sha256": "64f89e21d37549b6218f585e493d50b620eae8543bfad517e3a30f32e248e577",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    },
+    {
+      "spec": {
+        "name": "twin-open-dragon-knight",
+        "arte": 9,
+        "corner": false,
+        "source": "local/battle-capture-work/battle-physics-gaps-20261103-dragon-knight/entry/settled.s01",
+        "lead_polls": 440,
+        "frames": 600,
+        "events": [
+          {
+            "start": 604,
+            "end": 608,
+            "buttons": "b"
+          },
+          {
+            "start": 612,
+            "end": 616,
+            "buttons": "b"
+          },
+          {
+            "start": 620,
+            "end": 624,
+            "buttons": "b"
+          },
+          {
+            "start": 628,
+            "end": 632,
+            "buttons": "b"
+          },
+          {
+            "start": 636,
+            "end": 640,
+            "buttons": "b"
+          },
+          {
+            "start": 644,
+            "end": 648,
+            "buttons": "b"
+          },
+          {
+            "start": 652,
+            "end": 656,
+            "buttons": "b"
+          },
+          {
+            "start": 660,
+            "end": 664,
+            "buttons": "b"
+          },
+          {
+            "start": 668,
+            "end": 672,
+            "buttons": "b"
+          }
+        ]
+      },
+      "idles": [
+        {
+          "tick": 337,
+          "window": 32
+        },
+        {
+          "tick": 400,
+          "window": 0
+        }
+      ],
+      "starts": [
+        {
+          "tick": 240,
+          "native": 9
+        },
+        {
+          "tick": 340,
+          "native": 1
+        }
+      ],
+      "contacts": [
+        {
+          "tick": 245,
+          "native": 9,
+          "before": 3,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 270,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 281,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 306,
+          "native": 9,
+          "before": 9,
+          "after": 9,
+          "window": 0,
+          "damage": 1
+        },
+        {
+          "tick": 371,
+          "native": 1,
+          "before": 14,
+          "after": 14,
+          "window": 0,
+          "damage": 1
+        }
+      ],
+      "pickups": [],
+      "observations": "local/battle-physics-gaps-20261103/twin-open-dragon-knight/capture/observations.json",
+      "observations_sha256": "944c53779cf21b0c6111fc2ccba7c0127cf4c117709b9d9d7f9b13b06add5cc2",
+      "fixture": "local/battle-physics-gaps-20261103/twin-open-dragon-knight/fixture.json",
+      "fixture_sha256": "01a67059800613871a1b6d2daddedfa0cc7fc83155b93eafb0df4d80bdccf8f7",
+      "input_state_sha256": "f51e21455e630888aedb38caf3bf4781e65065bc9ecc41260e408b15d000dbbb",
+      "requested_movie_sha256": "1f329ace281e362639076a2cc06af28cb90f4db6c66fff1143218a7612f90020",
+      "executed_movie_sha256": "1f329ace281e362639076a2cc06af28cb90f4db6c66fff1143218a7612f90020",
+      "consumed_input_verified": true,
+      "first_poll": 24257,
+      "end_poll": 25467,
+      "observations_count": 600,
+      "first_combat_tick": 10,
+      "last_combat_tick": 609,
+      "worker": "/home/rowan.goemans/Documents/engineering/resonance3/local/battle-physics-gaps-20261103/twin-open-dragon-knight/worker",
+      "dolphin_binary_sha256": "27b8b32121c2a6a0378dec6d810fff187a5905882f57863b91254faee24dd970",
+      "id": "lloyd-pickup-boundary-twin-open-dragon-knight",
+      "kind": "pickup_boundary",
+      "formation": 462,
+      "enemy": "dragon-knight-0176",
+      "pickup": false,
+      "source_control": "manual",
+      "code_action_pose_physics_timer_writes": false,
+      "case_input": "local/battle-physics-gaps-20261103/twin-open-dragon-knight.json",
+      "case_input_sha256": "f86a346cbef731651d44d82f8ca39d66ce23dc5551dee8f2d3490b5c0f843ec2",
+      "entry_fixture": "local/battle-capture-work/battle-physics-gaps-20261103-dragon-knight/entry/fixture.json",
+      "entry_fixture_sha256": "dc2fe67dd7567612a60bea2e505fbac3cce42f991316e4b5b8e12591d5f741a7",
+      "limits": [
+        "Controlled neutral recipient; this does not establish natural AI admission or every enemy/EX setup",
+        "The case_input stores requested offsets; fixture.events stores the exact expanded controller-poll offsets"
+      ]
+    }
+  ],
+  "enemy_scope": "Top-level enemy and formation are legacy defaults. pickup_boundary cases declare their own formation and recipient."
+}

@@ -50,7 +50,7 @@ starts parallel jobs or retries. Captures, checkpoints and image dumps stay unde
 paths; do not replace it with the long attempt path. Only Dolphin's live IPC uses
 shared memory. A prior outcome prevents reuse of that attempt.
 
-For several cases, reuse one resident worker:
+For several cases, reuse a resident worker while the input movie stays the same:
 
 ```sh
 python tools/oracle/battle_artes.py batch --case 7:159 --case 7:160 \
@@ -61,7 +61,7 @@ python tools/oracle/battle_artes.py batch --case 7:159 --case 7:160 \
 Each case gets a separate prepared input, capture and review. A mechanical
 failure preserves that result and allows the next fresh case; a capture or
 registration failure stops the batch. There is no automatic retry. The root
-batch receipt records whether the shared worker closed.
+batch receipt records worker closure; a changed movie starts a fresh worker.
 
 After a stopped batch, select only uncaptured cases and pass
 `--resume-from PATH_TO_OLD_BATCH` with a fresh `--output`. Matching prepared
