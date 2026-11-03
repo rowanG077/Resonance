@@ -338,13 +338,12 @@ impl Artwork {
         let mut gauges = Batch::default();
         let mut digits = Batch::default();
         let mut patterned_digits = Batch::default();
-        for (slot, ((id, actor), &character)) in
-            actors.into_iter().zip(party.characters).enumerate()
-        {
+        for ((id, actor), &character) in actors.into_iter().zip(party.characters) {
             if actor.availability == resonance_battle::ActorAvailability::Absent {
                 continue;
             }
             let character = character.index();
+            let slot = actor.control_slot.index();
             let x = left(slot);
             let portrait = portrait(
                 actor,
@@ -505,6 +504,78 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires current battle artwork; CPU character-switch HUD regression"]
+    fn portraits_and_recovery_follow_rotated_slots() -> Result<()> {
+        let (mut artwork, _, _app) = test_artwork()?;
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        artwork.prepare(
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+            crate::Resolution::default(),
+        );
+        queue.apply(&mut world);
+        let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        frame.actors.push(frame.actors[0].clone());
+        frame.actors[0].control_slot = resonance_battle::ControllerPort::Two;
+        frame.actors[1].control_slot = resonance_battle::ControllerPort::One;
+        frame.cues.push(resonance_battle::Cue::Recovered {
+            floating: false,
+            actor: resonance_battle::ActorId::from_index(0)?,
+            kind: resonance_battle::RecoveryKind::Hp,
+            nominal: 7,
+            applied: 7,
+        });
+        artwork.numbers.advance(&frame, 0);
+        artwork.render_party(
+            &frame,
+            PartyHudInput {
+                characters: &[Character::Lloyd, Character::Colette],
+                queued_techniques: &[false; 2],
+                names: &[None; 2],
+            },
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+        )?;
+        for (character, slot) in [(Character::Lloyd, 1), (Character::Colette, 0)] {
+            let batch = &artwork.ui.portraits[character.index()]
+                .rendered
+                .as_ref()
+                .unwrap()
+                .uploaded
+                .as_ref()
+                .unwrap()
+                .0;
+            let actual = batch
+                .positions
+                .iter()
+                .map(|p| p[0])
+                .fold(f32::INFINITY, f32::min);
+            assert_eq!(actual, left(slot) - 320.);
+        }
+        artwork.render_numbers(&frame, &mut Commands::new(&mut queue, &world), &mut meshes)?;
+        let recovered = &artwork
+            .ui
+            .recovery
+            .rendered
+            .as_ref()
+            .unwrap()
+            .uploaded
+            .as_ref()
+            .unwrap()
+            .0;
+        assert!(!recovered.positions.is_empty());
+        assert!(
+            recovered
+                .positions
+                .iter()
+                .all(|p| { (left(1) - 320. ..left(2) - 320.).contains(&p[0]) })
+        );
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires current battle artwork; CPU party HUD drawing only"]
     fn vitals_and_recovery_remain_visible_without_portraits() -> Result<()> {
         use resonance_content::diagnostics::Diagnostics;
@@ -534,6 +605,9 @@ mod tests {
         let counts = (materials.len(), meshes.len());
         let mut frame = fixtures::frame(fixtures::actor(Default::default()));
         frame.actors = vec![frame.actors[0].clone(); 4];
+        for (slot, actor) in frame.actors.iter_mut().enumerate() {
+            actor.control_slot = resonance_battle::ControllerPort::from_index(slot)?;
+        }
         frame.actors[0].hp = 1234;
         frame.actors[0].equipment.max_hp = 2000;
         frame.cues.push(resonance_battle::Cue::Recovered {

@@ -529,6 +529,12 @@ impl Battle {
     /// state, active sequence, target and RNG remain resident for the next
     /// callback visit.
     pub fn set_control_mode(&mut self, actor: ActorId, mode: crate::Control) -> Result<()> {
+        self.validate_control_mode(actor, mode)?;
+        self.actors[actor.index()].control = mode;
+        Ok(())
+    }
+
+    fn validate_control_mode(&self, actor: ActorId, mode: crate::Control) -> Result<()> {
         ensure!(
             mode != crate::Control::Enemy,
             "Tech cannot assign enemy control"
@@ -563,7 +569,55 @@ impl Battle {
                 "Tech Auto mode has no prepared companion policy"
             );
         }
-        self.actors[index].control = mode;
+        Ok(())
+    }
+
+    /// Reassign formation slots without moving actor identities or interrupting
+    /// their actions. Control modes and formation offsets belong to the slots.
+    pub fn reorder_party(&mut self, order: &[ActorId]) -> Result<()> {
+        ensure!(
+            self.command_admission_allowed(),
+            "party reorder requires ordinary combat"
+        );
+        let mut slots: Vec<_> = self
+            .actors
+            .iter()
+            .filter(|actor| actor.side == crate::Side::Party)
+            .map(|actor| {
+                (
+                    actor.control_slot,
+                    actor.control,
+                    actor.movement.steering.home_offset,
+                )
+            })
+            .collect();
+        slots.sort_by_key(|&(port, _, _)| port.index());
+        ensure!(
+            (1..=crate::PARTY_CAPACITY).contains(&order.len()) && order.len() == slots.len(),
+            "party reorder differs from roster"
+        );
+        for (slot, &actor) in order.iter().enumerate() {
+            ensure!(
+                !order[..slot].contains(&actor),
+                "duplicate party reorder actor"
+            );
+            ensure!(
+                slots[slot].0.index() == slot,
+                "invalid party controller slots"
+            );
+            self.validate_control_mode(actor, slots[slot].1)?;
+        }
+        for (&actor, (port, mode, offset)) in order.iter().zip(slots) {
+            let actor = &mut self.actors[actor.index()];
+            actor.control = mode;
+            actor.control_slot = port;
+            actor.movement.steering.home_offset = offset;
+        }
+        self.remember_idle_home(order[0].index());
+        if let Some(camera) = &mut self.camera {
+            camera.definition.leader = order[0];
+        }
+        self.unison.reorder_party(order);
         Ok(())
     }
 

@@ -98,7 +98,7 @@ pub struct Actor {
     pub equipment: EquipmentAttributes,
     pub combat_adjustments: crate::CombatAdjustments,
     pub control: crate::Control,
-    /// Prepared local controller slot, independent of character identity.
+    /// Current formation/controller slot, independent of stable actor identity.
     pub control_slot: crate::ControllerPort,
     pub availability: crate::ActorAvailability,
     pub guard: crate::Guard,
@@ -1269,17 +1269,19 @@ impl Battle {
         (0..self.actors.len()).map(|index| ActorId(index as u8))
     }
 
-    /// Prefer a nonautomatic party member, then the first member, regardless of availability.
+    /// Prefer a nonautomatic party member, then the first formation slot, regardless of availability.
     pub(crate) fn preferred_party_leader(&self) -> Option<ActorId> {
         self.actors
             .iter()
-            .position(|actor| actor.side == Side::Party && actor.control != crate::Control::Auto)
-            .or_else(|| {
-                self.actors
-                    .iter()
-                    .position(|actor| actor.side == Side::Party)
+            .enumerate()
+            .filter(|(_, actor)| actor.side == Side::Party)
+            .min_by_key(|(_, actor)| {
+                (
+                    actor.control == crate::Control::Auto,
+                    actor.control_slot.index(),
+                )
             })
-            .map(|index| ActorId(index as u8))
+            .map(|(index, _)| ActorId(index as u8))
     }
 
     /// Resolve prepared item identities, then publish all actor changes together.

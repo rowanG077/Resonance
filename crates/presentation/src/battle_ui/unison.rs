@@ -220,7 +220,14 @@ impl Artwork {
                         [u, v, u + w, v + h],
                         tint,
                     );
-                    if let Some(&character) = party.characters.get(slot) {
+                    let character = frame
+                        .actors
+                        .iter()
+                        .filter(|actor| actor.side == Side::Party)
+                        .zip(party.characters)
+                        .find(|(actor, _)| actor.control_slot.index() == slot)
+                        .map(|(_, &character)| character);
+                    if let Some(character) = character {
                         let [dx, dy] = FACE_OFFSETS[slot];
                         face(&mut batches, character, [x + dx, y + dy], tint);
                     }

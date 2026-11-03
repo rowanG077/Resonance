@@ -21,6 +21,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod character;
 #[cfg(test)]
 mod condition_refresh_tests;
 mod cooking;

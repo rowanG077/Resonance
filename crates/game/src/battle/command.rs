@@ -16,6 +16,8 @@ pub struct Input {
     pub cancel_y: ButtonInput,
     /// Start opens the control selector, then cycles its selected actor's mode.
     pub control_mode: bool,
+    /// Z cycles player one's character while the command strip is open.
+    pub change_character: bool,
     /// Independent left/right events (bits1/2), including digital repeat.
     pub picker_directions: u8,
     /// The shared menu ORs all four physical input channels.
@@ -199,6 +201,8 @@ impl Command {
         }
         if input.control_mode {
             StripIntent::Control
+        } else if input.change_character {
+            StripIntent::ChangeCharacter
         } else if input.confirm_a.pressed && enabled & self.mask() != 0 {
             StripIntent::Choose(self)
         } else if input.cancel_b.pressed || input.open.pressed {
@@ -214,6 +218,7 @@ enum StripIntent {
     Stay,
     Close,
     Control,
+    ChangeCharacter,
     Choose(Command),
 }
 
@@ -420,6 +425,7 @@ impl Owner {
                         result.events.push(Event::Cue(1));
                     }
                     if !input.control_mode
+                        && !input.change_character
                         && input.confirm_a.pressed
                         && enabled & self.selected.mask() == 0
                     {
@@ -440,6 +446,15 @@ impl Owner {
                         Some(Page::Control(
                             candidate.begin_control_selection(battle, session.admission.actor)?,
                         ))
+                    }
+                    StripIntent::ChangeCharacter => {
+                        if let Some(actor) =
+                            candidate.change_character(battle, session.admission.controller)?
+                        {
+                            session.admission.actor = actor;
+                            result.events.push(Event::Cue(1));
+                        }
+                        Some(Page::Strip)
                     }
                     StripIntent::Choose(command) => {
                         result.events.push(Event::Cue(2));
