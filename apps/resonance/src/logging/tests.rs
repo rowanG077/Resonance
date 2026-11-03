@@ -170,6 +170,25 @@ fn write_failure_disables_file_logging_without_panicking() {
 }
 
 #[test]
+fn published_session_is_locked_for_both_game_and_monitor() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("session-00000000000000000001-1");
+    let game = create_session(root.path(), &directory).unwrap();
+    let monitor = hold_session(&directory).unwrap();
+    let cleanup = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(directory.join(".lock"))
+        .unwrap();
+    assert!(cleanup.try_lock().is_err());
+    drop(game);
+    assert!(cleanup.try_lock().is_err());
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    drop(monitor);
+}
+
+#[test]
 fn session_logs_are_isolated_during_rotation() {
     let root = tempfile::tempdir().unwrap();
     let first = root.path().join("session-00000000000000000001-1");
