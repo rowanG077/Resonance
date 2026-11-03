@@ -588,14 +588,6 @@ mod tests {
             assert_eq!(gap(&battle), 50.);
         }
         assert_eq!(battle.phase(), crate::BattlePhase::Combat);
-        // Combat begins while entry settling still holds ordinary actor visits.
-        for _ in 0..60 {
-            if battle.clock == crate::BattleClock::Running {
-                break;
-            }
-            battle.step(BattleInput::default()).unwrap();
-            assert_eq!(gap(&battle), 50.);
-        }
         assert_eq!(battle.clock, crate::BattleClock::Running);
 
         let moving = ActorId(0);
