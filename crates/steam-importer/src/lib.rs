@@ -9,6 +9,8 @@ mod audio_streams;
 mod awb;
 mod battle_audio;
 mod battle_defense;
+mod battle_enemies;
+pub use battle_enemies::actions as decode_enemy_actions;
 mod battle_martial;
 mod battle_normal;
 mod battle_party_mappings;

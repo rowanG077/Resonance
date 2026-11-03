@@ -34,6 +34,10 @@ pub(crate) fn party(image: &pe::Image<'_>) -> Result<Vec<Profile>> {
 }
 
 fn decode(bytes: &[u8], voices: Option<Voices>) -> Result<Profile> {
+    resonance_importer::decode_party_profile(&canonical_profile(bytes)?, voices)
+}
+
+pub(crate) fn canonical_profile(bytes: &[u8]) -> Result<Vec<u8>> {
     ensure!(bytes.len() >= 512, "truncated Steam actor profile");
     let mut row = [0; 496];
     row[..0xac].copy_from_slice(&bytes[..0xac]);
@@ -53,7 +57,7 @@ fn decode(bytes: &[u8], voices: Option<Voices>) -> Result<Profile> {
                 .map(|at| (at, 4)),
         )
         .collect();
-    resonance_importer::decode_party_profile(&canonical(&row, 496, &fields)?, voices)
+    canonical(&row, 496, &fields)
 }
 
 #[cfg(test)]

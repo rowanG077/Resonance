@@ -104,6 +104,50 @@ fn native_sound(encoded: u16) -> Option<Sound> {
     }
 }
 
+/// Source voice storage is resolved while importing, never by the enemy player.
+pub type EnemyCommandVoice = fn(&[u8]) -> Result<(Option<Sound>, bool, usize)>;
+
+fn command_voice(row: &[u8]) -> Result<(Option<Sound>, bool, usize)> {
+    let priority = half(row, 6)?;
+    ensure!(
+        matches!(priority, 2 | 3),
+        "enemy voice priority needs a decoder"
+    );
+    Ok((native_sound(half(row, 4)?), priority == 3, 8))
+}
+
+/// Editable action definitions shared by both source importers.
+#[derive(serde::Deserialize)]
+pub struct EnemyActionTables {
+    pub actions: resonance_content::battle_action::EnemyActions<
+        resonance_content::battle_action::EnemyExecution<String>,
+    >,
+    pub attacks: BTreeMap<
+        String,
+        resonance_content::battle_action::EnemyAttack<
+            resonance_content::battle_enemy::rules::Event,
+        >,
+    >,
+    pub contacts: BTreeMap<String, resonance_content::battle_action::MeleeContact>,
+    pub projectiles: BTreeMap<String, resonance_content::battle_enemy::rules::Shot>,
+}
+
+/// Decode canonical enemy tables using the existing GC action compiler.
+pub fn decode_enemy_actions(
+    data: &[u8],
+    library: &Path,
+    name: &str,
+    common: Option<&[u8]>,
+    id: u16,
+    voice: EnemyCommandVoice,
+) -> Result<EnemyActionTables> {
+    let (actions, attacks, contacts, projectiles) =
+        actions(data, library, name, common, id, voice)?;
+    Ok(serde_json::from_value(json!({
+        "actions":actions,"attacks":attacks,"contacts":contacts,"projectiles":projectiles
+    }))?)
+}
+
 pub(crate) fn artwork(package: &[u8], library: &Path, name: &str) -> Result<Value> {
     let model = format!("meshes/monsters/{name}/model.json");
     let preview: ModelPreview = serde_json::from_slice(&fs::read(library.join(&model))?)?;
@@ -535,6 +579,7 @@ fn commands(
     mut deadline: u16,
     holds: &[(u16, u8)],
     opening_hold: u16,
+    voice: EnemyCommandVoice,
 ) -> Result<(Vec<(u16, Value)>, u16)> {
     let source = section(data, 14)?;
     let mut cursor = usize::from(start) * 2;
@@ -711,22 +756,10 @@ fn commands(
                 (json!({"common_effect":half(source, cursor + 4)?}), 8)
             }
             27 => {
-                let priority = half(source, cursor + 6)?;
-                ensure!(
-                    matches!(priority, 2 | 3),
-                    "enemy voice priority needs a decoder"
-                );
-                let encoded = half(source, cursor + 4)?;
-                let sound = if encoded == 0 {
-                    Value::Null
-                } else if encoded & 0x8000 != 0 {
-                    json!({"stream":encoded & 0x7fff})
-                } else {
-                    json!({"cue":encoded + 501})
-                };
+                let (sound, announcement, width) = voice(&source[cursor..])?;
                 (
-                    json!({"voice":{"sound":sound,"announcement":priority == 3}}),
-                    8,
+                    json!({"voice":{"sound":sound,"announcement":announcement}}),
+                    width,
                 )
             }
             28 => {
@@ -826,7 +859,11 @@ fn commands(
     Ok((events, deadline))
 }
 
-fn contact_recovery(data: &[u8], row: &[u8]) -> Result<Option<Value>> {
+fn contact_recovery(
+    data: &[u8],
+    row: &[u8],
+    read_voice: EnemyCommandVoice,
+) -> Result<Option<Value>> {
     if word(row, 8)? & 0x100 == 0 {
         return Ok(None);
     }
@@ -876,12 +913,13 @@ fn contact_recovery(data: &[u8], row: &[u8]) -> Result<Option<Value>> {
                     cursor += 8;
                 }
                 27 => {
+                    let (sound, announcement, width) = read_voice(&source[cursor..])?;
                     ensure!(
-                        half(source, cursor + 6)? == 2,
+                        !announcement,
                         "enemy recovery voice priority needs a decoder"
                     );
-                    voice = sound(half(source, cursor + 4)?);
-                    cursor += 8;
+                    voice = sound;
+                    cursor += width;
                 }
                 _ => anyhow::bail!("enemy contact recovery command {opcode} needs a decoder"),
             }
@@ -1167,7 +1205,8 @@ fn actions(
     library: &Path,
     name: &str,
     common: Option<&[u8]>,
-    id: u8,
+    id: u16,
+    voice: EnemyCommandVoice,
 ) -> Result<(Value, Value, Value, Value)> {
     let source = section(data, 10)?;
     let policy = section(data, 12)?;
@@ -1340,6 +1379,7 @@ fn actions(
             half(row, 14)?,
             &holds,
             u16::from(opening_hold),
+            voice,
         )?;
         if delayed_opening {
             for (at, _) in &mut events {
@@ -1550,7 +1590,7 @@ fn actions(
                 elapsed(half(row, 36)?, &holds) + u16::from((partial_opening || delayed_opening) && half(row, 36)? == 0),
                 elapsed(half(row, 38)?, &holds) + u16::from((partial_opening || delayed_opening) && half(row, 38)? == 0)
             ],
-            "contact_recovery":contact_recovery(data, row)?,
+            "contact_recovery":contact_recovery(data, row, voice)?,
             "armor":byte(row, 49)?,
             "events":events
         });
@@ -1909,7 +1949,8 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
         .map(|usual| crate::native_archive::member(usual, 8, 14))
         .transpose()?
         .flatten();
-    let (actions, attacks, contacts, projectiles) = actions(&data, library, name, common, id)?;
+    let (actions, attacks, contacts, projectiles) =
+        actions(&data, library, name, common, u16::from(id), command_voice)?;
     let mut profile = battle_enemy_profile::profile(profile_source, &nodes, usual.as_deref())?;
     let presentation = if matches!(
         selector,
@@ -2020,4 +2061,52 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
     };
     crate::output::json(&output, &entry)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod shared_action_tests {
+    use super::*;
+
+    #[test]
+    fn gc_command_voices_keep_cues_streams_priorities_and_width() -> Result<()> {
+        let mut row = [0; 8];
+        row[4..6].copy_from_slice(&0x8123_u16.to_be_bytes());
+        row[6..8].copy_from_slice(&3_u16.to_be_bytes());
+        assert_eq!(command_voice(&row)?, (Some(Sound::Stream(0x123)), true, 8));
+        row[4..6].copy_from_slice(&12_u16.to_be_bytes());
+        row[6..8].copy_from_slice(&2_u16.to_be_bytes());
+        assert_eq!(command_voice(&row)?, (Some(Sound::Cue(513)), false, 8));
+        row[4..6].fill(0);
+        assert_eq!(command_voice(&row)?, (None, false, 8));
+        row[6..8].copy_from_slice(&1_u16.to_be_bytes());
+        assert!(command_voice(&row).is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_EXTRACTED with native GC enemy packages"]
+    fn native_gc_enemy_rules_still_cook_with_shared_voice_callback() -> Result<()> {
+        let extracted =
+            std::env::var_os("RESONANCE_TEST_EXTRACTED").context("set RESONANCE_TEST_EXTRACTED")?;
+        let root = Path::new(&extracted);
+        let output = tempfile::tempdir()?;
+        // An ordinary carried-weapon rig exercises the complete GC public cook,
+        // rather than comparing two wrappers around the same internal function.
+        let id = 84;
+        battle_enemy_media::cook_battle_enemy_media(root, output.path(), id)?;
+        cook_battle_enemy_rules(root, output.path(), id)?;
+        let name = MonsterId::try_from(id)?.resource_name().unwrap();
+        let path = output
+            .path()
+            .join(format!("battle/enemies/{name}/enemy.json"));
+        let entry: resonance_content::battle_enemy::document::Entry =
+            serde_json::from_slice(&fs::read(path)?)?;
+        entry.decode_artwork()?;
+        let definition = entry.rules.into_definition()?;
+        ensure!(
+            !definition.actions.rows.is_empty(),
+            "GC enemy has no actions"
+        );
+        Ok(())
+    }
 }

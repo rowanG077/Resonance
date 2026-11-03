@@ -173,7 +173,9 @@ pub use battle_effect_tints::cook_battle_effect_tints;
 pub use battle_enemy_effects::{cook_battle_enemy_effects, cook_battle_enemy_effects_group};
 pub use battle_enemy_mappings::cook_battle_enemy_mappings;
 pub use battle_enemy_media::{cook_battle_enemy_media, cook_battle_enemy_media_group};
-pub use battle_enemy_rules::cook_battle_enemy_rules;
+pub use battle_enemy_rules::{
+    EnemyActionTables, EnemyCommandVoice, cook_battle_enemy_rules, decode_enemy_actions,
+};
 pub use battle_equipment::{cook_battle_equipment, cook_battle_equipment_mappings};
 pub use battle_event_media::cook_battle_event_media;
 pub use battle_event_scripts::cook_battle_event_scripts;

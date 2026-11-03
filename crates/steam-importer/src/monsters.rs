@@ -411,7 +411,7 @@ fn carried_pose_motions(
         let rate = f32::from_bits(pe::word(commands, at + 8)?);
         if rate.is_finite()
             && rate > 0.
-            && pe::word(commands, at + 12)? <= 1
+            && pe::half(commands, at + 14)? <= 1
             && let Some((_, name)) = body.iter().find(|(id, _)| *id == clip)
         {
             motions.insert(clip, name.clone());
