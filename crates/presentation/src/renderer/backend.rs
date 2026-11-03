@@ -86,6 +86,11 @@ fn filter_adapters(adapters: &mut Vec<wgpu::AdapterInfo>, name: Option<&str>, fa
 }
 
 pub(crate) fn plugin(app: &mut App, interactive: bool) -> RenderPlugin {
+    info!(
+        "Initializing graphics; interactive={interactive}, requested backend={:?}, adapter={:?}",
+        std::env::var_os("WGPU_BACKEND"),
+        std::env::var_os("WGPU_ADAPTER_NAME")
+    );
     let mut settings = default_settings();
     if interactive {
         // GL/ANGLE is not shipped. Discover native backends once for the player
@@ -128,6 +133,9 @@ pub(crate) fn plugin(app: &mut App, interactive: bool) -> RenderPlugin {
             .settings
             .graphics_backend;
         let selected = resolve(preference, native_default(), &available);
+        info!(
+            "Graphics selection: saved={preference:?}, selected={selected:?}, adapters={candidates:?}, fallback={fallback}"
+        );
         settings.backends = Some(backends(selected).with_env());
         app.insert_resource(Candidates(candidates))
             .add_systems(Startup, detect)
@@ -164,6 +172,7 @@ fn choices(candidates: &[wgpu::AdapterInfo], adapter: &wgpu::AdapterInfo) -> Vec
 }
 
 fn detect(mut commands: Commands, candidates: Res<Candidates>, adapter: Res<RenderAdapterInfo>) {
+    info!("Active graphics adapter: {:?}", **adapter);
     let Some(active) = from_wgpu(adapter.backend) else {
         return;
     };

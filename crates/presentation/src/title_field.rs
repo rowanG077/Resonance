@@ -39,7 +39,13 @@ pub(super) fn prepare(
     let hour = match time::OffsetDateTime::now_local() {
         Ok(now) => now.hour(),
         Err(error) => {
-            eprintln!("Cannot read the host's local time ({error}); using the day title field");
+            if bevy::log::tracing::dispatcher::has_been_set() {
+                bevy::log::warn!(
+                    "Cannot read the host's local time ({error}); using the day title field"
+                );
+            } else {
+                eprintln!("Cannot read the host's local time ({error}); using the day title field");
+            }
             12
         }
     };

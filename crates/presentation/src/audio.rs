@@ -17,11 +17,11 @@ pub(super) struct MenuSounds {
     pub control: Option<playback::SoundControl>,
 }
 
-pub(super) fn check(sounds: Res<MenuSounds>, mut exit: MessageWriter<AppExit>) {
+pub(super) fn check(sounds: Res<MenuSounds>, mut exit: crate::diagnostics::Fatal) {
     if let Some(control) = &sounds.control
-        && control.check().is_err()
+        && let Err(error) = control.check()
     {
-        exit.write(AppExit::error());
+        exit.fail("menu audio", error);
     }
 }
 

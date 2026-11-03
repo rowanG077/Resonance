@@ -84,9 +84,16 @@ pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -
         .clone()
         .map_or_else(resonance_persistence::default_directory, Ok)?;
     let slot = SlotId::new(options.quick_slot.as_deref().unwrap_or("quick"))?;
+    info!(
+        "Save directory: {}; quick slot: {}; initial save: {:?}",
+        directory.display(),
+        slot.as_str(),
+        options.load
+    );
     if let Some(path) = &options.load {
         app.insert_resource(new_game::Request(Some(
-            resonance_persistence::read_bounded(path)?,
+            resonance_persistence::read_bounded(path)
+                .with_context(|| format!("reading startup save {}", path.display()))?,
         )));
     }
     if user_config {
@@ -303,6 +310,9 @@ pub(super) fn shortcuts(world: &mut World) {
 }
 
 pub(crate) fn report(world: &mut World, result: Result<String>) {
+    if result.is_err() {
+        super::diagnostics::record(world, true);
+    }
     let message = match result {
         Ok(message) => {
             info!("{message}");

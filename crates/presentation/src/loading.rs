@@ -233,6 +233,7 @@ pub(super) struct Task<T: Send + 'static> {
     cancelled: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
     pub started: Instant,
+    name: String,
 }
 impl Pending {
     pub fn dungeon(
@@ -244,7 +245,7 @@ impl Pending {
         let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
-        Self::spawn(move |stop| {
+        Self::spawn(format!("dungeon field {}", destination.map), move |stop| {
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
             let package = cache.field(
@@ -271,7 +272,7 @@ impl Pending {
         let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
-        Self::spawn(move |stop| {
+        Self::spawn("session start / saved checkpoint", move |stop| {
             let checkpoint = checkpoint
                 .map(|bytes| resonance_persistence::decode::<super::saves::SceneCheckpoint>(&bytes))
                 .transpose()?;
@@ -313,7 +314,7 @@ impl FieldPending {
         let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
-        Self::spawn(move |stop| {
+        Self::spawn(format!("field {map}"), move |stop| {
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
             cache.field(&library, map, || stop.load(Ordering::Relaxed), diagnostics)
@@ -326,7 +327,7 @@ impl WorldPending {
         let library = resident.library(&root)?;
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
-        Self::spawn(move |stop| {
+        Self::spawn("overworld", move |stop| {
             let mut cache = cache.lock().unwrap();
             super::overworld::Package::capture(
                 &library,
@@ -341,90 +342,117 @@ impl BattlePending {
     pub fn battle(entry: super::battle::Entry, resident: &Resident) -> Result<Self> {
         let cache = resident.cache.clone();
         let diagnostics = resident.diagnostics.clone();
-        Self::spawn(move |stop| {
-            let super::battle::Entry {
-                mut snapshot,
-                party,
-                setup,
-                options,
-                data,
-                menus,
-                gameplay_random,
-            } = entry;
-            let mut cache = cache.lock().unwrap();
-            let entry_seed = options.random_seed;
-            let cancelled = || stop.load(Ordering::Relaxed);
-            let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
-                &mut snapshot,
-                &cancelled,
-            )?;
-            let inputs = resonance_game::battle::encounter::Assets::capture(
-                &mut snapshot,
-                &menus,
-                &data,
-                &party,
-                setup,
-                diagnostics.clone(),
-                &cancelled,
-            )?;
-            let (mut assets, prepared, selected) =
-                inputs.prepare_named(&menus, options, &catalogue)?;
-            let audio = super::battle_audio::Assets::capture_named(
-                &catalogue,
-                &selected,
-                &mut snapshot,
-                diagnostics.clone(),
-                &mut cache.audio,
-                &cancelled,
-            )?;
-            assets.files = Files::from_snapshot(snapshot, cancelled, diagnostics)?;
-            let catalogue = assets.catalogue.clone();
-            // View retains its diagnostic and skip policy for an invalid stage.
-            let scenery_models = if assets.stage.validate().is_ok() {
-                resonance_game::battle::stage::Model::load(&assets.files, &assets.stage)?
-            } else {
-                Default::default()
-            };
-            Ok(super::battle::Package {
-                assets: Arc::new(assets),
-                scenery_models,
-                prepared,
-                audio,
-                party,
-                menus,
-                data,
-                catalogue,
-                gameplay_random,
-                entry_seed,
-            })
-        })
+        Self::spawn(
+            format!(
+                "battle {:?}; map {}; seed {}",
+                entry.setup, entry.options.map, entry.options.random_seed
+            ),
+            move |stop| {
+                let super::battle::Entry {
+                    mut snapshot,
+                    party,
+                    setup,
+                    options,
+                    data,
+                    menus,
+                    gameplay_random,
+                } = entry;
+                let mut cache = cache.lock().unwrap();
+                let entry_seed = options.random_seed;
+                let cancelled = || stop.load(Ordering::Relaxed);
+                let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
+                    &mut snapshot,
+                    &cancelled,
+                )?;
+                let inputs = resonance_game::battle::encounter::Assets::capture(
+                    &mut snapshot,
+                    &menus,
+                    &data,
+                    &party,
+                    setup,
+                    diagnostics.clone(),
+                    &cancelled,
+                )?;
+                let (mut assets, prepared, selected) =
+                    inputs.prepare_named(&menus, options, &catalogue)?;
+                let audio = super::battle_audio::Assets::capture_named(
+                    &catalogue,
+                    &selected,
+                    &mut snapshot,
+                    diagnostics.clone(),
+                    &mut cache.audio,
+                    &cancelled,
+                )?;
+                assets.files = Files::from_snapshot(snapshot, cancelled, diagnostics)?;
+                let catalogue = assets.catalogue.clone();
+                // View retains its diagnostic and skip policy for an invalid stage.
+                let scenery_models = if assets.stage.validate().is_ok() {
+                    resonance_game::battle::stage::Model::load(&assets.files, &assets.stage)?
+                } else {
+                    Default::default()
+                };
+                Ok(super::battle::Package {
+                    assets: Arc::new(assets),
+                    scenery_models,
+                    prepared,
+                    audio,
+                    party,
+                    menus,
+                    data,
+                    catalogue,
+                    gameplay_random,
+                    entry_seed,
+                })
+            },
+        )
     }
 }
 
 impl<T: Send + 'static> Task<T> {
     pub(super) fn spawn(
+        name: impl Into<String>,
         job: impl FnOnce(Arc<AtomicBool>) -> Result<T> + Send + 'static,
     ) -> Result<Self> {
+        let name = name.into();
+        let worker_name = name.clone();
+        info!(job = %name, "Starting background preparation");
         let (send, receive) = mpsc::sync_channel(1);
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
         let worker = std::thread::Builder::new()
             .name("scene-preparation".into())
             .spawn(move || {
-                let _ = send.send(job(stop));
+                let _span = info_span!("scene_preparation", job = %worker_name).entered();
+                let started = Instant::now();
+                let result = job(stop.clone()).with_context(|| format!("preparing {worker_name}"));
+                match &result {
+                    Ok(_) => info!(
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "Preparation completed"
+                    ),
+                    Err(error) if stop.load(Ordering::Relaxed) => {
+                        debug!("Preparation cancelled: {error:#}")
+                    }
+                    Err(error) => error!(
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "Preparation failed: {error:#}"
+                    ),
+                }
+                let _ = send.send(result);
             })?;
         Ok(Self {
             receiver: Mutex::new(receive),
             cancelled,
             worker: Some(worker),
             started: Instant::now(),
+            name,
         })
     }
     pub fn poll(&self) -> Result<Option<Result<T>>> {
         match self.receiver.lock().unwrap().try_recv() {
             Ok(value) => Ok(Some(value)),
             Err(mpsc::TryRecvError::Empty) => Ok(None),
-            Err(error) => Err(error).context("scene preparation worker stopped"),
+            Err(error) => Err(error).with_context(|| format!("preparation worker for {} stopped after {:.3}s (possibly panicked; see crash report)", self.name, self.started.elapsed().as_secs_f64())),
         }
     }
 
@@ -438,8 +466,15 @@ impl<T: Send + 'static> Task<T> {
 impl<T: Send + 'static> Drop for Task<T> {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        if let Some(worker) = self.worker.take()
+            && let Err(payload) = worker.join()
+        {
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("non-string panic payload");
+            error!(job = %self.name, "Preparation worker panicked: {message}");
         }
     }
 }
@@ -478,6 +513,44 @@ mod tests {
     use super::*;
     use resonance_content::diagnostics::Diagnostics;
     use std::fs;
+
+    #[test]
+    fn failed_preparation_keeps_job_identity_and_cause() {
+        let task = Task::<()>::spawn("field 332", |_| {
+            Err(anyhow::anyhow!("missing mesh dragon.glb"))
+        })
+        .unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(result) = task.poll().unwrap() {
+                let error = format!("{:#}", result.unwrap_err());
+                assert!(error.contains("field 332"), "{error}");
+                assert!(error.contains("missing mesh dragon.glb"), "{error}");
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn panicked_preparation_identifies_the_failed_job() {
+        let task = Task::<()>::spawn("battle formation 77", |_| {
+            panic!("broken battle preparation")
+        })
+        .unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Err(error) = task.poll() {
+                let error = format!("{error:#}");
+                assert!(error.contains("battle formation 77"), "{error}");
+                assert!(error.contains("stopped"), "{error}");
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+    }
 
     #[test]
     fn installed_snapshot_serves_memory_after_activation_and_blocks_disk_fallback() {

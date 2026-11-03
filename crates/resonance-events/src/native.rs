@@ -99,7 +99,11 @@ impl NativeHost<'_> {
                 self.world.current_field, self.event_actor,
             );
             if self.world.warnings.insert(message.clone()) {
-                eprintln!("WARN [scene node lookup] {message}");
+                if tracing::dispatcher::has_been_set() {
+                    tracing::warn!("[scene node lookup] {message}");
+                } else {
+                    eprintln!("WARN [scene node lookup] {message}");
+                }
             }
         }
         result

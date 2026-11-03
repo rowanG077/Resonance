@@ -4659,6 +4659,7 @@ dependencies = [
  "serde_json",
  "symphonia-constants",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -4674,6 +4675,7 @@ dependencies = [
  "symphonia-script",
  "symphonia-script-compiler",
  "symphonia-script-vm",
+ "tracing",
 ]
 
 [[package]]

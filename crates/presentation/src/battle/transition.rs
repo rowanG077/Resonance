@@ -229,7 +229,7 @@ fn advance(
     state: Option<ResMut<State>>,
     owner: Option<Res<Owner>>,
     audio: Option<Res<crate::field_audio::Control>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     if let Some(mut state) = state
         && let Some(age) = state.age
@@ -242,8 +242,7 @@ fn advance(
             && let Some(audio) = audio
             && let Err(error) = audio.battle_entry()
         {
-            error!("Battle entry sound failed: {error:#}");
-            exit.write(AppExit::error());
+            exit.fail("Battle entry sound failed", error);
         }
         state.age = Some(age.saturating_add(1).min(END_TICK));
     }
@@ -261,7 +260,7 @@ fn render(
     mut cameras: Query<&mut Camera>,
     field_cameras: Query<Entity, crate::FieldCameraFilter>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let Some(mut state) = state else {
         return;
@@ -270,8 +269,7 @@ fn render(
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {
-            error!("{error:#}");
-            exit.write(AppExit::error());
+            exit.fail("battle transition", error);
             return;
         }
     }

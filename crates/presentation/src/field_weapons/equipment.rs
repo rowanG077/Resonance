@@ -329,7 +329,7 @@ pub(crate) fn prepare(
         let diagnostics = resident.diagnostics.clone();
         cache.pending = Some((
             item,
-            Task::spawn(move |stop| {
+            Task::spawn(format!("weapon item {item:?}"), move |stop| {
                 capture(&library, item, &diagnostics, &|| {
                     stop.load(Ordering::Acquire)
                 })
