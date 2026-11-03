@@ -12,7 +12,8 @@ const ENEMY_PAGE_SIZE: usize = 8;
 const ENEMY_COLUMNS: usize = 4;
 const COMBO_PANEL: usize = 1;
 const COMBO_TEXT: usize = 2;
-const METERS: usize = 3;
+const TECHNICAL_SMASH: usize = 3;
+const METERS: usize = 4;
 const TARGET_ORNAMENTS: usize = 5;
 
 pub(super) struct Hud {
@@ -58,6 +59,7 @@ impl Hud {
             palette.font.clone().at(Depth::Enemies).offset_depth(1.),
             palette.solid.clone().at(Depth::Combo),
             palette.font.clone().at(Depth::Combo).offset_depth(1.),
+            palette.font.clone().at(Depth::TechnicalSmash),
             palette.solid.clone().at(Depth::Meters),
             palette.font.clone().at(Depth::Meters).offset_depth(4.),
         ];
@@ -195,7 +197,7 @@ impl Hud {
                 .draw(&art.font, &art.combo, &mut left[COMBO_PANEL], &mut right[0])?;
         }
         self.technical_smash
-            .draw(&art.font, &mut batch[COMBO_TEXT])?;
+            .draw(&art.font, &mut batch[TECHNICAL_SMASH])?;
         Ok(())
     }
 }
@@ -414,6 +416,72 @@ impl Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires current HUD assets; CPU layer composition only"]
+    fn feedback_layers_preserve_draw_order_in_the_same_frame() -> Result<()> {
+        let (mut hud, _, _app) = test_artwork()?;
+
+        let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        let mut enemy = frame.actors[0].clone();
+        enemy.side = Side::Enemy;
+        frame.actors.push(enemy);
+        frame.cues.push(resonance_battle::Cue::TechnicalSmash {
+            bonuses: resonance_battle::TechnicalSmash::default(),
+            total_percent: 5,
+        });
+        hud.combat.advance(&frame, 0)?;
+        frame.cues.clear();
+        hud.combat.advance(&frame, 16)?;
+        let mut batches = vec![Batch::default(); hud.combat.layers.len()];
+        hud.combat.draw(&frame, &hud.art, &mut batches, None, &[])?;
+        assert!(
+            batches[TECHNICAL_SMASH]
+                .colors
+                .iter()
+                .any(|color| color[3] > 0.)
+        );
+        assert!(batches[COMBO_TEXT].indices.is_empty());
+        let smash_depth = hud.combat.layers[TECHNICAL_SMASH].definition.depth;
+        assert!(smash_depth < hud.ui.unison[0].definition.depth);
+
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        hud.prepare(
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+            crate::Resolution::default(),
+        );
+        queue.apply(&mut world);
+        let party = PartyHudInput {
+            characters: &[Character::Lloyd],
+            queued_techniques: &[false],
+            names: &[None],
+        };
+        // Depth must update in the same frame, without transform propagation.
+        for actor in [0, 1, 0] {
+            hud.notice_request(ActorId::from_index(actor)?, "Fire Ball", 90, &frame)?;
+            hud.render_notices(
+                &frame,
+                party,
+                &mut Commands::new(&mut queue, &world),
+                &mut meshes,
+            )?;
+            queue.apply(&mut world);
+            for layer in &hud.ui.notice {
+                let entity = layer.rendered.as_ref().unwrap().entity;
+                let global = world
+                    .get::<GlobalTransform>(entity)
+                    .unwrap()
+                    .translation()
+                    .z;
+                assert_eq!(global, layer.definition.depth);
+                assert!(smash_depth > global);
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn combined_enemy_portraits_count_survivors_and_follow_individual_targets() -> Result<()> {
