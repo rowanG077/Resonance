@@ -66,3 +66,29 @@ fn native_argument_discovery_returns_the_same_validated_code_and_observes_edits(
     assert_eq!(changed[&10], [Some(19), Some(3)]);
     assert_eq!(program.instruction(0).unwrap().0, Op::Push(18));
 }
+
+fn string_program(auxiliary: &[u8]) -> Program {
+    let mut data = bytes(&[4, 0, 5, 0, 0x20ff]);
+    data.extend_from_slice(auxiliary);
+    Program::decode(&data).unwrap()
+}
+
+#[test]
+fn cooked_identifiers_are_utf8_in_the_canonical_auxiliary_table() {
+    let mut auxiliary = vec![0, 0, 0, 4];
+    auxiliary.extend("羽 café".as_bytes());
+    auxiliary.push(0);
+    let program = string_program(&auxiliary);
+    assert_eq!(program.string(0).as_deref(), Some("羽 café"));
+    assert!(program.string(1).is_none());
+    let short = string_program(&[0, 2, b'A', 0]);
+    assert!(
+        short.string(0).is_none(),
+        "source offset widths must be normalized on import"
+    );
+    let legacy = string_program(&[0, 0, 0, 4, 0x82, 0xa0, 0]);
+    assert!(
+        legacy.string(0).is_none(),
+        "runtime must not guess a legacy encoding"
+    );
+}

@@ -185,14 +185,17 @@ pub fn cook_field_core(extracted: &Path, library: &Path, selected: Option<u32>) 
         let header =
             scenario::parse_header(script).with_context(|| format!("field {id} script"))?;
         Program::decode(script).with_context(|| format!("field {id} script"))?;
-        let messages = message::parse(
+        let messages = message::parse_with_encoding(
             script
                 .get(header.auxiliary_offset()..)
                 .context("field message offset exceeds script")?,
+            message::TextEncoding::ShiftJis,
         )
         .with_context(|| format!("field {id} messages"))?;
         let base = library.join("fields").join(field_name(id));
-        crate::output::write(&base.join("scripts/scenario.ssb"), script)?;
+        let cooked =
+            crate::script_text::normalize_scenario_text(script, message::TextEncoding::ShiftJis)?;
+        crate::output::write(&base.join("scripts/scenario.ssb"), &cooked)?;
         if !messages.is_empty() {
             crate::output::json(&base.join("messages.json"), &messages)?;
         }

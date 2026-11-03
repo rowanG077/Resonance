@@ -1390,7 +1390,7 @@ An obsolete cooked layout requires a fresh cook. `content.json` contains the
 cooked format `version` and `game: "tales-of-symphonia"`. It describes the game,
 independently of the original release used by the importer; source platform,
 product code and revision are not cooked metadata. Changing the version does
-not convert files. A future Steam importer will target these same resource
+not convert files. The GameCube and Steam importers target these same resource
 formats; this does not promise compatible mods or saves across different gameplay.
 
 ## Dynamic resource IDs
@@ -2538,6 +2538,14 @@ changes all three character versions. To make one release independent, replace
 its name with a copy of the definition. Shared definitions cannot reference
 other definitions or files. Omitting a projectile's `hit` inherits its existing
 hit recipe; explicit zero values remain meaningful.
+
+`emit_projectile` carries an inline projectile `definition`, its `hit` and optional
+`feedback`. It uses the ordinary effect banks: common (0), techniques (1) and the
+technique's stored skill artwork (2). The `actor_floor` motion origin keeps the
+owner's horizontal position and measures the spawn offset from the battle floor.
+
+`heal_other_allies` restores `percent` of each living ally's maximum HP within
+the horizontal `radius`, excluding the caster. Existing recovery traits apply.
 
 `unassigned-action-51` and `unassigned-action-141` through `unassigned-action-145`
 preserve real tracks

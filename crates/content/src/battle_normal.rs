@@ -44,6 +44,19 @@ pub enum Event<H = ActionHit> {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         feedback: Option<crate::battle_martial::ProjectileFeedback>,
     },
+    /// A callback-owned launch normalized to the same projectile recipe as the
+    /// resident table. Bank two refers to this technique's stored skill artwork.
+    EmitProjectile {
+        definition: Box<crate::battle_projectile::Projectile>,
+        hit: H,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feedback: Option<crate::battle_martial::ProjectileFeedback>,
+    },
+    /// Recover living allies within horizontal range, excluding the action owner.
+    HealOtherAllies {
+        radius: f32,
+        percent: u8,
+    },
     Throw {
         slot: WeaponSlot,
         flight: WeaponFlight,
@@ -93,6 +106,7 @@ impl<H> Event<H> {
         match self {
             Self::Contact(contact) => Some(&contact.hit),
             Self::Projectile { hit, .. } => hit.as_ref(),
+            Self::EmitProjectile { hit, .. } => Some(hit),
             Self::Throw { hit, .. } => Some(hit),
             _ => None,
         }

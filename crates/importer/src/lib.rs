@@ -52,6 +52,7 @@ pub use battle_party_victory::{cook_battle_victories, cook_battle_victory_group}
 mod battle_projectiles;
 pub use battle_projectiles::{scene_hit as decode_spell_hit, scene_record as decode_projectile};
 mod battle_recoil;
+mod battle_scene_actions;
 mod battle_scene_mappings;
 mod battle_scene_package;
 mod battle_skill_package;
@@ -177,9 +178,12 @@ pub use battle_enemy_mappings::cook_battle_enemy_mappings;
 pub use battle_enemy_media::{cook_battle_enemy_media, cook_battle_enemy_media_group};
 pub use battle_enemy_rules::{
     EnemyActionFlash, EnemyActionSource, EnemyActionTables, EnemyCommandVoice,
-    cook_battle_enemy_rules, decode_enemy_actions,
+    cook_battle_enemy_rules, decode_enemy_actions, enemy_entrance as decode_enemy_entrance,
 };
 pub use battle_equipment::{cook_battle_equipment, cook_battle_equipment_mappings};
+pub use battle_equipment::{
+    texture_animation as decode_equipment_animation, trail as decode_equipment_trail,
+};
 pub use battle_event_media::cook_battle_event_media;
 pub use battle_event_scripts::cook_battle_event_scripts;
 pub use battle_font::cook_battle_font;
@@ -277,3 +281,14 @@ pub use text::decode as decode_menu_text;
 
 /// Shared GameCube-style field atmosphere, independent of the source edition.
 pub use field_settings::environment as field_environment_defaults;
+
+pub use battle_scene_actions::read as decode_scene_actions;
+
+pub use battle_party_native::hit_rule as decode_martial_hit;
+
+pub use field_npc_models::convert as cook_field_model_package;
+
+mod script_text;
+pub use script_text::normalize_scenario_text;
+
+pub use battle_party_victory::timeline as decode_victory_timeline;

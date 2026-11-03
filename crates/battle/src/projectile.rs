@@ -732,6 +732,47 @@ mod tests {
     }
 
     #[test]
+    fn floor_origin_preserves_airborne_owner_horizontal_placement_and_offset() -> Result<()> {
+        for (origin, height) in [
+            (ProjectileOrigin::Actor, 110.),
+            (ProjectileOrigin::ActorFloor, -10.),
+        ] {
+            let mut owner = crate::tests::actor(crate::Side::Party);
+            owner.position = [100., 120., 50.];
+            owner.heading = -90.;
+            let target = crate::tests::actor(crate::Side::Enemy);
+            let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
+            let mut definition = instance(
+                [0., -5., 5.],
+                ProjectileMotion {
+                    origin,
+                    ..Default::default()
+                },
+            )
+            .definition;
+            Arc::make_mut(&mut definition).offset = [0., -10., 10.];
+            let id = battle.emit(
+                definition,
+                ActionId(1),
+                ActorId(0),
+                ActorId(1),
+                [100., 120., 50.],
+            )?;
+            crate::tests::assert_vector_close(
+                battle.projectiles[&id].frame.position,
+                [90., height, 50.],
+                0.0001,
+            );
+            crate::tests::assert_vector_close(
+                battle.projectiles[&id].velocity,
+                [-5., -5., 0.],
+                0.0001,
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn launch_policy_samples_target_or_bones_once_and_retains_actor_offset() -> Result<()> {
         use resonance_content::animation::{Bone, Transform};
         let bone_direction = Some(ProjectileBoneDirection { from: 0, to: 1 });

@@ -98,6 +98,8 @@ pub struct ProjectileResponse {
 pub enum ProjectileOrigin {
     #[default]
     Actor,
+    /// Sample the owner's X/Z at emission, placing the origin on the arena floor.
+    ActorFloor,
     TargetFloor,
     Bone(u8),
 }

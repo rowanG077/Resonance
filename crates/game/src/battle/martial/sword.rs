@@ -288,6 +288,17 @@ pub(super) fn projectile(
     feedback: Option<ProjectileFeedback>,
     recoil: &crate::battle::recoil::Parameters,
 ) -> Result<Arc<ProjectileDefinition>> {
+    projectile_with_local(resources, row, hit, feedback, recoil, None)
+}
+
+pub(super) fn projectile_with_local(
+    resources: &mut Resources<'_>,
+    row: &resonance_content::battle_projectile::Projectile,
+    hit: &ActionHit,
+    feedback: Option<ProjectileFeedback>,
+    recoil: &crate::battle::recoil::Parameters,
+    local: Option<&crate::battle::EffectResource>,
+) -> Result<Arc<ProjectileDefinition>> {
     let mut rule = crate::battle::hit::authored(hit, recoil)?;
     if let Some(sound) = rule.sound {
         rule.sound = (resources.sound)(sound)?;
@@ -299,12 +310,13 @@ pub(super) fn projectile(
             member,
         });
     }
-    let mut projectile = resources.prepared.projectile(
-        resources.files,
-        row,
-        rule,
-        &[(0, &resources.common), (1, &resources.techniques)],
-    )?;
+    let mut banks = vec![(0, &resources.common), (1, &resources.techniques)];
+    if let Some(local) = local {
+        banks.push((2, local));
+    }
+    let mut projectile = resources
+        .prepared
+        .projectile(resources.files, row, rule, &banks)?;
     let projectile_mut = Arc::make_mut(&mut projectile);
     projectile_mut
         .contact

@@ -24,6 +24,7 @@ pub(crate) fn decode(bytes: &[u8], encoding: TextEncoding) -> Result<Script> {
         )?
     };
     let bytes = crate::script_audio::normalize(&bytes)?;
+    let bytes = resonance_importer::normalize_scenario_text(&bytes, encoding)?;
     Ok(Script { bytes, messages })
 }
 
@@ -156,6 +157,26 @@ mod tests {
         Program,
         message::{self, Expression, Token},
     };
+
+    #[test]
+    fn source_identifier_encodings_become_utf8_before_runtime_loading() -> Result<()> {
+        let sjis = encoding_rs::SHIFT_JIS.encode("羽").0.into_owned();
+        for (text, encoding, expected) in [
+            (sjis, TextEncoding::ShiftJis, "羽"),
+            (b"caf\xe9".to_vec(), TextEncoding::Windows1252, "café"),
+        ] {
+            let mut native = vec![4, 0, 0, 0, 5, 0, 0, 0, 0xff, 0x20, 4, 0, 0, 0];
+            native.extend(text);
+            native.push(0);
+            let script = decode(&native, encoding)?;
+            assert_eq!(
+                Program::decode(&script.bytes)?.string(0).as_deref(),
+                Some(expected)
+            );
+            assert_eq!(message::parse(&script.bytes[10..])?, script.messages);
+        }
+        Ok(())
+    }
 
     #[test]
     fn registry_and_aliased_unaligned_message_expressions_keep_their_values() -> Result<()> {

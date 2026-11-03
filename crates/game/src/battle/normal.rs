@@ -267,6 +267,8 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
         Event::Pose(_)
         | Event::Contact(_)
         | Event::Projectile { .. }
+        | Event::EmitProjectile { .. }
+        | Event::HealOtherAllies { .. }
         | Event::Throw { .. }
         | Event::Sound(_)
         | Event::Voice(_)

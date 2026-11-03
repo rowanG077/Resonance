@@ -1,0 +1,329 @@
+{
+  "font": "fonts/battle.json",
+  "portraits": {
+    "lloyd": "ui/battle/portraits/lloyd.ktx2",
+    "colette": "ui/battle/portraits/colette.ktx2",
+    "genis": "ui/battle/portraits/genis.ktx2",
+    "raine": "ui/battle/portraits/raine.ktx2",
+    "sheena": "ui/battle/portraits/sheena.ktx2",
+    "zelos": "ui/battle/portraits/zelos.ktx2",
+    "presea": "ui/battle/portraits/presea.ktx2",
+    "regal": "ui/battle/portraits/regal.ktx2",
+    "kratos": "ui/battle/portraits/kratos.ktx2"
+  },
+  "meters": {
+    "bars": {
+      "hp": [
+        [128, 32, 32, 255],
+        [128, 128, 32, 255],
+        [128, 32, 32, 255],
+        [128, 128, 32, 255]
+      ],
+      "tp": [
+        [32, 32, 128, 255],
+        [96, 96, 128, 255],
+        [32, 32, 128, 255],
+        [96, 96, 128, 255]
+      ]
+    },
+    "numbers": {
+      "hp": [
+        [128, 128, 128, 255],
+        [128, 112, 112, 255]
+      ],
+      "tp": [
+        [128, 128, 128, 255],
+        [96, 96, 128, 255]
+      ]
+    },
+    "trail": [96, 32, 32, 255],
+    "shadow": [0, 0, 0, 128]
+  },
+  "damage": {
+    "colors": {
+      "party": [
+        [128, 112, 112, 255],
+        [128, 80, 80, 255]
+      ],
+      "enemy": [
+        [128, 128, 128, 255],
+        [128, 128, 128, 255]
+      ]
+    },
+    "sizes": {
+      "normal": [15, 22],
+      "guarded": [13, 19],
+      "critical": [19, 27]
+    }
+  },
+  "recovery_colors": {
+    "hp": [
+      [112, 128, 112, 255],
+      [80, 128, 80, 255]
+    ],
+    "tp": [
+      [112, 128, 112, 255],
+      [80, 128, 80, 255]
+    ]
+  },
+  "result_colors": {
+    "experience": [
+      [128, 96, 96, 255],
+      [128, 80, 80, 255]
+    ],
+    "statistics": [
+      [96, 96, 128, 255],
+      [80, 80, 128, 255]
+    ],
+    "notice": [
+      [64, 64, 128, 255],
+      [128, 128, 48, 255]
+    ]
+  },
+  "targets": {
+    "frame": "ui/battle/atlas.ktx2",
+    "player_1": "ui/battle/atlas.ktx2",
+    "player_2": "ui/battle/atlas.ktx2",
+    "player_3": "ui/battle/atlas.ktx2",
+    "player_4": "ui/battle/atlas.ktx2"
+  },
+  "stun": "ui/battle/atlas.ktx2",
+  "notices": {
+    "frame": "ui/battle/atlas.ktx2",
+    "fill": "ui/battle/atlas.ktx2",
+    "icons": {
+      "arte": "ui/battle/atlas.ktx2",
+      "spell": "ui/battle/atlas.ktx2",
+      "item": "ui/battle/atlas.ktx2",
+      "outcome": "ui/battle/atlas.ktx2"
+    },
+    "icon_origins": {
+      "arte": [384, 464],
+      "spell": [384, 440],
+      "item": [384, 488],
+      "outcome": [384, 416]
+    },
+    "defeated": "Defeated",
+    "faces": {
+      "lloyd": "ui/battle/atlas.ktx2",
+      "colette": "ui/battle/atlas.ktx2",
+      "genis": "ui/battle/atlas.ktx2",
+      "raine": "ui/battle/atlas.ktx2",
+      "sheena": "ui/battle/atlas.ktx2",
+      "zelos": "ui/battle/atlas.ktx2",
+      "presea": "ui/battle/atlas.ktx2",
+      "regal": "ui/battle/atlas.ktx2",
+      "kratos": "ui/battle/atlas.ktx2"
+    }
+  },
+  "combo": {
+    "anchors": {
+      "party": 80,
+      "enemy": 552
+    },
+    "number_colors": {
+      "top": [128, 128, 32, 255],
+      "bottom": [128, 80, 80, 255]
+    },
+    "bar_colors": {
+      "party": [
+        [96, 32, 32, 128],
+        [96, 96, 32, 128],
+        [96, 32, 32, 128],
+        [96, 96, 32, 128]
+      ],
+      "enemy": [
+        [32, 32, 128, 128],
+        [128, 128, 128, 128],
+        [32, 32, 128, 128],
+        [128, 128, 128, 128]
+      ]
+    }
+  },
+  "stat_colors": {
+    "top": [80, 80, 128, 255],
+    "bottom": [128, 128, 64, 255]
+  },
+  "stat_backdrops": {
+    "first_line": [
+      [32, 32, 128, 0],
+      [128, 128, 64, 0],
+      [32, 32, 128, 0],
+      [128, 128, 64, 0]
+    ],
+    "second_line": [
+      [128, 128, 64, 0],
+      [32, 32, 128, 0],
+      [128, 128, 64, 0],
+      [32, 32, 128, 0]
+    ]
+  },
+  "stat_icons": {
+    "attack": "ui/battle/atlas.ktx2",
+    "defense": "ui/battle/atlas.ktx2",
+    "up": "ui/battle/atlas.ktx2",
+    "magic_attack": "ui/battle/atlas.ktx2",
+    "physical_barrier": "ui/battle/atlas.ktx2",
+    "magical_barrier": "ui/battle/atlas.ktx2",
+    "accuracy_curse": "ui/battle/atlas.ktx2",
+    "reduced_item_effect": "ui/battle/atlas.ktx2",
+    "holy_song": "ui/battle/atlas.ktx2",
+    "down": "ui/battle/atlas.ktx2"
+  },
+  "unison_buttons": {
+    "a_b": "ui/controls/input-prompts.ktx2",
+    "x_y": "ui/controls/input-prompts.ktx2"
+  },
+  "commands": {
+    "texture": "ui/battle/atlas.ktx2",
+    "icons": {
+      "techniques": [
+        [49, 161, 46, 46],
+        [97, 161, 46, 46],
+        [145, 161, 46, 46]
+      ],
+      "unison": [
+        [97, 321, 46, 46],
+        [145, 321, 46, 46],
+        [193, 321, 46, 46],
+        [241, 321, 46, 46],
+        [289, 321, 46, 46]
+      ],
+      "strategy": [
+        [193, 161, 46, 46],
+        [241, 161, 46, 46],
+        [289, 161, 46, 46],
+        [337, 161, 46, 46]
+      ],
+      "equipment": [
+        [385, 161, 46, 46],
+        [433, 161, 46, 46]
+      ],
+      "items": [
+        [1, 209, 46, 46],
+        [49, 209, 46, 46],
+        [97, 209, 46, 46]
+      ],
+      "escape": [
+        [145, 209, 46, 46]
+      ]
+    },
+    "faces": {
+      "lloyd": [64, 104, 32, 32],
+      "colette": [96, 104, 32, 32],
+      "genis": [128, 104, 32, 32],
+      "raine": [160, 104, 32, 32],
+      "sheena": [192, 104, 32, 32],
+      "zelos": [224, 104, 32, 32],
+      "presea": [256, 104, 32, 32],
+      "regal": [288, 104, 32, 32],
+      "kratos": [320, 104, 32, 32]
+    },
+    "background": [0, 160, 48, 48],
+    "shadow": [0, 160, 48, 48],
+    "disabled": [192, 256, 48, 48],
+    "plate": [304, 0, 80, 40],
+    "cursor": [160, 72, 32, 32],
+    "cursor_shadow": [160, 72, 32, 32],
+    "names": {
+      "techniques": "Tech",
+      "unison": "U. Attack",
+      "strategy": "Strat",
+      "equipment": "Equip",
+      "items": "Item",
+      "escape": "Escape"
+    },
+    "cancel_escape": "Cancel escape",
+    "player_format": "%dP",
+    "player_colors": [
+      [128, 128, 128, 255],
+      [96, 96, 128, 255]
+    ],
+    "text_color": [128, 128, 128, 255],
+    "shadow_color": [0, 0, 0, 128],
+    "pending_item_color": [32, 32, 96, 128],
+    "selector_labels": {
+      "user": "USER",
+      "target": "TARGET"
+    },
+    "selector_colors": {
+      "user": [
+        [64, 64, 128, 255],
+        [128, 128, 128, 255]
+      ],
+      "target": [
+        [128, 64, 64, 255],
+        [128, 128, 128, 255]
+      ]
+    },
+    "selector_plate_colors": [
+      [128, 96, 96, 64],
+      [96, 48, 48, 64],
+      [96, 48, 48, 160],
+      [64, 0, 0, 160]
+    ],
+    "motion": {
+      "selected_shade": [144.0, 16.0],
+      "bob": 4.0,
+      "tilt": 0.0,
+      "small_bob": 3.0,
+      "strategy_rotation": 60.0,
+      "lift": -8.0,
+      "label_bob": 6.0,
+      "item_sway": 8.0,
+      "escape_rotation": 30.0,
+      "cursor_bob": 4.0,
+      "selector_bob": 5.0
+    }
+  },
+  "feedback": {
+    "item_label": "ITEM TIME",
+    "item_bar": [
+      [48, 48, 0, 255],
+      [96, 96, 48, 255],
+      [96, 96, 48, 255],
+      [128, 128, 128, 255]
+    ],
+    "item_text": [
+      [64, 128, 64, 255],
+      [128, 128, 128, 255]
+    ],
+    "scan_vitals": {
+      "hp": [
+        [128, 80, 80, 255],
+        [128, 128, 96, 255]
+      ],
+      "tp": [
+        [80, 80, 128, 255],
+        [128, 128, 128, 255]
+      ]
+    },
+    "scan_icons": {
+      "neutral": "ui/battle/atlas.ktx2",
+      "water": "ui/battle/atlas.ktx2",
+      "wind": "ui/battle/atlas.ktx2",
+      "fire": "ui/battle/atlas.ktx2",
+      "earth": "ui/battle/atlas.ktx2",
+      "lightning": "ui/battle/atlas.ktx2",
+      "ice": "ui/battle/atlas.ktx2",
+      "light": "ui/battle/atlas.ktx2",
+      "darkness": "ui/battle/atlas.ktx2",
+      "headings": "ui/battle/atlas.ktx2"
+    },
+    "unison_frame": "ui/battle/atlas.ktx2",
+    "unison_ready": "READY",
+    "unison_text": [
+      [112, 112, 48, 176],
+      [96, 96, 128, 176]
+    ],
+    "escape": {
+      "frame": "ui/battle/atlas.ktx2",
+      "needle": "ui/battle/atlas.ktx2",
+      "fill": "ui/battle/atlas.ktx2"
+    },
+    "escape_positions": {
+      "left": [8, 32],
+      "right": [488, 32]
+    }
+  }
+}

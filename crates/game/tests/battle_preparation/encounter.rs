@@ -18,6 +18,8 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
         resonance_content::diagnostics::Diagnostics::new(true),
     )?;
     let mut menus: MenuData = resonance_content::menu_data::MenuData::load(&retained)?;
+    let mut data: resonance_content::session::SessionData =
+        resonance_content::session::SessionData::load(&retained)?;
     for path in [
         resonance_content::menu_data::MANUAL_PATH,
         resonance_content::menu_data::FIGURINES_PATH,
@@ -34,8 +36,6 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
     menus.presentation.world_map = None;
     assert!(menus.validate().is_err());
     menus.validate_gameplay()?;
-    let mut data: resonance_content::session::SessionData =
-        resonance_content::session::SessionData::load(&retained)?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default()).map_err(anyhow::Error::msg)?;
     party.formation = vec![1, 2, 3];

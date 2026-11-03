@@ -1,5 +1,5 @@
 //! Steam encounter records directly into the current named formation catalogue.
-use crate::{package::Package, pe, source::Source};
+use crate::{monsters, package::Package, pe, source::Source};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_formation::{Actor, Formation, Formations, Resource, Settings, WeightedFormation},
@@ -10,7 +10,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
-use symphonia_constants::MonsterId;
 
 pub(crate) fn read(usual: &[u8]) -> Result<Formations> {
     let package = Package::parse(usual)?;
@@ -103,27 +102,17 @@ pub(crate) fn read(usual: &[u8]) -> Result<Formations> {
     Ok(table)
 }
 
-fn enemy_name(id: u16) -> Result<&'static str> {
-    match id {
-        251 => return Ok("shadow-magnius-0251"),
-        252 => return Ok("shadow-forcystus-0252"),
-        253 => return Ok("shadow-pronyma-0253"),
-        254 => return Ok("yuan-the-hero-0254"),
-        255 => return Ok("kratos-the-hero-0255"),
-        256 => return Ok("mithos-the-hero-0256"),
-        _ => (),
-    }
-    Ok(MonsterId::try_from(u8::try_from(id)?)?
-        .resource_name()
-        .context("formation enemy has no name")?)
-}
-
 fn formation_name(row: &Formation) -> Result<String> {
     let mut groups = Vec::<(String, usize)>::new();
     for actor in &row.actors {
         let resource = &row.resources[usize::from(actor.resource)];
-        let full = enemy_name(resource.enemy)?;
-        let short = full.rsplit_once('-').map_or(full, |(stem, _)| stem);
+        let full = monsters::symbol(resource.enemy);
+        let short = if full.starts_with("model-") {
+            full.as_str()
+        } else {
+            full.rsplit_once('-')
+                .map_or(full.as_str(), |(stem, _)| stem)
+        };
         if let Some((_, count)) = groups.iter_mut().find(|(name, _)| name == short) {
             *count += 1;
         } else {
@@ -178,10 +167,11 @@ fn names(table: &Formations) -> Result<Mappings> {
 /// Convert the complete battle formation and encounter-pool owner from the installation.
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let table = read(&source.require("btlusual.pac")?)?;
+    let image = pe::Image::parse(&source.executable)?;
     let enemies = Mappings::new(
-        (0..=256)
-            .map(|id| Ok((u32::from(id), enemy_name(id)?.to_owned())))
-            .collect::<Result<BTreeMap<_, _>>>()?,
+        (0..monsters::count(&image)?)
+            .map(|id| (id as u32, monsters::symbol(id as u16)))
+            .collect(),
     )?;
     let document = battle_rules::Formations::from_table(&table, &enemies, &names(&table)?)?;
     crate::output::json(
@@ -191,4 +181,57 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let output = library.join("battle/formations.json");
     crate::output::json(&output, &document)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Language;
+    use resonance_content::{battle_enemy::document, diagnostics::Diagnostics, library::Library};
+    use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with all enemy owners; recooks formation mappings"]
+    fn installed_extra_enemies_resolve_through_canonical_mappings() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        cook(&source, &root)?;
+        let library = Library::open(&root, &[])?;
+        let diagnostics = Diagnostics::new(true);
+        let mut snapshot = library.snapshot();
+        for id in 0..=250 {
+            let expected = symphonia_constants::MonsterId::try_from(id as u8)?
+                .resource_name()
+                .context("GC enemy has no readable name")?;
+            let path = snapshot.resolve(document::MAPPINGS, id, Some("enemy.json"))?;
+            ensure!(
+                path == format!("battle/enemies/{expected}/enemy.json"),
+                "existing enemy owner name changed"
+            );
+        }
+        for id in 251..=256 {
+            let path = snapshot.resolve(document::MAPPINGS, id, Some("enemy.json"))?;
+            ensure!(
+                path == format!("battle/enemies/{}/enemy.json", monsters::symbol(id as u16)),
+                "extra enemy mapping differs from its cooked owner"
+            );
+            let captured = document::capture(&mut snapshot, id as u16, &diagnostics, &|| false)
+                .with_context(|| format!("capture extra enemy {id} through real mappings"))?;
+            ensure!(
+                captured.artwork.is_some() && captured.effects.is_some(),
+                "extra enemy lost cooked artwork"
+            );
+        }
+        eprintln!(
+            "All existing enemy names preserved; extra IDs251–256 resolve and capture through real mappings"
+        );
+        Ok(())
+    }
 }

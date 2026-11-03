@@ -3330,6 +3330,10 @@ impl Battle {
         aim: Option<[f32; 3]>,
     ) -> Result<ProjectileId> {
         let position = match definition.motion.origin {
+            crate::ProjectileOrigin::ActorFloor => {
+                let owner = self.actor(owner)?.position;
+                [owner[0], 0., owner[2]]
+            }
             crate::ProjectileOrigin::TargetFloor => {
                 let target = self.actor(target)?.position;
                 [target[0], 0., target[2]]

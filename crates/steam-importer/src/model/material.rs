@@ -14,6 +14,7 @@ pub struct Material {
 }
 #[derive(Clone)]
 pub struct Slot {
+    pub kind: u16,
     pub texture: u16,
 }
 pub struct Texture {
@@ -52,7 +53,10 @@ pub(super) fn read(source: &Reader<'_>, section: usize) -> Result<Materials> {
                 usize::from(texture) < textures.count,
                 "material texture out of bounds"
             );
-            Ok(Slot { texture })
+            Ok(Slot {
+                kind: source.half(at)?,
+                texture,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     let records = (0..records.count)

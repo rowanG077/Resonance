@@ -17,6 +17,7 @@ use std::{
     path::Path,
 };
 
+mod fixed_atlas;
 mod resident;
 pub(crate) use resident::cook as cook_resident;
 
@@ -259,7 +260,7 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
     })
 }
 
-fn decode(
+pub(crate) fn decode(
     bytes: &[u8],
     bones: &[String],
     bind: impl FnMut(u8, &mut Declaration) -> Result<()>,
@@ -267,7 +268,7 @@ fn decode(
     decode_including(bytes, bones, &[], bind)
 }
 
-fn decode_including(
+pub(crate) fn decode_including(
     bytes: &[u8],
     bones: &[String],
     include: &[u8],

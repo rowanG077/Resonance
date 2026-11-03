@@ -87,7 +87,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             let resource = residents
                 .get(&slot)
                 .with_context(|| format!("unbound resident effect atlas {slot}"))?;
-            let texture = effect_atlas::cook(
+            let mut texture = effect_atlas::cook(
                 source,
                 library,
                 &mut definition,
@@ -96,6 +96,16 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                 &owner,
                 slot,
             )?;
+            if member == 2 && slot == 0 {
+                super::fixed_atlas::append(
+                    source,
+                    library,
+                    resource,
+                    atlases.get(resource),
+                    &owner,
+                    &mut texture,
+                )?;
+            }
             textures.insert(slot, vec![texture]);
         }
         let images = textures

@@ -1784,7 +1784,7 @@ fn actions(
     ))
 }
 
-fn enemy_entrance(
+pub fn enemy_entrance(
     selector: u8,
     data: &[u8],
     metadata: &[u8],

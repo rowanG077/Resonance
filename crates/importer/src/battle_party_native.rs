@@ -62,7 +62,7 @@ pub(crate) fn damage_kind(value: u8) -> Result<DamageKind> {
         n => anyhow::bail!("unknown damage kind {n}"),
     })
 }
-pub(crate) fn hit_rule(rules: &[u8], index: u8, kind: DamageKind, recoil: u8) -> Result<ActionHit> {
+pub fn hit_rule(rules: &[u8], index: u8, kind: DamageKind, recoil: u8) -> Result<ActionHit> {
     battle_enemy_rules::hit_rule(rules, index, recoil, kind)
 }
 pub(crate) fn hit(rules: &[u8], row: &[u8]) -> Result<ActionHit> {

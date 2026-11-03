@@ -182,6 +182,15 @@ pub(crate) fn map_hits<H, T>(
             radius,
             hit: map(hit)?,
         },
+        Event::EmitProjectile {
+            definition,
+            hit,
+            feedback,
+        } => Event::EmitProjectile {
+            definition,
+            hit: map(hit)?,
+            feedback,
+        },
         Event::Effect(v) => Event::Effect(v),
         Event::Pose(v) => Event::Pose(v),
         Event::AnimationRate(v) => Event::AnimationRate(v),
@@ -199,6 +208,7 @@ pub(crate) fn map_hits<H, T>(
             max_distance,
         },
         Event::ReactionArmor(v) => Event::ReactionArmor(v),
+        Event::HealOtherAllies { radius, percent } => Event::HealOtherAllies { radius, percent },
         Event::SecondaryWind { enabled, duration } => Event::SecondaryWind { enabled, duration },
         Event::CameraDistance { distance, duration } => {
             Event::CameraDistance { distance, duration }

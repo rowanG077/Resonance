@@ -18,7 +18,7 @@ use std::{
 };
 use symphonia_constants::PartyCharacterId;
 
-fn timeline(bytes: &[u8], duration: f32) -> Result<Vec<(u16, Event)>> {
+pub fn timeline(bytes: &[u8], duration: f32) -> Result<Vec<(u16, Event)>> {
     let mut events = Vec::new();
     let mut cursor = 0;
     let mut completed = None;

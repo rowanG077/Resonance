@@ -11,10 +11,65 @@ pub(crate) fn cook(
     owner: &str,
     label: &str,
 ) -> Result<(ScenePart, Model)> {
+    cook_on_rig(source, library, name, owner, label, None)
+}
+
+/// Synchronized equipment layers keep their own geometry but consume the
+/// primary layer's indexed pose. Native outline labels can differ.
+pub(crate) fn cook_on_rig(
+    source: &Source,
+    library: &Path,
+    name: &str,
+    owner: &str,
+    label: &str,
+    rig: Option<&resonance_content::animation::Skeleton>,
+) -> Result<(ScenePart, Model)> {
     let descriptor = source.require(name)?;
     let dependencies = package::dependencies(&descriptor)?;
     let payload = source.require(dependencies.first().context("model has no payload")?)?;
-    let model = Model::read(&descriptor, &payload)?;
+    let mut model = Model::read(&descriptor, &payload)?;
+    if let Some(rig) = rig {
+        let original = resonance_content::animation::Skeleton::from_glb(
+            &model.glb(&vec![[1.; 4]; model.materials.records.len()])?,
+        )?;
+        ensure!(
+            original.bones.len() == rig.bones.len(),
+            "outline rig node count differs"
+        );
+        for ((node, bone), target) in model
+            .rig
+            .nodes
+            .iter_mut()
+            .zip(&original.bones)
+            .zip(&rig.bones)
+        {
+            // Body and outline exporters round rest transforms independently.
+            // Check indexed topology and pose before adopting the body labels.
+            let close = bone
+                .bind
+                .translation
+                .into_iter()
+                .chain(bone.bind.rotation)
+                .chain(bone.bind.scale)
+                .zip(
+                    target
+                        .bind
+                        .translation
+                        .into_iter()
+                        .chain(target.bind.rotation)
+                        .chain(target.bind.scale),
+                )
+                .all(|(a, b)| (a - b).abs() <= 0.0001 * a.abs().max(b.abs()).max(1.));
+            ensure!(
+                bone.parent == target.parent
+                    && bone.parent_transform == target.parent_transform
+                    && close,
+                "outline rig transform differs at {}",
+                bone.name
+            );
+            node.name = target.name.clone();
+        }
+    }
     let stem = name.rsplit_once('.').context("model has no extension")?.0;
     let (tints, blended, _) =
         material_parameters(&source.require(&format!("{stem}.mxd"))?, &model.materials)?;

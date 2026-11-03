@@ -115,6 +115,8 @@ pub fn scene_record(row: &[u8], reset_scale: f32) -> Result<Projectile> {
         0 => RecoilDirection::Travel,
         1 => RecoilDirection::AwayFromOwner,
         2 => RecoilDirection::AwayFromContact,
+        3 => RecoilDirection::TowardContact,
+        4 => RecoilDirection::None,
         kind => anyhow::bail!("unsupported projectile recoil direction {kind}"),
     };
     Ok(Projectile {

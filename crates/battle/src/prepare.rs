@@ -247,15 +247,45 @@ impl PreparedBattle {
     }
 
     fn validate_actions(&self) -> Result<()> {
-        for action in &self.resources.actions.entries {
-            match &action.execution {
-                ActionExecution::Attack(attack) => attack.validate()?,
-                ActionExecution::Casting(cast) => cast.release.validate()?,
-                ActionExecution::LeaveArena => ensure!(
-                    action.normal.is_none() && action.tp_cost == 0,
-                    "enemy departure cannot be a normal attack or cost TP"
-                ),
-            }
+        for (index, action) in self.resources.actions.entries.iter().enumerate() {
+            let validation = match &action.execution {
+                ActionExecution::Attack(attack) => attack.validate(),
+                ActionExecution::Casting(cast) => cast.release.validate(),
+                ActionExecution::LeaveArena => {
+                    ensure!(
+                        action.normal.is_none() && action.tp_cost == 0,
+                        "enemy departure cannot be a normal attack or cost TP"
+                    );
+                    Ok(())
+                }
+            };
+            validation.with_context(|| {
+                let owners = self
+                    .resources
+                    .actor_setup
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, setup)| setup.action_ids().any(|key| key == ActionKey(index)))
+                    .map(|(actor, setup)| {
+                        let catalogues = setup
+                            .techniques
+                            .iter()
+                            .filter(|technique| technique.action == ActionKey(index))
+                            .map(|technique| technique.catalogue.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        format!(
+                            "actor {actor} {:?} catalogues [{catalogues}]",
+                            self.actors.get(actor).map(|actor| actor.side)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                format!(
+                    "validate prepared action {index}, normal {:?}, owners [{owners}]",
+                    action.normal
+                )
+            })?;
         }
         Ok(())
     }

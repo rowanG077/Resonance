@@ -102,6 +102,14 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                 )
             };
             ensure!(parts.len() == 2, "battle body needs its body and outline");
+            let sizes = parts[0]
+                .textures
+                .iter()
+                .map(|path| {
+                    resonance_asset_writer::texture::dimensions(&fs::read(library.join(path))?)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            parts[0].appearance = Some(model::party_appearance(source, descriptor, &sizes)?);
             let skeleton = Skeleton::from_glb(&fs::read(library.join(&parts[0].mesh))?)?;
             // Identical native rigs may share a motion file across costumes.
             // Different bind poses or channel identities always get their own.

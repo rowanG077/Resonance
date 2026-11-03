@@ -20,13 +20,7 @@ pub(crate) fn party(image: &pe::Image<'_>) -> Result<Vec<Profile>> {
         .enumerate()
         .map(|(index, row)| {
             let voices = battle_voices::actor(&selectors, row)?;
-            let mut profile =
-                decode(row, voices).with_context(|| format!("party profile {}", index + 1))?;
-            // The shared fields name joints in the cooked body. Steam's GLBs
-            // retain these source labels rather than GC's renamed joints.
-            profile.head_anchor.bone = "Bone_atama".into();
-            profile.overlimit_bone = "Bone_sebone01".into();
-            Ok(profile)
+            decode(row, voices).with_context(|| format!("party profile {}", index + 1))
         })
         .collect::<Result<Vec<_>>>()?;
     battle_voices::party_extras(image, &mut profiles)?;

@@ -66,7 +66,10 @@ fn resolve_pose_sequence(
     };
     let mut preceding_contacts = 0;
     for (at, event) in &mut attack.events {
-        *at = if matches!(event, Event::Contact(_) | Event::Projectile { .. }) {
+        *at = if matches!(
+            event,
+            Event::Contact(_) | Event::Projectile { .. } | Event::EmitProjectile { .. }
+        ) {
             let elapsed = gameplay_tick(*at, preceding_contacts, &holds)?;
             if matches!(event, Event::Contact(_)) {
                 preceding_contacts = preceding_contacts
@@ -257,7 +260,26 @@ impl Technique {
                         resources, &row, hit, *feedback, recoil,
                     )?)
                 }
+                Event::EmitProjectile {
+                    definition,
+                    hit,
+                    feedback,
+                } => {
+                    let local = resources.skill_scenes.get(&self.catalogue).cloned();
+                    AttackEvent::Projectile(super::sword::projectile_with_local(
+                        resources,
+                        definition,
+                        hit,
+                        *feedback,
+                        recoil,
+                        local.as_ref(),
+                    )?)
+                }
                 Event::Sound(cue) => AttackEvent::Sound((resources.sound)(Sound::Cue(*cue))?),
+                Event::HealOtherAllies { radius, percent } => AttackEvent::HealOtherAllies {
+                    radius: *radius,
+                    percent: *percent,
+                },
                 Event::Voice(voice) => {
                     let Some(line) = resources.voices.absolute(
                         crate::battle::model::ModelSource::Party(self.character),
@@ -320,7 +342,7 @@ impl Technique {
             ));
         }
         events.sort_by_key(|(at, _)| *at);
-        Ok(PreparedAttack {
+        let mut prepared = PreparedAttack {
             contact_recovery: None,
             opening: None,
             events,
@@ -328,7 +350,14 @@ impl Technique {
             chain_retry_at: None,
             end_at: attack.duration,
             recovery: attack.recovery,
-        })
+        };
+        if matches!(
+            (self.character, self.catalogue),
+            (resonance_battle::Character::Kratos, 249) | (resonance_battle::Character::Zelos, 153)
+        ) {
+            crate::battle::skill_scene::holy_binds(resources, &mut prepared, self.catalogue)?;
+        }
+        Ok(prepared)
     }
 }
 

@@ -97,9 +97,10 @@ pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
     let sequence = match (character, catalogue) {
         _ if is_special_guard(character, catalogue) => SpecialGuard,
         (Lloyd, 1 | 2) | (Zelos | Kratos, 207 | 208) => Authored,
+        (Kratos, 152 | 249) | (Zelos, 153) => Authored,
         (Lloyd, 4) | (Zelos | Kratos, 209) => FierceDemonFang,
         (Lloyd, 3 | 5 | 8 | 9 | 10 | 12 | 13 | 14 | 15 | 16 | 20 | 21 | 22 | 24 | 26 | 27 | 28)
-        | (Colette, 38 | 45 | 46 | 48)
+        | (Colette, 38 | 45 | 46 | 48 | 51)
         | (Zelos | Kratos, 145..=148 | 150 | 210 | 212) => Authored,
         (Lloyd, 6 | 7 | 23 | 25) => TigerBlade,
         (Lloyd, 11) => HurricaneThrust,

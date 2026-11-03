@@ -105,6 +105,19 @@ fn variant(
         if at == -2 {
             break;
         }
+        if source[2] == 254 {
+            ensure!(
+                source[3..8].iter().all(|&value| value == 0),
+                "secondary combination animation rate is not prepared"
+            );
+            events.push((
+                at.try_into()
+                    .context("combination animation rate control is not prepared")?,
+                Event::AnimationRate(number(source, 8)?),
+            ));
+            cursor += 12;
+            continue;
+        }
         if at == -3 {
             ensure!(
                 finish_pose.replace(pose(source)?).is_none(),
@@ -249,7 +262,7 @@ fn variant(
     })
 }
 
-pub(super) fn read(bytes: &[u8]) -> Result<BTreeMap<u8, SceneAction>> {
+pub fn read(bytes: &[u8]) -> Result<BTreeMap<u8, SceneAction>> {
     let offsets = [0, 4, 8, 12]
         .map(|at| dol::u32(bytes, at).map(|value| value as usize))
         .into_iter()

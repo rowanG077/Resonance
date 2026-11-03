@@ -46,12 +46,29 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                     2,
                     &[(0, 2)],
                 )?;
-                let contacts = stream(
+                let mut contacts = stream(
                     pointer(1)?,
                     32,
                     -1,
                     &[(0, 2), (8, 4), (12, 4), (22, 2), (28, 4)],
                 )?;
+                if character == PartyCharacterId::Lloyd && variant == 4 {
+                    // GC's second finisher strike is authored at17; Steam
+                    // stores16, which its serial contact cursor visits after
+                    // retiring the first inclusive10..16 window. Express the
+                    // same two strikes on the shared GC authored clock.
+                    ensure!(
+                        contacts.len() == 66
+                            && contacts[..2] == 10u16.to_be_bytes()
+                            && contacts[32..34] == 16u16.to_be_bytes()
+                            && contacts[2] == 6
+                            && contacts[34] == 6
+                            && contacts[4] == 0
+                            && contacts[36] == 1,
+                        "Lloyd finisher source contact sequence changed"
+                    );
+                    contacts[32..34].copy_from_slice(&17u16.to_be_bytes());
+                }
                 let count = contacts
                     .as_chunks::<32>()
                     .0
@@ -210,4 +227,62 @@ pub(crate) fn voice(bytes: &[u8]) -> Result<(Event, usize)> {
         "invalid voice priority"
     );
     Ok((Event::Voice(sound(word(bytes, 8)?)?), 12))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Language;
+    use std::{fs, path::PathBuf};
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY"]
+    fn installed_normals_keep_both_lloyd_finisher_strikes() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        cook(&source, &library)?;
+        let normals: NormalAttacks = serde_json::from_slice(&fs::read(
+            library.join(resonance_content::battle_rules::NORMAL_ATTACKS),
+        )?)?;
+        let normals = normals.prepare()?;
+        let windows = normals[0][4]
+            .events
+            .iter()
+            .filter_map(|(at, event)| match event {
+                Event::Contact(contact) => Some((*at, contact.duration, &contact.attachments)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        use resonance_content::battle_action::ContactAttachments;
+        assert_eq!(
+            windows,
+            vec![
+                (14, 7, &ContactAttachments::Groups(vec![0])),
+                (21, 7, &ContactAttachments::Groups(vec![1]))
+            ]
+        );
+        // Check the complete small normal category for invalid simultaneous
+        // windows, without changing source hit duration or removing any hit.
+        for attacks in normals {
+            for attack in attacks {
+                let mut end = 0;
+                for (at, event) in attack.events {
+                    if let Event::Contact(contact) = event {
+                        ensure!(at >= end, "normal contact windows still overlap");
+                        end = at
+                            .checked_add(contact.duration)
+                            .context("normal contact duration overflow")?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }

@@ -169,7 +169,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
     let mut prepared = 0;
     let mut unmapped_immunities = 0;
     let mut pending_presentation = Vec::new();
-    let mut pending_carried_art = Vec::new();
+    let mut carried_counts = [0usize; 3];
     let mut unavailable_artes = Vec::new();
     for id in 0..count as u16 {
         if selected.is_some_and(|ids| !ids.contains(&id)) {
@@ -214,7 +214,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
                 })
                 .collect::<Result<_>>()?;
             let (presentation, deferred) =
-                presentation::read(section(&bytes, 12)?[8], metadata, durations, &mut profile)?;
+                presentation::read_package(&bytes, durations, &mut profile)?;
             let rules = Rules {
                 profile,
                 null_motions,
@@ -238,14 +238,25 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
                 presentation,
             };
             rules.clone().into_definition()?;
-            let artwork = artwork(&bytes, &name, preview, &nodes)?;
+            let mut artwork = artwork(&bytes, &name, preview, &nodes)?;
+            super::carried::bind(source, library, &bytes, &name, &mut artwork)?;
+            carried_counts[0] += artwork.trails.len()
+                + artwork
+                    .weapon_variants
+                    .values()
+                    .filter(|variant| variant.trail.is_some())
+                    .count();
+            carried_counts[1] += artwork.uv_animation.len()
+                + artwork
+                    .weapon_variants
+                    .values()
+                    .filter(|variant| variant.animation.is_some())
+                    .count();
+            carried_counts[2] += artwork.weapon_variants.len();
             // These existing source controllers still need media/choreography
             // owners. Keep the omissions visible while the importer is a WIP.
             if deferred {
                 pending_presentation.push(id);
-            }
-            if metadata[0x1f0] != 0 {
-                pending_carried_art.push(id);
             }
             let entry = Entry {
                 rules,
@@ -268,7 +279,10 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
         "  Enemy owners: {prepared}; unmapped source immunity 0x40 on {unmapped_immunities} profiles"
     );
     eprintln!("  Pending enemy entrance choreography: {pending_presentation:?}");
-    eprintln!("  Pending carried trails, UV animation and variants: {pending_carried_art:?}");
+    eprintln!(
+        "  Enemy carried artwork: {} trails, {} UV/effect controllers, {} alternate weapons",
+        carried_counts[0], carried_counts[1], carried_counts[2]
+    );
     eprintln!("  Unavailable enemy artes: {unavailable_artes:?}");
     ensure!(
         failures.is_empty(),

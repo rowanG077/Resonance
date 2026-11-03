@@ -290,7 +290,7 @@ fn clip(path: String, slot: u16) -> SceneClip {
     }
 }
 
-pub(crate) fn convert(library: &Path, id: u32, name: &str, package: &[u8]) -> Result<()> {
+pub fn convert(library: &Path, id: u32, name: &str, package: &[u8]) -> Result<()> {
     convert_with_owner(library, id, name, package, None)
 }
 

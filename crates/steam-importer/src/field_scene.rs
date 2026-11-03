@@ -63,7 +63,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u32>) -> Re
             let stage = DrawStage::scenery(section as u16).context("unknown field layer")?;
             for material in &mut part.materials {
                 material.draw_order += stage.offset();
-                material.depth_write &= section != 2;
+                material.depth_write = section != 2;
             }
             parts.push(part);
         }
@@ -145,6 +145,55 @@ pub(crate) fn camera(bytes: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires installed Steam; optionally publishes only field340 to RESONANCE_CLASSROOM_OUTPUT"]
+    fn installed_classroom_nodes_keep_script_visibility_targets() -> Result<()> {
+        let installation =
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?;
+        let source = Source::open(Path::new(&installation), crate::Language::English)?;
+        let temporary = tempfile::tempdir()?;
+        crate::field_directory::cook(&source, temporary.path())?;
+        cook(&source, temporary.path(), Some(340))?;
+        let scene: Scene = serde_json::from_slice(&fs::read(
+            temporary.path().join("fields/iselia-0340/scene.json"),
+        )?)?;
+        let mut room = scene
+            .parts
+            .into_iter()
+            .find(|part| part.resource == 0)
+            .context("classroom has no room geometry")?;
+        room.prepare_bones(&fs::read(temporary.path().join(&room.mesh))?)?;
+        // The source scenario toggles these exact labels. Stable indexed nodes
+        // must retain their geometry bindings through the shared GC contract.
+        for (name, node, mesh) in [
+            ("hide01", 7, 7),
+            ("hide02", 4, 4),
+            ("hide03", 5, 5),
+            ("hide04_a", 6, 6),
+            ("world2", 10, 10),
+        ] {
+            ensure!(
+                room.bone_names
+                    .iter()
+                    .position(|candidate| candidate == name)
+                    == Some(node),
+                "script target {name} is missing or changed its node identity"
+            );
+            ensure!(
+                room.material_nodes[mesh].contains(&(node as u16)),
+                "script target {name} no longer controls its source geometry"
+            );
+        }
+        ensure!(
+            room.materials.iter().all(|material| material.depth_write),
+            "classroom windows lost the GC scenery depth-write rule"
+        );
+        if let Some(output) = std::env::var_os("RESONANCE_CLASSROOM_OUTPUT") {
+            cook(&source, Path::new(&output), Some(340))?;
+        }
+        Ok(())
+    }
+
     #[test]
     fn little_endian_camera_loads_with_shared_camera_reader() -> Result<()> {
         let mut bytes = b"CAMM".to_vec();

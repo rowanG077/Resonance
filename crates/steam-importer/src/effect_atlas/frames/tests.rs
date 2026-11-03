@@ -21,6 +21,33 @@ fn bank(rect: Rect) -> Result<Definition> {
 }
 
 #[test]
+fn packed_cells_at_another_resolution_restore_gc_texel_centers() -> Result<()> {
+    let bank = bank([1, 1, 2, 2])?;
+    let plan = Plan::read(&bank, 0)?;
+    let source = Pixels {
+        width: 6,
+        height: 6,
+        rgba: (0..6u8)
+            .flat_map(|y| (0..6u8).flat_map(move |x| [x * 40, y * 40, 80, x * 20 + y * 5]))
+            .collect(),
+    };
+    let table = Table {
+        rows: vec![Remap {
+            palette: 7,
+            source: [1., 1., 3., 3.],
+            packed: [0., 0., 4., 4.],
+        }],
+    };
+    let image = plan.image(&source, Some(&table), 7)?;
+    let target = plan.rectangle([1, 1, 2, 2])?;
+    let pixel = |x, y| &image.rgba[((y as usize * image.width as usize + x as usize) * 4)..][..4];
+    assert_eq!(pixel(target[0], target[1]), [20, 20, 80, 13]);
+    assert_eq!(pixel(target[0] + 1, target[1] + 1), [100, 100, 80, 63]);
+    assert_eq!(&target[2..], &[2, 2]);
+    Ok(())
+}
+
+#[test]
 fn inherited_uv_sums_keep_each_draw_and_sample_the_repacked_frames() -> Result<()> {
     use resonance_content::battle_effect::BirthSum;
     let mut bank = bank([1, 1, 6, 6])?;

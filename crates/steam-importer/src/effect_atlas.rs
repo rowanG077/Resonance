@@ -80,7 +80,9 @@ pub(crate) fn cook(
             wrap: [resonance_content::TextureWrap::Clamp; 2],
             ..Default::default()
         },
-        palette_sets: Vec::new(),
+        // Non-particle artwork (weapon trails and wing sparkles) uses set zero
+        // in the shared renderer. Each repacked particle selects another set.
+        palette_sets: vec![vec![None; 256]],
     };
     let mut hashes = BTreeMap::<[u8; 32], usize>::new();
     for member in 0..bank.templates.len() {

@@ -1659,6 +1659,12 @@ fn installed_scenery_and_skinned_body_use_shared_assets() -> Result<()> {
     )?;
     assert!(!scene.parts.is_empty());
     for mut part in scene.parts {
+        assert!(
+            part.materials
+                .iter()
+                .all(|material| material.depth_write == (part.resource != 2)),
+            "scenery must use GC stage depth writes, including translucent classroom windows"
+        );
         let bytes = fs::read(output.path().join(&part.mesh))?;
         part.prepare_bones(&bytes)?;
         assert!(!part.bone_names.is_empty());

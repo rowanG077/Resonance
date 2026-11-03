@@ -6,7 +6,11 @@ use resonance_content::{
     battle_voice::TimedVoice,
 };
 
+#[path = "entrances.rs"]
+mod entrances;
+
 pub(super) fn verify(image: &pe::Image<'_>) -> Result<()> {
+    entrances::verify(image)?;
     for (address, bytes) in [
         (0x401035, &[0x8b, 0x80, 0xf8, 0, 0, 0][..]),
         (0x401042, &[0x8b, 0x91, 0x10, 1, 0, 0]),
@@ -81,11 +85,38 @@ pub(super) fn read(
             ticks: ticks(durations, id)?,
         }))
     } else {
-        None
+        let fallback = if selector == 22 {
+            let id = pe::word(metadata, 0xfc)?;
+            serde_json::to_value(TimedVoice {
+                sound: battle_voices::sound(id)?,
+                ticks: ticks(durations, id)?,
+            })?
+        } else {
+            serde_json::Value::Null
+        };
+        entrances::read(selector, profile, fallback)?
     };
-    // Entrance choreography is still a separate source owner. The voice and
-    // final-defeat clocks above remain valid without inventing that camera path.
-    Ok((Some(Presentation { opening, defeat }), !voiced_opening))
+    let deferred = !voiced_opening && opening.is_none();
+    Ok((Some(Presentation { opening, defeat }), deferred))
+}
+
+/// Package-relative launch commands join the ordinary shared presentation data.
+pub(super) fn read_package(
+    package: &[u8],
+    durations: &[u8],
+    profile: &mut Profile,
+) -> Result<(Option<Presentation>, bool)> {
+    let selector = super::section(package, 12)?[8];
+    let metadata = crate::monsters::metadata(package)?;
+    let (mut presentation, deferred) = read(selector, metadata, durations, profile)?;
+    if selector == 12 {
+        presentation
+            .as_mut()
+            .context("missing Efreet presentation")?
+            .opening = Some(entrances::falling(package, metadata, profile)?);
+        return Ok((presentation, false));
+    }
+    Ok((presentation, deferred))
 }
 
 #[cfg(test)]

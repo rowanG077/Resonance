@@ -11,6 +11,13 @@ pub struct Bank<'a> {
 }
 
 impl<'a> Bank<'a> {
+    /// Plain native text without menu-control interpretation (for staff rolls).
+    pub(crate) fn plain(&self, index: u32, encoding: &'static encoding_rs::Encoding) -> Result<String> {
+        let range = self.strings.get(index as usize).context("plain text ID exceeds bank")?;
+        let (text, invalid) = encoding.decode_without_bom_handling(&self.bytes[range.clone()]);
+        ensure!(!invalid, "invalid plain text encoding");
+        Ok(text.into_owned())
+    }
     /// Literal field-service text uses dialogue controls rather than menu controls.
     pub(super) fn system(&self, index: u32) -> Result<Vec<resonance_content::font::TextSpan>> {
         use resonance_content::font::TextSpan;

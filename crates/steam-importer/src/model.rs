@@ -1,16 +1,18 @@
 //! Decode Steam model geometry directly into the common GLB/scene representation.
 use crate::{package, pe};
 use anyhow::{Context, Result, ensure};
+mod appearance;
 mod bindings;
 mod glb;
 mod material;
 mod mesh;
 mod skeleton;
 mod write;
+pub(crate) use appearance::party_appearance;
 pub(super) use material::Materials;
 pub(super) use mesh::Mesh;
 pub(super) use skeleton::Node;
-pub(crate) use write::{cook, material_parameters};
+pub(crate) use write::{cook, cook_on_rig, material_parameters};
 
 pub struct Rig {
     pub nodes: Vec<Node>,
@@ -25,22 +27,11 @@ pub struct Model {
 
 impl Rig {
     pub fn joint_names(&self) -> Vec<String> {
-        // Normalize gameplay anchor spelling before writing either the body
-        // or its animation tracks.
-        static NAMES: std::sync::LazyLock<std::collections::BTreeMap<String, String>> =
-            std::sync::LazyLock::new(|| {
-                serde_json::from_str(include_str!("model/joint-names.json")).unwrap()
-            });
         joint_names(
             &self
                 .nodes
                 .iter()
-                .map(|n| {
-                    NAMES
-                        .get(&n.name.to_ascii_uppercase())
-                        .unwrap_or(&n.name)
-                        .clone()
-                })
+                .map(|n| canonical_joint_name(&n.name))
                 .collect::<Vec<_>>(),
         )
     }
@@ -53,6 +44,79 @@ impl Rig {
             nodes: skeleton::read(&source, sections[0], &pose)?,
             animation_bindings: pose.channels,
         })
+    }
+}
+
+/// Reuse the GC semantic dictionary. Only source spelling is case folded, and
+/// conflicting meanings in a folded group never select an arbitrary target.
+fn canonical_joint_name(name: &str) -> String {
+    use std::{collections::BTreeMap, sync::LazyLock};
+    static ALIASES: LazyLock<BTreeMap<String, String>> =
+        LazyLock::new(|| serde_json::from_str(include_str!("model/joint-names.json")).unwrap());
+    static NAMES: LazyLock<BTreeMap<String, String>> = LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../importer/src/model-joints.json")).unwrap()
+    });
+    static FOLDED: LazyLock<BTreeMap<String, Option<String>>> =
+        LazyLock::new(|| casefold_names(&NAMES));
+    let name = ALIASES
+        .get(&name.to_ascii_uppercase())
+        .map_or(name, String::as_str);
+    NAMES
+        .get(name)
+        .or_else(|| {
+            FOLDED
+                .get(&name.to_ascii_uppercase())
+                .and_then(Option::as_ref)
+        })
+        .cloned()
+        .unwrap_or_else(|| name.to_owned())
+}
+
+fn casefold_names(
+    names: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, Option<String>> {
+    let mut folded = std::collections::BTreeMap::new();
+    for (name, target) in names {
+        let entry = folded
+            .entry(name.to_ascii_uppercase())
+            .or_insert_with(|| Some(target.clone()));
+        if entry.as_ref().is_some_and(|previous| previous != target) {
+            *entry = None;
+        }
+    }
+    folded
+}
+
+#[cfg(test)]
+mod joint_tests {
+    use super::*;
+
+    #[test]
+    fn steam_source_spellings_use_gc_semantic_joints_without_renaming_unknowns() {
+        for (source, target) in [
+            ("BONE_ATAMA", "head"),
+            ("BONE_SEBONE01", "spine-01"),
+            ("BONE_KATA_R", "shoulder-right"),
+            ("Bone_ude01_R", "arm-01-right"),
+            ("HIDE04_A", "hide04_a"),
+            ("WORLD2", "world2"),
+            ("KK00", "kk00"),
+            ("UntouchedNativeThing", "UntouchedNativeThing"),
+        ] {
+            assert_eq!(canonical_joint_name(source), target);
+        }
+        let names = ["BONE_ATAMA", "head", "head-2"].map(canonical_joint_name);
+        assert_eq!(joint_names(&names), ["head", "head-3", "head-2"]);
+    }
+
+    #[test]
+    fn ambiguous_casefolds_have_no_implicit_target() {
+        let names = [
+            ("Bone".into(), "first".into()),
+            ("BONE".into(), "second".into()),
+        ]
+        .into();
+        assert_eq!(casefold_names(&names)["BONE"], None);
     }
 }
 

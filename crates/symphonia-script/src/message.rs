@@ -4,6 +4,7 @@ mod document;
 mod expression;
 use encoding_rs::{SHIFT_JIS, WINDOWS_1252};
 pub use expression::Expression;
+use std::borrow::Cow;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -32,9 +33,10 @@ pub struct Message {
     pub tokens: Vec<Token>,
 }
 
-/// Original source text encoding. Cooked message documents are always Unicode.
+/// Import-time text encodings. Cooked auxiliary text and message documents use UTF-8.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextEncoding {
+    Utf8,
     ShiftJis,
     Windows1252,
     /// English Steam skits retain Shift-JIS punctuation alongside isolated
@@ -44,7 +46,8 @@ pub enum TextEncoding {
 
 impl TextEncoding {
     pub fn is_lead_byte(self, byte: u8) -> bool {
-        self != Self::Windows1252 && matches!(byte, 0x81..=0x9f | 0xe0..=0xfc)
+        matches!(self, Self::ShiftJis | Self::ShiftJisWithWesternFallback)
+            && matches!(byte, 0x81..=0x9f | 0xe0..=0xfc)
     }
 
     pub fn takes_trailing_byte(self, byte: u8, next: Option<u8>) -> bool {
@@ -56,12 +59,44 @@ impl TextEncoding {
                         .is_some()
                 }))
     }
+
+    /// Decode a source text span while leaving unsupported glyph bytes explicit.
+    pub fn decode(self, bytes: &[u8]) -> Option<Cow<'_, str>> {
+        match self {
+            Self::Utf8 => std::str::from_utf8(bytes).ok().map(Cow::Borrowed),
+            Self::ShiftJis => SHIFT_JIS.decode_without_bom_handling_and_without_replacement(bytes),
+            Self::Windows1252 => {
+                WINDOWS_1252.decode_without_bom_handling_and_without_replacement(bytes)
+            }
+            Self::ShiftJisWithWesternFallback => {
+                let mut text = String::new();
+                let mut at = 0;
+                while at < bytes.len() {
+                    let width = if self.takes_trailing_byte(bytes[at], bytes.get(at + 1).copied()) {
+                        2
+                    } else {
+                        1
+                    };
+                    let part = &bytes[at..at + width];
+                    if let Some(value) =
+                        SHIFT_JIS.decode_without_bom_handling_and_without_replacement(part)
+                    {
+                        text.push_str(&value);
+                    } else {
+                        text.push_str(&WINDOWS_1252.decode_without_bom_handling(part).0);
+                    }
+                    at += width;
+                }
+                Some(Cow::Owned(text))
+            }
+        }
+    }
 }
 
-/// Offsets are relative to the auxiliary region, with 16- or 32-bit entries.
-/// Validate the complete candidate table; its first offset also gives its size.
+/// Cooked auxiliary text uses UTF-8; original encodings are selected explicitly
+/// by importers. Offsets remain relative to a 16- or 32-bit auxiliary table.
 pub fn parse(region: &[u8]) -> Result<Vec<Message>, MessageError> {
-    parse_with_encoding(region, TextEncoding::ShiftJis)
+    parse_with_encoding(region, TextEncoding::Utf8)
 }
 
 pub fn parse_with_encoding(
@@ -73,10 +108,7 @@ pub fn parse_with_encoding(
     if region.is_empty() || region == [0, 0] || region.starts_with(&[0, 0, 0, 0]) {
         return Ok(Vec::new());
     }
-    let offsets = [4, 2]
-        .into_iter()
-        .find_map(|width| offsets(region, width))
-        .ok_or(MessageError::Table)?;
+    let (_, offsets) = auxiliary_offsets(region).ok_or(MessageError::Table)?;
     offsets
         .iter()
         .enumerate()
@@ -89,6 +121,14 @@ pub fn parse_with_encoding(
             parse_body(&region[start..end], index, encoding)
         })
         .collect()
+}
+
+/// Validated width and entries for an auxiliary string/message offset table.
+/// The first offset gives the table size. Entries are nondecreasing; duplicates are aliases.
+pub fn auxiliary_offsets(region: &[u8]) -> Option<(usize, Vec<usize>)> {
+    [4, 2]
+        .into_iter()
+        .find_map(|width| offsets(region, width).map(|values| (width, values)))
 }
 
 fn offsets(region: &[u8], width: usize) -> Option<Vec<usize>> {
@@ -120,40 +160,12 @@ fn flush(bytes: &mut Vec<u8>, tokens: &mut Vec<Token>, encoding: TextEncoding) {
     if bytes.is_empty() {
         return;
     }
-    if encoding == TextEncoding::ShiftJisWithWesternFallback {
-        let mut text = String::new();
-        let mut at = 0;
-        while at < bytes.len() {
-            let width = if encoding.takes_trailing_byte(bytes[at], bytes.get(at + 1).copied()) {
-                2
-            } else {
-                1
-            };
-            let part = &bytes[at..at + width];
-            if let Some(value) = SHIFT_JIS.decode_without_bom_handling_and_without_replacement(part)
-            {
-                text.push_str(&value);
-            } else {
-                text.push_str(&WINDOWS_1252.decode_without_bom_handling(part).0);
-            }
-            at += width;
-        }
-        tokens.push(Token::Text { text });
-        bytes.clear();
-        return;
-    }
-    let encoding = match encoding {
-        TextEncoding::ShiftJis => SHIFT_JIS,
-        TextEncoding::Windows1252 => WINDOWS_1252,
-        TextEncoding::ShiftJisWithWesternFallback => unreachable!(),
-    };
-    let (text, _, errors) = encoding.decode(bytes);
-    if errors {
-        tokens.extend(bytes.iter().copied().map(|value| Token::Raw { value }));
-    } else {
+    if let Some(text) = encoding.decode(bytes) {
         tokens.push(Token::Text {
             text: text.into_owned(),
         });
+    } else {
+        tokens.extend(bytes.iter().copied().map(|value| Token::Raw { value }));
     }
     bytes.clear();
 }
@@ -214,11 +226,24 @@ mod tests {
                 text: "café".into()
             }]
         );
-        assert!(parse(western).is_err());
+        assert!(parse_with_encoding(western, TextEncoding::ShiftJis).is_err());
         let japanese = b"\0\0\0\x04\x82\xa0\0";
         assert_eq!(
-            parse(japanese).unwrap()[0].tokens,
+            parse_with_encoding(japanese, TextEncoding::ShiftJis).unwrap()[0].tokens,
             [Token::Text { text: "あ".into() }]
+        );
+    }
+
+    #[test]
+    fn cooked_auxiliary_text_uses_utf8_without_an_encoding_selector() {
+        let mut bytes = vec![0, 0, 0, 4];
+        bytes.extend("羽 café".as_bytes());
+        bytes.push(0);
+        assert_eq!(
+            parse(&bytes).unwrap()[0].tokens,
+            [Token::Text {
+                text: "羽 café".into()
+            }]
         );
     }
 

@@ -26,7 +26,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     eprintln!(
         "messages: {:#?}",
-        message::parse(&bytes[analysis.header.auxiliary_offset()..])
+        message::parse_with_encoding(
+            &bytes[analysis.header.auxiliary_offset()..],
+            if path.ends_with(".skp") || path.ends_with(".so") {
+                message::TextEncoding::ShiftJis
+            } else {
+                message::TextEncoding::Utf8
+            }
+        )
     );
     print!("{listing}");
     Ok(())

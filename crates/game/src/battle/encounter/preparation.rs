@@ -963,7 +963,7 @@ impl Assets {
         };
         let common_id = handles.resource();
         let techniques_id = handles.resource();
-        for cue in [1, 2, 3, 4, 6, 7, 38] {
+        for cue in [1, 2, 3, 4, 6, 38] {
             let _ = sound(battle::voice::Sound::Cue(cue))?;
         }
         let mut models = Vec::new();

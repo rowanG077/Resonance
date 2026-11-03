@@ -306,7 +306,7 @@ pub(crate) fn cook(
     Ok(())
 }
 
-fn declarations(bytes: &[u8]) -> Result<(BTreeSet<u32>, bool)> {
+pub(crate) fn declarations(bytes: &[u8]) -> Result<(BTreeSet<u32>, bool)> {
     let program = Program::decode(bytes)?;
     let analysis = scenario::analyze(bytes)?;
     let call = NativeCall::ResolveScriptResource;

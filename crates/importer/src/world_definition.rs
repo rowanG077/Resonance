@@ -31,10 +31,11 @@ pub fn cook_world_definition(root: &Path, library: &Path) -> Result<()> {
     let script = fs::read(root.join("disc1/files/field_sil.so"))?;
     let program = Program::decode(&script)?;
     let analysis = scenario::analyze(&script)?;
-    let messages = message::parse(
+    let messages = message::parse_with_encoding(
         script
             .get(scenario::parse_header(&script)?.auxiliary_offset()..)
             .context("world message table exceeds script")?,
+        message::TextEncoding::ShiftJis,
     )?;
     let rel = Rel::read(fs::read(root.join("disc1/files/US_r_Top2field.rel"))?)?;
     let scenes = world_cinematic_rules::read(&rel)?;

@@ -8,6 +8,7 @@ use resonance_content::{
     battle_scene::SceneAction,
 };
 use std::{collections::BTreeMap, path::Path};
+mod falcon;
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let catalogue = read(source)?;
@@ -106,7 +107,7 @@ pub(crate) fn read(source: &Source) -> Result<Catalogue> {
                 }
                 let prepared = (|| -> Result<Attack> {
                     ensure!(
-                        !matches!(id, 51 | 146..=148 | 150..=152),
+                        !matches!(id, 146..=147 | 152),
                         "native action callback is not yet converted"
                     );
                     if matches!(id, 132 | 134 | 135 | 149) {
@@ -118,9 +119,17 @@ pub(crate) fn read(source: &Source) -> Result<Catalogue> {
                             "added action handlers changed"
                         );
                     }
-                    let bytes = canonical(bytes, id, variant)?;
-                    let mut attack =
-                        resonance_importer::decode_martial_attack(id, variant, &bytes, &input)?;
+                    let normalized = canonical(bytes, id, variant)?;
+                    let mut attack = resonance_importer::decode_martial_attack(
+                        id,
+                        variant,
+                        &normalized,
+                        &input,
+                    )?;
+                    if id == 140 {
+                        falcon::normalize(&mut attack)?;
+                    }
+                    crate::battle_callbacks::attach(source, &image, id, bytes, &mut attack)?;
                     sounds(&mut attack)?;
                     Ok(attack)
                 })();
@@ -199,7 +208,7 @@ fn records(bytes: &mut [u8], width: usize, fields: &[(usize, usize)]) {
     }
 }
 
-fn canonical(bytes: &[u8], id: u16, variant: usize) -> Result<Vec<u8>> {
+pub(crate) fn canonical(bytes: &[u8], id: u16, variant: usize) -> Result<Vec<u8>> {
     let sections = [0, 4, 8, 12].map(|at| pe::word(bytes, at).map(|v| v as usize));
     let [rules, contacts, poses, commands] = sections;
     let [rules, contacts, poses, commands] = [rules?, contacts?, poses?, commands?];
@@ -275,6 +284,12 @@ fn track_sounds(events: &mut [(u16, Event)]) -> Result<()> {
             Event::Sound(sound) => *sound = audio_effects::id(*sound)?,
             Event::Contact(contact) => hit_sound(&mut contact.hit)?,
             Event::Throw { hit, .. } => hit_sound(hit)?,
+            Event::EmitProjectile { hit, feedback, .. } => {
+                hit_sound(hit)?;
+                if let Some(feedback) = feedback {
+                    feedback.sound = audio_effects::id(feedback.sound)?;
+                }
+            }
             Event::Projectile { hit, feedback, .. } => {
                 if let Some(hit) = hit {
                     hit_sound(hit)?;
@@ -289,7 +304,7 @@ fn track_sounds(events: &mut [(u16, Event)]) -> Result<()> {
     Ok(())
 }
 
-fn sounds(attack: &mut Attack) -> Result<()> {
+pub(crate) fn sounds(attack: &mut Attack) -> Result<()> {
     track_sounds(&mut attack.events)?;
     for hit in attack.callback_hits.values_mut() {
         hit_sound(hit)?;

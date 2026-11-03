@@ -468,6 +468,15 @@ per resume and 32,768 per update. Instances share script memory, while coordinat
 registers and VM stacks remain local to each instance. Resource/event handles are
 Rust IDs. Scene readiness gates script execution while dependencies are prepared.
 
+Scenario text is normalized during import: both source releases produce UTF-8
+auxiliary strings with 32-bit offsets, and message documents store Unicode text.
+Importers rebuild auxiliary tables while preserving string indices, aliases,
+control-expression bytes and executable PCs. The runtime reads UTF-8 identifiers;
+source Shift-JIS and Windows-1252 handling stays at the import boundary.
+
+Cooked library layout 104 requires a recook of older libraries for this text
+normalization. Runtime decoding has no legacy encoding fallback.
+
 ## Editing original scenarios
 
 The `scenario` authoring commands expose the existing lossless assembler and

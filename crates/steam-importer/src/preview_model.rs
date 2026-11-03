@@ -16,7 +16,19 @@ pub(crate) fn part(
     label: &str,
     motions: &[(u16, String)],
 ) -> Result<(ScenePart, model::Model)> {
-    let (mut scene, native) = model::cook(source, library, descriptor, owner, label)?;
+    part_on_rig(source, library, descriptor, owner, label, motions, None)
+}
+
+pub(crate) fn part_on_rig(
+    source: &Source,
+    library: &Path,
+    descriptor: &str,
+    owner: &str,
+    label: &str,
+    motions: &[(u16, String)],
+    rig: Option<&Skeleton>,
+) -> Result<(ScenePart, model::Model)> {
+    let (mut scene, native) = model::cook_on_rig(source, library, descriptor, owner, label, rig)?;
     let bytes = fs::read(library.join(&scene.mesh))?;
     let skeleton = Skeleton::from_glb(&bytes)?;
     for (slot, name) in motions {

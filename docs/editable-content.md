@@ -15,7 +15,7 @@ readers in the target design. Tests use the same named layout as the application
 
 ## Granular asset owners
 
-Layout 107 publishes independently editable source files. The engine resolves
+Layout 108 publishes independently editable source files. The engine resolves
 all source owners, mod priorities and ordered registrations when it opens the
 library at startup. It caches immutable document bytes shared by preparations;
 playback does not scan source directories, merge JSON or follow mod layers.
@@ -107,11 +107,11 @@ The JSON owns the coordinate dimensions. Texture bindings are prepared up front.
 
 ## Finding a resource
 
-A library starts with `content.json`: `{"version":107,"game":"tales-of-symphonia"}`.
+A library starts with `content.json`: `{"version":108,"game":"tales-of-symphonia"}`.
 It identifies the cooked format and semantic game, with no source platform,
-product code, revision, file inventory or checksums. A future Steam importer
-targets the same layout and resource contracts; actual gameplay determines save
-compatibility.
+product code, revision, file inventory or checksums. The GameCube and Steam
+importers target the same layout and resource contracts; actual gameplay
+determines save compatibility.
 
 ```text
 content.json

@@ -167,6 +167,10 @@ pub enum AttackEvent {
         kind: crate::RecoveryKind,
         percent: u8,
     },
+    HealOtherAllies {
+        radius: f32,
+        percent: u8,
+    },
     Notice {
         duration: u16,
     },
@@ -607,6 +611,10 @@ impl PreparedAttack {
                     "invalid carried animation rate"
                 ),
                 AttackEvent::UseItem(item) => ensure!(*item != 0, "empty enemy item identity"),
+                AttackEvent::HealOtherAllies { radius, percent } => ensure!(
+                    radius.is_finite() && *radius > 0. && (1..=100).contains(percent),
+                    "invalid nearby ally recovery"
+                ),
                 AttackEvent::VoiceChoice { choice, .. } => choice.validate()?,
                 AttackEvent::Voice { .. }
                 | AttackEvent::FaceTarget
@@ -1170,6 +1178,29 @@ pub(crate) fn step(
                     crate::ContactSource::Melee { actor, action: id },
                     cues,
                 )?;
+            }
+            AttackEvent::HealOtherAllies { radius, percent } => {
+                let owner = &battle.actors[index];
+                let (side, position) = (owner.side, owner.position);
+                for recipient in 0..battle.actors.len() {
+                    let ally = &battle.actors[recipient];
+                    let distance =
+                        (ally.position[0] - position[0]).hypot(ally.position[2] - position[2]);
+                    if recipient != index
+                        && ally.side == side
+                        && ally.hp > 0
+                        && ally.available()
+                        && distance <= *radius
+                    {
+                        battle.recover_vitals(
+                            crate::ActorId::from_index(recipient)?,
+                            i16::from(*percent),
+                            false,
+                            true,
+                            cues,
+                        )?;
+                    }
+                }
             }
             AttackEvent::Drain { kind, percent } => {
                 battle.drain_contact(actor, sequence.struck_damage, *kind, *percent, cues)?;
@@ -2247,6 +2278,74 @@ mod tests {
                 "{normal:?}, links {links}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn nearby_ally_recovery_uses_recipient_traits_and_excludes_ineligible_actors() -> Result<()> {
+        let mut action = crate::tests::action(3);
+        crate::tests::attack_mut(&mut action).events = vec![(
+            1,
+            AttackEvent::HealOtherAllies {
+                radius: 220.,
+                percent: 5,
+            },
+        )];
+        let mut actors = (0..5)
+            .map(|_| crate::tests::actor(Side::Party))
+            .collect::<Vec<_>>();
+        // The boundary is inclusive and range ignores airborne world Y.
+        actors[1].position = [220., 800., 0.];
+        actors[1].equipment.max_hp = 200;
+        actors[1].equipment.recovery.boost = true;
+        actors[1].equipment.recovery.lucky = true;
+        actors[1].equipment.luck = u16::MAX;
+        actors[2].position = [220.01, 0., 0.];
+        actors[3].side = Side::Enemy;
+        actors[4].hp = 0;
+        actors[4].availability = crate::ActorAvailability::Dead;
+        let mut battle = crate::PreparedBattle::new(
+            actors
+                .into_iter()
+                .map(|actor| (actor, ActorSetup::default()))
+                .collect(),
+            vec![action].into(),
+            1,
+        )?
+        .finish()?;
+        battle.start_admitted_action(
+            crate::ActionRequest {
+                actor: ActorId(0),
+                action: crate::ActionKey(0),
+                target: ActorId(3),
+            },
+            &mut Vec::new(),
+        )?;
+        battle.step(BattleInput::default())?;
+        let frame = battle.step(BattleInput::default())?;
+        assert_eq!(
+            battle
+                .actors
+                .iter()
+                .map(|actor| actor.hp)
+                .collect::<Vec<_>>(),
+            [50, 62, 50, 50, 0]
+        );
+        let recovered = frame
+            .cues
+            .iter()
+            .filter_map(|cue| match cue {
+                Cue::Recovered {
+                    actor,
+                    nominal,
+                    applied,
+                    floating: true,
+                    ..
+                } => Some((*actor, *nominal, *applied)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(recovered, [(ActorId(1), 12, 12)]);
         Ok(())
     }
 

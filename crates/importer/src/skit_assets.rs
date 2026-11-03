@@ -248,7 +248,12 @@ fn parse_script(source: &[u8], path: &Path) -> Result<(Vec<u8>, Vec<message::Mes
         "invalid skit script header"
     );
     Program::decode(&bytes)?;
-    let messages = message::parse(&bytes[header.auxiliary_offset()..])?;
+    let messages = message::parse_with_encoding(
+        &bytes[header.auxiliary_offset()..],
+        message::TextEncoding::ShiftJis,
+    )?;
+    let bytes =
+        crate::script_text::normalize_scenario_text(&bytes, message::TextEncoding::ShiftJis)?;
     Ok((bytes, messages))
 }
 

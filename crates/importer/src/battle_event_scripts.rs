@@ -12,9 +12,14 @@ fn program(library: &Path, name: &str, bytes: &[u8]) -> Result<()> {
         "invalid battle message offset"
     );
     Program::decode(bytes)?;
-    let messages = message::parse(&bytes[header.auxiliary_offset()..])?;
+    let messages = message::parse_with_encoding(
+        &bytes[header.auxiliary_offset()..],
+        message::TextEncoding::ShiftJis,
+    )?;
     let path = library.join(format!("battle/scripts/{name}.ssb"));
-    crate::output::write(&path, bytes)?;
+    let cooked =
+        crate::script_text::normalize_scenario_text(bytes, message::TextEncoding::ShiftJis)?;
+    crate::output::write(&path, &cooked)?;
     let path = library.join(format!("battle/scripts/{name}-messages.json"));
     if !messages.is_empty() {
         crate::output::json(&path, &messages)?;

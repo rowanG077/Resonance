@@ -74,7 +74,8 @@ fn material(bytes: &[u8]) -> Result<TrailMaterial> {
     })
 }
 
-pub(crate) fn trail(glb: &[u8], metadata: &[u8]) -> Result<Option<TrailDefinition>> {
+/// Decode a blade ribbon using canonical metadata and cooked joint names.
+pub fn trail(glb: &[u8], metadata: &[u8]) -> Result<Option<TrailDefinition>> {
     let skeleton = Skeleton::from_glb(glb)?;
     // Native endpoint indices start at zero; repeated KI slots leave an
     // unassigned endpoint at the root rather than removing that trail point.
@@ -115,7 +116,8 @@ pub(crate) fn trail(glb: &[u8], metadata: &[u8]) -> Result<Option<TrailDefinitio
     }))
 }
 
-pub(crate) fn texture_animation(bytes: &[u8]) -> Result<Option<AttachmentAnimation>> {
+/// Decode attachment UV controls from the canonical equipment metadata.
+pub fn texture_animation(bytes: &[u8]) -> Result<Option<AttachmentAnimation>> {
     ensure!(bytes.len() == 64, "invalid equipment metadata size");
     let channel = |index: usize| -> Result<Option<AttachmentTextureAnimation>> {
         let mode = bytes[4 + index];

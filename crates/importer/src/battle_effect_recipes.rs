@@ -174,6 +174,14 @@ fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
         "effect actor needs a specialized controller"
     );
     let flags = row.word(20);
+    if flags & (0x8000_0000 | 0x10000) != 0 {
+        return Ok(Declaration::Unsupported {
+            reason: format!(
+                "native point-history particle controller is not yet decoded (kind {}, flags {flags:#x})",
+                bytes[0]
+            ),
+        });
+    }
     let kind = bytes[0];
     let group_quad = kind == 5
         && flags & 0x200 != 0

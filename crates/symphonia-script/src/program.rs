@@ -326,7 +326,8 @@ impl Program {
             self.code.get_mut(&pc).unwrap().0 = Op::Native(to);
         }
     }
-    /// Decode identifiers from the resource's auxiliary table into host text.
+    /// Read UTF-8 identifiers from the cooked auxiliary table. Legacy source
+    /// encodings are normalized by importers before this program is installed.
     pub fn string(&self, index: u16) -> Option<std::borrow::Cow<'_, str>> {
         if let Some(module) = &self.authored {
             return module
@@ -335,11 +336,22 @@ impl Program {
                 .map(|s| s.as_str().into());
         }
         let offset = usize::from(index) * 4;
+        let table_end = u32::from_be_bytes(self.auxiliary.get(..4)?.try_into().ok()?) as usize;
+        if !table_end.is_multiple_of(4)
+            || offset + 4 > table_end
+            || table_end > self.auxiliary.len()
+        {
+            return None;
+        }
         let start =
             u32::from_be_bytes(self.auxiliary.get(offset..offset + 4)?.try_into().ok()?) as usize;
+        if start < table_end {
+            return None;
+        }
         let bytes = self.auxiliary.get(start..)?;
         let bytes = &bytes[..bytes.iter().position(|b| *b == 0)?];
-        let (text, _, invalid) = encoding_rs::SHIFT_JIS.decode(bytes);
-        (!invalid).then_some(text)
+        std::str::from_utf8(bytes)
+            .ok()
+            .map(std::borrow::Cow::Borrowed)
     }
 }

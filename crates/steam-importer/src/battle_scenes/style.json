@@ -1,0 +1,750 @@
+{
+  "201": {
+    "stage_color": [
+      16,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "202": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "206": {
+    "stage_color": [
+      20,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2900.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "207": {
+    "stage_color": [
+      32,
+      20,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 2650.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "209": {
+    "stage_color": [
+      16,
+      24,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "210": {
+    "stage_color": [
+      16,
+      20,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3400.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "211": {
+    "stage_color": [
+      20,
+      24,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2400.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "214": {
+    "stage_color": [
+      16,
+      12,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 2600.0,
+      "minimum_elevation": 18.0
+    }
+  },
+  "217": {
+    "stage_color": [
+      16,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "218": {
+    "stage_color": [
+      8,
+      8,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3450.0,
+      "minimum_elevation": 18.0
+    }
+  },
+  "219": {
+    "stage_color": [
+      16,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2650.0,
+      "minimum_elevation": 18.0
+    }
+  },
+  "222": {
+    "stage_color": [
+      16,
+      16,
+      32
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "223": {
+    "stage_color": [
+      32,
+      24,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2850.0,
+      "minimum_elevation": 14.5
+    }
+  },
+  "224": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 14.5
+    }
+  },
+  "226": {
+    "stage_color": [
+      24,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2400.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "227": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 18.0
+    }
+  },
+  "228": {
+    "stage_color": [
+      32,
+      32,
+      32
+    ],
+    "camera": {
+      "minimum_distance": 2800.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "229": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 14.0
+    }
+  },
+  "230": {
+    "stage_color": [
+      16,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 14.0
+    }
+  },
+  "231": {
+    "stage_color": [
+      24,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "232": {
+    "stage_color": [
+      12,
+      12,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 18.0
+    }
+  },
+  "233": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 4200.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "240": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3200.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "241": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 1950.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "243": {
+    "stage_color": [
+      20,
+      20,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "244": {
+    "stage_color": [
+      20,
+      16,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "246": {
+    "stage_color": [
+      20,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "247": {
+    "stage_color": [
+      20,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "249": {
+    "stage_color": [
+      16,
+      16,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "250": {
+    "stage_color": [
+      20,
+      20,
+      32
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 10.5
+    }
+  },
+  "253": {
+    "stage_color": [
+      12,
+      12,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "255": {
+    "stage_color": [
+      12,
+      12,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3100.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "256": {
+    "stage_color": [
+      12,
+      16,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 3100.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "258": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3050.0,
+      "minimum_elevation": 12.0
+    }
+  },
+  "259": {
+    "stage_color": [
+      12,
+      12,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "260": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 16.0
+    }
+  },
+  "261": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "263": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "267": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "268": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "269": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 3450.0,
+      "minimum_elevation": 12.0
+    }
+  },
+  "270": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 3400.0,
+      "minimum_elevation": 11.5
+    }
+  },
+  "278": {
+    "stage_color": [
+      48,
+      48,
+      48
+    ],
+    "camera": {
+      "minimum_distance": 2250.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "280": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2750.0,
+      "minimum_elevation": 16.0
+    }
+  },
+  "282": {
+    "stage_color": [
+      64,
+      64,
+      64
+    ],
+    "camera": {
+      "minimum_distance": 1950.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "283": {
+    "stage_color": [
+      48,
+      48,
+      48
+    ],
+    "camera": {
+      "minimum_distance": 2700.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "284": {
+    "stage_color": [
+      24,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3150.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "285": {
+    "stage_color": [
+      16,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 3350.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "286": {
+    "stage_color": [
+      16,
+      24,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2950.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "287": {
+    "stage_color": [
+      20,
+      20,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3150.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "288": {
+    "stage_color": [
+      16,
+      16,
+      24
+    ],
+    "camera": {
+      "minimum_distance": 3150.0,
+      "minimum_elevation": 17.0
+    }
+  },
+  "289": {
+    "stage_color": [
+      16,
+      16,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 3200.0,
+      "minimum_elevation": 16.5
+    }
+  },
+  "291": {
+    "stage_color": [
+      8,
+      8,
+      8
+    ],
+    "camera": {
+      "minimum_distance": 3150.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "293": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 3150.0,
+      "minimum_elevation": 19.5
+    }
+  },
+  "296": {
+    "stage_color": [
+      0,
+      0,
+      0
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 12.0
+    }
+  },
+  "203": {
+    "stage_color": [
+      20,
+      20,
+      32
+    ],
+    "camera": {
+      "minimum_distance": 2400.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "205": {
+    "stage_color": [
+      24,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2800.0,
+      "minimum_elevation": 13.0
+    }
+  },
+  "213": {
+    "stage_color": [
+      24,
+      20,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 3000.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "215": {
+    "stage_color": [
+      24,
+      20,
+      20
+    ],
+    "camera": {
+      "minimum_distance": 2450.0,
+      "minimum_elevation": 12.0
+    }
+  },
+  "221": {
+    "stage_color": [
+      16,
+      16,
+      32
+    ],
+    "camera": {
+      "minimum_distance": 3150.0,
+      "minimum_elevation": 10.0
+    }
+  },
+  "237": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 1950.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "238": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 1950.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "251": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 2250.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "257": {
+    "stage_color": [
+      16,
+      16,
+      16
+    ],
+    "camera": {
+      "minimum_distance": 1950.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "265": {
+    "stage_color": [
+      48,
+      32,
+      32
+    ],
+    "camera": {
+      "minimum_distance": 2400.0,
+      "minimum_elevation": 8.0
+    }
+  },
+  "290": {
+    "stage_color": [
+      12,
+      12,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 3450.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "292": {
+    "stage_color": [
+      12,
+      12,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 4450.0,
+      "minimum_elevation": 15.5
+    }
+  },
+  "252": {
+    "stage_color": [
+      12,
+      12,
+      12
+    ],
+    "camera": {
+      "minimum_distance": 3550.0,
+      "minimum_elevation": 11.5
+    }
+  }
+}
