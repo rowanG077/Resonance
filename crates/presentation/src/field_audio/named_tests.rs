@@ -81,7 +81,15 @@ pub(super) fn fixture() -> Result<tempfile::TempDir> {
             }),
         ),
         ("audio/music/mappings.json", json!({"7":"test-song.wav"})),
-        ("audio/mappings.json", json!({"3":"effects/test-cue.json"})),
+        (
+            "audio/mappings.json",
+            serde_json::to_value(
+                std::iter::once(3)
+                    .chain(resonance_content::field_audio::FOOTSTEP_EFFECTS)
+                    .map(|id| (id, "effects/test-cue.json"))
+                    .collect::<BTreeMap<_, _>>(),
+            )?,
+        ),
         (
             "audio/effects/test-cue.json",
             serde_json::to_value(resonance_audio::effect::Definition::Synthesized(
@@ -181,7 +189,11 @@ fn inline_speech_edits_change_only_selected_clocks_and_reject_ambiguity() -> Res
         Diagnostics::new(true),
         || false,
     )?;
-    assert!(before.recordings.is_empty() && before.sounds.is_empty());
+    assert!(before.recordings.is_empty());
+    assert_eq!(
+        before.sounds.len(),
+        resonance_content::field_audio::FOOTSTEP_EFFECTS.len()
+    );
     assert_eq!(
         before.voices.keys().copied().collect::<Vec<_>>(),
         [65543, 131079]

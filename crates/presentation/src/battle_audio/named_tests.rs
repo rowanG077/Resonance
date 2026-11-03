@@ -287,11 +287,10 @@ fn named_battle_audio_uses_current_samples_context_and_aliases() -> Result<()> {
             resonance_audio::effect::Recipe::from_program(&program)?,
         ))?,
     )?;
-    write(
-        root.path(),
-        "audio/mappings.json",
-        br#"{"3":"effects/cue.json"}"#,
-    )?;
+    let mut effects: BTreeMap<u32, String> =
+        serde_json::from_slice(&fs::read(root.path().join(field::EFFECTS))?)?;
+    effects.insert(3, "effects/cue.json".into());
+    write(root.path(), field::EFFECTS, &serde_json::to_vec(&effects)?)?;
     let mut field = crate::field_audio::named_tests::read_choices(root.path())?;
     let field_environment = [[0.5, 0.5, 1., 0.5, 0.]; 2];
     field.reverbs = Some(field_environment);
@@ -490,14 +489,10 @@ fn named_battle_audio_uses_current_samples_context_and_aliases() -> Result<()> {
 fn recorded_effects_follow_battle_entry_priority_and_return_to_field_ownership() -> Result<()> {
     let root = fixture()?;
     let entry = resonance_content::field_audio::ServiceCue::BattleEntry as i16;
-    write(
-        root.path(),
-        "audio/mappings.json",
-        &serde_json::to_vec(&BTreeMap::from([
-            (3u32, "effects/test-cue.json"),
-            (u32::try_from(entry)?, "effects/test-cue.json"),
-        ]))?,
-    )?;
+    let mut effects: BTreeMap<u32, String> =
+        serde_json::from_slice(&fs::read(root.path().join(field::EFFECTS))?)?;
+    effects.insert(u32::try_from(entry)?, "effects/test-cue.json".into());
+    write(root.path(), field::EFFECTS, &serde_json::to_vec(&effects)?)?;
     write(
         root.path(),
         "audio/effects/test-cue.json",

@@ -53,6 +53,7 @@ pub fn cook_world_definition(root: &Path, library: &Path) -> Result<()> {
     music.extend(ids(&program, &analysis, NativeCall::AudioCommand, 1, 0)?);
 
     let mut effects: BTreeSet<u32> = ServiceCue::ALL.iter().map(|cue| *cue as u32).collect();
+    effects.extend(resonance_content::field_audio::FOOTSTEP_EFFECTS);
     for (call, arity, position) in [
         (NativeCall::PlaySoundSimple, 2, 0),
         (NativeCall::PlaySound, 4, 0),
