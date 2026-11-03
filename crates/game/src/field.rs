@@ -417,6 +417,7 @@ impl FieldSession {
             .context("field has no exploration floor")?;
         actor.visible = true;
         actor.grounded = true;
+        actor.interaction_disabled = true;
         actor.appearance.model_hidden = false;
         actor.appearance.fixed_heading = None;
         actor.opacity = 255;
@@ -665,6 +666,7 @@ impl FieldSession {
         let falling = matches!(self.player_fall, navigation::PlayerFall::Falling { .. });
         let player_fall = &mut self.player_fall;
         let player_movement = &mut self.player_movement;
+        let regions = self.light_regions.as_ref();
         self.events.step_with_motion(
             self.effect_clock.tick(),
             |events| {
@@ -793,7 +795,6 @@ impl FieldSession {
              id,
              actor,
              previous| {
-                actor.ground_attributes = 0;
                 let (scripted_control, event_paused) = (*scripted_control, *event_paused);
                 if let Some((player, target, heading)) = *player_destination
                     && id == player
@@ -865,13 +866,39 @@ impl FieldSession {
                             previous
                         }
                     });
-                    actor.ground_attributes = walkmesh
-                        .surface(actor.position, 0.01)
-                        .map_or(0, |surface| surface.attributes);
                 }
                 resolved.insert(id, actor.position);
             },
             |events| {
+                // Check support before carrying riders beyond the old platform geometry.
+                for actor in events.world.actors.values_mut() {
+                    actor.ground_attributes = 0;
+                    let on_floor = if actor.grounded
+                        && actor.attachment.is_none()
+                        && !actor.interaction_anchor
+                        && !actor.anchored_to_player()
+                    {
+                        let surface = walkmesh.surface(actor.position, 0.01);
+                        actor.ground_attributes = surface.map_or(0, |surface| surface.attributes)
+                            | regions
+                                .and_then(|mesh| mesh.surface(actor.position, f32::INFINITY))
+                                .map_or(0, |surface| surface.attributes);
+                        surface.is_some()
+                    } else {
+                        false
+                    };
+                    if let Some(id) = actor.step_footstep(events.world.tick, on_floor) {
+                        events
+                            .world
+                            .audio_commands
+                            .push(resonance_events::AudioCommand::Sound {
+                                id,
+                                volume: 127,
+                                pan: 64,
+                                slot: None,
+                            });
+                    }
+                }
                 walkmesh.carry_riders(&mut events.world);
                 walkmesh.update_enemy_sight(&mut events.world);
                 conditions::step(&mut events.world, self.effect_clock.tick())?;
@@ -1567,6 +1594,7 @@ fn start_with_entry(
         .get(&resource)
         .context("field leader is not cooked")?;
     let mut player = Actor::new(resource, entry.position);
+    player.interaction_disabled = true;
     player.autonomy = Some(resonance_events::Autonomy::new(
         resonance_events::Behavior::Player,
         0.,
@@ -1784,6 +1812,87 @@ mod tests {
             vec![4, 0, 0, 0, 0x20ff],
             ResourceLibrary::default(),
         ))
+    }
+
+    #[test]
+    fn walking_and_running_emit_floor_material_footsteps_and_stop_when_idle() {
+        use resonance_events::animation::slot;
+        for run in [false, true] {
+            let model = ModelResource {
+                clips: [slot::IDLE, slot::WALK, slot::RUN]
+                    .map(|slot| {
+                        (
+                            slot,
+                            AnimationClip {
+                                duration_ticks: 30,
+                                attachments: None,
+                            },
+                        )
+                    })
+                    .into(),
+                ..Default::default()
+            };
+            let mut field = session(runtime(
+                vec![4, 0, 0, 0, 0x20ff],
+                ResourceLibrary {
+                    models: [(1, model)].into(),
+                    ..Default::default()
+                },
+            ));
+            let floor = |surface| resonance_content::field::CollisionGroup {
+                surface,
+                vertices: vec![
+                    [-10000., -10000., 0.],
+                    [10000., -10000., 0.],
+                    [0., 10000., 0.],
+                ],
+                triangles: vec![[0, 1, 2]],
+            };
+            field.walkmesh = navigation::WalkMesh::new(&[floor(0)]).unwrap();
+            // Region attributes contribute the material independently of ground geometry.
+            field.light_regions = Some(navigation::WalkMesh::new(&[floor(7 << 5)]).unwrap());
+            field.events.world.controlled_actor = 1;
+            field.events.world.insert_actor(1, Actor::new(1, [0.; 3]));
+            field.enter_exploration("test recovery".into()).unwrap();
+            for _ in 0..65 {
+                field
+                    .step(FieldInput {
+                        direction: [1., 0.],
+                        run,
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            let sounds = &field.events.world.audio_commands;
+            assert!(sounds.len() >= 4);
+            assert!(sounds.iter().all(|sound| matches!(
+                sound,
+                resonance_events::AudioCommand::Sound {
+                    id: 18,
+                    volume: 127,
+                    pan: 64,
+                    slot: None
+                }
+            )));
+            field.events.world.audio_commands.clear();
+            for _ in 0..40 {
+                field.step(FieldInput::default()).unwrap();
+            }
+            assert!(field.events.world.audio_commands.is_empty());
+            let player = field.events.world.actors.get_mut(&1).unwrap();
+            player.grounded = false;
+            player.position[2] = 100.;
+            for _ in 0..40 {
+                field
+                    .step(FieldInput {
+                        direction: [1., 0.],
+                        run,
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            assert!(field.events.world.audio_commands.is_empty());
+        }
     }
 
     #[test]
@@ -2517,10 +2626,6 @@ mod tests {
         let mut session = empty_session();
         session.events.world.controlled_actor = 1;
         session.events.world.input_enabled = true;
-        session
-            .events
-            .world
-            .insert_actor(1, Actor::new(1, [0., 0., 100.]));
         let mut block = Actor::new(SCENERY_RESOURCE_BASE + 1, [-10., -15., 100.]);
         block.grounded = false;
         block.collidable = false;
@@ -2562,7 +2667,17 @@ mod tests {
             ] {
                 // Changing travel direction must not rotate a rider's offset,
                 // whether or not the collision model keeps a fixed heading.
-                session.events.world.actors.get_mut(&1).unwrap().position = [10., 15., 100.];
+                let mut player = Actor::new(1, [10., 15., 100.]);
+                player.interaction_disabled = true;
+                player.scripted_animation = true;
+                player.animation = Some(resonance_events::Animation::new(
+                    1,
+                    resonance_events::animation::slot::WALK,
+                    30,
+                    session.events.world.tick,
+                ));
+                session.events.world.insert_actor(1, player);
+                session.events.world.audio_commands.clear();
                 session.events.world.actors.get_mut(&2).unwrap().position = [-10., -15., 100.];
                 let platform = session.events.world.actors.get_mut(&500).unwrap();
                 platform.position = [0., 0., 100.];
@@ -2582,6 +2697,10 @@ mod tests {
                         );
                     }
                 }
+                assert!(matches!(
+                    session.events.world.audio_commands.as_slice(),
+                    [resonance_events::AudioCommand::Sound { id: 11, .. }]
+                ));
             }
         }
         // Stepping onto a dock ends the ride, including its overlap with the
