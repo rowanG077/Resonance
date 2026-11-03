@@ -13,6 +13,10 @@ assets=(
   "target/dist/resonance-$VERSION-macos-arm64.tar.gz"
   "target/dist/resonance-$VERSION-linux-x64.tar.gz"
   "target/dist/resonance-$VERSION-linux-arm64.tar.gz"
+  "target/dist/resonance-$VERSION-windows-x64-symbols.zip"
+  "target/dist/resonance-$VERSION-macos-arm64-symbols.tar.gz"
+  "target/dist/resonance-$VERSION-linux-x64-symbols.tar.gz"
+  "target/dist/resonance-$VERSION-linux-arm64-symbols.tar.gz"
 )
 for asset in "${assets[@]}" docs/installation.md; do
   [[ -s "$asset" ]] || { echo "Missing release input: $asset" >&2; exit 1; }
