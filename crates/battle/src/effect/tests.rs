@@ -102,6 +102,83 @@ fn emit(at: u32, birth: ParticleBirth) -> ScheduledEvent {
 }
 
 #[test]
+fn authored_fourth_corner_edits_reach_the_particle_frame() -> Result<()> {
+    let original = [[-1., 1., 2.], [3., 4., 5.], [6., 7., 8.], [9., 10., 11.]];
+    let mut particle = crate::tests::particle_definition(77, 0);
+    particle.data.state.geometry = ParticleGeometry::Quad {
+        vertices: original,
+        velocity: [[0.; 3]; 4],
+    };
+    let mut birth = ParticleBirth::default();
+    birth.vertices[3] = [30., 40., 50.].map(|value| Some(ValueRange::fixed(value)));
+    let bank = bank([(1, definition(vec![emit(0, birth)], Arc::new(particle)))])?;
+    let mut effects = Effects::new(vec![bank], None, 7, Diagnostics::new(true))?;
+    let mut frame = frame();
+    frame.cues.push(Cue::Effect(request()));
+    effects.advance(&frame, false)?;
+    let ParticleGeometry::Quad { vertices, .. } = effects.frames()[0].state.geometry else {
+        panic!("quad changed geometry")
+    };
+    assert_eq!(&vertices[..3], &original[..3]);
+    assert_eq!(vertices[3], [30., 40., 50.]);
+    Ok(())
+}
+
+#[test]
+fn quad_corner_velocity_and_independent_sums_share_the_authored_draws() -> Result<()> {
+    use resonance_content::battle_effect::{BirthField, BirthSum};
+    let first = ValueRange {
+        min: 10.,
+        max: 20.,
+        step: 1.,
+        draw: Some(0),
+        reverse: false,
+    };
+    let second = ValueRange {
+        min: 30.,
+        max: 40.,
+        step: 1.,
+        draw: Some(1),
+        reverse: false,
+    };
+    let mut particle = crate::tests::particle_definition(77, 0);
+    particle.data.geometry_acceleration_until = None;
+    particle.data.state.geometry = ParticleGeometry::Quad {
+        vertices: [[0.; 3]; 4],
+        velocity: [[0.; 3]; 4],
+    };
+    let particle = Arc::new(particle);
+    let mut birth = ParticleBirth {
+        random_draws: 2,
+        ..Default::default()
+    };
+    birth.color[0] = Some(first);
+    birth.color[1] = Some(second);
+    birth.vertex_velocity[3][1] = Some(ValueRange::fixed(2.));
+    birth.sums.push(BirthSum {
+        field: BirthField::QuadVertex { corner: 3, axis: 0 },
+        terms: vec![first, second],
+    });
+    let bank = bank([(1, definition(vec![emit(0, birth)], particle))])?;
+    let mut effects = Effects::new(vec![bank], None, 7, Diagnostics::new(true))?;
+    let mut frame = frame();
+    frame.cues.push(Cue::Effect(request()));
+    effects.advance(&frame, false)?;
+    let state = &effects.frames()[0].state;
+    let ParticleGeometry::Quad { vertices, velocity } = state.geometry else {
+        panic!("quad changed geometry")
+    };
+    assert_eq!(
+        vertices[3][0],
+        f32::from(state.colors[0][0] + state.colors[0][1])
+    );
+    assert_eq!(vertices[3][1], 2.);
+    assert_eq!(velocity[3], [0., 2., 0.]);
+    assert_eq!(&vertices[..3], &[[0.; 3]; 3]);
+    Ok(())
+}
+
+#[test]
 fn cinematic_cleanup_destroys_particles_and_delayed_births_while_held() -> Result<()> {
     let mut effects = effects(births([0, 4]), true);
     let mut frame = frame();

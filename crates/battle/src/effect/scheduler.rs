@@ -197,7 +197,17 @@ impl EffectDefinition {
                     let geometry = &definition.data.state.geometry;
                     spawned.push(geometry.clone());
                     ensure!(
-                        birth.vertices.iter().flatten().all(Option::is_none)
+                        birth
+                            .vertices
+                            .iter()
+                            .chain(&birth.vertex_velocity)
+                            .flatten()
+                            .all(Option::is_none)
+                            && birth.sums.iter().all(|sum| !matches!(
+                                sum.field,
+                                BirthField::QuadVertex { .. }
+                                    | BirthField::QuadVertexVelocity { .. }
+                            ))
                             || matches!(geometry, ParticleGeometry::Quad { .. }),
                         "vertex edits require a quad"
                     );
@@ -712,8 +722,11 @@ fn apply_birth(
                 *width = samples.sample(range);
             }
         }
-        ParticleGeometry::Quad { vertices, .. } => {
+        ParticleGeometry::Quad { vertices, velocity } => {
             for (vertex, settings) in vertices.iter_mut().zip(&birth.vertices) {
+                floats(vertex, settings, &mut samples);
+            }
+            for (vertex, settings) in velocity.iter_mut().zip(&birth.vertex_velocity) {
                 floats(vertex, settings, &mut samples);
             }
         }
@@ -786,6 +799,18 @@ fn apply_birth(
             BirthField::Offset(axis) => state.offset[usize::from(axis)] = value,
             BirthField::Velocity(axis) => state.velocity[usize::from(axis)] = value,
             BirthField::Uv(axis) => state.uv[usize::from(axis)] = value.round() as i16,
+            BirthField::QuadVertex { corner, axis } => match &mut state.geometry {
+                ParticleGeometry::Quad { vertices, .. } => {
+                    vertices[usize::from(corner)][usize::from(axis)] = value
+                }
+                _ => unreachable!("validated quad sum geometry"),
+            },
+            BirthField::QuadVertexVelocity { corner, axis } => match &mut state.geometry {
+                ParticleGeometry::Quad { velocity, .. } => {
+                    velocity[usize::from(corner)][usize::from(axis)] = value
+                }
+                _ => unreachable!("validated quad sum geometry"),
+            },
             BirthField::Size(axis) => match &mut state.geometry {
                 ParticleGeometry::Size { value: size, .. }
                 | ParticleGeometry::Spiral { value: size, .. } => size[usize::from(axis)] = value,

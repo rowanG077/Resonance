@@ -1,6 +1,6 @@
 //! Scheduled feedback with direct settings for each particle birth.
 pub use super::range::ValueRange;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,8 +160,23 @@ impl PolarSpread {
 fn empty<const N: usize>(values: &[Option<ValueRange>; N]) -> bool {
     values.iter().all(Option::is_none)
 }
-fn vertices_empty(values: &[[Option<ValueRange>; 3]; 3]) -> bool {
+fn vertices_empty(values: &[[Option<ValueRange>; 3]; 4]) -> bool {
     values.iter().all(empty)
+}
+
+fn quad_birth_vertices<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<[[Option<ValueRange>; 3]; 4], D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Vertices {
+        Four([[Option<ValueRange>; 3]; 4]),
+        Three([[Option<ValueRange>; 3]; 3]),
+    }
+    Ok(match Vertices::deserialize(deserializer)? {
+        Vertices::Four(vertices) => vertices,
+        Vertices::Three([a, b, c]) => [a, b, c, [None; 3]],
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +226,8 @@ pub enum BirthField {
     Velocity(u8),
     Size(u8),
     Uv(u8),
+    QuadVertex { corner: u8, axis: u8 },
+    QuadVertexVelocity { corner: u8, axis: u8 },
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -258,9 +275,14 @@ pub struct ParticleBirth {
     pub size_velocity: [Option<ValueRange>; 3],
     #[serde(skip_serializing_if = "empty")]
     pub size_acceleration: [Option<ValueRange>; 3],
-    /// Direct edits to the first three authored quad vertices.
+    /// Direct edits to all four authored quad vertices.
+    #[serde(
+        skip_serializing_if = "vertices_empty",
+        deserialize_with = "quad_birth_vertices"
+    )]
+    pub vertices: [[Option<ValueRange>; 3]; 4],
     #[serde(skip_serializing_if = "vertices_empty")]
-    pub vertices: [[Option<ValueRange>; 3]; 3],
+    pub vertex_velocity: [[Option<ValueRange>; 3]; 4],
     #[serde(skip_serializing_if = "empty")]
     pub color: [Option<ValueRange>; 4],
     #[serde(skip_serializing_if = "empty")]
@@ -328,6 +350,7 @@ impl ParticleBirth {
             .chain(&self.size_velocity)
             .chain(&self.size_acceleration)
             .chain(self.vertices.iter().flatten())
+            .chain(self.vertex_velocity.iter().flatten())
             .chain(&self.color)
             .chain(&self.end_color)
             .chain(&self.uv)
@@ -359,6 +382,7 @@ impl ParticleBirth {
             .chain(&mut self.size_velocity)
             .chain(&mut self.size_acceleration)
             .chain(self.vertices.iter_mut().flatten())
+            .chain(self.vertex_velocity.iter_mut().flatten())
             .chain(&mut self.color)
             .chain(&mut self.end_color)
             .chain(&mut self.uv)
@@ -414,6 +438,20 @@ impl ParticleBirth {
                 BirthField::Velocity(axis) => (axis, &self.velocity[..]),
                 BirthField::Size(axis) => (axis, &self.size[..]),
                 BirthField::Uv(axis) => (axis, &self.uv[..]),
+                BirthField::QuadVertex { corner, axis } => (
+                    axis,
+                    &self
+                        .vertices
+                        .get(usize::from(corner))
+                        .context("invalid quad corner")?[..],
+                ),
+                BirthField::QuadVertexVelocity { corner, axis } => (
+                    axis,
+                    &self
+                        .vertex_velocity
+                        .get(usize::from(corner))
+                        .context("invalid quad corner")?[..],
+                ),
             };
             ensure!(
                 fields.insert(sum.field)
@@ -500,5 +538,47 @@ impl ParticleBirth {
             spread.validate()?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod quad_birth_tests {
+    use super::*;
+
+    #[test]
+    fn four_corner_edits_round_trip_and_three_corner_documents_still_load() -> Result<()> {
+        let mut birth = ParticleBirth::default();
+        birth.vertices[0][0] = Some(ValueRange::fixed(2.));
+        birth.vertices[3][2] = Some(ValueRange::fixed(7.));
+        let value = serde_json::to_value(&birth)?;
+        let decoded: ParticleBirth = serde_json::from_value(value.clone())?;
+        assert_eq!(decoded, birth);
+        decoded.validate()?;
+        let mut legacy = value;
+        legacy["vertices"].as_array_mut().unwrap().truncate(3);
+        let decoded: ParticleBirth = serde_json::from_value(legacy)?;
+        assert_eq!(decoded.vertices[0][0], birth.vertices[0][0]);
+        assert_eq!(decoded.vertices[3], [None; 3]);
+        assert!(
+            serde_json::from_str::<ParticleBirth>("{\"vertices\":[[null,null,null]]}").is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn quad_sum_coordinates_are_bounded() {
+        for field in [
+            BirthField::QuadVertex { corner: 4, axis: 0 },
+            BirthField::QuadVertexVelocity { corner: 0, axis: 3 },
+        ] {
+            let birth = ParticleBirth {
+                sums: vec![BirthSum {
+                    field,
+                    terms: vec![ValueRange::fixed(1.), ValueRange::fixed(2.)],
+                }],
+                ..Default::default()
+            };
+            assert!(birth.validate().is_err());
+        }
     }
 }

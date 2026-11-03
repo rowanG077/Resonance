@@ -609,9 +609,14 @@ impl<'a> NativeBank<'a> {
         kind: u8,
     ) -> Result<&'b mut Option<ValueRange>> {
         if kind == 15 {
-            for (vertex, base) in [0xb0, 0xbc, 0xc8].into_iter().enumerate() {
+            for (vertex, base) in [0xb0, 0xbc, 0xc8, 0xd4].into_iter().enumerate() {
                 if (base..=base + 8).contains(&target) && (target - base).is_multiple_of(4) {
                     return Ok(&mut birth.vertices[vertex][usize::from((target - base) / 4)]);
+                }
+            }
+            for (vertex, base) in [0xe0, 0xec, 0xf8, 0x104].into_iter().enumerate() {
+                if (base..=base + 8).contains(&target) && (target - base).is_multiple_of(4) {
+                    return Ok(&mut birth.vertex_velocity[vertex][usize::from((target - base) / 4)]);
                 }
             }
         }
@@ -1135,7 +1140,17 @@ impl<'a> NativeBank<'a> {
             } else {
                 None
             };
-            let sum_field = if (0x34..=0x3c).contains(&target) {
+            let sum_field = if actor[0] == 15 && (0xb0..0xe0).contains(&target) {
+                Some(BirthField::QuadVertex {
+                    corner: ((target - 0xb0) / 12) as u8,
+                    axis: ((target - 0xb0) % 12 / 4) as u8,
+                })
+            } else if actor[0] == 15 && (0xe0..0x110).contains(&target) {
+                Some(BirthField::QuadVertexVelocity {
+                    corner: ((target - 0xe0) / 12) as u8,
+                    axis: ((target - 0xe0) % 12 / 4) as u8,
+                })
+            } else if (0x34..=0x3c).contains(&target) {
                 Some(BirthField::Offset(((target - 0x34) / 4) as u8))
             } else if (0x40..=0x48).contains(&target) {
                 Some(BirthField::Velocity(((target - 0x40) / 4) as u8))
@@ -1145,11 +1160,10 @@ impl<'a> NativeBank<'a> {
                 None
             }
             .filter(|_| target.is_multiple_of(4));
-            if inherited
-                && matches!(opcode, 8 | 13)
+            if matches!(opcode, 8 | 13)
                 && let Some(field) = sum_field
             {
-                let before = initial.context("grouped effect has no initial scalar")?;
+                let before = initial.context("effect has no initial scalar")?;
                 let existing = birth.sums.iter().position(|sum| sum.field == field);
                 let independent =
                     before.min != before.max && value.min != value.max && before.draw != value.draw;
