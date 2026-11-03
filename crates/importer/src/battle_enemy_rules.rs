@@ -107,6 +107,29 @@ fn native_sound(encoded: u16) -> Option<Sound> {
 /// Source voice storage is resolved while importing, never by the enemy player.
 pub type EnemyCommandVoice = fn(&[u8]) -> Result<(Option<Sound>, bool, usize)>;
 
+/// Native constants for the operand-free action activation command.
+#[derive(Clone, Copy)]
+pub struct EnemyActionFlash {
+    pub duration: u16,
+    pub effect: u16,
+    pub sound: u16,
+}
+
+/// Source callbacks and constants compile into ordinary shared events.
+pub struct EnemyActionSource<'a> {
+    pub voice: EnemyCommandVoice,
+    pub flash: Option<EnemyActionFlash>,
+    pub affliction_action: u8,
+    pub physical_effect: Option<&'a dyn Fn(u16) -> Result<u16>>,
+}
+
+const GC_ACTION_SOURCE: EnemyActionSource<'static> = EnemyActionSource {
+    voice: command_voice,
+    flash: None,
+    affliction_action: 5,
+    physical_effect: None,
+};
+
 fn command_voice(row: &[u8]) -> Result<(Option<Sound>, bool, usize)> {
     let priority = half(row, 6)?;
     ensure!(
@@ -139,10 +162,10 @@ pub fn decode_enemy_actions(
     name: &str,
     common: Option<&[u8]>,
     id: u16,
-    voice: EnemyCommandVoice,
+    native: &EnemyActionSource<'_>,
 ) -> Result<EnemyActionTables> {
     let (actions, attacks, contacts, projectiles) =
-        actions(data, library, name, common, id, voice)?;
+        actions(data, library, name, common, id, native)?;
     Ok(serde_json::from_value(json!({
         "actions":actions,"attacks":attacks,"contacts":contacts,"projectiles":projectiles
     }))?)
@@ -544,10 +567,18 @@ fn elapsed(at: u16, holds: &[(u16, u8)]) -> u16 {
         .sum::<u16>()
 }
 
-fn physical_feedback(data: &[u8], hit: &mut ActionHit) -> Result<()> {
+fn physical_feedback(
+    data: &[u8],
+    hit: &mut ActionHit,
+    native: &EnemyActionSource<'_>,
+) -> Result<()> {
     let Some(effect) = hit.effect else {
         return Ok(());
     };
+    if let Some(resolve) = native.physical_effect {
+        hit.effect = Some(resolve(effect)?);
+        return Ok(());
+    }
     // Shared hit rules may address zero-program aliases beyond the declared
     // member; verify those against the original bounded package tail.
     let start = word(data, 0x1cc)? as usize;
@@ -579,7 +610,7 @@ fn commands(
     mut deadline: u16,
     holds: &[(u16, u8)],
     opening_hold: u16,
-    voice: EnemyCommandVoice,
+    native: &EnemyActionSource<'_>,
 ) -> Result<(Vec<(u16, Value)>, u16)> {
     let source = section(data, 14)?;
     let mut cursor = usize::from(start) * 2;
@@ -722,6 +753,16 @@ fn commands(
                 json!({"captured_vertical":f32::from(signed(source, cursor + 4)?)/10.}),
                 6,
             ),
+            22 => {
+                let flash = native
+                    .flash
+                    .context("enemy action activation command needs source constants")?;
+                ensure!(flash.duration != 0, "empty enemy activation pause");
+                let tick = elapsed(at, holds);
+                events.push((tick, json!({"common_effect":flash.effect})));
+                events.push((tick, json!({"sound":flash.sound})));
+                (json!({"battle_pause":flash.duration}), 4)
+            }
             23 => {
                 let enabled = half(source, cursor + 4)?;
                 let duration = half(source, cursor + 6)?;
@@ -756,7 +797,7 @@ fn commands(
                 (json!({"common_effect":half(source, cursor + 4)?}), 8)
             }
             27 => {
-                let (sound, announcement, width) = voice(&source[cursor..])?;
+                let (sound, announcement, width) = (native.voice)(&source[cursor..])?;
                 (
                     json!({"voice":{"sound":sound,"announcement":announcement}}),
                     width,
@@ -952,12 +993,14 @@ fn requirements(row: &[u8], flags: u32) -> Result<EnemyRequirements> {
         | 4
         | 8
         | 0x10
+        | 0x1000
         | 0x4000
         | 0x800
         | 0x2000
         | 0x8000
         | 0x10000
         | 0x20000
+        | 0x40000
         | 0x80000
         | 0x100000
         | 0x200000
@@ -981,6 +1024,13 @@ fn requirements(row: &[u8], flags: u32) -> Result<EnemyRequirements> {
         "enemy target state {target} needs a decoder"
     );
     let mut predicates = Vec::new();
+    if flags & 0x1000 != 0 {
+        ensure!(count <= i8::MAX as u8, "negative minimum enemy count");
+        predicates.push(EnemyPredicate::AlliesAtLeast(count));
+    }
+    if flags & 0x40000 != 0 {
+        predicates.push(EnemyPredicate::SceneAvailable);
+    }
     if flags & 0x800 != 0 {
         predicates.push(EnemyPredicate::AllyAbsent(u16::from(count)));
     }
@@ -1148,6 +1198,7 @@ pub(crate) fn hit_rule(
             128 => Condition::Curse,
             256 => Condition::ReduceItemEffect,
             512 => Condition::Heavy,
+            0x20000 => Condition::AttackDown,
             0x40000 => Condition::DefenseDown,
             0x80000 => Condition::AccuracyDown,
             other => anyhow::bail!("enemy hit condition {other:#x} needs a decoder"),
@@ -1206,7 +1257,7 @@ fn actions(
     name: &str,
     common: Option<&[u8]>,
     id: u16,
-    voice: EnemyCommandVoice,
+    native: &EnemyActionSource<'_>,
 ) -> Result<(Value, Value, Value, Value)> {
     let source = section(data, 10)?;
     let policy = section(data, 12)?;
@@ -1379,7 +1430,7 @@ fn actions(
             half(row, 14)?,
             &holds,
             u16::from(opening_hold),
-            voice,
+            native,
         )?;
         if delayed_opening {
             for (at, _) in &mut events {
@@ -1424,7 +1475,7 @@ fn actions(
                 let mut definition =
                     battle_enemy_projectiles::projectile(data, contact, hit, library, name)?;
                 if common.is_some() {
-                    physical_feedback(data, &mut definition.hit)?;
+                    physical_feedback(data, &mut definition.hit, native)?;
                 }
                 let name = intern(
                     &mut projectiles,
@@ -1483,7 +1534,7 @@ fn actions(
             )?;
             hit.bypass_guard = byte(contact, 19)? == 0;
             if common.is_some() {
-                physical_feedback(data, &mut hit)?;
+                physical_feedback(data, &mut hit, native)?;
             }
             let shape = match byte(contact, 16)? {
                 0 => json!({"kind":"box"}),
@@ -1556,7 +1607,7 @@ fn actions(
                 json!({"ground_projectiles":{"projectiles":shots,"retreat":225.}}),
             ));
         }
-        if policy[8] == 23 && index == 5 {
+        if policy[8] == 23 && index == usize::from(native.affliction_action) {
             let at = elapsed(120, &holds)
                 .checked_sub(1)
                 .context("invalid affliction tick")?;
@@ -1590,7 +1641,7 @@ fn actions(
                 elapsed(half(row, 36)?, &holds) + u16::from((partial_opening || delayed_opening) && half(row, 36)? == 0),
                 elapsed(half(row, 38)?, &holds) + u16::from((partial_opening || delayed_opening) && half(row, 38)? == 0)
             ],
-            "contact_recovery":contact_recovery(data, row, voice)?,
+            "contact_recovery":contact_recovery(data, row, native.voice)?,
             "armor":byte(row, 49)?,
             "events":events
         });
@@ -1949,8 +2000,14 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
         .map(|usual| crate::native_archive::member(usual, 8, 14))
         .transpose()?
         .flatten();
-    let (actions, attacks, contacts, projectiles) =
-        actions(&data, library, name, common, u16::from(id), command_voice)?;
+    let (actions, attacks, contacts, projectiles) = actions(
+        &data,
+        library,
+        name,
+        common,
+        u16::from(id),
+        &GC_ACTION_SOURCE,
+    )?;
     let mut profile = battle_enemy_profile::profile(profile_source, &nodes, usual.as_deref())?;
     let presentation = if matches!(
         selector,
@@ -2066,6 +2123,57 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
 #[cfg(test)]
 mod shared_action_tests {
     use super::*;
+
+    #[test]
+    fn operand_free_activation_uses_imported_constants_in_shared_events() -> Result<()> {
+        let mut data = vec![0; 0x1e8];
+        data[14..16].copy_from_slice(&0x1e8u16.to_be_bytes());
+        data.extend([0, 0, 0, 22, 255, 255]);
+        let flash = EnemyActionFlash {
+            duration: 60,
+            effect: 13,
+            sound: 310,
+        };
+        let (events, deadline) = commands(
+            &data,
+            0,
+            20,
+            &[],
+            0,
+            &EnemyActionSource {
+                flash: Some(flash),
+                ..GC_ACTION_SOURCE
+            },
+        )?;
+        assert_eq!(deadline, 20);
+        assert_eq!(
+            events,
+            vec![
+                (0, json!({"common_effect":13})),
+                (0, json!({"sound":310})),
+                (0, json!({"battle_pause":60})),
+            ]
+        );
+        assert!(commands(&data, 0, 20, &[], 0, &GC_ACTION_SOURCE).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn enemy_scene_and_minimum_ally_flags_become_shared_predicates() -> Result<()> {
+        let mut row = [0; 68];
+        row[51] = 2;
+        let decoded = requirements(&row, 0x41000)?;
+        assert_eq!(
+            decoded.predicates,
+            vec![
+                EnemyPredicate::AlliesAtLeast(2),
+                EnemyPredicate::SceneAvailable
+            ]
+        );
+        row[51] = 255;
+        assert!(requirements(&row, 0x1000).is_err());
+        Ok(())
+    }
 
     #[test]
     fn gc_command_voices_keep_cues_streams_priorities_and_width() -> Result<()> {

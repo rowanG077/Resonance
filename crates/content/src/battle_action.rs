@@ -230,6 +230,10 @@ pub struct EnemyRequirements {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnemyPredicate {
+    /// Available participants on the acting side, including the actor itself.
+    AlliesAtLeast(u8),
+    /// No released stored spell occupies the acting side's scene slot.
+    SceneAvailable,
     AllyAbsent(u16),
     DoNotRepeat,
     OriginDistance {
@@ -412,6 +416,8 @@ pub enum EnemyEvent {
     },
     /// Shared effect attached to the actor's body center.
     CommonEffect(u16),
+    /// Hold gameplay while the acting model and its activation effects animate.
+    BattlePause(u16),
     /// Temporary RGB tint, returning to the stage color one unit per update.
     Tint([u8; 3]),
     /// End the actor's participation without dealing damage to it.

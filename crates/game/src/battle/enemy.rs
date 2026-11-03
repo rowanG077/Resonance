@@ -422,6 +422,7 @@ impl super::encounter::resources::Resources<'_> {
                         appearance: self.prepared.effect_member(&self.common, *member)?,
                         origin: resonance_battle::AttackOrigin::ActorAim,
                     },
+                    EnemyEvent::BattlePause(duration) => Event::BattlePause(*duration),
                     EnemyEvent::ReleaseSpell { technique, slot } => {
                         let catalogue =
                             catalogue_id(placements, *technique).with_context(|| {

@@ -53,7 +53,7 @@ impl OverLimit {
     }
 }
 
-/// Freeze gameplay for a short effect; an optional rescue actor keeps animating.
+/// Freeze gameplay for a short effect; an optional actor keeps animating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Hold {
     pub remaining: u16,

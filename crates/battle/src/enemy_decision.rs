@@ -330,6 +330,14 @@ impl Battle {
             && row.requirements.predicates.iter().all(|predicate| {
                 use resonance_content::battle_action::EnemyPredicate;
                 match *predicate {
+                    EnemyPredicate::AlliesAtLeast(minimum) => {
+                        self.actors
+                            .iter()
+                            .filter(|other| other.side == actor.side && other.available())
+                            .count()
+                            >= usize::from(minimum)
+                    }
+                    EnemyPredicate::SceneAvailable => !self.spell_scene_active(actor.side),
                     EnemyPredicate::DoNotRepeat => {
                         self.runtime[owner.index()].last_executed_enemy_row != Some(index)
                     }
@@ -1794,6 +1802,66 @@ mod tests {
         battle.actors[1].position[0] = 500.;
         battle.actors[0].availability = crate::ActorAvailability::Dead;
         assert_eq!(battle.choose_enemy_action(owner)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn ally_and_scene_requirements_follow_live_participants_and_released_scene_lifetimes()
+    -> Result<()> {
+        use resonance_content::battle_action::EnemyPredicate;
+        use std::sync::Arc;
+        let mut primary = choice(crate::ActionKey(0), 1);
+        primary.requirements.priority = true;
+        primary.requirements.predicates = vec![
+            EnemyPredicate::AlliesAtLeast(2),
+            EnemyPredicate::SceneAvailable,
+        ];
+        let mut battle = prepared(vec![primary, choice(crate::ActionKey(1), 1)], 2)?.finish()?;
+        let owner = ActorId(1);
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
+        battle.actors[2].availability = crate::ActorAvailability::Absent;
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
+        battle.actors[2].availability = crate::ActorAvailability::Active;
+        let resident = Arc::new(crate::PreparedSpell::new(crate::SpellOrigin::Caster, 3));
+        let released = battle
+            .release_volley(
+                resident,
+                ActorId(2),
+                ActorId(0),
+                crate::SpellSlot::Primary,
+                None,
+                &mut Vec::new(),
+            )?
+            .unwrap();
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
+        // Allocation lasts through the complete scene, beyond its transition.
+        let volley = battle.volleys.get_mut(&released).unwrap();
+        Arc::make_mut(&mut volley.definition).transition_ticks = 1;
+        volley.age = 2;
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
+        battle.prepared.actor_setup[1]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
+            .choices[0]
+            .requirements
+            .predicates[0] = EnemyPredicate::AlliesAtLeast(1);
+        battle.actors[2].availability = crate::ActorAvailability::Dead;
+        // A caster's death does not dispose its already released scene.
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
+        battle.volleys.remove(&released);
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
+        let mut opposite_scene = crate::PreparedSpell::new(crate::SpellOrigin::Caster, 3);
+        opposite_scene.transition_ticks = 1;
+        battle.release_volley(
+            Arc::new(opposite_scene),
+            ActorId(0),
+            owner,
+            crate::SpellSlot::Primary,
+            None,
+            &mut Vec::new(),
+        )?;
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
         Ok(())
     }
 }

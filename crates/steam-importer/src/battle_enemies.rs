@@ -63,7 +63,7 @@ fn commands(bytes: &[u8], choices: &[u8]) -> Result<Vec<u8>> {
                 }
                 let opcode = pe::half(bytes, cursor + 2)? as i16;
                 let (width, fields): (_, &[(usize, usize)]) = match opcode {
-                    -5 | -3 | 31 => (4, &[(0, 2), (2, 2)]),
+                    -5 | -3 | 22 | 31 => (4, &[(0, 2), (2, 2)]),
                     0..=3 | 9 | 20 | 21 | 41 | 48 => (6, &[(0, 2), (2, 2), (4, 2)]),
                     7 => (6, &[(0, 2), (2, 2)]),
                     5 | 12 | 13 | 17..=19 | 23 | 26 | 28 | 38 | 39 | 43 | 44 => {
@@ -284,6 +284,37 @@ fn voice(bytes: &[u8]) -> Result<(Option<Sound>, bool, usize)> {
     Ok((battle_voices::sound(word(8)?)?, priority == 3, 12))
 }
 
+fn physical_effect(bytes: &[u8], effect: u16) -> Result<u16> {
+    let start = pe::word(bytes, 0x1cc)? as usize;
+    ensure!(start >= 0x1f8, "physical contact has no enemy effect bank");
+    // Aliases may address the original bounded package tail beyond the bank's
+    // declared roots. Resolve them before repacking any source member.
+    let bank = bytes
+        .get(start..)
+        .context("enemy effect bank exceeds package")?;
+    ensure!(
+        bank.starts_with(b"ef1\0") && bank.len() >= 40,
+        "invalid enemy effect bank"
+    );
+    if effect < u16::from(bank[4]) {
+        return Ok(effect);
+    }
+    let table = pe::word(bank, 24)? as usize;
+    let offset = pe::half(bank, table + usize::from(effect) * 2)? as i16;
+    ensure!(
+        offset == pe::half(bank, table)? as i16,
+        "physical contact effect {effect} is not an empty alias"
+    );
+    let program = (pe::word(bank, 12)? as usize)
+        .checked_add_signed(isize::from(offset))
+        .context("physical contact alias exceeds bank")?;
+    ensure!(
+        bank.get(program..program + 8) == Some(&[0, 0, 254, 0, 0, 0, 0, 0]),
+        "physical contact effect {effect} aliases a nonempty program"
+    );
+    Ok(0)
+}
+
 /// Compile an enemy's Steam tables into shared editable action definitions.
 /// Model-contact recipes require their effect artwork to have been cooked first.
 /// Native recipes without a shared decoder return an error; this does not yet
@@ -296,13 +327,25 @@ pub fn actions(
 ) -> Result<resonance_importer::EnemyActionTables> {
     let common = common_actions(common, section(bytes, 10)?)?;
     let canonical = package(bytes)?;
+    let resolve_effect = |effect| physical_effect(bytes, effect);
     let mut result = resonance_importer::decode_enemy_actions(
         &canonical,
         library,
         &crate::monsters::symbol(id),
         Some(&common),
         id,
-        voice,
+        &resonance_importer::EnemyActionSource {
+            voice,
+            flash: Some(resonance_importer::EnemyActionFlash {
+                // Native 0x4454b2, 0x44565b and 0x44568d.
+                duration: 60,
+                effect: 13,
+                sound: 310,
+            }),
+            // Native callback 0x405c57 selects action six, at age 120.
+            affliction_action: 6,
+            physical_effect: Some(&resolve_effect),
+        },
     )?;
     for (choice, row) in result
         .actions
@@ -342,6 +385,25 @@ mod tests {
     use super::*;
     use crate::{Language, package::Package, source::Source};
     use std::path::PathBuf;
+
+    #[test]
+    fn physical_effect_aliases_require_the_original_empty_program() -> Result<()> {
+        let mut bytes = vec![0; 0x1f8 + 64];
+        bytes[0x1cc..0x1d0].copy_from_slice(&0x1f8u32.to_le_bytes());
+        let bank = &mut bytes[0x1f8..];
+        bank[..4].copy_from_slice(b"ef1\0");
+        bank[4] = 2;
+        bank[12..16].copy_from_slice(&40u32.to_le_bytes());
+        bank[24..28].copy_from_slice(&48u32.to_le_bytes());
+        bank[40..48].copy_from_slice(&[0, 0, 254, 0, 0, 0, 0, 0]);
+        bank[54..56].copy_from_slice(&8u16.to_le_bytes());
+        assert_eq!(physical_effect(&bytes, 1)?, 1);
+        assert_eq!(physical_effect(&bytes, 2)?, 0);
+        assert!(physical_effect(&bytes, 3).is_err());
+        bytes[0x1f8 + 42] = 0;
+        assert!(physical_effect(&bytes, 2).is_err());
+        Ok(())
+    }
 
     #[test]
     fn command_storage_preserves_wide_voice_ids_and_halfword_repeat() -> Result<()> {

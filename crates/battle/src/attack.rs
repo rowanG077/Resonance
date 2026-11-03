@@ -63,6 +63,8 @@ pub enum AttackEvent {
     },
     /// Hold ordinary scene effects while the action schedule continues.
     HoldEffects(u16),
+    /// Gameplay waits while the acting model keeps animating.
+    BattlePause(u16),
     /// Initialize at creation before the ordinary effect update.
     InitializedEffect {
         appearance: crate::EffectAppearance,
@@ -635,6 +637,7 @@ impl PreparedAttack {
                 | AttackEvent::InitializedActionEffect { .. }
                 | AttackEvent::InitializedEffect { .. } => {}
                 AttackEvent::HoldEffects(duration) => ensure!(*duration != 0, "empty effect hold"),
+                AttackEvent::BattlePause(duration) => ensure!(*duration != 0, "empty battle pause"),
                 AttackEvent::UnisonFeedback { .. } => {}
                 AttackEvent::CameraDistance { distance, duration } => ensure!(
                     distance.is_finite() && *distance > 0. && *duration != 0,
@@ -1029,6 +1032,7 @@ pub(crate) fn step(
                 });
             }
             AttackEvent::HoldEffects(duration) => cues.push(Cue::HoldEffects(*duration)),
+            AttackEvent::BattlePause(duration) => battle.request_timed_hold(*duration, Some(actor)),
             AttackEvent::UnisonFeedback { duration, limit } => {
                 battle.unison_feedback(*duration, *limit)
             }
@@ -1853,6 +1857,7 @@ pub(crate) fn step(
                     | AttackEvent::ActionEffect { .. }
                     | AttackEvent::InitializedActionEffect { .. }
                     | AttackEvent::HoldEffects(_)
+                    | AttackEvent::BattlePause(_)
                     | AttackEvent::InitializedEffect { .. }
                     | AttackEvent::UnisonFeedback { .. }
             )
@@ -1929,6 +1934,48 @@ mod tests {
             action: crate::ActionKey(0),
         }
         .into()
+    }
+
+    #[test]
+    fn action_pause_holds_gameplay_and_resumes_pending_events_once() -> Result<()> {
+        let mut battle = movement_battle(vec![
+            (1, AttackEvent::BattlePause(3)),
+            (2, AttackEvent::Sound(Some(Sound::Cue(123)))),
+        ])?;
+        battle.step(movement_request())?;
+        let entered = battle.step(BattleInput::default())?;
+        assert_eq!(battle.timed_hold_remaining(), Some(3));
+        let age = battle.runtime[0].task().action().unwrap().1.age;
+        battle.step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+        assert_eq!(battle.timed_hold_remaining(), Some(3));
+        for _ in 0..3 {
+            let frame = battle.step(BattleInput::default())?;
+            assert_eq!(frame.clock, crate::BattleClock::Rescue(ActorId(0)));
+            assert_eq!(frame.actors, entered.actors);
+            assert_eq!(battle.runtime[0].task().action().unwrap().1.age, age);
+            assert!(frame.cues.is_empty());
+        }
+        assert!(battle.timed_hold_remaining().is_none());
+        let resumed = battle.step(BattleInput::default())?;
+        assert_eq!(resumed.clock, crate::BattleClock::Running);
+        assert!(
+            resumed
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Sound { .. }))
+        );
+        assert!(
+            !battle
+                .step(BattleInput::default())?
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Sound { .. }))
+        );
+        assert!(movement_battle(vec![(0, AttackEvent::BattlePause(0))]).is_err());
+        Ok(())
     }
 
     #[test]

@@ -1553,6 +1553,17 @@ impl Volley {
 }
 
 impl Battle {
+    /// Resident volleys do not allocate the side's shared stored-scene slot.
+    /// A released scene retains that slot until its independent volley retires.
+    pub(crate) fn spell_scene_active(&self, side: crate::Side) -> bool {
+        self.summon_entry.active()
+            || self.volleys.values().any(|volley| {
+                self.actors[volley.actor.index()].side == side
+                    && (volley.definition.transition_ticks != 0
+                        || volley.definition.summon.is_some())
+            })
+    }
+
     pub(crate) fn spell_active(&self, actor: ActorId, slot: SpellSlot) -> bool {
         self.volleys
             .values()
