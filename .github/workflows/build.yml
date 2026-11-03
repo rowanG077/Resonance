@@ -142,7 +142,7 @@ jobs:
             libasound2-dev libdbus-1-dev libudev-dev libvulkan-dev mesa-vulkan-drivers \
             libegl1 libgl1-mesa-dri xvfb xauth \
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
-            libxkbcommon-dev libwayland-dev
+            libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev
 
       - name: Fetch locked dependencies for offline shader validation
         # The shader test reads workspace metadata offline. Compiling selected

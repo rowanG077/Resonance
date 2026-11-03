@@ -21,7 +21,8 @@ Linux binaries use system audio, windowing and Vulkan libraries. On Ubuntu 24.04
 ```sh
 sudo apt-get update
 sudo apt-get install libasound2t64 libdbus-1-3 libudev1 libvulkan1 \
-  libx11-6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libwayland-client0 libwayland-cursor0 libwayland-egl1
+  libx11-6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0 \
+  libwayland-client0 libwayland-cursor0 libwayland-egl1
 ```
 
 Install the Vulkan driver appropriate for your GPU as well (for example,
