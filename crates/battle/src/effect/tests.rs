@@ -469,6 +469,43 @@ fn delayed_forward_motion_uses_retained_heading_and_stops_acceleration() -> Resu
 }
 
 #[test]
+fn retained_angle_steps_do_not_change_angular_velocity_or_intermediate_frames() -> Result<()> {
+    let mut events = births([0]);
+    let EffectOperation::Spawn { birth, .. } = &mut events[0].operation else {
+        unreachable!()
+    };
+    birth.angles = [Some(ValueRange::fixed(0.)); 3];
+    birth.angular_velocity = [0., 2., 0.].map(|value| Some(ValueRange::fixed(value)));
+    for (at, angles, angles_add) in [
+        (2, [None; 3], [0., 0., -30.]),
+        (4, [None, None, Some(90.)], [0., 0., -5.]),
+    ] {
+        events.push(ScheduledEvent {
+            at,
+            operation: EffectOperation::SetMotion {
+                spawn: 0,
+                motion: Box::new(MotionChange {
+                    angles,
+                    angles_add: Some(angles_add),
+                    ..Default::default()
+                }),
+            },
+        });
+    }
+    let mut effects = effects(events, false);
+    let mut frame = frame();
+    frame.cues.push(Cue::Effect(request()));
+    for (age, roll) in [0., 0., -30., -30., 85., 85.].into_iter().enumerate() {
+        effects.advance(&frame, false)?;
+        frame.cues.clear();
+        let state = &effects.frames()[0].state;
+        assert_eq!(state.angles, [0., (age + 1) as f32 * 2., roll]);
+        assert_eq!(state.angular_velocity, [0., 2., 0.]);
+    }
+    Ok(())
+}
+
+#[test]
 fn retained_particle_angular_velocity_addition_changes_only_future_rotation() -> Result<()> {
     let mut events = births([0]);
     let EffectOperation::Spawn { birth, .. } = &mut events[0].operation else {

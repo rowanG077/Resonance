@@ -2,7 +2,7 @@
 use crate::pe;
 use anyhow::{Result, ensure};
 
-pub(super) fn read(image: &pe::Image<'_>, native: u16) -> Result<Vec<[f32; 3]>> {
+pub(crate) fn read(image: &pe::Image<'_>, native: u16) -> Result<Vec<[f32; 3]>> {
     if native == 321 {
         return rock_pillar(image);
     }

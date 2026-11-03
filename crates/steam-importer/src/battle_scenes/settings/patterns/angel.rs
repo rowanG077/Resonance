@@ -13,6 +13,7 @@ pub(super) fn grand_cross(image: &pe::Image<'_>) -> Result<SpellRecipe> {
         startup_member: 1,
         startup_deferred: false,
         cutin: None,
+        opponent_stop_ticks: 0,
         contacts: [
             tick(0x419043)?,
             tick(0x4190c4)?,
@@ -80,6 +81,7 @@ pub(super) fn divine_judgment(image: &pe::Image<'_>, points: &[[f32; 3]]) -> Res
             duration: 52,
             hold_ticks: 49,
         }),
+        opponent_stop_ticks: 0,
     };
     recipe.validate()?;
     Ok(SpellRecipe::FixedPattern(recipe))

@@ -23,6 +23,9 @@ use std::{
 
 mod actions;
 mod settings;
+pub(crate) fn unison_points(image: &pe::Image<'_>, native: u16) -> Result<Vec<[f32; 3]>> {
+    settings::unison_points::read(image, native)
+}
 
 pub(super) fn member(bytes: &[u8], field: usize) -> Result<Option<&[u8]>> {
     ensure!(
@@ -158,6 +161,31 @@ fn projectiles(bytes: &[u8], image: &pe::Image<'_>, id: u16) -> Result<Vec<Scene
         .collect()
 }
 
+fn crimson_equipped_axe(image: &pe::Image<'_>, bank: &[u8]) -> Result<()> {
+    // Native skill 254 (shared catalogue 261) loads Presea's current primary
+    // weapon into common model 14. Encounter preparation supplies that dynamic
+    // dependency through the same equipped-weapon binding as Colette's chakram.
+    ensure!(
+        pe::word(image.slice(0x8d84b0 + 254 * 96 + 0x58, 4)?, 0)? + 1 == 5
+            && image.slice(0x444786, 2)? == [0xb1, 0x07]
+            && image.slice(0x4447c5, 6)? == [0x8d, 0xb2, 0xb0, 0x27, 0x01, 0x00]
+            && image.slice(0x4447cb, 5)? == [0xe8, 0xb0, 0x88, 0x03, 0x00]
+            && image.slice(0x47d0c9, 3)? == [0x80, 0xf9, 0x07],
+        "Crimson Devastation current-axe callback changed"
+    );
+    let actors = pe::word(bank, 8)? as usize;
+    for index in [41, 42] {
+        let row = bank
+            .get(actors + index * 360..actors + (index + 1) * 360)
+            .context("missing Crimson Devastation axe particle")?;
+        ensure!(
+            row[0] == 3 && row[2] == 0 && row[220] == 14,
+            "Crimson Devastation current-axe particle changed"
+        );
+    }
+    Ok(())
+}
+
 fn cook_one(
     source: &Source,
     library: &Path,
@@ -219,6 +247,13 @@ fn cook_one(
                 attachment_nodes: Default::default(),
                 independent_layers: Default::default(),
             },
+        );
+    }
+    if id == 5 {
+        crimson_equipped_axe(image, bank)?;
+        ensure!(
+            !models.contains_key(&14),
+            "current axe overlaps a local scene model"
         );
     }
     let slots = effects
@@ -400,6 +435,157 @@ mod tests {
     use super::*;
     use crate::Language;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires installed Steam and cooked library; republishes only four summon attachment owners"]
+    fn installed_summon_attachment_markers_keep_native_indices_and_gc_prefixes() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        for (id, name, required) in [
+            (286, "summon-wind-0286", &["KK00_BE19_00"][..]),
+            (290, "summon-light-0290", &["KK00_BE13_00", "KK01_BE13_01"]),
+            (
+                293,
+                "summon-origin-0293",
+                &[
+                    "KK00_WEP0_L",
+                    "KK01_WEP0_R",
+                    "KK02_WEP1_L",
+                    "KK03_WEP1_R",
+                    "KK04_WEP2",
+                    "KK05_EFE1_L",
+                    "KK06_EFE1_R",
+                ],
+            ),
+            (292, "summon-birth-0292", &["KK00_TUE"]),
+        ] {
+            let owner = format!("battle/scenes/{name}");
+            let pointer = pe::word(image.slice(0x8e98a8 + id * 4, 4)?, 0)?;
+            let package = source.require(image.text(pointer)?)?;
+            let body = reference(&package, 12)?.context("summon has no primary model")?;
+            let native = crate::model::Rig::read(&source.require(body)?)?;
+            cook_one(
+                &source, &root, &image, &atlases, &residents, id as u16, &owner,
+            )?;
+            let path = format!("{owner}/effects.json");
+            let bank = resonance_content::battle_effect::document::read(
+                &path,
+                &resonance_content::diagnostics::Diagnostics::new(true),
+                |path| Ok(fs::read(root.join(path))?.into()),
+            )?;
+            let art = bank.art.context("summon artwork is absent")?;
+            let model = art
+                .models
+                .get(&0)
+                .context("summon primary model is absent")?;
+            let bones = &model.rig.skeleton.bones;
+            ensure!(
+                bones.len() == native.nodes.len(),
+                "summon attachment normalization changed source indices"
+            );
+            for (bone, node) in bones.iter().zip(&native.nodes) {
+                ensure!(
+                    bone.parent == node.parent,
+                    "summon attachment normalization changed hierarchy"
+                );
+            }
+            for &raw in required {
+                let index = native
+                    .nodes
+                    .iter()
+                    .position(|node| node.name == raw)
+                    .with_context(|| format!("missing native summon marker {raw}"))?;
+                ensure!(
+                    bones[index].name == format!("kk{}", &raw[2..]),
+                    "summon marker {raw} lost its source slot, suffix or index"
+                );
+            }
+            eprintln!(
+                "Published {owner}: {} source-backed attachment markers",
+                required.len()
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM; checks the native current-axe contract without publication"]
+    fn installed_crimson_effect_retains_the_current_equipped_axe_dependency() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let image = pe::Image::parse(&source.executable)?;
+        let pointer = pe::word(image.slice(0x8e98a8 + 5 * 4, 4)?, 0)?;
+        let package = source.require(image.text(pointer)?)?;
+        let bank = member(&package, 4)?.context("missing Crimson effect bank")?;
+        crimson_equipped_axe(&image, bank)?;
+        ensure!(
+            reference(&package, 12 + 14 * 4)?.is_none(),
+            "axe became local artwork"
+        );
+        let effects = battle_effects::decode_including(bank, &[], &[], |_, _| Ok(()))?;
+        ensure!(
+            effects
+                .templates
+                .iter()
+                .filter(
+                    |declaration| matches!(declaration, Declaration::ModelParticle { binding, .. }
+                    if binding.slot == 14)
+                )
+                .count()
+                == 2,
+            "cooked axe dependency changed"
+        );
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Crimson Devastation twice"]
+    fn installed_crimson_scene_preserves_external_axe_across_owner_refreshes() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        let owner = "battle/skills/crimson-devastation";
+        cook_one(&source, &root, &image, &atlases, &residents, 5, owner)?;
+        let path = root.join(owner).join("effects.json");
+        let before = fs::read(&path)?;
+        cook_one(&source, &root, &image, &atlases, &residents, 5, owner)?;
+        ensure!(
+            before == fs::read(path)?,
+            "Crimson owner refresh changed effects"
+        );
+        let effects: resonance_content::battle_effect::document::Definition =
+            serde_json::from_slice(&before)?;
+        ensure!(
+            !effects
+                .artwork
+                .context("Crimson artwork is absent")?
+                .models
+                .contains_key(&14),
+            "owner refresh replaced the current axe with a static scene model"
+        );
+        Ok(())
+    }
     #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Grand Cross and Divine Judgment"]
     fn installed_added_angel_spells_publish_shared_pattern_recipes() -> Result<()> {
@@ -732,6 +918,75 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Time Stop, optionally over RESONANCE_TEST_ASSETS"]
+    fn installed_time_stop_scene_loads_its_discrete_clock_hand_program() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let base = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.clone());
+        let image = pe::Image::parse(&source.executable)?;
+        cook_one(
+            &source,
+            &root,
+            &image,
+            &effect_atlas::Directory::read(&image)?,
+            &effect_atlas::residents(&source, &image)?,
+            266,
+            "battle/scenes/time-stop-0266",
+        )?;
+        let library = if base == root {
+            resonance_content::library::Library::open(&root, &[])?
+        } else {
+            resonance_content::library::Library::open_paths(&base, &[root])?
+        };
+        let (scene, bank) = document::capture(
+            &mut library.snapshot(),
+            document::Kind::Technique,
+            266,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            &|| false,
+        )?;
+        ensure!(scene.duration == 310, "Time Stop lost its native lifetime");
+        let Some(resonance_content::battle_scene::SpellRecipe::FixedPattern(pattern)) =
+            scene.spell_recipe.as_ref()
+        else {
+            anyhow::bail!("Time Stop has no executable scene recipe");
+        };
+        ensure!(
+            pattern.lifetime == 310
+                && pattern.opponent_stop_ticks == 310
+                && pattern.contacts.is_empty(),
+            "Time Stop lost its timed opponent-stop benefit"
+        );
+        let steps = bank
+            .program(1)?
+            .iter()
+            .filter_map(|event| match &event.operation {
+                resonance_content::battle_effect::EffectOperation::SetMotion { motion, .. } => {
+                    Some((event.at, motion.angles_add))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        ensure!(
+            steps
+                == (1..=12)
+                    .map(|step| (step * 20, Some([0., 0., -30.])))
+                    .collect::<Vec<_>>(),
+            "Time Stop lost its native clock-hand steps"
+        );
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Final Fury"]
     fn installed_final_fury_scene_keeps_correlated_random_programs() -> Result<()> {
         let source = Source::open(
@@ -768,6 +1023,60 @@ mod tests {
         for program in [1, 2] {
             bank.program(program)
                 .with_context(|| format!("Final Fury skill200 program{program}"))?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Wyrm Wrath"]
+    fn installed_wyrm_wrath_keeps_its_second_hits_armor_damage() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let base = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.clone());
+        let mappings: Mappings =
+            serde_json::from_slice(&fs::read(base.join(document::TECHNIQUES))?)?;
+        let owner = format!("battle/scenes/{}", mappings.target(323)?);
+        let image = pe::Image::parse(&source.executable)?;
+        cook_one(
+            &source,
+            &root,
+            &image,
+            &effect_atlas::Directory::read(&image)?,
+            &effect_atlas::residents(&source, &image)?,
+            323,
+            &owner,
+        )?;
+        let library = if base == root {
+            resonance_content::library::Library::open(&root, &[])?
+        } else {
+            resonance_content::library::Library::open_paths(&base, &[root])?
+        };
+        let (scene, _) = document::capture(
+            &mut library.snapshot(),
+            document::Kind::Technique,
+            323,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            &|| false,
+        )?;
+        for member in [1, 2] {
+            let hit = scene
+                .projectiles
+                .get(member)
+                .context("missing Wyrm Wrath projectile")?
+                .hit_variant(1)?;
+            ensure!(
+                hit.armor_damage == 8 && hit.effect.is_none(),
+                "Wyrm Wrath lost its native armor damage or changed contact artwork"
+            );
         }
         Ok(())
     }

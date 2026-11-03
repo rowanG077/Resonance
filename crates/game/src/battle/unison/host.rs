@@ -164,7 +164,7 @@ pub(crate) fn prepare_host(
                 .iter()
                 .all(|arte| available_artes.contains(&UnisonArteId(*arte)))
         });
-        let execution = if eligible && family::has_pair(combination.native_id, &participants) {
+        let execution = if eligible && super::has_pair(combination, &participants) {
             let scene = resonance_content::battle_scene::document::load(
                 resources.files,
                 resonance_content::battle_scene::document::Kind::Technique,

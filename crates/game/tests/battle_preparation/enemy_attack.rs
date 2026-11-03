@@ -16,6 +16,38 @@ const SEED: u64 = 0x2345;
 const ENCOUNTER_COMPLETION_BUDGET: u32 = 600;
 const SPELL_COMPLETION_BUDGET: u32 = 1000;
 
+#[test]
+#[ignore = "requires current Steam publications at RESONANCE_TEST_ASSETS; prepares only Abyssion's encounter"]
+fn abyssion_native_divine_power_prepares_its_own_scene_package() -> Result<()> {
+    let fixture = prepare(86, false)?;
+    let owner = fixture
+        .prepared
+        .results
+        .enemies
+        .iter()
+        .find(|enemy| enemy.reward.monster == 234)
+        .context("Abyssion is absent from its actual encounter")?
+        .actor;
+    let choices = fixture
+        .prepared
+        .core
+        .enemy_choices(owner)
+        .context("Abyssion choices were not prepared")?;
+    ensure!(
+        choices.len() > 20,
+        "Abyssion's native Divine Power row is absent"
+    );
+    ensure!(
+        fixture.prepared.effects.iter().any(|effect| effect
+            .source
+            .document
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/divine-power-0297/effects.json"))),
+        "native Divine Power must retain scene297 artwork rather than scene280"
+    );
+    Ok(())
+}
+
 struct Fixture {
     prepared: Prepared,
     party: Vec<ActorId>,

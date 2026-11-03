@@ -139,12 +139,18 @@ def build(catalogue, editions):
                     [available[key] for key in variant["arte_keys"]], scene_signature)
                 row.update(edition=edition, parent_id=case["id"], display_name=case["display_name"],
                            arte_keys=variant["arte_keys"], scene=definition["scene"],
-                           scene_signature=scene_signature)
+                           scene_signature=scene_signature,
+                           scope_status=variant.get("scope_status", "original_game_required"),
+                           scope_evidence=variant.get("scope_evidence"),
+                           requires_visual_comparison=variant.get("requires_visual_comparison", True))
                 planned.append(row["id"])
                 requests.append(row)
             combinations.append({"id": case["id"], "edition": edition,
                 "binding": case["binding"], "display_name": case["display_name"],
                 "scene": definition["scene"], "recipe_case_ids": planned,
+                "scope_status": case.get("scope_status", "original_game_required"),
+                "scope_evidence": case.get("scope_evidence"),
+                "requires_visual_comparison": case.get("requires_visual_comparison", True),
                 "planning_status": "planned" if planned else "pending",
                 "pending_reason": None if planned else "native_recipe_list_empty",
                 "capture": {"status": "pending"}, "review": {"status": "pending"}})

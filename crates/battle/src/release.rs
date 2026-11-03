@@ -229,6 +229,7 @@ pub struct SpellRecovery {
 /// A timed benefit uses the same recipient and release clock as healing spells.
 #[derive(Debug, Clone, Copy)]
 pub enum SpellBenefit {
+    Stop(u16),
     Scan {
         location: bool,
     },
@@ -262,6 +263,7 @@ pub enum SpellBenefit {
 impl SpellBenefit {
     fn valid(self) -> bool {
         match self {
+            Self::Stop(ticks) => ticks > 0,
             Self::Hp(percent) => percent > 0,
             Self::HpByDistance {
                 percent,
@@ -310,6 +312,10 @@ impl SpellBenefit {
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
         match self {
+            Self::Stop(ticks) => {
+                let actor = &mut battle.actors[target.index()];
+                actor.time_stop = actor.time_stop.max(ticks);
+            }
             Self::Scan { location } => {
                 if battle.actors[target.index()].side == crate::Side::Enemy {
                     battle.reveal_enemy(target, cues);
@@ -2226,6 +2232,50 @@ mod advanced_tests {
                 .conditions
                 .magnitude(crate::conditions::Condition::MagicAttackUp),
             10
+        );
+    }
+
+    #[test]
+    fn timed_opponent_stop_uses_existing_actor_clocks_without_shortening_a_hold() {
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        battle.entry_remaining = 0;
+        battle.actors[2].time_stop = 5;
+        let definition = Arc::make_mut(&mut volley.definition);
+        definition.origin = SpellOrigin::Caster;
+        definition.transition_ticks = 0;
+        definition.projectiles.clear();
+        definition.recovery = vec![SpellRecovery {
+            at: 0,
+            duration: 1,
+            benefit: SpellBenefit::Stop(3),
+            targets: RecoveryTargets::LivingOpponents,
+            effect: None,
+            effect_placement: Default::default(),
+            flash: None,
+        }];
+        definition.validate().unwrap();
+        assert!(!definition.uses_support_target());
+        volley
+            .step(&mut battle, ActionId(400), &mut Vec::new())
+            .unwrap();
+        assert_eq!(
+            battle
+                .actors
+                .iter()
+                .map(|actor| actor.time_stop)
+                .collect::<Vec<_>>(),
+            [0, 3, 5]
+        );
+        for _ in 0..3 {
+            battle.step(crate::BattleInput::default()).unwrap();
+        }
+        assert_eq!(
+            battle
+                .actors
+                .iter()
+                .map(|actor| actor.time_stop)
+                .collect::<Vec<_>>(),
+            [0, 0, 2]
         );
     }
 

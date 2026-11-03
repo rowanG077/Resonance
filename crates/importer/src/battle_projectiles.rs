@@ -183,7 +183,7 @@ pub fn scene_hit(row: &[u8], recoil: u8) -> Result<ActionHit> {
         "unsupported resident spell hit"
     );
     ensure!(
-        row[23] == 0 && row[25..28] == [0; 3] && row[18..21] == [0; 3] && matches!(row[24], 0 | 6),
+        row[23] == 0 && row[25..28] == [0; 3] && row[18..20] == [0; 2] && matches!(row[24], 0 | 6),
         "unsupported resident spell effect"
     );
     let element = match row[2] {
@@ -304,4 +304,36 @@ pub fn cook_battle_projectiles(root: &Path, library: &Path) -> Result<()> {
     let output = library.join("battle/projectiles.json");
     crate::output::json(&output, &table)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_spell_hit_keeps_armor_damage_separate_from_reserved_effect_bytes() -> Result<()> {
+        // Wyrm Wrath's second native contact, in the shared big-endian layout.
+        let mut row = [0u8; 28];
+        row[..2].copy_from_slice(&0x28u16.to_be_bytes());
+        row[2..8].copy_from_slice(&[10, 35, 10, 5, 1, 1]);
+        row[13] = 1;
+        row[14..16].copy_from_slice(&100u16.to_be_bytes());
+        row[20] = 8;
+        let hit = scene_hit(&row, 1)?;
+        assert_eq!(hit.armor_damage, 8);
+        assert_eq!(hit.power, Power::Percent(100));
+        assert_eq!(hit.effect, None);
+        for reserved in [18, 19] {
+            row[reserved] = 1;
+            assert!(scene_hit(&row, 1).is_err());
+            row[reserved] = 0;
+        }
+        // An independently selected local contact effect still keeps its bank.
+        row[22] = 3;
+        row[24] = 6;
+        let hit = scene_hit(&row, 1)?;
+        assert_eq!(hit.armor_damage, 8);
+        assert_eq!(hit.effect, Some(3));
+        Ok(())
+    }
 }

@@ -105,8 +105,16 @@ admission must still validate the proposed team against current prepared rules.
 Source-proven null ingredients retain their evidence and block that assignment,
 while a valid alternative from the same native matching group stays selectable.
 No distinct-owner team and an empty native recipe list remain explicit pending
-work. In the current data, Rock Pillar's Stalagmite + Ground Dasher recipe has
-only Genis available for both ordered roles; GC Innocent Edge has no source recipe.
+work. The bounded primary-source proof in `unison_source_exceptions.json` marks
+exactly two retained inputs `source_unselectable`: GC Innocent Edge has six zero
+native recipe slots, which its native selector skips; Steam Rock Pillar's
+Stalagmite + Ground Dasher recipe requires Genis twice, which its native selector
+rejects. Explicit Grave matching aliases include Kratos and Zelos, so Rock
+Pillar's other three recipes remain required and selectable. Semantic scene/name
+and ordered ingredient/native-ID fingerprints guard these annotations. Their
+capture/review status stays pending; only `requires_visual_comparison` is false.
+The source retains these unusable inputs, so neither importer invents a recipe,
+owner, visual pass or omission from the inventory.
 
 Signatures record actual named action tracks, contacts/projectiles, placement,
 scene data and ordered body owners. `primary_scene_groups` associates only the
@@ -191,14 +199,26 @@ python tools/arte-visuals/source_enemy.py \
   --output local/battle-capture-work/gc-enemy-pilot
 ```
 
+For a bounded multi-owner batch, pass `--plan PLAN.json` containing the current
+case IDs under `cases[].id`. The batch reuses one Dolphin process across owners;
+each owner retains its baseline and provenance. Source fixture failures remain
+pending and the next row continues. Worker/infrastructure failures stop the
+batch with all unvisited cases still pending. Final reports record actual
+elapsed time and worker closure.
+
 It expands only the encounter's actual source packages, verifies row hashes,
 and identifies the owner through its native action-table pointer. Controlled
 row weights and disabled followups are recorded fixture assistance. Images
 require actual action5 and the requested row/animation/command or spell identity.
 The authored native distance range determines the declared initial separation.
+HP and difficulty setup read the actual native row flags, rather than the old
+manifest's incomplete eligibility metadata. Difficulty is selected before
+encounter initialization so native stat scaling remains intact; its address and
+before/after values are recorded in `difficulty-fixture.json`.
 Enemy spell images wait for release; the script does not run a damage oracle or
-claim natural admission. A next-selection weight change prevents repeated
-actions after the first observed admission without replacing its execution.
+claim natural admission. A weight change suppresses weighted reselection after
+the first observed admission; ordinary native fallback remains unchanged. Later
+context/cleanup images can include that fallback and require visual review.
 
 Each owner retains one baseline and its first ready checkpoint. Other accepted
 rows retain typed changes and input metadata in `ready-replay.json`; recreate

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 import catalogue
+import gallery
 
 
 def library(root, names, combinations=()):
@@ -28,6 +29,43 @@ def library(root, names, combinations=()):
 
 
 class CatalogueTests(unittest.TestCase):
+    def test_proven_unison_exceptions_preserve_rows_and_do_not_spill_to_legal_recipes(self):
+        def combination(edition, name, scene, ingredients=()):
+            return {"edition": edition, "category": "unison", "display_name": name,
+                    "scene": scene, "flags": [], "capture": {"status": "pending"},
+                    "review": {"status": "pending"}, "recipe_variants": [
+                        {"id": f"recipe:{index}", "arte_keys": keys, "artes": native,
+                         "flags": [], "capture": {"status": "pending"},
+                         "review": {"status": "pending"}}
+                        for index, (keys, native) in enumerate(ingredients)]}
+        recipes = [(["stalagmite", "grave-genis"], [213, 215]),
+                   (["grave-genis", "grave-genis"], [215, 215]),
+                   (["stalagmite", "ground-dasher"], [213, 214]),
+                   (["grave-genis", "ground-dasher"], [215, 214])]
+        rows = [combination("gamecube", "Innocent Edge", "innocent-edge-0306"),
+                combination("steam", "Rock Pillar", "combination-0321", recipes),
+                combination("steam", "Innocent Edge", "innocent-edge-0306"),
+                combination("gamecube", "Innocent Edge", "innocent-edge-0306", recipes[:1]),
+                combination("steam", "Rock Pillar", "combination-0321",
+                            [(["stalagmite", "ground-dasher"], [999, 214])])]
+        catalogue.annotate_scope(rows)
+        self.assertEqual([r["scope_status"] for r in rows], ["source_unselectable"] +
+                         ["original_game_required"] * 4)
+        self.assertFalse(rows[0]["requires_visual_comparison"])
+        self.assertTrue(rows[1]["requires_visual_comparison"])
+        self.assertEqual([r["scope_status"] for r in rows[1]["recipe_variants"]],
+                         ["original_game_required"] * 2 + ["source_unselectable",
+                                                           "original_game_required"])
+        self.assertTrue(rows[4]["recipe_variants"][0]["requires_visual_comparison"])
+        self.assertEqual(len(rows[1]["recipe_variants"]), 4)
+        self.assertTrue(all(r["capture"]["status"] == r["review"]["status"] == "pending"
+                            for r in rows + rows[1]["recipe_variants"]))
+        self.assertIn("unison_source_exceptions.json", rows[0]["scope_evidence"]["document"])
+        dormant = dict(rows[0], id="gamecube:unison:7")
+        status, _, _ = gallery.review_status(dormant, {}, {
+            dormant["id"]: {"status": "match", "reference": "invented"}})
+        self.assertEqual(status, "pending")
+
     def test_proven_scope_is_semantic_and_keeps_capture_history_without_passing(self):
         rows = [
             {"edition": "gamecube", "character_name": "lloyd", "asset_key": "final-justice",

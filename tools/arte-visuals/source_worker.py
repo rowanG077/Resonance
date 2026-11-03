@@ -296,7 +296,7 @@ def write_context(output, record, library):
     actors = []
     for actor in battle['actors']:
         value = {key: actor[key] for key in ('slot', 'side', 'position', 'heading', 'center',
-                                            'center_offset', 'model_scale', 'action', 'hp')}
+                                            'center_offset', 'model_scale', 'action', 'hp', 'max_hp', 'tp', 'max_tp')}
         slot = actor['slot']
         value['logical_id'] = record['party'][slot] if slot < 4 else (
             enemy_ids[slot - 4] if slot - 4 < len(enemy_ids) else None)
@@ -312,6 +312,7 @@ def write_context(output, record, library):
     document = {'source_kind': 'dolphin',
                 'source_case_id': record.get('source_case_id', f"gamecube:party:{case.get('character')}:{case.get('arte')}"),
                 'formation': battle['formation'], 'arena': battle['arena'],
+                'difficulty': state.read(state.read(0x8035a768) + 0x19f, 'B'),
                 'party': record['party'], 'enemies': enemy_ids, 'acting_slot': record.get('acting_slot', 0),
                 'actors': actors, 'camera': battle['camera'],
                 'fixture_assistance': record.get('fixture_assistance', 'Neutral manual opponents declared during entry; original entry and physics settled.'),

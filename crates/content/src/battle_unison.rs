@@ -2,7 +2,9 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
+mod execution;
 mod host;
+pub use execution::{Callback, Execution, Origin, PairVoice, Role, RolePlacement};
 pub use host::{Host, Prelude};
 
 pub const PATH: &str = "battle/unison.json";
@@ -51,6 +53,8 @@ pub struct Combination {
     pub recipes: Vec<Vec<u16>>,
     pub duration: u16,
     pub camera_pitch: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<Execution>,
 }
 
 impl Catalogue {
@@ -71,6 +75,13 @@ impl Catalogue {
             );
         }
         for (index, row) in self.combinations.iter().enumerate() {
+            if let Some(execution) = &row.execution {
+                ensure!(
+                    row.participants == 2,
+                    "authored Unison requires exactly two participants"
+                );
+                execution.validate()?;
+            }
             ensure!(
                 usize::from(row.id) == index + 1
                     && !row.name.is_empty()

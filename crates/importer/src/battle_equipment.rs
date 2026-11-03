@@ -58,7 +58,8 @@ fn sections(bytes: &[u8]) -> Result<Vec<Option<&[u8]>>> {
         .collect()
 }
 
-fn material(bytes: &[u8]) -> Result<TrailMaterial> {
+/// Decode canonical trail material metadata without requiring a cooked mesh.
+pub fn material(bytes: &[u8]) -> Result<TrailMaterial> {
     let bytes = bytes.get(..0x1c).context("short equipment metadata")?;
     ensure!(bytes[0x0f] <= 1, "unsupported equipment trail blend");
     Ok(TrailMaterial {

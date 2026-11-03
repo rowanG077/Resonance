@@ -21,6 +21,9 @@ pub struct PatternSpell {
     pub contacts: Vec<PatternContact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cutin: Option<PatternCutin>,
+    /// A timed utility scene can stop opponents without creating a contact.
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+    pub opponent_stop_ticks: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,8 +113,13 @@ impl PatternSpell {
             );
         }
         ensure!(
-            (1..=64).contains(&self.contacts.len()),
+            self.contacts.len() <= 64
+                && (!self.contacts.is_empty() || self.opponent_stop_ticks > 0),
             "invalid pattern spell contact count"
+        );
+        ensure!(
+            self.opponent_stop_ticks <= self.lifetime,
+            "opponent stop exceeds scene lifetime"
         );
         ensure!(
             self.contacts
@@ -152,6 +160,7 @@ mod tests {
             startup_member: 1,
             startup_deferred: true,
             cutin: None,
+            opponent_stop_ticks: 0,
             contacts: vec![PatternContact {
                 tick: 15,
                 projectile: 1,

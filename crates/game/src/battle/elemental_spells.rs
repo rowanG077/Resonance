@@ -21,13 +21,14 @@ pub const SPIRAL_FLARE: u16 = 88;
 pub const THUNDER_ARROW: u16 = 89;
 pub const ABSOLUTE: u16 = 92;
 pub const METEOR_STORM: u16 = 95;
+pub const DIVINE_POWER: u16 = 96;
 pub const RAY: u16 = 114;
 pub const KNIGHT_THUNDER_BLADE: u16 = 220;
 pub const SACRED_LIGHT: u16 = 222;
 pub const DARK_SPHERE: u16 = 246;
 pub const INDIGNATION_JUDGMENT: u16 = 248;
 
-pub const SCENES: [(u16, u16); 16] = [
+pub const SCENES: [(u16, u16); 17] = [
     (EXPLOSION, 206),
     (FLAME_LANCE, 207),
     (SPARK_WAVE, 217),
@@ -44,6 +45,9 @@ pub const SCENES: [(u16, u16); 16] = [
     (SACRED_LIGHT, 263),
     (DARK_SPHERE, 278),
     (INDIGNATION_JUDGMENT, 280),
+    // This native matching group retains its own scene package. Its source
+    // dispatch uses the same Indignation Judgment handler, not its artwork.
+    (DIVINE_POWER, 297),
 ];
 
 pub(super) fn prepare(
@@ -62,7 +66,7 @@ pub(super) fn prepare(
         FLAME_LANCE => (190, &[(15, 1, 0), (90, 2, 1)]),
         SPARK_WAVE => (180, &[(30, 1, 0)]),
         INDIGNATION => (290, &[(170, 0, 0)]),
-        INDIGNATION_JUDGMENT => (
+        INDIGNATION_JUDGMENT | DIVINE_POWER => (
             315,
             &[
                 (15, 1, 0),
@@ -188,7 +192,7 @@ pub(super) fn prepare(
             lifetime,
         )?
     };
-    if catalogue == INDIGNATION_JUDGMENT {
+    if matches!(catalogue, INDIGNATION_JUDGMENT | DIVINE_POWER) {
         const PORTRAIT_DURATION: u16 = 64;
         const PORTRAIT_HOLD: u16 = 61;
         spell.policy = SpellPolicy::Cutin {

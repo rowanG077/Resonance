@@ -333,6 +333,7 @@ pub fn decode_combinations(
                 );
             }
             Ok(Combination {
+                execution: None,
                 id: (index + 1) as u8,
                 name: caption(dol::u32(row, 0)?)?,
                 native_id: dol::u16(row, 4)?,

@@ -262,6 +262,28 @@ def pair(rows):
 def annotate_scope(rows):
     """Attach individually proven scope facts without changing execution evidence."""
     evidence = read(Path(__file__).with_name("source_slots.json"))
+    unison_path = Path(__file__).with_name("unison_source_exceptions.json")
+    unison_evidence = read(unison_path)
+    unison_digest = hashlib.sha256(unison_path.read_bytes()).hexdigest()
+
+    def unison_exception(row, variant=None):
+        for entry in unison_evidence["entries"]:
+            selector = entry["selector"]
+            if (row["edition"], row.get("display_name"), row.get("scene")) != (
+                    selector["edition"], selector["name"], selector["scene"]):
+                continue
+            if selector.get("empty_recipes"):
+                if variant is not None or row.get("recipe_variants"):
+                    continue
+            elif (variant is None or fingerprint({"keys": variant["arte_keys"],
+                                                 "native_ids": variant["artes"]}) !=
+                  fingerprint({"keys": selector["recipe_keys"],
+                               "native_ids": selector["native_recipe_ids"]})):
+                continue
+            return {"document": "tools/arte-visuals/unison_source_exceptions.json",
+                    "sha256": unison_digest, "entry": entry["id"]}
+        return None
+
     for row in rows:
         row["scope_status"] = "original_game_required"
         for entry in evidence["entries"]:
@@ -271,6 +293,18 @@ def annotate_scope(rows):
                                          "entry": entry["id"]}
                 row["flags"].append("not_original_game_arte")
                 break
+        if row.get("category") == "unison":
+            if proof := unison_exception(row):
+                row.update(scope_status="source_unselectable", scope_evidence=proof)
+                row["flags"].append("source_unselectable")
+            for variant in row["recipe_variants"]:
+                variant["scope_status"] = "original_game_required"
+                if proof := unison_exception(row, variant):
+                    variant.update(scope_status="source_unselectable", scope_evidence=proof)
+                    variant["flags"].append("source_unselectable")
+                variant["requires_visual_comparison"] = variant["scope_status"] != "source_unselectable"
+        row["requires_visual_comparison"] = row["scope_status"] not in {
+            "source_unimplemented_slot", "repository_authored", "source_unselectable"}
 
 
 def build(gamecube, steam, legacy=None):
@@ -303,6 +337,8 @@ def build(gamecube, steam, legacy=None):
         summary[edition]["scope_status"] = dict(Counter(r["scope_status"] for r in selected))
         summary[edition]["party_scope_status"] = dict(Counter(
             r["scope_status"] for r in selected if r["category"] == "party"))
+        summary[edition]["unison_recipe_scope_status"] = dict(Counter(
+            variant["scope_status"] for row in selected for variant in row.get("recipe_variants", [])))
     return {"schema_version": 1, "cooked_layout_version": CURRENT_VERSION,
             "libraries": {"gamecube": str(Path(gamecube).resolve()), "steam": str(Path(steam).resolve())},
             "scope": "Catalogue candidates only; captures and visual review remain independent pending work.",

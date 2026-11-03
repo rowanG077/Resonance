@@ -10,6 +10,7 @@ use resonance_content::{
 use std::{collections::BTreeMap, path::Path};
 mod falcon;
 pub(crate) mod ordinary;
+mod regal;
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let catalogue = read(source)?;
@@ -35,7 +36,9 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
         &library.join(resonance_content::battle_rules::MARTIAL_ATTACKS),
         &resonance_importer::martial_attack_document(&catalogue)?,
     )?;
-    ordinary::cook(source, library, &catalogue)
+    ordinary::cook(source, library, &catalogue)?;
+    falcon::cook(source, library, &catalogue)?;
+    regal::cook(source, library, &catalogue)
 }
 
 pub(crate) fn read(source: &Source) -> Result<Catalogue> {
@@ -125,7 +128,7 @@ pub(crate) fn read(source: &Source) -> Result<Catalogue> {
                         &input,
                     )?;
                     if id == 140 {
-                        falcon::normalize(&mut attack)?;
+                        falcon::attach(source, &image, &mut attack)?;
                     }
                     crate::battle_callbacks::attach(source, &image, id, bytes, &mut attack)?;
                     sounds(&mut attack)?;

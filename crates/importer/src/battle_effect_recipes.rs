@@ -1292,7 +1292,7 @@ impl<'a> NativeBank<'a> {
         }
     }
 
-    fn delayed_motion(&self, pointer: u16) -> Result<MotionChange> {
+    fn delayed_motion(&self, pointer: u16, state: &mut EditState) -> Result<MotionChange> {
         let mut at = usize::from(pointer);
         let mut motion = MotionChange::default();
         loop {
@@ -1316,6 +1316,34 @@ impl<'a> NativeBank<'a> {
             let target = dol::u16(self.bytes, at + 2)?;
             let value = f32::from_bits(dol::u32(self.bytes, at + 4)?);
             ensure!(value.is_finite(), "non-finite delayed effect motion");
+            if (0x7ff8..=0x7ffb).contains(&target) {
+                ensure!(
+                    matches!(opcode, 7 | 8 | 14),
+                    "unsupported delayed scratch edit"
+                );
+                let slot = &mut state.scratch[usize::from(target - 0x7ff8)];
+                let result = if opcode == 7 {
+                    ValueRange::fixed(value)
+                } else {
+                    let mut range = slot.context("delayed effect scratch is empty")?;
+                    if opcode == 8 {
+                        range.min += value;
+                        range.max += value;
+                    } else {
+                        let a = range.min * value;
+                        let b = range.max * value;
+                        range.min = a.min(b);
+                        range.max = a.max(b);
+                        range.step *= value.abs();
+                        range.reverse ^= value.is_sign_negative();
+                    }
+                    range
+                };
+                result.validate()?;
+                *slot = Some(result);
+                at += 12;
+                continue;
+            }
             if opcode == 30 {
                 let forward = motion.forward_motion.get_or_insert_default();
                 match target {
@@ -1327,6 +1355,15 @@ impl<'a> NativeBank<'a> {
                 continue;
             }
             if matches!(opcode, 8 | 14) {
+                if opcode == 8
+                    && (0x58..=0x60).contains(&target)
+                    && (target - 0x58).is_multiple_of(4)
+                {
+                    motion.angles_add.get_or_insert([0.; 3])[usize::from((target - 0x58) / 4)] +=
+                        value;
+                    at += 12;
+                    continue;
+                }
                 if opcode == 8
                     && (0x64..=0x6c).contains(&target)
                     && (target - 0x64).is_multiple_of(4)
@@ -1352,10 +1389,11 @@ impl<'a> NativeBank<'a> {
                 at += 12;
                 continue;
             }
-            let vectors: [(u16, &mut [Option<f32>; 3]); 7] = [
+            let vectors: [(u16, &mut [Option<f32>; 3]); 8] = [
                 (0x34, &mut motion.offset),
                 (0x40, &mut motion.velocity),
                 (0x4c, &mut motion.acceleration),
+                (0x58, &mut motion.angles),
                 (0x64, &mut motion.angular_velocity),
                 (0xb0, &mut motion.size),
                 (0xbc, &mut motion.size_velocity),
@@ -1386,6 +1424,11 @@ impl<'a> NativeBank<'a> {
                 && let Some(add) = &mut motion.angular_velocity_add
             {
                 add[usize::from((target - 0x64) / 4)] = 0.;
+            }
+            if (0x58..=0x60).contains(&target)
+                && let Some(add) = &mut motion.angles_add
+            {
+                add[usize::from((target - 0x58) / 4)] = 0.;
             }
             at += 12;
         }
@@ -1470,7 +1513,7 @@ impl<'a> NativeBank<'a> {
                         EffectOperation::SetMotion {
                             spawn: *retained_spawns.get(usize::from(argument))
                                 .context("delayed effect refers to missing retained spawn")?,
-                            motion: Box::new(self.delayed_motion(operand)?),
+                            motion: Box::new(self.delayed_motion(operand, &mut state)?),
                         }
                     } else {
                         ensure!(command < 252, "effect program requires retained edit");

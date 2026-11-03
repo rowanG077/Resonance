@@ -5,6 +5,12 @@ use resonance_content::{battle_martial::AuthoredAction, battle_unison::Placement
 const SWORD_RAIN_TEMPEST: &str = "battle/artes/sword-rain-tempest/action.json";
 
 pub(crate) fn action_path(image: &pe::Image<'_>, id: usize, row: &[u8]) -> Result<Option<String>> {
+    if let Some(path) = super::regal::action_path(image, id, row)? {
+        return Ok(Some(path));
+    }
+    if id == 228 {
+        return super::falcon::action_path(image, row).map(Some);
+    }
     if id != 30 {
         return Ok(None);
     }
@@ -49,6 +55,7 @@ pub(super) fn cook(source: &Source, library: &Path, catalogue: &Catalogue) -> Re
             attack,
             motions: BTreeMap::new(),
             effects: None,
+            presentation: Vec::new(),
             unison: Placement {
                 native_id: pe::half(row, 0)?,
                 altitude: pe::word(row, 0x50)?,

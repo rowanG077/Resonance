@@ -45,6 +45,60 @@ fn definition() -> Arc<ModelDefinition> {
 }
 
 #[test]
+fn continued_pose_samples_rate_changes_before_advancing() -> Result<()> {
+    // These intervals also exercise the prepare-time authored pose resolver in
+    // game/battle/martial/authored.rs against the actual Model playback clock.
+    let sample = |start: u16,
+                  end: f32,
+                  rate: f32,
+                  controls: &[(u16, f32)],
+                  through: u16|
+     -> Result<(Option<u16>, f32)> {
+        let mut definition = (*definition()).clone();
+        definition.motions.get_mut(&1).unwrap().duration_frames = end;
+        let actor = actor();
+        let mut model = Model::new(Arc::new(definition), ActorId(0), &actor)?;
+        model.play(
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 1,
+            },
+            0.,
+            rate,
+            false,
+            0,
+        )?;
+        for at in start..=through {
+            for &(_, rate) in controls
+                .iter()
+                .filter(|(raw, _)| raw.checked_add(1) == Some(at))
+            {
+                model.set_rate(rate)?;
+            }
+            model.step(&actor, true)?;
+            if model.animation.clock.finished {
+                return Ok((Some(at), model.shown.frame));
+            }
+        }
+        Ok((None, model.shown.frame))
+    };
+    assert_eq!(sample(0, 1., 0.5, &[(1, 0.)], 10)?, (None, 0.5));
+    assert_eq!(sample(0, 1., 0.5, &[(1, 0.), (4, 0.5)], 10)?, (Some(6), 1.));
+    assert_eq!(sample(0, 1., 0.5, &[(2, 0.)], 10)?, (None, 1.));
+    assert_eq!(sample(0, 1., 0.5, &[], 10)?, (Some(3), 1.));
+    assert_eq!(sample(90, 20., 0.75, &[], 230)?.0, Some(117));
+    assert_eq!(
+        sample(90, 20., 0.75, &[(92, 0.05), (165, 0.4)], 230)?.0,
+        Some(203)
+    );
+    assert_eq!(
+        sample(90, 20., 0.75, &[(92, 0.), (165, 0.4)], 230)?.0,
+        Some(212)
+    );
+    Ok(())
+}
+
+#[test]
 fn partial_pose_keeps_advancing_during_body_blend_and_blends_out_from_visible_pose() -> Result<()> {
     let mut definition = (*definition()).clone();
     let motion = Arc::make_mut(definition.motions.get_mut(&1).unwrap());
@@ -1268,6 +1322,23 @@ fn selected_clip_holds_its_start_frame_through_blending() -> Result<()> {
     model.set_rate(0.25)?;
     model.step(&actor, true)?;
     assert_eq!(model.shown.frame, 3.75);
+    // Stored finishers retain their authored slow motion, rather than freezing.
+    model.set_rate(0.005)?;
+    model.step(&actor, true)?;
+    assert!((model.shown.frame - 3.755).abs() < 0.000001);
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
+        3.755,
+        -0.005,
+        false,
+        0,
+    )?;
+    model.step(&actor, true)?;
+    model.step(&actor, true)?;
+    assert!((model.shown.frame - 3.75).abs() < 0.000001);
     assert!(model.set_rate(f32::NAN).is_err());
     Ok(())
 }

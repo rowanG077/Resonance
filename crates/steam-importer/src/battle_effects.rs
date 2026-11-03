@@ -495,6 +495,13 @@ pub(crate) fn cook_enemies(
             let models = models(source, library, &bytes, &owner)?;
             let count = models.len();
             definition.artwork = Some(Artwork::from_models(textures, models)?);
+            crate::battle_enemies::bind_carried_effects(
+                source,
+                library,
+                &bytes,
+                &monsters::symbol(id),
+                &mut definition,
+            )?;
             bind_scene_opacity(&mut definition)?;
             output::json(&library.join(&owner).join("effects.json"), &definition)?;
             Ok((count, images))
@@ -617,6 +624,98 @@ mod tests {
                 "Final Fury program {member}: {:?}",
                 definition.programs[member]
             );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn retained_angle_addition_updates_later_birth_scratch_without_a_runtime_register() -> Result<()>
+    {
+        let mut actor = vec![0; 360];
+        actor[0] = 14;
+        actor[2] = 255;
+        actor[24..28].copy_from_slice(&0x40000u32.to_le_bytes());
+        actor[58] = 255;
+        let mut edits = Vec::new();
+        for target in [0x68u16, 0x7ffb] {
+            edits.extend(8u16.to_le_bytes());
+            edits.extend(target.to_le_bytes());
+            edits.extend((-30f32).to_le_bytes());
+            edits.extend(0u32.to_le_bytes());
+        }
+        edits.extend(u16::MAX.to_le_bytes());
+        let copy = 400 + edits.len() as u32;
+        edits.extend(7u16.to_le_bytes());
+        edits.extend(0x68u16.to_le_bytes());
+        edits.extend(0f32.to_le_bytes());
+        edits.extend(0x7ffbu16.to_le_bytes());
+        edits.extend(0u16.to_le_bytes());
+        edits.extend(u16::MAX.to_le_bytes());
+        let mut delayed = [2, 0, 253, 0, 0, 0, 0, 0];
+        delayed[4..8].copy_from_slice(&400u32.to_le_bytes());
+        let mut spawn = [3, 0, 0, 0, 0, 0, 0, 0];
+        spawn[4..8].copy_from_slice(&copy.to_le_bytes());
+        let definition = decode(
+            &fixture(
+                &actor,
+                &edits,
+                &[[0; 8], delayed, spawn, [4, 0, 254, 0, 0, 0, 0, 0]],
+            ),
+            &[],
+            |_, _| Ok(()),
+        )?;
+        let EffectOperation::SetMotion { motion, .. } = &definition.programs[0][1].operation else {
+            anyhow::bail!("missing delayed roll")
+        };
+        assert_eq!(motion.angles_add, Some([0., 0., -30.]));
+        let EffectOperation::Spawn { birth, .. } = &definition.programs[0][2].operation else {
+            anyhow::bail!("missing later birth")
+        };
+        assert_eq!(
+            birth.angles[2],
+            Some(resonance_content::battle_effect::ValueRange::fixed(-30.))
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM; compiles only Time Stop's native effect bank"]
+    fn installed_time_stop_effect_keeps_twelve_discrete_clock_hand_steps() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let package = source.require("BTLmagic_066.pac")?;
+        let bank =
+            crate::battle_scenes::member(&package, 4)?.context("missing Time Stop effects")?;
+        let definition = decode(bank, &[], |_, _| Ok(()))?;
+        let program = &definition.programs[1];
+        ensure!(
+            !program
+                .iter()
+                .any(|event| matches!(event.operation, EffectOperation::Unsupported { .. })),
+            "Time Stop effect remains unsupported: {program:?}"
+        );
+        let steps = program
+            .iter()
+            .filter_map(|event| match &event.operation {
+                EffectOperation::SetMotion { spawn, motion } => {
+                    Some((event.at, *spawn, motion.angles_add))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        ensure!(
+            steps
+                == (1..=12)
+                    .map(|step| (step * 20, 0, Some([0., 0., -30.])))
+                    .collect::<Vec<_>>(),
+            "native clock-hand schedule changed"
+        );
+        for step in 1..=12 {
+            ensure!(program.iter().any(|event| event.at == step * 20 && matches!(&event.operation, EffectOperation::Spawn { birth, .. } if birth.angles[2].is_some_and(|roll| roll.min == -30. * (step - 1) as f32 && roll.max == roll.min && roll.draw.is_none()))), "native clock echo lost retained scratch at step {step}");
         }
         Ok(())
     }

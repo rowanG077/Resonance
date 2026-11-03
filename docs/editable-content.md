@@ -555,6 +555,17 @@ selected costume's actual rig. Motion files use 30 animation frames per second;
 contact windows, duration and recovery use gameplay updates. Hit-stop pauses
 the action clock. A `pose_sequence` additionally accounts for authored blend
 holds; ordinary `events` use absolute ages directly.
+An `after_previous` pose waits for the previous finite clip to finish, including
+scheduled animation-rate changes and a zero-rate hold followed by a resume.
+An unresumed hold cannot provide a finite following start.
+
+Optional `presentation` entries use the same authored clock and pose holds as
+the attack. They select existing feedback: `skill_effect`, `stage_tint`, `camera`,
+`cutin`, `equip_skill_weapon`, `weapon_visibility` and `restore_weapons`.
+For example, `[20,{"cutin":{"duration":44}}]` schedules a portrait for 44 updates.
+Skill effects and temporary weapons require this arte's stored skill scene;
+an optional effect `bone` names a joint on the selected actor's actual model.
+An omitted presentation list is empty.
 
 The `effects` bank is optional; absent selects the shared technique bank.
 `attack.effect`, timed `effect` events and contact `hit.effect` select programs

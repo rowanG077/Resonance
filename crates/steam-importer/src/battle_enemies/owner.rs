@@ -16,6 +16,9 @@ use resonance_content::{
 };
 use std::fs;
 
+#[path = "rig_names.rs"]
+mod rig_names;
+
 fn body_nodes(library: &Path, preview: &ModelPreview) -> Result<Vec<String>> {
     Ok(
         Skeleton::from_glb(&fs::read(library.join(&preview.parts[0].scene.mesh))?)?
@@ -185,7 +188,8 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
             let nodes = body_nodes(library, &preview)?;
             let (mut profile, unmapped) = battle_profiles::enemy(metadata, &nodes)?;
             unmapped_immunities += usize::from(unmapped);
-            let tables = actions_with_source(source, &bytes, common, library, id)?;
+            let mut tables = actions_with_source(source, &bytes, common, library, id)?;
+            rig_names::bind(&mut tables.actions.policy, &nodes)?;
             for (index, row) in tables.actions.rows.iter().enumerate() {
                 if let Some(reason) = &row.unsupported_reason {
                     unavailable_artes.push((id, index, reason.clone()));
@@ -294,6 +298,44 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; recooks only Kilia's enemy owner"]
+    fn installed_kilia_controller_binds_existing_source_rig() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        cook(&source, &library, Some(&[186]))?;
+        let name = monsters::symbol(186);
+        let entry: Entry = serde_json::from_slice(&fs::read(
+            library.join(format!("battle/enemies/{name}/enemy.json")),
+        )?)?;
+        let preview: ModelPreview = serde_json::from_slice(&fs::read(
+            library.join(format!("meshes/monsters/{name}/model.json")),
+        )?)?;
+        let nodes = body_nodes(&library, &preview)?;
+        let Some(resonance_content::battle_action::EnemyBehavior::Transformation {
+            revealed_bones,
+            ..
+        }) = entry.rules.actions.policy.behavior
+        else {
+            anyhow::bail!("Kilia has no native transformation controller");
+        };
+        ensure!(
+            revealed_bones.len() == 8 && revealed_bones.iter().all(|name| nodes.contains(name)),
+            "Kilia controller must reference its eight existing source joints"
+        );
+        ensure!(
+            revealed_bones[0] == "SC_BONE_UDE_L",
+            "Kilia controller did not retain the source joint spelling"
+        );
+        Ok(())
+    }
     use crate::Language;
     use std::path::PathBuf;
 

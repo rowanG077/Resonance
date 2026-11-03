@@ -69,7 +69,21 @@ fn canonical_joint_name(name: &str) -> String {
                 .and_then(Option::as_ref)
         })
         .cloned()
-        .unwrap_or_else(|| name.to_owned())
+        .unwrap_or_else(|| {
+            // KKnn is a native effect attachment marker, not an arbitrary
+            // model label. GC publishes its reserved prefix as kk; preserve
+            // the source slot and descriptive suffix, including its case.
+            let bytes = name.as_bytes();
+            if bytes.len() >= 5
+                && bytes[..2].eq_ignore_ascii_case(b"KK")
+                && bytes[2..4].iter().all(u8::is_ascii_digit)
+                && bytes[4] == b'_'
+            {
+                format!("kk{}", &name[2..])
+            } else {
+                name.to_owned()
+            }
+        })
 }
 
 fn casefold_names(
@@ -101,12 +115,19 @@ mod joint_tests {
             ("HIDE04_A", "hide04_a"),
             ("WORLD2", "world2"),
             ("KK00", "kk00"),
+            ("KK00_BE19_00", "kk00_BE19_00"),
+            ("KK02_WEP1_L", "kk02_WEP1_L"),
+            ("KK00_TUE", "kk00_TUE"),
+            ("KK00NotAnAttachment", "KK00NotAnAttachment"),
+            ("KK0X_Other", "KK0X_Other"),
             ("UntouchedNativeThing", "UntouchedNativeThing"),
         ] {
             assert_eq!(canonical_joint_name(source), target);
         }
         let names = ["BONE_ATAMA", "head", "head-2"].map(canonical_joint_name);
         assert_eq!(joint_names(&names), ["head", "head-3", "head-2"]);
+        let names = ["KK00_Marker", "kk00_Marker"].map(canonical_joint_name);
+        assert_eq!(joint_names(&names), ["kk00_Marker", "kk00_Marker-2"]);
     }
 
     #[test]

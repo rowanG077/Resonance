@@ -51,6 +51,8 @@ impl EffectDefinition {
                         velocity,
                         velocity_add,
                         acceleration,
+                        angles,
+                        angles_add,
                         angular_velocity,
                         angular_velocity_add,
                         forward_motion,
@@ -89,12 +91,14 @@ impl EffectDefinition {
                             .chain(size)
                             .chain(velocity)
                             .chain(acceleration)
+                            .chain(angles)
                             .chain(angular_velocity)
                             .chain(size_velocity)
                             .chain(size_acceleration)
                             .flatten()
                             .chain(velocity_scale.iter().flatten())
                             .chain(velocity_add.iter().flatten())
+                            .chain(angles_add.iter().flatten())
                             .chain(angular_velocity_add.iter().flatten())
                             .chain(
                                 forward_motion
@@ -397,6 +401,8 @@ impl Active {
                     velocity,
                     velocity_add,
                     acceleration,
+                    angles,
+                    angles_add,
                     angular_velocity,
                     angular_velocity_add,
                     forward_motion,
@@ -416,6 +422,12 @@ impl Active {
                             .play(*animation)?;
                     }
                     assign(&mut particle.frame.state.acceleration, acceleration);
+                    assign(&mut particle.frame.state.angles, angles);
+                    if let Some(add) = angles_add {
+                        for (current, add) in particle.frame.state.angles.iter_mut().zip(add) {
+                            *current += add;
+                        }
+                    }
                     assign(&mut particle.frame.state.angular_velocity, angular_velocity);
                     if let Some(add) = angular_velocity_add {
                         for (current, add) in

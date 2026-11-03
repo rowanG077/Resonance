@@ -37,6 +37,8 @@ the current library.
 - Archive, package, executable-address and source-encoding knowledge stays in this
   crate. Where native data differs only in storage or indices, normalize it and
   reuse the GameCube decoder and named-document writer.
+- Preserve native gameplay rules and action timing. GC fidelity governs rendering
+  style; intentional source timing differences remain part of that game's rules.
 - Scripts normalize input, sound and native identifiers while preserving branch,
   event and message references. Both importers write UTF-8 text.
 - Models and clips become standard GLBs; textures become KTX2; recordings become
@@ -50,6 +52,9 @@ the current library.
 See [editable content](../../docs/editable-content.md) and the
 [cooked library guide](../../docs/cooked-library.md) for the authoring contracts.
 Actual gameplay differences still determine cross-library mod/save compatibility.
+The [GC-to-PS2 Changes Guide](https://gamefaqs.gamespot.com/ps2/920235-tales-of-symphonia/faqs/32765)
+is a useful overview of user-visible edition differences. Installed executable
+and archive data remain authoritative for Steam identities and behavior.
 
 ## Implemented owners
 

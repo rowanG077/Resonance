@@ -80,6 +80,33 @@ fn added_angel_spell_60_and_144_prepare_from_authored_scene_recipes() -> Result<
     Ok(())
 }
 
+#[test]
+#[ignore = "requires current source-cooked Time Stop; optional RESONANCE_TEST_OVERLAY keeps canonical assets unchanged"]
+fn time_stop_227_prepares_from_the_authored_scene_recipe() -> Result<()> {
+    let (battle, owner) = encounter(4, &[227], false)?;
+    assert!(
+        battle
+            .prepared_technique(owner, resonance_battle::TechniqueId(227))
+            .is_some()
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires source-cooked Regal actions; optional RESONANCE_TEST_OVERLAY keeps canonical assets unchanged"]
+fn added_regal_artes_prepare_from_native_action_tracks() -> Result<()> {
+    let (battle, owner) = encounter(8, &[196, 198, 199, 200], false)?;
+    for catalogue in [196, 198, 199, 200] {
+        assert!(
+            battle
+                .prepared_technique(owner, resonance_battle::TechniqueId(catalogue))
+                .is_some(),
+            "missing Regal arte {catalogue}"
+        );
+    }
+    Ok(())
+}
+
 #[path = "martial/attached.rs"]
 mod attached;
 
@@ -91,3 +118,6 @@ mod mirage_201;
 
 #[path = "martial/eagle_dive.rs"]
 mod eagle_dive;
+
+#[path = "martial/presea_equipped.rs"]
+mod presea_equipped;

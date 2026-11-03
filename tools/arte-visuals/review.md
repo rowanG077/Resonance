@@ -27,9 +27,14 @@ target placement, lighting, outlines, and recovery/cleanup. Minor texture
 differences are allowed. Missing effects, different geometry, or incorrect
 choreography need a fix. Steam additions require an explicit GC-style reference
 choice; a missing counterpart is never a pass.
+Preserve intentional native gameplay timing. Record a source-proven timing
+difference separately from a lost command, effect scheduling mismatch or rendering
+defect; do not change jump, hit or recovery timing to make screenshots align.
 
-Reviews are a JSON object keyed by case ID. Copy the gallery's `evidence_key`
-after inspecting the actual images and select an explicit reference ID:
+Reviews are a JSON object keyed by case ID. Select an explicit reference ID and
+regenerate the gallery, then copy its `evidence_key` after inspecting the actual
+images. The key binds that selected pair; newer alternative captures do not
+invalidate an unchanged comparison.
 
 ```json
 {

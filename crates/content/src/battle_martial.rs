@@ -17,7 +17,37 @@ pub struct AuthoredAction {
     pub motions: BTreeMap<u16, String>,
     #[serde(default)]
     pub effects: Option<String>,
+    /// Presentation shares the attack's source clock and is flattened at preparation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub presentation: Vec<(u16, Presentation)>,
     pub unison: crate::battle_unison::Placement,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Presentation {
+    SkillEffect {
+        member: u16,
+        #[serde(default)]
+        bone: Option<String>,
+    },
+    StageTint {
+        color: [u8; 3],
+        duration: u16,
+    },
+    Camera {
+        bounds: crate::battle_scene::CameraBounds,
+        duration: u16,
+    },
+    Cutin {
+        duration: u16,
+    },
+    EquipSkillWeapon,
+    WeaponVisibility {
+        slot: crate::battle_action::WeaponSlot,
+        visible: bool,
+    },
+    RestoreWeapons,
 }
 
 fn read_authored_attack<'de, D>(deserializer: D) -> Result<Attack, D::Error>

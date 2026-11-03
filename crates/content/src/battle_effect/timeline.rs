@@ -100,6 +100,10 @@ pub struct MotionChange {
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub acceleration: [Option<f32>; 3],
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+    pub angles: [Option<f32>; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub angles_add: Option<[f32; 3]>,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub angular_velocity: [Option<f32>; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub angular_velocity_add: Option<[f32; 3]>,

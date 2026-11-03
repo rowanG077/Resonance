@@ -1,7 +1,7 @@
 use super::*;
 mod paths;
 mod patterns;
-mod unison_points;
+pub(super) mod unison_points;
 #[derive(Deserialize)]
 struct Style {
     stage_color: [u8; 3],
@@ -12,6 +12,19 @@ pub(super) fn bind(image: &pe::Image<'_>, id: u16, rules: &mut Definition) -> Re
     if let Some(style) = styles.get(&id) {
         rules.stage_color = Some(style.stage_color);
         rules.camera = Some(style.camera);
+    }
+    if id == 266 {
+        // The shared scene initializer receives RGB4, radius2400 and elevation8.
+        ensure!(
+            image.slice(0x417c06, 8)? == [0xc7, 0x44, 0x24, 0x10, 4, 4, 4, 0xff],
+            "Time Stop stage tint changed"
+        );
+        rules.duration = pe::word(image.slice(0x417c1b, 4)?, 0)?.try_into()?;
+        rules.stage_color = Some([4; 3]);
+        rules.camera = Some(battle_scene::CameraBounds {
+            minimum_distance: f32::from_bits(pe::word(image.slice(0x883380, 4)?, 0)?),
+            minimum_elevation: f32::from_bits(pe::word(image.slice(0x882a44, 4)?, 0)?),
+        });
     }
     if id == 271 {
         let entry = pe::word(image.slice(0x8e9b08 + 271 * 4, 4)?, 0)?;

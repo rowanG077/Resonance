@@ -17,6 +17,18 @@ pub(super) struct Plan {
     pub event_flags: BTreeSet<u16>,
     pub owner_hp_percent: u8,
     pub requires_dead_ally: bool,
+    pub entry_budget: u32,
+}
+
+fn entry_budget(presentation: Option<&resonance_content::battle_enemy::Presentation>) -> u32 {
+    use resonance_content::battle_enemy::Opening;
+    let ticks = presentation
+        .and_then(|presentation| presentation.opening.as_ref())
+        .map_or(0, |opening| match opening {
+            Opening::Entrance(entrance) => entrance.ticks,
+            Opening::Voice(voice) => voice.ticks,
+        });
+    (u32::from(ticks) + 180).max(600)
 }
 
 impl Plan {
@@ -72,6 +84,7 @@ impl Plan {
             event_flags: action.required_flag.into_iter().collect(),
             owner_hp_percent,
             requires_dead_ally,
+            entry_budget: entry_budget(entry.rules.presentation.as_ref()),
         })
     }
 }
@@ -168,6 +181,30 @@ mod tests {
                 1 + allies
             ],
         }
+    }
+
+    #[test]
+    fn enemy_fixture_waits_for_actual_entrance_without_shortening_it() -> Result<()> {
+        use resonance_content::battle_enemy::{Opening, Presentation};
+        let entrance: Opening = serde_json::from_value(serde_json::json!({"entrance": {
+            "ticks":660,"gravity":0.0,"flash":null,"launches":[],"cues":[],
+            "camera":{"radius":1150.0,"height_radius":1500.0,"focus_height":75.0,
+                "elevation":5.0,"minimum_elevation":5.0,"yaw":-170.0,"yaw_step":0.0,
+                "elevation_step":0.0,"focus_height_step":0.0}
+        }}))?;
+        let presentation = Presentation {
+            opening: Some(entrance),
+            defeat: resonance_content::battle_voice::TimedVoice {
+                sound: None,
+                ticks: 0,
+            },
+        };
+        assert_eq!(entry_budget(None), 600);
+        assert_eq!(entry_budget(Some(&presentation)), 840);
+        assert!(
+            matches!(presentation.opening, Some(Opening::Entrance(ref entrance)) if entrance.ticks == 660)
+        );
+        Ok(())
     }
 
     #[test]

@@ -12,7 +12,10 @@ mod elemental;
 mod fierce;
 mod hammer;
 mod physical;
+mod presentation;
 pub(super) use physical::prepare_eagle_landing;
+#[cfg(all(test, feature = "test-support"))]
+mod falcon_tests;
 #[cfg(all(test, feature = "test-support"))]
 mod grand_fall_tests;
 #[cfg(all(test, feature = "test-support"))]
@@ -163,6 +166,7 @@ pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
         (Zelos | Kratos, 221) => Spell(236),
         (Raine, 222) => Spell(263),
         (Raine, 225) => Spell(264),
+        (Raine, 227) => Spell(266),
         (Raine, 246) => Spell(278),
         (Raine, 247) => Spell(super::fairy_circle::SCENE),
         (Raine, 250) => Spell(283),

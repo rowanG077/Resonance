@@ -63,6 +63,12 @@ fn fixed_birth_values_do_not_erase_zero_assignments_or_random_draws() -> Result<
         serde_json::to_value(motion)?,
         json!({"velocity":[null,0.,null]})
     );
+    let angles: MotionChange =
+        serde_json::from_value(json!({"angles":[null,null,0],"angles_add":[0,0,-30]}))?;
+    assert_eq!(
+        serde_json::to_value(angles)?,
+        json!({"angles":[null,null,0.],"angles_add":[0.,0.,-30.]})
+    );
     let frozen: ModelAnimation = serde_json::from_value(json!({"model":0,"clip":1,"rate":0}))?;
     assert_eq!(frozen.rate, 0.);
     assert_eq!(serde_json::to_value(frozen)?["rate"], 0.);

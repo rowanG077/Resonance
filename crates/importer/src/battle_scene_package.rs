@@ -226,6 +226,7 @@ fn ray_recipe(module: &Rel) -> Result<SpellRecipe> {
         startup_member: 1,
         startup_deferred: true,
         cutin: None,
+        opponent_stop_ticks: 0,
         contacts,
     };
     recipe.validate()?;

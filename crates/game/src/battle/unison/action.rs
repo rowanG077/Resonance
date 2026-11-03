@@ -99,6 +99,18 @@ pub(super) fn prepare(
                 appearance: resources.prepared.effect_member(bank, *member)?,
                 origin: resonance_battle::AttackOrigin::ActorRoot,
             },
+            Event::EmitProjectile {
+                definition,
+                hit,
+                feedback,
+            } => AttackEvent::Projectile(crate::battle::martial::projectile_with_local(
+                resources,
+                definition,
+                hit,
+                *feedback,
+                recoil,
+                Some(bank),
+            )?),
             Event::Throw { .. } | Event::Projectile { .. } => {
                 anyhow::bail!("unsupported combination participant emission")
             }

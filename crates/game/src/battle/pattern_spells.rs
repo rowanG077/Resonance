@@ -33,6 +33,17 @@ pub(super) fn prepare(
         },
         pattern.lifetime,
     )?;
+    if pattern.opponent_stop_ticks != 0 {
+        spell.recovery.push(resonance_battle::SpellRecovery {
+            at: TRANSITION_TICKS + 1,
+            duration: 1,
+            benefit: resonance_battle::SpellBenefit::Stop(pattern.opponent_stop_ticks),
+            targets: resonance_battle::RecoveryTargets::LivingOpponents,
+            effect: None,
+            effect_placement: Default::default(),
+            flash: None,
+        });
+    }
     if let Some(cutin) = &pattern.cutin {
         spell.policy = resonance_battle::SpellPolicy::Cutin {
             at: TRANSITION_TICKS + ACTIVE_START_TICKS + cutin.tick,

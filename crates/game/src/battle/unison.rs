@@ -11,6 +11,7 @@ use resonance_content::{battle_scene::Scene, battle_unison::Combination};
 use std::{collections::BTreeSet, sync::Arc};
 
 mod action;
+mod authored;
 mod family;
 mod host;
 pub(crate) use host::{HostMember, prepare_host};
@@ -31,5 +32,16 @@ pub(crate) fn prepare(
     resources: &mut Resources<'_>,
     actions: &mut ActionDefinitions,
 ) -> Result<Option<UnisonCombination>> {
+    if let Some(execution) = &combination.execution {
+        return authored::prepare(execution, scene, bank, participants, resources, actions)
+            .map(Some);
+    }
     family::prepare(combination, scene, bank, participants, resources, actions)
+}
+
+pub(super) fn has_pair(combination: &Combination, participants: &[Participant<'_>]) -> bool {
+    combination.execution.as_ref().map_or_else(
+        || family::has_pair(combination.native_id, participants),
+        |execution| authored::has_pair(execution, participants),
+    )
 }

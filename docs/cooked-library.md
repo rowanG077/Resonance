@@ -1193,6 +1193,9 @@ Delayed motion changes and model-parent bindings use `previous_spawn`: 1 selects
 the most recent particle birth, 2 selects the preceding birth, and so on. These
 references follow birth order, including repeated emissions; sounds and other
 feedback do not count as births.
+Motion changes can set selected XYZ `angles` in degrees, with `null` keeping an
+axis unchanged, or add an `angles_add` XYZ vector once at that event. These
+change the current orientation; `angular_velocity` controls continuing rotation.
 
 `artwork.textures` names established scopes: `actor`, `actor-secondary`, `scene`
 and `arena`. An atlas binding uses the same name, for example
@@ -2685,6 +2688,23 @@ recipe list disables selection and requires an explicit `participants` count.
 `camera_pitch` defaults to zero. The host settings retain the four relative
 party placements, spacing, distance limits, colors and prelude camera; each
 character's voice is edited beside its opener.
+
+A combination may provide `execution` to describe its two participant roles.
+Each role's `phases` maps character names to the participant tracks in that
+combination's scene `actions`. The role also declares `visible`, optional
+`placement`, `temporary_weapons` (default false), and timed `events`. Event times
+use the participant track's source clock; preparation includes its intervening
+pose-blend intervals when producing ordinary combat events. Omitting `execution`
+retains the existing family choreography.
+
+Callbacks select local `effect` or resident `common_effect` members, `projectile`
+members with an independent `hit_variant`, `feedback`, `position_from_target`,
+or an `ordinary` action event. Origins distinguish actor and target roots from
+aim points. Offset origins resolve their base at the callback, with optional
+rotation by the actor's heading; offset effects cannot use `follow: true`.
+`execution.color` is optional. Its `voices` list chooses an ordered pair of
+character names, a speaking role index (0 or 1), and a sound. Invalid participant
+tracks or referenced assets fail preparation.
 
 ## Battle formations
 

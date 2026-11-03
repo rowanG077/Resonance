@@ -701,12 +701,12 @@ struct Clock {
 impl Clock {
     fn new(play: Playback, end: f32, blend: u8) -> Result<Self> {
         ensure!(
-            // At 30 clip frames/second: at most two minutes, with 0.02–8x playback.
+            // At 30 clip frames/second: at most two minutes, with 0.01–8x playback.
             // Zero holds a pose. These bounds keep ordinary f32 addition advancing.
             end > 0.
                 && end <= 30. * 120.
                 && (0. ..=end).contains(&play.frame)
-                && (play.rate == 0. || (0.01..=4.).contains(&play.rate.abs())),
+                && (play.rate == 0. || (0.005..=4.).contains(&play.rate.abs())),
             "invalid battle animation interval or rate"
         );
         Ok(Self {
@@ -1563,7 +1563,7 @@ impl Model {
 
     pub fn set_rate(&mut self, rate: f32) -> Result<()> {
         ensure!(
-            rate == 0. || (0.01..=4.).contains(&rate.abs()),
+            rate == 0. || (0.005..=4.).contains(&rate.abs()),
             "invalid battle animation rate"
         );
         self.animation.clock.rate = rate;

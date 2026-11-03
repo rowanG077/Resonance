@@ -2,6 +2,7 @@
 use super::*;
 use battle_scene::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
 mod angel;
+mod time_stop;
 use angel::{divine_judgment, grand_cross};
 
 pub(super) fn read(
@@ -14,6 +15,9 @@ pub(super) fn read(
     }
     if id == 281 {
         return divine_judgment(image, points).map(Some);
+    }
+    if id == 266 {
+        return time_stop::read(image).map(Some);
     }
     if id == 263 {
         return sacred_light(image).map(Some);
@@ -98,6 +102,7 @@ pub(super) fn read(
         startup_member: 1,
         startup_deferred: true,
         cutin: None,
+        opponent_stop_ticks: 0,
         contacts: points
             .iter()
             .enumerate()
@@ -145,6 +150,7 @@ fn sacred_light(image: &pe::Image<'_>) -> Result<SpellRecipe> {
         startup_member: 1,
         startup_deferred: true,
         cutin: None,
+        opponent_stop_ticks: 0,
         contacts: vec![PatternContact {
             tick: pe::word(image.slice(0x4178c6, 4)?, 0)?.try_into()?,
             projectile: 1,

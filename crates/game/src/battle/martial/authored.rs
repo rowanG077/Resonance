@@ -11,13 +11,60 @@ use resonance_content::{
 use std::sync::Arc;
 
 /// Flatten completion-relative poses once the character's motion lengths are known.
+fn pose_completion(start: u16, pose: ActionPose, end: f32, controls: &[(u16, f32)]) -> Result<u16> {
+    ensure!(
+        !pose.repeat && pose.rate.is_finite() && pose.rate >= 0.,
+        "pose continuation requires a finite forward motion"
+    );
+    ensure!(
+        end.is_finite() && pose.start.is_finite() && end >= pose.start,
+        "invalid continued martial motion length"
+    );
+    let (mut frame, mut rate) = (pose.start, pose.rate);
+    let mut controls = controls
+        .iter()
+        .map(|&(at, rate)| (u32::from(at) + 1, rate))
+        .filter(|&(at, _)| at > u32::from(start))
+        .peekable();
+    // A replacement retains its starting sample. On each later update, rate
+    // events apply before the model advances; reaching the exact end still
+    // displays that sample, and only crossing it completes the pose. Accumulate
+    // frame-by-frame here as the model clock does, including f32 rounding.
+    for at in u32::from(start) + 1..=u32::from(u16::MAX) {
+        while controls.peek().is_some_and(|&(change, _)| change == at) {
+            rate = controls.next().unwrap().1;
+            ensure!(
+                rate.is_finite() && rate >= 0.,
+                "pose continuation requires finite forward rate controls"
+            );
+        }
+        if rate == 0. && controls.peek().is_none() {
+            bail!("continued martial pose remains held without a forward rate");
+        }
+        frame += rate;
+        if frame > end {
+            return Ok(at as u16);
+        }
+    }
+    bail!("martial pose continuation exceeds timeline limit")
+}
+
 fn resolve_pose_sequence(
     attack: &mut Attack,
     motion_duration: impl Fn(u16) -> Option<f32>,
-) -> Result<()> {
+) -> Result<Option<Vec<(u16, u8)>>> {
     let Some(sequence) = attack.pose_sequence.take() else {
-        return Ok(());
+        return Ok(None);
     };
+    let mut rate_controls: Vec<_> = attack
+        .events
+        .iter()
+        .filter_map(|(at, event)| match event {
+            Event::AnimationRate(rate) => Some((*at, *rate)),
+            _ => None,
+        })
+        .collect();
+    rate_controls.sort_by_key(|(at, _)| *at);
     let mut previous: Option<(u16, ActionPose)> = None;
     let mut holds = Vec::new();
     for step in sequence {
@@ -25,22 +72,10 @@ fn resolve_pose_sequence(
             PoseStart::At(at) => at,
             PoseStart::AfterPrevious => {
                 let (start, pose) = previous.context("pose continuation has no preceding pose")?;
-                ensure!(
-                    !pose.repeat && pose.rate.is_finite() && pose.rate > 0.,
-                    "pose continuation requires a finite forward motion"
-                );
                 let motion_end =
                     motion_duration(pose.clip).context("missing continued martial motion")?;
-                let duration = (pose.end.unwrap_or(motion_end) - pose.start) / pose.rate;
-                ensure!(
-                    duration.is_finite() && duration >= 0. && duration < f32::from(u16::MAX),
-                    "invalid continued martial motion length"
-                );
                 // The previous clip's final sample is displayed before its successor.
-                start
-                    .checked_add(duration.floor() as u16)
-                    .and_then(|at| at.checked_add(1))
-                    .context("martial pose continuation exceeds timeline limit")?
+                pose_completion(start, pose, pose.end.unwrap_or(motion_end), &rate_controls)?
             }
         };
         ensure!(
@@ -105,7 +140,7 @@ fn resolve_pose_sequence(
         .transpose()?
         .filter(|at| *at <= attack.duration);
     attack.events.sort_by_key(|(at, _)| *at);
-    Ok(())
+    Ok(Some(holds))
 }
 
 impl Technique {
@@ -131,15 +166,43 @@ impl Technique {
         self,
         resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
+        attack: resonance_content::battle_martial::Attack,
+    ) -> Result<PreparedAttack> {
+        self.prepare_attack_presentation(resources, model, attack, Vec::new())
+    }
+
+    pub(super) fn prepare_asset_attack(
+        self,
+        resources: &mut Resources<'_>,
+        model: Option<&resonance_battle::ModelDefinition>,
+        action: resonance_content::battle_martial::AuthoredAction,
+    ) -> Result<PreparedAttack> {
+        self.prepare_attack_presentation(resources, model, action.attack, action.presentation)
+    }
+
+    fn prepare_attack_presentation(
+        self,
+        resources: &mut Resources<'_>,
+        model: Option<&resonance_battle::ModelDefinition>,
         mut attack: resonance_content::battle_martial::Attack,
+        mut presentation: Vec<(u16, resonance_content::battle_martial::Presentation)>,
     ) -> Result<PreparedAttack> {
         let model = model.context("missing martial action model")?;
-        resolve_pose_sequence(&mut attack, |clip| {
+        let holds = resolve_pose_sequence(&mut attack, |clip| {
             model
                 .motions
                 .get(&clip)
                 .map(|motion| motion.duration_frames)
         })?;
+        if let Some(holds) = holds {
+            for (at, _) in &mut presentation {
+                if *at != 0 {
+                    *at = gameplay_tick(*at, 0, &holds)?;
+                }
+            }
+        }
+        let presentation =
+            self.prepare_presentation(resources, model, presentation, attack.duration)?;
         if self.sequence != Sequence::Asset
             && matches!(
                 (self.character, self.catalogue),
@@ -385,6 +448,8 @@ impl Technique {
         {
             crate::battle::skill_scene::finisher(resources, &mut prepared, self.catalogue)?;
         }
+        prepared.events.extend(presentation);
+        prepared.events.sort_by_key(|(at, _)| *at);
         Ok(prepared)
     }
 }
@@ -393,6 +458,52 @@ impl Technique {
 mod tests {
     use super::*;
     use resonance_content::battle_martial::PoseStep;
+
+    #[test]
+    fn continuation_keeps_intervening_held_and_restored_source_rates() -> Result<()> {
+        let pose = ActionPose {
+            clip: 69,
+            start: 0.,
+            end: None,
+            blend: 0,
+            rate: 0.75,
+            repeat: false,
+        };
+        assert_eq!(pose_completion(90, pose, 20., &[])?, 117);
+        assert_eq!(
+            pose_completion(90, pose, 20., &[(92, 0.05), (165, 0.4)])?,
+            203
+        );
+        // Later controls belong to the next pose and must not lengthen this one.
+        assert_eq!(pose_completion(90, pose, 20., &[(150, 0.01)])?, 117);
+        assert_eq!(
+            pose_completion(90, pose, 20., &[(92, 0.), (165, 0.4)])?,
+            212
+        );
+        assert!(pose_completion(90, pose, 20., &[(92, 0.)]).is_err());
+        assert!(pose_completion(90, pose, 20., &[(92, -1.)]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn continuation_applies_rate_changes_before_their_model_sample() -> Result<()> {
+        let pose = ActionPose {
+            clip: 0,
+            start: 0.,
+            end: Some(1.),
+            blend: 0,
+            rate: 0.5,
+            repeat: false,
+        };
+        // The real Model clock counterpart is covered in battle/model/tests.rs.
+        // Start sample 0; tick 1 -> .5; tick 2 applies the hold before advancing.
+        assert!(pose_completion(0, pose, 1., &[(1, 0.)]).is_err());
+        assert_eq!(pose_completion(0, pose, 1., &[(1, 0.), (4, 0.5)])?, 6);
+        // Holding at the would-be completion update retains the final sample.
+        assert!(pose_completion(0, pose, 1., &[(2, 0.)]).is_err());
+        assert_eq!(pose_completion(0, pose, 1., &[])?, 3);
+        Ok(())
+    }
 
     #[test]
     fn consecutive_kicks_follow_clip_completion_and_blends() -> Result<()> {

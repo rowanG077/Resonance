@@ -86,6 +86,8 @@ pub struct Combination {
     pub duration: u16,
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub camera_pitch: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<runtime::Execution>,
 }
 
 fn ids(mappings: &Mappings) -> Result<BTreeMap<&str, u16>> {
@@ -231,6 +233,7 @@ impl Unison {
                     participants: row.recipes.is_empty().then_some(row.participants),
                     duration: row.duration,
                     camera_pitch: row.camera_pitch,
+                    execution: row.execution.clone(),
                 })
             })
             .collect::<Result<_>>()?;
@@ -344,6 +347,7 @@ impl Unison {
                     participants,
                     duration: row.duration,
                     camera_pitch: row.camera_pitch,
+                    execution: row.execution.clone(),
                     recipes: row
                         .recipes
                         .iter()

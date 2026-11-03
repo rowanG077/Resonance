@@ -498,7 +498,7 @@ fn decorate(
     Ok(())
 }
 
-fn projectile(
+pub(super) fn projectile(
     scene: &Scene,
     member: usize,
     rule: usize,

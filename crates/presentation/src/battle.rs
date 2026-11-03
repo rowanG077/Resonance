@@ -8,10 +8,10 @@ mod feedback;
 mod input;
 #[cfg(test)]
 mod oracle;
-#[cfg(test)]
-mod visual_artes;
 mod rumble;
 mod transition;
+#[cfg(test)]
+mod visual_artes;
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{
@@ -1541,7 +1541,7 @@ fn update_hud(
                 let name = action_names
                     .get(action)
                     .with_context(|| format!("action {action} has no prepared notice text"))?;
-                hud.notice_request(*actor, name, *duration, frame)
+                hud.technique_notice_request(*actor, name, *duration, frame)
             })();
             diagnostics.attempt("battle technique notice", result)?;
         }

@@ -60,13 +60,17 @@ def main():
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / 'images').mkdir(exist_ok=True)
-    captures = capture_reports(args.captures, args.output)
+    selected = [case for case in read(args.catalogue)['cases']
+                if case['edition'] == 'steam'
+                and (not args.case or case['id'] in args.case)
+                and (args.character is None or case['binding'].get('character') == args.character)]
+    identifiers = {identifier for case in selected
+                   for identifier in [case['id'], *case.get('counterpart', {}).get('candidates', [])]}
+    identifiers.update('original:' + identifier for identifier in list(identifiers)
+                       if identifier.startswith('gamecube:'))
+    captures = capture_reports(args.captures, args.output, identifiers)
     generated = []
-    for case in read(args.catalogue)['cases']:
-        if case['edition'] != 'steam' or (args.case and case['id'] not in args.case):
-            continue
-        if args.character is not None and case['binding'].get('character') != args.character:
-            continue
+    for case in selected:
         primary = captures.get(case['id'])
         if not primary or not primary['images']:
             continue

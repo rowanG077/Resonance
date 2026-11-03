@@ -32,6 +32,21 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; publishes only enemy effect banks"]
+    fn installed_publish_enemy_effect_category() -> Result<()> {
+        let source = Source::open(
+            &std::path::PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        super::super::cook_enemies(&source, &library, None)
+    }
+
+    #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; publishes only resident and enemy effect categories"]
     fn installed_publish_effect_model_categories() -> Result<()> {
         let source = Source::open(

@@ -298,6 +298,10 @@ pub enum AttackOrigin {
     ActorAim,
     TargetRoot,
     TargetAim,
+    TargetAimHeight { minimum_height: f32 },
+    TargetRootOffset { offset: [f32; 3], rotated: bool },
+    TargetAimOffset { offset: [f32; 3], rotated: bool },
+    WorldOffset { offset: [f32; 3], rotated: bool },
     Bone(crate::MeleeAnchor),
 }
 
@@ -326,6 +330,26 @@ impl AttackOrigin {
                 battle.actor(target)?.effect_origin(),
                 Some(crate::EffectFollow::Center(target)),
             ),
+            Self::TargetAimHeight { minimum_height } => {
+                let mut position = battle.actor(target)?.effect_origin();
+                position[1] = position[1].max(minimum_height);
+                (position, None)
+            }
+            Self::TargetRootOffset { offset, rotated }
+            | Self::TargetAimOffset { offset, rotated }
+            | Self::WorldOffset { offset, rotated } => {
+                let base = match self {
+                    Self::TargetRootOffset { .. } => battle.actor(target)?.position,
+                    Self::TargetAimOffset { .. } => battle.actor(target)?.effect_origin(),
+                    _ => [0.; 3],
+                };
+                let offset = if rotated {
+                    crate::geometry::rotate(offset, battle.actor(actor)?.heading)
+                } else {
+                    offset
+                };
+                (std::array::from_fn(|axis| base[axis] + offset[axis]), None)
+            }
             Self::Bone(anchor) => (
                 battle
                     .models
@@ -1999,6 +2023,55 @@ mod tests {
             action: crate::ActionKey(0),
         }
         .into()
+    }
+
+    #[test]
+    fn authored_offsets_keep_live_root_aim_and_world_origins_distinct() -> Result<()> {
+        let mut battle = movement_battle(Vec::new())?;
+        let owner = ActorId(0);
+        let target = ActorId(1);
+        battle.actors[1].position = [100., 40., 200.];
+        battle.actors[1].body.center_offset = [0., 80., 0.];
+        let offset = [10., 5., 20.];
+        let root = AttackOrigin::TargetRootOffset {
+            offset,
+            rotated: true,
+        };
+        let aim = AttackOrigin::TargetAimOffset {
+            offset,
+            rotated: true,
+        };
+        let world = AttackOrigin::WorldOffset {
+            offset,
+            rotated: true,
+        };
+        let close = |actual: [f32; 3], expected: [f32; 3]| {
+            assert!(
+                actual
+                    .into_iter()
+                    .zip(expected)
+                    .all(|(a, b)| (a - b).abs() < 0.001)
+            )
+        };
+        close(root.resolve(&battle, owner, target)?.0, [120., 45., 190.]);
+        close(aim.resolve(&battle, owner, target)?.0, [120., 125., 190.]);
+        close(world.resolve(&battle, owner, target)?.0, [20., 5., -10.]);
+        battle.actors[1].position[0] += 50.;
+        close(root.resolve(&battle, owner, target)?.0, [170., 45., 190.]);
+        close(world.resolve(&battle, owner, target)?.0, [20., 5., -10.]);
+        let clamped = AttackOrigin::TargetAimHeight {
+            minimum_height: 200.,
+        };
+        close(
+            clamped.resolve(&battle, owner, target)?.0,
+            [150., 200., 200.],
+        );
+        battle.actors[1].position[1] = 300.;
+        close(
+            clamped.resolve(&battle, owner, target)?.0,
+            [150., 380., 200.],
+        );
+        Ok(())
     }
 
     #[test]

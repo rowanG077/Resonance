@@ -10,9 +10,9 @@ use resonance_content::{
         visual::ParticleTexture,
     },
     battle_model::{
-        AttachmentAnimation, TrailMaterial, TrailTexture,
+        AttachmentAnimation, TrailTexture,
         document::{
-            Model, TrailStyle,
+            Model,
             enemy::{Definition as Artwork, Variant},
         },
     },
@@ -116,43 +116,57 @@ pub(super) fn bind(
             },
         );
     }
-    let styles: BTreeMap<String, TrailMaterial> = serde_json::from_str(include_str!(
-        "../../../importer/src/battle-trail-materials.json"
-    ))?;
-    let materials = artwork
-        .trails
-        .values()
-        .chain(
-            artwork
-                .weapon_variants
-                .values()
-                .filter_map(|variant| variant.trail.as_ref()),
-        )
-        .map(|trail| match &trail.material {
-            TrailStyle::Inline(material) => Ok(*material),
-            TrailStyle::Named(name) => styles
-                .get(name)
-                .copied()
-                .with_context(|| format!("missing shared trail style {name}")),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let selected = materials
-        .iter()
-        .filter(|material| material.texture == Some(TrailTexture::Enemy { slot: 2 }))
-        .fold(
-            BTreeMap::<u8, BTreeSet<[i16; 4]>>::new(),
-            |mut groups, material| {
-                groups
-                    .entry(material.palette)
-                    .or_default()
-                    .insert(material.uv);
-                groups
-            },
-        );
+    Ok(())
+}
+
+/// The effect category owns every atlas binding, including carried ribbons.
+/// Read the same native metadata as the artwork owner without requiring that
+/// owner to run afterward and repair a freshly published effect document.
+pub(crate) fn bind_effects(
+    source: &Source,
+    library: &Path,
+    bytes: &[u8],
+    name: &str,
+    effects: &mut Effects,
+) -> Result<()> {
+    let selected = trail_rectangles(source, bytes)?;
     if !selected.is_empty() {
-        local_trail_images(source, library, bytes, name, &selected)?;
+        local_trail_images(source, library, bytes, name, &selected, effects)?;
     }
     Ok(())
+}
+
+fn trail_rectangles(source: &Source, bytes: &[u8]) -> Result<BTreeMap<u8, BTreeSet<[i16; 4]>>> {
+    let mut selected = BTreeMap::<u8, BTreeSet<[i16; 4]>>::new();
+    for slot in 0..8 {
+        let Some(part) = package(bytes, slot)? else {
+            continue;
+        };
+        let body = part.reference(1)?.context("carried ribbon has no model")?;
+        let rig = crate::model::Rig::read(&source.require(body)?)?;
+        let endpoints = rig
+            .joint_names()
+            .iter()
+            .filter(|name| {
+                name.as_bytes()
+                    .get(..2)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"KI"))
+            })
+            .count();
+        if endpoints < 2 {
+            continue;
+        }
+        ensure!(endpoints <= 3, "too many carried ribbon endpoints");
+        let (settings, _) = controls(part.member(0)?.context("missing carried ribbon metadata")?)?;
+        let material = resonance_importer::decode_equipment_trail_material(&settings)?;
+        if material.texture == Some(TrailTexture::Enemy { slot: 2 }) {
+            selected
+                .entry(material.palette)
+                .or_default()
+                .insert(material.uv);
+        }
+    }
+    Ok(selected)
 }
 
 fn local_trail_images(
@@ -161,10 +175,9 @@ fn local_trail_images(
     package: &[u8],
     name: &str,
     selected: &BTreeMap<u8, BTreeSet<[i16; 4]>>,
+    effects: &mut Effects,
 ) -> Result<()> {
     let owner = format!("battle/enemies/{name}/effects");
-    let path = library.join(&owner).join("effects.json");
-    let mut effects: Effects = serde_json::from_slice(&fs::read(&path)?)?;
     // Previous incremental cooks used set zero for the first repacked particle.
     // Move those explicit bindings together before assigning the shared trail set.
     let migrate = effects.templates.iter().any(|declaration| matches!(declaration,
@@ -247,7 +260,7 @@ fn local_trail_images(
         );
         set[usize::from(selector)] = Some(page);
     }
-    output::json(&path, &effects)
+    Ok(())
 }
 
 fn restore_rectangles(
@@ -323,6 +336,63 @@ fn restore_rectangles(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; independently recooks four enemy effect owners twice"]
+    fn installed_effect_category_retains_source_carried_palette_bindings() -> Result<()> {
+        let source = Source::open(
+            &std::path::PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let ids = [36, 49, 84, 102];
+        let mut previous = BTreeMap::new();
+        for repetition in 0..2 {
+            crate::battle_effects::cook_enemies(&source, &root, Some(&ids))?;
+            for id in ids {
+                let name = monsters::symbol(id);
+                let package = source.require(monsters::package(&image, id)?)?;
+                let rectangles = trail_rectangles(&source, &package)?;
+                ensure!(
+                    id == 36 || !rectangles.is_empty(),
+                    "source regression fixture lost its carried ribbon"
+                );
+                let path = format!("battle/enemies/{name}/effects/effects.json");
+                let bytes = fs::read(root.join(&path))?;
+                if repetition != 0 {
+                    ensure!(
+                        previous[&id] == bytes,
+                        "repeated effect-only cook changed trail bindings"
+                    );
+                }
+                previous.insert(id, bytes);
+                let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+                let bank = resonance_content::battle_effect::document::read(
+                    &path,
+                    &diagnostics,
+                    |path| Ok(fs::read(root.join(path))?.into()),
+                )?;
+                let art = bank.art.context("missing effect artwork")?;
+                for selector in rectangles.keys() {
+                    let texture = &art.textures[&2][0];
+                    let page = texture.palette_image(0, *selector)?;
+                    ensure!(
+                        texture.images[page]
+                            .path
+                            .ends_with(&format!("weapon-trail-{selector}.ktx2")),
+                        "native carried selector does not bind its restored source image"
+                    );
+                    fs::metadata(root.join(&texture.images[page].path))?;
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn carried_interval_and_alpha_survive_shared_numeric_normalization() -> Result<()> {

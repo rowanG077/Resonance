@@ -40,7 +40,7 @@ impl Technique {
                     .context("missing authored arte action")?;
                 let action: resonance_content::battle_martial::AuthoredAction =
                     resources.files.json(path)?;
-                return self.prepare_authored_attack(resources, model, action.attack);
+                return self.prepare_asset_attack(resources, model, action);
             }
             Elemental => return self.prepare_elemental(resources, model, tp_cost),
             Authored | RayThrust => {

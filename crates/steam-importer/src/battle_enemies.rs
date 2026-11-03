@@ -12,6 +12,7 @@ use std::{
 mod carried;
 mod owner;
 mod presentation;
+pub(crate) use carried::bind_effects as bind_carried_effects;
 pub(crate) use owner::cook;
 
 fn section(bytes: &[u8], field: usize) -> Result<&[u8]> {

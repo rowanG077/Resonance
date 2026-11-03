@@ -264,6 +264,21 @@ impl Artwork {
         self.notices.messages[0].as_ref().map(|m| m.text.as_str())
     }
 
+    /// Technique captions are optional even when their gameplay action exists.
+    /// An explicitly empty source caption produces no notice or empty banner.
+    pub fn technique_notice_request(
+        &mut self,
+        actor: ActorId,
+        text: &str,
+        duration: u16,
+        frame: &BattleFrame,
+    ) -> Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        self.notice_request(actor, text, duration, frame)
+    }
+
     pub fn notice_request(
         &mut self,
         actor: ActorId,
@@ -508,6 +523,25 @@ impl Artwork {
 mod tests {
     use super::*;
     use resonance_content::diagnostics::Diagnostics;
+
+    #[test]
+    #[ignore = "requires cooked HUD artwork; CPU optional-caption playback only"]
+    fn optional_technique_caption_does_not_replace_a_visible_notice() -> Result<()> {
+        let (mut hud, _, _app) = test_artwork()?;
+        let frame = fixtures::frame(fixtures::actor(Default::default()));
+        let actor = ActorId::from_index(0)?;
+        hud.technique_notice_request(actor, "", 90, &frame)?;
+        assert_eq!(hud.party_notice_text(), None);
+        hud.technique_notice_request(actor, "Angel Feathers", 90, &frame)?;
+        hud.technique_notice_request(actor, "", 90, &frame)?;
+        assert_eq!(hud.party_notice_text(), Some("Angel Feathers"));
+        assert!(
+            hud.technique_notice_request(actor, "\n", 90, &frame)
+                .is_err()
+        );
+        assert!(hud.notice_request(actor, "", 90, &frame).is_err());
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires current cooked mystic captions and HUD; CPU notice playback only"]

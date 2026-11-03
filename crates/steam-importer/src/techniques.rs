@@ -67,6 +67,19 @@ fn name_caption(
     table: &[u8],
 ) -> Result<String> {
     let name = caption(image, bank, slot, pe::word(row, 16)?)?;
+    if id == 51 && name.is_empty() {
+        // Grand Fall uses the ordinary martial initializer, then a projectile
+        // launch callback. It has no custom notice-title producer. Preserve its
+        // empty localized caption independently of the valid gameplay action.
+        let descriptor = pe::word(image.slice(0x8e98d0 + 51 * 4, 4)?, 0)?;
+        ensure!(
+            pe::half(row, 0)? == 51
+                && pe::word(image.slice(descriptor, 4)?, 0)? == 0x4092a0
+                && image.slice(0x4092b0, 5)? == [0xe8, 0x2b, 0xeb, 1, 0]
+                && pe::word(image.slice(0x4092bb, 4)?, 0)? == 0x4092d0,
+            "Grand Fall ordinary caption producer changed"
+        );
+    }
     if id == 144 && name.is_empty() {
         // Divine Judgment's scene owns its notice title instead of the ordinary
         // menu row. Its six producer slots are Japanese, English, French,
@@ -344,6 +357,42 @@ mod tests {
     use crate::Language;
     use resonance_content::diagnostics::Diagnostics;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires installed Steam; checks optional Grand Fall title in five languages"]
+    fn installed_grand_fall_preserves_empty_native_notice() -> Result<()> {
+        let installation = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+        );
+        for language in [
+            Language::English,
+            Language::French,
+            Language::Spanish,
+            Language::German,
+            Language::Italian,
+        ] {
+            let source = Source::open(&installation, language)?;
+            let image = pe::Image::parse(&source.executable)?;
+            let bytes = source.require("TOS_TEXT.TXB")?;
+            let bank = Bank::parse(&bytes)?;
+            let document = convert(&image, &bank, language.slot())?;
+            let document: Document = serde_json::from_slice(&serde_json::to_vec(&document)?)?;
+            let prepared = document.prepare()?;
+            assert!(prepared.names(&Diagnostics::new(true))?[&51].is_empty());
+            let row = image.slice(TECHNIQUES + 51 * STRIDE as u32, STRIDE)?;
+            assert_eq!(prepared.catalogue.definition(51)?.tp_cost, row[8]);
+            // Battle and menu producers select the same intentionally empty
+            // localized TXB entry, rather than an undiscovered alternate title.
+            let index = pe::word(row, 16)?;
+            let menu = pe::word(image.slice(0x8b88b4 + language.slot() * 4, 4)?, 0)?;
+            let battle = pe::word(image.slice(0x8e37ac + language.slot() * 4, 4)?, 0)?;
+            assert_eq!(
+                pe::word(image.slice(menu + index * 4, 4)?, 0)?,
+                pe::word(image.slice(battle + index * 4, 4)?, 0)?
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires installed Steam and cooked library; checks mystic caption identities in five languages and recooks only technique definitions"]

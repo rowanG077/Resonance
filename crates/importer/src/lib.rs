@@ -183,7 +183,8 @@ pub use battle_enemy_rules::{
 };
 pub use battle_equipment::{cook_battle_equipment, cook_battle_equipment_mappings};
 pub use battle_equipment::{
-    texture_animation as decode_equipment_animation, trail as decode_equipment_trail,
+    material as decode_equipment_trail_material, texture_animation as decode_equipment_animation,
+    trail as decode_equipment_trail,
 };
 pub use battle_event_media::cook_battle_event_media;
 pub use battle_event_scripts::cook_battle_event_scripts;
@@ -205,10 +206,10 @@ pub use battle_victory_groups::cook_battle_victory_groups;
 pub use boot::cook_boot;
 pub use character_attachments::attachment_mappings;
 pub use character_attachments::cook_character_attachments;
-pub use character_models::{cook_character_models, party_model_mappings};
 pub use character_models::character_dynamics::{
     bind as bind_character_dynamics, chain_roots as character_chain_roots,
 };
+pub use character_models::{cook_character_models, party_model_mappings};
 pub use characters::cook_characters;
 pub use cooking::{cook_cooking, merge_ingredients as merge_cooking_ingredients};
 pub use credits_screen::cook_credits_screen;

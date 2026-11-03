@@ -16,6 +16,9 @@ use resonance_content::{
 };
 use std::{collections::BTreeMap, fs, path::Path};
 use symphonia_constants::BattleSceneId;
+mod extra_lower;
+mod extra_upper;
+mod innocent;
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let text = source.require("TOS_TEXT.TXB")?;
@@ -29,7 +32,16 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let characters: Mappings = serde_json::from_slice(&fs::read(
         library.join(resonance_content::battle_model::document::PARTY),
     )?)?;
-    let combinations = combinations(&menu)?;
+    let mut combinations = combinations(&menu)?;
+    for row in &mut combinations {
+        row.execution = match innocent::read(source, &menu.image, row.native_id)? {
+            Some(execution) => Some(execution),
+            None => match extra_lower::read(source, &menu.image, row)? {
+                Some(execution) => Some(execution),
+                None => extra_upper::read(source, &menu.image, row.native_id)?,
+            },
+        };
+    }
     let mut placements = BTreeMap::new();
     let mut groups = BTreeMap::new();
     for (index, row) in menu
@@ -261,4 +273,49 @@ fn host(
     };
     host.validate()?;
     Ok((host, voices))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Context;
+    #[test]
+    #[ignore = "requires installed Steam and current base owners; publishes only isolated Unison owner"]
+    fn installed_added_unison_choreography_publishes_shared_role_data() -> Result<()> {
+        let source = Source::open(
+            &std::path::PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let base = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
+        );
+        let output = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        for path in [
+            resonance_content::arte::PATH,
+            resonance_content::battle_model::document::PARTY,
+        ] {
+            let destination = output.join(path);
+            fs::create_dir_all(destination.parent().unwrap())?;
+            fs::copy(base.join(path), destination)?;
+        }
+        cook(&source, &output)?;
+        let document: Unison =
+            serde_json::from_slice(&fs::read(output.join(battle_unison::PATH))?)?;
+        let declarations = document
+            .combinations
+            .iter()
+            .filter(|row| row.execution.is_some())
+            .count();
+        ensure!(declarations >= 9, "missing authored Unison families");
+        let roundtrip: Unison = serde_json::from_slice(&serde_json::to_vec(&document)?)?;
+        ensure!(
+            serde_json::to_value(&document)? == serde_json::to_value(&roundtrip)?,
+            "Unison choreography roundtrip changed"
+        );
+        Ok(())
+    }
 }

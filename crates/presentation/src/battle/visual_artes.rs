@@ -31,6 +31,21 @@ struct CaptureInputs {
     rules: resonance_content::battle_rules::Captured<resonance_content::arte::Catalogue>,
 }
 
+fn fixture_actor(row: &Value, slot: usize, side: Side) -> Option<&Value> {
+    let actors = row["fixture"]["ready"]["actors"].as_array()?;
+    let side = if side == Side::Party { 0 } else { 1 };
+    let same_side = |source: &&Value| source["side"].as_u64() == Some(side);
+    actors
+        .iter()
+        .filter(same_side)
+        .find(|source| source["slot"].as_u64() == Some(slot as u64))
+        .or_else(|| {
+            let mut matches = actors.iter().filter(same_side);
+            let first = matches.next()?;
+            matches.next().is_none().then_some(first)
+        })
+}
+
 fn package(
     inputs: &CaptureInputs,
     row: &Value,
@@ -79,7 +94,7 @@ fn package(
     let mut party = Party::new(&data, Default::default())?;
     party.formation = if members.is_empty() {
         vec![character]
-    } else if members.len() < 4 && !members.iter().any(|member| member.0 == 1) {
+    } else if members.len() < 4 || members.iter().any(|member| member.0 == 1) {
         vec![1]
     } else {
         Vec::new()
@@ -232,7 +247,13 @@ fn package(
                         && choice.target_policy
                             == Some(resonance_content::battle_action::TargetPolicy::LowestHp)
                 });
-            let target = if target_self {
+            let target = if let Some(character) = row["fixture"]["target_character"].as_u64() {
+                party
+                    .formation
+                    .iter()
+                    .position(|&owner| u64::from(owner) == character)
+                    .context("observed fixture target character is absent")?
+            } else if target_self {
                 owner
             } else if target_allies {
                 participants
@@ -285,16 +306,7 @@ fn package(
                     0.,
                 ];
                 actor.heading = if actor.side == Side::Party { 90. } else { 270. };
-                if let Some(observed) =
-                    row["fixture"]["ready"]["actors"]
-                        .as_array()
-                        .and_then(|actors| {
-                            let side = if actor.side == Side::Party { 0 } else { 1 };
-                            actors
-                                .iter()
-                                .find(|actor| actor["side"].as_u64() == Some(side))
-                        })
-                {
+                if let Some(observed) = fixture_actor(row, index, actor.side) {
                     actor.position = serde_json::from_value(observed["position"].clone())?;
                     actor.heading = observed["heading"]
                         .as_f64()
@@ -467,16 +479,12 @@ fn fixture_camera(scene: &mut Scene, row: &Value, age: u32) -> Result<()> {
 }
 
 fn fixture_motion(scene: &mut Scene, row: &Value) -> Result<()> {
-    let Some(actors) = row["fixture"]["ready"]["actors"].as_array() else {
+    if !row["fixture"]["ready"]["actors"].is_array() {
         return Ok(());
-    };
+    }
     for id in scene.core.actor_ids().collect::<Vec<_>>() {
         let actor = &scene.core.actors()[id.index()];
-        let side = if actor.side == Side::Party { 0 } else { 1 };
-        let Some(source) = actors
-            .iter()
-            .find(|source| source["side"].as_u64() == Some(side))
-        else {
+        let Some(source) = fixture_actor(row, id.index(), actor.side) else {
             continue;
         };
         let mut motion = serde_json::to_value(resonance_battle::FixtureMotion::observe(actor))?;
@@ -520,8 +528,25 @@ fn screenshot(app: &mut App, path: PathBuf, row: &Value, age: u32) -> Result<()>
     app.update();
     crate::playthrough::check_exit(app)?;
     let held = app.world().resource::<Owner>().diagnostic();
+    let particle_states = match &app.world().resource::<Owner>().phase {
+        Phase::Scene(scene) => scene
+            .particles
+            .iter()
+            .map(|particle| {
+                json!({
+                    "handle":format!("{:?}",particle.id),"actor":particle.owner.index(),
+                    "resource":particle.resource.0,"member":particle.member,
+                    "origin":particle.origin,"owner_bone":particle.owner_bone,
+                    "palettes":particle.state.palettes,"uv":particle.state.uv,
+                    "colors":particle.state.colors,"state":particle.state,
+                })
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
     let metadata = json!({"source_kind":"resonance", "case":row["id"], "age":age,
         "state_tick_locked":true, "audio_device":false, "battle":held,
+        "particle_states":particle_states,
         "output_stage":app.world().resource::<crate::display::OutputStage>()});
     let complete = Arc::new(AtomicBool::new(false));
     let failed = Arc::new(AtomicBool::new(false));
@@ -594,6 +619,7 @@ fn capture_case(
     if let Some(plan) = &enemy_plan {
         progress["assistance"]["enemy_context"] = serde_json::to_value(plan)?;
     }
+    let entry_budget = enemy_plan.as_ref().map_or(600, |plan| plan.entry_budget);
     let mut world = resonance_events::GameWorld::default();
     world.party = Some(package.party.clone());
     let request = world.request_battle(setup).map_err(anyhow::Error::msg)?;
@@ -615,7 +641,7 @@ fn capture_case(
             .into(),
     );
     let mut scene = construct_scene(app.world_mut(), package, toon, render_target)?;
-    for _ in 0..600 {
+    for _ in 0..entry_budget {
         step(&mut scene, BattleInput::default())?;
         if scene.core.phase() == BattlePhase::Combat
             && !scene.core.is_paused()
@@ -705,6 +731,9 @@ fn capture_case(
     );
     let last_age = ages.iter().copied().max().unwrap_or(160);
     let mut action_completed = false;
+    let mut action_interrupted = false;
+    let mut termination_reason = Value::Null;
+    let mut released_actions = Vec::new();
     let mut released = false;
     let mut released_at = None;
     let mut active_scene_at = None;
@@ -835,6 +864,34 @@ fn capture_case(
         action_completed |= cues
             .iter()
             .any(|cue| matches!(cue, Cue::Completed { action } if Some(*action) == invocation));
+        for cue in &cues {
+            if let Cue::Released {
+                action: child,
+                parent,
+                actor: owner,
+                ..
+            } = cue
+            {
+                if is_unison
+                    || *owner == actor
+                    || Some(*child) == invocation
+                    || parent.is_some_and(|parent| {
+                        Some(parent) == invocation || released_actions.contains(&parent)
+                    })
+                {
+                    if !released_actions.contains(child) {
+                        released_actions.push(*child);
+                    }
+                }
+            }
+            if matches!(cue, Cue::Interrupted { action } if Some(*action) == invocation) {
+                action_interrupted = true;
+                let owner = &scene_mut(app).core.actors()[actor.index()];
+                termination_reason = json!({"kind":"interrupted","age":age,
+                    "hp":owner.hp,"availability":format!("{:?}",owner.availability)});
+                progress["termination_reason"] = termination_reason.clone();
+            }
+        }
         if is_unison {
             action_completed |= admitted.is_some()
                 && scene_mut(app)
@@ -842,14 +899,22 @@ fn capture_case(
                     .as_ref()
                     .is_some_and(|frame| frame.unison.is_none());
         }
-        let cleanup = action_completed
-            && !cleaned
-            && scene_mut(app).particles.is_empty()
+        progress["action_completed"] = json!(action_completed);
+        progress["action_interrupted"] = json!(action_interrupted);
+        progress["action_terminated"] = json!(action_completed || action_interrupted);
+        let live_action = invocation.is_some_and(|id| scene_mut(app).core.action_age(id).is_some())
+            || released_actions
+                .iter()
+                .any(|&id| scene_mut(app).core.action_age(id).is_some());
+        let visual_empty = scene_mut(app).particles.is_empty()
+            && scene_mut(app).effects.live_particles().next().is_none()
             && scene_mut(app)
                 .frame
                 .as_ref()
                 .is_some_and(|frame| frame.projectiles.is_empty())
             && scene_mut(app).effects.active_programs().next().is_none();
+        let cleanup =
+            (action_completed || action_interrupted) && !cleaned && !live_action && visual_empty;
         cleaned |= cleanup;
         let interesting = scene_active || release || impact || cleanup;
         let after_release = released_at.is_some_and(|start| {
@@ -867,7 +932,12 @@ fn capture_case(
             captures.push(json!({"age":age,"path":path,"moment":if scene_active {"scene_active"} else if release {"release"} else if impact {"impact"} else if cleanup {"cleanup"} else {"fixed_age"}}));
             progress["images"] = json!(captures);
         }
-        if age >= last_age && (cleaned || age >= released_at.map_or(1800, |start| start + 900)) {
+        if age >= last_age
+            && (cleaned
+                || (!live_action
+                    && visual_empty
+                    && age >= released_at.map_or(1800, |start| start + 900)))
+        {
             break;
         }
     }
@@ -885,7 +955,10 @@ fn capture_case(
         );
     }
     Ok(json!({"id":row["id"], "status":"captured", "admitted":true,
-        "action_key":action.0,"assignment":row.get("assignment"),"assistance":progress.get("assistance"),"images":captures,"released":released,"release_age":released_at,"active_scene_age":active_scene_at,"impacted":impacted,"cleanup_seen":cleaned,"fixture":row.get("fixture"),"review":{"status":"pending"}}))
+        "action_key":action.0,"assignment":row.get("assignment"),"assistance":progress.get("assistance"),"images":captures,"released":released,"release_age":released_at,"active_scene_age":active_scene_at,"impacted":impacted,
+        "action_completed":action_completed,"action_interrupted":action_interrupted,
+        "action_terminated":action_completed||action_interrupted,"termination_reason":termination_reason,
+        "cleanup_seen":cleaned,"fixture":row.get("fixture"),"review":{"status":"pending"}}))
 }
 
 fn write_report(output: &Path, edition: &str, root: &Path, cases: &[Value]) -> Result<()> {
@@ -909,6 +982,28 @@ fn retire_case(app: &mut App) {
         .battle
         .store(true, Ordering::Release);
     app.world_mut().resource_mut::<Messages<AppExit>>().clear();
+}
+
+fn failure_diagnostic(app: &App, row: &Value, output: &Path, receipt: &mut Value) -> Result<()> {
+    let Some(owner) = app.world().get_resource::<Owner>() else {
+        return Ok(());
+    };
+    let path = PathBuf::from(
+        row["id"]
+            .as_str()
+            .context("failed case ID missing")?
+            .replace(':', "-"),
+    )
+    .join("failure.json");
+    fs::create_dir_all(output.join(&path).parent().unwrap())?;
+    fs::write(
+        output.join(&path),
+        serde_json::to_vec_pretty(&json!({
+            "source_kind":"resonance","case":row["id"],"battle":owner.diagnostic(),
+        }))?,
+    )?;
+    receipt["failure_diagnostic"] = json!(path);
+    Ok(())
 }
 
 fn capture_unison(
@@ -984,6 +1079,7 @@ fn capture_unison(
             Err(error) => {
                 receipt["status"] = json!("failed");
                 receipt["error"] = json!(format!("{error:#}"));
+                failure_diagnostic(app, &selected, output, &mut receipt)?;
             }
         }
         retire_case(app);
@@ -1178,6 +1274,7 @@ fn render_catalogue_artes_to_png() -> Result<()> {
                 Err(error) => {
                     receipt["status"] = json!("failed");
                     receipt["error"] = json!(format!("{error:#}"));
+                    failure_diagnostic(&app, &row, &output, &mut receipt)?;
                 }
             }
         } else {
@@ -1186,6 +1283,7 @@ fn render_catalogue_artes_to_png() -> Result<()> {
                 Err(error) => {
                     receipt["status"] = json!("failed");
                     receipt["error"] = json!(format!("{error:#}"));
+                    failure_diagnostic(&app, &row, &output, &mut receipt)?;
                 }
             }
         }

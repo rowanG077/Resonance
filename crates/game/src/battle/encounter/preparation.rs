@@ -1277,18 +1277,30 @@ impl Assets {
                 models.push(render);
             }
         }
-        // Resident slot zero draws Colette's current chakram, including equipment swaps.
+        // Both thrown-weapon callbacks copy the owner's current primary weapon.
+        // Prepare inventory variants too, so the existing effect binding follows swaps.
         let mut thrown_weapons = None;
-        if let Some(slot) = rows.iter().position(|row| {
-            matches!(row.source, model::ModelSource::Party(character)
-                if character == battle::party::Character::Colette)
-        }) && let Some(body) = &rows[slot].model
-        {
+        let mut equipped_skill_weapon = None;
+        for (character, catalogue, model_slot) in [
+            (Character::Colette, None, 0),
+            (Character::Presea, Some(261), 14),
+        ] {
+            if catalogue.is_some_and(|id| !self.skill_scenes.contains_key(&id)) {
+                continue;
+            }
+            let Some(slot) = rows.iter().position(
+                |row| matches!(row.source, model::ModelSource::Party(owner) if owner == character),
+            ) else {
+                continue;
+            };
+            let Some(body) = &rows[slot].model else {
+                continue;
+            };
             let equipped = body
                 .weapons
                 .iter()
                 .find(|weapon| weapon.slot == Some(WeaponSlot(0)))
-                .context("Colette has no prepared primary weapon")?
+                .context("thrown-weapon owner has no prepared primary weapon")?
                 .primary_resource();
             let mut variants = BTreeMap::new();
             for (&(owner, item), weapons) in &prepared_equipment {
@@ -1304,7 +1316,7 @@ impl Assets {
                 let part = self.weapons[&item]
                     .parts
                     .get(&0)
-                    .context("Colette's primary weapon artwork is missing")?;
+                    .context("thrown primary weapon artwork is missing")?;
                 if let Some((model, render)) = render::effect_model(
                     &self.files,
                     part,
@@ -1316,14 +1328,16 @@ impl Assets {
                     models.push(render);
                 }
             }
-            technique_models.insert(
-                0,
-                variants
-                    .get(&equipped)
-                    .context("Colette's equipped chakram effect is not prepared")?
-                    .clone(),
-            );
-            thrown_weapons = Some((slot, variants));
+            let initial = variants
+                .get(&equipped)
+                .context("equipped thrown-weapon effect is not prepared")?
+                .clone();
+            if let Some(catalogue) = catalogue {
+                equipped_skill_weapon = Some((catalogue, model_slot, slot, initial, variants));
+            } else {
+                technique_models.insert(model_slot, initial);
+                thrown_weapons = Some((slot, variants));
+            }
         }
         let hammer_effect = technique_models.contains_key(&HAMMER_MODEL).then_some(
             resonance_battle::EffectAppearance {
@@ -1437,7 +1451,7 @@ impl Assets {
             .iter()
             .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
             .collect::<Result<BTreeMap<_, _>>>()?;
-        let skill_scenes = self
+        let mut skill_scenes = self
             .skill_scenes
             .iter()
             .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
@@ -1447,6 +1461,18 @@ impl Assets {
             .iter()
             .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
             .collect::<Result<BTreeMap<_, _>>>()?;
+        let equipped_skill_weapon = equipped_skill_weapon
+            .map(|(catalogue, model_slot, slot, initial, variants)| {
+                let bank = skill_scenes
+                    .get_mut(&catalogue)
+                    .context("equipped-weapon skill scene is not prepared")?;
+                ensure!(
+                    bank.models.insert(model_slot, initial).is_none(),
+                    "equipped weapon overlaps a local skill scene model"
+                );
+                Ok::<_, anyhow::Error>((bank.resource, model_slot, slot, variants))
+            })
+            .transpose()?;
         let mut enemy_resources = BTreeMap::new();
         let mut enemy_weapon_groups = BTreeMap::new();
         let mut result_enemies = Vec::new();
@@ -1997,6 +2023,13 @@ impl Assets {
                 .find(|bank| bank.resource() == techniques_id)
                 .context("Colette's resident effect bank is not prepared")?
                 .bind_weapon_models(0, ids[slot], WeaponSlot(0), variants)?;
+        }
+        if let Some((resource, model_slot, slot, variants)) = equipped_skill_weapon {
+            effect_banks
+                .iter_mut()
+                .find(|bank| bank.resource() == resource)
+                .context("equipped-weapon skill effect bank is not prepared")?
+                .bind_weapon_models(model_slot, ids[slot], WeaponSlot(0), variants)?;
         }
         let party_roster: Vec<_> = ids
             .iter()

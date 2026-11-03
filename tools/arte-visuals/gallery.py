@@ -17,7 +17,7 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def capture_reports(paths, output):
+def capture_reports(paths, output, identifiers=None):
     captures = {}
     for path in paths:
         path = Path(path).resolve()
@@ -28,6 +28,8 @@ def capture_reports(paths, output):
             identifier = case['id']
             if report.get('source_kind') == 'dolphin':
                 identifier = 'original:' + identifier
+            if identifiers is not None and identifier not in identifiers:
+                continue
             images = []
             for image in case.get('images', []):
                 source = Path(image['path'])
@@ -61,17 +63,23 @@ def evidence(case, captures, reference=None):
         selected.append(reference)
     records = {key: captures[key] for key in selected if key in captures}
     # Include image bytes, not just filenames, so replaced PNGs invalidate review.
+    # Once chosen, only the reviewed pair determines staleness. New alternative
+    # captures must not invalidate an unchanged original-game comparison.
+    reviewed = ({key: records[key] for key in [case['id'], reference] if key in records}
+                if reference else records)
     key = fingerprint({identifier: {
         'status': value.get('status'), 'admitted': value.get('admitted'),
         'source_kind': value['source_kind'], 'library': value.get('library'),
         'images': [(image.get('age'), image['sha256']) for image in value['images']]
-    } for identifier, value in records.items()})
+    } for identifier, value in reviewed.items()})
     return key, records
 
 
 def review_status(case, captures, reviews):
     review = reviews.get(case['id'], {})
     key, records = evidence(case, captures, review.get('reference'))
+    if case.get('scope_status') == 'source_unselectable':
+        return 'pending', key, records
     current = records.get(case['id'])
     if not current or current.get('status') != 'captured' or not current.get('admitted') or not current['images']:
         return 'capture_incomplete', key, records
@@ -114,7 +122,7 @@ def generate(catalogue, captures, reviews, output):
                          'scope_status': case.get('scope_status', 'original_game_required'),
                          'scope_evidence': case.get('scope_evidence'),
                          'requires_visual_comparison': case.get('scope_status') not in
-                             {'source_unimplemented_slot', 'repository_authored'},
+                             {'source_unimplemented_slot', 'repository_authored', 'source_unselectable'},
                          'original_gc_reference': {'status': original_status, 'candidates': originals}})
         columns = []
         for identifier, record in records.items():
