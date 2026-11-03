@@ -35,6 +35,14 @@ impl Drawing<'_> {
         self.offset = [0.; 2];
         self.heading("Artes")?;
         self.framed([16., 60., 604., 254.], true)?;
+        let mut cursor = [32., 76.];
+        if state.focus == Focus::Character {
+            self.highlight([24., 64., 240., 26.], 255);
+        }
+        if state.focus == Focus::Control {
+            self.highlight([450., 64., 158., 26.], 255);
+            cursor = [448., 76.];
+        }
         self.text(page.character_name(owner), [40., 64.], 24., GOLD)?;
         let mode = page
             .party
@@ -53,14 +61,6 @@ impl Drawing<'_> {
                 WHITE
             },
         )?;
-        let mut cursor = [32., 76.];
-        if state.focus == Focus::Character {
-            self.highlight([24., 64., 240., 26.], 255);
-        }
-        if state.focus == Focus::Control {
-            self.highlight([450., 64., 158., 26.], 255);
-            cursor = [448., 76.];
-        }
 
         let list = page.technique_list();
         for (offset, &id) in list.iter().skip(state.first).take(8).enumerate() {
