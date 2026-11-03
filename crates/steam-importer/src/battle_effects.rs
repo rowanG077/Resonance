@@ -1,15 +1,21 @@
 //! Steam's wider effect records stop at the shared effect compiler boundary.
-use crate::{audio_effects, model, monsters, output, pe, preview_model, source::Source};
+use crate::{
+    audio_effects, effect_atlas, model, monsters, output, pe, preview_model, source::Source,
+};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_effect::{
         EffectOperation,
         declaration::Declaration,
         document::{Artwork, Definition},
+        visual::ParticleTexture,
     },
     battle_model::document::Model,
 };
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 struct Canonical {
     bytes: Vec<u8>,
@@ -331,14 +337,15 @@ fn models(
     Ok(models)
 }
 
-/// Programs and models use the ordinary enemy-local effect document. Atlas
-/// images are a separate remaining media owner; missing images are not invented.
+/// Programs, sprite atlases and models use the ordinary enemy-local effect document.
 pub(crate) fn cook_enemies(
     source: &Source,
     library: &Path,
     selected: Option<&[u16]>,
 ) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
+    let atlases = effect_atlas::Directory::read(&image)?;
+    let residents = effect_atlas::residents(source, &image)?;
     let count = monsters::count(&image)?;
     ensure!(
         selected.is_none_or(|ids| ids.iter().all(|&id| usize::from(id) < count)),
@@ -347,11 +354,12 @@ pub(crate) fn cook_enemies(
     let mut failures = Vec::new();
     let mut prepared = 0;
     let mut model_count = 0;
+    let mut image_count = 0;
     for id in 0..count as u16 {
         if selected.is_some_and(|ids| !ids.contains(&id)) {
             continue;
         }
-        let result = (|| -> Result<usize> {
+        let result = (|| -> Result<(usize, usize)> {
             let bytes = source.require(monsters::package(&image, id)?)?;
             let mut definition = if let Some(bank) = preview_model::member(&bytes, 0x1cc)? {
                 let body = source.require(
@@ -359,7 +367,14 @@ pub(crate) fn cook_enemies(
                         .context("missing enemy effect owner body")?,
                 )?;
                 let bones = model::Rig::read(&body)?.joint_names();
-                decode(bank, &bones, |_, _| Ok(()))?
+                decode(bank, &bones, |stride, declaration| {
+                    if let Declaration::Particle { visual, .. } = declaration
+                        && let ParticleTexture::Atlas { palette_set, .. } = &mut visual.texture
+                    {
+                        *palette_set = stride;
+                    }
+                    Ok(())
+                })?
             } else {
                 Definition {
                     programs: Vec::new(),
@@ -369,16 +384,51 @@ pub(crate) fn cook_enemies(
                 }
             };
             let owner = format!("battle/enemies/{}/effects", monsters::symbol(id));
+            let slots = definition
+                .templates
+                .iter()
+                .filter_map(|declaration| declaration.particle_visual().ok()?.texture.slot())
+                .collect::<BTreeSet<_>>();
+            let mut textures = BTreeMap::new();
+            for slot in slots {
+                let name = if let Some(name) = residents.get(&slot) {
+                    name.clone()
+                } else {
+                    let field = match slot {
+                        2 => 0x1d0,
+                        14 => 0x1d4,
+                        _ => anyhow::bail!("unbound enemy effect texture slot {slot}"),
+                    };
+                    preview_model::reference(&bytes, field)?
+                        .with_context(|| format!("missing enemy effect atlas {slot}"))?
+                };
+                let texture = effect_atlas::cook(
+                    source,
+                    library,
+                    &mut definition,
+                    &name,
+                    atlases.get(&name),
+                    &owner,
+                    slot,
+                )?;
+                textures.insert(slot, vec![texture]);
+            }
+            let images = textures
+                .values()
+                .flatten()
+                .map(|texture| texture.images.len())
+                .sum();
             let models = models(source, library, &bytes, &owner)?;
             let count = models.len();
-            definition.artwork = Some(Artwork::from_models(BTreeMap::new(), models)?);
+            definition.artwork = Some(Artwork::from_models(textures, models)?);
             output::json(&library.join(&owner).join("effects.json"), &definition)?;
-            Ok(count)
+            Ok((count, images))
         })();
         match result {
-            Ok(count) => {
+            Ok((count, images)) => {
                 prepared += 1;
                 model_count += count;
+                image_count += images;
             }
             Err(error) => {
                 eprintln!("  Enemy {id} effects: {error:#}");
@@ -387,7 +437,7 @@ pub(crate) fn cook_enemies(
         }
     }
     eprintln!(
-        "  Enemy effects: {prepared} program banks and {model_count} model slots; sprite atlases remain unported"
+        "  Enemy effects: {prepared} program banks, {model_count} model slots and {image_count} sprite images"
     );
     ensure!(
         failures.is_empty(),
@@ -494,7 +544,48 @@ mod tests {
         let library = PathBuf::from(
             std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
         );
-        cook_enemies(&source, &library, None)
+        cook_enemies(&source, &library, None)?;
+        let image = pe::Image::parse(&source.executable)?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let mut images = 0;
+        for id in 0..monsters::count(&image)? as u16 {
+            let path = format!(
+                "battle/enemies/{}/effects/effects.json",
+                monsters::symbol(id)
+            );
+            let bank =
+                resonance_content::battle_effect::document::read(&path, &diagnostics, |path| {
+                    Ok(std::fs::read(library.join(path))?.into())
+                })?;
+            let art = bank.art.context("missing enemy effect artwork")?;
+            images += art
+                .textures
+                .values()
+                .flatten()
+                .map(|texture| texture.images.len())
+                .sum::<usize>();
+            for declaration in &bank.actors {
+                if let Ok(visual) = declaration.particle_visual()
+                    && let ParticleTexture::Atlas {
+                        slot,
+                        palette_set,
+                        dual,
+                    } = visual.texture
+                {
+                    ensure!(!dual, "Steam atlas still requests a separate alpha image");
+                    let texture = art
+                        .textures
+                        .get(&slot)
+                        .and_then(|textures| textures.first())
+                        .context("missing cooked effect atlas")?;
+                    for selector in 0..=255 {
+                        texture.palette_image(palette_set, selector)?;
+                    }
+                }
+            }
+        }
+        eprintln!("Shared effect loader prepared {images} sprite images across all enemy owners");
+        Ok(())
     }
 
     #[test]

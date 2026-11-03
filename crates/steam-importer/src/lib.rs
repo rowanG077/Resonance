@@ -27,6 +27,7 @@ mod cooking;
 mod coordinates;
 mod dialogue;
 mod dialogue_font;
+mod effect_atlas;
 mod ex_skills;
 mod field_actors;
 mod field_core;
@@ -169,9 +170,9 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
     audio_fields::cook(&source, output).context("Steam field audio")?;
     eprintln!("[asset type 51/52] Cooking enemy battle speech");
     battle_voices::enemies(&source, output).context("Steam enemy speech")?;
-    eprintln!("[asset type 52/52] Cooking enemy effect programs and models");
+    eprintln!("[asset type 52/52] Cooking enemy effect programs, textures and models");
     battle_effects::cook_enemies(&source, output, None)
-        .context("Steam enemy effect programs and models")?;
+        .context("Steam enemy effect programs, textures and models")?;
     eprintln!(
         "Steam categories cooked in {:.3} seconds. Remaining legacy field resources, dynamic animation bank routes, game rules and other media are not yet ported.",
         start.elapsed().as_secs_f64()
