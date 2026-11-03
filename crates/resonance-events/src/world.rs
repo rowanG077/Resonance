@@ -78,7 +78,10 @@ pub struct Actor {
     pub ring_contact_disabled: bool,
     /// Visible scenery may be offset from its pivot and have separate walking barriers.
     pub ring_bounds: Option<[[f32; 3]; 2]>,
+    /// Native property 50 also enables footstep sounds; set on the field player.
     pub interaction_disabled: bool,
+    /// Last contact keyed by animation resource, slot and start tick.
+    pub(crate) footstep_contact: Option<(u32, u16, u32, u32)>,
     pub unlit: bool,
     pub toon_lighting: Option<u8>,
     pub draw_layer: i8,
@@ -380,6 +383,7 @@ impl Actor {
             ring_contact_disabled: false,
             ring_bounds: None,
             interaction_disabled: false,
+            footstep_contact: None,
             unlit: false,
             toon_lighting: None,
             draw_layer: 2,

@@ -1,4 +1,5 @@
 //! Authored animation playback. Slots are resource-table byte offsets.
+mod footsteps;
 mod locomotion;
 pub(crate) use locomotion::Locomotion;
 
