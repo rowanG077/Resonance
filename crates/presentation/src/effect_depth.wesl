@@ -1,8 +1,11 @@
 
 @if(MULTISAMPLED_DEPTH)
-@group(0) @binding(4) var scene_depth: texture_depth_multisampled_2d;
+@group(0) @binding(4) var scene_depth: texture_multisampled_2d<f32>;
 @if(!(MULTISAMPLED_DEPTH))
-@group(0) @binding(4) var scene_depth: texture_depth_2d;
+@group(0) @binding(4) var scene_depth: texture_2d<f32>;
+
+// Depth formats may bind as unfilterable float textures. This preserves exact
+// texel/sample loads on every backend, including Naga's GLSL writer.
 
 // Keep fractional visibility at silhouettes instead of treating a single
 // covered MSAA sample as a fully opaque pixel. Reverse-Z comparisons retain
@@ -19,10 +22,10 @@ fn depth_coverage(pixel: vec2<i32>, z: f32, comparison: u32) -> f32 {
     let samples = textureNumSamples(scene_depth);
     @if(MULTISAMPLED_DEPTH)
     for (var sample = 0u; sample < samples; sample += 1u) {
-        coverage += depth_passes(z, textureLoad(scene_depth, pixel, i32(sample)), comparison);
+        coverage += depth_passes(z, textureLoad(scene_depth, pixel, i32(sample)).x, comparison);
     }
     @if(MULTISAMPLED_DEPTH)
     return coverage / f32(samples);
     @if(!(MULTISAMPLED_DEPTH))
-    return depth_passes(z, textureLoad(scene_depth, pixel, 0), comparison);
+    return depth_passes(z, textureLoad(scene_depth, pixel, 0).x, comparison);
 }

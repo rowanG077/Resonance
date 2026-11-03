@@ -136,12 +136,11 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         camera_active,
         "Battle transition captures the field before UI and fades"
     );
-    let mut image = Image::new_target_texture(
-        descriptor.width,
-        descriptor.height,
-        TextureFormat::Bgra8Unorm,
-        None,
+    let capture_format = crate::renderer::scene_color_format(
+        world.get_resource::<bevy::render::renderer::RenderAdapterInfo>(),
     );
+    let mut image =
+        Image::new_target_texture(descriptor.width, descriptor.height, capture_format, None);
     image.sampler = ImageSampler::linear();
     let image = world.resource_mut::<Assets<Image>>().add(image);
     let capture = crate::menu_backdrop::Capture::once(source.clone(), image.clone());

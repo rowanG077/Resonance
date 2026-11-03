@@ -13,7 +13,7 @@ use bevy::{
             binding_types::{sampler, texture_2d, uniform_buffer},
             *,
         },
-        renderer::{RenderContext, RenderDevice, ViewQuery},
+        renderer::{RenderAdapterInfo, RenderContext, RenderDevice, ViewQuery},
         texture::GpuImage,
         view::ViewTarget,
     },
@@ -229,6 +229,7 @@ impl Pipeline {
 fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
+    adapter: Res<RenderAdapterInfo>,
     server: Res<AssetServer>,
     fullscreen: Res<FullscreenShader>,
     cache: Res<PipelineCache>,
@@ -251,7 +252,7 @@ fn prepare(
         fragment: Some(FragmentState {
             shader: server.load("embedded://resonance_presentation/field_dissolve.wesl"),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::Bgra8Unorm,
+                format: crate::renderer::scene_color_format(Some(&adapter)),
                 blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],

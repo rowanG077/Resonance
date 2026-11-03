@@ -41,6 +41,7 @@ mod input;
 mod input_icons;
 mod loading;
 mod renderer;
+pub use renderer::native_render_plugins;
 mod testing;
 pub use display::Resolution;
 mod choice_cursor;
@@ -383,8 +384,7 @@ fn build_app(
     info!(
         "Installing rendering and window plugins; interactive={interactive_display}, capture={capture_only}, resolution={resolution:?}"
     );
-    let mut plugins = DefaultPlugins
-        .set(render_plugin)
+    let mut plugins = renderer::native_render_plugins(render_plugin)
         .set(bevy::pbr::PbrPlugin {
             gltf_enable_standard_materials: false,
             ..default()

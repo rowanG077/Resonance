@@ -29,30 +29,42 @@ impl AntiAliasingCapabilities {
         mode.supported_or_fallback(&self.0)
     }
     fn detect(adapter: &RenderAdapter, device: &RenderDevice) -> Self {
-        let formats = [
+        let opengl = adapter.get_info().backend == wgpu::Backend::Gl;
+        let mut formats = vec![
             TextureFormat::Bgra8Unorm,
             TextureFormat::Bgra8UnormSrgb,
             TextureFormat::Rgba8Unorm,
             TextureFormat::Rgba8UnormSrgb,
             TextureFormat::Depth32Float,
         ];
-        let features = formats.map(|format| {
-            (
-                format,
-                if device
-                    .features()
-                    .contains(WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
-                {
-                    adapter.get_texture_format_features(format)
-                } else {
-                    format.guaranteed_format_features(device.features())
-                },
-            )
-        });
+        if opengl {
+            formats.push(TextureFormat::Rgba16Unorm);
+        }
+        let features = formats
+            .into_iter()
+            .map(|format| {
+                (
+                    format,
+                    if device
+                        .features()
+                        .contains(WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+                    {
+                        adapter.get_texture_format_features(format)
+                    } else {
+                        format.guaranteed_format_features(device.features())
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
         Self(
             AntiAliasing::ALL
                 .into_iter()
                 .filter(|mode| {
+                    // wgpu-hal 30.0.1 allocates sampleable MSAA textures using
+                    // GL_TEXTURE_2D instead of GL_TEXTURE_2D_MULTISAMPLE.
+                    if opengl && mode.samples() > 1 {
+                        return false;
+                    }
                     features.iter().all(|(format, features)| {
                         features.flags.sample_count_supported(mode.samples())
                             && features.allowed_usages.contains(
@@ -355,5 +367,30 @@ mod tests {
         app.update();
         assert!(app.world().get::<Smaa>(preview).is_none());
         assert_eq!(app.world().get::<Msaa>(preview), Some(&Msaa::Sample4));
+
+        // Restarting on OpenGL with an MSAA preference must configure every
+        // scene/UI camera with one sample and apply the spatial fallback.
+        app.world_mut().resource_mut::<AntiAliasingCapabilities>().0 = AntiAliasing::ALL
+            .into_iter()
+            .filter(|mode| mode.samples() == 1)
+            .collect();
+        for choice in [
+            AntiAliasing::Msaa2,
+            AntiAliasing::Msaa4,
+            AntiAliasing::Msaa8,
+            AntiAliasing::SmaaS2x,
+        ] {
+            app.world_mut().resource_mut::<AntiAliasingSettings>().0 = choice;
+            app.update();
+            for entity in [scene, preview] {
+                assert_eq!(app.world().get::<Msaa>(entity), Some(&Msaa::Off));
+                assert_eq!(
+                    app.world().get::<Smaa>(entity).map(|smaa| smaa.0),
+                    Some(AntiAliasing::SmaaUltra)
+                );
+            }
+            assert_eq!(app.world().get::<Msaa>(ui), Some(&Msaa::Off));
+            assert!(app.world().get::<Smaa>(ui).is_none());
+        }
     }
 }

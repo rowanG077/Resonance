@@ -61,6 +61,7 @@
               dbus
               udev
               vulkan-loader
+              libglvnd
               libx11
               libxcursor
               libxi
@@ -177,6 +178,7 @@
               pkgs.dbus
               pkgs.udev
               pkgs.vulkan-loader
+              pkgs.libglvnd
               pkgs.libx11
               pkgs.libxcursor
               pkgs.libxi

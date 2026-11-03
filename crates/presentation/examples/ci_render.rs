@@ -1,4 +1,4 @@
-//! Synthetic, headless rendering smoke test. No game assets or window system.
+//! Synthetic rendering smoke test, headless or windowed, without game assets.
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     app::{AppExit, ScheduleRunnerPlugin},
@@ -21,8 +21,10 @@ use bevy::{
     sprite_render::{Material2d, SpriteMeshMaterial},
     window::ExitCondition,
 };
+use resonance_events::effect::Blend;
 use resonance_presentation::{
     TitleOutput, TitleSurface, TitleText, install_output_materials, install_surface_material,
+    native_render_plugins,
 };
 use std::{
     path::PathBuf,
@@ -53,6 +55,8 @@ struct Smoke {
     delayed_shader: Option<Shader>,
     shader_was_delayed: bool,
     require_cpu: bool,
+    backend: Backends,
+    windowed: bool,
 }
 
 #[derive(Clone, Default)]
@@ -72,13 +76,19 @@ struct Readiness {
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let directory = args.next().map(PathBuf::from).context(
-        "usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES] [--allow-hardware]",
+        "usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES] [--allow-hardware] [--opengl] [--windowed]",
     )?;
     let mut overlay_shader_delay = None;
     let mut allow_hardware = false;
+    let mut backend = BACKEND;
+    let mut windowed = false;
     for value in args {
         if value == "--allow-hardware" {
             allow_hardware = true;
+        } else if value == "--opengl" {
+            backend = Backends::GL;
+        } else if value == "--windowed" {
+            windowed = true;
         } else {
             ensure!(
                 overlay_shader_delay.is_none(),
@@ -97,13 +107,18 @@ fn main() -> Result<()> {
     let require_cpu = REQUIRE_CPU && !allow_hardware;
     std::fs::create_dir_all(&directory)?;
     let settings = WgpuSettings {
-        backends: Some(BACKEND),
+        backends: Some(backend),
         // Exercise the shipped Metal backend on macOS, and software adapters
         // on Linux/Windows where hosted runners do not supply a hardware GPU.
         force_fallback_adapter: require_cpu,
-        // This basic scene uses the portable feature set, avoiding requests for
-        // unrelated experimental extensions on software or virtual adapters.
-        priority: WgpuSettingsPriority::WebGPU,
+        // Exercise the shipped OpenGL device setup, including adapters whose
+        // higher limits enable Bevy's optional pipelines. Other backends use
+        // the portable feature set on software or virtual CI adapters.
+        priority: if backend == Backends::GL {
+            WgpuSettingsPriority::Functionality
+        } else {
+            WgpuSettingsPriority::WebGPU
+        },
         // Do not allow WGPU_ADAPTER_NAME to override the adapter policy.
         adapter_name: None,
         ..default()
@@ -122,27 +137,35 @@ fn main() -> Result<()> {
         delayed_shader: None,
         shader_was_delayed: false,
         require_cpu,
+        backend,
+        windowed,
+    });
+    let mut plugins = native_render_plugins(RenderPlugin {
+        render_creation: RenderCreation::Automatic(Box::new(settings)),
+        synchronous_pipeline_compilation: true,
+        ..default()
     })
-    .add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-            .set(ImagePlugin::default_nearest())
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(settings)),
-                synchronous_pipeline_compilation: true,
-                ..default()
-            })
-            .disable::<bevy::winit::WinitPlugin>()
-            .disable::<bevy::gilrs::GilrsPlugin>(),
-    )
-    .add_plugins((install_surface_material, install_output_materials))
-    .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)))
-    .add_systems(Startup, setup)
-    .add_systems(Update, capture);
+    .set(WindowPlugin {
+        primary_window: windowed.then(|| Window {
+            title: "Resonance renderer smoke test".into(),
+            resolution: (256, 256).into(),
+            ..default()
+        }),
+        exit_condition: ExitCondition::DontExit,
+        ..default()
+    })
+    .set(ImagePlugin::default_nearest())
+    .disable::<bevy::gilrs::GilrsPlugin>();
+    if !windowed {
+        plugins = plugins.disable::<bevy::winit::WinitPlugin>();
+    }
+    app.add_plugins(plugins)
+        .add_plugins((install_surface_material, install_output_materials))
+        .add_systems(Startup, setup)
+        .add_systems(Update, capture);
+    if !windowed {
+        app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)));
+    }
     let required_shaders = [
         ("overlay", SpriteMeshMaterial::vertex_shader()),
         ("surface", <TitleSurface as Material>::fragment_shader()),
@@ -188,7 +211,7 @@ fn setup(
     // Require the intended backend; never fall back from Metal or use a no-op renderer.
     assert_eq!(
         Backends::from(adapter.backend),
-        BACKEND,
+        smoke.backend,
         "unexpected rendering backend: {:?}",
         &**adapter
     );
@@ -225,6 +248,10 @@ fn setup(
         TextureFormat::Rgba8UnormSrgb,
         None,
     ));
+    if smoke.windowed {
+        commands.spawn((Camera2d, RenderLayers::layer(31)));
+        commands.spawn((Sprite::from_image(target.clone()), RenderLayers::layer(31)));
+    }
     // All four patches use the production shader with a colored texture, vertex tint,
     // actor lighting, and material tint. Pure green/blue ramps catch swizzling weights
     // before decoding; the normal control catches an unconditional channel swap.
@@ -349,6 +376,49 @@ fn setup(
         TextureFormat::Rgba8UnormSrgb,
         None,
     ));
+    // Saturate two additive draws, then darken: clamping only at final output
+    // would leave 0.8 instead of 0.5. Keep this patch in the movie's left bar.
+    let blend_quad = meshes.add(Rectangle::new(8., 8.));
+    for (z, tint, blend) in [
+        (-2., Vec4::new(0.8, 0.8, 0.8, 1.), Blend::AdditiveUnscaled),
+        (-1., Vec4::new(0.8, 0.8, 0.8, 1.), Blend::AdditiveUnscaled),
+        (0., Vec4::new(0., 0., 0., 0.5), Blend::Alpha),
+    ] {
+        commands.spawn((
+            Mesh3d(blend_quad.clone()),
+            MeshMaterial3d(materials.add(TitleSurface {
+                tint,
+                blend: Some(blend),
+                constant_color: true,
+                depth_write: false,
+                ..default()
+            })),
+            Transform::from_xyz(-56., 0., z),
+            RenderLayers::layer(4),
+        ));
+    }
+    commands.spawn((
+        Camera3d::default(),
+        Camera {
+            order: 2,
+            clear_color: Color::BLACK.into(),
+            output_mode: CameraOutputMode::Skip,
+            ..default()
+        },
+        RenderTarget::Image(movie_source.clone().into()),
+        RenderLayers::layer(4),
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: 128.,
+                height: 96.,
+            },
+            ..OrthographicProjection::default_3d()
+        }),
+        Transform::from_xyz(0., 0., 100.).looking_at(Vec3::ZERO, Vec3::Y),
+        Tonemapping::Linear,
+        DebandDither::Disabled,
+        Msaa::Off,
+    ));
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(96., 72.))),
         MeshMaterial2d(movie_materials.add(TitleText {
@@ -369,8 +439,12 @@ fn setup(
         commands.spawn((
             Camera2d,
             Camera {
-                order: layer as isize,
-                clear_color: Color::BLACK.into(),
+                order: layer as isize + 1,
+                clear_color: ClearColorConfig::None,
+                output_mode: CameraOutputMode::Write {
+                    blend_state: Some(BlendState::REPLACE),
+                    clear_color: ClearColorConfig::None,
+                },
                 ..default()
             },
             Projection::Orthographic(OrthographicProjection {
@@ -539,7 +613,8 @@ fn check_movie_image(image: &Image, directory: &std::path::Path) -> Result<()> {
         (88, 30, [48, 192, 88, 255]),
         (40, 66, [56, 80, 208, 255]),
         (88, 66, [192, 160, 32, 255]),
-        (8, 48, [0, 0, 0, 255]),
+        (8, 48, [128, 128, 128, 255]), // Additive saturation before alpha blending.
+        (120, 48, [0, 0, 0, 255]),
         (64, 6, [0, 0, 0, 255]),
     ] {
         for py in y - 2..=y + 2 {

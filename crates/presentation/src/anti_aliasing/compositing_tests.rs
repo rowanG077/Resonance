@@ -2,13 +2,7 @@ use super::*;
 use bevy::{
     camera::{CameraOutputMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
-    render::{
-        RenderPlugin,
-        pipelined_rendering::PipelinedRenderingPlugin,
-        settings::{Backends, RenderCreation, WgpuSettings, WgpuSettingsPriority},
-        view::screenshot::{Screenshot, ScreenshotCaptured},
-    },
-    window::ExitCondition,
+    render::view::screenshot::{Screenshot, ScreenshotCaptured},
 };
 
 #[test]
@@ -68,35 +62,10 @@ struct Capture(Option<Image>);
 #[ignore = "requires a GPU; checks replacement screens and overlays with MSAA"]
 fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                    backends: Some(if cfg!(target_os = "macos") {
-                        Backends::METAL
-                    } else if cfg!(target_os = "windows") {
-                        Backends::DX12
-                    } else {
-                        Backends::VULKAN
-                    }),
-                    priority: WgpuSettingsPriority::WebGPU,
-                    ..default()
-                })),
-                synchronous_pipeline_compilation: true,
-                ..default()
-            })
-            .disable::<PipelinedRenderingPlugin>()
-            .disable::<bevy::winit::WinitPlugin>()
-            .disable::<bevy::gilrs::GilrsPlugin>(),
-    )
-    .add_plugins(AntiAliasingPlugin)
-    .insert_resource(ClearColor(Color::srgb(1., 1., 0.)))
-    .init_resource::<Capture>();
+    app.add_plugins(crate::test_support::render_plugins())
+        .add_plugins(AntiAliasingPlugin)
+        .insert_resource(ClearColor(Color::srgb(1., 1., 0.)))
+        .init_resource::<Capture>();
     let began = std::time::Instant::now();
     while app.plugins_state() == bevy::app::PluginsState::Adding {
         anyhow::ensure!(began.elapsed().as_secs() < 180, "GPU setup timed out");
