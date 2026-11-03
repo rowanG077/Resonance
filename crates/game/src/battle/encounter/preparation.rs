@@ -1303,30 +1303,63 @@ impl Assets {
                 .context("thrown-weapon owner has no prepared primary weapon")?
                 .primary_resource();
             let mut variants = BTreeMap::new();
-            for (&(owner, item), weapons) in &prepared_equipment {
-                if owner != slot {
-                    continue;
-                }
-                let Some(weapon) = weapons
-                    .iter()
-                    .find(|weapon| weapon.slot == Some(WeaponSlot(0)))
-                else {
-                    continue;
+            let mut prepare_variant =
+                |weapons: &[Arc<WeaponDefinition>], artwork: &battle_model::Weapon| -> Result<()> {
+                    let Some(weapon) = weapons
+                        .iter()
+                        .find(|weapon| weapon.slot == Some(WeaponSlot(0)))
+                    else {
+                        return Ok(());
+                    };
+                    let part = artwork
+                        .parts
+                        .get(&0)
+                        .context("thrown primary weapon artwork is missing")?;
+                    if let Some((model, render)) =
+                        render::effect_model(&self.files, part, handles.resource(), true, &self.effect_models)?
+                    {
+                        variants.insert(weapon.primary_resource(), model);
+                        models.push(render);
+                    }
+                    Ok(())
                 };
-                let part = self.weapons[&item]
-                    .parts
-                    .get(&0)
-                    .context("thrown primary weapon artwork is missing")?;
-                if let Some((model, render)) = render::effect_model(
-                    &self.files,
-                    part,
-                    handles.resource(),
-                    true,
-                    &self.effect_models,
-                )? {
-                    variants.insert(weapon.primary_resource(), model);
-                    models.push(render);
+            for (&(owner, item), weapons) in &prepared_equipment {
+                if owner == slot {
+                    prepare_variant(weapons, &self.weapons[&item])?;
                 }
+            }
+            // A scene can temporarily replace the equipped primary model (for
+            // example Pow Devastation's hammer). It is still the current weapon
+            // seen by the shared dynamic effect binding, even while that bank
+            // has no active emitter.
+            for (&native, weapons) in unison_weapons.get(&slot).into_iter().flatten() {
+                let scene = resonance_content::battle_scene::document::load(
+                    &self.files,
+                    resonance_content::battle_scene::document::Kind::Technique,
+                    native,
+                )?;
+                prepare_variant(
+                    weapons,
+                    &scene
+                        .weapon
+                        .context("temporary Unison weapon artwork is missing")?,
+                )?;
+            }
+            for (&(owner, catalogue), weapons) in &skill_weapons {
+                if owner != character {
+                    continue;
+                }
+                let scene = resonance_content::battle_scene::document::load(
+                    &self.files,
+                    resonance_content::battle_scene::document::Kind::Skill,
+                    catalogue,
+                )?;
+                prepare_variant(
+                    weapons,
+                    &scene
+                        .weapon
+                        .context("temporary skill weapon artwork is missing")?,
+                )?;
             }
             let initial = variants
                 .get(&equipped)

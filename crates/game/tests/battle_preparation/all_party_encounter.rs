@@ -866,6 +866,21 @@ fn elemental_variants_keep_base_unison_recipes() -> Result<()> {
 }
 
 #[cfg(feature = "test-support")]
+#[test]
+#[ignore = "requires current Pow Devastation and Presea equipped-axe publications; CPU only"]
+fn pow_devastation_temporarily_equipped_hammer_remains_an_effect_variant() -> Result<()> {
+    let mut fixture = ColdEncounter::load()?;
+    fixture.story = 1_403_000;
+    let catalogue = resonance_content::battle_rules::unison(&fixture.files)?;
+    let row = catalogue
+        .combinations
+        .iter()
+        .find(|row| row.native_id == 312)
+        .context("missing Pow Devastation")?;
+    execute_combination(&mut fixture, row, [(7, 167), (2, 40)])
+}
+
+#[cfg(feature = "test-support")]
 fn execute_combination(
     fixture: &mut ColdEncounter,
     row: &resonance_content::battle_unison::Combination,

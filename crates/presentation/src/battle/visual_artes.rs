@@ -356,6 +356,12 @@ fn package(
         &mut Default::default(),
         &|| false,
     )?;
+    // The ordinary field route already retains this global render dependency.
+    // This standalone battle fixture must capture it before adopting its reader.
+    snapshot.read(
+        resonance_content::model_preview::document::TOON_RAMP,
+        resonance_content::preparation::ASSET_LIMIT,
+    )?;
     inputs.files = Files::from_snapshot(snapshot, || false, diagnostics)?;
     let scenery_models = resonance_game::battle::stage::Model::load(&inputs.files, &inputs.stage)?;
     let catalogue = inputs.catalogue.clone();
@@ -623,6 +629,11 @@ fn capture_case(
     let mut world = resonance_events::GameWorld::default();
     world.party = Some(package.party.clone());
     let request = world.request_battle(setup).map_err(anyhow::Error::msg)?;
+    *app.world()
+        .resource::<crate::loading::Resident>()
+        .files
+        .write()
+        .unwrap() = Some(Arc::new(package.assets.files.clone()));
     let toon = app
         .world()
         .resource::<AssetServer>()
