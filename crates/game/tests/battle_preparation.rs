@@ -46,6 +46,9 @@ mod player_control;
 mod fire_ball;
 #[path = "battle_preparation/pattern_spell.rs"]
 mod pattern_spell;
+#[cfg(feature = "test-support")]
+#[path = "battle_preparation/physics.rs"]
+mod physics;
 #[path = "battle_preparation/projectile_source.rs"]
 mod projectile_source;
 

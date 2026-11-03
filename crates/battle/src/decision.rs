@@ -127,13 +127,15 @@ impl Battle {
         self.automatic_decisions_suppressed = true;
     }
 
-    /// Replay a witnessed controller switch without changing the admitted action.
+    /// Give a prepared enemy neutral input while retaining its authored behavior.
     #[cfg(feature = "test-support")]
     pub fn set_fixture_neutral_control(&mut self, actor: ActorId) -> Result<()> {
         ensure!(
-            self.phase() == crate::BattlePhase::Combat
-                && self.actor(actor)?.side == crate::Side::Enemy,
-            "neutral fixture control requires an enemy in combat"
+            matches!(
+                self.phase(),
+                crate::BattlePhase::Entry | crate::BattlePhase::Combat
+            ) && self.actor(actor)?.side == crate::Side::Enemy,
+            "neutral fixture control requires a prepared enemy"
         );
         self.actors[actor.index()].control = crate::Control::Manual;
         Ok(())
