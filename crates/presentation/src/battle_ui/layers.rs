@@ -13,6 +13,7 @@ pub(super) enum Depth {
     Cutin = 60,
     Notice = 70,
     Recovery = 80,
+    TechnicalSmash = 85,
     Enemies = 90,
     Scan = 232,
     Unison = 140,
