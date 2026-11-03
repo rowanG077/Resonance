@@ -1,6 +1,6 @@
 //! Direct reader for the native `ef1` battle-effect program bank.
-//! Conversion stays strict: unsupported commands cannot silently become a
-//! partial cooked definition.
+//! Unsupported commands never become a partial program. The cross-source API
+//! can retain a whole unavailable program until its controller is implemented.
 use crate::{battle_effect_media, battle_effect_tints, dol};
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_effect::{
@@ -128,6 +128,11 @@ fn uv_animation(rows: &[u8], index: usize) -> Result<UvAnimation> {
 
 fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
     let row = Row(bytes);
+    if bytes[0] == 20 {
+        return Ok(Declaration::Unsupported {
+            reason: "native particle controller 20 is not yet decoded".into(),
+        });
+    }
     if bytes[0] == 22 {
         return Ok(Declaration::CameraShake {
             duration: u32::try_from(row.short(16)).context("negative effect shake duration")?,
@@ -164,7 +169,7 @@ fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
     ensure!(
         matches!(
             bytes[0],
-            3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 15 | 18 | 19
+            3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 18 | 19
         ),
         "effect actor needs a specialized controller"
     );
@@ -1591,7 +1596,12 @@ pub(crate) fn name_programs(
     let mut remap = BTreeMap::new();
     let mut counts = BTreeMap::<String, usize>::new();
     for actor in used {
-        let mut declaration = bank.simple_particle(actor)?;
+        let mut declaration = bank.simple_particle(actor).with_context(|| {
+            format!(
+                "effect actor {actor}, kind {}",
+                bank.actor(actor).map(|row| row[0]).unwrap_or(255)
+            )
+        })?;
         bind(actor, &mut declaration)?;
         let special = include.contains(&actor) && actor == 19;
         if !special && let Some(index) = templates.iter().position(|old| old == &declaration) {
@@ -1623,19 +1633,27 @@ pub(crate) fn name_programs(
 
 /// Compile canonical effect records into the same editable bank used by GC.
 /// Asset owners bind their palette sets before equal declarations are interned.
+/// An unsupported source controller leaves an explicit whole-program marker;
+/// no prefix of that program is published as though it were complete.
 pub fn decode_effect_bank(
     bytes: &[u8],
     bones: &[String],
+    include: &[u8],
     bind: impl FnMut(u8, &mut Declaration) -> Result<()>,
 ) -> Result<Definition> {
     let bank = NativeBank::read(bytes)?;
     let mut programs = (0..bank.program_count())
-        .map(|index| {
-            bank.grouped_program(index, bones)
-                .with_context(|| format!("effect program {index}"))
+        .map(|index| match bank.grouped_program(index, bones) {
+            Ok(program) => program,
+            Err(error) => vec![ScheduledEvent {
+                at: 0,
+                operation: EffectOperation::Unsupported {
+                    reason: format!("effect program {index}: {error:#}"),
+                },
+            }],
         })
-        .collect::<Result<Vec<_>>>()?;
-    let (template_names, templates) = name_programs(&bank, &mut programs, &[], bind)?;
+        .collect::<Vec<_>>();
+    let (template_names, templates) = name_programs(&bank, &mut programs, include, bind)?;
     Ok(Definition {
         programs,
         template_names,

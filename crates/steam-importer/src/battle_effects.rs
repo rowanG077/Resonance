@@ -17,6 +17,9 @@ use std::{
     path::Path,
 };
 
+mod resident;
+pub(crate) use resident::cook as cook_resident;
+
 struct Canonical {
     bytes: Vec<u8>,
     sounds: Vec<u16>,
@@ -157,13 +160,6 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
     );
     let mut result = bytes[..20].to_vec();
     result[8..20].fill(0);
-    let position = short(result.len())?;
-    result[8..10].copy_from_slice(&position);
-    let mut strides = Vec::new();
-    for row in actors.chunks_exact(360) {
-        strides.push(row[6]);
-        result.extend(actor(row)?);
-    }
     let modifier_start = result.len();
     let mut edits = BTreeMap::new();
     for row in commands.chunks_exact(8) {
@@ -241,6 +237,21 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
         );
         result.extend(short(root / 12 * 10)?);
     }
+    if bytes[5] == 0 {
+        // Keep an empty optional UV-root section distinct from the following
+        // actor pool. The legacy reader uses shared starts to detect empty pools.
+        result.extend([0; 2]);
+    }
+    // Only section starts and modifier pointers use the GC decoder's u16
+    // addresses. Put the large actor pool last so a bank may exceed 64 KiB
+    // without changing any binary reader or cooked/runtime representation.
+    let position = short(result.len())?;
+    result[8..10].copy_from_slice(&position);
+    let mut strides = Vec::new();
+    for row in actors.chunks_exact(360) {
+        strides.push(row[6]);
+        result.extend(actor(row)?);
+    }
     Ok(Canonical {
         bytes: result,
         sounds,
@@ -251,13 +262,24 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
 fn decode(
     bytes: &[u8],
     bones: &[String],
+    bind: impl FnMut(u8, &mut Declaration) -> Result<()>,
+) -> Result<Definition> {
+    decode_including(bytes, bones, &[], bind)
+}
+
+fn decode_including(
+    bytes: &[u8],
+    bones: &[String],
+    include: &[u8],
     mut bind: impl FnMut(u8, &mut Declaration) -> Result<()>,
 ) -> Result<Definition> {
     let source = canonical(bytes)?;
-    let mut definition =
-        resonance_importer::decode_effect_bank(&source.bytes, bones, |actor, declaration| {
-            bind(source.strides[usize::from(actor)], declaration)
-        })?;
+    let mut definition = resonance_importer::decode_effect_bank(
+        &source.bytes,
+        bones,
+        include,
+        |actor, declaration| bind(source.strides[usize::from(actor)], declaration),
+    )?;
     for event in definition.programs.iter_mut().flatten() {
         if let EffectOperation::Sound { id, .. } = &mut event.operation {
             *id = *source
@@ -493,6 +515,66 @@ mod tests {
     }
 
     #[test]
+    fn large_actor_pool_keeps_legacy_addresses_small_without_truncation() -> Result<()> {
+        let mut actors = vec![0; 200 * 360];
+        for row in actors.chunks_exact_mut(360) {
+            row[0] = 22;
+            row[16..18].copy_from_slice(&8u16.to_le_bytes());
+            row[24..28].copy_from_slice(&0x1234u32.to_le_bytes());
+        }
+        let bank = fixture(
+            &actors,
+            &[],
+            &[[0, 0, 199, 0, 0, 0, 0, 0], [1, 0, 254, 0, 0, 0, 0, 0]],
+        );
+        let normalized = canonical(&bank)?;
+        assert!(normalized.bytes.len() > usize::from(u16::MAX));
+        let definition = decode(&bank, &[], |_, _| Ok(()))?;
+        assert!(matches!(
+            definition.programs[0][0].operation,
+            EffectOperation::Shake {
+                duration: 8,
+                amplitude: 0x1234
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn unavailable_program_does_not_publish_its_valid_sound_prefix() -> Result<()> {
+        let mut sound = [0, 0, 252, 2, 0, 0, 0, 0];
+        sound[4..8].copy_from_slice(&310u32.to_le_bytes());
+        let mut bank = fixture(&[], &[], &[sound]);
+        let definition = decode(&bank, &[], |_, _| Ok(()))?;
+        assert!(matches!(
+            definition.programs[0].as_slice(),
+            [resonance_content::battle_effect::ScheduledEvent {
+                at: 0,
+                operation: EffectOperation::Unsupported { .. }
+            }]
+        ));
+        bank[8..12].fill(0);
+        assert!(decode(&bank, &[], |_, _| Ok(())).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn no_draw_controller_retains_its_shared_particle_timeline() -> Result<()> {
+        let mut actor = vec![0; 360];
+        actor[0] = 14;
+        actor[2] = 255;
+        actor[16..18].copy_from_slice(&6u16.to_le_bytes());
+        actor[58] = 255;
+        let bank = fixture(&actor, &[], &[[0; 8], [6, 0, 254, 0, 0, 0, 0, 0]]);
+        let definition = decode(&bank, &[], |_, _| Ok(()))?;
+        assert!(
+            matches!(definition.templates[0], Declaration::Particle { ref template, ref visual }
+            if template.lifetime == Some(7) && matches!(visual.geometry, resonance_content::battle_effect::visual::ParticleShape::NoDraw))
+        );
+        Ok(())
+    }
+
+    #[test]
     fn model_byte_fields_and_relocated_float_edits_reach_shared_declarations() -> Result<()> {
         let mut actor = vec![0; 360];
         actor[0] = 3;
@@ -673,6 +755,20 @@ mod tests {
             let result = decode(bank, &bones, |_, _| Ok(()));
             match result {
                 Ok(definition) => {
+                    ensure!(
+                        !definition.programs.iter().flatten().any(|event| matches!(
+                            event.operation,
+                            EffectOperation::Unsupported { .. }
+                        )),
+                        "enemy {id} has an unavailable effect program"
+                    );
+                    ensure!(
+                        !definition.templates.iter().any(|declaration| matches!(
+                            declaration,
+                            Declaration::Unsupported { .. }
+                        )),
+                        "enemy {id} has an unavailable effect template"
+                    );
                     let json = serde_json::to_vec(&definition)?;
                     let round_trip: Definition = serde_json::from_slice(&json)?;
                     assert_eq!(round_trip.programs.len(), usize::from(bank[4]));
