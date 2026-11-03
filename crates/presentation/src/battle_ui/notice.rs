@@ -437,9 +437,11 @@ impl Artwork {
             if layer.definition.depth != depth {
                 layer.definition.depth = depth;
                 if let Some(rendered) = &layer.rendered {
+                    // Battle publication follows transform propagation.
+                    let transform = Transform::from_xyz(0., 0., depth);
                     commands
                         .entity(rendered.entity)
-                        .insert(Transform::from_xyz(0., 0., depth));
+                        .insert((transform, GlobalTransform::from(transform)));
                 }
             }
             layer.upload(batch, commands, meshes)?;
