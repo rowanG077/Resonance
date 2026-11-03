@@ -5,6 +5,21 @@ use bevy::{
 };
 use resonance_content::overworld::TerrainSurface;
 
+// Native world terrain table in fn_2_10670, after cooking surface names.
+fn footstep_sound(surface: TerrainSurface) -> Option<i16> {
+    use TerrainSurface::*;
+    match surface {
+        Grassland => Some(12),
+        Road => Some(11),
+        Wasteland => Some(18),
+        Snowfield => Some(19),
+        Desert | Beach => Some(17),
+        Forest | DeepForest => Some(27),
+        Bridge | Pier => Some(14),
+        Barrier | Water => None,
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Kind {
     Grass,
@@ -21,13 +36,27 @@ struct Particle {
     rotation: f32,
     life: u16,
 }
+struct Gait {
+    actor: u16,
+    slot: u16,
+    start: u32,
+    phase: Option<bool>,
+}
 #[derive(Default)]
 pub(super) struct Particles {
     live: Vec<Particle>,
-    stride: u32,
+    gait: Option<Gait>,
     random: u32,
 }
 impl Particles {
+    /// Rendering samples the same gait clock as sounds and footprints.
+    pub(super) fn gait_start(&self, actor: u16, slot: u16) -> Option<u32> {
+        self.gait
+            .as_ref()
+            .filter(|gait| gait.actor == actor && gait.slot == slot)
+            .map(|gait| gait.start)
+    }
+
     fn random(&mut self, range: u32) -> u32 {
         self.random = self.random.wrapping_mul(1664525).wrapping_add(1013904223);
         (self.random >> 8) % range
@@ -43,7 +72,7 @@ impl Particles {
     }
     pub(super) fn step(
         &mut self,
-        session: &game::Session,
+        session: &mut game::Session,
         models: &BTreeMap<Model, Vec<ScenePart>>,
     ) -> Result<()> {
         for p in &mut self.live {
@@ -59,6 +88,7 @@ impl Particles {
         self.live.retain(|p| p.life > 0);
         if session.cinematic.is_some() {
             self.live.clear();
+            self.gait = None;
             return Ok(());
         }
         let state = session.travel.state();
@@ -78,17 +108,41 @@ impl Particles {
                 } else {
                     1
                 };
-                let duration = models[&Model::Actor(actor)]
+                let clip = models[&Model::Actor(actor)]
                     .iter()
                     .flat_map(|p| &p.clips)
                     .find(|c| c.resource_slot == slot)
-                    .context("world stride animation missing")?
-                    .duration_seconds;
-                let half_stride = (duration * resonance_content::ANIMATION_HZ / 2.)
-                    .round()
-                    .max(1.) as u32;
-                if self.stride.is_multiple_of(half_stride) {
+                    .context("world stride animation missing")?;
+                let tick = session.events.tick();
+                if self
+                    .gait
+                    .as_ref()
+                    .is_none_or(|gait| gait.actor != actor || gait.slot != slot)
+                {
+                    self.gait = Some(Gait {
+                        actor,
+                        slot,
+                        start: tick,
+                        phase: None,
+                    });
+                }
+                let gait = self.gait.as_mut().unwrap();
+                let clip = resonance_events::AnimationClip::from(clip);
+                let phase = clip.sample_tick(tick - gait.start, true) >= clip.duration_ticks / 2;
+                let contact = gait.phase != Some(phase);
+                gait.phase = Some(phase);
+                if contact {
                     let terrain = session.travel.surface();
+                    if let Some(id) = terrain.and_then(footstep_sound) {
+                        session.events.world.audio_commands.push(
+                            resonance_events::AudioCommand::Sound {
+                                id,
+                                volume: 127,
+                                pan: 64,
+                                slot: None,
+                            },
+                        );
+                    }
                     if matches!(
                         terrain,
                         Some(
@@ -97,11 +151,7 @@ impl Particles {
                                 | TerrainSurface::Beach
                         )
                     ) {
-                        let side = if (self.stride / half_stride).is_multiple_of(2) {
-                            20.
-                        } else {
-                            -20.
-                        };
+                        let side = if phase { -20. } else { 20. };
                         let position = state.position.translated([
                             side * state.heading.cos(),
                             side * state.heading.sin(),
@@ -155,9 +205,8 @@ impl Particles {
                         }
                     }
                 }
-                self.stride += 1;
             } else {
-                self.stride = 0;
+                self.gait = None;
             }
             if let Some(modifier) = &party.encounter_modifier {
                 let holy = modifier.rate == 1;
@@ -175,7 +224,7 @@ impl Particles {
                 );
             }
         } else {
-            self.stride = 0;
+            self.gait = None;
         }
         // Snowfall over the northern Tethe'alla mountain range.
         let snow_center = Position::from_map([66333., 14745., 1000.])?;
@@ -438,4 +487,90 @@ pub(super) fn render(
             .unwrap()
             .fog_range = Vec4::new(far * 0.5, far * 0.75, 0., 0.);
     }
+}
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS; runs world movement without output devices"]
+fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
+    use resonance_content::overworld::{TravelState, World as WorldKind};
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
+    );
+    let package = Package::prepare(
+        &root,
+        &mut Default::default(),
+        || false,
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let mut persistent = resonance_events::PersistentState {
+        party: Some(resonance_events::party::Party::new(
+            package.world.resources.session_data.as_ref().unwrap(),
+            Default::default(),
+        )?),
+        ..Default::default()
+    };
+    persistent
+        .memory
+        .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+    let state = TravelState {
+        world: WorldKind::Sylvarant,
+        position: Position::from_map([9770., 24160., 0.])?,
+        heading: 0.,
+        camera_yaw: 0.,
+        alternate_perspective: false,
+        map_display: Default::default(),
+        mount: Mount::Foot,
+        altitude: 0.,
+    };
+    let session = game::Session::enter(
+        package.world.assets(state.world, &persistent)?,
+        state,
+        persistent,
+        Default::default(),
+    )?;
+    let mut scene = Scene::new(session, package.world)?;
+    scene.session.events.world.audio_commands.clear();
+    for walk in [false, true, false] {
+        let duration = scene.models[&Model::Actor(scene.leader())]
+            .iter()
+            .flat_map(|part| &part.clips)
+            .find(|clip| clip.resource_slot == if walk { 1 } else { 2 })
+            .unwrap()
+            .duration_ticks();
+        let mut contacts = Vec::new();
+        for elapsed in 0..duration + 2 {
+            scene.step(game::Input {
+                travel: game::travel::Input {
+                    stick: [1., 0.],
+                    walk,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })?;
+            if elapsed == 0 {
+                assert_eq!(
+                    scene
+                        .effects
+                        .particles
+                        .gait_start(scene.leader(), if walk { 1 } else { 2 }),
+                    Some(scene.session.events.tick())
+                );
+            }
+            for command in std::mem::take(&mut scene.session.events.world.audio_commands) {
+                if let resonance_events::AudioCommand::Sound { id, slot: None, .. } = command
+                    && resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(id as u32))
+                {
+                    contacts.push(elapsed);
+                }
+            }
+        }
+        assert_eq!(contacts, [0, duration / 2, duration + 1], "walk={walk}");
+    }
+    for _ in 0..60 {
+        scene.step(game::Input::default())?;
+        assert!(!std::mem::take(&mut scene.session.events.world.audio_commands).iter().any(|command|
+            matches!(command, resonance_events::AudioCommand::Sound { id, slot: None, .. }
+                if resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(*id as u32)))));
+    }
+    Ok(())
 }
