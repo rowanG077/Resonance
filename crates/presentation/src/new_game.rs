@@ -19,6 +19,8 @@ pub(super) struct Request(pub Option<Vec<u8>>);
 pub(super) struct TransitionFailure;
 
 fn transition_failed(world: &mut World, error: anyhow::Error) {
+    super::diagnostics::remember_failure("area transition", &format_args!("{error:#}"));
+    super::diagnostics::record(world, true);
     error!("Area transition failed: {error:#}");
     world.remove_resource::<super::loading::FieldPending>();
     world.remove_resource::<super::loading::WorldPending>();
@@ -617,6 +619,7 @@ pub(super) fn enter(world: &mut World) {
 }
 
 fn entry_failed(world: &mut World, scope: &str, error: anyhow::Error) {
+    super::diagnostics::remember_failure(scope, &format_args!("{error:#}"));
     let diagnostics = world
         .resource::<super::loading::Resident>()
         .diagnostics
@@ -625,8 +628,8 @@ fn entry_failed(world: &mut World, scope: &str, error: anyhow::Error) {
     // leaves it available for another action instead of retrying every update.
     world.remove_resource::<Request>();
     world.remove_resource::<super::loading::Pending>();
-    if diagnostics.report(scope, error).is_err() {
-        world.write_message(AppExit::error());
+    if let Err(error) = diagnostics.report(scope, error) {
+        super::diagnostics::fatal(world, scope, error);
     }
 }
 
@@ -687,6 +690,7 @@ pub(super) fn activate(world: &mut World, mut session: Session) {
     });
     world.insert_resource(session);
     info!("Started field {}", world.resource::<Session>().map_id());
+    super::diagnostics::record(world, true);
 }
 
 /// Replay testing resolves the pending encounter and resumes its original caller.
@@ -757,6 +761,12 @@ pub(super) fn transition(world: &mut World) {
             world.remove_resource::<super::loading::FieldPending>();
             result?
         } else {
+            info!(
+                "Preparing field transition: {} -> {}; request={request:?}",
+                world.resource::<Session>().map_id(),
+                request.map
+            );
+            super::diagnostics::record(world, true);
             let pending = super::loading::FieldPending::field(
                 world.resource::<RunOptions>().assets.clone(),
                 script_root.clone(),
@@ -775,6 +785,7 @@ pub(super) fn transition(world: &mut World) {
             .write()
             .unwrap() = Some(files);
         info!("Entered field {} through SymphoniaScript", request.map);
+        super::diagnostics::record(world, true);
         Ok(())
     })();
     if let Err(error) = result {
@@ -797,6 +808,11 @@ fn transition_world(world: &mut World) {
             world.remove_resource::<super::loading::WorldPending>();
             Arc::new(result?)
         } else {
+            info!(
+                "Preparing overworld transition from map {}",
+                world.resource::<Session>().map_id()
+            );
+            super::diagnostics::record(world, true);
             let pending = super::loading::WorldPending::overworld(
                 world.resource::<RunOptions>().assets.clone(),
                 world.resource::<super::loading::Resident>(),
@@ -814,6 +830,7 @@ fn transition_world(world: &mut World) {
             .write()
             .unwrap() = Some(world.resource::<Session>().files());
         info!("Entered overworld through SymphoniaScript");
+        super::diagnostics::record(world, true);
         Ok(())
     })();
     if let Err(error) = result {
@@ -827,7 +844,7 @@ pub(super) fn advance(
     mut session: Option<ResMut<Session>>,
     mut movie: ResMut<movie::Playback>,
     mut images: ResMut<Assets<Image>>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let Some(session) = &mut session else {
         return;
@@ -870,12 +887,13 @@ pub(super) fn advance(
                         .library()
                         .context("movie requires a named content library")?
                         .clone();
-                    let pending = super::loading::Task::spawn(move |stop| {
-                        let mut snapshot = library.snapshot();
-                        movie::Prepared::capture(&mut snapshot, id, || {
-                            stop.load(std::sync::atomic::Ordering::Relaxed)
-                        })
-                    })?;
+                    let pending =
+                        super::loading::Task::spawn(format!("story movie {id}"), move |stop| {
+                            let mut snapshot = library.snapshot();
+                            movie::Prepared::capture(&mut snapshot, id, || {
+                                stop.load(std::sync::atomic::Ordering::Relaxed)
+                            })
+                        })?;
                     session.pending_movie = Some((request.operation.id(), pending));
                     None
                 }
@@ -898,12 +916,9 @@ pub(super) fn advance(
     })();
     if let Err(error) = result {
         let diagnostics = session.files().diagnostics().clone();
-        if diagnostics
-            .report("Field movie; skipping video", error)
-            .is_err()
-        {
+        if let Err(error) = diagnostics.report("Field movie; skipping video", error) {
             session.field_mut().events.cancel();
-            exit.write(AppExit::error());
+            exit.fail("field movie", error);
         } else {
             if let Some(request) = &session.field().events.world.movie
                 && request.operation.is_pending()

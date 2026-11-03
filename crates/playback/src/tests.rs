@@ -79,6 +79,93 @@ impl Converter for Identity {
         Ok(())
     }
 }
+
+#[test]
+fn worker_errors_keep_the_originating_backtrace_for_every_observer() {
+    const CHILD: &str = "RESONANCE_AUDIO_BACKTRACE_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::worker_errors_keep_the_originating_backtrace_for_every_observer",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("RUST_LIB_BACKTRACE", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[inline(never)]
+    fn originating_converter_error() -> anyhow::Error {
+        anyhow::Error::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "bad decoded audio",
+        ))
+        .context("decoding test sound")
+    }
+    struct Fails(Arc<AtomicUsize>);
+    impl Converter for Fails {
+        fn convert(&mut self, _: &[[f32; 2]], _: &mut Vec<[f32; 2]>) -> anyhow::Result<()> {
+            let error = originating_converter_error();
+            assert_eq!(
+                error.backtrace().status(),
+                std::backtrace::BacktraceStatus::Captured
+            );
+            self.0.store(
+                std::ptr::from_ref(error.backtrace()) as usize,
+                Ordering::Release,
+            );
+            Err(error)
+        }
+    }
+    for observer in ["output", "request", "suspend"] {
+        let clock = Arc::new(Clock::new(SOURCE_RATE));
+        let output = Output::new(clock.clone(), 256);
+        let (control, mixer) = Mixer::new(clock);
+        let handle = control
+            .play(false, || Ok(Box::new(Samples(std::iter::repeat(0.5)))))
+            .unwrap();
+        let origin = Arc::new(AtomicUsize::new(0));
+        let mut worker =
+            Some(Worker::start(mixer, Box::new(Fails(origin.clone())), output.clone()).unwrap());
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while handle.state() != State::Failed {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let error = match observer {
+            "request" => control.play(false, || unreachable!()).err().unwrap(),
+            "suspend" => worker.take().unwrap().suspend().err().unwrap(),
+            _ => output.check().unwrap_err(),
+        };
+        assert_eq!(
+            std::ptr::from_ref(error.backtrace()) as usize,
+            origin.load(Ordering::Acquire)
+        );
+        assert!(error.downcast_ref::<std::io::Error>().is_some());
+        assert!(format!("{error:#}").contains("decoding test sound: bad decoded audio"));
+        let backtrace = format!("{:#}", error.backtrace());
+        for later in [
+            output.check(),
+            control.play(false, || unreachable!()).map(|_| ()),
+        ] {
+            let report = format!("{:#}", later.unwrap_err());
+            assert!(
+                report.contains("bad decoded audio") && report.contains(&backtrace),
+                "{report}"
+            );
+        }
+        assert_eq!(handle.state(), State::Failed);
+    }
+}
 #[test]
 fn worker_keeps_producing_without_control_thread_updates() {
     let clock = Arc::new(Clock::new(SOURCE_RATE));
@@ -180,6 +267,8 @@ fn replacing_output_replays_unheard_pcm_without_restarting_the_source() {
     clock.manual(NativeFrame(100));
     let rendered = handle.rendered_frames();
     assert!(rendered > 100);
+    ring.device_error(false, true);
+    assert!(ring.check().is_err());
     let suspended = worker.suspend().unwrap();
     assert_eq!(handle.audible_frames(), 100);
     let (worker, ring) = suspended

@@ -7,6 +7,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish a release branch after preparing its changelog
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,12 +46,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/ci/plan_workflow.py
 
+  changelog:
+    name: Consolidate release changelog
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    outputs:
+      commit: ${{ steps.notes.outputs.commit }}
+      changed: ${{ steps.notes.outputs.changed }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: true
+
+      - name: Install pinned changelog tool
+        run: |
+          python3 -m venv target/qlog
+          QLOG_REV=$(python3 -c 'import json; print(json.load(open("flake.lock"))["nodes"]["qlog"]["locked"]["rev"])')
+          target/qlog/bin/pip install "git+https://github.com/qbaylogic/qlog.git@$QLOG_REV"
+          echo "$PWD/target/qlog/bin" >> "$GITHUB_PATH"
+
+      - name: Consolidate and commit notes
+        id: notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: python3 tools/ci/prepare_changelog.py --version "$VERSION" --branch "$RELEASE_BRANCH" --commit "$RELEASE_COMMIT"
+
+      - name: Run CI for the changelog commit
+        if: steps.notes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: gh workflow run build.yml --ref "$RELEASE_BRANCH" -f publish_release=true
+
   test:
     name: ${{ matrix.platform }}
-    needs: prepare
-    if: needs.prepare.outputs.run_tests == 'true'
+    needs: [prepare, changelog]
+    if: >-
+      ${{ !cancelled() && needs.prepare.outputs.run_tests == 'true' &&
+          (needs.changelog.result == 'success' || needs.changelog.result == 'skipped') &&
+          needs.changelog.outputs.changed != 'true' }}
     concurrency:
-      group: test-${{ matrix.platform }}-${{ needs.prepare.outputs.commit }}
+      group: test-${{ matrix.platform }}-${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
       cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
@@ -81,7 +130,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Install Linux dependencies
@@ -114,6 +163,15 @@ jobs:
           cargo test --locked --profile release-fast -p resonance-presentation --lib
           cargo test --locked --profile release-fast -p resonance --bin resonance
 
+      - name: Install crash analysis tools
+        run: |
+          cargo install --locked --version 2.3.9 dump_syms
+          cargo install --locked --version 0.27.0 minidump-stackwalk
+
+      - name: Resolve an application crash to its source
+        if: needs.prepare.outputs.publish != 'true'
+        run: python tools/ci/crash_symbols.py --verify target/smoke/crash-symbols
+
       - name: Check effect comparison gates and generators
         if: matrix.platform == 'linux-x64'
         run: |
@@ -145,15 +203,6 @@ jobs:
             anti_aliasing::compositing_tests::shared_targets_respect_clear_and_load_with_msaa \
             -- --ignored --exact
 
-      - name: Upload synthetic render and audio diagnostics
-        if: ${{ always() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: smoke-${{ matrix.platform }}
-          path: target/smoke/
-          if-no-files-found: ignore
-          retention-days: 14
-
       - name: Build release executables
         if: needs.prepare.outputs.publish == 'true'
         env:
@@ -165,13 +214,42 @@ jobs:
           test "$("target/release/resonance$EXE" --version)" = "resonance ${VERSION#v}"
           test "$("target/release/resonance-import$EXE" --version)" = "resonance-import ${VERSION#v}"
 
-      - name: Package executables
+      - name: Generate release debugging symbols
+        if: needs.prepare.outputs.publish == 'true'
+        run: |
+          for BINARY in resonance resonance-import; do
+            python tools/ci/crash_symbols.py --binary "target/release/$BINARY$EXE" --output "target/release/$BINARY.sym"
+          done
+
+      - name: Package executables and debugging symbols
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          RELEASE_COMMIT: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          python tools/ci/package_release.py --version "$VERSION" --platform "$PLATFORM" --symbols
+
+      - name: Verify packaged crash artifacts
         if: needs.prepare.outputs.publish == 'true'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
         run: |
-          python tools/ci/package_release.py --version "$VERSION" --platform "$PLATFORM"
+          SUFFIX=tar.gz
+          if [[ "$PLATFORM" == windows-* ]]; then SUFFIX=zip; fi
+          python tools/ci/crash_symbols.py --verify target/smoke/release-crash \
+            --game-archive "target/dist/resonance-$VERSION-$PLATFORM.$SUFFIX" \
+            --symbols-archive "target/dist/resonance-$VERSION-$PLATFORM-symbols.$SUFFIX"
+
+      - name: Upload synthetic render and audio diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-${{ matrix.platform }}
+          path: target/smoke/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload executable archives
         if: needs.prepare.outputs.publish == 'true'
@@ -182,9 +260,39 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  analyze-crashes:
+    name: Analyze every platform's crashes on Linux
+    needs: [prepare, changelog, test]
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
+          persist-credentials: false
+
+      - name: Download crash fixtures and portable symbols
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: smoke-*
+          path: target/crash-fixtures
+
+      - name: Install portable stackwalker
+        run: cargo install --locked --version 0.27.0 minidump-stackwalk
+
+      - name: Resolve foreign dumps and text backtraces without native debug tools
+        env:
+          FIXTURE: ${{ needs.prepare.outputs.publish == 'true' && 'release-crash' || 'crash-symbols' }}
+        run: |
+          for PLATFORM in windows-x64 macos-arm64 linux-x64 linux-arm64; do
+            python tools/ci/crash_symbols.py --verify-analysis "target/crash-fixtures/smoke-$PLATFORM/$FIXTURE"
+          done
+
   release:
     name: Publish GitHub release
-    needs: [prepare, test]
+    needs: [prepare, changelog, test, analyze-crashes]
     if: >-
       needs.prepare.outputs.publish == 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -196,7 +304,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           persist-credentials: false
 
       - name: Download tested executable archives
@@ -212,6 +320,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_COMMIT: ${{ needs.changelog.outputs.commit || needs.prepare.outputs.commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: bash tools/ci/publish_release.sh

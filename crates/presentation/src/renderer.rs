@@ -21,6 +21,19 @@ pub(super) const COMPOSITED_OUTPUT: CameraOutputMode = CameraOutputMode::Write {
 };
 
 pub(super) fn configure(app: &mut App) {
+    app.insert_resource(bevy::render::error_handler::RenderErrorHandler(
+        |error, main_world, render_world| {
+            let adapter = render_world
+                .get_resource::<bevy::render::renderer::RenderAdapterInfo>()
+                .map(|adapter| &**adapter);
+            crate::diagnostics::fatal(
+                main_world,
+                "graphics",
+                anyhow::anyhow!("{error:?}; adapter={adapter:?}"),
+            );
+            bevy::render::error_handler::RenderErrorPolicy::StopRendering
+        },
+    ));
     app.add_plugins(crate::anti_aliasing::AntiAliasingPlugin);
     // Our modest, mostly transparent scenes cost less with direct draws than
     // GPU indirect culling. Keep GPU mesh preparation and visibility checks.

@@ -263,6 +263,26 @@ impl EventRuntime {
             })
             .collect()
     }
+    /// Stream active owners and waits directly into a bounded support report.
+    pub fn write_diagnostics(&self, out: &mut impl std::fmt::Write) -> std::fmt::Result {
+        writeln!(out, "Event instances: {}", self.active_instances())?;
+        for (slot, instance) in self.instances.iter().enumerate() {
+            let Some(instance) = instance else { continue };
+            writeln!(
+                out,
+                "Owner {slot}: {:?}; handle={}; entry={}; pc={}; join={:?}; wait={:?}; registers={:?}; return stack={:?}",
+                instance.key,
+                instance.handle,
+                instance.program.entry(),
+                instance.vm.pc(),
+                instance.join,
+                instance.wait,
+                instance.registers,
+                instance.vm.legacy_return_stack()
+            )?;
+        }
+        Ok(())
+    }
     pub fn active_instances(&self) -> usize {
         self.instances.iter().filter(|i| i.is_some()).count()
     }

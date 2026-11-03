@@ -8,6 +8,7 @@ symphonia-constants = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+tracing.workspace = true
 glam.workspace = true
 gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names", "extras"] }
 hound = "3.5"

@@ -4,7 +4,7 @@ use crossbeam_queue::ArrayQueue;
 use std::collections::VecDeque;
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, OnceLock,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
@@ -56,7 +56,7 @@ pub struct Output {
     backend_delay_ns: AtomicU64,
     stopped: AtomicBool,
     retain_state: AtomicBool,
-    failure: Mutex<Option<String>>,
+    failure: OnceLock<Arc<crate::mixer::Failure>>,
 }
 impl Output {
     pub fn new(clock: Arc<Clock>, callback_frames: usize) -> Arc<Self> {
@@ -80,7 +80,7 @@ impl Output {
             backend_delay_ns: AtomicU64::new(0),
             stopped: AtomicBool::new(false),
             retain_state: AtomicBool::new(false),
-            failure: Mutex::new(None),
+            failure: OnceLock::new(),
         })
     }
     pub fn diagnostics(&self) -> Diagnostics {
@@ -114,13 +114,8 @@ impl Output {
         }
     }
     pub fn check(&self) -> Result<()> {
-        if let Some(error) = self
-            .failure
-            .lock()
-            .expect("audio fault lock poisoned")
-            .as_ref()
-        {
-            anyhow::bail!("audio mixer failed: {error}");
+        if let Some(failure) = self.failure.get() {
+            failure.check()?;
         }
         ensure!(
             self.device_errors.load(Ordering::Acquire) == 0,
@@ -295,6 +290,10 @@ impl Worker {
         mut history: VecDeque<[f32; 2]>,
         mut replay: VecDeque<[f32; 2]>,
     ) -> Result<Self> {
+        ensure!(
+            output.failure.set(mixer.failure()).is_ok(),
+            "audio output already owns a mixer worker"
+        );
         let shared = output.clone();
         // Source initialization and decoding have no fixed CPU budget. Keep this
         // buffered producer on ordinary scheduling; only the device callback is real time.
@@ -351,11 +350,18 @@ impl Worker {
                         }
                         Ok(())
                     }))
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("audio mixer panicked")));
+                    .unwrap_or_else(|payload| {
+                        let reason = payload
+                            .downcast_ref::<String>()
+                            .map(String::as_str)
+                            .or_else(|| payload.downcast_ref::<&str>().copied())
+                            .unwrap_or("non-string panic payload");
+                        Err(anyhow::anyhow!(
+                            "audio mixer panicked: {reason}; see crash report"
+                        ))
+                    });
                 if let Err(error) = result {
-                    mixer.fail();
-                    *shared.failure.lock().expect("audio fault lock poisoned") =
-                        Some(format!("{error:#}"));
+                    mixer.fail(error);
                     return None;
                 }
                 if shared.retain_state.load(Ordering::Acquire) {
@@ -380,12 +386,18 @@ impl Worker {
         self.output.clock.freeze();
         self.output.retain_state.store(true, Ordering::Release);
         self.output.stopped.store(true, Ordering::Release);
-        self.thread
+        let suspended = self
+            .thread
             .take()
             .context("audio worker already stopped")?
             .join()
-            .map_err(|_| anyhow::anyhow!("audio worker panicked"))?
-            .context("audio worker failed while suspending")
+            .map_err(|_| anyhow::anyhow!("audio worker panicked"))?;
+        // A device fault is the reason for normal reconfiguration. Only a
+        // worker failure should prevent its mixer from being resumed.
+        if let Some(failure) = self.output.failure.get() {
+            failure.check()?;
+        }
+        suspended.context("audio worker failed while suspending")
     }
 }
 impl Drop for Worker {

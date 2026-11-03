@@ -89,7 +89,7 @@ pub(super) fn update(
                 .clone();
             let diagnostics = resident.diagnostics.clone();
             let id = request.id;
-            let task = Task::spawn(move |stop| {
+            let task = Task::spawn(format!("dynamic field resource {id:#x}"), move |stop| {
                 let cancelled = || stop.load(Ordering::Acquire);
                 let mut snapshot = library.snapshot();
                 let actors = Actors::capture_resource(&mut snapshot, &mut assets, id, &cancelled)

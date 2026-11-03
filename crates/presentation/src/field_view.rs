@@ -60,19 +60,21 @@ pub(super) struct RecoverField;
 #[derive(SystemParam)]
 pub(super) struct Failures<'w, 's> {
     diagnostics: Option<Res<'w, super::diagnostics::Diagnostics>>,
-    exit: MessageWriter<'w, AppExit>,
+    exit: crate::diagnostics::Fatal<'w>,
     commands: Commands<'w, 's>,
 }
 impl Failures<'_, '_> {
     pub(super) fn skip(&mut self, scope: &str, error: anyhow::Error) -> bool {
-        if let Some(diagnostics) = &self.diagnostics {
-            if diagnostics.0.report(scope, error).is_ok() {
-                return true;
+        super::diagnostics::remember_failure(scope, &format_args!("{error:#}"));
+        let error = if let Some(diagnostics) = &self.diagnostics {
+            match diagnostics.0.report(scope, error) {
+                Ok(()) => return true,
+                Err(error) => error,
             }
         } else {
-            error!("{scope}: {error:#}");
-        }
-        self.exit.write(AppExit::error());
+            error
+        };
+        self.exit.fail(scope, error);
         false
     }
 
@@ -105,8 +107,8 @@ fn recover(world: &mut World) {
     }
     if let Err(error) = super::game_over::return_to_title(world) {
         let diagnostics = world.resource::<super::diagnostics::Diagnostics>();
-        if diagnostics.0.report("field recovery", error).is_err() {
-            world.write_message(AppExit::error());
+        if let Err(error) = diagnostics.0.report("field recovery", error) {
+            crate::diagnostics::fatal(world, "field recovery", error);
         }
     }
 }
@@ -2710,13 +2712,12 @@ fn setup(
     mut surfaces: ResMut<Assets<TitleSurface>>,
     display: Res<super::display::Display>,
     device: Res<bevy::render::renderer::RenderDevice>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
 ) {
     let size = match display.0.validate(device.limits().max_texture_dimension_2d) {
         Ok(()) => display.0,
         Err(error) => {
-            error!("{error:#}");
-            exit.write(AppExit::error());
+            exit.fail("field render resolution", error);
             super::Resolution::default()
         }
     };
@@ -2857,7 +2858,7 @@ fn capture(
     refraction: Res<super::field_refraction::Ready>,
     session: Res<Session>,
     dialogue_art: Res<super::field_ui::Artwork>,
-    mut exit: MessageWriter<AppExit>,
+    mut exit: crate::diagnostics::Fatal,
     roots: Query<(Entity, &ActorPart)>,
     children: Query<&Children>,
     bones: Query<(&Name, &Transform, &GlobalTransform)>,
@@ -2866,8 +2867,7 @@ fn capture(
         return;
     }
     if checkpoint.since.elapsed().as_secs() > 120 {
-        error!("classroom capture timed out");
-        exit.write(AppExit::error());
+        exit.fail("classroom capture", anyhow::anyhow!("timed out"));
         return;
     }
     if !art.ready
@@ -2914,14 +2914,13 @@ fn capture(
         "actors":session.0.events.world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"position":a.position,"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"resource":a.resource,"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(session.0.events.tick(),0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
         "input_enabled":session.0.events.world.input_enabled,"camera":session.0.events.world.field_camera.as_ref().map(|c|serde_json::json!({"position":c.position,"target":c.target,"fov_degrees":c.fov_degrees()}))});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
-        move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+        move |event: On<ScreenshotCaptured>, mut exit: crate::diagnostics::Fatal| {
             match crate::screenshot::write(&event.image, &path, Some(&state)) {
                 Ok(()) => {
-                    exit.write(AppExit::Success);
+                    exit.success();
                 }
                 Err(error) => {
-                    error!("classroom capture failed: {error:#}");
-                    exit.write(AppExit::error());
+                    exit.fail("classroom capture failed", error);
                 }
             }
         },
