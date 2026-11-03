@@ -90,6 +90,8 @@ including constructor overrides. Initial colors, alpha units, fade thresholds
 and native emission timestamps remain unchanged.
 Carried models retain their source-declared layers and embedded outlines; their
 half-range vertex RGB converts to the shared color range with alpha preserved.
+Rigid effect models also retain their source outline shell when separate roots
+have coincident bind poses and every model clip remains static.
 Actor bodies use the GC depth-writing pass, including blended feather and wing
 edges, so their backface outlines cannot cover the shaded body surface.
 Lightning Spear binds an authored filled Steam lightning fork for GC-style

@@ -1,6 +1,7 @@
 //! Some rigid effect models already contain their expanded, inward-facing black shell.
 use super::*;
 use glam::Vec3;
+use resonance_content::animation::{Channel, Interpolation, Motion};
 
 fn volume(mesh: &model::Mesh) -> f32 {
     mesh.indices
@@ -37,6 +38,10 @@ fn black_shell(mesh: &model::Mesh) -> bool {
 
 /// Every coloured part must have its actual paired shell before dropping a whole generated layer.
 pub(super) fn present(model: &model::Model) -> bool {
+    covered(model, |body, shell| body.node == shell.node)
+}
+
+fn covered(model: &model::Model, same_frame: impl Fn(&model::Mesh, &model::Mesh) -> bool) -> bool {
     let mut bodies = model
         .meshes
         .iter()
@@ -53,7 +58,7 @@ pub(super) fn present(model: &model::Model) -> bool {
             .any(|shell| {
                 if shell.joints.is_some()
                     || shell.positions.is_empty()
-                    || body.node != shell.node
+                    || !same_frame(body, shell)
                     || body.joints.is_some()
                     || body.indices.len() != shell.indices.len()
                     || !body.colors.iter().any(|c| c[..3] != [0.; 3])
@@ -77,9 +82,114 @@ pub(super) fn present(model: &model::Model) -> bool {
     })
 }
 
+fn constant<const N: usize>(channel: &Option<Channel<N>>, rest: [f32; N]) -> bool {
+    channel.as_ref().is_none_or(|channel| {
+        channel.interpolation != Interpolation::CubicSpline
+            && channel.values.iter().all(|value| *value == rest)
+    })
+}
+
+fn static_clip(bytes: &[u8]) -> Result<bool> {
+    Ok(Motion::decode(bytes)?.tracks.iter().all(|track| {
+        track.nodes.iter().all(|node| {
+            constant(&node.translation, node.bind.translation)
+                && constant(&node.rotation, node.bind.rotation)
+                && constant(&node.scale, node.bind.scale)
+        })
+    }))
+}
+
+fn coincident_roots(model: &model::Model, first: usize, second: usize) -> bool {
+    let (Some(first), Some(second)) = (model.rig.nodes.get(first), model.rig.nodes.get(second))
+    else {
+        return false;
+    };
+    first.parent.is_none()
+        && second.parent.is_none()
+        && first.visible
+        && second.visible
+        && first.rest == second.rest
+        && first.global == second.global
+}
+
+/// Separate rigid roots may carry one source surface/shell pair. Accept them
+/// only when their frames coincide and every published model clip stays at rest.
+/// Animated or hierarchically separated nodes retain the generated outline.
+pub(super) fn present_with_clips(
+    model: &model::Model,
+    library: &Path,
+    scene: &resonance_content::ScenePart,
+) -> Result<bool> {
+    if present(model) {
+        return Ok(true);
+    }
+    if !covered(model, |body, shell| {
+        if body.node == shell.node {
+            return true;
+        }
+        let (Some(body), Some(shell)) = (body.node, shell.node) else {
+            return false;
+        };
+        coincident_roots(model, usize::from(body), usize::from(shell))
+    }) {
+        return Ok(false);
+    }
+    for clip in &scene.clips {
+        let bytes = std::fs::read(library.join(&clip.motion))?;
+        if !static_clip(&bytes)? {
+            return Ok(false);
+        }
+        let motion = Motion::decode_world_nodes(&bytes, &model.rig.joint_names())?;
+        for first in 0..model.rig.nodes.len() {
+            for second in first + 1..model.rig.nodes.len() {
+                if !coincident_roots(model, first, second) {
+                    continue;
+                }
+                let frame = |bone| -> Result<_> {
+                    let track = motion
+                        .tracks
+                        .iter()
+                        .find(|track| usize::from(track.bone) == bone)
+                        .context("static source root has no clip binding")?;
+                    let bind = track.nodes.first().context("empty source root track")?.bind;
+                    track.sample_matrix(0., bind)
+                };
+                if frame(first)? != frame(second)? {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_content::animation::{NodeTrack, Skeleton, Track, Transform};
+
+    fn translating_clip() -> Result<Vec<u8>> {
+        let mut node = NodeTrack::new(Transform::default());
+        node.translation = Some(Channel {
+            interpolation: Interpolation::Step,
+            times: vec![0., 1.],
+            values: vec![[0.; 3], [1., 0., 0.]],
+        });
+        Motion {
+            duration_frames: 30.,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![node],
+            }],
+        }
+        .encode_nodes(&Skeleton::single("moving-root"))
+    }
+
+    #[test]
+    fn a_later_translation_key_is_not_a_static_shell_binding() -> Result<()> {
+        assert!(!static_clip(&translating_clip()?)?);
+        Ok(())
+    }
 
     #[test]
     fn black_material_alone_does_not_replace_a_generated_outline() {
@@ -138,6 +248,98 @@ mod tests {
             !present(&mixed),
             "an unpaired coloured part must retain the generated outline"
         );
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; reads only enemy78 source and its already-published missile model"]
+    fn installed_murder_missile_keeps_static_source_shell_without_rewriting_media() -> Result<()> {
+        use sha2::{Digest, Sha256};
+        let source = Source::open(
+            &std::path::PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let package = source.require(monsters::package(&image, 78)?)?;
+        ensure!(
+            preview_model::reference(&package, 0x198)?.is_none(),
+            "missile acquired a separate source outline"
+        );
+        let descriptor =
+            preview_model::reference(&package, 0x180)?.context("missing Murder missile model")?;
+        let bytes = source.require(&descriptor)?;
+        let dependencies = crate::package::dependencies(&bytes)?;
+        let mut native = model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+        ensure!(
+            !present(&native),
+            "fixture no longer requires the distinct-node proof"
+        );
+        let path = library.join("battle/enemies/murder-0078/effects/effects.json");
+        let mut effects: Definition = serde_json::from_slice(&std::fs::read(path)?)?;
+        let before = serde_json::to_value(&effects)?;
+        let missile_value = effects
+            .artwork
+            .as_mut()
+            .context("missing effects artwork")?
+            .models
+            .get_mut(&0)
+            .context("missing missile slot")?;
+        let mut missile: resonance_content::battle_model::document::Model =
+            serde_json::from_value(missile_value.clone())?;
+        let scene = &missile.layers[0].scene;
+        let media = std::iter::once(scene.mesh.clone())
+            .chain(scene.clips.iter().map(|clip| clip.motion.clone()))
+            .chain(scene.textures.iter().cloned())
+            .map(|path| {
+                let hash = Sha256::digest(std::fs::read(library.join(&path))?);
+                Ok((path, hash))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            present_with_clips(&native, &library, scene)?,
+            "source missile shell no longer has coincident static roots"
+        );
+
+        let old_rest = native.rig.nodes[1].rest;
+        native.rig.nodes[1].rest.translation[0] += 1.;
+        ensure!(
+            !present_with_clips(&native, &library, scene)?,
+            "separated source nodes must retain the generated layer"
+        );
+        native.rig.nodes[1].rest = old_rest;
+        let temporary = tempfile::tempdir()?;
+        std::fs::write(temporary.path().join("moving.glb"), translating_clip()?)?;
+        let mut moving = scene.clone();
+        moving.clips.truncate(1);
+        ensure!(!moving.clips.is_empty(), "fixture lost its source clip");
+        moving.clips[0].motion = "moving.glb".into();
+        ensure!(
+            !present_with_clips(&native, temporary.path(), &moving)?,
+            "a moving clip must retain the generated layer"
+        );
+
+        missile
+            .layers
+            .retain(|part| part.scene.outline_color.is_none());
+        ensure!(
+            missile.layers.len() == 1,
+            "source body/shell must remain together"
+        );
+        *missile_value = serde_json::to_value(missile)?;
+        let after = serde_json::to_value(&effects)?;
+        ensure!(before["programs"] == after["programs"]);
+        ensure!(before["templates"] == after["templates"]);
+        for (path, hash) in media {
+            ensure!(
+                Sha256::digest(std::fs::read(library.join(path))?) == hash,
+                "shell selection must not rewrite model, clip or texture bytes"
+            );
+        }
+        Ok(())
     }
 
     #[test]
@@ -238,8 +440,10 @@ mod tests {
                 let bytes = source.require(&descriptor)?;
                 let payload = crate::package::dependencies(&bytes)?;
                 let native = model::Model::read(&bytes, &source.require(&payload[0])?)?;
+                let scene: resonance_content::model_preview::PreviewPart =
+                    serde_json::from_value(model["layers"][0].clone())?;
                 ensure!(
-                    present(&native),
+                    present_with_clips(&native, &library, &scene.scene)?,
                     "new coverage guard changes published enemy{id} model{slot}: {descriptor}"
                 );
                 checked += 1;

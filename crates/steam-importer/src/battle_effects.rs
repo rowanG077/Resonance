@@ -400,7 +400,9 @@ fn models(
             &motions,
         )?;
         normalize_model_color(source, library, &body, &preview.parts[0].scene, &mut native)?;
-        if outline.is_empty() && embedded_outline::present(&native) {
+        if outline.is_empty()
+            && embedded_outline::present_with_clips(&native, library, &preview.parts[0].scene)?
+        {
             // A generated front-cull pass would expose the source's reversed black shell
             // across the entire model. The source body already supplies its silhouette.
             preview
@@ -970,7 +972,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and absolute RESONANCE_TEST_LIBRARY; publishes only44/103 effect artwork"]
+    #[ignore = "requires RESONANCE_TEST_STEAM and absolute RESONANCE_TEST_LIBRARY; publishes only44/78/103 effect artwork"]
     fn installed_gc_style_enemy_artwork_uses_shared_reader() -> Result<()> {
         let source = Source::open(
             &PathBuf::from(
@@ -982,7 +984,7 @@ mod tests {
             std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
         );
         ensure!(library.is_absolute(), "use an absolute publication path");
-        let ids = [44, 103];
+        let ids = [44, 78, 103];
         let actions = ids
             .iter()
             .map(|&id| {
