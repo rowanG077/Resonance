@@ -30,6 +30,8 @@ pub struct Ledger {
     pub enemy_was_scanned: bool,
     /// Actor slots whose elemental information was discovered by contact.
     pub discovered_weaknesses: crate::ActorSet,
+    pub discovered_scans: crate::ActorSet,
+    pub discovered_locations: crate::ActorSet,
     pub discovered_resistances: crate::ActorSet,
     pub party_item_effect_used: bool,
     /// Actor slots, not character IDs. The session maps these on persistence.
@@ -63,6 +65,8 @@ impl Ledger {
             party_was_hit: false,
             enemy_was_scanned: false,
             discovered_weaknesses: Default::default(),
+            discovered_scans: Default::default(),
+            discovered_locations: Default::default(),
             discovered_resistances: Default::default(),
             party_item_effect_used: false,
             kills: vec![0; actors],

@@ -6,6 +6,12 @@ const PRELUDE_COLOR: [u8; 3] = [16; 3];
 const PRELUDE_STEP: u8 = 4;
 const RESTORE_STEP: u8 = 2;
 
+pub(super) fn scenery_visible([r, g, b, alpha]: [u8; 4]) -> bool {
+    // The native arena draw skips a fully black tint, including its depth
+    // coverage, while the model's pose and texture clocks keep advancing.
+    alpha != 0 && (r != 0 || g != 0 || b != 0)
+}
+
 pub(super) struct State {
     original: [u8; 4],
     color: [u8; 4],
@@ -155,6 +161,15 @@ fn approach(color: &mut [u8], target: [u8; 3], step: u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn black_scenery_does_not_occlude_spell_backdrops() {
+        assert!(!scenery_visible([0, 0, 0, 255]));
+        assert!(!scenery_visible([64, 64, 64, 0]));
+        for color in [[1, 0, 0, 255], [0, 1, 0, 255], [0, 0, 1, 255]] {
+            assert!(scenery_visible(color));
+        }
+    }
 
     #[test]
     fn prelude_tint_holds_then_restores_prepared_scenery_color() {

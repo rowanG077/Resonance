@@ -9,7 +9,10 @@ pub const ANGEL_FEATHERS: u16 = 56;
 pub const ERUPTION: u16 = 67;
 pub const STALAGMITE: u16 = 75;
 pub const GRAVE: u16 = 77;
-pub const SCENES: [(u16, u16); 36] = [
+pub const SCENES: [(u16, u16); 39] = [
+    (60, 271),
+    (144, 281),
+    (super::fairy_circle::CATALOGUE, super::fairy_circle::SCENE),
     (super::corrine::CORRINE, super::corrine::SCENE),
     (super::corrine::HEART, super::corrine::SCENE),
     (super::ground_pulse::SPREAD, 201),
@@ -114,6 +117,7 @@ fn canonical(catalogue: u16) -> u16 {
         214 => ERUPTION,
         218 => GRAVE,
         252 => super::colette_spells::JUDGMENT,
+        124 => super::colette_spells::JUDGMENT,
         _ => catalogue,
     }
 }
@@ -131,6 +135,31 @@ pub fn prepare(
     let scene =
         battle_scene::document::load(files, battle_scene::document::Kind::Technique, scene_id)?;
     scene.validate()?;
+    let mut spell = prepare_scene(
+        files, catalogue, &scene, bank, common, techniques, resources,
+    )?;
+    for path in &scene.effect_paths {
+        spell.effect_paths.push(resonance_battle::SpellEffectPath {
+            at: TRANSITION_TICKS + 1,
+            appearance: resources.effect_member(bank, path.member)?,
+            positions: path.positions.clone().into(),
+        });
+    }
+    Ok(spell)
+}
+
+fn prepare_scene(
+    files: &Files,
+    catalogue: u16,
+    scene: &battle_scene::Scene,
+    bank: &EffectResource,
+    common: &EffectResource,
+    techniques: &EffectResource,
+    resources: &mut ActionResources,
+) -> Result<PreparedSpell> {
+    if catalogue == super::fairy_circle::CATALOGUE {
+        return super::fairy_circle::prepare(files, scene, bank, resources);
+    }
     if let Some(recipe) = &scene.spell_recipe {
         return super::pattern_spells::prepare(files, &scene, recipe, bank, resources);
     }

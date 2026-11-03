@@ -26,6 +26,30 @@ fn particle(data: ParticleTemplate) -> Particle {
 }
 
 #[test]
+fn primary_only_brightening_retains_the_gradient_endpoint_but_fades_both_colors() {
+    let mut data = template();
+    data.gradient = true;
+    data.brighten_primary_only = true;
+    data.state.colors = [[10, 20, 30, 40], [100, 110, 120, 130]];
+    data.state.brighten = [1, 2, 3, 4];
+    data.state.brighten_until = Some(2);
+    data.fade = [4, 3, 2, 1];
+    data.fade_from = 2;
+    let mut particle = particle(data);
+    particle.step(None, None).unwrap();
+    particle.step(None, None).unwrap();
+    assert_eq!(
+        particle.frame.state.colors,
+        [[12, 24, 36, 48], [100, 110, 120, 130]]
+    );
+    particle.step(None, None).unwrap();
+    assert_eq!(
+        particle.frame.state.colors,
+        [[8, 21, 34, 47], [96, 107, 118, 129]]
+    );
+}
+
+#[test]
 fn floor_clamp_keeps_downward_motion_without_bouncing() {
     let mut data = template();
     data.ground_clamp = true;

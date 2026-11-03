@@ -4,11 +4,11 @@ A parallel source importer based on the current [GameCube importer](../importer)
 It reads an installed Steam copy and writes the same editable content contracts.
 **GameCube rendering is the target; visual parity with Steam is an anti-goal.**
 
-The coordinator has 63 direct category passes. A fresh Steam-only cook, the
-opening field/checkpoint lifecycle, both opening encounter preparations and a
-damaging Fire Ball release have been exercised through the shared engine. A
-classroom GPU capture checks basic presentation; whole-game progression and
-complete GameCube visual fidelity remain unverified.
+The coordinator has 63 direct category passes. A fresh Steam-only cook and
+targeted field, combat and GPU captures exercise the shared engine. Cooking
+success and executable actions are separate from visual acceptance. Original
+GameCube references and Resonance renders of GameCube assets are tracked
+separately; whole-game progression and complete visual fidelity remain unverified.
 
 ## Cook an installation
 
@@ -70,21 +70,39 @@ can still contain explicitly unavailable actions or source resources.
 | Battle UI | GC layout/colors/motion, normalized HUD pages, bitmap font, nine portraits and localized command/status captions |
 | World | Terrain, travel models/motions, movement and encounter rules, landmarks, guideposts and cinematics |
 
+Callback actions, including Final Fury and Sword Rain: Tempest, publish ordinary
+authored actions. Fairy Circle uses sampled scene paths and shared recovery
+commands; Inspect Magic uses the existing scan result flow. Party secondary
+motion reuses the GameCube chain binder, and costume-owned weapon props use
+optional visual metadata without changing equipped items or combat attributes.
+
+Native arena brightness and alpha comparisons are normalized during importing.
+Startup-effect selectors, palette roles and opacity bindings likewise become
+shared effect data rather than runtime edition choices.
+Field scenery preserves native alpha cutoffs and draws translucent glass after
+opaque scenery, restoring the exterior visible through Iselia's classroom panes.
+
 ## Remaining work and limits
 
-- Some callback-driven actions and stored-scene participant commands remain
-  explicitly unsupported. The cook reports their owner and reason; unrelated
-  prepared tracks remain available. Final Fury is among the unresolved callbacks.
+- Some actions and stored-scene participant commands remain explicitly
+  unsupported. Diagnostics identify the owner and reason; successful publication
+  does not establish correct choreography or effects.
+- Some learned prototype slots have null phase handlers in the original games.
+  The visual catalogue retains those bindings with primary-source evidence;
+  they are neither missing executable effects nor visual passes.
 - Some field resources are absent from the shipped installation or still lack a
   conversion. The cook reports those references instead of inventing replacements.
-- Material/visibility controllers, secondary motion and specialized presentation
-  still need fidelity work. Matching document shapes is not visual acceptance.
-  Steam fonts/menu artwork also cannot reproduce every GameCube asset exactly.
-- Rare costume weapon-prop selection policies are deferred cosmetics. Their
-  physical equipment assets are imported through the current common contract.
+- Material/visibility controllers and specialized presentation still need
+  fidelity work. The arte-title backing remains a source-media gap. Steam
+  fonts/menu artwork cannot reproduce every GameCube asset exactly.
 - These checks do not establish whole-game progression or full GameCube visual
-  parity. Keep the opening encounters and small combat regressions working before
-  broad game coverage or minute effect comparisons.
+  fidelity. The current visual pass covers party artes, enemy action rows and
+  Unison recipes; minor texture differences are allowed. Full-game walkthroughs
+  and mechanical equivalence sweeps are deferred.
+
+See [arte visual review](../../tools/arte-visuals/review.md) for capture provenance,
+reference selection and independent review status. Generated inventories,
+captures and review decisions live under `local/`, outside the cooked library.
 
 ## Targeted validation
 
@@ -130,6 +148,6 @@ cargo test -p resonance-game --test battle_preparation --offline \
 
 In the repository's Nix environment, prefix Cargo commands with
 `nix develop --offline -c`. Prefer the owner check relevant to a change, then the
-opening CPU preparation check once its required publications are cooked. Whole-game
-walkthroughs and exhaustive visual comparisons are not prerequisites for importer
-iteration.
+opening CPU preparation check once its required publications are cooked. Use the
+arte capture harness for visual changes; whole-game walkthroughs are not a
+prerequisite for importer iteration.

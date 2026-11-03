@@ -230,6 +230,11 @@ pub enum AttackEvent {
     SpecialGuard,
     Armor(u8),
     ReactionArmor(u16),
+    TransitionProtection(u16),
+    /// Entry metadata; admission owns the reservation before any event executes.
+    ActionScene {
+        party_protection: u16,
+    },
     StatUp {
         condition: crate::conditions::Condition,
         amount: i16,
@@ -276,6 +281,7 @@ pub enum AttackEvent {
         repeat: bool,
     },
     WeaponVisibility(Vec<(Option<WeaponSlot>, bool)>),
+    ActionWeaponVisibility(Vec<(Option<WeaponSlot>, bool)>),
     Effect {
         appearance: crate::EffectAppearance,
         tints: [crate::effect::EffectTint; 10],
@@ -611,6 +617,20 @@ impl PreparedAttack {
                     "invalid carried animation rate"
                 ),
                 AttackEvent::UseItem(item) => ensure!(*item != 0, "empty enemy item identity"),
+                AttackEvent::TransitionProtection(duration) => {
+                    ensure!(*duration > 0, "empty transition protection")
+                }
+                AttackEvent::ActionScene { party_protection } => ensure!(
+                    *at == 0
+                        && *party_protection > 0
+                        && self
+                            .events
+                            .iter()
+                            .filter(|(_, event)| matches!(event, AttackEvent::ActionScene { .. }))
+                            .count()
+                            == 1,
+                    "invalid action scene entry"
+                ),
                 AttackEvent::HealOtherAllies { radius, percent } => ensure!(
                     radius.is_finite() && *radius > 0. && (1..=100).contains(percent),
                     "invalid nearby ally recovery"
@@ -625,6 +645,7 @@ impl PreparedAttack {
                 | AttackEvent::PoseKeepingParts(_)
                 | AttackEvent::AnimationRate(_)
                 | AttackEvent::WeaponVisibility(_)
+                | AttackEvent::ActionWeaponVisibility(_)
                 | AttackEvent::PrimaryWeapons(_)
                 | AttackEvent::Tint(_)
                 | AttackEvent::RecoveryDown { .. }
@@ -1704,6 +1725,11 @@ pub(crate) fn step(
                     protection.armor(u32::from(*duration));
                 }
             }
+            AttackEvent::TransitionProtection(duration) => battle.actors[index]
+                .reaction
+                .protection
+                .protect_transition(u32::from(*duration)),
+            AttackEvent::ActionScene { .. } => {}
             AttackEvent::StatUp { condition, amount } => {
                 let owner = &mut battle.actors[index];
                 owner
@@ -1807,7 +1833,14 @@ pub(crate) fn step(
                     rate: *rate,
                     repeat: *repeat,
                 }),
-            AttackEvent::WeaponVisibility(slots) => {
+            AttackEvent::WeaponVisibility(slots) | AttackEvent::ActionWeaponVisibility(slots) => {
+                if matches!(event, AttackEvent::ActionWeaponVisibility(_)) {
+                    battle
+                        .models
+                        .as_mut()
+                        .context("action weapon visibility has no model")?
+                        .override_action_weapons(actor, id, &[])?;
+                }
                 for &(slot, visible) in slots {
                     battle.model_requests.push(crate::ModelRequest::Weapon {
                         actor,
@@ -1880,6 +1913,7 @@ pub(crate) fn step(
                     | AttackEvent::PoseKeepingParts(_)
                     | AttackEvent::AnimationRate(_)
                     | AttackEvent::WeaponVisibility(_)
+                    | AttackEvent::ActionWeaponVisibility(_)
                     | AttackEvent::PrimaryWeapons(_)
                     | AttackEvent::Tint(_)
                     | AttackEvent::PassThrough { enabled: false, .. }

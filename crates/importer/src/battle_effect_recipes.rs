@@ -128,11 +128,6 @@ fn uv_animation(rows: &[u8], index: usize) -> Result<UvAnimation> {
 
 fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
     let row = Row(bytes);
-    if bytes[0] == 20 {
-        return Ok(Declaration::Unsupported {
-            reason: "native particle controller 20 is not yet decoded".into(),
-        });
-    }
     if bytes[0] == 22 {
         return Ok(Declaration::CameraShake {
             duration: u32::try_from(row.short(16)).context("negative effect shake duration")?,
@@ -169,12 +164,12 @@ fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
     ensure!(
         matches!(
             bytes[0],
-            3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 18 | 19
+            3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 18 | 19 | 20
         ),
         "effect actor needs a specialized controller"
     );
     let flags = row.word(20);
-    if flags & (0x8000_0000 | 0x10000) != 0 {
+    if flags & 0x10000 != 0 {
         return Ok(Declaration::Unsupported {
             reason: format!(
                 "native point-history particle controller is not yet decoded (kind {}, flags {flags:#x})",
@@ -225,6 +220,7 @@ fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
         | 0x20000
         | 0x2000_0000
         | 0x4000_0000
+        | 0x8000_0000
         | 0x200;
     ensure!(
         flags & !ALLOWED == 0,
@@ -394,6 +390,9 @@ fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
         linear_orbit: bytes[0] == 5,
         geometry_acceleration_until: duration(row.short(136))?,
         gradient: flags & 8 != 0,
+        // The native color loop skips its secondary endpoint only in the
+        // brighten branch; this bit does not allocate point history.
+        brighten_primary_only: flags & 0x8000_0000 != 0,
         fade: bytes[44..48].try_into()?,
         fade_from: u32::from(bytes[49]),
         uv_animation,
@@ -495,6 +494,7 @@ fn simple_particle(bytes: &[u8], uv: &[u8]) -> Result<Declaration> {
                         depth: flags & 0x20 != 0,
                     },
                     19 => ParticleShape::TriangleBand,
+                    20 => ParticleShape::SquareBand,
                     _ => unreachable!(),
                 }
             },
@@ -1210,9 +1210,10 @@ impl<'a> NativeBank<'a> {
                 value
             } else if opcode == 8 || opcode == 13 {
                 let initial = initial.context("effect scratch arithmetic before initialization")?;
+                let correlated = initial.draw.is_some() && initial.draw == value.draw;
                 ensure!(
-                    initial.min == initial.max || value.min == value.max,
-                    "independent effect variations need decoding"
+                    initial.min == initial.max || value.min == value.max || correlated,
+                    "independent effect variations need decoding at {at:#x}, target {target:#x}"
                 );
                 let sign = if opcode == 13 { -1. } else { 1. };
                 let (value_start, value_end) = if value.reverse {
@@ -1230,7 +1231,11 @@ impl<'a> NativeBank<'a> {
                 ValueRange {
                     min: a.min(b),
                     max: a.max(b),
-                    step: if initial.min == initial.max {
+                    step: if initial.min != initial.max && value.min != value.max && correlated {
+                        let initial_step = initial.step * if initial.reverse { -1. } else { 1. };
+                        let value_step = value.step * if value.reverse { -1. } else { 1. };
+                        (initial_step + sign * value_step).abs()
+                    } else if initial.min == initial.max {
                         value.step
                     } else {
                         initial.step
@@ -1322,6 +1327,15 @@ impl<'a> NativeBank<'a> {
                 continue;
             }
             if matches!(opcode, 8 | 14) {
+                if opcode == 8
+                    && (0x64..=0x6c).contains(&target)
+                    && (target - 0x64).is_multiple_of(4)
+                {
+                    motion.angular_velocity_add.get_or_insert([0.; 3])
+                        [usize::from((target - 0x64) / 4)] += value;
+                    at += 12;
+                    continue;
+                }
                 ensure!(
                     (0x40..=0x48).contains(&target) && (target - 0x40).is_multiple_of(4),
                     "unsupported delayed effect velocity arithmetic target {target:#x}"
@@ -1367,6 +1381,11 @@ impl<'a> NativeBank<'a> {
                 if let Some(scale) = &mut motion.velocity_scale {
                     scale[axis] = 1.;
                 }
+            }
+            if (0x64..=0x6c).contains(&target)
+                && let Some(add) = &mut motion.angular_velocity_add
+            {
+                add[usize::from((target - 0x64) / 4)] = 0.;
             }
             at += 12;
         }
@@ -1581,6 +1600,7 @@ pub(crate) fn label(declaration: &Declaration) -> String {
         ParticleShape::Ribbon { .. } => "ribbon",
         ParticleShape::VertexQuad { .. } => "vertex-quad",
         ParticleShape::TriangleBand => "triangle-band",
+        ParticleShape::SquareBand => "square-band",
         ParticleShape::Unsupported { .. } => "unsupported-geometry",
         _ => "effect",
     };

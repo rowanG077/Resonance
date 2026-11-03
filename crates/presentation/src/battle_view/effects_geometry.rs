@@ -104,11 +104,11 @@ pub(super) fn validate(declaration: &Declaration) -> Result<()> {
                 "invalid ribbon geometry"
             );
         }
-        ParticleShape::TriangleBand => {
+        ParticleShape::TriangleBand | ParticleShape::SquareBand => {
             ensure!(
                 matches!(template.state.geometry, ParticleGeometry::Size { .. })
                     && visual.copies == 0,
-                "invalid triangle band geometry"
+                "invalid polygon band geometry"
             );
         }
         ParticleShape::RadialQuads { .. } => {
@@ -297,9 +297,15 @@ fn fill_geometry(
                 angles.z += f32::from(p.copy_rotation);
             }
         }
-        ParticleShape::TriangleBand => {
-            let directions: [Vec2; 3] =
-                std::array::from_fn(|corner| circle(-30. + 120. * corner as f32));
+        ParticleShape::TriangleBand | ParticleShape::SquareBand => {
+            let (segments, phase) = if p.geometry == ParticleShape::TriangleBand {
+                (3, -30.)
+            } else {
+                (4, -45.)
+            };
+            let directions = (0..segments)
+                .map(|corner| circle(phase + 360. / segments as f32 * corner as f32))
+                .collect::<Vec<_>>();
             let depth = dimensions.x * if anchored { 1. } else { 0.5 };
             let point = |direction: Vec2, radius: f32| basis * (direction * radius).extend(depth);
             for edge in 0..directions.len() {
@@ -453,7 +459,10 @@ fn fill_geometry(
                 Mat3::from_rotation_y((angles.y + heading) * DEGREES)
                     * Mat3::from_rotation_x(angles.x * DEGREES)
             };
-            let step = Mat3::from_rotation_y(heading * DEGREES) * Vec3::from_array(segment_offset);
+            let displacement = std::array::from_fn(|axis| {
+                state.segment_offset[axis].unwrap_or(segment_offset[axis])
+            });
+            let step = Mat3::from_rotation_y(heading * DEGREES) * Vec3::from_array(displacement);
             let mut size = dimensions;
             let mut origin = Vec3::ZERO;
             let mut spin = offset.x;
@@ -1033,49 +1042,94 @@ mod tests {
     }
 
     #[test]
-    fn triangle_band_closes_with_consistent_winding_and_repeats_its_atlas_panel() -> Result<()> {
+    fn polygon_bands_close_with_consistent_winding_and_repeat_their_atlas_panel() -> Result<()> {
+        for (shape, segments) in [
+            (ParticleShape::TriangleBand, 3),
+            (ParticleShape::SquareBand, 4),
+        ] {
+            let mut declaration = fixture_particle(
+                include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
+                "actors",
+                "34",
+            );
+            let look = visual(&mut declaration);
+            look.geometry = shape;
+            look.orientation = Orientation::World;
+            look.anchored = false;
+            look.copies = 0;
+            let template = declaration.template_mut()?;
+            template.state.angles = [0.; 3];
+            template.state.uv = [384, 384, 64, 64];
+            template.state.geometry = ParticleGeometry::Size {
+                value: [8., 96., 304.],
+                velocity: [0.; 3],
+                acceleration: [0.; 3],
+            };
+            let state = template.state.clone();
+            validate(&declaration)?;
+            let data = geometry(&state, &declaration, 0., [512; 2], Mat3::IDENTITY)?.unwrap();
+            assert_eq!(data.positions.len(), segments * 6);
+            for edge in 0..segments {
+                let start = edge * 6;
+                let next = (edge + 1) % segments * 6;
+                assert_eq!(data.positions[start + 1], data.positions[next]);
+                assert_eq!(data.positions[start + 5], data.positions[next + 2]);
+                assert_eq!(data.uv[start..start + 6], data.uv[..6]);
+                for (vertex, radius) in [304., 304., 400., 400., 304., 400.].into_iter().enumerate()
+                {
+                    let point = Vec3::from_array(data.positions[start + vertex]);
+                    assert!((point.truncate().length() - radius).abs() < 0.001);
+                    assert_eq!(point.z, 4.);
+                }
+            }
+            assert_eq!(data.uv[0], [0.75, 0.75]);
+            assert_eq!(data.uv[5], [0.875, 0.875]);
+            for triangle in data.positions.chunks_exact(3) {
+                let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i]));
+                assert!((b - a).cross(c - a).z < 0.);
+            }
+            visual(&mut declaration).copies = 1;
+            assert!(validate(&declaration).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn billboard_trails_use_constructor_displacement_before_template_displacement() -> Result<()> {
         let mut declaration = fixture_particle(
             include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
             "actors",
             "34",
         );
         let look = visual(&mut declaration);
-        look.geometry = ParticleShape::TriangleBand;
-        look.orientation = Orientation::World;
+        look.geometry = ParticleShape::BillboardTrail;
+        look.orientation = Orientation::Billboard;
         look.anchored = false;
         look.copies = 0;
         let template = declaration.template_mut()?;
         template.state.angles = [0.; 3];
-        template.state.uv = [384, 384, 64, 64];
-        template.state.geometry = ParticleGeometry::Size {
-            value: [8., 96., 304.],
-            velocity: [0.; 3],
-            acceleration: [0.; 3],
+        template.state.orbit = [0.; 3];
+        template.state.geometry_count = 2;
+        template.state.segment_offset = [None, None, Some(14.)];
+        template.state.geometry = ParticleGeometry::BillboardTrail {
+            size: [2., 4.],
+            radius: 0.,
+            radius_velocity: 0.,
+            segment_size_step: [0.; 3],
+            segment_offset: [0., 0., 99.],
+            segment_angle_step: 0.,
+            steps_per_segment: 1,
         };
-        let state = template.state.clone();
+        let mut state = template.state.clone();
         validate(&declaration)?;
-        let data = geometry(&state, &declaration, 0., [512; 2], Mat3::IDENTITY)?.unwrap();
-        assert_eq!(data.positions.len(), 18);
-        for edge in 0..3 {
-            let start = edge * 6;
-            let next = (edge + 1) % 3 * 6;
-            assert_eq!(data.positions[start + 1], data.positions[next]);
-            assert_eq!(data.positions[start + 5], data.positions[next + 2]);
-            assert_eq!(data.uv[start..start + 6], data.uv[..6]);
-            for (vertex, radius) in [304., 304., 400., 400., 304., 400.].into_iter().enumerate() {
-                let point = Vec3::from_array(data.positions[start + vertex]);
-                assert!((point.truncate().length() - radius).abs() < 0.001);
-                assert_eq!(point.z, 4.);
-            }
+        for distance in [14., 99.] {
+            let data = geometry(&state, &declaration, 0., [512; 2], Mat3::IDENTITY)?.unwrap();
+            assert_eq!(data.positions.len(), 12);
+            let first = Vec3::from_array(data.positions[0]);
+            let second = Vec3::from_array(data.positions[6]);
+            assert_eq!(second - first, Vec3::new(0., 0., -distance));
+            state.segment_offset = [None; 3];
         }
-        assert_eq!(data.uv[0], [0.75, 0.75]);
-        assert_eq!(data.uv[5], [0.875, 0.875]);
-        for triangle in data.positions.chunks_exact(3) {
-            let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i]));
-            assert!((b - a).cross(c - a).z < 0.);
-        }
-        visual(&mut declaration).copies = 1;
-        assert!(validate(&declaration).is_err());
         Ok(())
     }
 

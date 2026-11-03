@@ -271,6 +271,7 @@ fn common_actions(bytes: &[u8], choices: &[u8]) -> Result<Vec<u8>> {
             28,
             &[(0, 2), (8, 4), (14, 2), (16, 2)],
         )?);
+        crate::battle_callbacks::canonical_hits(slot as u16, &mut result[rules..contacts])?;
     }
     Ok(result)
 }
@@ -330,9 +331,50 @@ pub fn actions(
     library: &Path,
     id: u16,
 ) -> Result<resonance_importer::EnemyActionTables> {
+    actions_with_callbacks(bytes, common, library, id, &[])
+}
+
+pub(crate) fn actions_with_source(
+    source: &crate::source::Source,
+    bytes: &[u8],
+    common: &[u8],
+    library: &Path,
+    id: u16,
+) -> Result<resonance_importer::EnemyActionTables> {
+    let final_fury = if section(bytes, 10)?
+        .chunks_exact(72)
+        .any(|row| pe::half(row, 68).ok() == Some(152))
+    {
+        crate::battle_callbacks::enemy_final_fury(source)?
+    } else {
+        Vec::new()
+    };
+    actions_with_callbacks(bytes, common, library, id, &final_fury)
+}
+
+fn actions_with_callbacks(
+    bytes: &[u8],
+    common: &[u8],
+    library: &Path,
+    id: u16,
+    final_fury: &[(u16, resonance_content::battle_action::EnemyEvent)],
+) -> Result<resonance_importer::EnemyActionTables> {
     let common = common_actions(common, section(bytes, 10)?)?;
     let canonical = package(bytes)?;
-    let resolve_effect = |effect| physical_effect(bytes, effect);
+    let resolve_effect = |technique, effect| {
+        if technique == 152 && effect == 2 {
+            Ok(2)
+        } else {
+            physical_effect(bytes, effect)
+        }
+    };
+    let callbacks = |technique| -> Result<_> {
+        Ok(if technique == 152 {
+            final_fury.to_vec()
+        } else {
+            Vec::new()
+        })
+    };
     let mut result = resonance_importer::decode_enemy_actions(
         &canonical,
         library,
@@ -350,10 +392,12 @@ pub fn actions(
             // Native callback 0x405c57 selects action six, at age 120.
             affliction_action: 6,
             physical_effect: Some(&resolve_effect),
-            unsupported_techniques: &[(
-                152,
-                "Final Fury (152): stored skill scene and native action callbacks are not yet imported",
-            )],
+            physical_callbacks: Some(&callbacks),
+            unsupported_techniques: if final_fury.is_empty() {
+                &[(152, "Final Fury requires its stored native callback source")]
+            } else {
+                &[]
+            },
         },
     )?;
     for (choice, row) in result
@@ -456,7 +500,7 @@ mod tests {
             let filename =
                 image.text(pe::word(image.slice(0x8e5b50 + u32::from(id) * 4, 4)?, 0)?)?;
             let bytes = source.require(filename)?;
-            match actions(&bytes, common, &library, id) {
+            match actions_with_source(&source, &bytes, common, &library, id) {
                 Ok(tables) => {
                     prepared += 1;
                     assert_eq!(tables.actions.rows.len(), section(&bytes, 10)?.len() / 72);

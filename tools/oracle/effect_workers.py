@@ -74,6 +74,7 @@ class DolphinFixture:
         (config/'Hotkeys.ini').write_text(
             '[Hotkeys]\nDevice = XInput2/0/Virtual core pointer\n'
             'General/Toggle Pause = F10\nLoad State/Load State Slot 1 = F1\n'
+            'General/Take Screenshot = F9\n'
             'Save State/Save State Slot 2 = F8\n'
             'Frame Advance/Frame Advance = F11\n')
         self.slot = self.user/'StateSaves/GQSEAF.s01'
@@ -165,6 +166,14 @@ class DolphinFixture:
         """Save a paused live checkpoint without overwriting the input fixture."""
         if not self.paused:
             raise RuntimeError('pause the fixture before saving')
+        # Match capture.py: Xvfb can leave the render window without focus after
+        # a state restore, so explicitly focus our own window before its hotkey.
+        windows = subprocess.check_output(
+            ['xdotool', 'search', '--onlyvisible', '--pid', str(self.process.pid)],
+            env=self.env, text=True).splitlines()
+        if not windows:
+            raise RuntimeError('Dolphin has no visible render window for checkpoint hotkeys')
+        subprocess.run(['xdotool', 'windowfocus', '--sync', windows[-1]], env=self.env, check=True)
         saved = self.slot.with_suffix('.s02')
         saved.unlink(missing_ok=True)
         press_key(self.env, 'F8')

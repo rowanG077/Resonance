@@ -33,6 +33,53 @@ fn encounter(
     Ok((battle, owner))
 }
 
+#[test]
+#[ignore = "requires current native source-cooked Raine/resident effect owners"]
+fn inspect_magic_225_prepares_as_an_enemy_targeted_scan() -> Result<()> {
+    let (battle, owner) = encounter(4, &[225], false)?;
+    let technique = battle
+        .prepared_technique(owner, resonance_battle::TechniqueId(225))
+        .context("Inspect Magic has no prepared casting action")?;
+    let enemy = battle
+        .actors()
+        .iter()
+        .position(|actor| actor.side == resonance_battle::Side::Enemy)
+        .context("missing scan target")?;
+    assert!(battle.technique_target_eligible(
+        owner,
+        technique.action,
+        resonance_battle::ActorId::from_index(enemy)?
+    ));
+    assert!(!battle.technique_target_eligible(owner, technique.action, owner));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires current source-cooked Raine owners; works with either source library"]
+fn raine_first_aid_prepares_without_admitting_an_unpublished_finisher() -> Result<()> {
+    let (battle, owner) = encounter(4, &[98], false)?;
+    assert!(
+        battle
+            .prepared_technique(owner, resonance_battle::TechniqueId(98))
+            .is_some()
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires current source-cooked Grand Cross and Divine Judgment recipes"]
+fn added_angel_spell_60_and_144_prepare_from_authored_scene_recipes() -> Result<()> {
+    for (character, catalogue) in [(2, 60), (6, 144), (6, 124)] {
+        let (battle, owner) = encounter(character, &[catalogue], false)?;
+        assert!(
+            battle
+                .prepared_technique(owner, resonance_battle::TechniqueId(catalogue))
+                .is_some()
+        );
+    }
+    Ok(())
+}
+
 #[path = "martial/attached.rs"]
 mod attached;
 

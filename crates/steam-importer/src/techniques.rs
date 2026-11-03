@@ -58,6 +58,61 @@ fn caption(image: &pe::Image<'_>, bank: &Bank<'_>, slot: u32, index: u32) -> Res
     )
 }
 
+fn name_caption(
+    image: &pe::Image<'_>,
+    bank: &Bank<'_>,
+    slot: u32,
+    id: usize,
+    row: &[u8],
+    table: &[u8],
+) -> Result<String> {
+    let name = caption(image, bank, slot, pe::word(row, 16)?)?;
+    if id == 144 && name.is_empty() {
+        // Divine Judgment's scene owns its notice title instead of the ordinary
+        // menu row. Its six producer slots are Japanese, English, French,
+        // Spanish, German and Italian, matching the installation's language slot.
+        ensure!(
+            slot < 6
+                && pe::half(row, 0)? == 281
+                && pe::word(image.slice(0x8e9b08 + 281 * 4, 4)?, 0)? == 0x8eb8e8
+                && pe::word(image.slice(0x8eb8e8, 4)?, 0)? == 0x40f7c0,
+            "Divine Judgment notice producer changed"
+        );
+        let table = pe::word(image.slice(0x8eb8d0 + slot * 4, 4)?, 0)?;
+        ensure!(
+            table == 0x86ac0c + slot * 4,
+            "Divine Judgment title language table changed"
+        );
+        let title = bank.menu(
+            pe::word(image.slice(table, 4)?, 0)?,
+            encoding_rs::WINDOWS_1252,
+        )?;
+        ensure!(!title.is_empty(), "Divine Judgment source title is empty");
+        return Ok(title);
+    }
+    if id != 248 || !name.is_empty() {
+        return Ok(name);
+    }
+    // The hidden original Indignation Judgment row has no ordinary menu name.
+    // Steam's acquired variant carries the localized caption under native row96
+    // (which replaces GC's Divine Power). Bind only the proven scene aliases,
+    // rather than treating either source's numeric technique IDs as semantics.
+    let alias = &table[96 * STRIDE..97 * STRIDE];
+    ensure!(
+        pe::half(row, 0)? == 280
+            && pe::half(alias, 0)? == 297
+            && pe::word(image.slice(0x8e9b08 + 280 * 4, 4)?, 0)? == 0x8eaa48
+            && pe::word(image.slice(0x8e9b08 + 297 * 4, 4)?, 0)? == 0x8eaa48,
+        "Indignation Judgment scene/caption identity changed"
+    );
+    let name = caption(image, bank, slot, pe::word(alias, 16)?)?;
+    ensure!(
+        !name.is_empty(),
+        "Indignation Judgment source caption is empty"
+    );
+    Ok(name)
+}
+
 fn named_id(id: i16, names: &Mappings) -> Result<Option<String>> {
     if id == 0 {
         return Ok(None);
@@ -211,7 +266,7 @@ fn decode(
         range as f32
     };
     let rules = Definition {
-        action: None,
+        action: crate::battle_martial::ordinary::action_path(image, id, row)?,
         tp_cost: row[8],
         element,
         learning,
@@ -277,10 +332,63 @@ fn decode(
         rules,
         menu,
         text: serde_json::to_value(NamedText {
-            name: caption(image, bank, slot, pe::word(row, 16)?)?,
+            name: name_caption(image, bank, slot, id, row, table)?,
             description: caption(image, bank, slot, pe::word(row, 12)?)?,
         })?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Language;
+    use resonance_content::diagnostics::Diagnostics;
+    use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires installed Steam and cooked library; checks mystic caption identities in five languages and recooks only technique definitions"]
+    fn installed_mystic_captions_use_proven_native_scene_aliases() -> Result<()> {
+        let installation = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+        );
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        for language in [
+            Language::English,
+            Language::French,
+            Language::Spanish,
+            Language::German,
+            Language::Italian,
+        ] {
+            let source = Source::open(&installation, language)?;
+            let image = pe::Image::parse(&source.executable)?;
+            let bytes = source.require("TOS_TEXT.TXB")?;
+            let bank = Bank::parse(&bytes)?;
+            let document = convert(&image, &bank, language.slot())?;
+            let document: Document = serde_json::from_slice(&serde_json::to_vec(&document)?)?;
+            let names = document.prepare()?.names(&Diagnostics::new(true))?;
+            ensure!(
+                names[&248] == names[&96] && names[&248] == "Indignation Judg.",
+                "lost native finisher caption"
+            );
+            let expected = match language {
+                Language::English | Language::German => "Divine Judgment",
+                Language::French => "Jugement divin",
+                Language::Spanish => "Juicio divino",
+                Language::Italian => "Giudizio divino",
+            };
+            ensure!(
+                names[&144] == expected,
+                "lost localized Divine Judgment producer title"
+            );
+            for id in [249, 260, 261] {
+                ensure!(!names[&id].is_empty(), "missing native mystic caption{id}");
+            }
+        }
+        cook(&Source::open(&installation, Language::English)?, &root)?;
+        Ok(())
+    }
 }
 
 fn convert(image: &pe::Image<'_>, bank: &Bank<'_>, slot: u32) -> Result<Document> {

@@ -775,10 +775,14 @@ impl Candidate {
         for enemy in &self.setup.enemies {
             let weakness = battle.ledger().discovered_weaknesses.contains(enemy.actor);
             let resistance = battle.ledger().discovered_resistances.contains(enemy.actor);
-            if weakness || resistance {
+            let scanned = battle.ledger().discovered_scans.contains(enemy.actor);
+            let location = battle.ledger().discovered_locations.contains(enemy.actor);
+            if weakness || resistance || scanned || location {
                 let knowledge = party.monsters.entry(enemy.reward.monster).or_default();
                 knowledge.weakness_known |= weakness;
                 knowledge.resistance_known |= resistance;
+                knowledge.scanned |= scanned;
+                knowledge.location |= location;
             }
         }
         Ok(party)

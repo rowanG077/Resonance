@@ -198,6 +198,7 @@ pub(super) fn prepare_field(
                     part.materials.push(surfaces.add(TitleSurface {
                         multiply: material.sampled[1].clone(),
                         vertex_color: spec.vertex_color,
+                        alpha_cutoff: spec.alpha_cutoff,
                         blend: spec.blend.then_some(Blend::Alpha),
                         depth_write: spec.depth_write,
                         ..TitleSurface::textured(material.sampled[0].clone())

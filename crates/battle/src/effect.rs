@@ -215,6 +215,10 @@ pub enum EffectFollow {
     },
     Projectile(crate::ProjectileId),
     Spell(crate::ActionId),
+    SpellPath {
+        action: crate::ActionId,
+        path: u16,
+    },
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRequest {
@@ -420,6 +424,14 @@ impl EffectFollow {
                 .spell_origins
                 .iter()
                 .find_map(|&(action, point)| (action == id).then_some(point)),
+            Self::SpellPath { action, path } => {
+                frame
+                    .spell_effect_positions
+                    .iter()
+                    .find_map(|&(owner, index, point)| {
+                        (owner == action && index == path).then_some(point)
+                    })
+            }
         }
     }
 }

@@ -27,13 +27,14 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
         let name = directory
             .reference(index)?
             .context("missing resident effect model")?;
-        let (mut scene, _) = model::cook(
+        let (mut scene, mut native) = model::cook(
             source,
             library,
             name,
             &format!("battle/effects/common/models/model-{slot}"),
             "body",
         )?;
+        super::normalize_model_color(source, library, name, &scene, &mut native)?;
         scene.autoplay = false;
         models.insert(
             slot,
@@ -114,6 +115,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             .map(|texture| texture.images.len())
             .sum::<usize>();
         definition.artwork = Some(Artwork::from_models(textures, models.clone())?);
+        super::bind_scene_opacity(&mut definition)?;
         output::json(&library.join(&owner).join("effects.json"), &definition)?;
         eprintln!(
             "  Resident {name} effects: {} programs, {} templates, {images} images",
@@ -153,6 +155,43 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    #[ignore = "requires RESONANCE_TEST_EXTRACTED and RESONANCE_TEST_LIBRARY; refreshes only current GC resident effect owners"]
+    fn installed_gc_resident_effects_refresh_through_shared_reader() -> Result<()> {
+        let extracted = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_EXTRACTED").context("set RESONANCE_TEST_EXTRACTED")?,
+        );
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        resonance_importer::cook_common_effects(&extracted, &library)?;
+        resonance_importer::cook_technique_effects(&extracted, &library)?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        for (path, count) in [
+            (battle_effect::document::COMMON, 52),
+            (battle_effect::document::TECHNIQUES, 138),
+        ] {
+            let bank = battle_effect::document::read(path, &diagnostics, |path| {
+                Ok(std::fs::read(library.join(path))?.into())
+            })?;
+            ensure!(
+                bank.programs.len() == count,
+                "GC resident program directory changed"
+            );
+            for member in 0..count {
+                bank.program(member)?;
+            }
+            ensure!(
+                !bank
+                    .actors
+                    .iter()
+                    .any(|actor| matches!(actor, Declaration::Unsupported { .. })),
+                "GC resident bank contains an unavailable template"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires RESONANCE_TEST_EXTRACTED; compares the intended feedback style with the current GC importer"]
     fn resident_feedback_style_matches_the_gc_importer() -> Result<()> {
         let root = PathBuf::from(
@@ -190,6 +229,21 @@ mod tests {
             })?;
             let art = bank.art.context("missing resident artwork")?;
             ensure!(art.models.len() == 13, "missing resident effect models");
+            ensure!(
+                !bank
+                    .programs
+                    .iter()
+                    .flatten()
+                    .any(|event| matches!(event.operation, EffectOperation::Unsupported { .. })),
+                "resident bank {path} contains an unavailable program"
+            );
+            ensure!(
+                !bank
+                    .actors
+                    .iter()
+                    .any(|actor| matches!(actor, Declaration::Unsupported { .. })),
+                "resident bank {path} contains an unavailable template"
+            );
             for declaration in &bank.actors {
                 if let Ok(visual) = declaration.particle_visual()
                     && let ParticleTexture::Atlas {

@@ -277,7 +277,8 @@ fn read(module: &Rel, usual: &[u8]) -> Result<profile::Table> {
 pub fn cook_battle_party_rules(root: &Path, library: &Path) -> Result<()> {
     let module = Rel::read(fs::read(root.join("disc1/files/US_r_Top2Btl.rel"))?)?;
     let usual = fs::read(root.join("disc1/files/BTL/BTLusual.dat"))?;
-    let table = read(&module, &usual)?;
+    let mut table = read(&module, &usual)?;
+    battle_party_martial::grand_fall::attach(root, &usual, &module, &mut table.martial_attacks)?;
     let names = Mappings::new(
         PartyCharacterId::ALL
             .into_iter()

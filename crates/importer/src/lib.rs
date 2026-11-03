@@ -141,6 +141,7 @@ mod world_dust;
 mod world_encounters;
 mod world_gpl;
 pub use world_gpl::animation_bindings as model_animation_bindings;
+pub use world_gpl::bind_thoda_cape;
 mod world_landmarks;
 mod world_markers;
 mod world_motion;
@@ -205,6 +206,9 @@ pub use boot::cook_boot;
 pub use character_attachments::attachment_mappings;
 pub use character_attachments::cook_character_attachments;
 pub use character_models::{cook_character_models, party_model_mappings};
+pub use character_models::character_dynamics::{
+    bind as bind_character_dynamics, chain_roots as character_chain_roots,
+};
 pub use characters::cook_characters;
 pub use cooking::{cook_cooking, merge_ingredients as merge_cooking_ingredients};
 pub use credits_screen::cook_credits_screen;

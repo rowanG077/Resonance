@@ -12,7 +12,7 @@ pub(crate) use appearance::party_appearance;
 pub(super) use material::Materials;
 pub(super) use mesh::Mesh;
 pub(super) use skeleton::Node;
-pub(crate) use write::{cook, cook_on_rig, material_parameters};
+pub(crate) use write::{cook, cook_on_rig, material_alpha_cutoffs, material_parameters};
 
 pub struct Rig {
     pub nodes: Vec<Node>,

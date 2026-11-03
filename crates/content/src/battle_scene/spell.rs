@@ -19,11 +19,23 @@ pub struct PatternSpell {
     pub startup_member: u16,
     pub startup_deferred: bool,
     pub contacts: Vec<PatternContact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutin: Option<PatternCutin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatternCutin {
+    pub catalogue: u16,
+    pub tick: u16,
+    pub duration: u16,
+    pub hold_ticks: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PatternOrigin {
+    SceneTargetRoot,
     SceneGround { toward_caster: f32 },
     SceneFixed { position: [f32; 3] },
 }
@@ -35,9 +47,20 @@ pub struct PatternContact {
     pub tick: u16,
     pub projectile: u8,
     pub hit_variant: u8,
+    #[serde(default)]
+    pub aim: PatternAim,
+    /// Zero means the projectile has no separate creation effect.
     pub effect_member: u16,
     /// Authored point before rotation by the captured heading.
     pub offset: [f32; 3],
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternAim {
+    #[default]
+    Captured,
+    Live,
 }
 
 impl SpellRecipe {
@@ -66,6 +89,7 @@ impl PatternSpell {
             "invalid pattern spell heading"
         );
         match self.origin {
+            PatternOrigin::SceneTargetRoot => {}
             PatternOrigin::SceneGround { toward_caster } => ensure!(
                 toward_caster.is_finite() && (0. ..=10000.).contains(&toward_caster),
                 "invalid pattern spell ground offset"
@@ -76,6 +100,15 @@ impl PatternSpell {
             self.startup_member > 0,
             "pattern spell startup effect is disabled"
         );
+        if let Some(cutin) = &self.cutin {
+            ensure!(
+                cutin.catalogue > 0
+                    && cutin.tick < self.lifetime
+                    && cutin.duration > 0
+                    && cutin.hold_ticks > 0,
+                "invalid pattern portrait schedule"
+            );
+        }
         ensure!(
             (1..=64).contains(&self.contacts.len()),
             "invalid pattern spell contact count"
@@ -90,10 +123,6 @@ impl PatternSpell {
             ensure!(
                 contact.tick < self.lifetime,
                 "pattern spell contact exceeds lifetime"
-            );
-            ensure!(
-                contact.effect_member > 0,
-                "pattern spell contact effect is disabled"
             );
             validate_point(contact.offset)?;
         }
@@ -122,10 +151,12 @@ mod tests {
             heading_offset: 20.,
             startup_member: 1,
             startup_deferred: true,
+            cutin: None,
             contacts: vec![PatternContact {
                 tick: 15,
                 projectile: 1,
                 hit_variant: 0,
+                aim: PatternAim::Captured,
                 effect_member: 2,
                 offset: [0.; 3],
             }],

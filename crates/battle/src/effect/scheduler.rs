@@ -52,6 +52,7 @@ impl EffectDefinition {
                         velocity_add,
                         acceleration,
                         angular_velocity,
+                        angular_velocity_add,
                         forward_motion,
                         velocity_scale,
                         size_velocity,
@@ -94,6 +95,7 @@ impl EffectDefinition {
                             .flatten()
                             .chain(velocity_scale.iter().flatten())
                             .chain(velocity_add.iter().flatten())
+                            .chain(angular_velocity_add.iter().flatten())
                             .chain(
                                 forward_motion
                                     .iter()
@@ -217,8 +219,12 @@ impl EffectDefinition {
                     );
                     ensure!(
                         birth.segment_offset.iter().all(Option::is_none)
-                            || matches!(geometry, ParticleGeometry::Spiral { .. }),
-                        "particle has no spiral segment offset"
+                            || matches!(
+                                geometry,
+                                ParticleGeometry::Spiral { .. }
+                                    | ParticleGeometry::BillboardTrail { .. }
+                            ),
+                        "particle has no segmented displacement"
                     );
                     ensure!(
                         birth.size.iter().all(Option::is_none)
@@ -392,6 +398,7 @@ impl Active {
                     velocity_add,
                     acceleration,
                     angular_velocity,
+                    angular_velocity_add,
                     forward_motion,
                     velocity_scale,
                     size_velocity,
@@ -410,6 +417,13 @@ impl Active {
                     }
                     assign(&mut particle.frame.state.acceleration, acceleration);
                     assign(&mut particle.frame.state.angular_velocity, angular_velocity);
+                    if let Some(add) = angular_velocity_add {
+                        for (current, add) in
+                            particle.frame.state.angular_velocity.iter_mut().zip(add)
+                        {
+                            *current += add;
+                        }
+                    }
                     if let Some(motion) = forward_motion {
                         if let Some(value) = motion.velocity {
                             particle.frame.state.velocity =

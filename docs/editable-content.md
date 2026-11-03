@@ -426,6 +426,12 @@ for dimensions or adds layout metadata to the image bytes. Mod authors can
 replace a KTX2 without adding metadata or editing JSON to increase resolution.
 Cooked layout version 106 requires a fresh import to populate these declarations.
 
+Scene materials can set `alpha_cutoff` from 0 to 255. The default, 1, discards
+fully transparent samples; 129 retains samples whose alpha is greater than 128.
+Keep this threshold independent of blending and depth writes: a translucent
+surface and a cutout surface can need different settings even with the same
+texture. Grouped material overrides apply it to every listed mesh.
+
 Authored SymphoniaScript modules live under `scripts/`. Original scenarios use
 `.ssb` VM bytecode with a lossless assembly editing workflow:
 

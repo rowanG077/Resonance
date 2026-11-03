@@ -26,7 +26,7 @@ use std::{
 };
 use symphonia_constants::BattleSkillId;
 
-fn package(root: &Path, id: u16) -> Result<(Vec<u8>, Rel)> {
+pub(crate) fn package(root: &Path, id: u16) -> Result<(Vec<u8>, Rel)> {
     // The technique table selects physical slots 1 and 2 for these two skills.
     // The REL contains the final native archive boundaries, including slot 0.
     let slot = match id {
@@ -370,6 +370,7 @@ pub fn cook_battle_skill_package(root: &Path, library: &Path, id: u16) -> Result
         strike_points: Vec::new(),
         recovery_radius: None,
         spell_recipe: None,
+        effect_paths: Vec::new(),
     };
     for field in [0x10c, 0x110] {
         ensure!(

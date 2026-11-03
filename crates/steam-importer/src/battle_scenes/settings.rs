@@ -1,4 +1,5 @@
 use super::*;
+mod paths;
 mod patterns;
 mod unison_points;
 #[derive(Deserialize)]
@@ -69,6 +70,8 @@ pub(super) fn bind(image: &pe::Image<'_>, id: u16, rules: &mut Definition) -> Re
             (0x419ac5, &[0xb8, 0x68, 0x01, 0, 0][..]),
             (0x41a048, &[0x6a, 0x4b][..]),
             (0x41a248, &[0x8b, 0x44, 0x24, 0x18][..]),
+            (0x419f7f, &[0xb9, 0xb4, 0, 0, 0][..]),
+            (0x41a24c, &[0xb9, 0xbe, 0, 0, 0][..]),
         ] {
             ensure!(
                 image.slice(address, expected.len())? == expected,
@@ -102,7 +105,8 @@ pub(super) fn bind(image: &pe::Image<'_>, id: u16, rules: &mut Definition) -> Re
     } else {
         strike_points(image, id)?
     };
-    rules.spell_recipe = patterns::read(image, id)?;
+    rules.spell_recipe = patterns::read(image, id, &rules.strike_points)?;
+    rules.effect_paths = paths::read(image, id, rules.duration)?;
     // Each callback compares the recipient's distance from the scene origin.
     // Purify: 0x4143fe; Healing Stream/Wind/Circle: 0x416869/0x416a99/0x416e79.
     rules.recovery_radius = match id {

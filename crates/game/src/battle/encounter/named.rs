@@ -272,7 +272,7 @@ impl Assets {
             );
             let character = Character::try_from(character)?;
             let member = &party.members[character.index()];
-            let equipment = available_equipment
+            let mut equipment: BTreeMap<_, _> = available_equipment
                 .iter()
                 .filter_map(|(&item, &(kind, allowed))| {
                     (member.equipment[0] == item
@@ -295,6 +295,23 @@ impl Assets {
                     cancelled,
                 )?,
             };
+            if let Some(prop) = source.weapon_prop
+                && party.game_clears >= prop.minimum_game_clears
+            {
+                if !weapons.contains_key(&prop.equipment) {
+                    let battle_model::Attachment::Weapon(weapon) = models::capture_equipment(
+                        snapshot,
+                        prop.equipment,
+                        &diagnostics,
+                        cancelled,
+                    )?
+                    else {
+                        anyhow::bail!("costume prop must be a weapon");
+                    };
+                    weapons.insert(prop.equipment, weapon);
+                }
+                equipment.insert(prop.equipment, EquipmentKind::Weapon);
+            }
             if enemies.settings.celebrate {
                 victory_owners.push((character as u8, member.costume, selection));
             }
@@ -450,6 +467,7 @@ impl Assets {
         let unison = Arc::new(rules.unison);
         let (scene_ids, skill_ids) = choreography_ids(
             &catalogue,
+            &rules.party,
             &unison,
             party_actors.iter().map(|actor| actor.character),
             &enemy_definitions,

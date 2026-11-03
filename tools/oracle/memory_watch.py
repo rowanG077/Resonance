@@ -76,10 +76,10 @@ LOCATIONS = {
 
 
 class Watcher:
-    def __init__(self, user_path, output, extra=None, *, mem1=False, project=None):
+    def __init__(self, user_path, output, extra=None, *, mem1=False, project=None, include_defaults=True):
         self.mem1 = mem1
         self.project = project
-        self.locations = dict(LOCATIONS)
+        self.locations = dict(LOCATIONS) if include_defaults else {}
         self.aliases = {}
         for address, name in (extra or {}).items():
             address = address.lower()

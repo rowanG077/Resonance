@@ -398,6 +398,12 @@ pub struct SceneMaterial<Order: Default + PartialEq = u32> {
     pub vertex_color: bool,
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub blend: bool,
+    /// Discard fragments whose sampled alpha is below this byte value.
+    #[serde(
+        default = "default_alpha_cutoff",
+        skip_serializing_if = "is_default_alpha_cutoff"
+    )]
+    pub alpha_cutoff: u8,
     #[serde(
         default = "defaults::enabled",
         skip_serializing_if = "defaults::is_enabled"
@@ -419,11 +425,19 @@ impl<Order: Default + PartialEq> SceneMaterial<Order> {
             multiply: self.multiply,
             vertex_color: self.vertex_color,
             blend: self.blend,
+            alpha_cutoff: self.alpha_cutoff,
             depth_write: self.depth_write,
             cull: self.cull,
             draw_order,
         }
     }
+}
+
+fn default_alpha_cutoff() -> u8 {
+    1
+}
+fn is_default_alpha_cutoff(value: &u8) -> bool {
+    *value == default_alpha_cutoff()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

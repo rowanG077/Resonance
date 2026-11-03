@@ -13,9 +13,14 @@ mod fierce;
 mod hammer;
 mod physical;
 pub(super) use physical::prepare_eagle_landing;
+#[cfg(all(test, feature = "test-support"))]
+mod grand_fall_tests;
+#[cfg(all(test, feature = "test-support"))]
+mod ordinary_tests;
 mod seals;
 mod steal;
 mod sword;
+pub(crate) use sword::projectile_with_local;
 mod tempest;
 mod thrust;
 mod tiger_blade;
@@ -85,6 +90,30 @@ pub struct Technique {
     sequence: Sequence,
 }
 
+/// Callback support follows the imported shared recipe, independent of catalogue numbering.
+pub(crate) fn authored_callback(
+    character: Character,
+    catalogue: u16,
+    attack: &resonance_content::battle_martial::Attack,
+) -> Option<Technique> {
+    attack
+        .events
+        .iter()
+        .any(|(_, event)| {
+            matches!(
+                event,
+                resonance_content::battle_normal::Event::EmitProjectile { .. }
+                    | resonance_content::battle_normal::Event::HealOtherAllies { .. }
+                    | resonance_content::battle_normal::Event::ActionScene { .. }
+            )
+        })
+        .then_some(Technique {
+            character,
+            catalogue,
+            sequence: Sequence::Authored,
+        })
+}
+
 pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
     use Character::*;
     use Sequence::*;
@@ -97,10 +126,9 @@ pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
     let sequence = match (character, catalogue) {
         _ if is_special_guard(character, catalogue) => SpecialGuard,
         (Lloyd, 1 | 2) | (Zelos | Kratos, 207 | 208) => Authored,
-        (Kratos, 152 | 249) | (Zelos, 153) => Authored,
         (Lloyd, 4) | (Zelos | Kratos, 209) => FierceDemonFang,
         (Lloyd, 3 | 5 | 8 | 9 | 10 | 12 | 13 | 14 | 15 | 16 | 20 | 21 | 22 | 24 | 26 | 27 | 28)
-        | (Colette, 38 | 45 | 46 | 48 | 51)
+        | (Colette, 38 | 45 | 46 | 48)
         | (Zelos | Kratos, 145..=148 | 150 | 210 | 212) => Authored,
         (Lloyd, 6 | 7 | 23 | 25) => TigerBlade,
         (Lloyd, 11) => HurricaneThrust,
@@ -117,8 +145,9 @@ pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
         (Colette, 56) => Spell(267),
         (Colette, 57) => Spell(268),
         (Colette, 59) => Spell(270),
+        (Colette, 60) => Spell(271),
         (Colette, 251) => Spell(296),
-        (Colette | Zelos, 58) | (Kratos, 252) => Spell(269),
+        (Colette | Zelos, 58) | (Zelos, 124) | (Kratos, 252) => Spell(269),
         (Genis, 62..=86 | 88..=95)
         | (Raine, 98..=116 | 119..=123)
         | (Zelos | Kratos, 117..=118) => Spell(catalogue + 138),
@@ -133,8 +162,11 @@ pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
         (Zelos | Kratos, 220) => Spell(219),
         (Zelos | Kratos, 221) => Spell(236),
         (Raine, 222) => Spell(263),
+        (Raine, 225) => Spell(264),
         (Raine, 246) => Spell(278),
+        (Raine, 247) => Spell(super::fairy_circle::SCENE),
         (Raine, 250) => Spell(283),
+        (Zelos, 144) => Spell(281),
         (Sheena, 125..=136) => Seal,
         (Sheena, 140) => ForceSeal,
         (Sheena, 141) => Authored,

@@ -439,6 +439,7 @@ pub(super) fn model_surfaces<'a>(
             TitleSurface {
                 field_fog: true,
                 vertex_color: spec.vertex_color,
+                alpha_cutoff: spec.alpha_cutoff,
                 multiply: material.sampled[1].clone(),
                 toon_ramp: (!unlit)
                     .then(|| model_toon_ramp(models, toon_ramp, resource, index, spec, None))

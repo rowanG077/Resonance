@@ -2,8 +2,26 @@
 use super::*;
 use resonance_content::battle_enemy::EntranceCue;
 
+// The native battle-entry camera dispatch. AI policy selectors with a null
+// entry use the ordinary encounter opening rather than custom choreography.
+const CALLBACKS: [u32; 28] = [
+    0, 0, 0x4016f0, 0x4062e0, 0, 0, 0x4062e0, 0, 0x4062e0, 0, 0x402900, 0, 0x402fb0, 0, 0,
+    0x403900, 0, 0, 0, 0x4062e0, 0x4062e0, 0x404b30, 0x4053c0, 0x4062e0, 0x4062e0, 0, 0x4065a0, 0,
+];
+
+pub(super) fn has_callback(selector: u8) -> Result<bool> {
+    Ok(*CALLBACKS
+        .get(usize::from(selector))
+        .context("unknown enemy entrance selector")?
+        != 0)
+}
+
 pub(super) fn verify(image: &pe::Image<'_>) -> Result<()> {
     for (address, bytes) in [
+        // A null entry skips custom intro setup and dispatch at both consumers.
+        (0x45caae, &[0x83, 0x3c, 0x85, 0x90, 0xd1, 0x8e, 0, 0][..]),
+        (0x45cdcc, &[0x39, 0x1c, 0xbd, 0x90, 0xd1, 0x8e, 0]),
+        (0x45cdf3, &[0x8b, 0x14, 0x8d, 0x90, 0xd1, 0x8e, 0]),
         // Sword Dancer: feedback starts at 280 and the camera finishes at 360.
         (0x401633, &[0x3d, 0x18, 1, 0, 0][..]),
         (0x401810, &[0xb9, 0x68, 1, 0, 0]),
@@ -47,6 +65,12 @@ pub(super) fn verify(image: &pe::Image<'_>) -> Result<()> {
         ensure!(
             image.slice(address, bytes.len())? == bytes,
             "Steam enemy entrance consumer changed at {address:#x}"
+        );
+    }
+    for (index, callback) in CALLBACKS.iter().enumerate() {
+        ensure!(
+            pe::word(image.slice(0x8ed190 + index as u32 * 4, 4)?, 0)? == *callback,
+            "Steam entrance dispatch changed at selector {index}"
         );
     }
     for (address, expected) in [
@@ -176,6 +200,69 @@ mod tests {
     };
     use resonance_content::battle_voice::Sound;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM; checks source-absent custom openings without recooking assets"]
+    fn installed_remaining_policy_selectors_have_no_custom_entrance() -> Result<()> {
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+        );
+        let source = Source::open(&root, Language::English)?;
+        let image = pe::Image::parse(&source.executable)?;
+        super::super::verify(&image)?;
+        let bytes = source.require("BTLusual.pac")?;
+        let usual = Package::parse(&bytes)?;
+        let durations = usual.member(12)?.context("missing presentation clocks")?;
+        for (selector, id) in [
+            (1, 105),
+            (4, 211),
+            (5, 198),
+            (7, 186),
+            (9, 219),
+            (11, 187),
+            (13, 208),
+            (16, 233),
+            (17, 246),
+            (18, 230),
+            (25, 204),
+            (27, 227),
+        ] {
+            ensure!(
+                !has_callback(selector)?,
+                "policy {selector} unexpectedly has a native entrance"
+            );
+            let bytes = source.require(monsters::package(&image, id)?)?;
+            ensure!(
+                super::super::super::section(&bytes, 12)?[8] == selector,
+                "enemy {id} policy selector changed"
+            );
+            let metadata = monsters::metadata(&bytes)?;
+            let body = source
+                .require(&preview_model::reference(&bytes, 0x18)?.context("missing enemy body")?)?;
+            let nodes = model::Rig::read(&body)?.joint_names();
+            let (mut profile, _) = battle_profiles::enemy(metadata, &nodes)?;
+            let (presentation, deferred) =
+                super::super::read_package(&bytes, durations, &mut profile)?;
+            ensure!(
+                !deferred,
+                "source-absent policy {selector} was treated as missing choreography"
+            );
+            ensure!(
+                presentation
+                    .as_ref()
+                    .is_none_or(|presentation| presentation.opening.is_none()),
+                "source-absent policy {selector} invented a custom opening"
+            );
+            ensure!(
+                presentation.is_some() == matches!(selector, 13 | 16 | 18 | 25 | 27),
+                "policy {selector} changed its independent defeat voice hold"
+            );
+        }
+        eprintln!(
+            "Twelve remaining policy selectors have no native custom-entrance callback; defeat holds stay bound"
+        );
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM; checks native entrance selectors and shared choreography without recooking models"]

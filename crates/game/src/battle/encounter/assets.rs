@@ -102,6 +102,7 @@ impl Assets {
 
 pub(super) fn choreography_ids(
     catalogue: &arte::Catalogue,
+    profiles: &battle_profile::Table,
     unison: &resonance_content::battle_unison::Catalogue,
     characters: impl IntoIterator<Item = Character>,
     enemy_definitions: &BTreeMap<u16, battle_enemy::Definition>,
@@ -110,8 +111,16 @@ pub(super) fn choreography_ids(
     let mut skill_ids = BTreeSet::new();
     let mut party_artes = BTreeSet::new();
     for character in characters {
-        for catalogue in super::resources::party_techniques(catalogue, character)?.into_keys() {
-            if crate::battle::skill_scene::contains(catalogue) {
+        for catalogue in
+            super::resources::party_techniques(catalogue, character, profiles)?.into_keys()
+        {
+            if crate::battle::skill_scene::contains(catalogue)
+                || profiles
+                    .martial_attack(catalogue, character as u8)
+                    .is_ok_and(|attack| {
+                        crate::battle::skill_scene::callback_artwork(catalogue, attack)
+                    })
+            {
                 skill_ids.insert(catalogue);
             }
             scene_ids.extend(
@@ -124,6 +133,21 @@ pub(super) fn choreography_ids(
         }
     }
     for enemy in enemy_definitions.values() {
+        for row in &enemy.actions.rows {
+            let Some(
+                resonance_content::battle_action::EnemyExecution::Physical { attack, .. }
+                | resonance_content::battle_action::EnemyExecution::Attack(attack),
+            ) = &row.execution
+            else {
+                continue;
+            };
+            skill_ids.extend(attack.events.iter().filter_map(|(_, event)| match event {
+                resonance_content::battle_action::EnemyEvent::AuthoredCallback {
+                    skill, ..
+                } => Some(*skill),
+                _ => None,
+            }));
+        }
         for native in crate::battle::enemy::technique_ids(enemy) {
             if let Some(catalogue) = crate::battle::enemy::catalogue_id(unison, native) {
                 scene_ids.extend(

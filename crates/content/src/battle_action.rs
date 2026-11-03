@@ -407,6 +407,11 @@ pub struct MeleeContact<H = ActionHit> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnemyEvent {
+    /// A callback command uses the ordinary authored action contract and this skill's artwork.
+    AuthoredCallback {
+        skill: u16,
+        event: Box<crate::battle_normal::Event>,
+    },
     Effect(u16),
     /// A burst at a carried model's current bone position.
     CarriedEffect {

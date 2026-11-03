@@ -163,13 +163,15 @@ pub enum Cure {
     AntiMagic,
     /// Miracle Bottle.
     All,
+    /// Clear ailments and consumable stat boosts, retaining persistent blessings.
+    Ailments,
 }
 
 impl Cure {
     /// Panacea and Miracle thaw petrified actors. Anti-Magic changes ailments while retaining
     /// petrification.
     pub(crate) fn thaws_petrify(self) -> bool {
-        matches!(self, Self::Physical | Self::All)
+        matches!(self, Self::Physical | Self::All | Self::Ailments)
     }
 
     pub(crate) fn eligible_base(self, base: ConditionSet) -> bool {
@@ -177,6 +179,9 @@ impl Cure {
             Self::Physical => PHYSICAL_AILMENTS,
             Self::AntiMagic => MAGICAL_AILMENTS,
             Self::All => PHYSICAL_AILMENTS.union(MAGICAL_AILMENTS),
+            Self::Ailments => PHYSICAL_AILMENTS
+                .union(MAGICAL_AILMENTS)
+                .union(ConditionSet::of(&[Flare, Guard, Acuity])),
         })
     }
 }
@@ -569,6 +574,9 @@ impl Conditions {
     pub(crate) fn cure(&mut self, cure: Cure) -> bool {
         self.remove(match cure {
             Cure::Physical => PHYSICAL_AILMENTS,
+            Cure::Ailments => PHYSICAL_AILMENTS
+                .union(MAGICAL_AILMENTS)
+                .union(ConditionSet::of(&[Flare, Guard, Acuity])),
             Cure::AntiMagic => STAT_CONDITIONS
                 .union(MAGICAL_AILMENTS)
                 .union(ConditionSet::of(&[

@@ -1039,7 +1039,7 @@ impl View {
                     };
                     color[3] = (u16::from(color[3]) * u16::from(*alpha) / 255) as u8;
                 }
-                part.visible(commands, color[3] != 0);
+                part.visible(commands, stage_color::scenery_visible(color));
                 part.apply(world, &scenery_poses[slot], globals)?;
                 let material = if frame.hourglass_remaining != 0 {
                     ModelMaterial::RedChannel
@@ -1524,6 +1524,7 @@ fn surface_recipes_from_views(
     for (index, (material, [color, multiply])) in scene.materials.iter().zip(views).enumerate() {
         let mut surface = TitleSurface {
             vertex_color: material.vertex_color,
+            alpha_cutoff: material.alpha_cutoff,
             multiply,
             uv_offsets: Vec4::from_array(uv_offsets.get(index).copied().unwrap_or([0.; 4])),
             constant_color: scene.outline_color_for(material).is_some(),

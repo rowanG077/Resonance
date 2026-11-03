@@ -10,6 +10,7 @@ use resonance_content::{
     battle_scene::SceneAction,
 };
 use std::collections::BTreeMap;
+pub(crate) mod grand_fall;
 
 pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> {
     let values = |offset, count| -> Result<Vec<f32>> {
@@ -141,7 +142,7 @@ pub fn bindings() -> BTreeMap<u16, BTreeMap<u8, Binding>> {
         bind(catalogue, member, 6, 0);
         bind(catalogue, member, 9, 1);
     }
-    for id in [36, 37, 38, 39, 41, 42, 46, 48, 50, 52] {
+    for id in [36, 37, 38, 39, 41, 42, 46, 48, 50, 51, 52] {
         bind(id, id, 2, 0);
     }
     for (catalogue, member) in (125..=136)

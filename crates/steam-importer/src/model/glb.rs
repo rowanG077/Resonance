@@ -9,7 +9,7 @@ impl Model {
         self.glb_with_expansion(&vec![[1.; 4]; self.materials.records.len()], 0.5)
     }
 
-    pub(super) fn glb(&self, tints: &[[f32; 4]]) -> Result<Vec<u8>> {
+    pub(crate) fn glb(&self, tints: &[[f32; 4]]) -> Result<Vec<u8>> {
         self.glb_with_expansion(tints, 0.)
     }
 

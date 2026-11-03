@@ -1,6 +1,7 @@
 /// Maximum active party size.
 pub const PARTY_CAPACITY: usize = 4;
 
+mod action_scene;
 mod character;
 pub use character::Character;
 mod difficulty;
@@ -94,8 +95,8 @@ mod projectile;
 mod release;
 pub use release::{
     PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit, SpellCamera,
-    SpellEffect, SpellEffectPlacement, SpellLaunch, SpellLift, SpellOrigin, SpellPolicy,
-    SpellProjectile, SpellRecovery, SpellStartup, StageTint,
+    SpellEffect, SpellEffectPath, SpellEffectPlacement, SpellLaunch, SpellLift, SpellOrigin,
+    SpellPolicy, SpellProjectile, SpellRecovery, SpellStartup, StageTint,
 };
 mod action;
 #[cfg(any(test, feature = "test-support"))]

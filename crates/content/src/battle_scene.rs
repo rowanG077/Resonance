@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 pub mod document;
 mod spell;
-pub use spell::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
+pub use spell::{
+    PatternAim, PatternContact, PatternCutin, PatternOrigin, PatternSpell, SpellRecipe,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, bound(deserialize = "W: Deserialize<'de>"))]
@@ -40,6 +42,9 @@ pub struct Scene<W = Weapon> {
     /// Native strategies consume these parameters after resolving all dependencies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spell_recipe: Option<SpellRecipe>,
+    /// Sampled scene-local emitter anchors, beginning with initialization.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effect_paths: Vec<EffectPath>,
 }
 
 impl<W> Scene<W> {
@@ -58,6 +63,7 @@ impl<W> Scene<W> {
             strike_points: self.strike_points,
             recovery_radius: self.recovery_radius,
             spell_recipe: self.spell_recipe,
+            effect_paths: self.effect_paths,
         }
     }
 }
@@ -67,6 +73,33 @@ impl Scene {
         if let Some(recipe) = &self.spell_recipe {
             recipe.validate(self)?;
         }
+        for path in &self.effect_paths {
+            path.validate(self.duration)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectPath {
+    pub member: u16,
+    pub positions: Vec<[f32; 3]>,
+}
+
+impl EffectPath {
+    pub fn validate(&self, duration: u16) -> Result<()> {
+        ensure!(
+            self.member > 0
+                && !self.positions.is_empty()
+                && self.positions.len() <= usize::from(duration) + 1
+                && self
+                    .positions
+                    .iter()
+                    .flatten()
+                    .all(|value| value.is_finite()),
+            "invalid scene effect path"
+        );
         Ok(())
     }
 }

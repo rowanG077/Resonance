@@ -62,6 +62,8 @@ pub enum ParticleShape {
     Quad,
     /// Three strips between concentric equilateral triangles.
     TriangleBand,
+    /// Four strips between concentric squares, starting at -45 degrees.
+    SquareBand,
     Ring {
         segments: u8,
         #[serde(default, skip_serializing_if = "crate::defaults::is_default")]

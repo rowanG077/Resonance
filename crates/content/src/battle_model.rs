@@ -47,6 +47,8 @@ pub struct Party {
     pub parts: Vec<crate::ScenePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wings: Option<crate::ScenePart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon_prop: Option<document::WeaponProp>,
 }
 
 /// Optional body and carried artwork. Enemy gameplay has its own definition.

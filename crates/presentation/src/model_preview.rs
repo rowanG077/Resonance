@@ -601,6 +601,7 @@ impl Part {
             };
             let base = crate::materials::TitleSurface {
                 vertex_color: spec.vertex_color,
+                alpha_cutoff: spec.alpha_cutoff,
                 uv_offsets: Vec4::from_array(
                     self.spec.uv_offsets.get(index).copied().unwrap_or([0.; 4]),
                 ),

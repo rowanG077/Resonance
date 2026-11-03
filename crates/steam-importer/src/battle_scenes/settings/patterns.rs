@@ -1,8 +1,23 @@
 //! Fixed strike schedules carried by the Steam spell callbacks.
 use super::*;
 use battle_scene::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
+mod angel;
+use angel::{divine_judgment, grand_cross};
 
-pub(super) fn read(image: &pe::Image<'_>, id: u16) -> Result<Option<SpellRecipe>> {
+pub(super) fn read(
+    image: &pe::Image<'_>,
+    id: u16,
+    points: &[[f32; 3]],
+) -> Result<Option<SpellRecipe>> {
+    if id == 271 {
+        return grand_cross(image).map(Some);
+    }
+    if id == 281 {
+        return divine_judgment(image, points).map(Some);
+    }
+    if id == 263 {
+        return sacred_light(image).map(Some);
+    }
     // These are the x87 scalar references used to initialize the callback's
     // local point arrays. Zero denotes fldz. Native vectors are Z/Y/X.
     const RAY: [[u32; 3]; 9] = [
@@ -82,6 +97,7 @@ pub(super) fn read(image: &pe::Image<'_>, id: u16) -> Result<Option<SpellRecipe>
         heading_offset: f64::from_le_bytes(image.slice(heading, 8)?.try_into()?) as f32,
         startup_member: 1,
         startup_deferred: true,
+        cutin: None,
         contacts: points
             .iter()
             .enumerate()
@@ -90,6 +106,7 @@ pub(super) fn read(image: &pe::Image<'_>, id: u16) -> Result<Option<SpellRecipe>
                     tick: first + period * index as u16,
                     projectile: 1,
                     hit_variant: 0,
+                    aim: Default::default(),
                     effect_member: member,
                     offset: [scalar(x)?, scalar(y)?, scalar(z)?],
                 })
@@ -98,4 +115,45 @@ pub(super) fn read(image: &pe::Image<'_>, id: u16) -> Result<Option<SpellRecipe>
     };
     pattern.validate()?;
     Ok(Some(SpellRecipe::FixedPattern(pattern)))
+}
+
+fn sacred_light(image: &pe::Image<'_>) -> Result<SpellRecipe> {
+    let descriptor = pe::word(image.slice(0x8e9b08 + 263 * 4, 4)?, 0)?;
+    ensure!(
+        pe::word(image.slice(descriptor, 4)?, 0)? == 0x4175e0,
+        "Steam Sacred Light initializer changed"
+    );
+    for (address, expected) in [
+        (0x417625, &[0xb8][..]),
+        (0x41766a, &[0x6a, 1][..]),
+        (0x4177a0, &[0xc7, 0x43, 0x14, 0x20, 0x78, 0x41, 0][..]),
+        (0x417829, &[0x8b, 0x41, 0x18, 0x8b, 0x50, 0x0c][..]),
+        (0x4178c5, &[0xba][..]),
+        (0x4178ca, &[0x66, 0x39, 0x51, 0x36][..]),
+        (0x4178d3, &[0xd9, 0x86, 0xac, 0x38, 1, 0][..]),
+        (0x41791a, &[0x05, 0x90, 1, 0, 0][..]),
+    ] {
+        ensure!(
+            image.slice(address, expected.len())? == expected,
+            "Steam Sacred Light callback changed at {address:#x}"
+        );
+    }
+    let pattern = PatternSpell {
+        lifetime: pe::word(image.slice(0x417626, 4)?, 0)?.try_into()?,
+        origin: PatternOrigin::SceneFixed { position: [0.; 3] },
+        heading_offset: 0.,
+        startup_member: 1,
+        startup_deferred: true,
+        cutin: None,
+        contacts: vec![PatternContact {
+            tick: pe::word(image.slice(0x4178c6, 4)?, 0)?.try_into()?,
+            projectile: 1,
+            hit_variant: 0,
+            aim: battle_scene::PatternAim::Live,
+            effect_member: 0,
+            offset: [0.; 3],
+        }],
+    };
+    pattern.validate()?;
+    Ok(SpellRecipe::FixedPattern(pattern))
 }

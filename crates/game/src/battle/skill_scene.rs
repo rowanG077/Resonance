@@ -3,7 +3,53 @@ use anyhow::{Context, Result};
 use resonance_content::battle_scene;
 
 pub(crate) fn contains(catalogue: u16) -> bool {
-    matches!(catalogue, 51 | 153 | 228 | 249)
+    matches!(catalogue, 51 | 228)
+}
+
+pub(crate) fn callback_artwork(
+    catalogue: u16,
+    attack: &resonance_content::battle_martial::Attack,
+) -> bool {
+    use resonance_content::battle_normal::Event;
+    attack.events.iter().any(|(_, event)| match event {
+        Event::ActionScene { .. } => true,
+        Event::EmitProjectile { definition, .. } => {
+            matches!(catalogue, 153 | 249)
+                || [
+                    definition.birth_effect,
+                    definition.ground_effect,
+                    definition.trail_effect,
+                ]
+                .iter()
+                .any(|effect| effect.bank == 2 && effect.member != 0)
+        }
+        _ => false,
+    })
+}
+
+pub(crate) fn finisher(
+    resources: &mut super::encounter::resources::Resources<'_>,
+    attack: &mut resonance_battle::PreparedAttack,
+    catalogue: u16,
+) -> Result<()> {
+    let bank = resources
+        .skill_scenes
+        .get(&catalogue)
+        .context("finisher has no stored skill artwork")?
+        .clone();
+    let appearance = resources
+        .prepared
+        .effect_member(&bank, 1)
+        .with_context(|| format!("finisher {catalogue} initial skill effect1"))?;
+    attack.events.push((
+        0,
+        resonance_battle::AttackEvent::InitializedActionEffect {
+            appearance,
+            origin: resonance_battle::AttackOrigin::ActorRoot,
+        },
+    ));
+    attack.events.sort_by_key(|(at, _)| *at);
+    Ok(())
 }
 
 /// These callbacks initialize their two stored programs independently of the

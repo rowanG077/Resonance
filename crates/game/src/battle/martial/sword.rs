@@ -291,7 +291,7 @@ pub(super) fn projectile(
     projectile_with_local(resources, row, hit, feedback, recoil, None)
 }
 
-pub(super) fn projectile_with_local(
+pub(crate) fn projectile_with_local(
     resources: &mut Resources<'_>,
     row: &resonance_content::battle_projectile::Projectile,
     hit: &ActionHit,

@@ -127,6 +127,7 @@ impl Sequence {
         if !self.running() {
             return Ok(());
         }
+        battle.end_action_scene(id);
         if self.traversal.take().is_some() {
             battle.actors[self.actor.index()].movement.forward = 0.;
         }

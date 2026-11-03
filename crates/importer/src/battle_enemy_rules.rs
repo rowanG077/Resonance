@@ -120,7 +120,10 @@ pub struct EnemyActionSource<'a> {
     pub voice: EnemyCommandVoice,
     pub flash: Option<EnemyActionFlash>,
     pub affliction_action: u8,
-    pub physical_effect: Option<&'a dyn Fn(u16) -> Result<u16>>,
+    pub physical_effect: Option<&'a dyn Fn(u16, u16) -> Result<u16>>,
+    /// Raw action ages are translated with the enemy's own pose holds below.
+    pub physical_callbacks:
+        Option<&'a dyn Fn(u16) -> Result<Vec<(u16, resonance_content::battle_action::EnemyEvent)>>>,
     /// Source callbacks that have no complete shared recipe yet. Retain their
     /// choice metadata with an explicit unavailable reason in the cooked owner.
     pub unsupported_techniques: &'a [(u16, &'a str)],
@@ -131,6 +134,7 @@ const GC_ACTION_SOURCE: EnemyActionSource<'static> = EnemyActionSource {
     flash: None,
     affliction_action: 5,
     physical_effect: None,
+    physical_callbacks: None,
     unsupported_techniques: &[],
 };
 
@@ -575,12 +579,13 @@ fn physical_feedback(
     data: &[u8],
     hit: &mut ActionHit,
     native: &EnemyActionSource<'_>,
+    technique: u16,
 ) -> Result<()> {
     let Some(effect) = hit.effect else {
         return Ok(());
     };
     if let Some(resolve) = native.physical_effect {
-        hit.effect = Some(resolve(effect)?);
+        hit.effect = Some(resolve(technique, effect)?);
         return Ok(());
     }
     // Shared hit rules may address zero-program aliases beyond the declared
@@ -1489,7 +1494,7 @@ fn actions(
                 let mut definition =
                     battle_enemy_projectiles::projectile(data, contact, hit, library, name)?;
                 if common.is_some() {
-                    physical_feedback(data, &mut definition.hit, native)?;
+                    physical_feedback(data, &mut definition.hit, native, technique)?;
                 }
                 let name = intern(
                     &mut projectiles,
@@ -1548,7 +1553,7 @@ fn actions(
             )?;
             hit.bypass_guard = byte(contact, 19)? == 0;
             if common.is_some() {
-                physical_feedback(data, &mut hit, native)?;
+                physical_feedback(data, &mut hit, native, technique)?;
             }
             let shape = match byte(contact, 16)? {
                 0 => json!({"kind":"box"}),
@@ -1630,6 +1635,16 @@ fn actions(
                 "groups":[["curse","paralysis","poison_severe"],["attack_down","defense_down","weak"]],
                 "dispel":true
             }})));
+        }
+        if let Some(callbacks) = native.physical_callbacks {
+            for (at, event) in callbacks(technique)? {
+                let at = if at == 0 { 0 } else { elapsed(at, &holds) };
+                ensure!(
+                    at <= duration,
+                    "physical callback exceeds enemy action duration"
+                );
+                events.push((at, serde_json::to_value(event)?));
+            }
         }
         events.sort_by_key(|(at, _)| *at);
         let recovery_ticks = if let Some(common) = common {

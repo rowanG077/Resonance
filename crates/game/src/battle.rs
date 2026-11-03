@@ -23,6 +23,7 @@ mod enemy_stage;
 pub mod entry;
 pub mod escape;
 pub mod event;
+mod fairy_circle;
 pub mod feedback;
 pub mod fire_ball;
 pub mod first_aid;

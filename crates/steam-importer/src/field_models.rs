@@ -30,7 +30,8 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<Models> {
     let mut standalone = BTreeMap::new();
     let mut sources = BTreeMap::new();
     let mut owners = BTreeMap::<String, String>::new();
-    let mut missing = 0;
+    let mut missing_sources = 0;
+    let mut incomplete_packages = 0;
     for (&id, entry) in resources.entries.iter().filter(|(id, _)| **id >> 16 <= 2) {
         let name = match entry.as_deref() {
             Some(name) => name,
@@ -64,14 +65,14 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<Models> {
             })
         } else {
             let Some(bytes) = source.read(name)? else {
-                missing += 1;
+                missing_sources += 1;
                 continue;
             };
             let extension = name
                 .rsplit_once('.')
                 .map(|(_, ext)| ext.to_ascii_lowercase());
-            let is_model = match extension.as_deref() {
-                Some("tomdlb_d") => true,
+            match extension.as_deref() {
+                Some("tomdlb_d") => {}
                 Some("pac") => {
                     let package = Package::parse(&bytes)?;
                     if package.len() != 31 {
@@ -86,13 +87,12 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<Models> {
                             complete &= source.contains(name)?;
                         }
                     }
-                    complete
+                    if !complete {
+                        incomplete_packages += 1;
+                        continue;
+                    }
                 }
                 _ => continue,
-            };
-            if !is_model {
-                missing += 1;
-                continue;
             }
             eprintln!("  Field model: {target}");
             let owner = format!("meshes/{target}");
@@ -129,8 +129,10 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<Models> {
         &library.join(document::JOINT_MAPPINGS),
         include_bytes!("../../importer/src/model-joints.json"),
     )?;
-    if missing > 0 {
-        eprintln!("  Skipped {missing} global entries whose model sources are absent");
+    if missing_sources > 0 || incomplete_packages > 0 {
+        eprintln!(
+            "  Global resource directory: {missing_sources} source entries absent; {incomplete_packages} model packages have absent member references"
+        );
     }
     Ok(Models {
         resources,

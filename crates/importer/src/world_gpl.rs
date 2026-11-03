@@ -776,20 +776,55 @@ pub(crate) fn noishe_hair(
 pub(crate) fn thoda_cape(
     resource: &[u8],
 ) -> Result<resonance_content::secondary_motion::Definition> {
-    use resonance_content::secondary_motion::{ChainDefinition, Definition, Parameter};
     let nodes = model(resource)?;
+    bind_thoda_cape(
+        &nodes
+            .iter()
+            .map(|node| node.source_name.clone())
+            .collect::<Vec<_>>(),
+        &nodes
+            .iter()
+            .map(|node| node.name.clone())
+            .collect::<Vec<_>>(),
+        &nodes.iter().map(|node| node.parent).collect::<Vec<_>>(),
+    )
+}
+
+/// The two Thoda garments share the GC presentation recipe. Steam keeps the
+/// exact joint anchors and hierarchy, but strips the numeric label suffixes.
+/// This policy is resolved while cooking, before the common scene is written.
+pub fn bind_thoda_cape(
+    source_names: &[String],
+    names: &[String],
+    parents: &[Option<usize>],
+) -> Result<resonance_content::secondary_motion::Definition> {
+    use resonance_content::secondary_motion::{ChainDefinition, Definition, Parameter};
+    ensure!(
+        source_names.len() == names.len() && parents.len() == names.len(),
+        "Thoda source and cooked skeletons differ"
+    );
     let mut chains = Vec::new();
-    for (side, tag) in [("cape-left", "_manto_L"), ("cape-right", "_manto_R")] {
-        let (mut index, root) = nodes
+    for (side, anchor) in [
+        ("cape-left", "AB_ROOT_FP_01_MANTO_L"),
+        ("cape-right", "AB_ROOT_FP__01_MANTO_R"),
+    ] {
+        let (mut index, root) = source_names
             .iter()
             .enumerate()
-            .find(|(_, node)| {
-                node.source_name.starts_with("AB_ROOT") && node.source_name.contains(tag)
+            .find(|(_, name)| {
+                let upper = name.to_ascii_uppercase();
+                upper == anchor || upper.starts_with(&format!("{anchor}_Pow").to_ascii_uppercase())
             })
             .with_context(|| format!("missing {side} source chain"))?;
+        // Exact source-label correspondence selects this maintained GC recipe;
+        // generic party dynamics have different defaults and are not suitable.
+        let tuning = if root.eq_ignore_ascii_case(anchor) {
+            "_Pow0e03_Bb0e766_Dt0e333"
+        } else {
+            root
+        };
         let parameter = |tag: &str| -> Result<f32> {
-            let value = root
-                .source_name
+            let value = tuning
                 .split_once(tag)
                 .with_context(|| format!("{side} is missing {tag}"))?
                 .1
@@ -805,12 +840,15 @@ pub(crate) fn thoda_cape(
         };
         let mut joints = Vec::new();
         loop {
-            ensure!(joints.len() < 128, "oversized cape chain");
-            joints.push(nodes[index].name.clone());
-            let children = nodes
+            ensure!(
+                joints.len() < 11 && !joints.contains(&names[index]),
+                "cyclic or oversized Thoda cape chain"
+            );
+            joints.push(names[index].clone());
+            let children = parents
                 .iter()
                 .enumerate()
-                .filter(|(_, node)| node.parent == Some(index))
+                .filter(|(_, parent)| **parent == Some(index))
                 .collect::<Vec<_>>();
             match children.as_slice() {
                 [] => break,
@@ -818,6 +856,7 @@ pub(crate) fn thoda_cape(
                 _ => anyhow::bail!("branching cape chain"),
             }
         }
+        ensure!(joints.len() == 11, "incomplete Thoda cape chain");
         chains.push(ChainDefinition {
             name: side.into(),
             joints,
@@ -825,16 +864,58 @@ pub(crate) fn thoda_cape(
             damping: Parameter::Uniform(parameter("_Bb")?),
             attraction: parameter("_Pow")?,
             pose_attraction: 0.2,
-            preserve_rotation: root.source_name.contains("_NR_"),
+            preserve_rotation: root.contains("_NR_"),
             lock_rotation_x: false,
             lock_rotation_y: false,
             collision_plane: None,
         });
     }
-    let names = nodes.into_iter().map(|node| node.name).collect::<Vec<_>>();
     let definition = Definition { chains };
-    definition.prepare(&names)?;
+    definition.prepare(names)?;
     Ok(definition)
+}
+
+#[cfg(test)]
+mod thoda_tests {
+    use super::*;
+
+    #[test]
+    fn stripped_thoda_anchors_select_same_gc_cape_recipe() -> Result<()> {
+        use resonance_content::secondary_motion::Parameter;
+        let mut source = Vec::new();
+        let mut parents = Vec::new();
+        for side in ["L", "R"] {
+            let start = source.len();
+            source.push(if side == "L" {
+                "AB_ROOT_FP_01_MANTO_L".into()
+            } else {
+                "AB_ROOT_FP__01_MANTO_R".into()
+            });
+            parents.push(None);
+            for joint in 2..=11 {
+                source.push(format!("AB_{joint:02}_MANTO_{side}"));
+                parents.push(Some(start + joint - 2));
+            }
+        }
+        let names = (0..source.len())
+            .map(|i| format!("joint-{i}"))
+            .collect::<Vec<_>>();
+        let native = bind_thoda_cape(&source, &names, &parents)?;
+        for index in [0, 11] {
+            source[index] = source[index].replace("MANTO", "manto");
+            source[index].push_str("_Pow0e03_Bb0e766_Dt0e333");
+        }
+        assert_eq!(native, bind_thoda_cape(&source, &names, &parents)?);
+        for chain in &native.chains {
+            assert_eq!(chain.joints.len(), 11);
+            assert_eq!(chain.gravity, Parameter::Uniform(0.333));
+            assert_eq!(chain.damping, Parameter::Uniform(0.766));
+            assert_eq!(chain.attraction, 0.03);
+        }
+        parents[10] = Some(0);
+        assert!(bind_thoda_cape(&source, &names, &parents).is_err());
+        Ok(())
+    }
 }
 
 fn bind_transform(index: usize, nodes: &[Node]) -> Result<glam::Mat4> {
@@ -1111,6 +1192,7 @@ fn project(
                     // A color-only draw shares native material slot zero.
                     || (count == 0 && alpha.first().copied().unwrap_or(false)),
                 depth_write,
+                alpha_cutoff: 1,
                 cull: Default::default(),
                 color,
                 multiply,

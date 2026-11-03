@@ -8,6 +8,8 @@ mod feedback;
 mod input;
 #[cfg(test)]
 mod oracle;
+#[cfg(test)]
+mod visual_artes;
 mod rumble;
 mod transition;
 use anyhow::{Context as ContextExt, Result, ensure};

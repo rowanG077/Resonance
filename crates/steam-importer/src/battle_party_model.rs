@@ -18,9 +18,12 @@ use std::{
     path::Path,
 };
 use symphonia_constants::PartyCharacterId;
+mod dynamics;
+mod props;
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
+    let props = props::read(&image)?;
     let mappings: ModelMappings =
         serde_json::from_slice(&fs::read(library.join(document::MODELS))?)?;
     let enemy = source.require(image.text(pe::word(image.slice(0x8e5b50 + 242 * 4, 4)?, 0)?)?)?;
@@ -46,6 +49,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     output::json(&library.join(wings_path), &Visuals { parts: vec![wing] })?;
 
     let mut owners = BTreeMap::new();
+    let mut prop_owners = BTreeMap::new();
     let mut rigs = BTreeMap::new();
     let mut motions = BTreeMap::<(usize, String), String>::new();
     for character in 1..=9u8 {
@@ -56,6 +60,13 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             let variant = battle_party_mappings::costume_name(&image, character, costume)?;
             let owner = format!("battle/party/{name}/{variant}");
             let filename = battle_party_mappings::source_name(&image, character, costume)?;
+            let weapon_prop = props.get(&(character, costume)).copied();
+            if let Some(previous) = prop_owners.insert(owner.clone(), weapon_prop) {
+                ensure!(
+                    previous == weapon_prop,
+                    "aliased costume prop policy differs"
+                );
+            }
             if let Some(previous) = owners.insert(owner.clone(), filename.to_owned()) {
                 ensure!(
                     previous.eq_ignore_ascii_case(filename),
@@ -111,6 +122,19 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                 .collect::<Result<Vec<_>>>()?;
             parts[0].appearance = Some(model::party_appearance(source, descriptor, &sizes)?);
             let skeleton = Skeleton::from_glb(&fs::read(library.join(&parts[0].mesh))?)?;
+            let dynamics = dynamics::bind(
+                character,
+                &rig,
+                &skeleton
+                    .bones
+                    .iter()
+                    .map(|bone| bone.name.clone())
+                    .collect::<Vec<_>>(),
+                &fs::read(library.join(&parts[0].mesh))?,
+            )?;
+            for part in &mut parts {
+                part.secondary_motion = dynamics.clone();
+            }
             // Identical native rigs may share a motion file across costumes.
             // Different bind poses or channel identities always get their own.
             let key = serde_json::to_vec(&(&rig.nodes, &rig.animation_bindings, &skeleton))?;
@@ -149,6 +173,8 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             }
             let mut clips = Vec::new();
             for (slot, name) in selected {
+                let animation = Animation::read(&source.require(&name)?)?;
+                let pose_chains = dynamics::pose_chains(&animation, &rig, &dynamics);
                 let key = (rig_id, name.to_ascii_lowercase());
                 let path = if let Some(path) = motions.get(&key) {
                     path.clone()
@@ -157,7 +183,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                         name.to_ascii_lowercase().ends_with(".toanmb"),
                         "unknown battle motion {name}"
                     );
-                    let motion = Animation::read(&source.require(&name)?)?.bind(&rig, &skeleton)?;
+                    let motion = animation.bind(&rig, &skeleton)?;
                     let path = format!(
                         "{owner}/animations/{}.glb",
                         resonance_content::battle_motion::name(slot)
@@ -172,7 +198,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                     joints: Default::default(),
                     duration_seconds: 0.,
                     animation_resource: None,
-                    pose_chains: Vec::new(),
+                    pose_chains,
                 });
             }
             for part in &mut parts {
@@ -188,6 +214,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                     animations,
                     null_motions,
                     wings: (character == 2).then(|| wings_path.into()),
+                    weapon_prop,
                     victory: Selection {
                         file: format!("battle/party/{name}/victory.json"),
                         costume: variant,

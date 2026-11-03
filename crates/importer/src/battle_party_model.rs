@@ -248,6 +248,7 @@ pub fn cook_battle_party_model(
         null_motions,
         // The shared field wing document also supplies battle's idle slot 12.
         wings: (character == 2).then(|| "meshes/characters/colette/wings/model.json".into()),
+        weapon_prop: None,
         victory: Selection {
             file: format!("battle/party/{name}/victory.json"),
             costume: variant,

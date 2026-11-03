@@ -224,7 +224,7 @@ pub enum ParticleGeometry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParticleState {
-    /// Birth overrides for the authored spiral segment displacement.
+    /// Birth overrides for the authored per-segment displacement.
     #[serde(default, skip_serializing_if = "segment_offset_unset")]
     pub segment_offset: [Option<f32>; 3],
     /// Constructor modifier override; absent values retain the prepared declaration.
@@ -341,6 +341,10 @@ pub struct ParticleTemplate {
     pub geometry_acceleration_until: Option<u32>,
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub gradient: bool,
+    /// Brightening advances the primary color while retaining the secondary
+    /// gradient endpoint. Ordinary fading still advances both colors.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub brighten_primary_only: bool,
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub fade: [u8; 4],
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]

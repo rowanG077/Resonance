@@ -84,8 +84,13 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     catalogue::cook(source, library, &mappings)
 }
 
+pub(crate) fn retains_source(source: &Source, name: &str) -> Result<bool> {
+    legacy::retains_source(source, name)
+}
+
 mod catalogue;
 mod legacy;
+mod party_banks;
 mod scenery;
 
 #[cfg(test)]
@@ -176,21 +181,25 @@ mod tests {
         let field: document::Definition = serde_json::from_slice(&fs::read(root.join(path))?)?;
         let mut assets = field.assemble(8, |path| Ok(fs::read(root.join(path))?.into()))?;
         let library = resonance_content::library::Library::open(&root, &[])?;
-        let actors = document::Actors::capture_resource(
-            &mut library.snapshot(),
-            &mut assets,
-            196630,
-            &|| false,
-        )?;
-        ensure!(
-            actors
-                .iter()
-                .filter(|actor| actor.resource == 1)
-                .flat_map(|actor| &actor.parts)
-                .flat_map(|part| &part.clips)
-                .any(|clip| clip.animation_resource == Some(196630)),
-            "dynamic event bank did not bind to Lloyd's loaded body"
-        );
+        // Cover an existing local event, a dedicated party bank and a native
+        // null-slot alias against the published library without an overlay.
+        for resource in [196630, 0x30001, 0x30002] {
+            let actors = document::Actors::capture_resource(
+                &mut library.snapshot(),
+                &mut assets,
+                resource,
+                &|| false,
+            )?;
+            ensure!(
+                actors
+                    .iter()
+                    .filter(|actor| actor.resource == 1)
+                    .flat_map(|actor| &actor.parts)
+                    .flat_map(|part| &part.clips)
+                    .any(|clip| clip.animation_resource == Some(resource)),
+                "dynamic event bank {resource:#x} did not bind to Lloyd's loaded body"
+            );
+        }
         Ok(())
     }
 }

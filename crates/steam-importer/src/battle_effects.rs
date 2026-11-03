@@ -18,7 +18,11 @@ use std::{
 };
 
 mod fixed_atlas;
+mod model_color;
+mod opacity;
 mod resident;
+pub(crate) use model_color::normalize as normalize_model_color;
+pub(crate) use opacity::bind as bind_scene_opacity;
 pub(crate) use resident::cook as cook_resident;
 
 struct Canonical {
@@ -65,14 +69,15 @@ fn actor(bytes: &[u8]) -> Result<Vec<u8>> {
 
 /// Modifier targets address the unexpanded declaration. Floating point operands
 /// use whole words; the remaining operands are independent halfwords.
-fn modifier(bytes: &[u8], start: usize) -> Result<Vec<u8>> {
+fn modifier(bytes: &[u8], start: usize) -> Result<(Vec<u8>, u32)> {
     let mut at = start;
     let mut result = Vec::new();
+    let mut render_flags = 0;
     loop {
         let opcode = pe::half(bytes, at)?;
         if opcode == 0xffff {
             result.extend(opcode.to_be_bytes());
-            return Ok(result);
+            return Ok((result, render_flags));
         }
         let count = match opcode {
             0 | 2..=6 | 10..=12 | 21 | 23..=25 => 4,
@@ -84,6 +89,17 @@ fn modifier(bytes: &[u8], start: usize) -> Result<Vec<u8>> {
         let mut words = (0..count)
             .map(|index| pe::half(bytes, at + index * 2))
             .collect::<Result<Vec<_>>>()?;
+        if opcode == 21 {
+            // These constructor ORs select an already supported static visual
+            // and actor ordering. Intern a declaration variant at the call
+            // site rather than adding mutable pipeline state to the runtime.
+            const STATIC_RENDER_FLAGS: u32 = 0x80000 | 0x2000;
+            let flags = pe::word(bytes, at + 4)?;
+            render_flags |= flags & STATIC_RENDER_FLAGS;
+            let retained = (flags & !STATIC_RENDER_FLAGS).to_le_bytes();
+            words[2] = u16::from_le_bytes(retained[..2].try_into()?);
+            words[3] = u16::from_le_bytes(retained[2..].try_into()?);
+        }
         words[1] = match opcode {
             21 => 0x14,
             22 => 0x5c,
@@ -149,6 +165,11 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
         actors.len().is_multiple_of(360),
         "misaligned Steam effect actor pool"
     );
+    let mut actor_rows = actors
+        .chunks_exact(360)
+        .map(<[u8]>::to_vec)
+        .collect::<Vec<_>>();
+    let mut variants = BTreeMap::new();
     let commands = data(1);
     ensure!(
         commands.len().is_multiple_of(8),
@@ -171,8 +192,9 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
                 "effect modifier outside pool"
             );
             let offset = result.len();
-            result.extend(modifier(data(2), pointer - offsets[2])?);
-            edits.insert(pointer, offset);
+            let (bytes, flags) = modifier(data(2), pointer - offsets[2])?;
+            result.extend(bytes);
+            edits.insert(pointer, (offset, flags));
         }
     }
     result[12..14].copy_from_slice(&short(modifier_start)?);
@@ -182,6 +204,34 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
     for row in commands.chunks_exact(8) {
         result.extend(pe::half(row, 0)?.to_be_bytes());
         let value = pe::word(row, 4)?;
+        let mut command = row[2];
+        if value != 0 && (command < 252 || command == 253) {
+            let flags = edits[&(value as usize)].1;
+            if flags != 0 {
+                ensure!(
+                    command < 252,
+                    "static render flags cannot change a retained particle"
+                );
+                command = if let Some(&variant) = variants.get(&(command, flags)) {
+                    variant
+                } else {
+                    ensure!(
+                        actor_rows.len() < 252,
+                        "too many effect declaration variants"
+                    );
+                    let mut row = actor_rows
+                        .get(usize::from(command))
+                        .context("modifier actor exceeds pool")?
+                        .clone();
+                    let combined = pe::word(&row, 24)? | flags;
+                    row[24..28].copy_from_slice(&combined.to_le_bytes());
+                    let variant = actor_rows.len() as u8;
+                    actor_rows.push(row);
+                    variants.insert((command, flags), variant);
+                    variant
+                };
+            }
+        }
         let (argument, operand) = match row[2] {
             252 => {
                 let sound = audio_effects::id(value as u16)?;
@@ -196,7 +246,7 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
                     u16::from(row[3]),
                 )
             }
-            253 | 0..=251 if value != 0 => (row[3], u16::try_from(edits[&(value as usize)])?),
+            253 | 0..=251 if value != 0 => (row[3], u16::try_from(edits[&(value as usize)].0)?),
             _ => {
                 let value = if (value as i32) < 0 {
                     i16::try_from(value as i32).context("expanded negative effect operand")? as u16
@@ -206,7 +256,7 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
                 (row[3], value)
             }
         };
-        result.extend([row[2], argument]);
+        result.extend([command, argument]);
         result.extend(operand.to_be_bytes());
     }
     let position = short(result.len())?;
@@ -249,7 +299,7 @@ fn canonical(bytes: &[u8]) -> Result<Canonical> {
     let position = short(result.len())?;
     result[8..10].copy_from_slice(&position);
     let mut strides = Vec::new();
-    for row in actors.chunks_exact(360) {
+    for row in &actor_rows {
         strides.push(row[6]);
         result.extend(actor(row)?);
     }
@@ -337,13 +387,14 @@ fn models(
                 }
             }
         }
-        let (mut preview, _) = preview_model::cook(
+        let (mut preview, mut native) = preview_model::cook(
             source,
             library,
             [&body, &outline],
             &format!("{owner}/models/model-{slot}"),
             &motions,
         )?;
+        normalize_model_color(source, library, &body, &preview.parts[0].scene, &mut native)?;
         for part in &mut preview.parts {
             part.animation = None;
             part.scene.autoplay = false;
@@ -444,6 +495,7 @@ pub(crate) fn cook_enemies(
             let models = models(source, library, &bytes, &owner)?;
             let count = models.len();
             definition.artwork = Some(Artwork::from_models(textures, models)?);
+            bind_scene_opacity(&mut definition)?;
             output::json(&library.join(&owner).join("effects.json"), &definition)?;
             Ok((count, images))
         })();
@@ -494,6 +546,183 @@ mod tests {
             bank[command + index * 8..command + (index + 1) * 8].copy_from_slice(row);
         }
         bank
+    }
+
+    #[test]
+    fn correlated_scratch_addition_keeps_one_draw_and_scales_discrete_steps() -> Result<()> {
+        let mut actor = vec![0; 360];
+        actor[0] = 5;
+        actor[2] = 255;
+        actor[58] = 255;
+        let mut edits = Vec::new();
+        edits.extend(11u16.to_le_bytes());
+        edits.extend(0x7ff8u16.to_le_bytes());
+        edits.extend(300u16.to_le_bytes());
+        edits.extend(0u16.to_le_bytes());
+        for (opcode, target, ignored_literal) in [(8u16, 0x7ff8u16, 60f32), (7, 0xb8, 0.)] {
+            edits.extend(opcode.to_le_bytes());
+            edits.extend(target.to_le_bytes());
+            edits.extend(ignored_literal.to_le_bytes());
+            edits.extend(0x7ff8u16.to_le_bytes());
+            edits.extend(0u16.to_le_bytes());
+        }
+        edits.extend(u16::MAX.to_le_bytes());
+        let mut spawn = [0; 8];
+        spawn[4..8].copy_from_slice(&400u32.to_le_bytes());
+        let definition = decode(
+            &fixture(&actor, &edits, &[spawn, [1, 0, 254, 0, 0, 0, 0, 0]]),
+            &[],
+            |_, _| Ok(()),
+        )?;
+        let EffectOperation::Spawn { birth, .. } = &definition.programs[0][0].operation else {
+            panic!("size birth")
+        };
+        assert_eq!(birth.random_draws, 1);
+        assert!(birth.sums.is_empty());
+        let range = birth.size[0].context("missing doubled scratch range")?;
+        assert!((range.step - 0.2).abs() < f32::EPSILON);
+        assert_eq!(range.draw, Some(0));
+        let original = resonance_content::battle_effect::ValueRange {
+            min: -29.9,
+            max: 29.9,
+            step: 0.1,
+            draw: Some(0),
+            reverse: false,
+        };
+        for unit in [0., 0.1, 0.5, 0.999] {
+            assert!((range.sample(unit) - 2. * original.sample(unit)).abs() < 0.0001);
+        }
+        birth.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM; compiles only Final Fury's native effect bank"]
+    fn installed_final_fury_effect_programs_keep_correlated_variations() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let package = source.require("BTLskill_007.pac")?;
+        let bank =
+            crate::battle_scenes::member(&package, 4)?.context("missing Final Fury effects")?;
+        let definition = decode(bank, &[], |_, _| Ok(()))?;
+        for member in [1, 2] {
+            ensure!(
+                !definition.programs[member]
+                    .iter()
+                    .any(|event| matches!(event.operation, EffectOperation::Unsupported { .. })),
+                "Final Fury program {member}: {:?}",
+                definition.programs[member]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn retained_angular_velocity_addition_keeps_its_axis_and_prior_assignment() -> Result<()> {
+        let mut actor = vec![0; 360];
+        actor[0] = 14;
+        actor[2] = 255;
+        actor[24..28].copy_from_slice(&0x40000u32.to_le_bytes());
+        actor[58] = 255;
+        let mut edits = Vec::new();
+        for (opcode, value) in [(7u16, 2.5f32), (8, -2.5)] {
+            edits.extend(opcode.to_le_bytes());
+            edits.extend(0x70u16.to_le_bytes());
+            edits.extend(value.to_le_bytes());
+            edits.extend(0u32.to_le_bytes());
+        }
+        edits.extend(u16::MAX.to_le_bytes());
+        let mut delayed = [2, 0, 253, 0, 0, 0, 0, 0];
+        delayed[4..8].copy_from_slice(&400u32.to_le_bytes());
+        let definition = decode(
+            &fixture(
+                &actor,
+                &edits,
+                &[[0; 8], delayed, [3, 0, 254, 0, 0, 0, 0, 0]],
+            ),
+            &[],
+            |_, _| Ok(()),
+        )?;
+        let EffectOperation::SetMotion { motion, .. } = &definition.programs[0][1].operation else {
+            panic!("delayed motion")
+        };
+        assert_eq!(motion.angular_velocity, [None, Some(2.5), None]);
+        assert_eq!(motion.angular_velocity_add, Some([0., -2.5, 0.]));
+        Ok(())
+    }
+
+    #[test]
+    fn constructor_render_flags_select_an_interned_static_declaration() -> Result<()> {
+        let mut actor = vec![0; 360];
+        actor[0] = 5;
+        actor[2] = 255;
+        actor[58] = 255;
+        let mut edits = Vec::new();
+        for flags in [0x80000u32, 0x2000] {
+            edits.extend(21u16.to_le_bytes());
+            edits.extend(0x18u16.to_le_bytes());
+            edits.extend(flags.to_le_bytes());
+        }
+        edits.extend(u16::MAX.to_le_bytes());
+        let mut changed = [0; 8];
+        changed[4..8].copy_from_slice(&400u32.to_le_bytes());
+        let bank = fixture(
+            &actor,
+            &edits,
+            &[[0; 8], changed, changed, [1, 0, 254, 0, 0, 0, 0, 0]],
+        );
+        let normalized = canonical(&bank)?;
+        assert_eq!(normalized.strides.len(), 2);
+        let definition = decode(&bank, &[], |_, _| Ok(()))?;
+        let particles = definition.programs[0]
+            .iter()
+            .map(|event| {
+                let EffectOperation::Spawn { particle, .. } = event.operation else {
+                    panic!("particle constructor");
+                };
+                particle
+            })
+            .collect::<Vec<_>>();
+        assert_ne!(particles[0], particles[1]);
+        assert_eq!(particles[1], particles[2]);
+        for (particle, enabled) in [(particles[0], true), (particles[1], false)] {
+            let declaration = &definition.templates[usize::from(particle)];
+            assert_eq!(declaration.particle_visual()?.depth_test, enabled);
+            assert_eq!(declaration.particle_visual()?.after_actor, !enabled);
+            assert_eq!(declaration.template()?.draw_after_target, !enabled);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn square_band_controller_and_primary_only_color_flag_keep_the_common_contract() -> Result<()> {
+        let mut actor = vec![0; 360];
+        actor[0] = 20;
+        actor[2] = 255;
+        actor[58] = 255;
+        actor[24..28].copy_from_slice(&0x8000_0008u32.to_le_bytes());
+        actor[188..192].copy_from_slice(&4f32.to_le_bytes());
+        actor[192..196].copy_from_slice(&300f32.to_le_bytes());
+        let bank = fixture(&actor, &[], &[[0; 8], [1, 0, 254, 0, 0, 0, 0, 0]]);
+        let definition = decode(&bank, &[], |_, _| Ok(()))?;
+        let declaration = &definition.templates[0];
+        assert_eq!(
+            declaration.particle_visual()?.geometry,
+            resonance_content::battle_effect::visual::ParticleShape::SquareBand
+        );
+        assert!(declaration.template()?.brighten_primary_only);
+        assert!(matches!(
+            declaration.template()?.state.geometry,
+            resonance_content::battle_effect::ParticleGeometry::Size {
+                value: [0., 4., 300.],
+                ..
+            }
+        ));
+        Ok(())
     }
 
     #[test]
@@ -708,7 +937,8 @@ mod tests {
                 prepared_models += 1;
             }
             let bytes = source.require(monsters::package(&image, id)?)?;
-            let tables = crate::battle_enemies::actions(&bytes, common, &library, id)?;
+            let tables =
+                crate::battle_enemies::actions_with_source(&source, &bytes, common, &library, id)?;
             let models = tables
                 .projectiles
                 .values()

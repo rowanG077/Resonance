@@ -4,6 +4,8 @@ use super::ActionDefinition;
 use anyhow::{Context, Result};
 use resonance_battle::Difficulty;
 use resonance_content::{battle_enemy, monster::MonsterStats};
+#[cfg(test)]
+mod final_fury_tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EnemyStatistics {
@@ -290,6 +292,20 @@ impl super::encounter::resources::Resources<'_> {
                 }
                 EnemyExecution::Attack(attack) | EnemyExecution::Physical { attack, .. } => attack,
             };
+            let final_fury =
+                attack.events.iter().any(|(_, event)| {
+                    matches!(event, EnemyEvent::AuthoredCallback { skill: 200, .. })
+                }) && matches!(execution, EnemyExecution::Physical { technique: 152, .. });
+            let callback_bank = if final_fury {
+                Some(
+                    self.skill_scenes
+                        .get(&200)
+                        .context("Final Fury enemy has no stored skill artwork")?
+                        .clone(),
+                )
+            } else {
+                None
+            };
             let mut events = vec![(0, Event::Armor(attack.armor))];
             if let EnemyExecution::Physical { technique, .. } = execution {
                 events.push((0, Event::Notice { duration: 90 }));
@@ -395,6 +411,42 @@ impl super::encounter::resources::Resources<'_> {
                     continue;
                 }
                 let event = match event {
+                    EnemyEvent::AuthoredCallback { skill, event } => match event.as_ref() {
+                        resonance_content::battle_normal::Event::EmitProjectile {
+                            definition,
+                            hit,
+                            feedback,
+                        } => {
+                            let local = self
+                                .skill_scenes
+                                .get(skill)
+                                .context("enemy callback has no stored skill artwork")?
+                                .clone();
+                            Event::Projectile(super::martial::projectile_with_local(
+                                self,
+                                definition,
+                                hit,
+                                *feedback,
+                                self.recoil,
+                                Some(&local),
+                            )?)
+                        }
+                        resonance_content::battle_normal::Event::Voice(sound) => {
+                            let Some(sound) = self.voices.absolute(
+                                super::model::ModelSource::Enemy(enemy),
+                                *sound,
+                                &mut self.sound,
+                            )?
+                            else {
+                                continue;
+                            };
+                            Event::Voice {
+                                sound,
+                                priority: resonance_battle::VoicePriority::Action,
+                            }
+                        }
+                        other => super::normal::movement_event(other)?,
+                    },
                     EnemyEvent::Effect(member) => Event::ActionEffect {
                         appearance: self.enemy_effect(enemy, *member)?,
                         origin: resonance_battle::AttackOrigin::ActorRoot,
@@ -568,7 +620,7 @@ impl super::encounter::resources::Resources<'_> {
                             }
                         };
                         let definition = Arc::new(resonance_battle::MeleeDefinition {
-                            hit: self.enemy_hit(enemy, hit)?,
+                            hit: self.enemy_hit_with_bank(enemy, hit, callback_bank.as_ref())?,
                             volume,
                             trail: None,
                         });
@@ -762,6 +814,10 @@ impl super::encounter::resources::Resources<'_> {
                     None,
                 )?;
             }
+            if final_fury {
+                super::skill_scene::finisher(self, &mut prepared, 200)?;
+                prepared.chain_at = None;
+            }
             let key = bindings.insert(ActionDefinition {
                 normal: None,
                 tp_cost: u16::from(metadata.tp),
@@ -854,12 +910,26 @@ impl super::encounter::resources::Resources<'_> {
         enemy: u16,
         source: &resonance_content::battle_action::ActionHit,
     ) -> Result<resonance_battle::HitRule> {
+        self.enemy_hit_with_bank(enemy, source, None)
+    }
+    fn enemy_hit_with_bank(
+        &mut self,
+        enemy: u16,
+        source: &resonance_content::battle_action::ActionHit,
+        bank: Option<&super::EffectResource>,
+    ) -> Result<resonance_battle::HitRule> {
         let mut hit = super::hit::authored(source, self.recoil)?;
         if let Some(sound) = hit.sound {
             hit.sound = (self.sound)(sound)?;
         }
         if let Some(member) = source.effect {
-            hit.effect = Some(self.enemy_effect(enemy, member)?);
+            hit.effect = Some(if let Some(bank) = bank {
+                self.prepared
+                    .effect_member(bank, member)
+                    .with_context(|| format!("enemy {enemy} stored skill contact member{member}"))?
+            } else {
+                self.enemy_effect(enemy, member)?
+            });
         }
         Ok(hit)
     }

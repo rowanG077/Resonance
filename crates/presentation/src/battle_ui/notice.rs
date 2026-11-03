@@ -507,6 +507,43 @@ impl Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_content::diagnostics::Diagnostics;
+
+    #[test]
+    #[ignore = "requires current cooked mystic captions and HUD; CPU notice playback only"]
+    fn mystic_captions_survive_typed_reader_and_notice_playback() -> Result<()> {
+        let document: resonance_content::arte::document::Document = serde_json::from_slice(
+            &std::fs::read(fixtures::asset_root().join(resonance_content::arte::PATH))?,
+        )?;
+        let names = document.prepare()?.names(&Diagnostics::new(true))?;
+        let (mut hud, _, _app) = test_artwork()?;
+        let frame = fixtures::frame(fixtures::actor(Default::default()));
+        for (id, character) in [
+            (144, Character::Zelos),
+            (248, Character::Genis),
+            (249, Character::Zelos),
+            (260, Character::Presea),
+            (261, Character::Presea),
+        ] {
+            let party = PartyHudInput {
+                characters: &[character],
+                queued_techniques: &[false],
+                names: &[None],
+            };
+            let name = names.get(&id).context("missing prepared mystic caption")?;
+            hud.notice_request(ActorId::from_index(0)?, name, 90, &frame)?;
+            hud.notices.advance(&frame, 8);
+            ensure!(
+                hud.party_notice_text() == Some(name),
+                "lost mystic caption during playback"
+            );
+            ensure!(
+                !hud.draw_notices(&frame, party)?[TEXT].positions.is_empty(),
+                "mystic caption has no glyph geometry"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn outcome_layers_composite_after_both_action_notice_groups() {

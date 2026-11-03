@@ -6,7 +6,7 @@ use resonance_content::secondary_motion::{Chain, Definition, Joint};
 use serde_json::Value;
 
 /// Native chain-root labels paired with the same readable names written to model.json.
-pub(crate) fn chain_roots(raw_names: &[String]) -> Vec<(String, String)> {
+pub fn chain_roots(raw_names: &[String]) -> Vec<(String, String)> {
     let mut used = std::collections::BTreeSet::new();
     raw_names
         .iter()
@@ -29,7 +29,7 @@ fn parameter(name: &str, tag: &str) -> Result<Option<f32>> {
     Ok((value != 0.).then_some(value))
 }
 
-pub(crate) fn bind(
+pub fn bind(
     model: &str,
     gltf: &Value,
     names: &[String],

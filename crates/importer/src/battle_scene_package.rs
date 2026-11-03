@@ -213,6 +213,7 @@ fn ray_recipe(module: &Rel) -> Result<SpellRecipe> {
                 tick: 60 + u16::try_from(index)? * 8,
                 projectile: 1,
                 hit_variant: 0,
+                aim: Default::default(),
                 effect_member: 2,
                 offset,
             })
@@ -224,6 +225,7 @@ fn ray_recipe(module: &Rel) -> Result<SpellRecipe> {
         heading_offset: f32::from_bits(dol::u32(module.slice(4, 0x7e28, 4)?, 0)?),
         startup_member: 1,
         startup_deferred: true,
+        cutin: None,
         contacts,
     };
     recipe.validate()?;
@@ -802,6 +804,7 @@ pub(crate) fn read_simple(root: &Path, id: u16) -> Result<(Scene, Vec<u8>)> {
             _ => None,
         },
         spell_recipe: (id == 252).then(|| ray_recipe(&module)).transpose()?,
+        effect_paths: Vec::new(),
     };
     Ok((scene, bytes))
 }

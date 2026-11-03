@@ -8,7 +8,7 @@ use resonance_battle::{
     PreparedSpell, SpellEffect, SpellEffectPlacement, SpellLaunch, SpellOrigin, SpellProjectile,
 };
 use resonance_content::{
-    battle_scene::{PatternOrigin, Scene, SpellRecipe},
+    battle_scene::{PatternAim, PatternOrigin, Scene, SpellRecipe},
     prepared::Files,
 };
 
@@ -25,6 +25,7 @@ pub(super) fn prepare(
     let mut spell = stored_spells::scene_spell(
         scene,
         match pattern.origin {
+            PatternOrigin::SceneTargetRoot => SpellOrigin::SceneTargetRoot,
             PatternOrigin::SceneGround { toward_caster } => {
                 SpellOrigin::SceneGround { toward_caster }
             }
@@ -32,6 +33,15 @@ pub(super) fn prepare(
         },
         pattern.lifetime,
     )?;
+    if let Some(cutin) = &pattern.cutin {
+        spell.policy = resonance_battle::SpellPolicy::Cutin {
+            at: TRANSITION_TICKS + ACTIVE_START_TICKS + cutin.tick,
+            catalogue: resonance_battle::TechniqueId(cutin.catalogue),
+            duration: cutin.duration,
+            hold_ticks: cutin.hold_ticks,
+            reveal: None,
+        };
+    }
     spell.effects.push(SpellEffect {
         at: TRANSITION_TICKS + 1,
         appearance: resources.effect_member(bank, pattern.startup_member)?,
@@ -58,36 +68,37 @@ pub(super) fn prepare(
             at: creation_tick + CONTACT_INITIALIZATION_TICKS,
             definition,
             origin_offset: offset,
-            launch: SpellLaunch::Captured(pattern.heading_offset),
+            launch: match contact.aim {
+                PatternAim::Captured => SpellLaunch::Captured(pattern.heading_offset),
+                PatternAim::Live => SpellLaunch::Live,
+            },
         });
-        spell.effects.push(SpellEffect {
-            at: creation_tick,
-            appearance: resources.effect_member(bank, contact.effect_member)?,
-            placement: SpellEffectPlacement::Scene(offset),
-            deferred: true,
-            captured_heading_offset: Some(pattern.heading_offset),
-        });
+        if contact.effect_member != 0 {
+            spell.effects.push(SpellEffect {
+                at: creation_tick,
+                appearance: resources.effect_member(bank, contact.effect_member)?,
+                placement: SpellEffectPlacement::Scene(offset),
+                deferred: true,
+                captured_heading_offset: Some(pattern.heading_offset),
+            });
+        }
     }
     Ok(spell)
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use anyhow::Context;
     use resonance_battle::ResourceId;
     use std::{path::PathBuf, sync::Arc};
 
-    #[test]
-    #[ignore = "requires a full current cook at RESONANCE_TEST_ASSETS"]
-    fn prepared_pattern_uses_changed_content_and_rejects_missing_dependencies() -> Result<()> {
+    pub(crate) fn cooked_scene(id: u16) -> Result<(Scene, Files, EffectResource)> {
         let root = PathBuf::from(
             std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
         let library = resonance_content::library::Library::open(&root, &[])?;
         let mut snapshot = library.snapshot();
-        // Ordinary encounter preparation captures these shared contact rules
-        // before selecting any stored scenes.
         for path in [
             resonance_content::battle_recoil::PATH,
             resonance_content::battle_model::document::PARTY,
@@ -95,10 +106,10 @@ mod tests {
             snapshot.read(path, resonance_content::preparation::JSON_LIMIT)?;
         }
         let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        let (mut scene, source_bank) = resonance_content::battle_scene::document::capture(
+        let (scene, source_bank) = resonance_content::battle_scene::document::capture(
             &mut snapshot,
             resonance_content::battle_scene::document::Kind::Technique,
-            252,
+            id,
             &diagnostics,
             &|| false,
         )?;
@@ -124,6 +135,38 @@ mod tests {
                 .collect::<Result<_>>()?,
             bank: Some(Arc::new(source_bank)),
         };
+        Ok((scene, files, bank))
+    }
+
+    #[test]
+    #[ignore = "requires cooked Sacred Light at RESONANCE_TEST_ASSETS"]
+    fn sacred_light_retains_live_aim_without_a_duplicate_creation_effect() -> Result<()> {
+        let (scene, files, bank) = cooked_scene(263)?;
+        let mut resources = ActionResources::default();
+        let spell = prepare(
+            &files,
+            &scene,
+            scene
+                .spell_recipe
+                .as_ref()
+                .context("missing Sacred Light recipe")?,
+            &bank,
+            &mut resources,
+        )?;
+        assert_eq!(spell.projectiles.len(), 1);
+        assert!(matches!(spell.projectiles[0].launch, SpellLaunch::Live));
+        assert_eq!(spell.effects.len(), 1);
+        resources.prepare_effects(
+            &mut |_| Ok(None),
+            &resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a full current cook at RESONANCE_TEST_ASSETS"]
+    fn prepared_pattern_uses_changed_content_and_rejects_missing_dependencies() -> Result<()> {
+        let (mut scene, files, bank) = cooked_scene(252)?;
         let mut resources = ActionResources::default();
         let baseline = prepare(
             &files,

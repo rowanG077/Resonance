@@ -31,6 +31,7 @@ fn volley(definition: crate::PreparedSpell, battle: &Battle) -> crate::release::
         age: 0,
         origin: None,
         effect_origin: None,
+        effect_positions: Vec::new(),
         heading: 0.,
         emitted: 0,
         summon: None,

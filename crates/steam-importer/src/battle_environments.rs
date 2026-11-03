@@ -197,21 +197,72 @@ fn effects(
         textures.insert(slot, texture);
     }
     bank.artwork = Some(Artwork::from_models(textures, BTreeMap::new())?);
+    battle_effects::bind_scene_opacity(&mut bank)?;
     let path = format!("{owner}/effects/effects.json");
     output::json(&library.join(&path), &bank)?;
     Ok(Some(path))
 }
 
+/// Scenery uses the shared GC unlit pass. Steam's baked RGB has half-range
+/// modulation; opacity stays ordinary byte alpha. Preserve the source alpha
+/// comparison before depth writes, including its cutout edge rejection.
+fn normalize_scenery(
+    source: &Source,
+    library: &Path,
+    descriptor: &str,
+    scene: &mut resonance_content::ScenePart,
+    model: &mut crate::model::Model,
+) -> Result<()> {
+    let stem = descriptor
+        .rsplit_once('.')
+        .context("arena model has no extension")?
+        .0;
+    let parameters = source.require(&format!("{stem}.mxd"))?;
+    let (tints, _, _) = crate::model::material_parameters(&parameters, &model.materials)?;
+    let cutoffs = crate::model::material_alpha_cutoffs(&parameters, &model.materials)?;
+    for (mesh, material) in model
+        .meshes
+        .iter_mut()
+        .filter(|mesh| !mesh.indices.is_empty())
+        .zip(&mut scene.materials)
+    {
+        for color in &mut mesh.colors {
+            for channel in &mut color[..3] {
+                *channel = (*channel * 2.).min(1.);
+            }
+        }
+        material.alpha_cutoff = cutoffs[usize::from(mesh.material)];
+    }
+    output::write(&library.join(&scene.mesh), &model.glb(&tints)?)
+}
+
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
+    cook_selection(source, library, None)
+}
+
+fn cook_selection(source: &Source, library: &Path, selected: Option<u16>) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
     let atlases = effect_atlas::Directory::read(&image)?;
     let residents = effect_atlas::residents(source, &image)?;
     let directory = image.slice(0x8e6ee8, 97 * 4)?;
-    let mut mappings = BTreeMap::new();
+    let mut mappings = if selected.is_some() {
+        let existing: Mappings =
+            serde_json::from_slice(&std::fs::read(library.join(document::MAPPINGS))?)?;
+        existing
+            .iter()
+            .map(|(id, name)| (id, name.to_owned()))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
     let mut absent = Vec::new();
     let mut failures = Vec::new();
     let mut layers_count = 0;
+    let mut cooked_count = 0;
     for (id, pointer) in directory.chunks_exact(4).enumerate() {
+        if selected.is_some_and(|selected| usize::from(selected) != id) {
+            continue;
+        }
         let resource = image.text(pe::word(pointer, 0)?)?;
         ensure!(
             resource == format!("BG_{id:03}.PAC"),
@@ -267,9 +318,10 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                 let motions = motion
                     .map(|name| vec![(0, name.to_owned())])
                     .unwrap_or_default();
-                let (mut scene, model) =
+                let (mut scene, mut model) =
                     preview_model::part(source, library, resource, &owner, &label, &motions)
                         .with_context(|| format!("arena {id} layer {label}"))?;
+                normalize_scenery(source, library, resource, &mut scene, &mut model)?;
                 if slot == 0 {
                     primary_joints = model.rig.joint_names();
                 }
@@ -371,6 +423,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             layers_count += definition.layers.len();
             output::json(&library.join(&owner).join("arena.json"), &definition)?;
             mappings.insert(id as u32, name);
+            cooked_count += 1;
             Ok(())
         })();
         if let Err(error) = result {
@@ -380,12 +433,15 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     }
     output::json(&library.join(document::MAPPINGS), &Mappings::new(mappings)?)?;
     eprintln!(
-        "  Battle arenas: {} owners, {layers_count} layers; absent source packages: {absent:?}",
-        97 - absent.len() - failures.len()
+        "  Battle arenas: {cooked_count} owners, {layers_count} layers; absent source packages: {absent:?}",
     );
     ensure!(
         failures.is_empty(),
         "arenas remain unconverted: {failures:?}"
+    );
+    ensure!(
+        selected.is_none() || cooked_count == 1,
+        "selected arena has no source package"
     );
     Ok(())
 }
@@ -406,6 +462,48 @@ mod tests {
         assert_eq!(animation.texture, 3);
         assert_eq!(animation.interval, 1);
         assert_eq!(animation.offset(8), [1., -2.]);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires installed Steam and a cooked library; refreshes only the arena category"]
+    fn installed_battle_arena_category_cooks() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        cook(&source, &root)
+    }
+
+    #[test]
+    #[ignore = "requires installed Steam and a cooked library; recooks only RESONANCE_TEST_ARENA (default 13)"]
+    fn installed_arena_uses_gc_scenery() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let id = std::env::var("RESONANCE_TEST_ARENA")
+            .unwrap_or_else(|_| "13".into())
+            .parse()?;
+        cook_selection(&source, &root, Some(id))?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let stage = document::capture(&mut library.snapshot(), id, &diagnostics, &|| false)?;
+        stage.validate()?;
+        if id == 13 {
+            assert_eq!(stage.layers.len(), 1);
+            assert_eq!(stage.light_position, [300., 800., -200.]);
+        }
         Ok(())
     }
 

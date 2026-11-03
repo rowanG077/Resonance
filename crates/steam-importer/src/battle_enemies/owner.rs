@@ -185,7 +185,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
             let nodes = body_nodes(library, &preview)?;
             let (mut profile, unmapped) = battle_profiles::enemy(metadata, &nodes)?;
             unmapped_immunities += usize::from(unmapped);
-            let tables = actions(&bytes, common, library, id)?;
+            let tables = actions_with_source(source, &bytes, common, library, id)?;
             for (index, row) in tables.actions.rows.iter().enumerate() {
                 if let Some(reason) = &row.unsupported_reason {
                     unavailable_artes.push((id, index, reason.clone()));
@@ -298,6 +298,49 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; recooks only enemy226"]
+    fn installed_final_fury_enemy_owner_uses_shared_callbacks() -> Result<()> {
+        use resonance_content::{
+            battle_action::{EnemyEvent, EnemyExecution},
+            battle_normal::Event,
+        };
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        cook(&source, &root, Some(&[226]))?;
+        let captured = resonance_content::battle_enemy::document::capture(
+            &mut resonance_content::library::Library::open(&root, &[])?.snapshot(),
+            226,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            &|| false,
+        )?;
+        let row = &captured.definition.actions.rows[6];
+        let Some(EnemyExecution::Physical {
+            technique: 152,
+            attack,
+        }) = &row.execution
+        else {
+            anyhow::bail!("missing Final Fury physical action")
+        };
+        ensure!(row.unsupported_reason.is_none(), "Final Fury unavailable");
+        ensure!(attack.events.iter().filter(|(_,e)|matches!(e,EnemyEvent::AuthoredCallback {skill:200,event} if matches!(event.as_ref(),Event::EmitProjectile{..}))).count()==2,"missing Final Fury skill projectiles");
+        ensure!(
+            attack
+                .events
+                .iter()
+                .any(|(_, e)| matches!(e,EnemyEvent::Contact(c) if c.hit.effect==Some(2))),
+            "missing Final Fury contact program2"
+        );
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with body motions/effects"]
     fn installed_enemy_owners_cook_all_rules_and_artwork() -> Result<()> {
         let source = Source::open(
@@ -356,13 +399,18 @@ mod tests {
             if id == 226 {
                 let action = &captured.definition.actions.rows[6];
                 ensure!(
-                    action.execution.is_none()
-                        && action
-                            .unsupported_reason
-                            .as_deref()
-                            .is_some_and(|reason| reason.contains("Final Fury (152)")),
-                    "Final Fury must stay explicitly unavailable until its complete recipe is imported"
+                    action.unsupported_reason.is_none(),
+                    "Final Fury is unavailable"
                 );
+                let Some(resonance_content::battle_action::EnemyExecution::Physical {
+                    technique: 152,
+                    attack,
+                }) = &action.execution
+                else {
+                    anyhow::bail!("Final Fury physical recipe missing")
+                };
+                ensure!(attack.events.iter().filter(|(_,event)|matches!(event,resonance_content::battle_action::EnemyEvent::AuthoredCallback {event,..} if matches!(event.as_ref(),resonance_content::battle_normal::Event::EmitProjectile {..}))).count()==2,"Final Fury callback launches missing");
+                ensure!(attack.events.iter().any(|(_,event)|matches!(event,resonance_content::battle_action::EnemyEvent::Contact(contact) if contact.hit.effect==Some(2))),"Final Fury skill contact artwork missing");
             }
         }
         Ok(())

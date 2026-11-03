@@ -791,6 +791,7 @@ pub struct BattleFrame {
     pub weapon_flights: Vec<crate::WeaponFlightFrame>,
     pub actions: Vec<(ActionId, ActorId, u32)>,
     pub spell_origins: Vec<(ActionId, [f32; 3])>,
+    pub spell_effect_positions: Vec<(ActionId, u16, [f32; 3])>,
     pub projectiles: Vec<ProjectileFrame>,
     pub projectile_shadows: Vec<crate::ProjectileShadowFrame>,
     pub camera: Option<crate::CameraPose>,
@@ -971,6 +972,7 @@ pub struct Battle {
     pub(crate) random_inputs: Option<crate::random_inputs::Inputs>,
     pub(crate) unison_gauge: i16,
     pub(crate) unison: crate::unison::State,
+    pub(crate) action_scene: Option<crate::action_scene::Reservation>,
     pub(crate) summon_entry: crate::summon_entry::State,
     pub(crate) enemy_presentation: crate::enemy_presentation::State,
     pub(crate) enemy_conversations: crate::enemy_conversation::State,
@@ -1280,6 +1282,7 @@ impl Battle {
             paused_actors: Vec::new(),
             next_action: 1,
             next_projectile: 1,
+            action_scene: None,
             terminal: Default::default(),
             ended: false,
             prepared: prepared.resources,
@@ -1384,6 +1387,9 @@ impl Battle {
             && !self.unison.active()
             && !self.summon_entry.active()
             && !self.enemy_presentation.holding()
+            && !self
+                .action_scene
+                .is_some_and(|scene| self.actors[scene.owner.index()].side == Side::Party)
     }
 
     pub fn random_state(&self) -> u64 {
@@ -1425,6 +1431,12 @@ impl Battle {
     }
 
     pub(crate) fn set_task(&mut self, index: usize, task: ActorTask) {
+        if let Some(scene) = self.action_scene
+            && scene.owner.index() == index
+            && !matches!(&task, ActorTask::Action { id, .. } if *id == scene.action)
+        {
+            self.end_action_scene(scene.action);
+        }
         self.runtime[index].task = task;
     }
 
@@ -1471,6 +1483,9 @@ impl Battle {
     }
 
     pub(crate) fn interrupt_actor(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
+        if let Some(scene) = self.action_scene.filter(|scene| scene.owner == actor) {
+            self.end_action_scene(scene.action);
+        }
         self.interrupt_capture(actor);
         let runtime = &mut self.runtime[actor.index()];
         runtime.body_bypass = false;
@@ -1942,8 +1957,9 @@ impl Battle {
                 Ok(true) => {
                     self.put_sequence(id, sequence);
                 }
-                Ok(false) => {}
+                Ok(false) => self.end_action_scene(id),
                 Err(error) => {
+                    self.end_action_scene(id);
                     self.diagnostics.report("battle action transition", error)?;
                     self.diagnostic = true;
                     self.discard_action(id, &sequence, cues);
@@ -2557,7 +2573,10 @@ impl Battle {
     ) -> Result<Option<ActionTransition>> {
         let mut sequence = self.take_sequence(&id).unwrap();
         match self.advance_sequence_inner(id, &mut sequence, contacts, items, cues) {
-            Ok(SequenceStep::Finished) => Ok(None),
+            Ok(SequenceStep::Finished) => {
+                self.end_action_scene(id);
+                Ok(None)
+            }
             Ok(step) => {
                 self.put_sequence(id, sequence);
                 Ok(match step {
@@ -2566,6 +2585,7 @@ impl Battle {
                 })
             }
             Err(error) => {
+                self.end_action_scene(id);
                 self.diagnostics.report("battle action", error)?;
                 self.diagnostic = true;
                 // Cancel partially executed work and its pending contacts; never retry it.
@@ -2809,6 +2829,16 @@ impl Battle {
                 .iter()
                 .filter_map(|(&id, volley)| volley.effect_origin.map(|point| (id, point)))
                 .collect(),
+            spell_effect_positions: self
+                .volleys
+                .iter()
+                .flat_map(|(&action, volley)| {
+                    volley
+                        .effect_positions
+                        .iter()
+                        .map(move |&(index, position)| (action, index, position))
+                })
+                .collect(),
             cues,
             recognized_result: self.terminal.result,
             projectile_shadows: self
@@ -2875,6 +2905,7 @@ impl Battle {
         } else if self.phase() == crate::BattlePhase::Entry
             || busy
             || self.unison.owns_commands(request.actor)
+            || self.action_scene_blocks(request.actor)
             || actor.time_stop != 0
             || self.clock.paused()
         {
@@ -2991,6 +3022,13 @@ impl Battle {
         request: ActionRequest,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
+        if self.action_scene_blocks(request.actor) {
+            cues.push(Cue::Rejected {
+                actor: request.actor,
+                reason: Rejection::Busy,
+            });
+            return Ok(());
+        }
         let (mut action, variation) = self.elemental_action(request.actor, request.action, cues);
         let selected = action;
         let mut learning = false;
@@ -3081,6 +3119,14 @@ impl Battle {
             }
         }
         self.ledger.achievements[index].acted = true;
+        if let crate::ActionExecution::Attack(attack) = &sequence.definition.execution
+            && let Some(protection) = attack.events.iter().find_map(|(_, event)| match event {
+                crate::AttackEvent::ActionScene { party_protection } => Some(*party_protection),
+                _ => None,
+            })
+        {
+            self.begin_action_scene(id, request.actor, protection);
+        }
         self.ledger.achievements[index].used_arte |= self
             .technique_catalogue_for_action(request.actor, action)
             .is_some();

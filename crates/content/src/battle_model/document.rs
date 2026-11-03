@@ -233,7 +233,19 @@ pub struct PartyDefinition {
     pub null_motions: BTreeSet<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wings: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon_prop: Option<WeaponProp>,
     pub victory: crate::battle_victory::document::Selection,
+}
+
+/// Costume-owned visual replacement selected at encounter entry. Combat
+/// attributes and inventory continue to use the equipped item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WeaponProp {
+    pub equipment: u16,
+    pub minimum_game_clears: u8,
+    pub one_in: std::num::NonZeroU16,
 }
 
 /// A costume's body and outline normally share their complete clip bindings.
@@ -321,6 +333,12 @@ pub fn capture_party(
     ensure!(!cancelled(), "party preparation cancelled");
     let path = party_path(snapshot, character, costume)?;
     let mut definition: PartyDefinition = snapshot.json(&path, JSON_LIMIT)?;
+    if let Some(prop) = definition.weapon_prop {
+        ensure!(
+            prop.equipment != 0 && prop.minimum_game_clears <= 100,
+            "invalid costume weapon prop in {path}"
+        );
+    }
     crate::library::validate_path(&definition.victory.file)?;
     ensure!(
         !definition.victory.costume.is_empty(),
@@ -359,6 +377,7 @@ pub fn capture_party(
         parts,
         wings,
         null_motions: definition.null_motions,
+        weapon_prop: definition.weapon_prop,
     };
     ensure!(!cancelled(), "party preparation cancelled");
     Ok((definition.victory, party))

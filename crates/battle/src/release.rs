@@ -16,6 +16,7 @@ pub struct PreparedSpell {
     /// Projectile births, measured in scene ticks from release.
     pub projectiles: Vec<SpellProjectile>,
     pub effects: Vec<SpellEffect>,
+    pub effect_paths: Vec<SpellEffectPath>,
     pub recovery: Vec<SpellRecovery>,
     pub origin: SpellOrigin,
     /// Opening scene transition holds gameplay while its framing and feedback advance.
@@ -144,6 +145,13 @@ pub struct SpellEffect {
     pub captured_heading_offset: Option<f32>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SpellEffectPath {
+    pub at: u16,
+    pub appearance: EffectAppearance,
+    pub positions: Arc<[[f32; 3]]>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum SpellEffectPlacement {
     /// Offset rotated by the retained scene heading.
@@ -151,6 +159,7 @@ pub enum SpellEffectPlacement {
     /// Capture the caster's ground position and heading when the effect begins.
     CasterGround,
     CasterCenter,
+    TargetCenter,
     EnemyCenters,
 }
 
@@ -183,6 +192,7 @@ pub enum SpellStartup {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RecoveryTargets {
     Target,
+    OpponentTarget,
     Caster,
     LivingAllies,
     LivingOpponents,
@@ -219,6 +229,9 @@ pub struct SpellRecovery {
 /// A timed benefit uses the same recipient and release clock as healing spells.
 #[derive(Debug, Clone, Copy)]
 pub enum SpellBenefit {
+    Scan {
+        location: bool,
+    },
     Hp(u8),
     /// Each full horizontal distance step reduces the recovery percentage.
     HpByDistance {
@@ -257,7 +270,11 @@ impl SpellBenefit {
                 maximum_penalty,
             } => percent > 0 && distance_step > 0 && penalty_per_step > 0 && maximum_penalty > 0,
             Self::Tp(amount) => amount > 0,
-            Self::Cure(_) | Self::Buff(_) | Self::Sacrifice(_) | Self::DefenseDown { .. } => true,
+            Self::Scan { .. }
+            | Self::Cure(_)
+            | Self::Buff(_)
+            | Self::Sacrifice(_)
+            | Self::DefenseDown { .. } => true,
             Self::Resurrect(percent) => percent <= 100,
             Self::Stat {
                 condition,
@@ -268,6 +285,7 @@ impl SpellBenefit {
                     condition,
                     crate::conditions::Condition::AttackUp
                         | crate::conditions::Condition::DefenseUp
+                        | crate::conditions::Condition::MagicAttackUp
                 ) && percent > 0
                     && duration > 0
             }
@@ -292,6 +310,14 @@ impl SpellBenefit {
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
         match self {
+            Self::Scan { location } => {
+                if battle.actors[target.index()].side == crate::Side::Enemy {
+                    battle.reveal_enemy(target, cues);
+                    if location {
+                        battle.ledger.discovered_locations.insert(target);
+                    }
+                }
+            }
             Self::Hp(percent) => battle.recover(target, i16::from(percent), cues)?,
             Self::HpByDistance {
                 percent,
@@ -478,6 +504,7 @@ pub enum SpellOrigin {
     SceneGround {
         toward_caster: f32,
     },
+    SceneTargetRoot,
     SceneTarget {
         minimum_height: f32,
     },
@@ -516,6 +543,7 @@ impl SpellOrigin {
         matches!(
             self,
             Self::SceneGround { .. }
+                | Self::SceneTargetRoot
                 | Self::SceneTarget { .. }
                 | Self::SceneAboveTarget
                 | Self::SceneCasterAhead { .. }
@@ -534,6 +562,7 @@ impl PreparedSpell {
             policy: SpellPolicy::Static,
             projectiles: vec![],
             effects: vec![],
+            effect_paths: vec![],
             recovery: vec![],
             origin,
             transition_ticks: 0,
@@ -546,10 +575,31 @@ impl PreparedSpell {
     }
 
     pub(crate) fn uses_support_target(&self) -> bool {
-        !self.recovery.is_empty() || matches!(self.policy, SpellPolicy::TransferRecovery { .. })
+        self.recovery.iter().any(|pulse| {
+            !matches!(
+                pulse.targets,
+                RecoveryTargets::OpponentTarget | RecoveryTargets::LivingOpponents
+            )
+        }) || matches!(self.policy, SpellPolicy::TransferRecovery { .. })
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
+        ensure!(
+            self.effect_paths.len() <= usize::from(u16::MAX)
+                && self
+                    .effect_paths
+                    .iter()
+                    .all(|path| path.at > self.transition_ticks
+                        && !path.positions.is_empty()
+                        && usize::from(path.at) + path.positions.len() - 1
+                            < usize::from(self.duration)
+                        && path
+                            .positions
+                            .iter()
+                            .flatten()
+                            .all(|value| value.is_finite())),
+            "invalid spell effect path"
+        );
         ensure!(
             match self.policy {
                 SpellPolicy::Static => true,
@@ -606,6 +656,7 @@ impl PreparedSpell {
             ensure!(
                 self.projectiles.is_empty()
                     && self.effects.is_empty()
+                    && self.effect_paths.is_empty()
                     && self.recovery.is_empty()
                     && self.transition_ticks == 0
                     && self.startup.is_none(),
@@ -617,6 +668,7 @@ impl PreparedSpell {
             (!self.projectiles.is_empty()
                 || !self.recovery.is_empty()
                 || !self.effects.is_empty()
+                || !self.effect_paths.is_empty()
                 || self.startup.is_some()
                 || self.summon.is_some()
                 || matches!(self.policy, SpellPolicy::TransferRecovery { .. }))
@@ -816,6 +868,7 @@ pub(crate) struct Volley {
     pub age: u32,
     pub origin: Option<[f32; 3]>,
     pub effect_origin: Option<[f32; 3]>,
+    pub effect_positions: Vec<(u16, [f32; 3])>,
     pub heading: f32,
     pub emitted: usize,
     pub summon: Option<crate::summon::ActiveSummon>,
@@ -997,6 +1050,7 @@ impl Volley {
                     point[1] = point[1].max(minimum_height);
                     point
                 }
+                SpellOrigin::SceneTargetRoot => target.position,
                 SpellOrigin::SceneAboveTarget => {
                     let mut point = target.position;
                     point[1] += 2. * target.effect_origin()[1];
@@ -1267,6 +1321,32 @@ impl Volley {
             let offset = crate::geometry::rotate(offset, self.heading);
             std::array::from_fn(|axis| origin[axis] + offset[axis])
         };
+        self.effect_positions.clear();
+        for (index, path) in self.definition.effect_paths.iter().enumerate() {
+            let Some(age) = self.age.checked_sub(u32::from(path.at)) else {
+                continue;
+            };
+            let Some(&offset) = path.positions.get(age as usize) else {
+                continue;
+            };
+            let position = placed(offset);
+            self.effect_positions.push((index as u16, position));
+            if age == 0 {
+                cues.push(Cue::DeferredEffect(crate::EffectRequest {
+                    owner: self.actor,
+                    target: self.target,
+                    appearance: path.appearance,
+                    origin: position,
+                    heading: self.heading,
+                    follow: Some(crate::EffectFollow::SpellPath {
+                        action: id,
+                        path: index as u16,
+                    }),
+                    scale: 1.,
+                    tint: Default::default(),
+                }));
+            }
+        }
         for effect in &self.definition.effects {
             if self.age == u32::from(effect.at) && has_recipient {
                 let mut emit = |target, position, heading, follow| {
@@ -1316,6 +1396,15 @@ impl Volley {
                             actor.effect_origin(),
                             actor.heading,
                             Some(crate::EffectFollow::Center(self.actor)),
+                        );
+                    }
+                    SpellEffectPlacement::TargetCenter => {
+                        let actor = &battle.actors[self.target.index()];
+                        emit(
+                            self.target,
+                            actor.effect_origin(),
+                            actor.heading,
+                            Some(crate::EffectFollow::Center(self.target)),
                         );
                     }
                     SpellEffectPlacement::EnemyCenters => {
@@ -1431,6 +1520,7 @@ impl Volley {
                     let selected = match recovery.targets {
                         RecoveryTargets::Caster => id == self.actor && actor.side == side,
                         RecoveryTargets::Target => id == self.target && actor.side == side,
+                        RecoveryTargets::OpponentTarget => id == self.target && actor.side != side,
                         RecoveryTargets::LivingAllies => actor.side == side,
                         RecoveryTargets::LivingOpponents => actor.side != side,
                         RecoveryTargets::Area { radius, inclusive } => {
@@ -1592,6 +1682,7 @@ impl Battle {
             age: 0,
             origin: None,
             effect_origin: None,
+            effect_positions: Vec::new(),
             heading: 0.,
             emitted: 0,
             summon: None,
@@ -1963,6 +2054,7 @@ mod advanced_tests {
                 age: 0,
                 origin: None,
                 effect_origin: None,
+                effect_positions: Vec::new(),
                 heading: 0.,
                 emitted: 0,
                 summon: None,
@@ -2009,6 +2101,131 @@ mod advanced_tests {
         assert_eq!(
             crate::EffectFollow::Spell(action).position(&frame),
             volley.origin
+        );
+    }
+
+    #[test]
+    fn sampled_emitters_follow_the_spell_clock_and_initialize_once() {
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        let appearance = EffectAppearance {
+            resource: ResourceId(8),
+            member: 3,
+        };
+        Arc::make_mut(&mut volley.definition).effect_paths = vec![SpellEffectPath {
+            at: 2,
+            appearance,
+            positions: vec![[0.; 3], [10., 20., 30.], [15., 25., 35.]].into(),
+        }];
+        volley.definition.validate().unwrap();
+        let action = ActionId(400);
+        let mut births = 0;
+        for age in 0..5 {
+            let mut cues = Vec::new();
+            volley.step(&mut battle, action, &mut cues).unwrap();
+            births += cues.iter().filter(|cue| matches!(cue,Cue::DeferredEffect(request) if request.appearance == appearance)).count();
+            if age == 3 {
+                let mut frame = battle.frame(Vec::new(), None);
+                frame.spell_effect_positions.extend(
+                    volley
+                        .effect_positions
+                        .iter()
+                        .map(|&(index, position)| (action, index, position)),
+                );
+                assert_eq!(
+                    crate::EffectFollow::SpellPath { action, path: 0 }.position(&frame),
+                    Some([10., 20., 30.])
+                );
+            }
+        }
+        assert_eq!(births, 1);
+    }
+
+    #[test]
+    fn same_visit_ailment_cure_allows_healing_a_living_petrified_ally() {
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        let ally = &mut battle.actors[1];
+        ally.side = crate::Side::Party;
+        ally.hp = 25;
+        ally.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
+            base: crate::conditions::ConditionSet::of(&[crate::conditions::Condition::Petrified]),
+            ..Default::default()
+        });
+        ally.availability = crate::ActorAvailability::Petrified;
+        let pulse = SpellRecovery {
+            at: 3,
+            duration: 1,
+            benefit: SpellBenefit::Cure(crate::conditions::Cure::Ailments),
+            targets: RecoveryTargets::LivingAllies,
+            effect: None,
+            effect_placement: Default::default(),
+            flash: None,
+        };
+        Arc::make_mut(&mut volley.definition).recovery = vec![
+            pulse,
+            SpellRecovery {
+                benefit: SpellBenefit::Hp(75),
+                ..pulse
+            },
+        ];
+        for _ in 0..4 {
+            volley
+                .step(&mut battle, ActionId(400), &mut Vec::new())
+                .unwrap();
+        }
+        assert_eq!(battle.actors[1].hp, 100);
+        assert!(battle.actors[1].available());
+        assert!(!battle.actors[1].is_petrified());
+    }
+
+    #[test]
+    fn scan_spell_reveals_only_its_opponent_without_consuming_an_item() {
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        let definition = Arc::make_mut(&mut volley.definition);
+        definition.origin = SpellOrigin::Caster;
+        definition.transition_ticks = 0;
+        definition.projectiles.clear();
+        definition.recovery = vec![SpellRecovery {
+            at: 0,
+            duration: 1,
+            benefit: SpellBenefit::Scan { location: true },
+            targets: RecoveryTargets::OpponentTarget,
+            effect: None,
+            effect_placement: Default::default(),
+            flash: None,
+        }];
+        definition.validate().unwrap();
+        assert!(!definition.uses_support_target());
+        let mut cues = Vec::new();
+        volley.step(&mut battle, ActionId(400), &mut cues).unwrap();
+        assert!(battle.enemy_scanned(ActorId(2)).unwrap());
+        assert!(!battle.enemy_scanned(ActorId(1)).unwrap());
+        assert!(battle.ledger.discovered_scans.contains(ActorId(2)));
+        assert!(battle.ledger.discovered_locations.contains(ActorId(2)));
+        assert_eq!(battle.item_cooldown(), 0);
+        assert!(battle.ledger.items.iter().all(|count| *count == 0));
+        assert!(
+            cues.iter()
+                .any(|cue| matches!(cue,Cue::EnemyScanned { actor } if *actor==ActorId(2)))
+        );
+    }
+
+    #[test]
+    fn magic_attack_recovery_benefit_is_valid_and_applies() {
+        let (mut battle, _) = fixture(SpellPolicy::Static);
+        let benefit = SpellBenefit::Stat {
+            condition: crate::conditions::Condition::MagicAttackUp,
+            percent: 10,
+            duration: 1800,
+        };
+        assert!(benefit.valid());
+        benefit
+            .apply(&mut battle, ActorId(0), ActorId(0), &mut Vec::new())
+            .unwrap();
+        assert_eq!(
+            battle.actors[0]
+                .conditions
+                .magnitude(crate::conditions::Condition::MagicAttackUp),
+            10
         );
     }
 

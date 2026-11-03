@@ -208,6 +208,8 @@ pub(crate) fn map_hits<H, T>(
             max_distance,
         },
         Event::ReactionArmor(v) => Event::ReactionArmor(v),
+        Event::TransitionProtection(v) => Event::TransitionProtection(v),
+        Event::ActionScene { party_protection } => Event::ActionScene { party_protection },
         Event::HealOtherAllies { radius, percent } => Event::HealOtherAllies { radius, percent },
         Event::SecondaryWind { enabled, duration } => Event::SecondaryWind { enabled, duration },
         Event::CameraDistance { distance, duration } => {
@@ -216,6 +218,9 @@ pub(crate) fn map_hits<H, T>(
         Event::PassThrough(v) => Event::PassThrough(v),
         Event::Braking(v) => Event::Braking(v),
         Event::WeaponVisibility { slot, visible } => Event::WeaponVisibility { slot, visible },
+        Event::ActionWeaponVisibility { slot, visible } => {
+            Event::ActionWeaponVisibility { slot, visible }
+        }
         Event::Trail { slot, duration } => Event::Trail { slot, duration },
         Event::Sound(v) => Event::Sound(v),
         Event::Voice(v) => Event::Voice(v),

@@ -412,6 +412,7 @@ impl Common {
         // optional model preload succeeded.
         let (spell_ids, skill_ids) = assets::choreography_ids(
             &rules.techniques,
+            &rules.party,
             &rules.unison,
             Character::ALL,
             &BTreeMap::new(),

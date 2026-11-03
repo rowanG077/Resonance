@@ -194,9 +194,13 @@ impl Particle {
                 }
             }
         }
-        for color in &mut state.colors {
+        for (index, color) in state.colors.iter_mut().enumerate() {
+            let brightens = state.brighten_until.is_some_and(|until| self.age < until);
+            if brightens && index == 1 && self.definition.data.brighten_primary_only {
+                continue;
+            }
             for (i, component) in color.iter_mut().enumerate() {
-                if state.brighten_until.is_some_and(|until| self.age < until) {
+                if brightens {
                     *component =
                         (i32::from(*component) + i32::from(state.brighten[i])).clamp(0, 255) as i16;
                 } else if self.age >= self.definition.data.fade_from {

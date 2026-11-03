@@ -190,7 +190,9 @@ fn cook_one(
             }
         }
         let label = format!("{owner}/models/model-{slot}");
-        let (scene, _) = preview_model::part(source, library, body, &label, "body", &motions)?;
+        let (scene, mut native) =
+            preview_model::part(source, library, body, &label, "body", &motions)?;
+        battle_effects::normalize_model_color(source, library, body, &scene, &mut native)?;
         let mut layers = vec![resonance_content::model_preview::PreviewPart {
             scene,
             animation: None,
@@ -245,6 +247,7 @@ fn cook_one(
         textures.insert(slot, vec![texture]);
     }
     effects.artwork = Some(Artwork::from_models(textures, models)?);
+    battle_effects::bind_scene_opacity(&mut effects)?;
     let path = format!("{owner}/effects.json");
     output::json(&library.join(&path), &effects)?;
     let parameters = member(&bytes, 0x190)?;
@@ -264,6 +267,7 @@ fn cook_one(
         strike_points: Vec::new(),
         recovery_radius: None,
         spell_recipe: None,
+        effect_paths: Vec::new(),
     };
     settings::bind(image, id, &mut scene)?;
     if id >= 300 {
@@ -396,6 +400,456 @@ mod tests {
     use super::*;
     use crate::Language;
     use std::path::PathBuf;
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Grand Cross and Divine Judgment"]
+    fn installed_added_angel_spells_publish_shared_pattern_recipes() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let mappings: Mappings =
+            serde_json::from_slice(&fs::read(root.join(document::TECHNIQUES))?)?;
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        for id in [271, 281] {
+            cook_one(
+                &source,
+                &root,
+                &image,
+                &atlases,
+                &residents,
+                id,
+                &format!("battle/scenes/{}", mappings.target(u32::from(id))?),
+            )?;
+        }
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        for (id, count) in [(271, 3), (281, 19)] {
+            let (scene, _) = document::capture(
+                &mut library.snapshot(),
+                document::Kind::Technique,
+                id,
+                &resonance_content::diagnostics::Diagnostics::new(true),
+                &|| false,
+            )?;
+            let battle_scene::SpellRecipe::FixedPattern(recipe) =
+                scene.spell_recipe.context("missing added angel recipe")?;
+            ensure!(
+                recipe.contacts.len() == count,
+                "added angel contact schedule changed"
+            );
+            if id == 271 {
+                ensure!(
+                    matches!(recipe.origin, battle_scene::PatternOrigin::SceneTargetRoot),
+                    "Grand Cross lost retained root"
+                );
+            }
+            if id == 281 {
+                ensure!(
+                    recipe
+                        .cutin
+                        .as_ref()
+                        .is_some_and(|cutin| cutin.catalogue == 144 && cutin.tick == 62),
+                    "Divine Judgment lost portrait"
+                );
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; refreshes only three visually reviewed effect owners"]
+    fn installed_effect_models_publish_gc_range_rgb_without_changing_opacity() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        // The arena renderer checks all RGB channels before model submission;
+        // the branch bypasses draw 0x57c090 but retains animation/update below.
+        ensure!(
+            image.slice(0x42a680, 27)?
+                == [
+                    0x80, 0xbe, 0x04, 0x07, 0, 0, 0, 0x75, 0x12, 0x80, 0xbe, 0x05, 0x07, 0, 0, 0,
+                    0x75, 0x09, 0x80, 0xbe, 0x06, 0x07, 0, 0, 0, 0x74, 0x23
+                ],
+            "native black-scenery draw guard changed"
+        );
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        let mappings: Mappings =
+            serde_json::from_slice(&fs::read(root.join(document::TECHNIQUES))?)?;
+        for id in [202, 205, 206] {
+            let name = image.text(pe::word(image.slice(0x8e98a8 + u32::from(id) * 4, 4)?, 0)?)?;
+            let package = source.require(name)?;
+            let body = reference(&package, 12)?.context("missing reviewed effect model")?;
+            let descriptor = source.require(body)?;
+            let dependencies = crate::package::dependencies(&descriptor)?;
+            let native =
+                crate::model::Model::read(&descriptor, &source.require(&dependencies[0])?)?;
+            let stem = body.rsplit_once('.').context("missing model suffix")?.0;
+            let (tints, _, _) = crate::model::material_parameters(
+                &source.require(&format!("{stem}.mxd"))?,
+                &native.materials,
+            )?;
+            ensure!(
+                native
+                    .meshes
+                    .iter()
+                    .flat_map(|m| &m.colors)
+                    .all(|c| c[..3].iter().all(|v| (0.49..0.51).contains(v))),
+                "reviewed native effect RGB range changed"
+            );
+            let expected = native
+                .meshes
+                .iter()
+                .filter(|m| !m.indices.is_empty())
+                .flat_map(|m| {
+                    let opacity = tints[usize::from(m.material)][3];
+                    m.colors.iter().map(move |c| [1., 1., 1., c[3] * opacity])
+                })
+                .collect::<Vec<_>>();
+            let owner = format!("battle/scenes/{}", mappings.target(u32::from(id))?);
+            cook_one(&source, &root, &image, &atlases, &residents, id, &owner)?;
+            let glb = fs::read(root.join(&owner).join("models/model-0/meshes/body.glb"))?;
+            let json_length = u32::from_le_bytes(glb[12..16].try_into()?) as usize;
+            let doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_length])?;
+            let binary = &glb[28 + json_length..];
+            let mut actual = Vec::new();
+            for mesh in doc["meshes"].as_array().context("missing meshes")? {
+                for primitive in mesh["primitives"]
+                    .as_array()
+                    .context("missing primitives")?
+                {
+                    let accessor = &doc["accessors"][primitive["attributes"]["COLOR_0"]
+                        .as_u64()
+                        .context("missing colors")?
+                        as usize];
+                    ensure!(
+                        accessor["componentType"] == 5126 && accessor["type"] == "VEC4",
+                        "unexpected color encoding"
+                    );
+                    let view = &doc["bufferViews"][accessor["bufferView"]
+                        .as_u64()
+                        .context("missing color view")?
+                        as usize];
+                    let start = (view["byteOffset"].as_u64().unwrap_or(0)
+                        + accessor["byteOffset"].as_u64().unwrap_or(0))
+                        as usize;
+                    let stride = view["byteStride"].as_u64().unwrap_or(16) as usize;
+                    for i in 0..accessor["count"].as_u64().context("missing color count")? as usize
+                    {
+                        actual.push(std::array::from_fn::<_, 4, _>(|c| {
+                            f32::from_le_bytes(
+                                binary[start + i * stride + c * 4..][..4]
+                                    .try_into()
+                                    .unwrap(),
+                            )
+                        }));
+                    }
+                }
+            }
+            ensure!(
+                actual == expected,
+                "effect model RGB normalization changed native opacity or vertex order"
+            );
+            let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+            let bank = resonance_content::battle_effect::document::read(
+                &format!("{owner}/effects.json"),
+                &diagnostics,
+                |path| Ok(fs::read(root.join(path))?.into()),
+            )?;
+            for program in 0..bank.programs.len() {
+                bank.program(program)?;
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; refreshes only Dreaded Wave and verifies native opacity coverage"]
+    fn installed_dreaded_wave_scene_sampler_preserves_native_alpha_binding() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        let name = image.text(pe::word(image.slice(0x8e98a8 + 224 * 4, 4)?, 0)?)?;
+        ensure!(
+            name.eq_ignore_ascii_case("BTLmagic_024.pac"),
+            "Dreaded Wave source package changed"
+        );
+        let package = source.require(name)?;
+        let native = battle_effects::decode(
+            member(&package, 4)?.context("missing Dreaded Wave effects")?,
+            &[],
+            |stride, declaration| {
+                if let Declaration::Particle { visual, .. } = declaration
+                    && let ParticleTexture::Atlas { palette_set, .. } = &mut visual.texture
+                {
+                    *palette_set = stride;
+                }
+                Ok(())
+            },
+        )?;
+        let index = native
+            .templates
+            .iter()
+            .position(|declaration| {
+                declaration
+                    .particle_visual()
+                    .is_ok_and(|visual| visual.scene_sample.is_some())
+            })
+            .context("missing native Dreaded Wave sampler")?;
+        let declaration = &native.templates[index];
+        ensure!(
+            declaration.particle_visual()?.scene_sample == Some([12, 12])
+                && declaration.template()?.state.palettes == [0, 1],
+            "Dreaded Wave opacity selectors changed"
+        );
+        let stride = declaration.particle_visual()?.texture.palette_set();
+        ensure!(stride == 32, "Dreaded Wave native palette stride changed");
+        let resource = residents.get(&0).context("missing resident source atlas")?;
+        let descriptor = crate::texture::Descriptor::read(&source.require(resource)?)?;
+        let pixels = descriptor.decode(&source.require(&descriptor.payload)?)?;
+        let table = atlases.get(resource);
+        let palette = if table.is_some_and(|table| table.rows.iter().any(|row| row.palette == 2)) {
+            2
+        } else {
+            u16::MAX
+        };
+        let expected = effect_atlas::frames::Plan::read(&native, index)?.image(
+            &pixels.levels[0],
+            table,
+            palette,
+        )?;
+        let mappings: Mappings =
+            serde_json::from_slice(&fs::read(root.join(document::TECHNIQUES))?)?;
+        let owner = format!("battle/scenes/{}", mappings.target(224)?);
+        cook_one(&source, &root, &image, &atlases, &residents, 224, &owner)?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let cooked = resonance_content::battle_effect::document::read(
+            &format!("{owner}/effects.json"),
+            &diagnostics,
+            |path| Ok(fs::read(root.join(path))?.into()),
+        )?;
+        for member in 0..cooked.programs.len() {
+            cooked.program(member)?;
+        }
+        let declaration = cooked
+            .actors
+            .iter()
+            .find(|declaration| {
+                declaration
+                    .particle_visual()
+                    .is_ok_and(|visual| visual.scene_sample.is_some())
+            })
+            .context("missing cooked scene sampler")?;
+        let ParticleTexture::Atlas {
+            slot,
+            dual,
+            palette_set,
+        } = declaration.particle_visual()?.texture
+        else {
+            anyhow::bail!("scene sampler lost its atlas")
+        };
+        ensure!(dual, "scene sampler lost separate opacity binding");
+        let textures = &cooked.art.context("missing cooked artwork")?.textures[&slot];
+        ensure!(
+            textures.len() == 2,
+            "scene sampler needs two prepared texture bindings"
+        );
+        let page =
+            textures[1].palette_image(palette_set, declaration.template()?.state.palettes[1])?;
+        let alpha = &textures[1].images[page];
+        let actual = resonance_asset_writer::texture::ktx2(&fs::read(root.join(&alpha.path))?)?;
+        ensure!(
+            actual[0] == expected,
+            "scene sampler changed native RGBA coverage or its UV mapping"
+        );
+        ensure!(
+            actual[0].rgba.chunks_exact(4).any(|pixel| pixel[3] == 0)
+                && actual[0].rgba.chunks_exact(4).any(|pixel| pixel[3] > 0),
+            "scene sampler opacity lost native coverage"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; category cook only"]
+    fn installed_stored_scene_category_cooks_all_owners() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        cook(&source, &root)?;
+        let scenes: Mappings = serde_json::from_slice(&fs::read(root.join(document::TECHNIQUES))?)?;
+        let skills: Mappings = serde_json::from_slice(&fs::read(root.join(document::SKILLS))?)?;
+        ensure!(
+            scenes.iter().count() == 100 && skills.iter().count() == 7,
+            "stored scene mapping count changed"
+        );
+        for (category, mappings) in [("scenes", &scenes), ("skills", &skills)] {
+            for (_, name) in mappings.iter() {
+                ensure!(
+                    root.join("battle")
+                        .join(category)
+                        .join(name)
+                        .join("scene.json")
+                        .is_file(),
+                    "missing stored owner {category}/{name}"
+                );
+            }
+        }
+        ensure!(
+            root.join("battle/skills/packages/package-009/scene.json")
+                .is_file(),
+            "missing direct callback skill package"
+        );
+        eprintln!(
+            "Stored category refresh:100 scene owners +8 physical skill owners;7 logical skill mappings"
+        );
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only Final Fury"]
+    fn installed_final_fury_scene_keeps_correlated_random_programs() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let physical = pe::word(image.slice(0x8d84b0 + 200 * 96 + 0x58, 4)?, 0)? + 1;
+        ensure!(physical == 8, "Final Fury stored package binding changed");
+        let mappings: Mappings = serde_json::from_slice(&fs::read(root.join(document::SKILLS))?)?;
+        let owner = format!("battle/skills/{}", mappings.target(200)?);
+        cook_one(
+            &source,
+            &root,
+            &image,
+            &effect_atlas::Directory::read(&image)?,
+            &effect_atlas::residents(&source, &image)?,
+            physical.try_into()?,
+            &owner,
+        )?;
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let (_, bank) = document::capture(
+            &mut library.snapshot(),
+            document::Kind::Skill,
+            200,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+            &|| false,
+        )?;
+        for program in [1, 2] {
+            bank.program(program)
+                .with_context(|| format!("Final Fury skill200 program{program}"))?;
+        }
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks four dynamic scene owners"]
+    fn installed_dynamic_scenes_keep_fairy_paths_and_live_sacred_light() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let atlases = effect_atlas::Directory::read(&image)?;
+        let residents = effect_atlas::residents(&source, &image)?;
+        let mappings: Mappings =
+            serde_json::from_slice(&fs::read(root.join(document::TECHNIQUES))?)?;
+        for id in [263, 279] {
+            let owner = format!("battle/scenes/{}", mappings.target(id)?);
+            cook_one(
+                &source, &root, &image, &atlases, &residents, id as u16, &owner,
+            )?;
+        }
+        let skills: Mappings = serde_json::from_slice(&fs::read(root.join(document::SKILLS))?)?;
+        for (physical, logical) in [(6, 249), (7, 153)] {
+            let owner = format!("battle/skills/{}", skills.target(logical)?);
+            cook_one(
+                &source, &root, &image, &atlases, &residents, physical, &owner,
+            )?;
+            let effects: resonance_content::battle_effect::document::Definition =
+                serde_json::from_slice(&fs::read(root.join(&owner).join("effects.json"))?)?;
+            ensure!(
+                effects
+                    .templates
+                    .iter()
+                    .all(|declaration| !matches!(declaration, Declaration::Unsupported { .. })),
+                "Holy Binds retained unsupported native declarations"
+            );
+        }
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let (sacred, _) = document::capture(
+            &mut library.snapshot(),
+            document::Kind::Technique,
+            263,
+            &diagnostics,
+            &|| false,
+        )?;
+        let battle_scene::SpellRecipe::FixedPattern(recipe) =
+            sacred.spell_recipe.context("missing Sacred Light recipe")?;
+        ensure!(
+            recipe.contacts.len() == 1
+                && recipe.contacts[0].aim == battle_scene::PatternAim::Live
+                && recipe.contacts[0].effect_member == 0,
+            "Sacred Light lost live aim or gained duplicate artwork"
+        );
+        let (fairy, _) = document::capture(
+            &mut library.snapshot(),
+            document::Kind::Technique,
+            279,
+            &diagnostics,
+            &|| false,
+        )?;
+        ensure!(
+            fairy.effect_paths.len() == 4,
+            "Fairy Circle lost emitter anchors"
+        );
+        for (slot, path) in fairy.effect_paths.iter().enumerate() {
+            ensure!(
+                path.member == 3 + slot as u16 && path.positions.len() == 361,
+                "Fairy Circle path lifetime changed"
+            );
+            ensure!(
+                path.positions[0] == [0.; 3] && path.positions[1] != path.positions[2],
+                "Fairy Circle emitter no longer moves"
+            );
+        }
+        Ok(())
+    }
     #[test]
     #[ignore = "requires RESONANCE_TEST_LIBRARY with cooked ordinary/combination scene owners"]
     fn cooked_ordinary_and_combination_scenes_prepare_shared_artwork() -> Result<()> {

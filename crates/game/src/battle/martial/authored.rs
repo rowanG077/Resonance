@@ -172,6 +172,11 @@ impl Technique {
             .unwrap_or(&resources.techniques)
             .clone();
         let recoil = resources.recoil;
+        let finisher = attack
+            .events
+            .iter()
+            .any(|(_, event)| matches!(event, Event::ActionScene { .. }));
+        let stored_callback = crate::battle::skill_scene::callback_artwork(self.catalogue, &attack);
         let pose = |source: ActionPose| -> Result<AttackPose> {
             crate::battle::model::action_pose(Some(model), source)
                 .context("missing martial action pose")
@@ -213,7 +218,19 @@ impl Technique {
                         hit.sound = (resources.sound)(sound)?;
                     }
                     if let Some(member) = contact.hit.effect {
-                        hit.effect = Some(resources.prepared.effect_member(&effect_bank, member)?);
+                        let contact_bank = if finisher
+                            && self.character == Character::Regal
+                            && self.catalogue == 200
+                        {
+                            ensure!(member == 2, "Final Fury contact program changed");
+                            resources
+                                .skill_scenes
+                                .get(&200)
+                                .context("Final Fury has no stored skill contact artwork")?
+                        } else {
+                            &effect_bank
+                        };
+                        hit.effect = Some(resources.prepared.effect_member(contact_bank, member)?);
                     }
                     if matches!(self.sequence, Sequence::FierceDemonFang)
                         && let Some(trail) = crate::battle::normal::contact_trail(contact)?
@@ -351,11 +368,22 @@ impl Technique {
             end_at: attack.duration,
             recovery: attack.recovery,
         };
-        if matches!(
-            (self.character, self.catalogue),
-            (resonance_battle::Character::Kratos, 249) | (resonance_battle::Character::Zelos, 153)
-        ) {
+        if stored_callback
+            && matches!(
+                (self.character, self.catalogue),
+                (resonance_battle::Character::Kratos, 249)
+                    | (resonance_battle::Character::Zelos, 153)
+            )
+        {
             crate::battle::skill_scene::holy_binds(resources, &mut prepared, self.catalogue)?;
+        }
+        if finisher
+            && matches!(
+                (self.character, self.catalogue),
+                (Character::Presea, 260 | 261) | (Character::Regal, 200)
+            )
+        {
+            crate::battle::skill_scene::finisher(resources, &mut prepared, self.catalogue)?;
         }
         Ok(prepared)
     }

@@ -78,6 +78,11 @@ pub enum Event<H = ActionHit> {
     },
     /// Suppress hit reactions for this many updates; zero clears the protection.
     ReactionArmor(u16),
+    TransitionProtection(u16),
+    /// Reserve new action admissions while existing combat work continues.
+    ActionScene {
+        party_protection: u16,
+    },
     SecondaryWind {
         enabled: bool,
         duration: u16,
@@ -89,6 +94,11 @@ pub enum Event<H = ActionHit> {
     PassThrough(bool),
     Braking(f32),
     WeaponVisibility {
+        slot: WeaponSlot,
+        visible: bool,
+    },
+    /// Restore the original carried appearance when this action ends or is interrupted.
+    ActionWeaponVisibility {
         slot: WeaponSlot,
         visible: bool,
     },

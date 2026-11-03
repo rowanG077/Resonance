@@ -6,8 +6,76 @@ use resonance_content::{
     battle_normal::Event,
     battle_projectile::{DamageKind, ProjectileOrigin},
 };
+mod finishers;
+
+/// Both native owners share the verified callback's definitions; enemy clocks
+/// retain raw ages so their own pose holds are applied by the shared compiler.
+pub(crate) fn enemy_final_fury(
+    source: &Source,
+) -> Result<Vec<(u16, resonance_content::battle_action::EnemyEvent)>> {
+    let catalogue = crate::battle_martial::read(source)?;
+    let attack = catalogue.attack(200, 8)?;
+    let mut launches = attack
+        .events
+        .iter()
+        .filter_map(|(_, event)| matches!(event, Event::EmitProjectile { .. }).then_some(event));
+    let mut events = Vec::new();
+    for raw_at in [22, 352] {
+        events.push((
+            raw_at,
+            resonance_content::battle_action::EnemyEvent::AuthoredCallback {
+                skill: 200,
+                event: Box::new(
+                    launches
+                        .next()
+                        .context("missing Final Fury callback projectile")?
+                        .clone(),
+                ),
+            },
+        ));
+    }
+    ensure!(
+        launches.next().is_none(),
+        "extra Final Fury callback projectile"
+    );
+    for (at, event) in [
+        (0, Event::TransitionProtection(600)),
+        (
+            0,
+            Event::ActionScene {
+                party_protection: 480,
+            },
+        ),
+        (308, Event::Voice(crate::battle_voices::sound(0x5d7)?)),
+    ] {
+        events.push((
+            at,
+            resonance_content::battle_action::EnemyEvent::AuthoredCallback {
+                skill: 200,
+                event: Box::new(event),
+            },
+        ));
+    }
+    Ok(events)
+}
 mod guardian_field;
 mod holy_binds;
+
+/// A source bank-six contact belongs to this action's stored skill. Preserve
+/// its member while making the shared decoder's local selector canonical.
+pub(crate) fn canonical_hits(member: u16, rules: &mut [u8]) -> Result<()> {
+    if member == 152 {
+        let row = rules
+            .get_mut(28..56)
+            .context("missing Final Fury contact")?;
+        ensure!(
+            row[22] == 2 && row[24] == 6 && row[25..28] == [0; 3],
+            "Final Fury local skill contact changed"
+        );
+        row[24] = 0;
+    }
+    Ok(())
+}
 
 pub(crate) fn attach(
     source: &Source,
@@ -20,6 +88,7 @@ pub(crate) fn attach(
         51 => grand_fall(source, image, bytes, attack),
         148 | 151 => holy_binds::attach(source, image, member, bytes, attack),
         150 => guardian_field::attach(image, bytes, attack),
+        146 | 147 | 152 => finishers::attach(source, image, member, bytes, attack),
         _ => Ok(()),
     }
 }
@@ -117,6 +186,58 @@ mod tests {
     use crate::Language;
     use resonance_content::battle_scene::SceneAction;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM; compiles the three stored finisher callbacks"]
+    fn installed_finishers_preserve_skill_hits_and_admission() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let catalogue = crate::battle_martial::read(&source)?;
+        let restored = resonance_importer::martial_attack_document(&catalogue)?.prepare()?;
+        for (technique, character, member, count, protection) in [
+            (260, 7, 146, 2, 345),
+            (261, 7, 147, 5, 660),
+            (200, 8, 152, 2, 600),
+        ] {
+            let binding = restored.bindings[&technique][&character];
+            assert_eq!(binding.member, member);
+            let attack = restored
+                .variant(binding)
+                .with_context(|| format!("finisher{member}"))?;
+            assert!(attack.chain_at.is_none());
+            assert_eq!(
+                attack
+                    .events
+                    .iter()
+                    .filter(|(_, e)| matches!(e, Event::EmitProjectile { .. }))
+                    .count(),
+                count
+            );
+            assert!(
+                attack.events.iter().any(|(at, e)| *at == 0
+                    && matches!(e,Event::TransitionProtection(n) if *n==protection))
+            );
+            assert!(
+                attack
+                    .events
+                    .iter()
+                    .any(|(at, e)| *at == 0 && matches!(e, Event::ActionScene { .. }))
+            );
+            if member == 152 {
+                assert!(
+                    attack
+                        .events
+                        .iter()
+                        .any(|(_, e)| matches!(e,Event::Contact(c) if c.hit.effect==Some(2)))
+                );
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM; imports Guardian Field's damage and allied recovery"]

@@ -184,6 +184,28 @@ fn cures_preserve_passive_effects_and_equipment_layers() {
 }
 
 #[test]
+fn ailment_cure_preserves_stronger_blessings_and_revival() {
+    let mut conditions = Conditions::new(Layers {
+        base: ConditionSet::of(&[
+            Petrified,
+            PoisonSevere,
+            AttackDown,
+            Flare,
+            AttackUp,
+            PhysicalProtection,
+            RegenerateHp,
+            Revive,
+        ]),
+        ..Default::default()
+    });
+    conditions.cure(Cure::Ailments);
+    assert_eq!(
+        conditions.base(),
+        ConditionSet::of(&[AttackUp, PhysicalProtection, RegenerateHp, Revive,])
+    );
+}
+
+#[test]
 fn reload_preserves_only_effects_that_remain_active() {
     let mut conditions = Conditions::default();
     conditions.apply_stat_condition(AttackUp, 15, 17, false);

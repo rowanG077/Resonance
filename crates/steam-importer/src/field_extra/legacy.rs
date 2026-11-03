@@ -5,6 +5,29 @@ use resonance_content::{
     field::document::{Actor, Actors, AnimationBinding, Scene},
 };
 
+pub(super) fn retains_source(source: &Source, name: &str) -> Result<bool> {
+    if !name.to_ascii_lowercase().ends_with(".bin") || !source.contains(name)? {
+        return Ok(false);
+    }
+    let bytes = source.require(name)?;
+    if bytes.get(..4) == Some(&31u32.to_be_bytes()) {
+        return Ok(true);
+    }
+    if bytes.len() < 4 || !(2..=65536).contains(&pe::word(&bytes, 0)?) {
+        return Ok(false);
+    }
+    let package = Package::parse(&bytes)?;
+    for slot in 1..package.len() {
+        if package
+            .member(slot)?
+            .is_some_and(|motion| motion.get(..4) == Some(&0x007b7960u32.to_le_bytes()))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(super) fn refs(source: &Source, bank: &str) -> Result<Vec<(u32, String)>> {
     let bytes = source.require(bank)?;
     let package = Package::parse(&bytes)?;

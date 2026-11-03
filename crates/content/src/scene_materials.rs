@@ -97,6 +97,26 @@ mod tests {
     }
 
     #[test]
+    fn alpha_cutoff_keeps_existing_documents_and_grouped_overrides() {
+        let old: SceneMaterial = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(old.alpha_cutoff, 1);
+        assert!(
+            serde_json::to_value(&old)
+                .unwrap()
+                .get("alpha_cutoff")
+                .is_none()
+        );
+        let input = json!({"materials":[{"meshes":[0,1],"alpha_cutoff":129}]});
+        let part: Part = serde_json::from_value(input.clone()).unwrap();
+        assert!(
+            part.materials
+                .iter()
+                .all(|material| material.alpha_cutoff == 129)
+        );
+        assert_eq!(serde_json::to_value(part).unwrap(), input);
+    }
+
+    #[test]
     fn grouped_edits_preserve_mesh_order_draw_priority_and_sampler_exceptions() {
         let input = json!({"materials": [
             {"meshes":[0,2,3],"draw_order":[65539,65536,65540],"color":{"texture":1}},

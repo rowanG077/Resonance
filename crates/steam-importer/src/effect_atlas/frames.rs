@@ -453,7 +453,8 @@ fn panels(shape: &ParticleShape, rect: Rect, count: u8) -> Result<Vec<[i32; 4]>>
         | ParticleShape::BillboardTrail
         | ParticleShape::Sphere { .. }
         | ParticleShape::Hemisphere { .. }
-        | ParticleShape::TriangleBand => Ok(vec![rect]),
+        | ParticleShape::TriangleBand
+        | ParticleShape::SquareBand => Ok(vec![rect]),
         _ => anyhow::bail!("sprite geometry needs frame normalization"),
     }
 }

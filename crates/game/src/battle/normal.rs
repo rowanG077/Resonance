@@ -241,6 +241,10 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
             max_distance: *max_distance,
         },
         Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
+        Event::TransitionProtection(duration) => AttackEvent::TransitionProtection(*duration),
+        Event::ActionScene { party_protection } => AttackEvent::ActionScene {
+            party_protection: *party_protection,
+        },
         Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
             enabled: *enabled,
             duration: *duration,
@@ -259,6 +263,9 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
         },
         Event::WeaponVisibility { slot, visible } => {
             AttackEvent::WeaponVisibility(vec![(Some(*slot), *visible)])
+        }
+        Event::ActionWeaponVisibility { slot, visible } => {
+            AttackEvent::ActionWeaponVisibility(vec![(Some(*slot), *visible)])
         }
         Event::Trail { slot, duration } => AttackEvent::Trail {
             slot: *slot,

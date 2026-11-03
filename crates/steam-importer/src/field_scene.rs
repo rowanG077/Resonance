@@ -14,6 +14,74 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 const LAYERS: [usize; 4] = [0, 10, 12, 2];
 
+/// GC scenery submits genuinely translucent surfaces after the room geometry.
+/// Steam's descriptor order loses that priority: early glass can otherwise
+/// write depth before the exterior is drawn. Preserve mesh/script identities
+/// and source order within each pass; binary cutouts stay with opaque draws.
+fn scenery_materials(
+    source: &Source,
+    library: &Path,
+    descriptor: &str,
+    part: &mut resonance_content::ScenePart,
+    native: &model::Model,
+) -> Result<()> {
+    let stem = descriptor
+        .rsplit_once('.')
+        .context("field model has no extension")?
+        .0;
+    let parameters = source.require(&format!("{stem}.mxd"))?;
+    let (tints, _, _) = model::material_parameters(&parameters, &native.materials)?;
+    let cutoffs = model::material_alpha_cutoffs(&parameters, &native.materials)?;
+    let alpha = part
+        .textures
+        .iter()
+        .map(|path| -> Result<[bool; 256]> {
+            let levels = resonance_asset_writer::texture::ktx2(&fs::read(library.join(path))?)?;
+            let mut present = [false; 256];
+            for pixel in levels[0].rgba.chunks_exact(4) {
+                present[usize::from(pixel[3])] = true;
+            }
+            Ok(present)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut order = Vec::new();
+    for (index, (mesh, material)) in native
+        .meshes
+        .iter()
+        .filter(|mesh| !mesh.indices.is_empty())
+        .zip(&mut part.materials)
+        .enumerate()
+    {
+        let slot = usize::from(mesh.material);
+        let cutoff = cutoffs[slot];
+        material.alpha_cutoff = cutoff;
+        let vertex_alpha = |value: f32| value * tints[slot][3];
+        let vertex_blend = mesh.colors.iter().any(|color| vertex_alpha(color[3]) < 1.);
+        let textures = &native.materials.records[slot].textures;
+        material.blend = vertex_blend
+            || material.multiply.is_some()
+            || textures.iter().any(|binding| {
+                alpha[usize::from(binding.texture)][..255]
+                    .iter()
+                    .any(|&present| present)
+            });
+        let translucent = mesh.colors.iter().any(|color| {
+            let opacity = vertex_alpha(color[3]);
+            opacity > 0. && opacity < 1. && opacity * 255. >= f32::from(cutoff)
+        }) || textures.iter().any(|binding| {
+            alpha[usize::from(binding.texture)][usize::from(cutoff.max(1))..255]
+                .iter()
+                .any(|&present| present)
+        });
+        order.push((translucent, material.draw_order, index));
+    }
+    order.sort_by_key(|&(translucent, priority, _)| (translucent, priority));
+    for (rank, (_, _, index)) in order.into_iter().enumerate() {
+        part.materials[index].draw_order = rank as u32;
+    }
+    Ok(())
+}
+
 pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u32>) -> Result<()> {
     let fields: Mappings = serde_json::from_slice(&fs::read(library.join(FIELDS))?)?;
     if let Some(id) = selected {
@@ -41,6 +109,7 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u32>) -> Re
             let label = format!("part-{}", parts.len());
             let (mut part, model) = model::cook(source, library, descriptor, &root, &label)
                 .with_context(|| format!("field {id} scenery section {section} ({descriptor})"))?;
+            scenery_materials(source, library, descriptor, &mut part, &model)?;
             if let Some(name) = package.reference(section + 1)? {
                 let skeleton = Skeleton::from_glb(&fs::read(library.join(&part.mesh))?)?;
                 let bytes = Animation::read(&source.require(name)?)?
@@ -187,6 +256,18 @@ mod tests {
         ensure!(
             room.materials.iter().all(|material| material.depth_write),
             "classroom windows lost the GC scenery depth-write rule"
+        );
+        ensure!(
+            room.materials[1].draw_order > room.materials[10].draw_order,
+            "classroom glass is drawn before the exterior behind it"
+        );
+        ensure!(
+            room.materials[1].blend && room.materials[1].alpha_cutoff == 1,
+            "classroom glass lost its accepted translucent alpha"
+        );
+        ensure!(
+            !room.materials[10].blend && room.materials[10].alpha_cutoff == 129,
+            "classroom exterior lost its opaque material pass"
         );
         if let Some(output) = std::env::var_os("RESONANCE_CLASSROOM_OUTPUT") {
             cook(&source, Path::new(&output), Some(340))?;

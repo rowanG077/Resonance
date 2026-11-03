@@ -56,11 +56,12 @@ pub(super) fn read(
     durations: &[u8],
     profile: &mut Profile,
 ) -> Result<(Option<Presentation>, bool)> {
+    let has_entrance = entrances::has_callback(selector)?;
     if !matches!(
         selector,
         2 | 3 | 6 | 8 | 10 | 12 | 13 | 15 | 16 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27
     ) {
-        return Ok((None, selector != 0));
+        return Ok((None, has_entrance));
     }
     let override_id = pe::word(metadata, 0xf8)?;
     let defeat_id = if override_id != 0 {
@@ -96,7 +97,7 @@ pub(super) fn read(
         };
         entrances::read(selector, profile, fallback)?
     };
-    let deferred = !voiced_opening && opening.is_none();
+    let deferred = has_entrance && opening.is_none();
     Ok((Some(Presentation { opening, defeat }), deferred))
 }
 

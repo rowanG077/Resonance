@@ -401,6 +401,51 @@ pub struct PreparedPartyMember {
     pub next_resource: ResourceId,
 }
 
+impl PreparedPartyMember {
+    fn select_costume_prop(
+        &mut self,
+        equipped: u16,
+        rule: Option<battle_model::document::WeaponProp>,
+        game_clears: u8,
+        random: &mut resonance_battle::Random,
+    ) -> Result<()> {
+        if let Some(rule) = rule
+            && game_clears >= rule.minimum_game_clears
+            && random
+                .next_u32()
+                .is_multiple_of(u32::from(rule.one_in.get()))
+        {
+            self.select_weapon_prop(equipped, rule.equipment)?;
+        }
+        Ok(())
+    }
+
+    fn select_weapon_prop(&mut self, equipped: u16, prop: u16) -> Result<()> {
+        let Some(body) = &mut self.model else {
+            return Ok(());
+        };
+        let replacement = self
+            .equipment
+            .get(&prop)
+            .context("costume prop is not prepared")?;
+        let resources: BTreeSet<_> = if equipped == 0 {
+            BTreeSet::new()
+        } else {
+            self.equipment
+                .get(&equipped)
+                .context("equipped weapon is not prepared")?
+                .iter()
+                .map(|weapon| weapon.primary_resource())
+                .collect()
+        };
+        let body = Arc::make_mut(body);
+        body.weapons
+            .retain(|weapon| !resources.contains(&weapon.primary_resource()));
+        body.weapons.extend(replacement.iter().cloned());
+        Ok(())
+    }
+}
+
 /// One selected enemy instance with its body and carried artwork.
 pub struct PreparedEnemyMember {
     pub actor: resonance_battle::Actor,
@@ -1030,6 +1075,12 @@ impl Assets {
                 handles.resource,
                 style.celebrate.then_some(victory),
             )?;
+            prepared.select_costume_prop(
+                member.equipment[0],
+                input.source.weapon_prop,
+                party.game_clears,
+                &mut cosmetic_random,
+            )?;
             if let Some(eyes) =
                 resonance_content::appearance::forced_face(character as u32, options.colette_state)
                 && let Some(model) = &mut prepared.model
@@ -1188,8 +1239,12 @@ impl Assets {
             )?;
             let Some(weapon) = scene.weapon else { continue };
             for (slot, input) in self.party_actors.iter().enumerate() {
-                if !super::resources::party_techniques(&self.catalogue, input.character)?
-                    .contains_key(&catalogue)
+                if !super::resources::party_techniques(
+                    &self.catalogue,
+                    input.character,
+                    &self.party_profiles,
+                )?
+                .contains_key(&catalogue)
                 {
                     continue;
                 }
@@ -2570,5 +2625,7 @@ fn render_weapon_layers(
         .collect()
 }
 
+#[cfg(test)]
+mod props_tests;
 #[cfg(test)]
 mod tests;

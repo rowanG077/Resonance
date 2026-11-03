@@ -944,6 +944,13 @@ costume remain with that costume. Party animation folders have flat filenames.
 Already shared field and bank clips retain their existing owners. There is no
 separate single-use party model wrapper, source ownership data or identity scan.
 
+A costume can declare an optional visual `weapon_prop`, for example
+`{"equipment":534,"minimum_game_clears":1,"one_in":16}`. At encounter entry
+this selects that equipment's appearance with the given one-in-N probability
+once the clear-count requirement is met. It uses cosmetic randomness; equipped
+items, combat attributes and inventory stay unchanged. Omit the declaration for
+ordinary equipment appearance.
+
 Each character has one `victory.json`. A party entry selects it explicitly, for
 example `"victory":{"file":"battle/party/lloyd/victory.json","costume":"default"}`.
 The selected `costumes` entry maps the five gameplay selectors to `motion` paths
@@ -1163,6 +1170,12 @@ timeline and birth overrides use the same names. Add a setting to change it, for
 An absent lifetime means the particle has no lifetime limit. These defaults are
 independent of the game's original storage format.
 
+`brighten_primary_only: true` keeps the secondary gradient endpoint fixed while
+brightening the primary color; ordinary fading still changes both endpoints.
+`square_band` geometry builds four connected strips using the same segment
+settings as other bands. A `billboard_trail` can override `segment_offset` at
+birth without changing its camera-facing geometry.
+
 Birth overrides distinguish an omitted setting from an explicit zero. For
 example, `"birth":{"velocity":[null,0,null],"lifetime":30}` sets vertical
 velocity to zero and lifetime to 30 ticks while keeping the other template
@@ -1216,6 +1229,14 @@ A stored battle scene has one `scene.json` containing its duration, action track
 projectiles, camera and optional spell settings, alongside its `effects` reference.
 Empty collections and absent options are omitted. There is no separate rules file
 or local version. Scene cut-in `images` also declare KTX2 paths and coordinate sizes. Scene and skill ID mappings remain independent.
+An all-zero scenery RGB tint suppresses scenery drawing, including its depth
+occlusion; scenery animation and texture clocks continue to advance.
+
+An optional `effect_paths` list contains `{member, positions}` declarations.
+Each position is a scene-local XYZ anchor for one battle tick, beginning at
+initialization; paths follow the existing scene effect transform. Keep positions
+finite and the sample count no greater than `duration + 1`. This lets an emitter
+follow a sampled path without encoding it as a second action program.
 
 ## Programmed effects
 
@@ -1764,6 +1785,15 @@ An identical entire track can refer directly to another role, such as Raine's
 `"aerial-thrust": "aerial-slash"`. Replace that name with a copied attack object
 to edit it independently. References cannot chain or form cycles. The file has
 no external include graph or per-character wrappers.
+
+Authored action events can use `action_scene` with `party_protection` measured
+in ticks. It reserves new action admissions for the action's lifetime while
+already running work continues. A party-owned scene also clears queued party
+techniques and protects eligible party members during entry; an enemy-owned
+scene reserves its own side. Recovery, interruption and defeat release the
+reservation. `transition_protection` supplies protection without reserving a
+scene. `action_weapon_visibility` temporarily changes a carried slot and
+restores its original visibility when the action ends or is interrupted.
 
 ## Shared field settings
 
@@ -2513,9 +2543,11 @@ The session and menu documents no longer repeat these technique tables.
 The seven elemental variants have explicit editable entries. Runtime loading
 does not recreate them from their base technique. Their battle activation logic
 still uses the established elemental-variant rules. The unused zero slot is not
-stored. `unassigned-144` and the two numbered Colette Listra entries retain
-unresolved identities rather than invented names. Casting-scene IDs in party
-voice policies belong to a different namespace from this mapping.
+stored. Unresolved entries retain neutral keys, such as GC's `unassigned-144`
+and numbered Colette Listra entries. Steam's corresponding 144 entry is named
+`divine-judgment`; equal numeric slots do not guarantee equal identities.
+Casting-scene IDs in party voice policies belong to a different namespace from
+this mapping.
 
 ## Martial techniques
 

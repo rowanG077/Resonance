@@ -294,12 +294,39 @@ pub(crate) fn cook(
     }
     models.mappings.by_name()?;
     output::json(&library.join(document::MODELS), &models.mappings)?;
-    if !pending.is_empty() {
+    let mut retained = Vec::new();
+    let mut unavailable = Vec::new();
+    let mut unconverted = Vec::new();
+    for resource in pending {
+        if crate::field_extra::retains_source(source, &resource)? {
+            retained.push(resource);
+        } else if crate::source::validate_name(&resource).is_ok() && !source.contains(&resource)? {
+            unavailable.push(resource);
+        } else {
+            unconverted.push(resource);
+        }
+    }
+    if !retained.is_empty() {
         eprintln!(
-            "  {} field resource references are unavailable or not converted yet",
-            pending.len()
+            "  {} field references delegated to retained resource conversion",
+            retained.len()
         );
-        for resource in pending {
+    }
+    if !unavailable.is_empty() {
+        eprintln!(
+            "  {} field resource references are absent from source archives",
+            unavailable.len()
+        );
+        for resource in unavailable {
+            eprintln!("    {resource}");
+        }
+    }
+    if !unconverted.is_empty() {
+        eprintln!(
+            "  {} available field resource references are not converted yet",
+            unconverted.len()
+        );
+        for resource in unconverted {
             eprintln!("    {resource}");
         }
     }

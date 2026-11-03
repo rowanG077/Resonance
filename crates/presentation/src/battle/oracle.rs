@@ -3223,6 +3223,9 @@ fn attachment(
             json!({"kind":"projectile","projectile":projectiles.get(&id)})
         }
         Some(EffectFollow::Spell(_)) => json!({"kind":"spell","action":1}),
+        Some(EffectFollow::SpellPath { path, .. }) => {
+            json!({"kind":"spell_path","action":1,"path":path})
+        }
     }
 }
 fn linked(

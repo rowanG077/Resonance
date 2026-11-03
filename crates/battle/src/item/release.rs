@@ -255,13 +255,7 @@ impl Battle {
             }
         }
         if matches!(policy.effect, Effect::Scan) {
-            self.actors[request.target.index()].weakness_known = true;
-            self.actors[request.target.index()].resistance_known = true;
-            self.items.revealed.insert(request.target);
-            cues.push(Cue::EnemyScanned {
-                actor: request.target,
-            });
-            self.ledger.enemy_was_scanned = true;
+            self.reveal_enemy(request.target, cues);
         }
         if matches!(policy.effect, Effect::AllDivide) {
             self.items.all_divide = true;

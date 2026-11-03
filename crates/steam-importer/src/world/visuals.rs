@@ -2,6 +2,8 @@
 use super::*;
 use symphonia_constants::{SylvarantMarkerId, TetheAllaMarkerId};
 
+mod dust;
+
 fn model(source: &Source, library: &Path, resource: &str, owner: &str, sky: bool) -> Result<()> {
     let bytes = source.require(resource)?;
     let package = Package::parse(&bytes)?;
@@ -77,15 +79,7 @@ pub(super) fn cook(source: &Source, library: &Path, image: &pe::Image<'_>) -> Re
             true,
         )?;
     }
-    for index in 0..4 {
-        crate::ui_images::cook(
-            source,
-            library,
-            "SAND_PIC000.TOTEXB_D",
-            &format!("world/effects/dust-{index}.ktx2"),
-            false,
-        )?;
-    }
-    eprintln!("  World markers/skies and shared footstep artwork cooked");
+    dust::cook(source, library, image)?;
+    eprintln!("  World markers/skies and four native footstep sprites cooked");
     Ok(())
 }

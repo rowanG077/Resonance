@@ -202,6 +202,15 @@ impl PreparedBattle {
 }
 
 impl Battle {
+    /// Reveal enemy information for both lens items and scanning spells.
+    pub(crate) fn reveal_enemy(&mut self, target: ActorId, cues: &mut Vec<Cue>) {
+        self.actors[target.index()].weakness_known = true;
+        self.actors[target.index()].resistance_known = true;
+        self.items.revealed.insert(target);
+        self.ledger.discovered_scans.insert(target);
+        self.ledger.enemy_was_scanned = true;
+        cues.push(Cue::EnemyScanned { actor: target });
+    }
     pub fn item_policy(&self, item: u16) -> Option<&Policy> {
         self.prepared.items.as_ref()?.policies.get(&item)
     }
@@ -231,7 +240,8 @@ impl Battle {
     }
     pub fn can_queue_item(&self, user: ActorId) -> Result<bool> {
         let actor = self.actor(user)?;
-        Ok(self.phase() == crate::BattlePhase::Combat
+        Ok(!self.action_scene_blocks(user)
+            && self.phase() == crate::BattlePhase::Combat
             && actor.side == Side::Party
             && actor.available()
             && self.items.cooldown == 0
@@ -318,6 +328,7 @@ impl Battle {
     pub(crate) fn start_pending_item(&mut self, actor: ActorId, cues: &mut Vec<Cue>) -> Result<()> {
         let index = actor.index();
         if !self.has_pending_item(actor)
+            || self.action_scene_blocks(actor)
             || self.phase() != crate::BattlePhase::Combat
             || !self.actors[index].available()
             || self.activity(ActorId(index as u8)) != crate::Activity::Idle

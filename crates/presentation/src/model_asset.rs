@@ -460,6 +460,7 @@ impl Part {
             .map(|(material, spec)| TitleSurface {
                 field_fog: true,
                 vertex_color: spec.vertex_color,
+                alpha_cutoff: spec.alpha_cutoff,
                 multiply: material.sampled[1].clone(),
                 constant_color: self.spec.outline_color_for(spec).is_some(),
                 blend: spec.blend.then_some(Blend::Alpha),

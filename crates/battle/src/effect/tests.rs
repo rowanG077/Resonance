@@ -226,6 +226,7 @@ fn trail_birth_sizes_and_acceleration_preserve_distinct_motion_fields() -> Resul
     let bank = |birth| bank([(1, definition(vec![emit(0, birth)], particle.clone()))]);
     let birth = ParticleBirth {
         acceleration: [None, Some(ValueRange::fixed(2.)), None],
+        segment_offset: [None, None, Some(ValueRange::fixed(14.))],
         size: [80., 96., 176.].map(|v| Some(ValueRange::fixed(v))),
         size_velocity: [None, None, Some(ValueRange::fixed(3.))],
         ..Default::default()
@@ -245,6 +246,7 @@ fn trail_birth_sizes_and_acceleration_preserve_distinct_motion_fields() -> Resul
         panic!("trail geometry");
     };
     assert_eq!((size, radius), ([80., 96.], 179.));
+    assert_eq!(state.segment_offset, [None, None, Some(14.)]);
     assert_eq!(state.acceleration, [0., 2., 0.]);
     assert_eq!(state.velocity, [0., 2., 0.]);
     frame.cues.clear();
@@ -463,6 +465,38 @@ fn delayed_forward_motion_uses_retained_heading_and_stops_acceleration() -> Resu
     assert_eq!(after.offset, before.offset);
     assert_eq!(after.velocity, [0.; 3]);
     assert_eq!(after.acceleration, [0.; 3]);
+    Ok(())
+}
+
+#[test]
+fn retained_particle_angular_velocity_addition_changes_only_future_rotation() -> Result<()> {
+    let mut events = births([0]);
+    let EffectOperation::Spawn { birth, .. } = &mut events[0].operation else {
+        unreachable!()
+    };
+    birth.angles = [Some(ValueRange::fixed(0.)); 3];
+    birth.angular_velocity = [None, Some(ValueRange::fixed(2.5)), None];
+    events.push(ScheduledEvent {
+        at: 2,
+        operation: EffectOperation::SetMotion {
+            spawn: 0,
+            motion: Box::new(MotionChange {
+                angular_velocity_add: Some([0., -2.5, 0.]),
+                ..Default::default()
+            }),
+        },
+    });
+    let mut effects = effects(events, false);
+    let mut frame = frame();
+    frame.cues.push(Cue::Effect(request()));
+    effects.advance(&frame, false)?;
+    frame.cues.clear();
+    effects.advance(&frame, false)?;
+    let angle = effects.frames()[0].state.angles[1];
+    assert_eq!(angle, 5.);
+    effects.advance(&frame, false)?;
+    assert_eq!(effects.frames()[0].state.angular_velocity[1], 0.);
+    assert_eq!(effects.frames()[0].state.angles[1], angle);
     Ok(())
 }
 

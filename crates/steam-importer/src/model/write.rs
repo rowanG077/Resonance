@@ -132,6 +132,7 @@ pub(crate) fn cook_on_rig(
             multiply: bindings.get(1).cloned(),
             vertex_color: true,
             blend,
+            alpha_cutoff: 1,
             depth_write: native.variation_flags & 0x1000 != 0 && !partial,
             cull: if native.variation_flags & 0x4000 == 0 {
                 CullFace::Back
@@ -164,12 +165,16 @@ pub(crate) fn cook_on_rig(
     Ok((part, model))
 }
 
-/// MXD owns initial material opacity. Its shader programs are not cooked into a
-/// second rendering system; geometry colors and the shared GC pass supply RGB.
-pub(crate) fn material_parameters(
-    bytes: &[u8],
-    materials: &Materials,
-) -> Result<(Vec<[f32; 4]>, Vec<bool>, Vec<u8>)> {
+#[derive(Clone, Copy)]
+struct Parameters {
+    opacity: f32,
+    blended: bool,
+    role: u8,
+    alpha_compare: u32,
+    alpha_reference: u32,
+}
+
+fn parameters(bytes: &[u8], materials: &Materials) -> Result<Vec<Parameters>> {
     let input = Reader(bytes);
     ensure!(
         input.slice(0, 4)? == b"MXD " && input.word(4)? == 100,
@@ -219,23 +224,31 @@ pub(crate) fn material_parameters(
                 let blended = data.word(0)? != 0 && !(data.word(4)? == 1 && data.word(8)? == 0);
                 let opacity = data.floats::<1>(0x40)?[0];
                 ensure!(opacity.is_finite(), "invalid material opacity");
-                values.push(Some((
-                    if blended { opacity.clamp(0., 1.) } else { 1. },
+                values.push(Some(Parameters {
+                    opacity: if blended { opacity.clamp(0., 1.) } else { 1. },
                     blended,
-                    ((data.word(0x60)? >> 16) & 255) as u8,
-                )));
+                    role: ((data.word(0x60)? >> 16) & 255) as u8,
+                    alpha_compare: data.word(12)?,
+                    alpha_reference: data.word(16)?,
+                }));
             }
             entries = Some(values);
         }
         at = at.checked_add(length).context("material chunk overflow")?;
     }
     let entries = entries.context("missing material parameters")?;
-    let values = materials
+    materials
         .records
         .iter()
         .map(|material| {
             let Some(index) = material.parameter else {
-                return Ok((1., false, 0));
+                return Ok(Parameters {
+                    opacity: 1.,
+                    blended: false,
+                    role: 0,
+                    alpha_compare: 4,
+                    alpha_reference: 0,
+                });
             };
             entries
                 .get(index)
@@ -243,13 +256,59 @@ pub(crate) fn material_parameters(
                 .flatten()
                 .context("missing material parameter entry")
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect()
+}
+
+/// MXD initial opacity and atlas roles lower to the shared material pass.
+pub(crate) fn material_parameters(
+    bytes: &[u8],
+    materials: &Materials,
+) -> Result<(Vec<[f32; 4]>, Vec<bool>, Vec<u8>)> {
+    let values = parameters(bytes, materials)?;
     Ok((
         values
             .iter()
-            .map(|&(alpha, _, _)| [1., 1., 1., alpha])
+            .map(|value| [1., 1., 1., value.opacity])
             .collect(),
-        values.iter().map(|&(_, blend, _)| blend).collect(),
-        values.into_iter().map(|(_, _, role)| role).collect(),
+        values.iter().map(|value| value.blended).collect(),
+        values.into_iter().map(|value| value.role).collect(),
     ))
+}
+
+fn alpha_cutoff(compare: u32, reference: u32) -> Result<u8> {
+    // 0x8a9030 selects native comparisons. The shared pass discards below
+    // its cutoff, so Greater with reference 128 first accepts byte 129.
+    Ok(match compare {
+        0 | 1 => 0,
+        4 => u8::try_from(
+            reference
+                .checked_add(1)
+                .context("alpha reference overflow")?,
+        )
+        .context("alpha comparison rejects every fragment")?,
+        8 => u8::try_from(reference).context("alpha reference exceeds byte range")?,
+        _ => anyhow::bail!("alpha comparison {compare} cannot lower to a minimum cutoff"),
+    })
+}
+
+pub(crate) fn material_alpha_cutoffs(bytes: &[u8], materials: &Materials) -> Result<Vec<u8>> {
+    parameters(bytes, materials)?
+        .into_iter()
+        .map(|value| alpha_cutoff(value.alpha_compare, value.alpha_reference))
+        .collect()
+}
+
+#[cfg(test)]
+mod alpha_tests {
+    use super::*;
+    #[test]
+    fn native_alpha_comparisons_keep_the_first_accepted_byte() -> Result<()> {
+        assert_eq!(alpha_cutoff(4, 128)?, 129);
+        assert_eq!(alpha_cutoff(4, 0)?, 1);
+        assert_eq!(alpha_cutoff(8, 128)?, 128);
+        assert_eq!(alpha_cutoff(0, 0)?, 0);
+        assert!(alpha_cutoff(3, 128).is_err());
+        assert!(alpha_cutoff(4, 255).is_err());
+        Ok(())
+    }
 }

@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
-    AppearanceTextures, TextureAnimation,
+    AppearanceTextures, ScenePart, TextureAnimation,
     camera_motion::CameraMotion,
     library::Mappings,
     overworld::{self as world, document},
@@ -336,6 +336,40 @@ fn dialogue(
         .collect()
 }
 
+fn thoda_cape(scene: &mut ScenePart, native: &crate::model::Model) -> Result<()> {
+    ensure!(
+        scene.textures.len() == 9,
+        "Thoda scene has unexpected Lloyd appearance atlas"
+    );
+    scene.appearance = Some(AppearanceTextures {
+        eyes: Some(7),
+        mouth: Some(6),
+        variant: None,
+        costume: None,
+    });
+    // Source joint anchors and both eleven-joint garments match. Their stripped
+    // labels select the maintained GC presentation recipe while importing.
+    scene.secondary_motion = resonance_importer::bind_thoda_cape(
+        &native
+            .rig
+            .nodes
+            .iter()
+            .map(|node| node.name.clone())
+            .collect::<Vec<_>>(),
+        &scene.bone_names,
+        &native
+            .rig
+            .nodes
+            .iter()
+            .map(|node| node.parent.map(usize::from))
+            .collect::<Vec<_>>(),
+    )?;
+    for clip in &mut scene.clips {
+        clip.pose_chains = vec!["cape-left".into(), "cape-right".into()];
+    }
+    Ok(())
+}
+
 pub(super) fn cook(source: &Source, library: &Path) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
     ensure!(
@@ -403,7 +437,7 @@ pub(super) fn cook(source: &Source, library: &Path) -> Result<()> {
                 }
             }
             let path = format!("{owner}/actors/{name}");
-            let (mut scene, _) = preview_model::part(
+            let (mut scene, native) = preview_model::part(
                 source,
                 library,
                 actor.reference(0)?.context("missing cinematic body")?,
@@ -412,13 +446,8 @@ pub(super) fn cook(source: &Source, library: &Path) -> Result<()> {
                 &motions,
             )
             .with_context(|| format!("world cinematic {id} actor {slot}"))?;
-            if matches!(id, 514 | 515) && slot == 1 && scene.textures.len() == 9 {
-                scene.appearance = Some(AppearanceTextures {
-                    eyes: Some(7),
-                    mouth: Some(6),
-                    variant: None,
-                    costume: None,
-                });
+            if matches!(id, 514 | 515) && slot == 1 {
+                thoda_cape(&mut scene, &native)?;
             }
             let path = format!("{path}/model.json");
             output::json(
@@ -514,7 +543,7 @@ pub(super) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
     #[test]
     fn gc_style_linear_tracks_keep_the_authored_windows_and_hold() -> Result<()> {
         let recipe: UvRecipe = serde_json::from_value(
@@ -525,6 +554,61 @@ mod tests {
         assert_eq!(track.animation.loop_start, 240);
         assert_eq!(track.animation.offsets[60], [0., 0.4]);
         assert_eq!(track.animation.offsets[210], [0., 0.6]);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only the two Thoda cape actors"]
+    fn installed_thoda_capes_bind_the_shared_gc_recipe() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let names: BTreeMap<u16, Names> = serde_json::from_str(include_str!(
+            "../../../importer/src/world-cinematic-names.json"
+        ))?;
+        for id in [514, 515] {
+            let bytes = source.require(&format!("e{:02}.pac", id - 513))?;
+            let directory = Package::parse(&bytes)?;
+            let bytes = source.require(directory.reference(1)?.context("missing Thoda actor")?)?;
+            let actor = Package::parse(&bytes)?;
+            let owner = format!(
+                "world/cinematics/{}/actors/{}",
+                names[&id].name, names[&id].actors[&1]
+            );
+            let (mut scene, native) = preview_model::part(
+                &source,
+                &library,
+                actor.reference(0)?.context("missing Thoda body")?,
+                &owner,
+                "body",
+                &[(
+                    0,
+                    actor.reference(2)?.context("missing Thoda motion")?.into(),
+                )],
+            )?;
+            thoda_cape(&mut scene, &native)?;
+            scene.validate(|path| library.join(path).is_file())?;
+            let chains = scene.secondary_motion.prepare(&scene.bone_names)?;
+            ensure!(
+                chains.len() == 2 && chains.iter().all(|chain| chain.joints.len() == 11),
+                "incomplete native Thoda chains"
+            );
+            for clip in &scene.clips {
+                scene
+                    .secondary_motion
+                    .validate_selection(&clip.pose_chains)?;
+                clip.decode_motion(&fs::read(library.join(&clip.motion))?, &scene.bone_names)?;
+            }
+            output::json(
+                &library.join(owner).join("model.json"),
+                &document::Model { parts: vec![scene] },
+            )?;
+        }
         Ok(())
     }
     #[test]

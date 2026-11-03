@@ -86,6 +86,14 @@ pub(super) fn cook(source: &Source, library: &Path, models: &ModelMappings) -> R
             }
         }
     }
+    super::party_banks::cook(
+        source,
+        library,
+        models,
+        &resources,
+        &mut mappings,
+        &mut bindings,
+    )?;
     let available = resources
         .entries
         .iter()
@@ -94,15 +102,23 @@ pub(super) fn cook(source: &Source, library: &Path, models: &ModelMappings) -> R
                 .is_some_and(|name| name.to_ascii_lowercase().ends_with(".toanmb"))
         })
         .count();
+    let unbound = resources
+        .entries
+        .iter()
+        .filter(|(resource, name)| {
+            name.as_ref()
+                .is_some_and(|name| name.to_ascii_lowercase().ends_with(".toanmb"))
+                && !mappings.0.contains_key(resource)
+        })
+        .count();
     eprintln!(
-        "  Shared field animations: {} banks and {} exact actor/part bindings ({available} source banks)",
+        "  Shared field animations: {} bank identities and {} exact actor/part bindings ({} of {available} source banks)",
         mappings.0.len(),
-        bindings.banks.values().map(Vec::len).sum::<usize>()
+        bindings.banks.values().map(Vec::len).sum::<usize>(),
+        available - unbound,
     );
-    if mappings.0.len() < available {
-        eprintln!(
-            "  Global banks without a known concrete field target remain unbound; no neutral or synthetic motion is substituted"
-        );
+    if unbound > 0 {
+        eprintln!("  {unbound} source banks without a proven concrete field target remain unbound");
     }
     output::json(&library.join(document::ANIMATIONS), &mappings)?;
     output::json(&library.join("animations/bindings.json"), &bindings)?;

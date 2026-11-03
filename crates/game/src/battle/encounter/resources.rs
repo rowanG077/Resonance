@@ -69,7 +69,9 @@ impl Resources<'_> {
             .try_into()
             .map_err(|_| anyhow::anyhow!("invalid normal attack count"))?;
         let mut techniques = BTreeMap::new();
-        for (catalogue, technique) in party_techniques(self.catalogue, character)? {
+        for (catalogue, technique) in
+            party_techniques(self.catalogue, character, self.voices.party_table())?
+        {
             let descriptor = self.catalogue.definition(usize::from(catalogue))?;
             let flash = (!technique.is_special_guard())
                 .then(|| {
@@ -384,6 +386,7 @@ impl Resources<'_> {
 pub(super) fn party_techniques(
     catalogue: &resonance_content::arte::Catalogue,
     character: battle::party::Character,
+    profiles: &resonance_content::battle_profile::Table,
 ) -> Result<BTreeMap<u16, battle::martial::Technique>> {
     let guard = battle::martial::special_guard(character);
     Ok(catalogue
@@ -399,9 +402,25 @@ pub(super) fn party_techniques(
             {
                 Some(battle::martial::Technique::asset(character, id))
             } else {
-                battle::martial::technique(character, id)
+                profiles
+                    .martial_attack(id, character as u8)
+                    .ok()
+                    .and_then(|attack| battle::martial::authored_callback(character, id, attack))
+                    .or_else(|| battle::martial::technique(character, id))
             };
-            technique.map(|technique| (id, technique))
+            // A source can retain an unused catalogue prototype at the same
+            // identity as a real spell. Only its authored spell capability
+            // admits a casting recipe; missing media for an admitted spell
+            // still fails normally during capture.
+            technique
+                .filter(|technique| {
+                    technique.casting_voice().is_none()
+                        || catalogue
+                            .definitions
+                            .get(usize::from(id))
+                            .is_some_and(|rule| rule.capabilities.spell)
+                })
+                .map(|technique| (id, technique))
         })
         .collect())
 }
@@ -477,4 +496,58 @@ pub(crate) fn stored_cast_pose(
         release_loop_start: poses.release_loop_start,
         at: transition_ticks.saturating_sub(release_ticks),
     })
+}
+
+#[cfg(test)]
+mod callback_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires current GC and Steam cooked owners; checks only source callback dispatch"]
+    fn callbacks_use_authored_recipes_instead_of_overlapping_catalogue_ids() -> Result<()> {
+        use resonance_battle::Character;
+        use resonance_content::{diagnostics::Diagnostics, library::Library};
+        for (variable, callbacks_expected) in [
+            ("RESONANCE_TEST_GC_ASSETS", false),
+            ("RESONANCE_TEST_ASSETS", true),
+        ] {
+            let root = std::path::PathBuf::from(
+                std::env::var_os(variable).with_context(|| format!("set {variable}"))?,
+            );
+            let files = resonance_content::preparation::capture(
+                &Library::open(&root, &[])?,
+                &[],
+                || false,
+                Diagnostics::new(true),
+            )?;
+            let profiles = resonance_content::battle_rules::party(&files)?;
+            let catalogue = resonance_content::arte::Catalogue::load(&files)?;
+            for (id, character) in [
+                (51, Character::Colette),
+                (152, Character::Kratos),
+                (153, Character::Zelos),
+                (249, Character::Kratos),
+                (260, Character::Presea),
+                (261, Character::Presea),
+                (200, Character::Regal),
+            ] {
+                let callback =
+                    profiles
+                        .martial_attack(id, character as u8)
+                        .ok()
+                        .and_then(|attack| {
+                            crate::battle::martial::authored_callback(character, id, attack)
+                        });
+                anyhow::ensure!(
+                    callback.is_some() == callbacks_expected,
+                    "{variable} unexpected callback dispatch{id}/{character:?}"
+                );
+                let selected = super::party_techniques(&catalogue, character, &profiles)?;
+                anyhow::ensure!(
+                    selected.contains_key(&id) == callbacks_expected,
+                    "{variable} changed supported callback set{id}/{character:?}"
+                );
+            }
+        }
+        Ok(())
+    }
 }

@@ -2,13 +2,14 @@
 use super::{ActionResources, EffectResource};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit, SpellOrigin,
-    SpellPolicy, SpellRecovery, conditions::Condition,
+    PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit, SpellEffect,
+    SpellEffectPlacement, SpellOrigin, SpellPolicy, SpellRecovery, conditions::Condition,
 };
 use resonance_content::battle_projectile::Table;
 
 pub(super) fn native(catalogue: u16) -> Option<u16> {
     match catalogue {
+        225 => Some(264),
         101 => Some(239),
         104 => Some(242),
         107 => Some(245),
@@ -29,7 +30,7 @@ pub fn prepare(
     resources: &mut ActionResources,
 ) -> Result<PreparedSpell> {
     let spell = native(catalogue).context("unknown support spell")?;
-    let duration = if catalogue == 142 {
+    let duration = if matches!(catalogue, 142 | 225) {
         1
     } else {
         *parameters
@@ -49,6 +50,7 @@ pub fn prepare(
         maximum_penalty: 25,
     };
     let (member, at, benefit) = match catalogue {
+        225 => (Some(149), 0, SpellBenefit::Scan { location: true }),
         101 => (
             Some(36),
             0,
@@ -74,6 +76,19 @@ pub fn prepare(
     let delayed = at != 0;
     let transfer = catalogue == 116;
     Ok(PreparedSpell {
+        // Inspect calls the shared lens helper, then starts its own second
+        // target-centered scan effect. Neither birth consumes an item.
+        effects: if catalogue == 225 {
+            vec![SpellEffect {
+                at: 0,
+                appearance: effect.context("missing scan artwork")?,
+                placement: SpellEffectPlacement::TargetCenter,
+                deferred: true,
+                captured_heading_offset: None,
+            }]
+        } else {
+            Vec::new()
+        },
         policy: if transfer {
             SpellPolicy::TransferRecovery {
                 appearance: effect.context("missing transfer artwork")?,
@@ -89,14 +104,19 @@ pub fn prepare(
         } else {
             vec![SpellRecovery {
                 duration: 1,
-                flash: None,
+                flash: (catalogue == 225).then_some([104; 3]),
                 at,
                 benefit,
-                targets: RecoveryTargets::Target,
+                targets: if catalogue == 225 {
+                    RecoveryTargets::OpponentTarget
+                } else {
+                    RecoveryTargets::Target
+                },
                 effect_placement: match catalogue {
                     101 => RecoveryEffectPlacement::RecipientRoot,
                     104 => RecoveryEffectPlacement::CasterFacingCenter,
                     110 => RecoveryEffectPlacement::RecipientFacingCenter,
+                    225 => RecoveryEffectPlacement::CasterFacingCenter,
                     _ => Default::default(),
                 },
                 effect: effect.map(|effect| (effect, Default::default())),
