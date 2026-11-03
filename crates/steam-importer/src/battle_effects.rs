@@ -19,10 +19,12 @@ use std::{
 
 mod embedded_outline;
 mod fixed_atlas;
+mod lightning_artwork;
 mod model_color;
 mod opacity;
 mod rates;
 mod resident;
+mod stat_up_style;
 pub(crate) use model_color::normalize as normalize_model_color;
 pub(crate) use opacity::bind as bind_scene_opacity;
 pub(crate) use resident::cook as cook_resident;
@@ -467,6 +469,11 @@ pub(crate) fn cook_enemies(
                     artwork: None,
                 }
             };
+            if id == 44 {
+                let bank = preview_model::member(&bytes, 0x1cc)?
+                    .context("missing Living Armor effect bank")?;
+                stat_up_style::normalize(id, bank, &mut definition)?;
+            }
             let owner = format!("battle/enemies/{}/effects", monsters::symbol(id));
             let slots = definition
                 .templates
@@ -497,6 +504,15 @@ pub(crate) fn cook_enemies(
                 )?;
                 textures.insert(slot, vec![texture]);
             }
+            lightning_artwork::bind(
+                source,
+                library,
+                &image,
+                &atlases,
+                id,
+                &mut definition,
+                &mut textures,
+            )?;
             let images = textures
                 .values()
                 .flatten()
@@ -950,6 +966,52 @@ mod tests {
             birth.offset[0],
             Some(resonance_content::battle_effect::ValueRange::fixed(2.))
         );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and absolute RESONANCE_TEST_LIBRARY; publishes only44/103 effect artwork"]
+    fn installed_gc_style_enemy_artwork_uses_shared_reader() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        ensure!(library.is_absolute(), "use an absolute publication path");
+        let ids = [44, 103];
+        let actions = ids
+            .iter()
+            .map(|&id| {
+                let path = library.join(format!(
+                    "battle/enemies/{}/enemy.json",
+                    monsters::symbol(id)
+                ));
+                Ok((path.clone(), std::fs::read(path)?))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        cook_enemies(&source, &library, Some(&ids))?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        for id in ids {
+            let path = format!(
+                "battle/enemies/{}/effects/effects.json",
+                monsters::symbol(id)
+            );
+            let bank =
+                resonance_content::battle_effect::document::read(&path, &diagnostics, |path| {
+                    Ok(std::fs::read(library.join(path))?.into())
+                })?;
+            ensure!(bank.art.is_some(), "missing styled effect artwork");
+        }
+        for (path, before) in actions {
+            ensure!(
+                std::fs::read(path)? == before,
+                "artwork publication changed gameplay rules"
+            );
+        }
         Ok(())
     }
 

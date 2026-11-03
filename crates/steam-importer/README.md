@@ -92,6 +92,10 @@ Carried models retain their source-declared layers and embedded outlines; their
 half-range vertex RGB converts to the shared color range with alpha preserved.
 Actor bodies use the GC depth-writing pass, including blended feather and wing
 edges, so their backface outlines cannot cover the shaded body surface.
+Lightning Spear binds an authored filled Steam lightning fork for GC-style
+readability. Living Armor's stat-up uses the existing purple energy palette and
+GC visual fade rates. These artwork conversions preserve native action events,
+particle births, lifetimes and gameplay timing.
 Field scenery preserves native alpha cutoffs and draws translucent glass after
 opaque scenery, restoring the exterior visible through Iselia's classroom panes.
 
