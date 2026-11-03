@@ -315,6 +315,9 @@ fn queue_pipelines(
         if format.is_srgb() {
             defs.push("SMAA_INPUT_SRGB".into());
         }
+        if format == TextureFormat::Rgba16Unorm {
+            defs.push("SMAA_MANUAL_SRGB".into());
+        }
         let stencil_face = StencilFaceState {
             compare: if phase == 0 {
                 CompareFunction::Always
@@ -521,7 +524,9 @@ fn prepare(
                     } else {
                         TextureUsages::TEXTURE_BINDING
                     },
-                view_formats: if alternate_format != format {
+                view_formats: if format == target.main_texture_format()
+                    && alternate_format != format
+                {
                     std::slice::from_ref(&alternate_format)
                 } else {
                     &[]

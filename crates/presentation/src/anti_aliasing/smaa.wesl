@@ -572,7 +572,9 @@ fn encoded_color(uv: vec2<f32>) -> vec3<f32> {
     let high = 1.055 * pow(color, vec3(1.0 / 2.4)) - 0.055;
     @if(SMAA_INPUT_SRGB)
     return select(high, low, color <= vec3(0.0031308));
-    @if(!(SMAA_INPUT_SRGB))
+    @if(SMAA_MANUAL_SRGB)
+    return round(clamp(color, vec3(0.), vec3(1.)) * 255.) / 255.;
+    @if(!(SMAA_INPUT_SRGB || SMAA_MANUAL_SRGB))
     return color;
 }
 
@@ -1102,6 +1104,45 @@ fn blending_weight_calculation_fragment_main(in: BlendingWeightCalculationVaryin
 //-----------------------------------------------------------------------------
 // Neighborhood Blending Pixel Shader (Third Pass)
 
+@if(SMAA_NEIGHBORHOOD_BLENDING && SMAA_MANUAL_SRGB)
+fn decode_scene_color(color: vec4<f32>) -> vec4<f32> {
+    // Match the authored 8-bit scene before filtering, despite the wider GL
+    // intermediate format. This also keeps luma thresholds format-independent.
+    let encoded = round(clamp(color.rgb, vec3(0.), vec3(1.)) * 255.) / 255.;
+    return vec4(select(pow((encoded + 0.055) / 1.055, vec3(2.4)),
+                       encoded / 12.92, encoded <= vec3(0.04045)), color.a);
+}
+
+@if(SMAA_NEIGHBORHOOD_BLENDING)
+fn sample_scene_color(uv: vec2<f32>) -> vec4<f32> {
+    @if(SMAA_MANUAL_SRGB) {
+        // GL cannot reinterpret the encoded attachment as sRGB. Decode texels
+        // before interpolation to preserve the native path's linear blending.
+        let size = vec2<i32>(textureDimensions(color_texture));
+        let pixel = uv * vec2<f32>(size) - vec2(0.5);
+        let base = vec2<i32>(floor(pixel));
+        let weight = fract(pixel);
+        let a = decode_scene_color(textureLoad(color_texture, clamp(base, vec2(0), size - vec2(1)), 0));
+        let b = decode_scene_color(textureLoad(color_texture, clamp(base + vec2(1, 0), vec2(0), size - vec2(1)), 0));
+        let c = decode_scene_color(textureLoad(color_texture, clamp(base + vec2(0, 1), vec2(0), size - vec2(1)), 0));
+        let d = decode_scene_color(textureLoad(color_texture, clamp(base + vec2(1), vec2(0), size - vec2(1)), 0));
+        return mix(mix(a, b, weight.x), mix(c, d, weight.x), weight.y);
+    } @else {
+        return textureSampleLevel(color_texture, blend_sampler, uv, 0.0);
+    }
+}
+
+@if(SMAA_NEIGHBORHOOD_BLENDING)
+fn store_scene_color(color: vec4<f32>) -> vec4<f32> {
+    @if(SMAA_MANUAL_SRGB) {
+        let linear = max(color.rgb, vec3(0.));
+        return vec4(select(1.055 * pow(linear, vec3(1. / 2.4)) - 0.055,
+                           linear * 12.92, linear <= vec3(0.0031308)), color.a);
+    } @else {
+        return color;
+    }
+}
+
 @if(SMAA_NEIGHBORHOOD_BLENDING)
 @fragment
 fn neighborhood_blending_fragment_main(in: NeighborhoodBlendingVaryings) -> @location(0) vec4<f32> {
@@ -1114,9 +1155,9 @@ fn neighborhood_blending_fragment_main(in: NeighborhoodBlendingVaryings) -> @loc
 
     // Is there any blending weight with a value greater than 0.0?
     if (dot(a, vec4(1.0)) < 1.0e-5) {
-        let color = textureSampleLevel(color_texture, blend_sampler, in.tex_coord, 0.0);
+        let color = sample_scene_color(in.tex_coord);
         // TODO: Reprojection
-        return color;
+        return store_scene_color(color);
     } else {
         let h = max(a.x, a.z) > max(a.y, a.w);  // max(horizontal) > max(vertical)
 
@@ -1135,12 +1176,12 @@ fn neighborhood_blending_fragment_main(in: NeighborhoodBlendingVaryings) -> @loc
         // We exploit bilinear filtering to mix current pixel with the chosen
         // neighbor:
         var color = blending_weight.x *
-            textureSampleLevel(color_texture, blend_sampler, blending_coord.xy, 0.0);
+            sample_scene_color(blending_coord.xy);
         color += blending_weight.y *
-            textureSampleLevel(color_texture, blend_sampler, blending_coord.zw, 0.0);
+            sample_scene_color(blending_coord.zw);
 
         // TODO: Reprojection
 
-        return color;
+        return store_scene_color(color);
     }
 }

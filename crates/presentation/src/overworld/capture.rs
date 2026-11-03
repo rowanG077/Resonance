@@ -242,8 +242,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         .unwrap() = Some(package.files.clone());
     let render_plugin = crate::renderer::plugin(&mut app, false);
     app.add_plugins(
-        DefaultPlugins
-            .set(render_plugin)
+        crate::renderer::native_render_plugins(render_plugin)
             .set(bevy::pbr::PbrPlugin {
                 gltf_enable_standard_materials: false,
                 ..default()

@@ -12,8 +12,8 @@ Rust, Nix and external media conversion tools are not required.
 | --- | --- | --- |
 | Windows | `windows-x64.zip` | 64-bit Windows 10/11; DirectX 12 or Vulkan graphics drivers |
 | macOS | `macos-arm64.tar.gz` | Apple Silicon, macOS 14 or newer; Metal |
-| Linux | `linux-x64.tar.gz` | x86-64, Ubuntu 24.04 or compatible; Vulkan graphics drivers |
-| Linux | `linux-arm64.tar.gz` | ARM64, Ubuntu 24.04 or compatible; Vulkan graphics drivers |
+| Linux | `linux-x64.tar.gz` | x86-64, Ubuntu 24.04 or compatible; Vulkan or compatible OpenGL graphics drivers |
+| Linux | `linux-arm64.tar.gz` | ARM64, Ubuntu 24.04 or compatible; Vulkan or compatible OpenGL graphics drivers |
 
 The macOS build runs natively on Apple Silicon. Intel Macs are not included.
 Linux binaries use system audio, windowing and Vulkan libraries. On Ubuntu 24.04:
@@ -21,11 +21,14 @@ Linux binaries use system audio, windowing and Vulkan libraries. On Ubuntu 24.04
 ```sh
 sudo apt-get update
 sudo apt-get install libasound2t64 libdbus-1-3 libudev1 libvulkan1 \
-  libx11-6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libwayland-client0 libwayland-cursor0 libwayland-egl1
+  libx11-6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0 \
+  libwayland-client0 libwayland-cursor0 libwayland-egl1
 ```
 
 Install the Vulkan driver appropriate for your GPU as well (for example,
 `mesa-vulkan-drivers` for supported Intel/AMD GPUs).
+For OpenGL, install an EGL loader and your GPU's OpenGL driver (for example,
+`libegl1 libgl1-mesa-dri` on Ubuntu), then select OpenGL in Customize and restart.
 
 ## Extract and run
 

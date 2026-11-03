@@ -8,45 +8,13 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
     use bevy::{
         camera::{CameraOutputMode, RenderTarget, visibility::RenderLayers},
         core_pipeline::tonemapping::Tonemapping,
-        render::{
-            RenderPlugin,
-            pipelined_rendering::PipelinedRenderingPlugin,
-            settings::{Backends, RenderCreation, WgpuSettings, WgpuSettingsPriority},
-            view::screenshot::{Screenshot, ScreenshotCaptured},
-        },
-        window::ExitCondition,
+        render::view::screenshot::{Screenshot, ScreenshotCaptured},
     };
     const SIZE: u32 = 96;
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                    backends: Some(if cfg!(target_os = "macos") {
-                        Backends::METAL
-                    } else if cfg!(target_os = "windows") {
-                        Backends::DX12
-                    } else {
-                        Backends::VULKAN
-                    }),
-                    priority: WgpuSettingsPriority::WebGPU,
-                    ..default()
-                })),
-                synchronous_pipeline_compilation: true,
-                ..default()
-            })
-            .disable::<bevy::log::LogPlugin>()
-            .disable::<PipelinedRenderingPlugin>()
-            .disable::<bevy::winit::WinitPlugin>()
-            .disable::<bevy::gilrs::GilrsPlugin>(),
-    )
-    .add_plugins(bevy_post_process::msaa_writeback::MsaaWritebackPlugin)
-    .init_resource::<Captures>();
+    app.add_plugins(crate::test_support::render_plugins().disable::<bevy::log::LogPlugin>())
+        .add_plugins(bevy_post_process::msaa_writeback::MsaaWritebackPlugin)
+        .init_resource::<Captures>();
     static LOGGING: std::sync::Once = std::sync::Once::new();
     LOGGING.call_once(|| {
         app.add_plugins(bevy::log::LogPlugin::default());
@@ -303,7 +271,7 @@ fn all_spatial_shader_variants_validate() {
             AntiAliasing::SmaaUltra,
             AntiAliasing::SmaaS2x,
         ] {
-            for srgb in [false, true] {
+            for (srgb, manual_srgb) in [(false, false), (true, false), (false, true)] {
                 for phase in [
                     "SMAA_EDGE_DETECTION",
                     "SMAA_BLENDING_WEIGHT_CALCULATION",
@@ -316,6 +284,9 @@ fn all_spatial_shader_variants_validate() {
                     }
                     if srgb {
                         defs.push("SMAA_INPUT_SRGB".into());
+                    }
+                    if manual_srgb {
+                        defs.push("SMAA_MANUAL_SRGB".into());
                     }
                     cache
                         .get(0, handle.id(), &defs)

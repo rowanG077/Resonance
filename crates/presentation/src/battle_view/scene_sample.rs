@@ -12,7 +12,7 @@ use bevy::{
             binding_types::{sampler, texture_2d, texture_2d_multisampled, uniform_buffer},
             *,
         },
-        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+        renderer::{RenderAdapterInfo, RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::GpuImage,
         view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
@@ -139,13 +139,21 @@ impl Pipeline {
 fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
+    adapter: Res<RenderAdapterInfo>,
     server: Res<AssetServer>,
     fullscreen: Res<FullscreenShader>,
     cache: Res<PipelineCache>,
 ) {
     commands.insert_resource(Pipeline {
-        passes: [false, true]
-            .map(|multisampled| prepare_passes(multisampled, &server, &fullscreen, &cache)),
+        passes: [false, true].map(|multisampled| {
+            prepare_passes(
+                multisampled,
+                crate::renderer::scene_color_format(Some(&adapter)),
+                &server,
+                &fullscreen,
+                &cache,
+            )
+        }),
         sampler: device.create_sampler(&SamplerDescriptor {
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
@@ -156,6 +164,7 @@ fn prepare(
 
 fn prepare_passes(
     multisampled: bool,
+    format: TextureFormat,
     server: &AssetServer,
     fullscreen: &FullscreenShader,
     cache: &PipelineCache,
@@ -170,9 +179,9 @@ fn prepare_passes(
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 uniform_buffer::<Settings>(false),
                 if multisampled {
-                    texture_2d_multisampled(TextureSampleType::Depth)
+                    texture_2d_multisampled(TextureSampleType::Float { filterable: false })
                 } else {
-                    texture_2d(TextureSampleType::Depth)
+                    texture_2d(TextureSampleType::Float { filterable: false })
                 },
             ),
         ),
@@ -231,7 +240,7 @@ fn prepare_passes(
                 entry_point: Some(entry.into()),
                 shader_defs,
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::Bgra8Unorm,
+                    format,
                     blend: depth_test.map(|_| BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],

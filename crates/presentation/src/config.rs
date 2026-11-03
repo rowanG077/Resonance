@@ -141,7 +141,8 @@ mod input_tests {
                     GraphicsBackend::Dx12,
                     GraphicsBackend::Vulkan,
                     GraphicsBackend::Metal,
-                ][index % 4],
+                    GraphicsBackend::OpenGl,
+                ][index % 5],
                 anti_aliasing,
                 resolution: [1920, 1080],
                 ..preferences.settings.clone()

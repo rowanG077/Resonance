@@ -700,6 +700,7 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         GraphicsBackend::Automatic,
         GraphicsBackend::Dx12,
         GraphicsBackend::Vulkan,
+        GraphicsBackend::OpenGl,
     ];
     menu.customize
         .set_backend_choices(&backends, GraphicsBackend::Dx12, false);
