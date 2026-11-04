@@ -585,7 +585,7 @@ impl CheckpointReplay {
         ensure!(
             // Voiced story sequences can span several battles without a
             // saveable field checkpoint. Keep each wait bounded separately.
-            budget <= 120_000 && (1..=512).contains(&names.len()),
+            budget <= 180_000 && (1..=512).contains(&names.len()),
             "replay exceeds recording limits"
         );
         Ok(())
@@ -1989,6 +1989,64 @@ mod tests {
             install_cursor(&mut app, steps, None);
             assert_eq!(app.world().resource::<crate::Menu>().0.selected, selected);
         }
+    }
+
+    #[test]
+    fn voiced_battle_movie_aftermath_has_a_bounded_total_budget() {
+        let mut replay: CheckpointReplay = serde_json::from_value(serde_json::json!({
+            "version":2,"steps":[
+                {"do":"advance_dialogue","until":{"kind":"battle","encounter":58,"phase":"entry"},"max_updates":36000},
+                {"do":"wait","until":{"kind":"battle","encounter":58,"phase":"ending"},"max_updates":30000},
+                {"do":"advance_dialogue","until":{"kind":"movie","resource":3,"frame":1},"max_updates":24000},
+                {"do":"wait","until":{"kind":"field","map_id":8,"free_control":false},"max_updates":36000},
+                {"do":"advance_dialogue","until":{"kind":"field","map_id":8,"free_control":true},"max_updates":9333},
+                {"do":"capture","name":"mandatory-aftermath-complete"}
+            ]
+        })).unwrap();
+        // A complete voiced encounter, native movie and mandatory aftermath
+        // can legitimately declare 135333 updates without shortening a stage.
+        replay.validate().unwrap();
+        let Step::AdvanceDialogue { max_updates, .. } = &mut replay.steps[0] else {
+            unreachable!()
+        };
+        *max_updates = 36_001;
+        assert!(
+            replay
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("duration")
+        );
+        let Step::AdvanceDialogue { max_updates, .. } = &mut replay.steps[0] else {
+            unreachable!()
+        };
+        *max_updates = 36_000;
+        let before_capture = replay.steps.len() - 1;
+        replay.steps.splice(
+            before_capture..before_capture,
+            [
+                Step::Hold {
+                    keys: vec![],
+                    updates: 36_000,
+                },
+                Step::Hold {
+                    keys: vec![],
+                    updates: 8_667,
+                },
+            ],
+        );
+        replay.validate().unwrap(); // Exactly 180000, all stages still bounded.
+        replay.steps.push(Step::Hold {
+            keys: vec![],
+            updates: 1,
+        });
+        assert!(
+            replay
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("recording limits")
+        );
     }
 
     #[test]
