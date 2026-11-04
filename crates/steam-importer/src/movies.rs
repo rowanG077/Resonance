@@ -87,8 +87,8 @@ fn name(source: &str) -> Result<&'static str> {
         "TOS_GC_AS02_720P.USM" => "worlds-reunited",
         "TOS_GC_AS03_720P.USM" => "great-seed-awakening",
         "TOS_GC_S10_720P.USM" => "derris-kharlan-revealed",
-        "TOS_PS2_AS01_720P.USM" => "mutated-tree-appears-alternate",
-        "TOS_PS2_AS02_720P.USM" => "worlds-reunited-alternate",
+        "TOS_PS2_AS01_720P.USM" => "colette-angel-transformation",
+        "TOS_PS2_AS02_720P.USM" => "rheairds-first-flight",
         other => anyhow::bail!("unnamed movie {other}"),
     })
 }
