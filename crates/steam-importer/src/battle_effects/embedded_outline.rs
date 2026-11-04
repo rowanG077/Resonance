@@ -1,4 +1,4 @@
-//! Some rigid effect models already contain their expanded, inward-facing black shell.
+//! Some rigid effect models already contain an expanded, inward-facing shell.
 use super::*;
 use glam::Vec3;
 use resonance_content::animation::Motion;
@@ -39,6 +39,60 @@ fn black_shell(mesh: &model::Mesh) -> bool {
 /// Every coloured part must have its actual paired shell before dropping a whole generated layer.
 pub(super) fn present(model: &model::Model) -> bool {
     covered(model, |body, shell| body.node == shell.node)
+        || colored_pair(model, |body, shell| body.node == shell.node)
+}
+
+fn paired_surface(body: &model::Mesh, shell: &model::Mesh, same_frame: bool) -> bool {
+    if shell.joints.is_some()
+        || shell.positions.is_empty()
+        || !same_frame
+        || body.joints.is_some()
+        || body.indices.len() != shell.indices.len()
+        || !body.colors.iter().any(|c| c[..3] != [0.; 3])
+    {
+        return false;
+    }
+    let shell_volume = volume(shell);
+    let (shell_min, shell_max) = bounds(shell);
+    let body_volume = volume(body);
+    let (body_min, body_max) = bounds(body);
+    shell_volume < 0.
+        && body_volume > 0.
+        && (-shell_volume / body_volume) > 1.
+        && (0..3).all(|axis| {
+            let low = body_min[axis] - shell_min[axis];
+            let high = shell_max[axis] - body_max[axis];
+            (0.001..=2.).contains(&low) && (0.001..=2.).contains(&high)
+        })
+}
+
+fn uniform_opaque_color(mesh: &model::Mesh) -> Option<[f32; 3]> {
+    let color = *mesh.colors.first()?;
+    (color[3] == 1. && mesh.colors.iter().all(|other| *other == color))
+        .then_some([color[0], color[1], color[2]])
+}
+
+/// Some rigid source pairs use a uniform grey shell instead of black. Restrict
+/// this extra proof to exactly two uniformly opaque meshes: one coloured body
+/// and its darker expanded reverse surface, with no unpaired material parts.
+fn colored_pair(
+    model: &model::Model,
+    same_frame: impl Fn(&model::Mesh, &model::Mesh) -> bool,
+) -> bool {
+    let [first, second] = model.meshes.as_slice() else {
+        return false;
+    };
+    [(first, second), (second, first)]
+        .into_iter()
+        .any(|(body, shell)| {
+            let (Some(body_color), Some(shell_color)) =
+                (uniform_opaque_color(body), uniform_opaque_color(shell))
+            else {
+                return false;
+            };
+            (0..3).all(|channel| shell_color[channel] < body_color[channel])
+                && paired_surface(body, shell, same_frame(body, shell))
+        })
 }
 
 fn covered(model: &model::Model, same_frame: impl Fn(&model::Mesh, &model::Mesh) -> bool) -> bool {
@@ -55,30 +109,7 @@ fn covered(model: &model::Model, same_frame: impl Fn(&model::Mesh, &model::Mesh)
             .meshes
             .iter()
             .filter(|mesh| black_shell(mesh))
-            .any(|shell| {
-                if shell.joints.is_some()
-                    || shell.positions.is_empty()
-                    || !same_frame(body, shell)
-                    || body.joints.is_some()
-                    || body.indices.len() != shell.indices.len()
-                    || !body.colors.iter().any(|c| c[..3] != [0.; 3])
-                {
-                    return false;
-                }
-                let shell_volume = volume(shell);
-                let (shell_min, shell_max) = bounds(shell);
-                let body_volume = volume(body);
-                let (body_min, body_max) = bounds(body);
-                // Native baked outlines reverse winding and expand the matching surface by one unit.
-                shell_volume < 0.
-                    && body_volume > 0.
-                    && (-shell_volume / body_volume) > 1.
-                    && (0..3).all(|axis| {
-                        let low = body_min[axis] - shell_min[axis];
-                        let high = shell_max[axis] - body_max[axis];
-                        (0.001..=2.).contains(&low) && (0.001..=2.).contains(&high)
-                    })
-            })
+            .any(|shell| paired_surface(body, shell, same_frame(body, shell)))
     })
 }
 
@@ -182,7 +213,7 @@ pub(super) fn present_with_clips(
     if present(model) {
         return Ok(true);
     }
-    if !model.meshes.iter().any(black_shell) {
+    if !model.meshes.iter().any(black_shell) && model.meshes.len() != 2 {
         return Ok(false);
     }
     let names = model.rig.joint_names();
@@ -197,7 +228,10 @@ pub(super) fn present_with_clips(
     }
     Ok(covered(model, |body, shell| {
         same_frame(model, &motions, body.node, shell.node)
-    }) || grouped_coverage(model, &motions))
+    }) || grouped_coverage(model, &motions)
+        || colored_pair(model, |body, shell| {
+            same_frame(model, &motions, body.node, shell.node)
+        }))
 }
 
 #[cfg(test)]
@@ -650,6 +684,76 @@ mod tests {
         }
         eprintln!(
             "{checked} already-published source shell models remain covered by the conservative guard; no outputs written"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; reads only enemy23 source and its published snowball"]
+    fn installed_bigfoot_snowball_preserves_its_source_shell() -> Result<()> {
+        let source = Source::open(
+            &std::path::PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let package = source.require(monsters::package(&image, 23)?)?;
+        ensure!(preview_model::reference(&package, 0x198)?.is_none());
+        let descriptor =
+            preview_model::reference(&package, 0x180)?.context("missing Bigfoot snowball")?;
+        let bytes = source.require(&descriptor)?;
+        let dependencies = crate::package::dependencies(&bytes)?;
+        let mut native = model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+        let path = library.join("battle/enemies/bigfoot-0023/effects/effects.json");
+        let effects: Definition = serde_json::from_slice(&std::fs::read(path)?)?;
+        let value = effects.artwork.context("missing artwork")?.models[&0].clone();
+        let snowball: resonance_content::battle_model::document::Model =
+            serde_json::from_value(value)?;
+        ensure!(native.meshes.len() == 2);
+        ensure!(native.meshes.iter().all(|mesh| !black_shell(mesh)));
+        ensure!(native.meshes[0].indices.len() == native.meshes[1].indices.len());
+        let scene = &snowball.layers[0].scene;
+        ensure!(
+            present_with_clips(&native, &library, scene)?,
+            "source snowball shell must prevent a second darkening outline layer"
+        );
+
+        // A dark material alone is insufficient: opacity, uniform colour,
+        // complete coverage, source frame and reverse winding remain required.
+        let shell = native
+            .meshes
+            .iter()
+            .position(|mesh| volume(mesh) < 0.)
+            .context("missing reversed source snow shell")?;
+        let original_colors = native.meshes[shell].colors.clone();
+        for color in &mut native.meshes[shell].colors {
+            color[3] = 0.5;
+        }
+        ensure!(!present_with_clips(&native, &library, scene)?);
+        native.meshes[shell].colors = original_colors.clone();
+        native.meshes[shell].colors[0][0] += 0.01;
+        ensure!(!present_with_clips(&native, &library, scene)?);
+        native.meshes[shell].colors = original_colors;
+        let original_node = native.meshes[shell].node;
+        native.meshes[shell].node = None;
+        ensure!(!present_with_clips(&native, &library, scene)?);
+        native.meshes[shell].node = original_node;
+        for triangle in native.meshes[shell].indices.chunks_exact_mut(3) {
+            triangle.swap(1, 2);
+        }
+        ensure!(!present_with_clips(&native, &library, scene)?);
+        for triangle in native.meshes[shell].indices.chunks_exact_mut(3) {
+            triangle.swap(1, 2);
+        }
+        let mut extra = model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+        native.meshes.push(extra.meshes.swap_remove(1 - shell));
+        ensure!(
+            !present_with_clips(&native, &library, scene)?,
+            "an extra coloured part must not inherit the two-mesh proof"
         );
         Ok(())
     }
