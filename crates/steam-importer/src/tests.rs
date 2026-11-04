@@ -2104,3 +2104,41 @@ fn installed_character_and_recipe_tables() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_STEAM; cooks only the original cup prop"]
+fn installed_cup_keeps_source_visible_geometry_and_numbered_anchors_hidden() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let source = source::Source::open(&installation, Language::English)?;
+    let output = tempfile::tempdir()?;
+    let (document, mut cup) = actor_model::cook(
+        &source,
+        output.path(),
+        "npc_all_b217.pac",
+        "meshes/props/mug",
+    )?;
+    assert_eq!(cup.rig.nodes.len(), 4);
+    assert_eq!(cup.meshes.len(), 4);
+    for (i, node) in cup.rig.nodes.iter().enumerate() {
+        assert_eq!(node.name, format!("KK_OBJ000_{:02}", i + 1));
+        assert!(node.visible);
+    }
+    assert!(document.hidden_geometry.is_empty());
+    // A native hidden flag still wins for ordinary prop names.
+    cup.rig.nodes[0].visible = false;
+    assert_eq!(cup.rig.hidden_geometry(), ["KK_OBJ000_01"]);
+
+    // A real installed Lloyd rig retains its numbered equipment/effect anchors.
+    let image = pe::Image::parse(&source.executable)?;
+    let package_name = image.text(pe::word(image.slice(0x8cfe80, 4)?, 0)?)?;
+    let bytes = source.require(package_name)?;
+    let package = package::Package::parse(&bytes)?;
+    let descriptor = source.require(package.reference(0)?.context("Lloyd body")?)?;
+    let lloyd = model::Rig::read(&descriptor)?;
+    let hidden = lloyd.hidden_geometry();
+    assert!(lloyd.joint_names().iter().any(|name| name == "kk00"));
+    assert!(hidden.iter().any(|name| name == "kk00"));
+    Ok(())
+}

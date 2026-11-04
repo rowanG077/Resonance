@@ -36,6 +36,16 @@ impl Rig {
         )
     }
 
+    /// Preserve authored visibility; only numbered native effect anchors are
+    /// hidden by convention. Ordinary prop roots such as KK_OBJ000_01 draw.
+    pub(crate) fn hidden_geometry(&self) -> Vec<String> {
+        self.nodes
+            .iter()
+            .zip(self.joint_names())
+            .filter_map(|(node, name)| (!node.visible || attachment_marker(&name)).then_some(name))
+            .collect()
+    }
+
     pub fn read(descriptor: &[u8]) -> Result<Self> {
         let source = Reader(descriptor);
         let sections = sections(&source)?;
@@ -45,6 +55,14 @@ impl Rig {
             animation_bindings: pose.channels,
         })
     }
+}
+
+fn attachment_marker(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() >= 4
+        && bytes[..2].eq_ignore_ascii_case(b"KK")
+        && bytes[2..4].iter().all(u8::is_ascii_digit)
+        && (bytes.len() == 4 || bytes[4] == b'_')
 }
 
 /// Reuse the GC semantic dictionary. Only source spelling is case folded, and
@@ -73,12 +91,7 @@ fn canonical_joint_name(name: &str) -> String {
             // KKnn is a native effect attachment marker, not an arbitrary
             // model label. GC publishes its reserved prefix as kk; preserve
             // the source slot and descriptive suffix, including its case.
-            let bytes = name.as_bytes();
-            if bytes.len() >= 5
-                && bytes[..2].eq_ignore_ascii_case(b"KK")
-                && bytes[2..4].iter().all(u8::is_ascii_digit)
-                && bytes[4] == b'_'
-            {
+            if attachment_marker(name) {
                 format!("kk{}", &name[2..])
             } else {
                 name.to_owned()

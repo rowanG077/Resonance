@@ -81,15 +81,7 @@ pub(crate) fn cook(
     };
     actor_model::style_outline(&mut outline);
     actor_model::style_body(&mut body);
-    let hidden_geometry = native
-        .rig
-        .nodes
-        .iter()
-        .zip(native.rig.joint_names())
-        .filter_map(|(node, name)| {
-            (!node.visible || name.to_ascii_lowercase().starts_with("kk")).then_some(name)
-        })
-        .collect();
+    let hidden_geometry = native.rig.hidden_geometry();
     let parts = [body, outline]
         .into_iter()
         .map(|mut scene| {

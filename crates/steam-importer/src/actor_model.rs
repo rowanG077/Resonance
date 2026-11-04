@@ -82,15 +82,7 @@ pub(crate) fn cook(
     } else {
         None
     };
-    let hidden_geometry = native
-        .rig
-        .nodes
-        .iter()
-        .zip(native.rig.joint_names())
-        .filter_map(|(node, name)| {
-            (!node.visible || name.to_ascii_lowercase().starts_with("kk")).then_some(name)
-        })
-        .collect();
+    let hidden_geometry = native.rig.hidden_geometry();
     let document = Model {
         parts,
         collision,
