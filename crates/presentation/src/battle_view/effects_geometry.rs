@@ -185,21 +185,7 @@ pub(super) fn particle(
     if !data.positions.is_empty() {
         let offset = Vec3::from_array(particle.state.offset);
         if let Some(matrix) = bone_world {
-            let normal_matrix = Mat3::from_mat4(matrix).inverse().transpose();
-            ensure!(
-                matrix.is_finite() && normal_matrix.is_finite(),
-                "invalid particle bone matrix"
-            );
-            for position in &mut data.positions {
-                *position = matrix
-                    .transform_point3(Vec3::from_array(*position) + offset)
-                    .to_array();
-            }
-            for normal in &mut data.normals {
-                *normal = (normal_matrix * Vec3::from_array(*normal))
-                    .normalize_or(Vec3::Z)
-                    .to_array();
-            }
+            transform_bone(data, matrix, offset)?;
         } else {
             let mut origin = Vec3::from_array(particle.origin) + offset;
             // Ground-relative sprites ignore emitter height.
@@ -210,6 +196,36 @@ pub(super) fn particle(
                 *position = (Vec3::from_array(*position) + origin).to_array();
             }
         }
+    }
+    Ok(())
+}
+
+/// Cofactors remain defined when an authored bone collapses to zero scale.
+/// For an invertible matrix this is |determinant| times inverse-transpose;
+/// the existing unit-normal conversion removes that positive factor.
+fn transform_bone(data: &mut Vertices, matrix: Mat4, offset: Vec3) -> Result<()> {
+    let linear = Mat3::from_mat4(matrix);
+    let mut normal_matrix = Mat3::from_cols(
+        linear.y_axis.cross(linear.z_axis),
+        linear.z_axis.cross(linear.x_axis),
+        linear.x_axis.cross(linear.y_axis),
+    );
+    if linear.determinant() < 0. {
+        normal_matrix = -normal_matrix;
+    }
+    ensure!(
+        matrix.is_finite() && normal_matrix.is_finite(),
+        "invalid particle bone matrix"
+    );
+    for position in &mut data.positions {
+        *position = matrix
+            .transform_point3(Vec3::from_array(*position) + offset)
+            .to_array();
+    }
+    for normal in &mut data.normals {
+        *normal = (normal_matrix * Vec3::from_array(*normal))
+            .normalize_or(Vec3::Z)
+            .to_array();
     }
     Ok(())
 }
@@ -907,6 +923,69 @@ mod tests {
             panic!("sprite fixture");
         };
         visual
+    }
+
+    #[test]
+    fn particle_bone_normals_keep_inverse_transpose_directions_and_native_collapse() -> Result<()> {
+        let input_normals = [Vec3::X, Vec3::Y, Vec3::Z, Vec3::new(1., 2., 3.).normalize()];
+        let shear = Mat3::from_cols(
+            Vec3::new(2., 0.3, 0.),
+            Vec3::new(0.7, 3., 0.2),
+            Vec3::new(0., 0.4, 0.5),
+        );
+        for linear in [
+            Mat3::from_diagonal(Vec3::new(2., 3., 0.5)),
+            shear,
+            shear * Mat3::from_diagonal(Vec3::new(-1., 1., 1.)),
+        ] {
+            let expected = linear.inverse().transpose();
+            let mut data = Vertices {
+                normals: input_normals.map(|normal| normal.to_array()).to_vec(),
+                ..Default::default()
+            };
+            transform_bone(&mut data, Mat4::from_mat3(linear), Vec3::ZERO)?;
+            for (actual, input) in data.normals.iter().zip(input_normals) {
+                assert!(
+                    Vec3::from_array(*actual).abs_diff_eq((expected * input).normalize(), 1e-6)
+                );
+            }
+        }
+
+        // Original Shadow be15_anm021_000 slot38 ends, and slot39 starts,
+        // with exact zero scale on both ancestors of hand37/hand54. Retain
+        // the draw and geometry; its transformed triangles have zero area.
+        let mut declaration = fixture_particle(
+            include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
+            "actors",
+            "34",
+        );
+        visual(&mut declaration).geometry = ParticleShape::Ring {
+            segments: 16,
+            flared: false,
+            hidden: false,
+            uv_layout: UvLayout::Repeat,
+        };
+        let state = declaration.particle()?.state;
+        let mut data = geometry(&state, &declaration, 0., [512; 2], Mat3::IDENTITY)?.unwrap();
+        let vertex_count = data.positions.len();
+        let colors = data.colors.clone();
+        let uv = data.uv.clone();
+        let origin = Vec3::new(350., 110., 0.);
+        let collapsed = Mat4::from_scale_rotation_translation(Vec3::ZERO, Quat::IDENTITY, origin);
+        transform_bone(&mut data, collapsed, Vec3::new(1., 2., 3.))?;
+        assert!(vertex_count > 0);
+        assert_eq!(data.positions.len(), vertex_count);
+        assert!(data.positions.iter().all(|p| *p == origin.to_array()));
+        assert!(
+            data.normals
+                .iter()
+                .all(|n| Vec3::from_array(*n).is_finite())
+        );
+        assert_eq!(data.colors, colors);
+        assert_eq!(data.uv, uv);
+        let invalid = Mat4::from_diagonal(Vec4::new(f32::NAN, 1., 1., 1.));
+        assert!(transform_bone(&mut data, invalid, Vec3::ZERO).is_err());
+        Ok(())
     }
 
     #[test]
