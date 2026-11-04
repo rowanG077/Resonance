@@ -276,11 +276,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Upload executable archives
+      # Raw uploads accept exactly one file; keep each archive as its own artifact.
+      - name: Upload executable archive
         if: needs.prepare.outputs.publish == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: target/dist/resonance-*
+          path: target/dist/resonance-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.*
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload debugging symbols archive
+        if: needs.prepare.outputs.publish == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: target/dist/resonance-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}-symbols.*
           archive: false
           if-no-files-found: error
           retention-days: 14
