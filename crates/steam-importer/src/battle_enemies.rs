@@ -350,7 +350,39 @@ pub(crate) fn actions_with_source(
     } else {
         Vec::new()
     };
-    actions_with_callbacks(bytes, common, library, id, &final_fury)
+    let mut result = actions_with_callbacks(bytes, common, library, id, &final_fury)?;
+    let mut banks = BTreeMap::new();
+    for attack in result.attacks.values_mut() {
+        let mut events = Vec::with_capacity(attack.events.len());
+        for event in std::mem::take(&mut attack.events) {
+            if let resonance_content::battle_enemy::rules::Event::Command(
+                resonance_content::battle_action::EnemyEvent::Voice {
+                    sound: Some(Sound::Stream(stream)),
+                    ..
+                },
+            ) = &event.1
+                && *stream >= 0x8000
+            {
+                let bank = (*stream - 0x8000) / 256 + 1;
+                if bank >= 10 {
+                    if let std::collections::btree_map::Entry::Vacant(entry) = banks.entry(bank) {
+                        entry.insert(source.require(&format!("{bank:02}e.abn"))?);
+                    }
+                    if battle_voices::empty_terminal(
+                        &banks[&bank],
+                        bank,
+                        usize::from(*stream & 255),
+                    )? {
+                        // No runtime voice/no-op or fabricated silence is emitted.
+                        continue;
+                    }
+                }
+            }
+            events.push(event);
+        }
+        attack.events = events;
+    }
+    Ok(result)
 }
 
 fn actions_with_callbacks(
@@ -513,6 +545,58 @@ mod tests {
         }
         eprintln!("Enemy action owners decoded: {prepared}; remaining: {failures:#?}");
         ensure!(failures.is_empty(), "enemy action conversion is incomplete");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; reads only Kratos241 and native voice bank74"]
+    fn installed_kratos_omits_only_the_proven_empty_terminal_voice() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let bank = source.require("74e.abn")?;
+        ensure!(!battle_voices::empty_terminal(&bank, 74, 7)?);
+        ensure!(battle_voices::empty_terminal(&bank, 74, 8)?);
+        ensure!(battle_voices::empty_terminal(&bank, 74, 9).is_err());
+        let mut malformed = bank.clone();
+        malformed[20 + 8 * 8] = 1;
+        ensure!(battle_voices::empty_terminal(&malformed, 74, 8).is_err());
+
+        let image = pe::Image::parse(&source.executable)?;
+        let bytes = source.require(crate::monsters::package(&image, 241)?)?;
+        let usual = source.require("btlusual.pac")?;
+        let package = Package::parse(&usual)?;
+        let common = package.member(8)?.context("missing common actions")?;
+        let original = actions(&bytes, common, &library, 241)?;
+        let lowered = actions_with_source(&source, &bytes, common, &library, 241)?;
+        let mut expected = serde_json::to_value(&original.attacks)?;
+        let events = expected["attack-3"]["events"]
+            .as_array_mut()
+            .context("missing native Kratos attack3 events")?;
+        ensure!(
+            events[0]
+                == serde_json::json!([0, {
+                    "voice": {"sound": {"stream": 51464}, "announcement": false}
+                }])
+        );
+        events.remove(0);
+        ensure!(expected == serde_json::to_value(&lowered.attacks)?);
+        ensure!(
+            serde_json::to_value(&original.actions)? == serde_json::to_value(&lowered.actions)?
+        );
+        ensure!(
+            serde_json::to_value(&original.contacts)? == serde_json::to_value(&lowered.contacts)?
+        );
+        ensure!(
+            serde_json::to_value(&original.projectiles)?
+                == serde_json::to_value(&lowered.projectiles)?
+        );
         Ok(())
     }
 }

@@ -298,6 +298,57 @@ pub(crate) fn cook(source: &Source, library: &Path, selected: Option<&[u16]>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires installed Steam and current library; read-only Coffinmaster source binding probe"]
+    fn installed_coffinmaster_artwork_uses_the_cooked_attachment_joint() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let bytes = source.require(monsters::package(&image, 43)?)?;
+        let descriptor = crate::preview_model::reference(&bytes, 0x18)?
+            .context("Coffinmaster has no source body")?;
+        let native = crate::model::Rig::read(&source.require(&descriptor)?)?;
+        assert!(
+            native
+                .nodes
+                .iter()
+                .any(|node| node.name == "KK00_CORP07_00")
+        );
+        assert!(
+            native
+                .joint_names()
+                .iter()
+                .any(|name| name == "kk00_CORP07_00")
+        );
+        let name = monsters::symbol(43);
+        let preview: ModelPreview = serde_json::from_slice(&fs::read(
+            library.join(format!("meshes/monsters/{name}/model.json")),
+        )?)?;
+        let mesh = fs::read(library.join(&preview.parts[0].scene.mesh))?;
+        let nodes = body_nodes(&library, &preview)?;
+        let current = artwork(&bytes, &name, preview, &nodes)?;
+        assert_eq!(current.attachment_nodes[&0], "kk00_CORP07_00");
+        resonance_content::battle_model::Rig::from_glb(&mesh, &current.attachment_nodes)?;
+        // Metadata from before KK normalization must fail rather than bind the
+        // distinct uppercase geometry label ending in SHAPE.
+        assert!(
+            resonance_content::battle_model::Rig::from_glb(
+                &mesh,
+                &BTreeMap::from([(0, "KK00_CORP07_00".into())]),
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
     #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; recooks only Kilia's enemy owner"]
     fn installed_kilia_controller_binds_existing_source_rig() -> Result<()> {

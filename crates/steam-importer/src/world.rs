@@ -162,6 +162,13 @@ pub(crate) fn assemble(source: &Source, library: &Path) -> Result<()> {
         effects: ServiceCue::ALL.iter().map(|cue| *cue as u32).collect(),
         ..Default::default()
     };
+    // Travel services emit these fixed aliases outside scenario/cinematic calls:
+    // Rheairds loop, ship loop, and world-portal departure respectively.
+    select(
+        vec![Some(24), Some(25), Some(26)],
+        &effects,
+        &mut selected.effects,
+    )?;
     select(
         arguments(NativeCall::AudioCommand, 1, 0)?,
         &music,
@@ -254,6 +261,85 @@ mod tests {
     use super::*;
     use crate::Language;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; stages private world assembly"]
+    fn installed_world_travel_cues_are_prepared_by_assembler() -> Result<()> {
+        use resonance_content::field_audio::document as audio;
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let private = tempfile::tempdir()?;
+        let copy = |path: &str| -> Result<()> {
+            let target = private.path().join(path);
+            fs::create_dir_all(target.parent().context("staged file has no parent")?)?;
+            fs::copy(root.join(path), target).with_context(|| format!("stage {path}"))?;
+            Ok(())
+        };
+        for path in [
+            resonance_content::library::DESCRIPTOR,
+            document::PATH,
+            audio::MUSIC,
+            audio::EFFECTS,
+            audio::SPEECH,
+            "world/scripts/scenario.ssb",
+            document::CINEMATICS,
+        ] {
+            copy(path)?;
+        }
+        if root.join("world/messages.json").is_file() {
+            copy("world/messages.json")?;
+        }
+        let library = resonance_content::library::Library::open(&root, &[])?;
+        let mut snapshot = library.snapshot();
+        let cinematics: Mappings =
+            serde_json::from_slice(&fs::read(root.join(document::CINEMATICS))?)?;
+        for (id, _) in cinematics.iter() {
+            copy(&snapshot.resolve(document::CINEMATICS, id, Some("cinematic.json"))?)?;
+        }
+        let before: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join(document::PATH))?)?;
+        assemble(&source, private.path())?;
+        let after_bytes = fs::read(private.path().join(document::PATH))?;
+        let after: serde_json::Value = serde_json::from_slice(&after_bytes)?;
+        let mut expected = before.clone();
+        let selected = expected["audio"]["effects"]
+            .as_array_mut()
+            .context("world effects are not an array")?;
+        for id in [24, 25, 26] {
+            if !selected.contains(&id.into()) {
+                selected.push(id.into());
+            }
+        }
+        selected.sort_by_key(|value| value.as_u64());
+        assert_eq!(
+            after, expected,
+            "world assembly changed unrelated definitions"
+        );
+        let cues: Mappings = serde_json::from_slice(&fs::read(root.join(audio::EFFECTS))?)?;
+        for (service, native) in [(24, 1), (25, 0), (26, 2)] {
+            assert_eq!(cues.target(service)?, cues.target(512 + native)?);
+            let cue: serde_json::Value =
+                serde_json::from_slice(&fs::read(root.join("audio").join(cues.target(service)?))?)?;
+            ensure!(
+                cue["kind"] == "wave",
+                "world travel cue is not recorded PCM"
+            );
+            let pcm = root.join(cue["audio"].as_str().context("cue has no PCM")?);
+            let wave = hound::WavReader::open(pcm)?;
+            ensure!(wave.duration() > 0, "empty world travel recording");
+        }
+        if let Some(path) = std::env::var_os("RESONANCE_TEST_WORLD_CANDIDATE") {
+            output::write(&PathBuf::from(path), &after_bytes)?;
+        }
+        Ok(())
+    }
     #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM; checks native travel and encounter tables"]
     fn installed_world_rules_use_the_shared_schema() -> Result<()> {

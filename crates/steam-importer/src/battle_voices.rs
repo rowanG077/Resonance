@@ -200,6 +200,29 @@ fn ranges(bytes: &[u8], character: u16) -> Result<Vec<Range<usize>>> {
     Ok(ranges)
 }
 
+/// The native player (0x428c14) accepts row == count, then reads the following
+/// offset/size pair. Some banks pad that terminal pair with zeroes: it has no
+/// recording to prepare. Do not extend this to arbitrary out-of-range slots.
+pub(crate) fn empty_terminal(bytes: &[u8], character: u16, row: usize) -> Result<bool> {
+    let ranges = ranges(bytes, character)?;
+    if row < ranges.len() {
+        return Ok(false);
+    }
+    ensure!(row == ranges.len(), "actor voice exceeds native bank count");
+    let terminal = 20 + row * 8;
+    let first_payload = ranges
+        .iter()
+        .filter(|range| !range.is_empty())
+        .map(|range| range.start)
+        .min()
+        .unwrap_or(bytes.len());
+    ensure!(
+        terminal + 8 <= first_payload && bytes.get(terminal..terminal + 8) == Some(&[0; 8]),
+        "actor voice terminal has no proven empty source entry"
+    );
+    Ok(true)
+}
+
 /// Native role indices are common; only their source sound storage differs.
 pub(crate) fn selectors(image: &pe::Image<'_>) -> Result<Vec<u32>> {
     let mut address = 0x442027;
