@@ -126,6 +126,45 @@ fn named_event_actors_capture_shared_field_settings() -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS; prepares a battle from a cold overworld checkpoint without a prior field"]
+fn named_world_battle_worker_prepares_its_own_toon_ramp() -> Result<()> {
+    use crate::{battle::Entry, loading};
+    use resonance_content::model_preview::document::TOON_RAMP;
+
+    let root = directory("RESONANCE_TEST_ASSETS")?;
+    let work = tempfile::tempdir()?;
+    let save = work.path().join("world.json");
+    crate::prepare_overworld_test_fixture(&root, &[], None, &save)?;
+    let resident = loading::Resident::default();
+    let task = loading::Pending::start(root.clone(), None, Some(fs::read(save)?), None, &resident)?;
+    let mut session = crate::test_support::await_preparation(&task)?;
+    assert!(session.overworld().is_some());
+    assert!(!session.files().contains_key(TOON_RAMP));
+    *resident.files.write().unwrap() = Some(session.files());
+    session
+        .events_mut()
+        .world
+        .request_battle(Setup {
+            route: [0; 5],
+            encounter: Encounter::Formation(501),
+            arena: 1,
+            defeat: DefeatPolicy::GameOver,
+            music: None,
+        })
+        .map_err(anyhow::Error::msg)?;
+    let request = session.events_mut().world.battle_request.take().unwrap();
+    let task = loading::BattlePending::battle(Entry::capture(&session, &request)?, &resident)?;
+    let package = crate::test_support::await_preparation(&task)?;
+
+    assert_eq!(
+        package.assets.files.read(TOON_RAMP)?.as_ref(),
+        fs::read(root.join(TOON_RAMP))?
+    );
+    assert!(!resident.diagnostics.has_errors());
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires complete RESONANCE_NAMED_BATTLE_ASSETS; exercises the production battle worker with a mod-owned recording"]
 fn named_battle_worker_retains_mod_selection_and_rechecks_edits() -> Result<()> {
     use crate::{battle::Entry, loading, new_game};
