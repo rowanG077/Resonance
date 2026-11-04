@@ -301,13 +301,26 @@ fn components(
         {
             motions.push((slot, name));
         }
-        let (model, _) = preview_model::cook(
+        let (mut model, mut native) = preview_model::cook(
             source,
             library,
             [&body, &outline],
             &format!("{owner}/secondary"),
             &motions,
         )?;
+        // Secondary effect bodies use the same half-range RGB convention as
+        // carried effects. Keep an outline only when the native directory owns
+        // one; a synthesized shell darkens translucent water across its face.
+        crate::battle_effects::normalize_model_color(
+            source,
+            library,
+            &body,
+            &model.parts[0].scene,
+            &mut native,
+        )?;
+        if outline.is_empty() {
+            model.parts.truncate(1);
+        }
         let bone = if flags & 0x8000 != 0 {
             Some(anchor("pa00")?)
         } else {
@@ -420,6 +433,10 @@ mod carried_material_tests;
 #[cfg(test)]
 #[path = "monsters/defense_attachments.rs"]
 mod defense_attachment_tests;
+
+#[cfg(test)]
+#[path = "monsters/secondary_material.rs"]
+mod secondary_material_tests;
 
 /// Native command 25 explicitly samples a body motion on a carried rig. This is
 /// the same bounded command scan used by the GC media importer.
