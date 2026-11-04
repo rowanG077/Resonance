@@ -446,7 +446,9 @@ pub(super) fn render(
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
     }
-    let world = &state.get().events.world;
+    let field = state.get();
+    let world = &field.events.world;
+    let resources = field.events.resources();
     art.drawn.clear();
     art.drawn_tick = Some(world.tick);
     let Some(camera) = &world.field_camera else {
@@ -565,20 +567,31 @@ pub(super) fn render(
             applied.ack(request);
             continue;
         }
-        let Some((part, rig)) = roots.get(&actor) else {
+        let Some(actor_state) = world.actors.get(&actor) else {
             continue;
         };
-        let Some(rig) = rig.filter(|_| part.prepared) else {
-            applied.loading(request);
-            continue;
-        };
-        let Some(actor) = world.actors.get(&actor) else {
-            continue;
-        };
-        let Some(anchor) =
-            anchor_position(rig, anchor_name, fallback, actor.position, &names, &helper)
-        else {
-            continue;
+        let anchor = if let Some(anchor) = locator_anchor_position(resources, actor_state, fallback)
+        {
+            anchor
+        } else {
+            let Some((part, rig)) = roots.get(&actor) else {
+                continue;
+            };
+            let Some(rig) = rig.filter(|_| part.prepared) else {
+                applied.loading(request);
+                continue;
+            };
+            let Some(anchor) = anchor_position(
+                rig,
+                anchor_name,
+                fallback,
+                actor_state.position,
+                &names,
+                &helper,
+            ) else {
+                continue;
+            };
+            anchor
         };
         for sprite in sprites.iter() {
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
@@ -657,6 +670,17 @@ fn sync_draws(
             commands.entity(*entity).insert(Visibility::Hidden);
         }
     }
+}
+
+fn locator_anchor_position(
+    resources: &resonance_events::ResourceLibrary,
+    actor: &resonance_events::Actor,
+    fallback: [f32; 3],
+) -> Option<Vec3> {
+    resources
+        .locators
+        .contains(&i32::try_from(actor.resource).ok()?)
+        .then(|| Vec3::from_array(actor.position) + Vec3::from_array(fallback))
 }
 
 fn anchor_position(
@@ -761,6 +785,43 @@ mod tests {
         assert_eq!(second.spec.palette[0], [255; 4]);
         assert_eq!(shared.0.spec.palette[0], [255; 4]);
         Ok(())
+    }
+
+    #[test]
+    fn field522_question_emote_anchors_to_its_invisible_locator() {
+        let mut resources = resonance_events::ResourceLibrary::default();
+        resources.locators.insert(24);
+        // Both original field522 scripts spawn this model-less actor101, then
+        // emit Question(-100) on it during Sheena's two-world explanation.
+        let mut actor = resonance_events::Actor::new(24, [-464., 933., -87.]);
+        actor.visible = false;
+        actor.interaction_anchor = true;
+        let mut world = resonance_events::GameWorld::default();
+        world.actors.insert(101, actor);
+        world.emotes.insert(
+            -100,
+            resonance_events::Emote {
+                draw_order: 0,
+                phase: 0,
+                actor: 101,
+                kind: resonance_events::emote::Kind::Question,
+                offset: [0.; 3],
+                start_tick: 0,
+                duration: Some(60),
+            },
+        );
+        let emote = &world.emotes[&-100];
+        let actor = world.actors.get_mut(&emote.actor).unwrap();
+        assert!(!resonance_events::emote::sprites(emote.kind, 8, emote.phase).is_empty());
+        assert_eq!(
+            locator_anchor_position(&resources, &actor, [0., 0., 128.]),
+            Some(Vec3::new(-464., 933., 41.))
+        );
+        actor.resource = 5;
+        assert_eq!(locator_anchor_position(&resources, &actor, [0.; 3]), None);
+        actor.resource = 24;
+        resources.locators.clear();
+        assert_eq!(locator_anchor_position(&resources, &actor, [0.; 3]), None);
     }
 
     #[test]
