@@ -29,13 +29,24 @@ pub(crate) fn cook(
     }
     let effect_body = unoutlined_effect(name, package.as_ref())?;
     if effect_body {
-        crate::battle_effects::normalize_model_color(
-            source,
-            library,
-            descriptor,
-            &body,
-            &mut native,
-        )?;
+        if let Some(shape) = standalone_effect_shape(name) {
+            ensure!(
+                native.meshes.len() == 1
+                    && native.meshes[0].name == shape
+                    && native.materials.records.len() == 1,
+                "unexpected native standalone energy geometry: {name}"
+            );
+            // These shared particle meshes already use the GC RGB range.
+            // In particular COLUMN1's baked grey is ~0.6, not neutral RGB128.
+        } else {
+            crate::battle_effects::normalize_model_color(
+                source,
+                library,
+                descriptor,
+                &body,
+                &mut native,
+            )?;
+        }
     }
     let outline = if effect_body {
         None
@@ -108,11 +119,26 @@ pub(crate) fn cook(
     Ok((document, native))
 }
 
+fn standalone_effect_shape(name: &str) -> Option<&'static str> {
+    match name.to_ascii_lowercase().as_str() {
+        "d_obj012.tomdlb_d" => Some("COLUMN1SHAPE"),
+        "d_obj018.tomdlb_d" => Some("G_EFF05SHAPE"),
+        _ => None,
+    }
+}
+
 fn unoutlined_effect(name: &str, package: Option<&Package<'_>>) -> Result<bool> {
     // Audited energy effects have one textured pass in GC and no native Steam
     // shell. Inventing one also enables character toon lighting on their bodies.
     // NULL slot 1 alone is not an effect tag: ordinary NPCs need GC outlines too.
     let source_name = name.to_ascii_lowercase();
+    if standalone_effect_shape(&source_name).is_some() {
+        // Global68604/68610 are standalone energy descriptors with no authored
+        // shell. Model particles tint every part; a fabricated constant-color
+        // character outline therefore becomes a solid white cylinder or ring.
+        ensure!(package.is_none(), "energy ring is a standalone descriptor");
+        return Ok(true);
+    }
     if !matches!(
         source_name.as_str(),
         // Triet guardian light / arrival Warp.
@@ -223,6 +249,9 @@ mod tests {
         // A missing shell is normal for some NPCs too; it is not an effect tag.
         assert!(!unoutlined_effect("npc.pac", None)?);
         assert!(!unoutlined_effect("fir_d03_b002.pac", None)?);
+        assert!(!unoutlined_effect("d_OBJ017.TOMDLB_D", None)?);
+        assert!(unoutlined_effect("d_OBJ012.TOMDLB_D", None)?);
+        assert!(unoutlined_effect("d_OBJ018.TOMDLB_D", None)?);
         assert!(unoutlined_effect("fir_d03_b000.pac", None).is_err());
         let mut bytes = vec![0; 4 + 31 * 4];
         bytes[..4].copy_from_slice(&31u32.to_le_bytes());
@@ -266,19 +295,28 @@ mod tests {
             ("npc_all_b363.pac", "meshes/effects/purple-wings-2"),
             ("npc_all_b364.pac", "meshes/effects/purple-wings-3"),
             ("npc_all_b372.pac", "meshes/effects/rainbow-sparkle-wings"),
+            ("d_OBJ012.TOMDLB_D", "meshes/effects/light-cylinder"),
+            ("d_OBJ018.TOMDLB_D", "meshes/effects/white-energy-ring"),
         ] {
             let bytes = source.require(name)?;
-            let package = Package::parse(&bytes)?;
-            assert!(unoutlined_effect(name, Some(&package))?);
-            let descriptor = package.reference(0)?.unwrap();
+            let package = (!name.to_ascii_lowercase().ends_with(".tomdlb_d"))
+                .then(|| Package::parse(&bytes))
+                .transpose()?;
+            assert!(unoutlined_effect(name, package.as_ref())?);
+            let descriptor = match &package {
+                Some(package) => package.reference(0)?.unwrap(),
+                None => name,
+            };
             let (mut expected, mut original) =
                 model::cook(&source, temporary.path(), descriptor, owner, "body")?;
             // Independently express the shared GC energy color range. Alpha,
             // positions, normals, UVs and indices retain their source values.
-            for mesh in &mut original.meshes {
-                for color in &mut mesh.colors {
-                    for channel in &mut color[..3] {
-                        *channel = (*channel * 2.).min(1.);
+            if package.is_some() {
+                for mesh in &mut original.meshes {
+                    for color in &mut mesh.colors {
+                        for channel in &mut color[..3] {
+                            *channel = (*channel * 2.).min(1.);
+                        }
                     }
                 }
             }
@@ -293,15 +331,17 @@ mod tests {
             )?;
             let (actual, native) = cook(&source, &output, name, owner)?;
             assert_eq!(actual.parts.len(), 1, "{name}: fabricated character shell");
-            cook_clips(
-                &source,
-                temporary.path(),
-                owner,
-                "body",
-                &mut expected,
-                &native,
-                &package,
-            )?;
+            if let Some(package) = &package {
+                cook_clips(
+                    &source,
+                    temporary.path(),
+                    owner,
+                    "body",
+                    &mut expected,
+                    &native,
+                    package,
+                )?;
+            }
             assert_eq!(
                 serde_json::to_value(&actual.parts[0])?,
                 serde_json::to_value(&expected)?,
