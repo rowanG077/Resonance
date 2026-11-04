@@ -728,21 +728,25 @@ fn action_names(
         .collect()
 }
 
+/// Battle shading owns this dependency even when the suspended scene is the
+/// overworld, which does not prepare or load the field's toon ramp.
+pub(super) fn capture_view_files(
+    snapshot: &mut resonance_content::library::Snapshot,
+) -> Result<()> {
+    snapshot.read(
+        resonance_content::model_preview::document::TOON_RAMP,
+        resonance_content::preparation::ASSET_LIMIT,
+    )?;
+    Ok(())
+}
+
 fn scene(world: &mut World, package: Package) -> Result<Scene> {
     let started = std::time::Instant::now();
-    let toon = world
-        .resource::<AssetServer>()
-        .load_builder()
-        .with_settings(|settings: &mut bevy::image::ImageLoaderSettings| {
-            settings.is_srgb = false;
-            settings.sampler = bevy::image::ImageSampler::linear();
-        })
-        .load(resonance_content::model_preview::document::TOON_RAMP);
     let target = world
         .query_filtered::<&RenderTarget, With<super::FieldCamera>>()
         .single(world)?
         .clone();
-    let result = construct_scene(world, package, toon, target);
+    let result = construct_scene(world, package, target);
     debug!(
         target: "resonance_presentation::battle_entry",
         elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
@@ -752,12 +756,7 @@ fn scene(world: &mut World, package: Package) -> Result<Scene> {
     result
 }
 
-fn construct_scene(
-    world: &mut World,
-    package: Package,
-    toon: Handle<Image>,
-    target: RenderTarget,
-) -> Result<Scene> {
+fn construct_scene(world: &mut World, package: Package, target: RenderTarget) -> Result<Scene> {
     let phase_timing = |phase: &'static str, started: std::time::Instant| {
         debug!(
             target: "resonance_presentation::battle_entry",
@@ -793,6 +792,14 @@ fn construct_scene(
         .write()
         .unwrap() = Some(Arc::new(assets.files.clone()));
     let server = world.resource::<AssetServer>().clone();
+    // Install the battle snapshot before any asynchronous asset-server reads.
+    let toon = server
+        .load_builder()
+        .with_settings(|settings: &mut bevy::image::ImageLoaderSettings| {
+            settings.is_srgb = false;
+            settings.sampler = bevy::image::ImageSampler::linear();
+        })
+        .load(resonance_content::model_preview::document::TOON_RAMP);
     phase_timing("metadata/resident snapshot", started);
     let (mut hud, game_over, dialogue) = world.resource_scope(
         |world, mut materials: Mut<Assets<super::field_ui::Surface>>| {
@@ -1983,6 +1990,7 @@ pub(crate) mod tests {
                 &mut Default::default(),
                 &|| false,
             )?;
+            capture_view_files(&mut snapshot)?;
             assets.files = Files::from_snapshot(snapshot, || false, files.diagnostics().clone())?;
             Ok::<_, anyhow::Error>((assets, prepared, audio))
         }?;

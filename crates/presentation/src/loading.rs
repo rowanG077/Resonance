@@ -383,6 +383,7 @@ impl BattlePending {
                     &mut cache.audio,
                     &cancelled,
                 )?;
+                super::battle::capture_view_files(&mut snapshot)?;
                 assets.files = Files::from_snapshot(snapshot, cancelled, diagnostics)?;
                 let catalogue = assets.catalogue.clone();
                 // View retains its diagnostic and skip policy for an invalid stage.

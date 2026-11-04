@@ -250,7 +250,7 @@ impl Fixture {
                 source: image.clone(),
                 brightness: Vec4::ONE,
             });
-        let mut scene = construct_scene(world, package, image, RenderTarget::default())?;
+        let mut scene = construct_scene(world, package, RenderTarget::default())?;
         let art = scene.game_over.as_mut().context("fatal art missing")?;
         world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
             art.prepare(&mut world.commands(), &mut meshes);
