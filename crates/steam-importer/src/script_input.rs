@@ -38,6 +38,8 @@ const RAW: &[(u16, u32)] = &[
 ];
 
 pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
+    let coordinates = crate::script_actor_coordinates::normalize(bytes)?;
+    let bytes = coordinates.as_slice();
     let analysis = scenario::analyze(bytes)?;
     let calls = analysis
         .instructions

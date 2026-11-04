@@ -68,6 +68,7 @@ mod preview_model;
 mod recoil;
 mod resources;
 mod script;
+mod script_actor_coordinates;
 mod script_audio;
 mod script_input;
 mod skit_portraits;
