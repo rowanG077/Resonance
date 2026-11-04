@@ -5,6 +5,7 @@ use resonance_battle::{
     WeaponTextureAnimation,
 };
 use resonance_content::{
+    ScenePart,
     battle_model::{AttachmentAnimation, AttachmentTextureAnimation, ModelPart},
     prepared::Files,
 };
@@ -87,10 +88,10 @@ fn layers(
                 .unwrap_or(&rig.skeleton);
             let texture_animation = animation
                 .map(|animation| {
-                    texture_animation(
+                    layer_texture_animation(
                         animation,
                         part.layer_skeletons.contains_key(&layer.scene.resource),
-                        layer.scene.textures.len(),
+                        &layer.scene,
                     )
                 })
                 .transpose()?
@@ -139,6 +140,25 @@ fn layers(
             })
         })
         .collect()
+}
+
+fn layer_texture_animation(
+    animation: &AttachmentAnimation,
+    independent: bool,
+    scene: &ScenePart,
+) -> Result<Option<WeaponTextureAnimation>> {
+    // Constant-color outlines share the primary rig without sampling its
+    // texture. Independent layers still validate their own explicit controls.
+    if !independent
+        && scene.outline_color.is_some()
+        && scene
+            .materials
+            .iter()
+            .all(|material| scene.outline_color_for(material).is_some())
+    {
+        return Ok(None);
+    }
+    texture_animation(animation, independent, scene.textures.len())
 }
 
 fn texture_animation(
@@ -216,6 +236,48 @@ pub fn owner_linked() -> WeaponPlayback {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_atlas_animates_body_without_binding_untextured_outline() -> Result<()> {
+        let body: ScenePart = serde_json::from_value(serde_json::json!({
+            "mesh": "body.glb",
+            "textures": ["atlas.ktx2", "body.ktx2"],
+            "materials": [{"meshes": [0], "color": {"texture": 0}}]
+        }))?;
+        let mut outline: ScenePart = serde_json::from_value(serde_json::json!({
+            "mesh": "outline.glb",
+            "outline_color": [0, 0, 0, 127],
+            "materials": [{"meshes": [0]}]
+        }))?;
+        let mut animation: AttachmentAnimation = serde_json::from_value(serde_json::json!({
+            "primary": {"kind": "atlas", "rows": 4, "ticks_per_frame": 3},
+            "independent": {"kind": "scroll", "step_milli_uv": [0, -12]}
+        }))?;
+        assert!(matches!(
+            layer_texture_animation(&animation, false, &body)?,
+            Some(WeaponTextureAnimation::Atlas {
+                texture: 0,
+                rows: 4,
+                ticks_per_frame: 3,
+                ..
+            })
+        ));
+        assert!(layer_texture_animation(&animation, false, &outline)?.is_none());
+        assert!(matches!(
+            layer_texture_animation(&animation, true, &body)?,
+            Some(WeaponTextureAnimation::Scroll { texture: 0, .. })
+        ));
+        assert!(layer_texture_animation(&animation, true, &outline).is_err());
+        animation.primary = Some(AttachmentTextureAnimation::Scroll {
+            texture: 2,
+            step_milli_uv: [0, 20],
+            offset_milli_uv: [0, 0],
+        });
+        assert!(layer_texture_animation(&animation, false, &body).is_err());
+        outline.materials = body.materials.clone();
+        assert!(layer_texture_animation(&animation, false, &outline).is_err());
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires current stored battle scenes; metadata only"]
