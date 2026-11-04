@@ -215,6 +215,174 @@ pub(crate) fn camera(bytes: &[u8]) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "requires installed Steam and RESONANCE_TEST_LIBRARY; optional RESONANCE_SCENERY_REFRESH_FIELDS=220,221 or369, RESONANCE_SCENERY_MATERIAL_OUTPUT"]
+    fn installed_selected_scenery_refresh_uses_existing_translucent_priorities() -> Result<()> {
+        let source = Source::open(
+            Path::new(
+                &std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let image = pe::Image::parse(&source.executable)?;
+        let fields = std::env::var("RESONANCE_SCENERY_REFRESH_FIELDS")
+            .unwrap_or_else(|_| "220,221".into())
+            .split(',')
+            .map(str::parse::<u32>)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for field in fields {
+            let (name, expected) = match field {
+                220 => ("triet-ruins-0220", Some([(12, 10), (10, 11), (11, 12)])),
+                221 => ("triet-ruins-0221", Some([(7, 5), (5, 9), (6, 10)])),
+                369 => ("tower-of-mana-0369", None),
+                _ => anyhow::bail!("selected scenery probe only covers fields220/221/369"),
+            };
+            let relative = format!("fields/{name}/scene.json");
+            let original = fs::read(library.join(&relative))?;
+            let mut scene: Scene = serde_json::from_slice(&original)?;
+            let pointer = pe::word(image.slice(0x8cb908 + field * 24, 4)?, 0)?;
+            let package_bytes = source.require(image.text(pointer)?)?;
+            let package = Package::parse(&package_bytes)?;
+            for part in &mut scene.parts {
+                let descriptor = package
+                    .reference(usize::from(part.resource))?
+                    .context("Triet scenery has no native model")?;
+                let bytes = source.require(descriptor)?;
+                let dependencies = crate::package::dependencies(&bytes)?;
+                let native = model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+                ensure!(
+                    part.materials.len()
+                        == native
+                            .meshes
+                            .iter()
+                            .filter(|mesh| !mesh.indices.is_empty())
+                            .count(),
+                    "Triet source mesh/material count changed"
+                );
+                scenery_materials(&source, &library, descriptor, part, &native)?;
+                let stage = DrawStage::scenery(part.resource).context("unknown Triet layer")?;
+                for material in &mut part.materials {
+                    material.draw_order += stage.offset();
+                    material.depth_write = part.resource != 2;
+                }
+                if part.resource == 0
+                    && let Some(expected) = expected
+                {
+                    eprintln!(
+                        "field {field} all main priorities {:?}",
+                        part.materials
+                            .iter()
+                            .map(|m| m.draw_order)
+                            .collect::<Vec<_>>()
+                    );
+                    for (mesh, priority) in expected {
+                        ensure!(
+                            part.materials[mesh].draw_order == priority,
+                            "field {field} mesh {mesh} no longer has source-derived scenery priority {priority}"
+                        );
+                    }
+                    eprintln!(
+                        "field {field}: existing scenery recipe entrance priorities {expected:?}"
+                    );
+                }
+            }
+            let original_value: serde_json::Value = serde_json::from_slice(&original)?;
+            let mut override_value = original_value.clone();
+            let normalized = serde_json::to_value(&scene)?;
+            let parts = override_value["parts"]
+                .as_array_mut()
+                .context("Triet has no parts")?;
+            let normalized_parts = normalized["parts"]
+                .as_array()
+                .context("normalized parts missing")?;
+            ensure!(
+                parts.len() == normalized_parts.len(),
+                "Triet part count changed"
+            );
+            for (original, normalized) in parts.iter_mut().zip(normalized_parts) {
+                original["materials"] = normalized["materials"].clone();
+            }
+            let without_materials = |mut value: serde_json::Value| {
+                for part in value["parts"].as_array_mut().unwrap() {
+                    part.as_object_mut().unwrap().remove("materials");
+                }
+                value
+            };
+            ensure!(
+                without_materials(original_value) == without_materials(override_value.clone()),
+                "Triet material refresh changed other scene fields"
+            );
+            if let Some(destination) = std::env::var_os("RESONANCE_SCENERY_MATERIAL_OUTPUT")
+                .or_else(|| std::env::var_os("RESONANCE_TRIET_SCENERY_OUTPUT"))
+            {
+                output::json(&Path::new(&destination).join(relative), &override_value)?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires installed Steam and RESONANCE_TEST_LIBRARY; optionally writes a field522 scene override to RESONANCE_NIGHT_SCENERY_OUTPUT"]
+    fn installed_night_foliage_rejects_native_cutout_edges() -> Result<()> {
+        let source = Source::open(
+            Path::new(
+                &std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let library = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let relative = "fields/field-0522/scene.json";
+        let original = fs::read(library.join(relative))?;
+        let mut scene: Scene = serde_json::from_slice(&original)?;
+        let image = pe::Image::parse(&source.executable)?;
+        let pointer = pe::word(image.slice(0x8cb908 + 522 * 24, 4)?, 0)?;
+        let package_bytes = source.require(image.text(pointer)?)?;
+        let package = Package::parse(&package_bytes)?;
+        for part in &mut scene.parts {
+            let descriptor = package
+                .reference(usize::from(part.resource))?
+                .context("night scenery has no native model")?;
+            let bytes = source.require(descriptor)?;
+            let dependencies = crate::package::dependencies(&bytes)?;
+            let native = model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+            scenery_materials(&source, &library, descriptor, part, &native)?;
+            let cutoffs = part
+                .materials
+                .iter()
+                .map(|m| m.alpha_cutoff)
+                .collect::<Vec<_>>();
+            ensure!(
+                cutoffs == [129, 129, 129, 129, 129, 129, 129, 1, 129],
+                "night scenery alpha comparisons changed: {cutoffs:?}"
+            );
+        }
+        // This probe only changes material state. Keep script, animation,
+        // geometry and every other scene field from the existing library.
+        let mut override_value: serde_json::Value = serde_json::from_slice(&original)?;
+        let normalized = serde_json::to_value(&scene)?;
+        for (original, normalized) in override_value["parts"]
+            .as_array_mut()
+            .context("night scenery has no parts")?
+            .iter_mut()
+            .zip(
+                normalized["parts"]
+                    .as_array()
+                    .context("normalized parts missing")?,
+            )
+        {
+            original["materials"] = normalized["materials"].clone();
+        }
+        if let Some(destination) = std::env::var_os("RESONANCE_NIGHT_SCENERY_OUTPUT") {
+            output::json(&Path::new(&destination).join(relative), &override_value)?;
+        }
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires installed Steam; optionally publishes only field340 to RESONANCE_CLASSROOM_OUTPUT"]
     fn installed_classroom_nodes_keep_script_visibility_targets() -> Result<()> {
         let installation =
