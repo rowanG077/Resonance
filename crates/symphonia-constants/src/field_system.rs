@@ -22,5 +22,6 @@ ids! {
         FrameFeedback = 18,
         SetDoorInteractionRadius = 19,
         SetSkitPrompts = 21,
+        SetModelContactDistanceCull = 22,
     }
 }

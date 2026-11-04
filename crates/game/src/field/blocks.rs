@@ -74,7 +74,7 @@ pub(super) struct Blocks {
 }
 impl Blocks {
     pub fn settle(&mut self, world: &mut GameWorld, mesh: &WalkMesh) {
-        mesh.with_actors(world.actors.values())
+        mesh.with_world_actors(world)
             .settle_scenery(world, self.moving());
     }
     pub fn active(&self) -> bool {
@@ -98,7 +98,7 @@ impl Blocks {
         if !self.active() && (!events.player_has_control() || !input.pressed(Button::Accept)) {
             return;
         }
-        let mesh = &mesh.with_actors(events.world.actors.values());
+        let mesh = &mesh.with_world_actors(&events.world);
         let service_clips = [HOLD_CLIP, PUSH_CLIP, PULL_CLIP].map(|slot| {
             let duration = events
                 .world

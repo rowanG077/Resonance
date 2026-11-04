@@ -686,6 +686,8 @@ pub struct GameWorld {
     pub scene_dissolve: Option<SceneDissolve>,
     /// Nonzero blends the previous rendered field into each new frame.
     pub frame_feedback: u8,
+    /// Nonzero skips distant unattached model-contact candidates; reset per field.
+    pub model_contact_distance_cull: i8,
     pub next_transition_white: Option<bool>,
     pub overlays: BTreeMap<i32, Overlay>,
     pub effect_settings: BTreeMap<(i32, i32), [i32; 3]>,

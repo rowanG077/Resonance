@@ -26,6 +26,7 @@ pub struct WalkMesh {
     triangles: Arc<[Surface]>,
     model_floors: Vec<(u64, [f32; 3], Surface)>,
     solids: Vec<Solid>,
+    distance_culled_models: std::collections::BTreeMap<u64, [f32; 3]>,
 }
 struct Solid {
     owner: u64,
@@ -224,7 +225,7 @@ impl WalkMesh {
         drop: f32,
         excluded_attributes: u32,
     ) -> Option<GroundSurface> {
-        self.surfaces(Some(owner))
+        self.surfaces(point, Some(owner))
             .filter(|(_, attributes)| attributes & excluded_attributes == 0)
             .filter_map(|(triangle, attributes)| {
                 let z = height(*triangle, point)?;
@@ -283,6 +284,7 @@ impl WalkMesh {
             !self.solids.iter().any(|solid| {
                 solid.owner != block.instance
                     && solid.owner != player.instance
+                    && self.model_contact_enabled(solid.owner, end)
                     && query.accepts(solid.surface)
                     && body_contact(
                         solid
@@ -299,14 +301,39 @@ impl WalkMesh {
         })
     }
 
-    fn surfaces(&self, excluding: Option<u64>) -> impl Iterator<Item = &Surface> {
+    fn model_contact_enabled(&self, owner: u64, point: [f32; 3]) -> bool {
+        self.distance_culled_models
+            .get(&owner)
+            .is_none_or(|origin| {
+                (0..3)
+                    .map(|axis| (point[axis] - origin[axis]).powi(2))
+                    .sum::<f32>()
+                    <= 800_f32.powi(2)
+            })
+    }
+
+    fn surfaces(&self, point: [f32; 3], excluding: Option<u64>) -> impl Iterator<Item = &Surface> {
         self.model_floors
             .iter()
             .filter(move |(owner, _, (triangle, _))| {
-                Some(*owner) != excluding && surface_normal(*triangle)[2] > 0.
+                Some(*owner) != excluding
+                    && self.model_contact_enabled(*owner, point)
+                    && surface_normal(*triangle)[2] > 0.
             })
             .map(|(_, _, surface)| surface)
             .chain(self.triangles.iter())
+    }
+    pub(super) fn with_world_actors(&self, world: &resonance_events::GameWorld) -> Self {
+        let mut mesh = self.with_actors(world.actors.values());
+        if world.model_contact_distance_cull != 0 {
+            mesh.distance_culled_models = world
+                .actors
+                .values()
+                .filter(|actor| actor.model_collision.is_some() && actor.attachment.is_none())
+                .map(|actor| (actor.instance, actor.position))
+                .collect();
+        }
+        mesh
     }
     /// Snapshot live model floors without copying the map. Hidden scenery also
     /// carries floors; native property 48 only masks projectile contact.
@@ -364,6 +391,7 @@ impl WalkMesh {
             triangles: self.triangles.clone(),
             model_floors,
             solids,
+            distance_culled_models: Default::default(),
         }
     }
     pub fn new(groups: &[CollisionGroup]) -> Result<Self> {
@@ -382,6 +410,7 @@ impl WalkMesh {
             triangles: triangles.into(),
             model_floors: Vec::new(),
             solids: Vec::new(),
+            distance_culled_models: Default::default(),
         })
     }
     /// Keep an entrance on its floor, or use the nearest valid triangle when an
@@ -390,7 +419,7 @@ impl WalkMesh {
         if let Some(z) = self.height(point, f32::MAX) {
             return Some([point[0], point[1], z]);
         }
-        self.surfaces(None)
+        self.surfaces(point, None)
             .filter(|(_, attributes)| CollisionQuery::Player.accepts(*attributes))
             .filter_map(|(vertices, _)| {
                 let center =
@@ -436,7 +465,7 @@ impl WalkMesh {
     /// An authored landing can end just outside the floor while the feet overlap it.
     pub(super) fn landing_near(&self, point: [f32; 3], radius: f32) -> Option<[f32; 3]> {
         let mut nearest = None;
-        for (triangle, attributes) in self.surfaces(None) {
+        for (triangle, attributes) in self.surfaces(point, None) {
             if !CollisionQuery::Player.accepts(*attributes) {
                 continue;
             }
@@ -473,6 +502,7 @@ impl WalkMesh {
     ) -> bool {
         self.solids.iter().any(|solid| {
             solid.owner != owner
+                && self.model_contact_enabled(solid.owner, end)
                 && query.accepts(solid.surface)
                 && segment_contact(solid.planes.iter().copied(), start, end).is_some()
         })
@@ -615,10 +645,10 @@ impl WalkMesh {
             .then_some((nearest, attributes, normal.map(|v| v * normal[2].signum())))
         };
         let (a, attributes, normal) = self
-            .surfaces(excluding)
+            .surfaces(point, excluding)
             .filter_map(edge)
             .min_by(|a, b| distance_squared(a.0, point).total_cmp(&distance_squared(b.0, point)))?;
-        self.surfaces(excluding)
+        self.surfaces(point, excluding)
             .filter_map(edge)
             .find_map(|(b, _, _)| {
                 let width = distance_squared(a, b);
@@ -651,7 +681,7 @@ impl WalkMesh {
         point: [f32; 3],
         excluding: Option<u64>,
     ) -> impl Iterator<Item = GroundSurface> + '_ {
-        self.surfaces(excluding)
+        self.surfaces(point, excluding)
             .filter_map(move |(triangle, attributes)| {
                 height(*triangle, point).map(|z| (z, triangle, *attributes))
             })
@@ -1010,6 +1040,76 @@ mod tests {
             triangles: vec![[0, 1, 2], [0, 2, 3]],
         }])
         .unwrap()
+    }
+    #[test]
+    fn model_contact_distance_cull_keeps_800_boundary_attached_models_and_static_floor() {
+        use resonance_events::{Actor, Attachment, GameWorld};
+        let floor = CollisionGroup {
+            surface: 0,
+            vertices: vec![
+                [-1000., -1000., 0.],
+                [1000., -1000., 0.],
+                [1000., 1000., 0.],
+                [-1000., 1000., 0.],
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let mut static_floor = floor.clone();
+        for point in &mut static_floor.vertices {
+            point[2] = -10.;
+        }
+        let mesh = WalkMesh::new(&[static_floor]).unwrap();
+        let mut world = GameWorld::default();
+        let mut actor = Actor::new(2, [0.; 3]);
+        actor.model_collision = Some(Arc::new(resonance_content::field::ModelCollision {
+            floors: vec![floor],
+            ..Default::default()
+        }));
+        world.insert_actor(2, actor);
+        // A deliberately large model surface proves origin culling rather than
+        // relying on a distant triangle that would already fail the point test.
+        assert_eq!(
+            mesh.with_world_actors(&world)
+                .surface([801., 0., 0.], 1000.)
+                .unwrap()
+                .height,
+            0.
+        );
+        world.model_contact_distance_cull = 1;
+        let mut culled = mesh.with_world_actors(&world);
+        assert_eq!(culled.surface([800., 0., 0.], 1000.).unwrap().height, 0.);
+        assert_eq!(culled.surface([801., 0., 0.], 1000.).unwrap().height, -10.);
+        assert_eq!(culled.surface([0., 0., 801.], 1000.).unwrap().height, -10.);
+        // Exercise the existing model-solid contact path with the same large
+        // owner, rather than only checking the floor's triangle selection.
+        culled.solids.push(Solid {
+            owner: world.actors[&2].instance,
+            surface: 0,
+            planes: Plane::bounds([-1000., -1., -1.], [1000., 1., 1.]).to_vec(),
+            body_planes: None,
+        });
+        assert!(culled.blocked([800., 0., 0.], CollisionQuery::Player, 0));
+        assert!(!culled.blocked([801., 0., 0.], CollisionQuery::Player, 0));
+        world.actors.get_mut(&2).unwrap().attachment = Some(Attachment {
+            actor: 1,
+            bone: "root".into(),
+        });
+        assert_eq!(
+            mesh.with_world_actors(&world)
+                .surface([801., 0., 0.], 1000.)
+                .unwrap()
+                .height,
+            0.
+        );
+        world.actors.get_mut(&2).unwrap().attachment = None;
+        world.model_contact_distance_cull = 0;
+        assert_eq!(
+            mesh.with_world_actors(&world)
+                .surface([801., 0., 0.], 1000.)
+                .unwrap()
+                .height,
+            0.
+        );
     }
     #[test]
     fn enemy_sight_respects_range_and_cone() {

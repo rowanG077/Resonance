@@ -330,6 +330,12 @@ impl NativeHost<'_> {
                             a[1] as u8,
                         )));
                     }
+                    FieldSystemCommand::SetModelContactDistanceCull => {
+                        value = Some(i32::from(std::mem::replace(
+                            &mut self.world.model_contact_distance_cull,
+                            a[1] as i8,
+                        )));
+                    }
                     FieldSystemCommand::PlayTime => value = Some(self.world.played_ticks as i32),
                     FieldSystemCommand::LastBattleDuration => {
                         value = Some(

@@ -5788,6 +5788,31 @@ fn clear_field_handoff_releases_input_without_a_delayed_second_handoff() {
 }
 
 #[test]
+fn model_contact_cull_command_swaps_signed_mode_and_resets_with_a_field_world() {
+    for (input, expected) in [(1, 1), (257, 1), (-1, -1)] {
+        let setup = script(&[(Call::FieldSystem, &[22, input])]);
+        let restore = script(&[(Call::FieldSystem, &[22, 0])]);
+        let world = controlled_world();
+        assert_eq!(world.model_contact_distance_cull, 0);
+        let mut events = runtime(program(&setup, &restore), Default::default(), world);
+        assert_eq!(events.world.model_contact_distance_cull, expected);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+        events.world.event_flags.insert(200);
+        let (next_field, _) = events.persistent_state().unwrap().into_world();
+        assert_eq!(next_field.model_contact_distance_cull, 0);
+        assert!(next_field.event_flags.contains(&200));
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        assert_eq!(events.world.model_contact_distance_cull, 0);
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            i32::from(expected)
+        );
+    }
+    assert_eq!(GameWorld::default().model_contact_distance_cull, 0);
+}
+
+#[test]
 fn frame_feedback_can_be_enabled_and_restored_by_scripts() {
     let setup = script(&[(Call::FieldSystem, &[18, 2])]);
     let restore = script(&[(Call::FieldSystem, &[18, 0])]);

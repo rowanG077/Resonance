@@ -444,7 +444,7 @@ impl FieldSession {
             }
             self.events.world.insert_actor(id, player);
         }
-        let floor = self.walkmesh.with_actors(self.events.world.actors.values());
+        let floor = self.walkmesh.with_world_actors(&self.events.world);
         let actor = self.events.world.actors.get_mut(&id).unwrap();
         actor.position = floor
             .exploration_start(actor.position)
@@ -687,7 +687,7 @@ impl FieldSession {
             .pressed(Button::Accept)
             .then(|| self.interaction_target())
             .flatten();
-        let walkmesh = self.walkmesh.with_actors(self.events.world.actors.values());
+        let walkmesh = self.walkmesh.with_world_actors(&self.events.world);
         let controlled_actor = self.events.world.controlled_actor;
         let obstacles: Vec<_> = self
             .events
@@ -1028,7 +1028,7 @@ impl FieldSession {
             // Restore the previous target only if the script left ours alone.
             actor.target_heading = heading;
         }
-        let walkmesh = self.walkmesh.with_actors(self.events.world.actors.values());
+        let walkmesh = self.walkmesh.with_world_actors(&self.events.world);
         for (id, actor) in &mut self.events.world.actors {
             if actor.grounded
                 && actor.attachment.is_none()
@@ -1369,7 +1369,7 @@ impl FieldSession {
     }
     /// Snapshot current actor geometry once for a batch of collision queries.
     pub fn collision(&self) -> navigation::WalkMesh {
-        self.walkmesh.with_actors(self.events.world.actors.values())
+        self.walkmesh.with_world_actors(&self.events.world)
     }
     pub fn character_light(&self, id: i32) -> resonance_events::effect::CharacterLight {
         self.events
