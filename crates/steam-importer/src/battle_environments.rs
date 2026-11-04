@@ -233,7 +233,48 @@ fn normalize_scenery(
         }
         material.alpha_cutoff = cutoffs[usize::from(mesh.material)];
     }
+    gc_background_order(descriptor, scene, model)?;
     output::write(&library.join(&scene.mesh), &model.glb(&tints)?)
+}
+
+/// GC's Maxwell sky submits the star sphere before its translucent foreground
+/// veils. Steam keeps these same named meshes in descriptor order instead.
+/// Restore the original node-priority queue without changing mesh identities,
+/// animation, depth flags or the native battle clock.
+fn gc_background_order(
+    descriptor: &str,
+    scene: &mut resonance_content::ScenePart,
+    model: &crate::model::Model,
+) -> Result<()> {
+    if !descriptor.eq_ignore_ascii_case("BG_071_OBJ000.TOMDLB_D") {
+        return Ok(());
+    }
+    // Original BG71 GPL node priorities: fushigi=0, fushigi_ami10=10,
+    // yuka_under60=60, white120=120. The names survive in the Steam rig.
+    const ORDER: [&str; 4] = ["FUSHIGI", "FUSHIGI_AMI10", "YUKA_UNDER60", "WHITE120"];
+    let meshes = model
+        .meshes
+        .iter()
+        .filter(|mesh| !mesh.indices.is_empty())
+        .collect::<Vec<_>>();
+    ensure!(
+        meshes.len() == ORDER.len() && scene.materials.len() == ORDER.len(),
+        "Maxwell sky mesh directory changed"
+    );
+    let mut seen = BTreeSet::new();
+    for (mesh, material) in meshes.into_iter().zip(&mut scene.materials) {
+        let node = mesh
+            .node
+            .and_then(|node| model.rig.nodes.get(usize::from(node)))
+            .context("Maxwell sky mesh lost its named source node")?;
+        let rank = ORDER
+            .iter()
+            .position(|name| node.name.eq_ignore_ascii_case(name))
+            .context("Maxwell sky source node changed")?;
+        ensure!(seen.insert(rank), "Maxwell sky repeats a priority node");
+        material.draw_order = rank as u32;
+    }
+    Ok(())
 }
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
@@ -451,6 +492,55 @@ mod tests {
     use super::*;
     use crate::Language;
     use std::path::PathBuf;
+
+    #[test]
+    #[ignore = "requires installed Steam and RESONANCE_TEST_LIBRARY; optionally writes only arena71 JSON to RESONANCE_MAXWELL_SCENERY_OUTPUT"]
+    fn installed_maxwell_sky_keeps_gc_named_node_priority() -> Result<()> {
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        );
+        let relative = "battle/arenas/tower-of-salvation-3/arena.json";
+        let original = std::fs::read(library.join(relative))?;
+        let mut stage: Definition = serde_json::from_slice(&original)?;
+        let package_bytes = source.require("BG_071.PAC")?;
+        let package = Package::parse(&package_bytes)?;
+        let descriptor = package
+            .reference(1)?
+            .context("Maxwell sky source missing")?;
+        let bytes = source.require(descriptor)?;
+        let dependencies = crate::package::dependencies(&bytes)?;
+        let native = crate::model::Model::read(&bytes, &source.require(&dependencies[0])?)?;
+        let scene = &mut stage.layers[0].model.scene;
+        let mut control = scene.clone();
+        gc_background_order("unrelated.tomdlb_d", &mut control, &native)?;
+        ensure!(
+            serde_json::to_value(&control)? == serde_json::to_value(&scene)?,
+            "unrelated arena changed"
+        );
+        gc_background_order(descriptor, scene, &native)?;
+        ensure!(
+            scene
+                .materials
+                .iter()
+                .map(|material| material.draw_order)
+                .collect::<Vec<_>>()
+                == [3, 1, 0, 2],
+            "Maxwell sky GC priorities changed"
+        );
+        let mut document: serde_json::Value = serde_json::from_slice(&original)?;
+        document["layers"][0]["model"]["materials"] =
+            serde_json::to_value(&stage)?["layers"][0]["model"]["materials"].clone();
+        if let Some(destination) = std::env::var_os("RESONANCE_MAXWELL_SCENERY_OUTPUT") {
+            output::json(&Path::new(&destination).join(relative), &document)?;
+        }
+        Ok(())
+    }
 
     #[test]
     fn arena_texture_motion_keeps_native_clock_and_scalar_types() -> Result<()> {
