@@ -281,7 +281,6 @@ impl super::Artwork {
     ) -> Result<()> {
         let mut floating = Batch::default();
         let mut recovered = Batch::default();
-        let mut party_slot = 0;
         for (actor, numbers) in frame.actors.iter().zip(&self.numbers.actors) {
             for hit in &numbers.floating {
                 let camera = frame
@@ -299,10 +298,15 @@ impl super::Artwork {
             if actor.side == Side::Party {
                 for (row, number) in numbers.recovery.iter().enumerate() {
                     if let Some(number) = number {
-                        recovery(&mut recovered, &self.art, number, party_slot, row)?;
+                        recovery(
+                            &mut recovered,
+                            &self.art,
+                            number,
+                            actor.control_slot.index(),
+                            row,
+                        )?;
                     }
                 }
-                party_slot += 1;
             }
         }
         self.ui.floating.upload(floating, commands, meshes)?;

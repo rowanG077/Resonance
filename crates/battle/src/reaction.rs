@@ -160,16 +160,14 @@ impl Battle {
             return false;
         }
         let Some(leader) = self
-            .actors
-            .iter()
-            .position(|actor| actor.side == Side::Party && actor.control != Control::Auto)
+            .preferred_party_leader()
+            .filter(|id| self.actors[id.index()].control != Control::Auto)
         else {
             return false;
         };
-        if !self.actors[leader].available() {
+        if !self.actors[leader.index()].available() {
             return false;
         }
-        let leader = ActorId(leader as u8);
         let selected = self.target(leader);
         let other = if attacker != leader && selected == Some(target) {
             target

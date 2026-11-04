@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ActorAvailability, BattleInput, Cue, ProtectionMode, Sound, tests::actor};
+use crate::{ActorAvailability, BattleInput, Control, Cue, ProtectionMode, Sound, tests::actor};
 #[path = "ex71_tests.rs"]
 mod ex71_tests;
 

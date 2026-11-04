@@ -309,6 +309,19 @@ impl UnisonArteEdit<'_> {
 }
 
 impl State {
+    pub(crate) fn reorder_party(&mut self, order: &[ActorId]) {
+        if let Some(definition) = &mut self.definition {
+            let members = &mut Arc::make_mut(definition).members;
+            let mut entries: Vec<_> = std::mem::take(members)
+                .into_iter()
+                .zip(std::mem::take(&mut self.openers))
+                .collect();
+            entries
+                .sort_by_key(|(member, _)| order.iter().position(|&actor| actor == member.actor));
+            (*members, self.openers) = entries.into_iter().unzip();
+        }
+    }
+
     pub(crate) fn release_immunity(&mut self, actor: ActorId) {
         if let Some(definition) = &mut self.definition {
             Arc::make_mut(definition).immune_targets.remove(&actor);

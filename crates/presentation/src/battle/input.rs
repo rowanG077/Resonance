@@ -379,6 +379,7 @@ impl Frame {
             cancel_b: sample.cancel,
             cancel_y: sample.cancel_selector,
             control_mode: sample.menu == Some(MenuAction::Details),
+            change_character: sample.unison.pressed,
             picker_directions: match sample.step {
                 -1 => 1,
                 1 => 2,
@@ -1336,6 +1337,37 @@ mod tests {
             !frame
                 .command_input(Some(ControllerPort::One), &[], InputKind::Command)
                 .control_mode
+        );
+    }
+
+    #[test]
+    fn character_switch_uses_the_owners_mapped_unison_button_and_latches_once() {
+        let mut controls = Controls::default();
+        // Map physical X to Unison; Z now performs Guard.
+        let settings = CustomizeSettings {
+            button_map: [0, 1, 6, 3, 4, 5, 2],
+            ..Default::default()
+        };
+        let mut sample = Sample::default();
+        sample.held[2] = true;
+        controls.slots[0].gather(sample);
+        controls.slots[0].gather(Sample::default());
+        let frame = controls.sample(&settings);
+        assert!(
+            frame
+                .command_input(Some(ControllerPort::One), &[], InputKind::Command)
+                .change_character
+        );
+        assert!(
+            !frame
+                .command_input(Some(ControllerPort::Two), &[], InputKind::Command)
+                .change_character
+        );
+        assert!(
+            !controls
+                .sample(&settings)
+                .command_input(Some(ControllerPort::One), &[], InputKind::Command)
+                .change_character
         );
     }
 

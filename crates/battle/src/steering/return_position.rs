@@ -20,11 +20,8 @@ pub(crate) fn initialize(actors: &mut [Actor]) {
 
 impl Battle {
     pub(crate) fn remember_idle_home(&mut self, index: usize) {
-        if self
-            .actors
-            .iter()
-            .position(|actor| actor.side == Side::Party)
-            == Some(index)
+        if self.actors[index].side == Side::Party
+            && self.actors[index].control_slot == crate::ControllerPort::One
         {
             self.actors[index].movement.steering.home = self.actors[index].position;
         }
@@ -99,7 +96,11 @@ impl Battle {
         let leader = self
             .actors
             .iter()
-            .find(|other| other.side == actor.side)
+            .filter(|other| other.side == actor.side)
+            .min_by_key(|other| match other.side {
+                Side::Party => other.control_slot.index(),
+                Side::Enemy => 0,
+            })
             .context("missing formation leader")?;
         Ok(std::array::from_fn(|i| {
             leader.movement.steering.home[i] + actor.movement.steering.home_offset[i]
