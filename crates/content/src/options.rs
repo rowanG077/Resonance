@@ -1,7 +1,7 @@
 //! Named menu options and reset defaults; saved preferences keep their own values.
 use crate::menu_data::{
-    AntiAliasing, CustomizeData, CustomizeOption, CustomizeSettings, DisplayMode, GraphicsBackend,
-    Volumes, WindowColors,
+    AntiAliasing, CUSTOMIZE_OPTIONS, CustomizeData, CustomizeOption, CustomizeSettings,
+    DisplayMode, GraphicsBackend, Volumes, WindowColors,
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 pub const PATH: &str = "game/options.json";
 /// Fixed engine meanings and menu order.
-pub const OPTIONS: [&str; 21] = [
+pub const OPTIONS: [&str; CUSTOMIZE_OPTIONS] = [
     "message_speed",
     "difficulty",
     "window",
@@ -27,6 +27,7 @@ pub const OPTIONS: [&str; 21] = [
     "resolution",
     "anti_aliasing",
     "graphics_backend",
+    "vsync",
     "flexible_battle_party",
     "combined_battles",
     "learn_elemental_artes",
@@ -117,6 +118,8 @@ pub struct Defaults {
     #[serde(default)]
     pub graphics_backend: GraphicsBackend,
     pub anti_aliasing: AntiAliasing,
+    #[serde(default)]
+    pub vsync: bool,
     pub display_mode: DisplayMode,
     pub resolution: [u32; 2],
 }
@@ -191,6 +194,7 @@ impl Defaults {
             learn_both_arte_paths: self.learn_both_arte_paths,
             graphics_backend: self.graphics_backend,
             anti_aliasing: self.anti_aliasing,
+            vsync: self.vsync,
             display_mode: self.display_mode,
             resolution: self.resolution,
         };
@@ -226,6 +230,7 @@ impl Defaults {
             learn_both_arte_paths: settings.learn_both_arte_paths,
             graphics_backend: settings.graphics_backend,
             anti_aliasing: settings.anti_aliasing,
+            vsync: settings.vsync,
             display_mode: settings.display_mode,
             resolution: settings.resolution,
         })
@@ -234,7 +239,7 @@ impl Defaults {
 impl Document {
     pub fn prepare(&self) -> Result<CustomizeData> {
         ordered(&self.confirmations, CONFIRMATIONS)?;
-        // Existing cooked libraries predate the host graphics selector.
+        // Existing cooked libraries predate these host graphics options.
         let mut options = self.options.clone();
         options
             .entry("graphics_backend".into())
@@ -243,6 +248,13 @@ impl Document {
                 description:
                     "Choose a supported graphics backend.\nRestart the game to apply changes."
                         .into(),
+            });
+        options
+            .entry("vsync".into())
+            .or_insert_with(|| CustomizeOption {
+                name: "VSync".into(),
+                description: "Synchronize frames with the display.\nHelps prevent screen tearing."
+                    .into(),
             });
         let data = CustomizeData {
             options: ordered(&options, OPTIONS)?.into(),

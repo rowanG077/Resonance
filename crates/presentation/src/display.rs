@@ -127,6 +127,7 @@ struct GraphicsPreview {
     display_mode: resonance_content::menu_data::DisplayMode,
     resolution: [u32; 2],
     anti_aliasing: resonance_content::menu_data::AntiAliasing,
+    vsync: bool,
 }
 
 impl From<&resonance_content::menu_data::CustomizeSettings> for GraphicsPreview {
@@ -135,6 +136,7 @@ impl From<&resonance_content::menu_data::CustomizeSettings> for GraphicsPreview 
             display_mode: settings.display_mode,
             resolution: settings.resolution,
             anti_aliasing: settings.anti_aliasing,
+            vsync: settings.vsync,
         }
     }
 }
@@ -312,6 +314,14 @@ pub(super) fn apply_preferences(
     aa.set_if_neq(crate::anti_aliasing::AntiAliasingSettings(
         settings.anti_aliasing,
     ));
+    let present_mode = if settings.vsync {
+        PresentMode::Fifo
+    } else {
+        PresentMode::AutoNoVsync
+    };
+    if window.present_mode != present_mode {
+        window.present_mode = present_mode;
+    }
     let desired = (settings.display_mode, settings.resolution);
     // Monitor information can arrive after the first window frame. Re-select
     // the exclusive video mode when it becomes available or the window moves.
@@ -507,6 +517,45 @@ mod tests {
             .as_mut()
             .unwrap()
             .2 = std::time::Instant::now() - std::time::Duration::from_secs(seconds);
+    }
+
+    #[test]
+    fn vsync_previews_reverts_and_applies_saved_settings() {
+        let (mut app, _) = preview_app();
+        let present_mode = |app: &mut App| {
+            app.world_mut()
+                .query_filtered::<&Window, With<PrimaryWindow>>()
+                .single(app.world())
+                .unwrap()
+                .present_mode
+        };
+        assert_eq!(present_mode(&mut app), PresentMode::AutoNoVsync);
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .draft
+            .vsync = true;
+        app.update();
+        assert_eq!(present_mode(&mut app), PresentMode::Fifo);
+        assert!(
+            !app.world()
+                .resource::<crate::config::Preferences>()
+                .settings
+                .vsync
+        );
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .closed = true;
+        app.update();
+        assert_eq!(present_mode(&mut app), PresentMode::AutoNoVsync);
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .vsync = true;
+        app.update();
+        assert_eq!(present_mode(&mut app), PresentMode::Fifo);
     }
 
     fn monitor(size: [u32; 2], video_sizes: &[[u32; 2]]) -> Monitor {

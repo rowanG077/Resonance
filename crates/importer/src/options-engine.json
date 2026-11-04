@@ -24,6 +24,10 @@
       "name": "Resolution",
       "description": "Enter opens the resolution list.\nUp/Down highlights; Enter applies.\nConfirm the preview within 15 seconds.\nNative matches your monitor's resolution."
     },
+    "vsync": {
+      "name": "VSync",
+      "description": "Synchronize frames with the display.\nHelps prevent screen tearing."
+    },
     "graphics_backend": {
       "name": "Graphics Backend",
       "description": "Choose a supported graphics backend.\nRestart the game to apply changes."
