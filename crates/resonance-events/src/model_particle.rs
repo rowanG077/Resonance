@@ -176,6 +176,7 @@ pub(crate) enum Property {
     Motion(Motion),
     Blend(Blend),
     GravityAndFade(f32, Fade),
+    Lifetime(Option<u32>),
 }
 impl Property {
     fn decode(property: i32, value: i32) -> Result<Option<Self>, String> {
@@ -208,6 +209,8 @@ impl Property {
             ),
             // Particle shading uses its explicit tint; this flag does not change it.
             449 => return Ok(None),
+            // Native450 writes the same remaining-life field as constructor arg1.
+            450 => Self::Lifetime((value != i32::from(i16::MAX)).then_some(value.max(0) as u32)),
             _ => return Err(format!("unsupported model-particle property {property}")),
         }))
     }
@@ -223,6 +226,7 @@ impl Property {
             Self::Speed(value) => particle.speed = value,
             Self::Motion(value) => particle.motion = value,
             Self::Blend(value) => particle.blend = value,
+            Self::Lifetime(value) => particle.remaining = value,
             Self::GravityAndFade(gravity, fade) => {
                 particle.gravity = gravity;
                 particle.fade = fade;
@@ -265,5 +269,96 @@ impl crate::GameWorld {
     pub(crate) fn step_model_particles(&mut self) {
         self.model_particles
             .retain(|_, particle| particle.step(self.tick));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Actor, EventRuntime, GameWorld, ResourceKind, ResourceLibrary};
+    use std::sync::Arc;
+    use symphonia_script::{NativeCall, Program};
+
+    #[test]
+    fn native_lifetime_setter_retires_live_particles_and_keeps_other_owners() {
+        fn native(code: &mut Vec<u16>, op: NativeCall, args: &[i32]) {
+            for &arg in args {
+                code.extend([
+                    0x0200,
+                    arg as u16,
+                    (arg as u32 >> 16) as u16,
+                    0x3000,
+                    0x4000,
+                ]);
+            }
+            code.push(0x2000 | u16::from(op as u8));
+        }
+        let mut code = Vec::new();
+        for lifetime in [i32::from(i16::MAX), 4, i32::from(i16::MAX)] {
+            native(
+                &mut code,
+                NativeCall::CreateModelParticle,
+                &[9, lifetime, 10, 20, 30, 0, 0, 0, 100, 255, 0],
+            );
+        }
+        native(&mut code, NativeCall::YieldCommand, &[0, 2]);
+        native(
+            &mut code,
+            NativeCall::SetModelParticleProperty,
+            &[1, 450, 2],
+        );
+        native(
+            &mut code,
+            NativeCall::SetModelParticleProperty,
+            &[2, 450, i32::from(i16::MAX)],
+        );
+        native(&mut code, NativeCall::YieldCommand, &[0, 8]);
+        native(
+            &mut code,
+            NativeCall::SetModelParticleProperty,
+            &[2, 450, 0],
+        );
+        code.push(0x20ff);
+        let bytes = [4, 0, 0, 0]
+            .into_iter()
+            .chain(code)
+            .flat_map(u16::to_be_bytes)
+            .collect::<Vec<_>>();
+        let program = Arc::new(Program::decode(&bytes).unwrap());
+        let mut world = GameWorld::default();
+        world.insert_actor(1, Actor::new(9, [99.; 3]));
+        let mut events = EventRuntime::with_state(
+            program,
+            Arc::new(ResourceLibrary {
+                bindings: [(9, (ResourceKind::Model, 9))].into(),
+                ..Default::default()
+            }),
+            world,
+            Default::default(),
+        )
+        .unwrap();
+        events.step().unwrap();
+        assert_eq!(events.world.model_particles.len(), 3);
+        assert_eq!(events.world.model_particles[&1].position, [10., 20., 30.]);
+        for _ in 0..6 {
+            events.step().unwrap();
+        }
+        assert!(!events.world.model_particles.contains_key(&1));
+        assert!(events.world.model_particles.contains_key(&2)); // Outlives original finite4.
+        assert!(events.world.model_particles.contains_key(&3));
+        for _ in 0..6 {
+            events.step().unwrap();
+        }
+        assert!(!events.world.model_particles.contains_key(&2)); // Explicit lifetime0 cleanup.
+        assert_eq!(events.world.model_particles.len(), 1);
+        assert_eq!(events.world.model_particles[&3].position, [10., 20., 30.]);
+        assert_eq!(events.world.actors[&1].position, [99.; 3]);
+        assert!(Property::decode(451, 0).is_err());
+        let mut negative = ModelParticle::new(9);
+        Property::decode(450, -1)
+            .unwrap()
+            .unwrap()
+            .apply(&mut negative);
+        assert!(!negative.step(1));
     }
 }
