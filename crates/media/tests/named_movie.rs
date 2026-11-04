@@ -1,5 +1,5 @@
 use resonance_content::{
-    library::{Library, Mod},
+    library::{Library, Mod, VERSION},
     movie,
 };
 use resonance_media::{
@@ -112,7 +112,11 @@ fn named_movie_replacements_mods_and_retained_handles_use_current_media() {
     let root = Root::new();
     root.write(
         "content.json",
-        br#"{"version":94,"game":"tales-of-symphonia"}"#,
+        &serde_json::to_vec(&serde_json::json!({
+            "version": VERSION,
+            "game": "tales-of-symphonia"
+        }))
+        .unwrap(),
     );
     root.write(
         "movies/mappings.json",
