@@ -102,11 +102,43 @@ impl Artwork {
         self.drawn_tick == Some(tick) && self.drawn.contains(request)
     }
     pub(super) fn diagnostic(&self, world: &resonance_events::GameWorld) -> serde_json::Value {
+        let mut effects = world.billboards.iter().collect::<Vec<_>>();
+        effects.sort_unstable_by_key(|(_, effect)| effect.draw_order);
+        let mut previous_blend = Blend::Additive;
+        let billboards = effects
+            .into_iter()
+            .filter_map(|(id, effect)| {
+                if world.tick < effect.born {
+                    return None;
+                }
+                let recipe = self.spec.sprites.get(&effect.recipe)?;
+                let mut blend = effect.blend.unwrap_or(if recipe.additive {
+                    Blend::Additive
+                } else {
+                    Blend::Alpha
+                });
+                if blend == Blend::Previous {
+                    blend = previous_blend;
+                }
+                previous_blend = blend;
+                self.drawn(&Request::Billboard(*id), world.tick).then(|| {
+                    serde_json::json!({
+                        "id": id, "recipe": effect.recipe,
+                        "rgba": effect.rgba, "palette": effect.palette,
+                        "position": effect.position, "size": effect.size,
+                        "born": effect.born, "lifetime": effect.lifetime,
+                        "alpha": effect.alpha(world.tick).clamp(0., 255.) / 255.,
+                        "blend": blend, "blend_override": effect.blend,
+                        "recipe_additive": recipe.additive, "texture": effect.texture
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
         serde_json::json!({
+            "brightness": world.brightness(),
             "emotes": world.emotes.iter().filter(|(id, _)| self.drawn(&Request::Emote(**id), world.tick))
                 .map(|(id, emote)| serde_json::json!({"id":id,"actor":emote.actor,"kind":emote.kind})).collect::<Vec<_>>(),
-            "billboards": world.billboards.iter().filter(|(id, _)| self.drawn(&Request::Billboard(**id), world.tick))
-                .map(|(id, effect)| serde_json::json!({"id":id,"recipe":effect.recipe})).collect::<Vec<_>>()
+            "billboards": billboards
         })
     }
 
