@@ -23,6 +23,12 @@ pub(crate) fn cook(
         None => name,
     };
     let (mut body, mut native) = model::cook(source, library, descriptor, owner, "body")?;
+    let sizes = body
+        .textures
+        .iter()
+        .map(|path| resonance_asset_writer::texture::dimensions(&fs::read(library.join(path))?))
+        .collect::<Result<Vec<_>>>()?;
+    body.appearance = model::tagged_appearance(source, descriptor, &sizes)?;
     let mut parts = Vec::new();
     if let Some(package) = &package {
         cook_clips(source, library, owner, "body", &mut body, &native, package)?;

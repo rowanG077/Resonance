@@ -13,6 +13,10 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
         ("hol_d03_OBJ000.TOMDLB_D", &["temae_kabe"][..]),
         ("elc_d16_OBJ000.TOMDLB_D", &["gareki"][..]),
         (
+            "NPC_ALL_B024_OBJ000.TOMDLB_D",
+            &["obj_mtl000_tue_a", "obj_mtl000_tue_b", "obj_mtl000_tue_c"][..],
+        ),
+        (
             "loy_i00_00_OBJ000.TOMDLB_D",
             &[
                 "x_DOOR_C1",
@@ -46,6 +50,52 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires installed Steam; checks Martel's authored staff visibility joints"]
+    fn installed_martel_staff_aliases_select_only_the_three_staff_draws() -> Result<()> {
+        let installation =
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?;
+        let source = Source::open(Path::new(&installation), crate::Language::English)?;
+        let temporary = tempfile::tempdir()?;
+        cook(&source, temporary.path())?;
+        let mappings: BTreeMap<String, String> =
+            serde_json::from_slice(&std::fs::read(temporary.path().join(JOINT_MAPPINGS))?)?;
+        let descriptor = "NPC_ALL_B024_OBJ000.TOMDLB_D";
+        let native = model::Rig::read(&source.require(descriptor)?)?;
+        let (part, _) = model::cook(
+            &source,
+            temporary.path(),
+            descriptor,
+            "meshes/characters/martel",
+            "body",
+        )?;
+        for (requested, node, mesh) in [
+            ("obj_mtl000_tue_a", 56, 0),
+            ("obj_mtl000_tue_b", 57, 1),
+            ("obj_mtl000_tue_c", 58, 2),
+        ] {
+            let target = &mappings[requested];
+            assert_eq!(*target, native.nodes[node].name);
+            assert_eq!(
+                part.bone_names.iter().position(|name| name == target),
+                Some(node)
+            );
+            assert_eq!(
+                part.material_nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(mesh, nodes)| nodes.contains(&(node as u16)).then_some(mesh))
+                    .collect::<Vec<_>>(),
+                [mesh]
+            );
+        }
+        assert_eq!(part.materials.len(), 6);
+        if let Some(root) = std::env::var_os("RESONANCE_MARTEL_JOINT_OUTPUT") {
+            output::json(&Path::new(&root).join(JOINT_MAPPINGS), &mappings)?;
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires installed Steam; writes only a temporary Dirk scenery probe"]

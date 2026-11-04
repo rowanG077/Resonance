@@ -8,7 +8,7 @@ mod material;
 mod mesh;
 mod skeleton;
 mod write;
-pub(crate) use appearance::party_appearance;
+pub(crate) use appearance::{party_appearance, tagged_appearance};
 pub(super) use material::Materials;
 pub(super) use mesh::Mesh;
 pub(super) use skeleton::Node;
