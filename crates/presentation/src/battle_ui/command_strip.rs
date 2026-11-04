@@ -329,12 +329,10 @@ fn draw(
     let mut sprites = Batch::default();
     let mut labels = Batch::default();
     let mut numbers = Batch::default();
-    let Some(state) = state.filter(|s| {
-        matches!(
-            s.view,
-            View::Strip | View::Control(_) | View::User(_) | View::Ally(_)
-        )
-    }) else {
+    // Submenus are translucent and keep the command strip underneath them.
+    let Some(state) =
+        state.filter(|s| !matches!(s.view, View::Enemy { .. } | View::TechTarget { .. }))
+    else {
         *motion = Default::default();
         return Ok([panels, sprites, labels, numbers]);
     };
@@ -601,6 +599,14 @@ mod tests {
                 "the current mode is drawn above the portrait"
             );
         }
+        state.view = View::Strip;
+        let strip = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
+        state.view = View::Strategy(Default::default());
+        let submenu = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
+        assert!(
+            strip == submenu,
+            "translucent submenus keep the command strip beneath their panels"
+        );
         state.view = View::Strip;
         state.enabled &= !Command::Tech.mask();
         let disabled = draw(Some(&state), 0, None, &art, &font, &mut motion)?;

@@ -402,7 +402,7 @@ impl MenuArtwork {
         self.set_page(Some(ActivePage::Menu(Page::Strategy)));
         let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
         draw.opacity = 255 - page.state.transition.page_fade;
-        // Fade the gradient with the page while the captured backdrop remains opaque.
+        // Fade the gradient with the page over the paused battle scene.
         draw.shade(draw.screen);
         draw.plane = 1;
         draw.strategy_page(page)?;

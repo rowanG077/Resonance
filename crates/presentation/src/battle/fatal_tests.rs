@@ -161,7 +161,6 @@ impl Fixture {
         .init_asset::<crate::sparse_animation::Clip>()
         .init_asset::<crate::field_ui::Surface>()
         .init_asset::<crate::materials::TitleOutput>()
-        .init_asset::<crate::menu_backdrop::Material>()
         .init_asset::<crate::audio::GameAudio>()
         .init_asset::<crate::field_audio::FieldSource>()
         .init_resource::<crate::scene::FieldAssets>()
@@ -173,6 +172,7 @@ impl Fixture {
         })
         .init_resource::<crate::field_view::Controls>()
         .init_resource::<input::Controls>()
+        .init_resource::<crate::input_icons::DeviceTracker>()
         .insert_resource(MenuMemory {
             character: 2,
             unison_character: 3,
@@ -583,6 +583,24 @@ impl Fixture {
     }
 
     fn draw_menu(&mut self) -> Result<bool> {
+        self.draw_menu_frame(render_menu)
+    }
+
+    fn draw_hud_and_menu(&mut self) -> Result<bool> {
+        self.draw_menu_frame(render_hud)
+    }
+
+    fn draw_menu_frame(
+        &mut self,
+        draw: impl Fn(
+            &mut Scene,
+            u32,
+            &mut Commands,
+            &mut Assets<Mesh>,
+            &Assets<Image>,
+            &AssetServer,
+        ) -> Result<bool>,
+    ) -> Result<bool> {
         let began = Instant::now();
         loop {
             let world = self.app.world_mut();
@@ -591,12 +609,6 @@ impl Fixture {
             let tick = world.resource::<crate::Clock>().0.tick();
             let mut owner = world.remove_resource::<Owner>().unwrap();
             let mut meshes = world.remove_resource::<Assets<Mesh>>().unwrap();
-            let mut materials = world
-                .remove_resource::<Assets<crate::menu_backdrop::Material>>()
-                .unwrap();
-            let camera = world
-                .query_filtered::<Entity, With<crate::FieldOverlayCamera>>()
-                .single(world)?;
             let Phase::Scene(scene) = &mut owner.phase else {
                 anyhow::bail!("battle scene missing");
             };
@@ -607,23 +619,14 @@ impl Fixture {
                 Default::default(),
             );
             queue.apply(world);
-            let result = render_menu(
+            let result = draw(
                 scene,
                 tick,
                 &mut Commands::new(&mut queue, world),
                 &mut meshes,
                 world.resource::<Assets<Image>>(),
                 world.resource::<AssetServer>(),
-            )
-            .and_then(|visible| {
-                scene.menu_backdrop.show(
-                    visible,
-                    Some(camera),
-                    &mut Commands::new(&mut queue, world),
-                    &mut materials,
-                )?;
-                Ok(visible)
-            });
+            );
             queue.apply(world);
             if let Some(draws) = world.get_resource::<crate::field_ui::MenuDraws>() {
                 draws
@@ -635,7 +638,6 @@ impl Fixture {
             }
             let ready = scene.menu_ready;
             world.insert_resource(meshes);
-            world.insert_resource(materials);
             world.insert_resource(owner);
             let visible = result?;
             if ready || !visible {
@@ -662,7 +664,7 @@ impl Fixture {
             &mut meshes,
             Default::default(),
         );
-        // The ordinary HUD dismisses the shared page before drawing selectors.
+        // This selector-only draw replaces any shared page.
         scene.hud.clear_menu(&mut Commands::new(&mut queue, world));
         queue.apply(world);
         let result =
@@ -720,6 +722,103 @@ impl Fixture {
         self.assert_audio_retired();
         Ok(())
     }
+}
+
+#[test]
+#[ignore = "requires current cooked battle assets; CPU menu composition and pause ownership only"]
+fn translucent_battle_pages_preserve_the_hud_and_pause_without_a_capture() -> Result<()> {
+    let mut fixture = Fixture::new("menu-underlay")?;
+    fixture.enter_combat()?;
+    assert!(!fixture.draw_hud_and_menu()?);
+    let ordinary_hud: Vec<_> = fixture.scene().hud.entities().collect();
+    // Record combat layers before opening commands adds blinking menu ornaments.
+    let underlay: Vec<_> = ordinary_hud
+        .iter()
+        .copied()
+        .filter(|&entity| {
+            fixture.app.world().get::<Visibility>(entity) == Some(&Visibility::Inherited)
+        })
+        .collect();
+    assert!(!underlay.is_empty(), "combat HUD must be visible");
+    {
+        let mut owner = fixture.app.world_mut().resource_mut::<Owner>();
+        let Phase::Scene(scene) = &mut owner.phase else {
+            unreachable!()
+        };
+        let mut frame = scene.frame.clone().unwrap();
+        let target = frame
+            .actors
+            .iter()
+            .position(|actor| actor.side == Side::Enemy)
+            .context("scan needs an enemy")?;
+        frame.cues = vec![resonance_battle::Cue::EnemyScanned {
+            actor: ActorId::from_index(target)?,
+        }];
+        scene.hud.advance(&frame, true)?;
+    }
+    assert!(!fixture.draw_hud_and_menu()?);
+    // Scan backgrounds use the same windows as submenus. The no-menu pass
+    // must preserve the panel just drawn by the ordinary HUD.
+    let scan_panel: Vec<_> = fixture
+        .scene()
+        .hud
+        .entities()
+        .filter(|entity| !ordinary_hud.contains(entity))
+        .collect();
+    assert!(!scan_panel.is_empty());
+    assert!(scan_panel.iter().all(|&entity| {
+        fixture.app.world().get::<Visibility>(entity) == Some(&Visibility::Inherited)
+    }));
+    fixture.open_commands(true)?;
+    for right_presses in [0, 2] {
+        for _ in 0..right_presses {
+            fixture.press(KeyCode::ArrowRight)?;
+        }
+        assert!(!fixture.draw_hud_and_menu()?);
+        fixture.press(KeyCode::Enter)?;
+        assert!(fixture.draw_hud_and_menu()?);
+        let combat_tick = fixture.scene().core.ledger().combat_ticks;
+        let actors = fixture.scene().frame.as_ref().unwrap().actors.clone();
+        // Several fixed updates can run without drawing. No capture fence may
+        // block input, and the paused battle poses remain the menu background.
+        for _ in 0..60 {
+            fixture.step(None)?;
+        }
+        assert!(fixture.draw_hud_and_menu()?);
+        assert_eq!(fixture.scene().core.ledger().combat_ticks, combat_tick);
+        assert_eq!(fixture.scene().frame.as_ref().unwrap().actors, actors);
+        assert!(underlay.iter().all(|&entity| {
+            fixture.app.world().get::<Visibility>(entity) == Some(&Visibility::Inherited)
+        }));
+        let menu_layers: Vec<_> = fixture
+            .scene()
+            .hud
+            .entities()
+            .filter(|entity| !ordinary_hud.contains(entity))
+            .filter(|&entity| {
+                fixture.app.world().get::<Visibility>(entity) == Some(&Visibility::Inherited)
+            })
+            .collect();
+        assert!(
+            !menu_layers.is_empty(),
+            "shared page must have visible layers"
+        );
+        fixture.press(KeyCode::Escape)?;
+        for _ in 0..40 {
+            fixture.step(None)?;
+        }
+        assert!(
+            !fixture.draw_hud_and_menu()?,
+            "closing must hide the shared page"
+        );
+        assert!(
+            menu_layers.iter().all(|&entity| {
+                fixture.app.world().get::<Visibility>(entity) == Some(&Visibility::Hidden)
+            }),
+            "closing must hide the previously visible shared-page geometry"
+        );
+    }
+    Ok(())
 }
 
 #[test]
