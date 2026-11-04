@@ -240,7 +240,6 @@ fn finish_failed(world: &mut World, owner: Owner) {
 }
 
 struct Scene {
-    menu_backdrop: super::menu_backdrop::BattleBackdrop,
     view: super::battle_view::View,
     hud: super::field_ui::BattleHud,
     dialogue: Option<super::field_ui::DialogueOverlay>,
@@ -333,7 +332,7 @@ fn configure_publication(app: &mut App) {
             .before(bevy::asset::AssetEventSystems)
             // Layer::show queues Visibility changes. CheckVisibility consumes
             // InheritedVisibility, so these must reach propagation in this
-            // same draw, including the one retained by the menu capture.
+            // same composed frame, including a newly opened menu.
             .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
             .before(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
             .before(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
@@ -924,7 +923,6 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         })
         .collect();
     let scene = Scene {
-        menu_backdrop: super::menu_backdrop::BattleBackdrop::new(world)?,
         view,
         hud,
         dialogue,
@@ -970,7 +968,7 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         preparing_since: std::time::Instant::now(),
         diagnostics,
     };
-    phase_timing("runtime owners/backdrop", started);
+    phase_timing("runtime owners", started);
     Ok(scene)
 }
 
@@ -1034,7 +1032,6 @@ fn prepare(
                     .flat_map(|dialogue| dialogue.entities()),
             )
             .chain(scene.game_over.iter().flat_map(|art| art.entities()))
-            .chain(std::iter::once(scene.menu_backdrop.entity()))
             .collect();
         if !scene.view.prepare(
             &mut commands,
@@ -1103,7 +1100,6 @@ fn prepare(
                         .flat_map(|dialogue| dialogue.entities()),
                 )
                 .chain(scene.game_over.iter().flat_map(|art| art.entities()))
-                .chain(std::iter::once(scene.menu_backdrop.entity()))
             {
                 commands.entity(entity).insert((
                     RenderLayers::layer(super::battle_view::LAYER),
@@ -1218,7 +1214,6 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
             dialogue,
             camera,
             game_over,
-            menu_backdrop,
             ..
         } = *scene;
         view.despawn(&mut world.commands());
@@ -1226,7 +1221,6 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
         if let Some(dialogue) = dialogue {
             dialogue.despawn(world);
         }
-        world.despawn(menu_backdrop.entity());
         if let Some(art) = game_over {
             art.despawn(world);
         }
@@ -1284,11 +1278,6 @@ fn advance(
     }
     if !owner.presenting() {
         controls.discard();
-        return;
-    }
-    if matches!(&owner.phase, Phase::Scene(scene) if scene.menu_backdrop.awaiting_draw()) {
-        // Publish the outgoing strip before advancing the shared menu. Multiple fixed
-        // updates must not erase the frame waiting to be captured.
         return;
     }
     let request = owner.request.id();
@@ -1411,7 +1400,6 @@ fn advance(
             use resonance_game::battle::command::Event;
             match event {
                 Event::Cue(cue) => playback.menu_cue(cue)?,
-                Event::CaptureBackdrop => scene.menu_backdrop.request_capture(),
                 Event::VoiceStreamsPaused(paused) => playback.pause_voice_streams(paused)?,
             }
         }
@@ -1567,7 +1555,6 @@ fn render_menu(
     ) {
         return Ok(false);
     }
-    scene.hud.hide_combat_for_menu(commands);
     let result = (|| {
         let candidate = scene
             .candidate
@@ -1646,6 +1633,120 @@ fn render_command_strip(
     Ok(())
 }
 
+/// Compose the ordinary HUD, command strip and translucent pages in draw order.
+fn render_hud(
+    scene: &mut Scene,
+    tick: u32,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    images: &Assets<Image>,
+    server: &AssetServer,
+) -> Result<bool> {
+    if scene.lifecycle.event().is_some() {
+        scene.hud.hide_for_event(commands);
+        return Ok(false);
+    }
+    let frame = scene
+        .frame
+        .as_ref()
+        .context("active battle has no held frame")?;
+    let command = scene.lifecycle.command_frame();
+    // Shared windows also draw scan and result panels. Clear an old
+    // submenu before the HUD, while retaining an active page's draw fence.
+    if scene.lifecycle.command_input_kind()
+        != resonance_game::battle::command::InputKind::SharedMenu
+    {
+        scene.hud.clear_menu(commands);
+    }
+    let queued_techniques = frame
+        .actors
+        .iter()
+        .enumerate()
+        .filter(|(_, actor)| actor.side == Side::Party)
+        .map(|(index, _)| {
+            ActorId::from_index(index)
+                .ok()
+                .and_then(|actor| scene.core.pending_technique(actor))
+                .is_some()
+        })
+        .collect::<Vec<_>>();
+    let names = scene
+        .characters
+        .iter()
+        .map(|&character| {
+            scene.candidate.as_ref().and_then(|candidate| {
+                candidate.persistent_party().members[character.index()]
+                    .name
+                    .as_deref()
+            })
+        })
+        .collect::<Vec<_>>();
+    let marker_anchors = (0..frame.actors.len())
+        .map(|index| {
+            let actor = resonance_battle::ActorId::from_index(index)?;
+            Ok(super::field_ui::ActorMarkers {
+                target: scene.view.target_anchor(frame, actor),
+                head: scene.effects.head_position(actor, frame)?,
+                effect_tick: scene
+                    .effects
+                    .actor_effect_ticks()
+                    .get(index)
+                    .copied()
+                    .unwrap_or(0),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let target = scene.hud.inspection_target(frame, command.as_ref());
+    scene.diagnostics.attempt(
+        "battle HUD",
+        scene.hud.render(
+            frame,
+            super::field_ui::PartyHudInput {
+                characters: &scene.characters,
+                queued_techniques: &queued_techniques,
+                names: &names,
+            },
+            command.as_ref(),
+            target.and_then(|target| {
+                scene
+                    .view
+                    .body_center(frame, target)
+                    .map(|center| (target, center))
+            }),
+            &marker_anchors,
+            commands,
+            meshes,
+        ),
+    )?;
+    let order = scene.lifecycle.order_selection();
+    let order_label = match scene.candidate.as_ref() {
+        Some(candidate) => candidate.order_name(order)?,
+        None => "Cancel orders",
+    };
+    scene.diagnostics.attempt(
+        "battle information ribbons",
+        scene.hud.render_ribbons(
+            frame,
+            super::field_ui::RibbonInput {
+                tick,
+                menu_open: command.is_some() || frame.target_selector.is_some(),
+                target,
+                order,
+                order_revision: scene.lifecycle.order_revision(),
+                order_label,
+            },
+            commands,
+            meshes,
+        ),
+    )?;
+    // A closed menu supplies None; target selection hides the strip.
+    if !frame.summon.as_ref().is_some_and(|summon| summon.hide_hud) {
+        render_command_strip(scene, tick, commands, meshes)?;
+    }
+    // The battle clock holds the scene while a submenu draws above its HUD.
+    render_menu(scene, tick, commands, meshes, images, server)
+}
+
 #[allow(clippy::too_many_arguments)] // Apply held poses after propagation without another animation clock.
 fn render(
     mut commands: Commands,
@@ -1657,7 +1758,6 @@ fn render(
     display: Res<super::display::Display>,
     mut surfaces: ResMut<Assets<super::materials::TitleSurface>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut menu_materials: ResMut<Assets<super::menu_backdrop::Material>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
     prompt_device: Res<crate::input_icons::DeviceTracker>,
@@ -1681,10 +1781,7 @@ fn render(
         return;
     }
     let result = (|| -> Result<()> {
-        if scene.published_tick == Some(*input_tick)
-            && scene.menu_ready
-            && !scene.menu_backdrop.awaiting_draw()
-        {
+        if scene.published_tick == Some(*input_tick) && scene.menu_ready {
             return scene.view.restore_pose(&mut globals);
         }
         let frame = scene
@@ -1703,128 +1800,14 @@ fn render(
                 &mut meshes,
             ),
         )?;
-        let event_active = scene.lifecycle.event().is_some();
-        let shared_menu = if event_active {
-            scene.hud.hide_for_event(&mut commands);
-            false
-        } else {
-            render_menu(
-                scene,
-                *input_tick,
-                &mut commands,
-                &mut meshes,
-                &images,
-                &server,
-            )?
-        };
-        let frame = scene
-            .frame
-            .as_ref()
-            .context("active battle has no held frame")?;
-        let command = scene.lifecycle.command_frame();
-        scene.diagnostics.attempt(
-            "battle menu backdrop",
-            scene.menu_backdrop.show(
-                shared_menu,
-                scene.camera,
-                &mut commands,
-                &mut menu_materials,
-            ),
+        render_hud(
+            scene,
+            *input_tick,
+            &mut commands,
+            &mut meshes,
+            &images,
+            &server,
         )?;
-        if !shared_menu && !event_active {
-            let queued_techniques = frame
-                .actors
-                .iter()
-                .enumerate()
-                .filter(|(_, actor)| actor.side == Side::Party)
-                .map(|(index, _)| {
-                    ActorId::from_index(index)
-                        .ok()
-                        .and_then(|actor| scene.core.pending_technique(actor))
-                        .is_some()
-                })
-                .collect::<Vec<_>>();
-            let names = scene
-                .characters
-                .iter()
-                .map(|&character| {
-                    scene.candidate.as_ref().and_then(|candidate| {
-                        candidate.persistent_party().members[character.index()]
-                            .name
-                            .as_deref()
-                    })
-                })
-                .collect::<Vec<_>>();
-            let marker_anchors = (0..frame.actors.len())
-                .map(|index| {
-                    let actor = resonance_battle::ActorId::from_index(index)?;
-                    Ok(super::field_ui::ActorMarkers {
-                        target: scene.view.target_anchor(frame, actor),
-                        head: scene.effects.head_position(actor, frame)?,
-                        effect_tick: scene
-                            .effects
-                            .actor_effect_ticks()
-                            .get(index)
-                            .copied()
-                            .unwrap_or(0),
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            scene.diagnostics.attempt(
-                "battle HUD",
-                scene.hud.render(
-                    frame,
-                    super::field_ui::PartyHudInput {
-                        characters: &scene.characters,
-                        queued_techniques: &queued_techniques,
-                        names: &names,
-                    },
-                    command.as_ref(),
-                    scene
-                        .hud
-                        .inspection_target(frame, command.as_ref())
-                        .and_then(|target| {
-                            scene
-                                .view
-                                .body_center(frame, target)
-                                .map(|center| (target, center))
-                        }),
-                    &marker_anchors,
-                    &mut commands,
-                    &mut meshes,
-                ),
-            )?;
-            let order = scene.lifecycle.order_selection();
-            let order_label = match scene.candidate.as_ref() {
-                Some(candidate) => candidate.order_name(order)?,
-                None => "Cancel orders",
-            };
-            let target = scene.hud.inspection_target(frame, command.as_ref());
-            scene.diagnostics.attempt(
-                "battle information ribbons",
-                scene.hud.render_ribbons(
-                    frame,
-                    super::field_ui::RibbonInput {
-                        tick: *input_tick,
-                        menu_open: command.is_some() || frame.target_selector.is_some(),
-                        target,
-                        order,
-                        order_revision: scene.lifecycle.order_revision(),
-                        order_label,
-                    },
-                    &mut commands,
-                    &mut meshes,
-                ),
-            )?;
-        }
-        // Draw the command strip after the ordinary HUD, using the immutable game frame. A
-        // closed menu supplies None.
-        if !shared_menu
-            && !event_active
-            && !frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
-        {
-            render_command_strip(scene, *input_tick, &mut commands, &mut meshes)?;
-        }
         if let Some(dialogue) = &mut scene.dialogue {
             if let Some(event) = scene.lifecycle.event() {
                 scene.hud.render_event_dialogue(
@@ -2123,7 +2106,7 @@ pub(crate) mod tests {
     struct Visits(u32);
 
     #[test]
-    fn command_visibility_reaches_the_first_composed_capture_visit() {
+    fn command_visibility_reaches_the_first_composed_frame() {
         use bevy::camera::{primitives::Frustum, visibility::VisibilityPlugin};
 
         #[derive(Resource, Default)]

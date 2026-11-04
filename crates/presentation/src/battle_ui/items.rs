@@ -385,12 +385,6 @@ impl Artwork {
         self.notice_with_icon(actor, &name, duration, frame, notice::Icon::Item)
     }
 
-    pub fn hide_combat_for_menu(&mut self, commands: &mut Commands) {
-        for layer in self.layers_mut() {
-            layer.show(false, commands);
-        }
-    }
-
     pub fn clear_menu(&mut self, commands: &mut Commands) {
         self.windows.clear_page(commands);
     }

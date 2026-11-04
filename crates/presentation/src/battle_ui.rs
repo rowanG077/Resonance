@@ -487,7 +487,6 @@ impl Artwork {
             self.layers().all(|layer| layer.rendered.is_some()),
             "battle HUD was not prepared"
         );
-        self.clear_menu(commands);
         if frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
             || frame
                 .enemy_presentation

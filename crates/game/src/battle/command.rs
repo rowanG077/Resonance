@@ -233,7 +233,6 @@ pub struct Memory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     Cue(u16),
-    CaptureBackdrop,
     VoiceStreamsPaused(bool),
 }
 
@@ -415,7 +414,6 @@ impl Owner {
             paused: true,
             ..Default::default()
         };
-        let was_shared = session.page.input_kind() == InputKind::SharedMenu;
         let next = match std::mem::replace(&mut session.page, Page::Strip) {
             Page::Strip => {
                 let enabled = self.effective_enabled(session.admission.enabled);
@@ -653,9 +651,6 @@ impl Owner {
             }
         };
         if let Some(page) = next {
-            if page.input_kind() == InputKind::SharedMenu && !was_shared {
-                result.events.push(Event::CaptureBackdrop);
-            }
             session.page = page;
             self.session = Some(session);
         } else {
