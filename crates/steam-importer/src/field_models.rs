@@ -125,10 +125,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<Models> {
         &library.join(document::MODEL_GROUPS),
         &BTreeMap::from([("party", party)]),
     )?;
-    output::write(
-        &library.join(document::JOINT_MAPPINGS),
-        include_bytes!("../../importer/src/model-joints.json"),
-    )?;
+    crate::field_joints::cook(source, library)?;
     if missing_sources > 0 || incomplete_packages > 0 {
         eprintln!(
             "  Global resource directory: {missing_sources} source entries absent; {incomplete_packages} model packages have absent member references"

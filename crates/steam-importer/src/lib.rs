@@ -40,6 +40,7 @@ mod field_actors;
 mod field_core;
 mod field_directory;
 mod field_extra;
+mod field_joints;
 mod field_models;
 mod field_overlays;
 mod field_scene;
