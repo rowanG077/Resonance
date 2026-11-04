@@ -148,6 +148,34 @@ fn forced_noishe_dismount_rejects_carried_motion_into_a_blocked_landmark() -> Re
 }
 
 #[test]
+fn automatic_menu_close_retires_compiler_context_and_preserves_caller() -> Result<()> {
+    let mut session = start(definitions(), vec![])?;
+    let mut memory = symphonia_script_vm::Memory::default();
+    memory.write(symphonia_script::COMPILER_TRANSIENT_BYTE, Width::S8, 5)?;
+    memory.write(0x20, Width::S32, 1234)?;
+    memory.write(0x800, Width::S32, 789)?;
+    let program = Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff])?);
+    let resources = Arc::new(session.events.resources().clone());
+    let world = std::mem::take(&mut session.events.world);
+    session.events = EventRuntime::with_state(program, resources, world, memory)?;
+    let mut menu = crate::menu::Menu::new(crate::menu::Page::Main, None, false);
+    menu.closed = true;
+    session.menu = Some(menu);
+    session.step(Default::default())?;
+    assert!(session.menu.is_none());
+    assert_eq!(
+        session
+            .events
+            .memory()
+            .read(symphonia_script::COMPILER_TRANSIENT_BYTE, Width::S8)?,
+        0
+    );
+    assert_eq!(session.events.memory().read(0x20, Width::S32)?, 1234);
+    assert_eq!(session.events.memory().read(0x800, Width::S32)?, 789);
+    Ok(())
+}
+
+#[test]
 fn flying_clears_landmarks_on_entry_movement_and_restore() -> Result<()> {
     use crate::overworld::{Position, World};
     for (world, id, radius, margin, floor) in [

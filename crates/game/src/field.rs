@@ -564,6 +564,7 @@ impl FieldSession {
             } else if menu.closed {
                 let leader_changed = menu.field_leader_changed();
                 self.menu = None;
+                self.events.finish_script_scene();
                 if leader_changed {
                     self.events.restore_field_leader()?;
                 }
@@ -1947,6 +1948,37 @@ mod tests {
             }
             assert!(field.events.world.audio_commands.is_empty());
         }
+    }
+
+    #[test]
+    fn automatic_menu_close_retires_compiler_context() {
+        let byte = symphonia_script::COMPILER_TRANSIENT_BYTE;
+        let events = runtime(
+            vec![4, 0, 0, 0, 0x1000, byte, 5, 0x3010, 0x3000, 0x20ff],
+            ResourceLibrary::default(),
+        );
+        let mut field = session(events);
+        let mut menu = crate::menu::Menu::new(crate::menu::Page::Main, None, false);
+        menu.closed = true;
+        field.menu = Some(menu);
+        assert_eq!(
+            field
+                .events
+                .memory()
+                .read(byte, symphonia_script::Width::S8)
+                .unwrap(),
+            5
+        );
+        field.step(Default::default()).unwrap();
+        assert!(field.menu.is_none());
+        assert_eq!(
+            field
+                .events
+                .memory()
+                .read(byte, symphonia_script::Width::S8)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

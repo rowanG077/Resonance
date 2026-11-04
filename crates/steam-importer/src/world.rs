@@ -263,6 +263,145 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    #[ignore = "requires RESONANCE_TEST_STEAM, RESONANCE_TEST_LIBRARY and new/empty RESONANCE_SCRIPT_OUTPUT; publishes source script categories privately"]
+    fn installed_source_script_categories_publish_privately() -> Result<()> {
+        use sha2::{Digest, Sha256};
+        let source = Source::open(
+            &PathBuf::from(
+                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            Language::English,
+        )?;
+        let baseline = fs::canonicalize(PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+        ))?;
+        let requested = PathBuf::from(
+            std::env::var_os("RESONANCE_SCRIPT_OUTPUT")
+                .context("set RESONANCE_SCRIPT_OUTPUT to a new/empty private directory")?,
+        );
+        let absolute = if requested.is_absolute() {
+            requested
+        } else {
+            std::env::current_dir()?.join(requested)
+        };
+        let parent = fs::canonicalize(absolute.parent().context("script output has no parent")?)
+            .context("private script output parent must already exist")?;
+        let output = parent.join(
+            absolute
+                .file_name()
+                .context("script output has no directory name")?,
+        );
+        ensure!(
+            !output.starts_with(&baseline),
+            "private script output must be outside the read-only baseline"
+        );
+        if output.exists() {
+            ensure!(
+                fs::symlink_metadata(&output)?.file_type().is_dir()
+                    && fs::read_dir(&output)?.next().is_none(),
+                "private script output must be an empty directory"
+            );
+        } else {
+            fs::create_dir(&output)?;
+        }
+
+        // Only this existing metadata is needed by silence_skits. Its muted
+        // banks already use clock-only Silence entries; no recordings, portraits
+        // or other media are copied or recooked. The baseline remains read-only.
+        let speech = "audio/speech/english/mappings.json";
+        let baseline_speech = fs::read(baseline.join(speech))?;
+        output::write(&output.join(speech), &baseline_speech)?;
+        crate::field_directory::cook(&source, &output)?;
+        crate::field_core::cook(&source, &output, None)?;
+        crate::skits::cook(&source, &output)?;
+        let image = pe::Image::parse(&source.executable)?;
+        cook_script(&source, &output, &image)?;
+        ensure!(
+            fs::read(baseline.join(speech))? == baseline_speech,
+            "read-only baseline speech metadata changed"
+        );
+
+        fn files(root: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
+            for entry in fs::read_dir(root)? {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    files(&entry.path(), result)?;
+                } else if entry.file_type()?.is_file() {
+                    result.push(entry.path());
+                }
+            }
+            Ok(())
+        }
+        let hash = |bytes: &[u8]| {
+            Sha256::digest(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+        let mut paths = Vec::new();
+        files(&output, &mut paths)?;
+        paths.sort();
+        let mut scripts = Vec::new();
+        let mut messages = Vec::new();
+        let mut counts = [0usize; 3];
+        for path in paths {
+            let relative = path.strip_prefix(&output)?;
+            if path.extension().is_some_and(|extension| extension == "ssb") {
+                let bytes = fs::read(&path)?;
+                symphonia_script::Program::decode(&bytes)
+                    .with_context(|| format!("source-produced script {}", relative.display()))?;
+                let category = if relative.starts_with("fields") {
+                    0
+                } else if relative.starts_with("skits") {
+                    1
+                } else if relative == Path::new("world/scripts/scenario.ssb") {
+                    2
+                } else {
+                    anyhow::bail!("unexpected script producer path {}", relative.display())
+                };
+                counts[category] += 1;
+                let previous = fs::read(baseline.join(relative))
+                    .with_context(|| format!("baseline script {}", relative.display()))?;
+                scripts.push(serde_json::json!({"path":relative,"bytes":bytes.len(),
+                    "sha256":hash(&bytes),"baseline_sha256":hash(&previous),"changed":bytes!=previous}));
+            } else if path.file_name().is_some_and(|name| name == "messages.json") {
+                let bytes = fs::read(&path)?;
+                let _: Vec<symphonia_script::message::Message> = serde_json::from_slice(&bytes)?;
+                let previous = fs::read(baseline.join(relative))
+                    .with_context(|| format!("baseline messages {}", relative.display()))?;
+                ensure!(
+                    bytes == previous,
+                    "source publication changes messages {}",
+                    relative.display()
+                );
+                messages.push(serde_json::json!({"path":relative,"sha256":hash(&bytes),
+                    "baseline_sha256":hash(&previous),"unchanged":true}));
+            }
+        }
+        ensure!(
+            counts[0] > 0 && counts[1] > 0 && counts[2] == 1,
+            "incomplete source script categories {counts:?}"
+        );
+        let report = serde_json::json!({"schema":1,"status":"ALL_SOURCE_SCRIPT_CATEGORIES_COOKED_AND_DECODED",
+            "source_executable_sha256":hash(&source.executable),"read_only_baseline":baseline,"private_output":output,
+            "producers":{"fields":"field_directory::cook + field_core::cook(all), original Source::scenario",
+                "skits":"skits::cook, original source SKP programs", "world":"world::cook_script, original executable-named source program"},
+            "normalization":"Production raw-source decode then script_input::normalize exactly once; no cooked script is an input",
+            "counts":{"fields":counts[0],"skits":counts[1],"world":counts[2],"scripts":scripts.len(),"unchanged_messages":messages.len()},
+            "scripts":scripts,"messages":messages,
+            "publication_scope":"Root selects only produced .ssb files; collision, mappings/catalogue and other helper outputs are not canonical publication inputs"});
+        output::json(
+            &output.join("source-script-publication-report.json"),
+            &report,
+        )?;
+        eprintln!(
+            "Private source scripts: fields={}, skits={}, world={}, unchanged messages={}",
+            counts[0], counts[1], counts[2], report["counts"]["unchanged_messages"]
+        );
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; stages private world assembly"]
     fn installed_world_travel_cues_are_prepared_by_assembler() -> Result<()> {
         use resonance_content::field_audio::document as audio;

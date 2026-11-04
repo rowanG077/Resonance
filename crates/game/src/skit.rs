@@ -196,6 +196,9 @@ impl Playback {
                 .viewed_skits
                 .insert(self.id);
         }
+        // Native variable ownership is restored at this shared field/world
+        // boundary. Compiler transients also retire for automatic UI playback.
+        parent.finish_script_scene();
         if let Some(operation) = &self.completion {
             operation.complete(None).map_err(anyhow::Error::msg)?;
         }
@@ -215,6 +218,121 @@ impl Playback {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_playback_close_retires_compiler_context_and_preserves_caller_data() -> Result<()> {
+        use symphonia_script::{COMPILER_TRANSIENT_BYTE, Width};
+        use symphonia_script_vm::Memory;
+        let data = serde_json::from_value(serde_json::json!({
+            "version":1,"experience":[0,0,10],
+            "items":[{"equipment_kind":null,"allowed_characters":511,"stack_limit":20}],
+            "characters":vec![serde_json::json!({
+                "level":1,"experience":0,"affinity":0,"base_stats":[100,20,30,40,50,60,70],
+                "luck":10,"overlimit":0,"equipment":vec![0;6],"techniques":[],
+                "allowed_techniques":[],"shortcuts":vec![0;4],"level_techniques":{},
+                "growth":vec![serde_json::json!({"base":1,"random":0,"title_bonus":0});7]
+            });9]
+        }))?;
+        let parent_program = Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff])?);
+        for (edition, initial_context) in [("GC", 0), ("Steam", 5)] {
+            for preview in [false, true] {
+                for skip in [false, true] {
+                    let mut memory = Memory::default();
+                    for (offset, value) in [(0x20, 1234), (0x24, 91), (0x40, 23500), (0x800, 789)] {
+                        memory.write(offset, Width::S32, value)?;
+                    }
+                    memory.write(COMPILER_TRANSIENT_BYTE, Width::S8, initial_context)?;
+                    let mut world = resonance_events::GameWorld::default();
+                    world.party = Some(resonance_events::party::Party::new(
+                        &data,
+                        Default::default(),
+                    )?);
+                    let mut parent = EventRuntime::with_state(
+                        parent_program.clone(),
+                        Arc::default(),
+                        world,
+                        memory,
+                    )?;
+                    let mut code = vec![];
+                    if edition == "Steam" {
+                        // An ordinary cooked callback changes only its own
+                        // transient context while the caller remains suspended.
+                        code.extend([0x1000, COMPILER_TRANSIENT_BYTE, 5, 0x3010, 0x3000]);
+                    }
+                    if skip {
+                        code.extend([0, 0x3000, 0x4000, 0x0300, 1000, 0x3000, 0x4000, 0x2064]);
+                    }
+                    code.push(0x20ff);
+                    let bytes = [4u16, 0, 0, 0]
+                        .into_iter()
+                        .chain(code)
+                        .flat_map(u16::to_be_bytes)
+                        .collect::<Vec<_>>();
+                    let mut files = Files::default();
+                    files.insert("boundary.ssb".into(), bytes.into());
+                    let catalog = Arc::new(SkitCatalog {
+                        skits: vec![],
+                        preview_order: vec![],
+                        portrait_recipes: Default::default(),
+                        portraits: Default::default(),
+                        media: Default::default(),
+                        resources: [(
+                            450,
+                            resonance_content::skit::SkitResourcePaths {
+                                script: "boundary.ssb".into(),
+                                messages: None,
+                                allow_skip: true,
+                                title: None,
+                            },
+                        )]
+                        .into_iter()
+                        .collect(),
+                    });
+                    let prepared = Prepared::load(catalog, &files, parent.resources())?;
+                    // No completion operation: this is the automatic UI path,
+                    // shared by field and world callers as well as preview.
+                    let mut playback =
+                        Playback::start(&prepared[&450], &mut parent, true, preview, None)?;
+                    if skip {
+                        for _ in 0..119 {
+                            assert!(!playback.step(
+                                &mut parent,
+                                Input {
+                                    skip: true,
+                                    ..Default::default()
+                                }
+                            )?);
+                        }
+                    }
+                    assert!(
+                        playback.step(
+                            &mut parent,
+                            Input {
+                                skip,
+                                ..Default::default()
+                            }
+                        )?,
+                        "{edition}, preview {preview}, skip {skip}"
+                    );
+                    assert_eq!(parent.memory().read(COMPILER_TRANSIENT_BYTE, Width::S8)?, 0);
+                    for (offset, value) in [(0x20, 1234), (0x24, 91), (0x40, 23500), (0x800, 789)] {
+                        assert_eq!(parent.memory().read(offset, Width::S32)?, value);
+                    }
+                    assert_eq!(
+                        parent
+                            .world
+                            .party
+                            .as_ref()
+                            .unwrap()
+                            .viewed_skits
+                            .contains(&450),
+                        !preview
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn prepared_skip_policy_combines_with_caller_and_preserves_minimum_play_time() -> Result<()> {

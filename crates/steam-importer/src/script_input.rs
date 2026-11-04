@@ -2,21 +2,24 @@
 //! The engine continues to sample the same logical GameCube actions for both cooks.
 use anyhow::{Context, Result, ensure};
 use std::collections::BTreeMap;
-use symphonia_script::{NativeCall, Program, scenario};
+use symphonia_script::{NativeCall, Op, Program, scenario, semantics::NativeRegistry};
 
 const RESULT: u16 = 0x20;
+// Native variable storage occupies 0..0x2000; +0x2000 is the message buffer.
+// The native skit/field owner copies exactly that variable region (5551ba,
+// 4c44e0). Reserve GC-only transient storage outside it. Skit memory begins at
+// context zero because the existing variable copy excludes this byte.
+const SOURCE_VARIABLE_BYTES: u32 = 0x2000;
+const INPUT_CONTEXT: u16 = symphonia_script::COMPILER_TRANSIENT_BYTE;
 const MAPPED: &[(u16, u32)] = &[
     (1, 4),
     (2, 8),
     (4, 2),
     (8, 1),
     (0x10, 0x10000),
-    (0x20, 0x200000),
     (0x40, 0x40000),
     (0x100, 0x20),
     (0x200, 0x80),
-    (0x400, 0x10),
-    (0x800, 0x40),
     (0x1000, 0x20000),
 ];
 const RAW: &[(u16, u32)] = &[
@@ -43,8 +46,70 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
             i.mnemonic == "proc" && i.operands == [i64::from(NativeCall::ReadMappedInput as u8)]
         })
         .collect::<Vec<_>>();
+    let mut replacements = BTreeMap::new();
+    let program = Program::decode(bytes)?;
+    let registry = NativeRegistry::gqseaf();
+    validate_context_reservation(&program, &analysis)?;
+    // Instrument the argument's existing scalar, before expression-end consumes
+    // it. Assignment * 0 + the original scalar preserves its reference, number,
+    // stack depth, expression register and pending outer native arguments.
+    for block in analysis.basic_blocks() {
+        let mut arguments = Vec::new();
+        let mut previous = None;
+        for pc in block.instruction_pcs {
+            match program.instruction(pc).unwrap().0 {
+                Op::Argument => arguments.push((pc, previous)),
+                Op::Native(opcode) => {
+                    let Some(signature) = registry.get(opcode) else {
+                        // Leave unrelated source natives untouched. Their unknown
+                        // signature cannot justify following pending arguments.
+                        arguments.clear();
+                        previous = Some(pc);
+                        continue;
+                    };
+                    let count = signature.arguments.len();
+                    if matches!(opcode, 0x39 | 0x3a | 0xb8) {
+                        let start = arguments
+                            .len()
+                            .checked_sub(count)
+                            .context("input lifecycle arguments cross a branch")?;
+                        if opcode == NativeCall::ReadMappedInput as u8 {
+                            let (argument, producer) = arguments[start];
+                            let producer = producer.context("input player has no expression")?;
+                            ensure!(
+                                program.instruction(producer) == Some((Op::Calculate(0), argument)),
+                                "input player expression is not adjacent to its argument"
+                            );
+                            // Keep the original, possibly impure value on the value
+                            // stack while passing zero, then restore its expression.
+                            replacements.insert(producer, vec![0, 0x3000, 0x4000, 0x3000]);
+                            replacements.insert(argument, vec![]);
+                        } else {
+                            let (argument, producer) = arguments[start + count - 1];
+                            let producer = producer.context("input lifecycle has no expression")?;
+                            ensure!(
+                                program.instruction(producer) == Some((Op::Calculate(0), argument)),
+                                "input lifecycle expression is not adjacent to its argument"
+                            );
+                            let mut code = Code::default();
+                            code.set_context(if opcode == NativeCall::SpawnEvent as u8 {
+                                5
+                            } else {
+                                0
+                            });
+                            code.words.push(0x3000);
+                            replacements.insert(producer, code.words);
+                        }
+                    }
+                    arguments.truncate(arguments.len().saturating_sub(count));
+                }
+                _ => (),
+            }
+            previous = Some(pc);
+        }
+    }
     if calls.is_empty() {
-        return Ok(bytes.to_vec());
+        return crate::script::rewrite(bytes, &analysis, replacements);
     }
     let mut raw = BTreeMap::new();
     let mut replace = BTreeMap::new();
@@ -104,7 +169,6 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
             restore.insert(previous[0].end_pc(), mode);
         }
     }
-    let mut replacements = BTreeMap::new();
     for (pc, width) in replace {
         let instruction = &analysis.instructions[&pc];
         let word =
@@ -132,6 +196,25 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
             0x2000 | NativeCall::ReadMappedInput as u16,
         ]);
         code.mask(if is_raw { RAW } else { MAPPED });
+        if !is_raw {
+            // Only these three physical controls depend on native global context.
+            // a0 is ignored by the original input service; it is not a context ID.
+            for (from, to, contexts, invert) in [
+                (0x400, 0x10, &[1, 3, 5][..], true),
+                (0x400, 0x40, &[1, 3, 5][..], false),
+                (0x800, 0x40, &[1, 3, 5][..], true),
+                (0x800, 0x10, &[5][..], false),
+                (0x20, 0x200000, &[1, 3, 5][..], false),
+            ] {
+                code.bit(from, to);
+                code.context(contexts);
+                if invert {
+                    code.words.push(0x3008);
+                }
+                code.words.extend([0x3033, 0x3037]);
+            }
+        }
+        code.finish();
         replacements.insert(pc, code.words);
     }
     ensure!(
@@ -139,6 +222,71 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
         "raw input argument is not adjacent to its call"
     );
     crate::script::rewrite(bytes, &analysis, replacements)
+}
+
+// The native owner copies variable bytes 0..0x2000, then uses +0x2000 for
+// message expansion, +0x2160 for event records and +0x581c for VM tasks. A valid
+// source variable/array reference belongs to the variable region; unchecked
+// native out-of-array access is not additional declared variable storage.
+// Check direct and statically resolved indexes against that ownership boundary.
+// Dynamic arrays retain the same valid-source bounds invariant.
+fn validate_context_reservation(program: &Program, analysis: &scenario::Analysis) -> Result<()> {
+    use symphonia_script::Width;
+    let registry = NativeRegistry::gqseaf();
+    let check = |offset: u16, width: Width| {
+        ensure!(
+            u32::from(offset) + width.bytes() as u32 <= SOURCE_VARIABLE_BYTES,
+            "source variable at {offset:#x} exceeds native variable region"
+        );
+        Ok::<_, anyhow::Error>(())
+    };
+    for block in analysis.basic_blocks() {
+        let mut stack: Vec<(Option<(u16, Width)>, Option<i32>)> = Vec::new();
+        for pc in block.instruction_pcs {
+            match program.instruction(pc).unwrap().0 {
+                Op::Push(value) => stack.push((None, Some(value))),
+                Op::Load(offset, width) => {
+                    check(offset, width)?;
+                    stack.push((Some((offset, width)), None));
+                }
+                Op::Calculate(0) => {
+                    stack.pop();
+                }
+                Op::Calculate(op @ 1..=8) => {
+                    if let Some((_, value)) = stack.last_mut() {
+                        if op != 6 {
+                            *value = None;
+                        }
+                    }
+                }
+                Op::Calculate(op) => {
+                    let right = stack.pop().unwrap_or_default();
+                    let mut left = stack.pop().unwrap_or_default();
+                    if op == 0x0f {
+                        left.0 = if let (Some((offset, width)), Some(index)) = (left.0, right.1) {
+                            let address =
+                                i64::from(offset) + i64::from(index) * width.bytes() as i64;
+                            let address = u16::try_from(address)
+                                .context("source index exceeds script memory")?;
+                            check(address, width)?;
+                            Some((address, width))
+                        } else {
+                            None
+                        };
+                    }
+                    left.1 = if op == 0x10 { right.1 } else { None };
+                    stack.push(left);
+                }
+                Op::Native(opcode) => match registry.get(opcode).and_then(|s| s.returns_value) {
+                    Some(true) => stack.push((None, None)),
+                    Some(false) => (),
+                    None => stack.clear(),
+                },
+                _ => (),
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -156,19 +304,36 @@ impl Code {
                 .extend([0x0200, value as u16, (value >> 16) as u16]);
         }
     }
+    fn set_context(&mut self, value: u16) {
+        self.words
+            .extend([0x1000, INPUT_CONTEXT, value, 0x3010, 0, 0x3033, 0x3031]);
+    }
+    fn context(&mut self, values: &[u16]) {
+        for (index, &value) in values.iter().enumerate() {
+            self.words.extend([0x1000, INPUT_CONTEXT, value, 0x3020]);
+            if index != 0 {
+                self.words.push(0x3027);
+            }
+        }
+    }
+    fn bit(&mut self, from: u16, to: u32) {
+        self.words.extend([0x1200, RESULT]);
+        self.push(u32::from(from));
+        self.words.push(0x3036);
+        let shift = to.trailing_zeros() as i32 - from.trailing_zeros() as i32;
+        if shift != 0 {
+            self.push(shift.unsigned_abs());
+            self.words.push(if shift > 0 { 0x3039 } else { 0x303a });
+        }
+    }
     fn mask(&mut self, mappings: &[(u16, u32)]) {
         self.words.extend([0, 0x3036]); // Clear the scalar accumulator, leaving RESULT intact.
         for &(from, to) in mappings {
-            self.words.extend([0x1200, RESULT]);
-            self.push(u32::from(from));
-            self.words.push(0x3036);
-            let shift = to.trailing_zeros() as i32 - from.trailing_zeros() as i32;
-            if shift != 0 {
-                self.push(shift.unsigned_abs());
-                self.words.push(if shift > 0 { 0x3039 } else { 0x303a });
-            }
+            self.bit(from, to);
             self.words.push(0x3037);
         }
+    }
+    fn finish(&mut self) {
         // Store the same converted value in the implicit return cell and retain
         // one scalar on the caller's stack. No expression/argument registers or
         // source globals are borrowed as scratch storage.
@@ -187,17 +352,54 @@ mod tests {
     struct Sampler {
         mask: i32,
         arguments: Vec<i32>,
+        timer_reads: usize,
+        lifecycle: Vec<(u8, i32, i32)>,
     }
     impl Host for Sampler {
-        const NATIVES: NativeBindings<Self> = NativeBindings::<Self>::new().register(
-            NativeCall::ReadMappedInput as u8,
-            2,
-            true,
-            |host, args, _| {
-                host.arguments = args.to_vec();
-                Ok(NativeResult::Continue(Some(host.mask)))
-            },
-        );
+        const NATIVES: NativeBindings<Self> = NativeBindings::<Self>::new()
+            .register(
+                NativeCall::ReadMappedInput as u8,
+                2,
+                true,
+                |host, args, _| {
+                    host.arguments = args.to_vec();
+                    Ok(NativeResult::Continue(Some(host.mask)))
+                },
+            )
+            .register(NativeCall::GetScenarioTicks as u8, 0, true, |host, _, _| {
+                host.timer_reads += 1;
+                Ok(NativeResult::Continue(Some(1234)))
+            })
+            .register(
+                NativeCall::SpawnEvent as u8,
+                1,
+                true,
+                |host, args, memory| {
+                    host.lifecycle.push((
+                        0x39,
+                        args[0],
+                        memory
+                            .read(INPUT_CONTEXT, Width::S8)
+                            .map_err(|e| e.to_string())?,
+                    ));
+                    Ok(NativeResult::Continue(Some(777)))
+                },
+            )
+            .register(
+                NativeCall::ReleaseResourceInstance as u8,
+                1,
+                false,
+                |host, args, memory| {
+                    host.lifecycle.push((
+                        0x3a,
+                        args[0],
+                        memory
+                            .read(INPUT_CONTEXT, Width::S8)
+                            .map_err(|e| e.to_string())?,
+                    ));
+                    Ok(NativeResult::Continue(None))
+                },
+            );
     }
     fn source(mode: u16) -> Vec<u8> {
         let mut code = vec![
@@ -277,6 +479,235 @@ mod tests {
         }
         Ok(())
     }
+    fn fixture(code: Vec<u16>) -> Vec<u8> {
+        [4u16, 0, 0, 0]
+            .into_iter()
+            .chain(code)
+            .flat_map(u16::to_be_bytes)
+            .collect()
+    }
+
+    #[test]
+    fn native_context_profiles_ignore_player_and_keep_raw_independent() -> Result<()> {
+        for context in [0, 1, 2, 3, 5, 9] {
+            for player in [0, 1, 2, 3, 4, 9] {
+                for (mask, default, restricted, event, raw) in [
+                    (0x400, 0x10, 0x40, 0x40, 0x4000),
+                    (0x800, 0x40, 0, 0x10, 0x8000),
+                    (0x20, 0, 0x200000, 0x200000, 0x200),
+                    (0x400 | 0x800 | 0x20, 0x50, 0x200040, 0x200050, 0xc200),
+                ] {
+                    for mode in [0, 1, 0x8001, 2] {
+                        let mut source = source(mode);
+                        // The original player literal is intentionally sampled once.
+                        source[32 + 6 * 2..32 + 7 * 2].copy_from_slice(&u16::to_be_bytes(player));
+                        let bytes = normalize(&source)?;
+                        let program = Arc::new(Program::decode(&bytes)?);
+                        let mut vm = Vm::new(program.clone(), program.entry())?;
+                        let mut memory = Memory::default();
+                        memory.write(INPUT_CONTEXT, Width::S8, context)?;
+                        let mut host = Sampler {
+                            mask,
+                            ..Default::default()
+                        };
+                        assert_eq!(
+                            vm.run(&mut host, &mut memory, 2000)?.event,
+                            RunEvent::Halted
+                        );
+                        let expected = if mode == 2 {
+                            raw
+                        } else {
+                            match context {
+                                1 | 3 => restricted,
+                                5 => event,
+                                _ => default,
+                            }
+                        };
+                        assert_eq!(
+                            memory.read(RESULT, Width::S32)?,
+                            expected,
+                            "context {context}, player {player}, mode {mode}, mask {mask:#x}"
+                        );
+                        assert_eq!(
+                            host.arguments,
+                            [0, if mode == 2 { 1 } else { i32::from(mode) }]
+                        );
+                        assert_eq!(memory.read(INPUT_CONTEXT, Width::S8)?, context);
+                        assert_eq!((vm.value_depth(), vm.argument_depth()), (2, 1));
+                        assert_eq!(vm.expression(), Some(i32::from(mode)));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn context_writers_preserve_the_caller() -> Result<()> {
+        let bytes = normalize(&fixture(vec![
+            0x0100, 321, 0x3000, 0x4000, // Pending outer argument.
+            0x1200, 0x100, // Live outer assignment reference.
+            0x1200, 0x108, 0x3001, 0x3000, 0x4000, 0x2039,
+            0x3000, // Consume the native return as in source.
+            0, 0x3000, 0x4000, 0x203a, 0x0300, 1500, 0x3000, 0x4000, 0x2039, 0x20ff,
+        ]))?;
+        let program = Arc::new(Program::decode(&bytes)?);
+        let mut vm = Vm::new(program.clone(), program.entry())?;
+        let mut memory = Memory::default();
+        memory.write(0x100, Width::S32, 5678)?;
+        memory.write(0x108, Width::S32, 42)?;
+        let mut host = Sampler::default();
+        assert_eq!(
+            vm.run(&mut host, &mut memory, 1000)?.event,
+            RunEvent::Halted
+        );
+        assert_eq!(
+            host.lifecycle,
+            [(0x39, 42, 5), (0x3a, 0, 0), (0x39, 1500, 5)]
+        );
+        assert_eq!(memory.read(0x108, Width::S32)?, 43); // Source postfix runs once.
+        assert_eq!(memory.read(0x100, Width::S32)?, 5678);
+        assert_eq!(memory.read(RESULT, Width::S32)?, 777);
+        assert_eq!(memory.read(INPUT_CONTEXT, Width::S8)?, 5);
+        assert_eq!((vm.value_depth(), vm.argument_depth()), (2, 1));
+        assert_eq!(vm.expression(), Some(1500));
+        Ok(())
+    }
+
+    #[test]
+    fn menu_and_skit_calls_remain_source_bytecode() -> Result<()> {
+        // Scene-close state belongs to the common runtime boundary. Keep the
+        // original calls, arguments and continuation ordering untouched here.
+        let bytes = fixture(vec![
+            0x0300, 9999, 0x3000, 0x4000, 0x2067, 0x3000, 0x0300, 628, 0x3000, 0x4000, 1, 0x3000,
+            0x4000, 0, 0x3000, 0x4000, 0x2083, 2, 0x3000, 0x4000, 0x20ed, 0x3000, 0x4000, 0x20ee,
+            0x20ff,
+        ]);
+        assert_eq!(normalize(&bytes)?, bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn native_variable_copy_keeps_private_skit_context_at_zero() -> Result<()> {
+        let mut parent = Memory::default();
+        parent.write(INPUT_CONTEXT, Width::S8, 5)?;
+        parent.write(0x100, Width::S32, 5678)?;
+        parent.write(0x1fff, Width::S8, 73)?;
+        let mut child = Memory::default();
+        child.copy_from(&parent, 0..SOURCE_VARIABLE_BYTES as u16)?;
+        assert_eq!(child.read(INPUT_CONTEXT, Width::S8)?, 0);
+        assert_eq!(child.read(0x100, Width::S32)?, 5678);
+        assert_eq!(child.read(0x1fff, Width::S8)?, 73);
+        let bytes = normalize(&source(1))?;
+        let program = Arc::new(Program::decode(&bytes)?);
+        let mut host = Sampler {
+            mask: 0x400,
+            ..Default::default()
+        };
+        Vm::new(program.clone(), program.entry())?.run(&mut host, &mut child, 2000)?;
+        assert_eq!(child.read(RESULT, Width::S32)?, 0x10);
+        assert_eq!(parent.read(INPUT_CONTEXT, Width::S8)?, 5);
+        Ok(())
+    }
+
+    // Original field237 listener1502, through its first accepted timestamp.
+    // Steam gra_d02_bin0001.bin_ SHA256 7fc722dce11eec687b33239f36a826622326b9c4f64c8b6c63a14cdf5627b13c,
+    // PC0x6604; GC section6 SHA256 a6c74cfb1db5814c16be2d7a6e93613cc202fa9420721b680e48fabab3d490ec,
+    // PC0x63ff. This semantic transcription omits the infinite loop and the
+    // later jump-animation callback, and bounds the false branch to fixture end.
+    fn gnomelette_listener(source_mask: u16, timestamp: u16) -> Vec<u8> {
+        let mut code = vec![
+            0x1200,
+            0x600,
+            1,
+            0x3000,
+            0x4000, // Native player argument, ignored on Steam.
+            1,
+            0x0300,
+            0x8000,
+            0x3037,
+            0x3000,
+            0x4000,
+            0x20b8,
+            0x3010,
+            0x3000,
+            0x1200,
+            0x600,
+            0x0300,
+            source_mask,
+            0x3036,
+            0x1200,
+            timestamp,
+            0,
+            0x3020,
+            0x3026,
+            0x3000,
+            0x2004,
+            0,
+            0x1200,
+            timestamp,
+            0x2000 | NativeCall::GetScenarioTicks as u16,
+            0x3010,
+            0x3000,
+            0x20ff,
+        ];
+        code[26] = (code.len() - 1) as u16;
+        fixture(code)
+    }
+
+    #[test]
+    fn actual_gnomelette_listener_records_ring_in_spawn_context() -> Result<()> {
+        let writer = normalize(&fixture(vec![0x0300, 1502, 0x3000, 0x4000, 0x2039, 0x20ff]))?;
+        let writer = Arc::new(Program::decode(&writer)?);
+        for (edition, source_mask, timestamp, steam) in [
+            ("original GC", 0x400, 0x844, false),
+            ("original Steam", 0x40, 0x84c, true),
+        ] {
+            let source = gnomelette_listener(source_mask, timestamp);
+            let bytes = if steam { normalize(&source)? } else { source };
+            let program = Arc::new(Program::decode(&bytes)?);
+            for (mask, expected_reads) in [(0x400, 1), (0x800, 0)] {
+                let mut memory = Memory::default();
+                let mut host = Sampler {
+                    mask,
+                    ..Default::default()
+                };
+                Vm::new(writer.clone(), writer.entry())?.run(&mut host, &mut memory, 1000)?;
+                assert_eq!(memory.read(INPUT_CONTEXT, Width::S8)?, 5);
+                let mut vm = Vm::new(program.clone(), program.entry())?;
+                assert_eq!(
+                    vm.run(&mut host, &mut memory, 2000)?.event,
+                    RunEvent::Halted
+                );
+                assert_eq!(
+                    host.timer_reads, expected_reads,
+                    "{edition}, input {mask:#x}"
+                );
+                assert_eq!(
+                    memory.read(timestamp, Width::S32)?,
+                    if expected_reads == 1 { 1234 } else { 0 }
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn source_variables_stay_inside_the_native_owned_region() {
+        for words in [
+            vec![0x1000, INPUT_CONTEXT, 0x20ff],
+            vec![0x1200, INPUT_CONTEXT - 3, 0x20ff],
+            vec![0x1000, 0x1fff, 1, 0x300f, 0x20ff],
+        ] {
+            assert!(
+                normalize(&fixture(words))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("exceeds native variable region")
+            );
+        }
+    }
+
     #[test]
     fn unknown_input_modes_are_not_guessed() {
         assert!(normalize(&source(3)).is_err());

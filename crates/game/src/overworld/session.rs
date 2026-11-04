@@ -637,6 +637,7 @@ impl Session {
             }
             if menu.closed {
                 self.menu = None;
+                self.events.finish_script_scene();
                 self.events.world.input_enabled = true;
                 self.travel_audio(self.travel.state().mount)?;
             }

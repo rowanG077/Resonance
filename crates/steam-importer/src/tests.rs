@@ -824,6 +824,51 @@ fn installed_skits_use_shared_catalogue_and_vm() -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires installed Steam and a cooked library; converts source skit bytecode privately without recooking portrait media"]
+fn installed_skit_sources_preserve_the_shared_vm_contract() -> Result<()> {
+    let installation = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+    );
+    let baseline = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
+    );
+    let temporary = tempfile::tempdir()?;
+    let source = source::Source::open(&installation, Language::English)?;
+    for name in [
+        resonance_content::library::FIELDS,
+        "audio/speech/english/mappings.json",
+    ] {
+        output::write(
+            &temporary.path().join(name),
+            &fs::read(baseline.join(name))?,
+        )?;
+    }
+    skits::cook(&source, temporary.path())?;
+    let mappings: Mappings = json(
+        temporary.path(),
+        resonance_content::skit::document::MAPPINGS,
+    )?;
+    let mut converted = 0;
+    for (_, name) in mappings.iter() {
+        let bytes = fs::read(
+            temporary
+                .path()
+                .join("skits")
+                .join(name)
+                .join("scenario.ssb"),
+        )?;
+        symphonia_script::Program::decode(&bytes)?;
+        converted += 1;
+    }
+    ensure!(
+        converted > 400,
+        "source skit catalogue unexpectedly incomplete"
+    );
+    eprintln!("Converted {converted} source skit programs through ordinary shared bytecode");
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; recooks scenery and local overlays"]
 fn installed_field_overlays_load_through_shared_catalogue() -> Result<()> {
     let installation = PathBuf::from(
@@ -1616,19 +1661,29 @@ fn installed_field_sources_convert() -> Result<()> {
         .transpose()?
         .unwrap_or_default();
     let source = source::Source::open(&installation, language)?;
-    let output = tempfile::tempdir()?;
-    field_directory::cook(&source, output.path())?;
+    let temporary = tempfile::tempdir()?;
+    let output = std::env::var_os("RESONANCE_TEST_STEAM_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_path_buf());
+    if output != temporary.path() {
+        ensure!(
+            !output.exists(),
+            "private field test output must not already exist"
+        );
+        fs::create_dir_all(&output)?;
+    }
+    field_directory::cook(&source, &output)?;
     let selected = std::env::var("RESONANCE_TEST_STEAM_FIELD")
         .ok()
         .map(|id| id.parse::<u32>())
         .transpose()?;
-    field_core::cook(&source, output.path(), selected)?;
-    let fields: Mappings = json(output.path(), resonance_content::library::FIELDS)?;
+    field_core::cook(&source, &output, selected)?;
+    let fields: Mappings = json(&output, resonance_content::library::FIELDS)?;
     for (id, name) in fields
         .iter()
         .filter(|(id, _)| selected.is_none_or(|only| only == *id))
     {
-        let base = output.path().join("fields").join(name);
+        let base = output.join("fields").join(name);
         let bytes = fs::read(base.join("scripts/scenario.ssb"))?;
         symphonia_script::Program::decode(&bytes).with_context(|| format!("cooked field {id}"))?;
         if base.join("messages.json").exists() {

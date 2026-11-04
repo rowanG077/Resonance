@@ -325,6 +325,11 @@ impl EventRuntime {
     pub fn memory(&self) -> &Memory {
         &self.memory
     }
+    /// A nested scripted scene has closed, including presentation-owned playback.
+    pub fn finish_script_scene(&mut self) {
+        self.memory.reset_compiler_transient();
+    }
+
     /// Commit shared story variables while retaining this VM's dispatcher registers and locals.
     pub fn copy_script_globals(&mut self, source: &Self) -> Result<()> {
         self.memory.copy_from(

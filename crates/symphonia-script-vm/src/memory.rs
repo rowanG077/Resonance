@@ -10,6 +10,11 @@ impl Default for Memory {
     }
 }
 impl Memory {
+    /// Retire importer-owned transient state at a nested scene boundary.
+    pub fn reset_compiler_transient(&mut self) {
+        self.0[usize::from(symphonia_script::COMPILER_TRANSIENT_BYTE)] = 0;
+    }
+
     /// Copy a byte range without interpreting its values or changing other memory.
     pub fn copy_from(&mut self, source: &Self, range: std::ops::Range<u16>) -> Result<(), Fault> {
         let bytes = usize::from(range.start)..usize::from(range.end);
