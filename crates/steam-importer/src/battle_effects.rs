@@ -21,6 +21,7 @@ mod embedded_outline;
 mod fixed_atlas;
 mod gatekeeper_artwork;
 mod lightning_artwork;
+mod model_artwork;
 mod model_color;
 mod opacity;
 mod rates;
@@ -358,6 +359,7 @@ fn models(
     let count = usize::from(metadata[0x1f4]);
     ensure!(count <= 6, "enemy effect model count exceeds directory");
     let mut attached = BTreeMap::<u8, Vec<u16>>::new();
+    let mut wings = BTreeSet::new();
     if metadata[0x1f2] != 0 {
         let rows =
             preview_model::member(package, 0x1d8)?.context("missing attached effect models")?;
@@ -366,6 +368,13 @@ fn models(
             .context("truncated attached model table")?
             .chunks_exact(40)
         {
+            if row[3] & 0x40 != 0 {
+                ensure!(
+                    usize::from(row[0]) < count && row[3] == 0x70,
+                    "layered wing attachment source recipe changed"
+                );
+                wings.insert(row[0]);
+            }
             if row[1] != 0 {
                 attached.entry(row[0]).or_default().push(u16::from(row[1]));
             }
@@ -393,24 +402,56 @@ fn models(
                 }
             }
         }
-        let (mut preview, mut native) = preview_model::cook(
-            source,
-            library,
-            [&body, &outline],
-            &format!("{owner}/models/model-{slot}"),
-            &motions,
-        )?;
-        normalize_model_color(source, library, &body, &preview.parts[0].scene, &mut native)?;
-        if outline.is_empty()
-            && embedded_outline::present_with_clips(&native, library, &preview.parts[0].scene)?
+        let model_owner = format!("{owner}/models/model-{slot}");
+        let layered_wing = wings.contains(&(slot as u8));
+        let (mut layers, mut native) = if layered_wing {
+            // These source-declared additive wing layers have no outline or
+            // character depth pass. Other effect models retain their existing
+            // source-shell classification and rendering recipe.
+            ensure!(
+                outline.is_empty()
+                    && matches!(
+                        body.to_ascii_lowercase().as_str(),
+                        "bh00_obj003.tomdlb_d" | "bh22_obj004.tomdlb_d" | "ba03_obj001.tomdlb_d"
+                    ),
+                "layered wing source body or outline changed"
+            );
+            let (scene, native) =
+                preview_model::part(source, library, &body, &model_owner, "body", &motions)?;
+            (
+                vec![resonance_content::model_preview::PreviewPart {
+                    scene,
+                    animation: None,
+                    attached_to: None,
+                    additive: false,
+                    uv_offsets: Vec::new(),
+                }],
+                native,
+            )
+        } else {
+            let (preview, native) =
+                preview_model::cook(source, library, [&body, &outline], &model_owner, &motions)?;
+            (preview.parts, native)
+        };
+        normalize_model_color(source, library, &body, &layers[0].scene, &mut native)?;
+        if !layered_wing
+            && outline.is_empty()
+            && embedded_outline::present_with_clips(&native, library, &layers[0].scene)?
         {
-            // A generated front-cull pass would expose the source's reversed black shell
-            // across the entire model. The source body already supplies its silhouette.
-            preview
-                .parts
-                .retain(|part| part.scene.outline_color.is_none());
+            layers.retain(|part| part.scene.outline_color.is_none());
         }
-        for part in &mut preview.parts {
+        if layered_wing {
+            ensure!(
+                outline.is_empty()
+                    && native.materials.textures.len() == 1
+                    && native.materials.records.iter().all(|material| {
+                        matches!(material.textures.as_slice(), [slot] if slot.kind == 0 && slot.texture == 0)
+                    }),
+                "layered wing source no longer has one body color atlas"
+            );
+            model_artwork::wing_color_slot(&mut layers[0].scene)?;
+        }
+        for part in &mut layers {
             part.animation = None;
             part.scene.autoplay = false;
         }
@@ -419,7 +460,7 @@ fn models(
             Model {
                 attachment_nodes: Default::default(),
                 independent_layers: Default::default(),
-                layers: preview.parts,
+                layers,
             },
         );
     }

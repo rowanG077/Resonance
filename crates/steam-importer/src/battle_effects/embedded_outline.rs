@@ -646,6 +646,7 @@ mod tests {
         );
         let image = pe::Image::parse(&source.executable)?;
         let mut checked = 0;
+        let mut wings = 0;
         for id in 0..monsters::count(&image)? as u16 {
             let path = library.join(format!(
                 "battle/enemies/{}/effects/effects.json",
@@ -670,6 +671,37 @@ mod tests {
                 );
                 let descriptor = preview_model::reference(&package, 0x180 + slot * 4)?
                     .context("missing published source model")?;
+                if slot == 0 && matches!(id, 215 | 235 | 239) {
+                    let metadata = monsters::metadata(&package)?;
+                    let attachment = preview_model::member(&package, 0x1d8)?
+                        .context("layered wing record missing")?;
+                    let scene: resonance_content::model_preview::PreviewPart =
+                        serde_json::from_value(model["layers"][0].clone())?;
+                    ensure!(
+                        metadata[0x1f2] == 1
+                            && attachment[0] == 0
+                            && attachment[3] == 0x70
+                            && matches!(
+                                descriptor.to_ascii_lowercase().as_str(),
+                                "bh00_obj003.tomdlb_d"
+                                    | "bh22_obj004.tomdlb_d"
+                                    | "ba03_obj001.tomdlb_d"
+                            )
+                            && scene.scene.outline_color.is_none()
+                            && scene.scene.textures.len() == 2
+                            && scene.scene.textures[0] == scene.scene.textures[1]
+                            && scene.scene.materials.iter().all(|material| {
+                                material
+                                    .color
+                                    .as_ref()
+                                    .is_some_and(|binding| binding.texture == 1)
+                                    && material.multiply.is_none()
+                            }),
+                        "one-layer wing lost its source recipe or shared palette slot"
+                    );
+                    wings += 1;
+                    continue;
+                }
                 let bytes = source.require(&descriptor)?;
                 let payload = crate::package::dependencies(&bytes)?;
                 let native = model::Model::read(&bytes, &source.require(&payload[0])?)?;
@@ -683,7 +715,7 @@ mod tests {
             }
         }
         eprintln!(
-            "{checked} already-published source shell models remain covered by the conservative guard; no outputs written"
+            "{checked} already-published source shell models remain covered; {wings} source-declared wings retain their separate recipe; no outputs written"
         );
         Ok(())
     }
