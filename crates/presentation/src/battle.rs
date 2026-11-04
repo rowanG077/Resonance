@@ -1540,21 +1540,14 @@ fn render_menu(
     images: &Assets<Image>,
     server: &AssetServer,
 ) -> Result<bool> {
-    use resonance_game::battle::command::View;
+    use resonance_game::battle::command::{InputKind, View};
     scene.menu_ready = true;
+    if scene.lifecycle.command_input_kind() != InputKind::SharedMenu {
+        return Ok(false);
+    }
     let Some(command) = scene.lifecycle.command_frame() else {
         return Ok(false);
     };
-    if !matches!(
-        command.view,
-        View::Inventory(_)
-            | View::Strategy(_)
-            | View::Tech(_)
-            | View::Unison(_)
-            | View::Equipment(_)
-    ) {
-        return Ok(false);
-    }
     let result = (|| {
         let candidate = scene
             .candidate
