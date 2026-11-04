@@ -72,6 +72,30 @@ pub(crate) fn cook(
     owner: &str,
     slot: u8,
 ) -> Result<EffectTexture> {
+    cook_with_pixels(
+        source,
+        library,
+        bank,
+        name,
+        table,
+        owner,
+        slot,
+        |_, _, _| {},
+    )
+}
+
+/// A narrowly selected artwork style may change pixels before interning pages.
+/// Definitions and native UV remapping still pass through the ordinary compiler.
+pub(crate) fn cook_with_pixels(
+    source: &Source,
+    library: &Path,
+    bank: &mut Definition,
+    name: &str,
+    table: Option<&Table>,
+    owner: &str,
+    slot: u8,
+    mut normalize: impl FnMut(usize, u16, &mut resonance_asset_writer::texture::Pixels),
+) -> Result<EffectTexture> {
     let descriptor = texture::Descriptor::read(&source.require(name)?)?;
     let decoded = descriptor.decode(&source.require(&descriptor.payload)?)?;
     let mut texture = EffectTexture {
@@ -114,11 +138,12 @@ pub(crate) fn cook(
             if indices.contains_key(&key) {
                 continue;
             }
-            let pixels = plan
+            let mut pixels = plan
                 .image(&decoded.levels[0], table, key)
                 .with_context(|| {
                     format!("sprite template {member}, slot {slot}, palette {key}, {name}")
                 })?;
+            normalize(member, key, &mut pixels);
             let bytes = resonance_asset_writer::ktx2::encode_rgba8(
                 pixels.width,
                 pixels.height,

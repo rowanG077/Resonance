@@ -19,6 +19,7 @@ use std::{
 
 mod embedded_outline;
 mod fixed_atlas;
+mod gatekeeper_artwork;
 mod lightning_artwork;
 mod model_color;
 mod opacity;
@@ -476,6 +477,7 @@ pub(crate) fn cook_enemies(
                     .context("missing Living Armor effect bank")?;
                 stat_up_style::normalize(id, bank, &mut definition)?;
             }
+            let dome = gatekeeper_artwork::Dome::read(id, &bytes, &definition)?;
             let owner = format!("battle/enemies/{}/effects", monsters::symbol(id));
             let slots = definition
                 .templates
@@ -495,7 +497,7 @@ pub(crate) fn cook_enemies(
                     preview_model::reference(&bytes, field)?
                         .with_context(|| format!("missing enemy effect atlas {slot}"))?
                 };
-                let texture = effect_atlas::cook(
+                let texture = effect_atlas::cook_with_pixels(
                     source,
                     library,
                     &mut definition,
@@ -503,6 +505,11 @@ pub(crate) fn cook_enemies(
                     atlases.get(&name),
                     &owner,
                     slot,
+                    |member, palette, pixels| {
+                        if let Some(dome) = &dome {
+                            dome.normalize(slot, member, palette, pixels);
+                        }
+                    },
                 )?;
                 textures.insert(slot, vec![texture]);
             }
