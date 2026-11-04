@@ -2,6 +2,114 @@
 use super::*;
 
 #[test]
+#[ignore = "requires installed Steam; optionally writes only eight source-eligible monster models to RESONANCE_CARRIED_VARIANT_OUTPUT"]
+fn installed_additive_carried_variants_expand_rgb_once_without_motion_changes() -> Result<()> {
+    let source = Source::open(
+        &std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+        ),
+        crate::Language::English,
+    )?;
+    let temporary = tempfile::tempdir()?;
+    let destination = std::env::var_os("RESONANCE_CARRIED_VARIANT_OUTPUT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_owned());
+    let image = pe::Image::parse(&source.executable)?;
+    const OWNERS: [u16; 8] = [71, 235, 236, 237, 238, 241, 242, 255];
+    let mut eligible = Vec::new();
+    for id in 0..count(&image)? as u16 {
+        let bytes = source.require(package(&image, id)?)?;
+        let metadata = metadata(&bytes)?;
+        if metadata[0x1f0] != 0
+            && metadata[0x130] & 1 == 0
+            && let Some(bytes) = preview_model::member(&bytes, 0x160)?
+        {
+            let carried = Package::parse(bytes)?;
+            if carried.len() == 6 && carried.reference(5)?.is_some() {
+                eligible.push(id);
+            }
+        }
+    }
+    ensure!(
+        eligible == OWNERS,
+        "source additive variant directory changed"
+    );
+    models_selected(&source, &destination, Some(&OWNERS))?;
+    for id in OWNERS {
+        let bytes = source.require(package(&image, id)?)?;
+        let metadata = metadata(&bytes)?;
+        ensure!(metadata[0x1f0] != 0 && metadata[0x130] == 0);
+        let carried = Package::parse(
+            preview_model::member(&bytes, 0x160)?.context("missing carried slot0")?,
+        )?;
+        ensure!(carried.len() == 6 && carried.reference(2)?.is_none());
+        let descriptor = carried.reference(5)?.context("missing additive variant")?;
+        let stem = match id {
+            71 => "elem14",
+            235 => "bh22",
+            236 => "ba00",
+            237 => "ba01",
+            238 => "ba02",
+            241 => "ba05",
+            242 => "ba06",
+            255 => "ex04",
+            _ => unreachable!(),
+        };
+        ensure!(descriptor == format!("{stem}_obj002.tomdlb_d"));
+        let owner = format!("meshes/monsters/{}/carried-0", symbol(id));
+        let reference = tempfile::tempdir()?;
+        let (scene, mut native) = preview_model::part(
+            &source,
+            reference.path(),
+            descriptor,
+            &owner,
+            "variant",
+            &[],
+        )?;
+        ensure!(scene.clips.is_empty() && !scene.autoplay);
+        let original = std::fs::read(reference.path().join(&scene.mesh))?;
+        let mut vertices = 0;
+        for mesh in &mut native.meshes {
+            for color in &mut mesh.colors {
+                let expected = match id {
+                    71 => [129. / 255., 128. / 255., 129. / 255.],
+                    236..=238 => [68. / 255., 64. / 255., 68. / 255.],
+                    _ => [119. / 255., 128. / 255., 119. / 255.],
+                };
+                ensure!(color[..3] == expected);
+                let alpha = color[3];
+                ensure!(if id == 71 {
+                    (0. ..=185. / 255.).contains(&alpha)
+                } else {
+                    alpha == 1.
+                });
+                for channel in &mut color[..3] {
+                    *channel = (*channel * 2.).min(1.);
+                }
+                ensure!(color[3].to_bits() == alpha.to_bits());
+                vertices += 1;
+            }
+        }
+        ensure!(vertices != 0);
+        let stem = descriptor.rsplit_once('.').unwrap().0;
+        let (tints, _, _) = crate::model::material_parameters(
+            &source.require(&format!("{stem}.mxd"))?,
+            &native.materials,
+        )?;
+        let expected = native.glb(&tints)?;
+        // Compare the actual production carried path against an independent
+        // raw-source RGB edit; omitted or doubled normalization both fail.
+        let actual = std::fs::read(destination.join(&scene.mesh))?;
+        ensure!(actual == expected && actual != original);
+        ensure!(scene.clips.is_empty() && !scene.autoplay);
+        eprintln!(
+            "enemy{id}: {vertices} additive core vertices RGB2; source alpha and no-motion variant retained"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_LIBRARY; reads only representative carried owners63/84/86"]
 fn cooked_carried_material_owners_prepare_through_shared_reader() -> Result<()> {
     use resonance_content::{battle_enemy::document, diagnostics::Diagnostics, library::Library};

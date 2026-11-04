@@ -397,8 +397,15 @@ fn components(
             && package.len() == 6
             && let Some(variant) = package.reference(5)?
         {
-            let (scene, _) =
+            let (scene, mut native) =
                 preview_model::part(source, library, variant, &component_owner, "variant", &[])?;
+            crate::battle_effects::normalize_model_color(
+                source,
+                library,
+                variant,
+                &scene,
+                &mut native,
+            )?;
             added.push(resonance_content::model_preview::PreviewPart {
                 scene,
                 animation: None,
