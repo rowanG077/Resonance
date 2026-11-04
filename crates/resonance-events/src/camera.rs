@@ -190,7 +190,10 @@ pub struct CameraRig {
     pub shake: Shake,
     /// Presentation supplies its actual horizontal framing; scripts read the authored camera.
     pub view_aspect_ratio: f32,
+    /// Some is an active path, preserving the existing camera state contract.
     pub motion: Option<MotionCamera>,
+    /// Native path parameters survive deactivation but cannot drive the view.
+    pub dormant_motion: Option<MotionCamera>,
     /// Native selector -1 edits the next field's entry camera, leaving this
     /// field's view live. This transient handoff is not part of a saved game.
     pub entry: Option<EntryCamera>,
@@ -213,6 +216,7 @@ impl Default for CameraRig {
             shake: Shake::default(),
             view_aspect_ratio: 4. / 3.,
             motion: None,
+            dormant_motion: None,
             entry: None,
             selected: 0,
             cameras: std::array::from_fn(|_| FieldCamera::default()),
@@ -481,7 +485,21 @@ impl CameraRig {
         let y = SCENE_HEIGHT as f32 * 0.5 * (1. - dot(offset, up) * scale);
         Some([x, y, z])
     }
+    pub(crate) fn path_parameters(&mut self) -> &mut MotionCamera {
+        match &mut self.motion {
+            Some(path) => path,
+            None => self
+                .dormant_motion
+                .get_or_insert_with(MotionCamera::dormant),
+        }
+    }
+    pub(crate) fn stop_path(&mut self) {
+        if let Some(path) = self.motion.take() {
+            self.dormant_motion = Some(path);
+        }
+    }
     pub fn start_path(&mut self) {
+        self.dormant_motion = None;
         self.motion = Some(MotionCamera {
             mode: 0,
             actor: self.current().actor,

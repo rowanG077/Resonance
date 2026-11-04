@@ -6278,6 +6278,119 @@ fn numbered_world_cinematics_keep_the_following_scene_and_retire_the_caller() {
 }
 
 #[test]
+fn original_193_camera_return_retains_dormant_parameters_without_changing_view() {
+    let build = |write_zoom| {
+        let mut code = Vec::new();
+        // Original Steam193 ordinary-camera restoration, including its dormant
+        // zoom command after SelectCamera(0), not an invented path activation.
+        native(&mut code, Call::SelectCamera, &[0]);
+        native(&mut code, Call::ResetCameraBounds, &[]);
+        if write_zoom {
+            native(
+                &mut code,
+                Call::MotionCommand,
+                &[7, 2700, i32::MIN | 1, 0, 0, 0],
+            );
+        }
+        for (call, args) in [
+            (Call::SetCameraProperty, vec![3, 1]),
+            (Call::SetCameraProperty, vec![4, 1]),
+            (
+                Call::SetCameraTransitionValues,
+                vec![333, 0, 42, 1746 - 400],
+            ),
+            (Call::SetCameraPosition, vec![0, 0, 87]),
+            (Call::SetCameraProperty, vec![9, 909]),
+            (Call::SetCameraProperty, vec![15, -130]),
+            (Call::SetCameraProperty, vec![13, 1535]),
+            (Call::SetCameraProperty, vec![19, 719]),
+            (Call::SetCameraProperty, vec![8, -517]),
+            (Call::SetCameraProperty, vec![14, -1317]),
+            (Call::SetCameraProperty, vec![10, -2200]),
+            (Call::SetCameraProperty, vec![16, -1049]),
+            (Call::SetCameraProperty, vec![11, 795]),
+            (Call::SetCameraProperty, vec![17, 1951]),
+        ] {
+            native(&mut code, call, &args);
+        }
+        let record = |code: &mut Vec<u16>, operation, address| {
+            native(code, Call::MotionCommand, &[operation, 0, 0, 0, 0, 0]);
+            code.extend([0x1200, address]);
+            native(code, Call::ReadCoordinateRegister, &[0]);
+            code.extend([0x3010, 0x3000]);
+        };
+        record(&mut code, 8, 0x100);
+        native(&mut code, Call::MotionCommand, &[0, 1, 0, 0, 0, 0]);
+        record(&mut code, 1, 0x10c);
+        native(&mut code, Call::YieldCommand, &[0, 20]);
+        record(&mut code, 8, 0x104);
+        native(&mut code, Call::SelectCamera, &[-2]);
+        record(&mut code, 8, 0x108);
+        code.push(0x20ff);
+        let mut world = controlled_world();
+        world.controlled_actor = 1;
+        world.insert_actor(1, Actor::new(1, [-1275., 425., 0.]));
+        let mut rig = camera::CameraRig::following(1);
+        rig.snap_follow_view(&world.actors);
+        rig.start_path();
+        rig.motion.as_mut().unwrap().fov = camera::motion::FovTween::new(21.);
+        assert_eq!(rig.fov_degrees(), 21.); // Existing Some still means active.
+        world.field_camera = Some(rig);
+        runtime(program(&code, &[0x20ff]), Default::default(), world)
+    };
+    let mut events = build(true);
+    let mut control = build(false);
+    assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 2100);
+    assert_eq!(events.memory().read(0x10c, Width::S32).unwrap(), 1);
+    for _ in 0..8 {
+        let rig = events.world.field_camera.as_ref().unwrap();
+        let baseline = control.world.field_camera.as_ref().unwrap();
+        assert!(rig.motion.is_none());
+        assert_eq!(rig.dormant_motion.as_ref().unwrap().fov.value, 21.);
+        assert!(!rig.dormant_motion.as_ref().unwrap().fov.settled());
+        assert_eq!(rig.selected, baseline.selected);
+        assert_eq!(rig.position, baseline.position);
+        assert_eq!(rig.target, baseline.target);
+        assert_eq!(rig.fov_degrees(), baseline.fov_degrees());
+        assert_eq!(rig.fov_degrees(), 27.);
+        // Dormant state does not alter serialized ordinary-camera settings.
+        assert_eq!(
+            serde_json::to_value(rig.settings(1).unwrap()).unwrap(),
+            serde_json::to_value(baseline.settings(1).unwrap()).unwrap()
+        );
+        for runtime in [&mut events, &mut control] {
+            runtime.world.actors.get_mut(&1).unwrap().position[0] += 5.;
+            runtime.step().unwrap();
+        }
+    }
+    steps(&mut events, 20);
+    assert_eq!(events.memory().read(0x104, Width::S32).unwrap(), 2100);
+    assert_eq!(events.memory().read(0x108, Width::S32).unwrap(), 2700);
+    let rig = events.world.field_camera.as_ref().unwrap();
+    assert_eq!(rig.motion.as_ref().unwrap().fov.value, 27.);
+    assert!(rig.motion.as_ref().unwrap().fov.settled());
+    assert!(rig.dormant_motion.is_none());
+
+    for args in [
+        [7, 0, i32::MIN | 1, 0, 0, 0],
+        [7, 2800, 0, 0, 0, 0],
+        [3, 1, 0, 0, 0, 0],
+        [2, 0, 0, 0, 0, 0],
+    ] {
+        let code = script(&[(Call::MotionCommand, &args)]);
+        assert!(
+            EventRuntime::with_state(
+                program(&code, &[0x20ff]),
+                Arc::new(ResourceLibrary::default()),
+                GameWorld::default(),
+                Default::default()
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn camera_paths_take_over_tracks_and_new_tracks_restore_playback() {
     let mut key = resonance_content::CameraKey::looking_at(0., [200., 300., 400.], [0.; 3]);
     key.orientation = [0., 0., 0., 1.];
@@ -6309,6 +6422,7 @@ fn camera_paths_take_over_tracks_and_new_tracks_restore_playback() {
     steps(&mut events, 2);
     let camera = events.world.field_camera.as_ref().unwrap();
     assert!(camera.motion.is_none());
+    assert!(camera.dormant_motion.is_some());
     assert_eq!(camera.position, [200., 300., 400.]);
     assert_eq!(camera.target, [0.; 3]);
     assert!(

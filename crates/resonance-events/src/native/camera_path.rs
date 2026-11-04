@@ -6,10 +6,7 @@ impl NativeHost<'_> {
             .world
             .field_camera
             .get_or_insert_with(CameraRig::default);
-        let path = rig
-            .motion
-            .as_mut()
-            .ok_or("script camera path is not active")?;
+        let path = rig.path_parameters();
         let xyz = [a[1] as f32, a[2] as f32, a[3] as f32];
         match a[0] {
             0 => {

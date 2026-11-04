@@ -1259,7 +1259,7 @@ impl NativeHost<'_> {
                 let mut playback = CameraTrack::new(resource, self.world.tick);
                 playback.playing = a[1] == 0;
                 playback.repeat = a[2] == 1;
-                self.world.field_camera.get_or_insert_default().motion = None;
+                self.world.field_camera.get_or_insert_default().stop_path();
                 self.world.camera = Some(playback);
             }
             NativeCall::ConfigureCameraTrack | NativeCall::MapCameraTrackPosition => {

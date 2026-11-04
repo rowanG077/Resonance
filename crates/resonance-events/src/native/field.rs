@@ -1796,7 +1796,7 @@ impl NativeHost<'_> {
                     ));
                 } else {
                     rig.selected = a[0] as usize;
-                    rig.motion = None;
+                    rig.stop_path();
                     rig.position_settled = false;
                     rig.target_settled = false;
                 }

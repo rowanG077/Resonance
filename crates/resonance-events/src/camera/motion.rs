@@ -121,6 +121,18 @@ pub struct MotionCamera {
     pub target: [f32; 3],
 }
 impl MotionCamera {
+    /// The native parameter bank is zero-initialized independently of activation.
+    pub(super) fn dormant() -> Self {
+        Self {
+            mode: 0,
+            actor: 0,
+            position: Tween::new([0.; 3]),
+            offset: Tween::new([0.; 3]),
+            angles: Tween::new([0.; 3]),
+            fov: FovTween::new(0.),
+            target: [0.; 3],
+        }
+    }
     pub fn settled(&self, channel: u8) -> bool {
         match channel {
             9 => {
