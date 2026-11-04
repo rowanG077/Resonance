@@ -79,10 +79,11 @@ pub(crate) fn cook_on_rig(
     for (index, native) in model.materials.textures.iter().enumerate() {
         let descriptor =
             texture::Descriptor::read(&source.require(&format!("{}.totexb_d", native.name))?)?;
-        let image = descriptor.decode(&source.require(&descriptor.payload)?)?;
+        let mut image = descriptor.decode(&source.require(&descriptor.payload)?)?;
         let pixels = &image.levels[0].rgba;
         transparent.push(pixels.chunks_exact(4).any(|p| p[3] != 255));
         translucent.push(pixels.chunks_exact(4).any(|p| p[3] > 0 && p[3] < 255));
+        gc_cloud_alpha(name, &model.materials, index, &mut image)?;
         let path = format!("{owner}/textures/{label}-texture-{index}.ktx2");
         output::write(&library.join(&path), &image.ktx2()?)?;
         textures.push(path);
@@ -163,6 +164,62 @@ pub(crate) fn cook_on_rig(
     };
     part.prepare_bones(&bytes)?;
     Ok((part, model))
+}
+
+/// The original GC Derris-Kharlan cloud image has opaque alpha. Steam's matching
+/// cloud image adds luminance alpha; multiplying it into the shared GC pass
+/// cuts holes through both the sky sphere and its lower gradient cylinder.
+/// Retain Steam RGB, mip levels and independent MXD/vertex fades, and lower
+/// only this source-qualified counterpart to the GC stage's opaque alpha.
+fn gc_cloud_alpha(
+    descriptor: &str,
+    materials: &Materials,
+    texture: usize,
+    image: &mut texture::Decoded,
+) -> Result<()> {
+    if !descriptor.eq_ignore_ascii_case("DEL_D07_OBJ000.TOMDLB_D") || texture != 3 {
+        return Ok(());
+    }
+    ensure!(
+        materials.records.len() == 21
+            && materials.textures.len() == 7
+            && materials.textures[3]
+                .name
+                .eq_ignore_ascii_case("DEL_D07_PIC000_PIC003")
+            && materials.textures[5]
+                .name
+                .eq_ignore_ascii_case("DEL_D07_PIC000_PIC005"),
+        "Derris-Kharlan cloud texture directory changed"
+    );
+    for slot in [0, 18] {
+        let material = &materials.records[slot];
+        ensure!(
+            material
+                .name
+                .eq_ignore_ascii_case(&format!("DEL_D07_OBJ000_MT{slot:02}"))
+                && matches!(material.textures.as_slice(), [color, gradient]
+                    if color.kind == 0 && color.texture == 3
+                        && gradient.kind == 3 && gradient.texture == 5),
+            "Derris-Kharlan cloud material binding changed"
+        );
+    }
+    ensure!(
+        materials
+            .records
+            .iter()
+            .enumerate()
+            .all(|(slot, material)| {
+                matches!(slot, 0 | 18)
+                    || material.textures.iter().all(|binding| binding.texture != 3)
+            }),
+        "Derris-Kharlan cloud image gained another material use"
+    );
+    for level in &mut image.levels {
+        for pixel in level.rgba.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -309,6 +366,111 @@ mod alpha_tests {
         assert_eq!(alpha_cutoff(0, 0)?, 0);
         assert!(alpha_cutoff(3, 128).is_err());
         assert!(alpha_cutoff(4, 255).is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires installed Steam; optionally writes only cloud136 KTX2 to RESONANCE_CLOUD_STYLE_OUTPUT"]
+    fn installed_gc_cloud_alpha_preserves_rgb_mips_and_both_material_fades() -> Result<()> {
+        let source = Source::open(
+            Path::new(
+                &std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+            ),
+            crate::Language::English,
+        )?;
+        let temporary = tempfile::tempdir()?;
+        let descriptor = "del_d07_OBJ000.TOMDLB_D";
+        let (scene, native) = cook(
+            &source,
+            temporary.path(),
+            descriptor,
+            "fields/derris-kharlan-0136",
+            "part-0",
+        )?;
+        let image_descriptor =
+            texture::Descriptor::read(&source.require("DEL_D07_PIC000_PIC003.totexb_d")?)?;
+        let original = image_descriptor.decode(&source.require(&image_descriptor.payload)?)?;
+        let converted_bytes = std::fs::read(temporary.path().join(&scene.textures[3]))?;
+        let converted = resonance_asset_writer::texture::ktx2(&converted_bytes)?;
+        ensure!(
+            original.levels.len() == converted.len(),
+            "cloud mip count changed"
+        );
+        let mut source_has_alpha = false;
+        for (original, converted) in original.levels.iter().zip(&converted) {
+            ensure!(
+                original.width == converted.width && original.height == converted.height,
+                "cloud mip dimensions changed"
+            );
+            for (original, converted) in original
+                .rgba
+                .chunks_exact(4)
+                .zip(converted.rgba.chunks_exact(4))
+            {
+                source_has_alpha |= original[3] != 255;
+                ensure!(
+                    original[..3] == converted[..3] && converted[3] == 255,
+                    "cloud RGB changed or GC alpha was lost"
+                );
+            }
+        }
+        ensure!(
+            source_has_alpha,
+            "source cloud no longer needs alpha normalization"
+        );
+        let (tints, blended, _) =
+            material_parameters(&source.require("del_d07_OBJ000.mxd")?, &native.materials)?;
+        ensure!(
+            tints[0][3] == 0.4609375 && tints[18][3] == 1.,
+            "cloud MXD fades changed"
+        );
+        ensure!(
+            blended[0]
+                && blended[18]
+                && original.levels[0]
+                    .rgba
+                    .chunks_exact(4)
+                    .any(|pixel| pixel[3] > 0 && pixel[3] < 255),
+            "source cloud no longer has the expected translucent classification"
+        );
+        let mut classified = 0;
+        for (mesh, material) in native
+            .meshes
+            .iter()
+            .filter(|mesh| !mesh.indices.is_empty())
+            .zip(&scene.materials)
+        {
+            if matches!(mesh.material, 0 | 18) {
+                // Classify from the authored image before changing its output
+                // alpha. MT18 has full MXD opacity but still uses the source's
+                // translucent image; flattening alpha must not enable depth.
+                ensure!(
+                    material.blend && !material.depth_write,
+                    "GC cloud image normalization changed source blend/depth policy"
+                );
+                classified += 1;
+            }
+        }
+        ensure!(
+            classified == 2,
+            "cloud sphere/cylinder source meshes changed"
+        );
+        ensure!(
+            std::fs::read(temporary.path().join(&scene.mesh))? == native.glb(&tints)?,
+            "cloud vertex RGB/alpha or geometry changed"
+        );
+        let mut unrelated = image_descriptor.decode(&source.require(&image_descriptor.payload)?)?;
+        gc_cloud_alpha("unrelated.tomdlb_d", &native.materials, 3, &mut unrelated)?;
+        ensure!(
+            unrelated.ktx2()? == original.ktx2()?,
+            "unrelated material alpha changed"
+        );
+        if let Some(destination) = std::env::var_os("RESONANCE_CLOUD_STYLE_OUTPUT") {
+            output::write(
+                &Path::new(&destination).join(&scene.textures[3]),
+                &converted_bytes,
+            )?;
+        }
         Ok(())
     }
 }
