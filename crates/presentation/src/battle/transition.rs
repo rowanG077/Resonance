@@ -9,7 +9,7 @@ use bevy::{
     render::{
         Render, RenderApp, RenderSystems,
         render_phase::ViewSortedRenderPhases,
-        render_resource::{PipelineCache, TextureFormat},
+        render_resource::PipelineCache,
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -29,6 +29,9 @@ const MIN_SPIN_DEGREES: f32 = 1.;
 const SPIN_STEP_DEGREES: f32 = 0.15;
 const SPIN_VARIANTS: u64 = 20;
 const ROLL_MULTIPLIER: f32 = 1.5;
+
+#[cfg(test)]
+mod gpu_tests;
 
 struct Piece {
     corners: [Vec2; 3],
@@ -166,30 +169,7 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         ))
         .id();
     let projection = overlay_projection(world.resource::<crate::display::Display>().0);
-    let warm_target = world
-        .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(
-            1,
-            1,
-            TextureFormat::Bgra8Unorm,
-            None,
-        ));
-    let camera = world
-        .spawn((
-            Camera2d,
-            Msaa::Off,
-            Tonemapping::Linear,
-            Camera {
-                order: -2,
-                clear_color: ClearColorConfig::None,
-                output_mode: crate::renderer::COMPOSITED_OUTPUT,
-                ..default()
-            },
-            RenderTarget::Image(warm_target.into()),
-            RenderLayers::layer(LAYER),
-            projection,
-        ))
-        .id();
+    let camera = warm_camera(world, projection);
     let warmup = world.resource::<Warmup>().clone();
     *warmup.0.lock().unwrap() = gpu::Report {
         armed: true,
@@ -211,6 +191,33 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         crack_color: crack_color(formations),
     });
     Ok(())
+}
+
+fn warm_camera(world: &mut World, projection: Projection) -> Entity {
+    // Match the live format and samples so activation reuses the warmed pipeline.
+    let format = crate::renderer::scene_color_format(
+        world.get_resource::<bevy::render::renderer::RenderAdapterInfo>(),
+    );
+    let target = world
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(1, 1, format, None));
+    world
+        .spawn((
+            Camera2d,
+            Msaa::Off,
+            crate::anti_aliasing::SceneMsaa,
+            Tonemapping::Linear,
+            Camera {
+                order: -2,
+                clear_color: ClearColorConfig::None,
+                output_mode: crate::renderer::COMPOSITED_OUTPUT,
+                ..default()
+            },
+            RenderTarget::Image(target.into()),
+            RenderLayers::layer(LAYER),
+            projection,
+        ))
+        .id()
 }
 
 pub(super) fn dispose(world: &mut World) {

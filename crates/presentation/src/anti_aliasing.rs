@@ -129,6 +129,11 @@ impl Default for AntiAliasingSettings {
     }
 }
 
+/// Use scene samples even on a private target, so an overlay warms the same
+/// pipeline it will need when it starts composing over the scene.
+#[derive(Component)]
+pub(crate) struct SceneMsaa;
+
 /// Installs only spatial SMAA; no temporal AA plugin, history or jitter is used.
 pub struct AntiAliasingPlugin;
 impl Plugin for AntiAliasingPlugin {
@@ -173,6 +178,7 @@ fn configure_cameras(
         Entity,
         &RenderTarget,
         Has<Camera3d>,
+        Has<SceneMsaa>,
         &mut Msaa,
         Option<&Smaa>,
     )>,
@@ -181,14 +187,15 @@ fn configure_cameras(
     let primary = primary.single().ok();
     let scene_targets: Vec<_> = cameras
         .iter()
-        .filter(|(_, _, scene, _, _)| *scene)
-        .filter_map(|(_, target, _, _, _)| target.normalize(primary))
+        .filter(|(_, _, scene, _, _, _)| *scene)
+        .filter_map(|(_, target, _, _, _, _)| target.normalize(primary))
         .collect();
-    for (entity, target, scene, mut msaa, current_smaa) in &mut cameras {
+    for (entity, target, scene, scene_msaa, mut msaa, current_smaa) in &mut cameras {
         // Bevy shares scene/UI attachments only when sample counts agree. UI
         // cameras retain the resolved scene through Bevy's MSAA writeback pass.
         let desired = if choice.samples() > 1
             && (scene
+                || scene_msaa
                 || target
                     .normalize(primary)
                     .is_some_and(|t| scene_targets.contains(&t)))
@@ -335,6 +342,9 @@ mod tests {
             .insert_resource(AntiAliasingCapabilities(AntiAliasing::ALL.to_vec()))
             .add_systems(Last, configure_cameras);
         let target = RenderTarget::Image(Handle::<Image>::default().into());
+        let warm_target = RenderTarget::Image(
+            Handle::<Image>::from(bevy::asset::uuid::Uuid::from_u128(1)).into(),
+        );
         let scene = app
             .world_mut()
             .spawn((Camera3d::default(), target.clone(), Msaa::Off))
@@ -344,6 +354,10 @@ mod tests {
             .spawn((Camera2d, target.clone(), Msaa::Off))
             .id();
         let output = app.world_mut().spawn((Camera2d, Msaa::Off)).id();
+        let overlay = app
+            .world_mut()
+            .spawn((Camera2d, warm_target, Msaa::Off, SceneMsaa))
+            .id();
         for choice in AntiAliasing::ALL.into_iter().chain([AntiAliasing::Off]) {
             app.world_mut().resource_mut::<AntiAliasingSettings>().0 = choice;
             app.update();
@@ -360,6 +374,12 @@ mod tests {
                 app.world()
                     .get::<bevy::render::camera::TemporalJitter>(scene)
                     .is_none()
+            );
+            assert!(app.world().get::<Smaa>(overlay).is_none());
+            assert_eq!(
+                app.world().get::<Msaa>(overlay),
+                app.world().get::<Msaa>(scene),
+                "{choice:?}: warmup must use the scene's pipeline"
             );
         }
         app.world_mut().resource_mut::<AntiAliasingSettings>().0 = AntiAliasing::Msaa4;
