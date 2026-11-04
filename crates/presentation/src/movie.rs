@@ -83,7 +83,7 @@ impl Prepared {
     fn prepare(decoder: MovieDecoder, cancelled: impl Fn() -> bool) -> Result<Self> {
         let format = decoder.format();
         let mut events = VecDeque::new();
-        let (mut video, mut audio, mut chunks) = (0, 0, 0);
+        let (mut video, mut audio) = (0, 0);
         let video_target = resonance_media::VIDEO_LOOKAHEAD;
         let audio_target = u64::from(format.sample_rate) as usize;
         let started = Instant::now();
@@ -103,7 +103,6 @@ impl Prepared {
                 && let Some(chunk) = decoder.try_audio()?
             {
                 audio += chunk.samples.len();
-                chunks += 1;
                 events.push_back(MovieEvent::Audio(chunk));
             }
             if (video >= video_target || decoder.video_complete())
@@ -111,7 +110,9 @@ impl Prepared {
             {
                 break;
             }
-            ensure!(chunks < 64, "movie exceeds startup buffer limits");
+            // Codec packet sizes vary. The sample target bounds queued PCM
+            // to the target plus one decoder-validated block, independently
+            // of how many small FLAC packets it takes to reach the target.
             std::thread::sleep(Duration::from_millis(1));
         }
         Ok(Self { decoder, events })

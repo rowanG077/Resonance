@@ -510,6 +510,45 @@ fn new_game_confirm_opens_script_movie_and_preserves_the_field_session() {
 }
 
 #[test]
+#[ignore = "requires the cooked Steam first-transformation movie; no window or audio device"]
+fn installed_small_audio_packets_prepare_by_sample_lookahead() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_TEST_ASSETS")
+            .context("set RESONANCE_TEST_ASSETS to Steam104")?,
+    );
+    let library = resonance_content::library::Library::open(&root, &[])?;
+    let prepared = Prepared::capture(&mut library.snapshot(), 11, || false)?;
+    let target = prepared.decoder.format().sample_rate as usize;
+    let mut samples = 0;
+    let mut chunks = 0;
+    let mut video = 0;
+    for event in &prepared.events {
+        match event {
+            MovieEvent::Audio(chunk) => {
+                assert_eq!(chunk.start_frame, samples as u64 / 2);
+                assert!(samples < target, "PCM must stop at the sample target");
+                assert!(!chunk.samples.is_empty() && chunk.samples.len().is_multiple_of(2));
+                samples += chunk.samples.len();
+                chunks += 1;
+            }
+            MovieEvent::Video(_) => video += 1,
+            MovieEvent::End => panic!("preparation must retain the live decoder"),
+        }
+    }
+    assert_eq!(video, resonance_media::VIDEO_LOOKAHEAD);
+    assert!(
+        chunks > 64,
+        "fixture must exercise legitimate small FLAC packets"
+    );
+    assert!(samples >= target);
+    assert!(
+        samples < target + 65536 * 2,
+        "at most one validated stereo block may overshoot"
+    );
+    Ok(())
+}
+
+#[test]
 fn named_opening_prepares_short_unknown_lengths_and_preserves_cancellation() -> Result<()> {
     use resonance_content::library::Library;
     let root = tempfile::tempdir()?;
