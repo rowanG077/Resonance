@@ -167,6 +167,9 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
                 "map_id":field.map_id, "story":field.story_progress()?,
                 "tick":field.events.tick(), "effect_tick":field.effect_clock.tick(),
                 "battle_pending":field.events.battle_pending(),
+                "instances":field.events.observed_instances(),
+                "pending_operations":field.events.pending_operations(),
+                "event_flags":field.events.world.event_flags,
                 "played_ticks":field.play_time.total(), "session_ticks":field.play_time.session(),
             }))
         })

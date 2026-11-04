@@ -38,6 +38,11 @@ pub(crate) enum Step {
         tap_every: Option<u32>,
         max_updates: u32,
     },
+    /// Acknowledge revealed, finished speech through ordinary field input.
+    AdvanceDialogue {
+        until: Event,
+        max_updates: u32,
+    },
     Capture {
         name: String,
     },
@@ -69,6 +74,38 @@ impl Step {
                         keys
                     },
                 ))
+            }
+            Self::AdvanceDialogue { until, max_updates } => {
+                if until.matches(world)? {
+                    return Ok(None);
+                }
+                ensure!(
+                    elapsed < *max_updates,
+                    "did not reach {until:?} within {max_updates} updates; scene: {:?}",
+                    recording_scene(world)
+                );
+                let ready = elapsed.is_multiple_of(2)
+                    && scene::phase(world)? == scene::Phase::Field
+                    && world
+                        .get_resource::<new_game::Session>()
+                        .filter(|session| session.is_field() && session.ready_for_field)
+                        .is_some_and(|session| {
+                            let field = session.field();
+                            !field.menu_is_open()
+                                && !field
+                                    .events
+                                    .world
+                                    .choices
+                                    .values()
+                                    .any(|choice| choice.operation.is_pending())
+                                && field.dialogue.iter().any(|(slot, page)| {
+                                    dialogue_can_advance(
+                                        page,
+                                        field.events.world.dialogue.get(slot),
+                                    )
+                                })
+                        });
+                Ok(Some(if ready { &[Key::Interact] } else { &[] }))
             }
             Self::Capture { .. } => Ok(None),
         }
@@ -105,6 +142,18 @@ impl Step {
             },
         ]
     }
+}
+
+fn dialogue_can_advance(
+    page: &resonance_game::dialogue::DialoguePlayer,
+    request: Option<&resonance_events::dialogue::Dialogue>,
+) -> bool {
+    crate::field_ui::displayed_dialogue(page, request).is_some()
+        && !page.closed
+        && !page.persistent
+        && page.fully_revealed()
+        && page.accepts_input()
+        && page.voice_finished()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -487,7 +536,7 @@ impl CheckpointReplay {
         let mut budget = 0u32;
         let mut names = BTreeSet::new();
         for step in &self.steps {
-            let (keys, updates) = match step {
+            let (keys, updates): (&[Key], u32) = match step {
                 Step::Hold { keys, updates } => (keys, *updates),
                 Step::Wait {
                     keys,
@@ -503,6 +552,12 @@ impl CheckpointReplay {
                         ensure!(!contains.is_empty(), "dialogue condition needs text");
                     }
                     (keys, *max_updates)
+                }
+                Step::AdvanceDialogue { until, max_updates } => {
+                    if let Event::Dialogue { contains } = until {
+                        ensure!(!contains.is_empty(), "dialogue condition needs text");
+                    }
+                    (&[], *max_updates)
                 }
                 Step::Capture { name } => {
                     ensure!(
@@ -528,7 +583,9 @@ impl CheckpointReplay {
                 .context("replay duration overflow")?;
         }
         ensure!(
-            budget <= 36_000 && (1..=512).contains(&names.len()),
+            // Voiced story sequences can span several battles without a
+            // saveable field checkpoint. Keep each wait bounded separately.
+            budget <= 120_000 && (1..=512).contains(&names.len()),
             "replay exceeds recording limits"
         );
         Ok(())
@@ -2331,5 +2388,97 @@ mod tests {
             step.input(&world, 4).unwrap().is_none(),
             "an event reached on the last permitted update succeeds"
         );
+    }
+
+    #[test]
+    fn dialogue_advance_waits_for_reveal_and_natural_voice_completion() {
+        use resonance_events::dialogue::{
+            Dialogue, DialogueAnchor, DialogueStatus, ResolvedMessage, TextToken,
+        };
+        let bytes = [4u16, 0, 0, 0, 1, 0x3000, 0x4000, 0x2054, 0x20ff]
+            .into_iter()
+            .flat_map(u16::to_be_bytes)
+            .collect::<Vec<_>>();
+        let events = resonance_events::EventRuntime::new(
+            std::sync::Arc::new(symphonia_script::Program::decode(&bytes).unwrap()),
+            std::sync::Arc::new(resonance_events::ResourceLibrary {
+                movies: [1].into(),
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let request = Dialogue {
+            operation: events.world.movie.as_ref().unwrap().operation.clone(),
+            status: DialogueStatus::Waiting,
+            speaker: ResolvedMessage { tokens: vec![] },
+            body: ResolvedMessage {
+                tokens: vec![
+                    TextToken::Control {
+                        opcode: 9,
+                        value: 7,
+                    },
+                    TextToken::Text {
+                        text: "Spoken".into(),
+                    },
+                ],
+            },
+            anchor: DialogueAnchor::Screen([0., 0.]),
+            speaker_actor: None,
+            opening_actor: None,
+            flags: 0,
+            dimensions: None,
+            height_offset: 0,
+        };
+        let mut page = resonance_game::dialogue::DialoguePlayer::new(&request, 1)
+            .unwrap()
+            .with_voice_durations(std::sync::Arc::new([(7, 80)].into()));
+        assert!(!dialogue_can_advance(&page, Some(&request)));
+        for _ in 0..30 {
+            page.step(false, false).unwrap();
+        }
+        assert!(page.fully_revealed());
+        assert!(!page.voice_finished());
+        assert!(!dialogue_can_advance(&page, Some(&request)));
+        for _ in 0..80 {
+            page.step(false, false).unwrap();
+        }
+        assert!(dialogue_can_advance(&page, Some(&request)));
+        assert!(!dialogue_can_advance(&page, None));
+        page.persistent = true;
+        assert!(!dialogue_can_advance(&page, Some(&request)));
+        page.persistent = false;
+        page.step(true, false).unwrap();
+        assert!(!dialogue_can_advance(&page, Some(&request)));
+    }
+
+    #[test]
+    fn dialogue_advance_observes_events_and_the_shared_update_budget() {
+        let mut replay: CheckpointReplay = serde_json::from_value(serde_json::json!({
+            "version":2,"steps":[
+                {"do":"advance_dialogue","until":{"kind":"title_tick","tick":10},"max_updates":4},
+                {"do":"capture","name":"complete"}
+            ]
+        }))
+        .unwrap();
+        replay.validate().unwrap();
+        let mut world = World::new();
+        world.insert_resource(crate::TitleActive);
+        world.insert_resource(crate::Menu(Default::default()));
+        assert_eq!(replay.steps[0].input(&world, 0).unwrap(), Some(&[][..]));
+        assert!(replay.steps[0].input(&world, 4).is_err());
+        world.resource_mut::<crate::Menu>().0.tick = 10;
+        assert!(replay.steps[0].input(&world, 4).unwrap().is_none());
+        replay.steps[0] = Step::AdvanceDialogue {
+            until: Event::Dialogue {
+                contains: String::new(),
+            },
+            max_updates: 4,
+        };
+        assert!(replay.validate().is_err());
+        replay.steps[0] = Step::AdvanceDialogue {
+            until: Event::Title,
+            max_updates: 36_001,
+        };
+        assert!(replay.validate().is_err());
     }
 }
