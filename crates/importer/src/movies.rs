@@ -290,6 +290,33 @@ struct AudioTrack {
     frames: u32,
 }
 
+fn native_audio(source: &Path, destination: &Path) -> Result<AudioTrack> {
+    let recording = resonance_audio::recording::Prepared::new(fs::File::open(source)?)?;
+    let mut audio = recording.start(resonance_audio::SOURCE_RATE)?;
+    let mut writer = hound::WavWriter::create(
+        destination,
+        hound::WavSpec {
+            channels: 2,
+            sample_rate: resonance_audio::SOURCE_RATE,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )?;
+    let mut frames = 0;
+    while let Some(frame) = audio.next_frame()? {
+        for sample in frame {
+            writer.write_sample(sample.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16)?;
+        }
+        frames += 1;
+    }
+    writer.finalize()?;
+    Ok(AudioTrack {
+        channels: 2,
+        sample_rate: resonance_audio::SOURCE_RATE,
+        frames,
+    })
+}
+
 fn decode_audio(
     movie: &Path,
     scratch: &Path,
@@ -341,12 +368,11 @@ fn decode_audio(
         }
         writer.finalize()?;
         ensure!(frames > 0, "movie audio track is empty");
-        tracks.push(AudioTrack {
-            channels: info.channels(),
-            sample_rate: info.sample_rate(),
-            frames,
-        });
-        paths.push(path);
+        // Resample PCM offline, after the native DMA channel-order correction.
+        // The mixer consumes native-rate stereo; video keeps its authored clock.
+        let native = scratch.join(format!("audio-{stream}-native.wav"));
+        tracks.push(native_audio(&path, &native)?);
+        paths.push(native);
     }
     Ok((tracks, paths))
 }
@@ -441,4 +467,99 @@ fn convert_movie(movie: &Path, dol_path: &Path, destination: &Path) -> Result<()
     drop(video);
     scratch.close()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn movie_audio_is_resampled_to_native_stereo_without_retiming() -> Result<()> {
+        let scratch = tempfile::tempdir()?;
+        for channels in [1, 2] {
+            let input = scratch.path().join(format!("source-{channels}.wav"));
+            let output = scratch.path().join(format!("native-{channels}.wav"));
+            let source_frames = 48_137;
+            let mut writer = hound::WavWriter::create(
+                &input,
+                hound::WavSpec {
+                    channels,
+                    sample_rate: 48_000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )?;
+            for i in 0..source_frames {
+                let phase = i as f32 * std::f32::consts::TAU / 48_000.;
+                writer.write_sample((12_000. * (440. * phase).sin()) as i16)?;
+                if channels == 2 {
+                    writer.write_sample((6_000. * (880. * phase).sin()) as i16)?;
+                }
+            }
+            writer.finalize()?;
+            let track = native_audio(&input, &output)?;
+            let mut wave = hound::WavReader::open(output)?;
+            assert_eq!((track.channels, wave.spec().channels), (2, 2));
+            assert_eq!(track.sample_rate, resonance_audio::SOURCE_RATE);
+            assert_eq!(wave.spec().sample_rate, track.sample_rate);
+            assert_eq!(wave.duration(), track.frames);
+            let source_seconds = f64::from(source_frames) / 48_000.;
+            let seconds = f64::from(track.frames) / f64::from(track.sample_rate);
+            assert!((seconds - source_seconds).abs() <= 1. / f64::from(track.sample_rate));
+            let samples = wave.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+            let crossings = |channel| {
+                samples
+                    .chunks_exact(2)
+                    .map(|frame| frame[channel])
+                    .collect::<Vec<_>>()
+                    .windows(2)
+                    .filter(|pair| pair[0] <= 0 && pair[1] > 0)
+                    .count() as f64
+                    / seconds
+            };
+            assert!((crossings(0) - 440.).abs() < 2.);
+            if channels == 1 {
+                assert!(samples.chunks_exact(2).all(|frame| frame[0] == frame[1]));
+            } else {
+                assert!((crossings(1) - 880.).abs() < 2.);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires an original H4M audio fixture via RESONANCE_TEST_H4M"]
+    fn original_movie_tracks_keep_duration_order_and_native_stereo() -> Result<()> {
+        let movie = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_H4M").context("set RESONANCE_TEST_H4M")?,
+        );
+        let mut bytes = [0; 68];
+        fs::File::open(&movie)?.read_exact(&mut bytes)?;
+        let header = Header::parse(&bytes)?;
+        let scratch = tempfile::tempdir()?;
+        let (tracks, paths) = decode_audio(&movie, scratch.path(), &header, "fixture")?;
+        assert!(!tracks.is_empty());
+        assert_eq!(tracks.len(), usize::from(header.audio_streams));
+        for (i, (track, path)) in tracks.iter().zip(paths).enumerate() {
+            let mut original =
+                hound::WavReader::open(scratch.path().join(format!("audio-{}.wav", i + 1)))?;
+            let mut wave = hound::WavReader::open(path)?;
+            assert_eq!(
+                (wave.spec().channels, wave.spec().sample_rate),
+                (2, resonance_audio::SOURCE_RATE)
+            );
+            let duration = f64::from(original.duration()) / f64::from(original.spec().sample_rate);
+            let native_duration = f64::from(track.frames) / f64::from(track.sample_rate);
+            assert!((native_duration - duration).abs() <= 1. / f64::from(track.sample_rate));
+            if original.spec().sample_rate == track.sample_rate && original.spec().channels == 2 {
+                // At the native rate every sample, including track/channel order,
+                // survives the offline conversion unchanged.
+                assert_eq!(
+                    original.samples::<i16>().collect::<Result<Vec<_>, _>>()?,
+                    wave.samples::<i16>().collect::<Result<Vec<_>, _>>()?
+                );
+            }
+        }
+        Ok(())
+    }
 }

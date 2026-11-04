@@ -143,6 +143,7 @@ fn convert(source: &Path, destination: &Path, english: bool) -> Result<()> {
             "-ac",
             "2",
         ])
+        .args(["-ar", &resonance_audio::SOURCE_RATE.to_string()])
         .arg(&temporary)
         .status()
         .context("run ffmpeg (Steam movies require FFmpeg with USM support)")?;
@@ -153,6 +154,10 @@ fn convert(source: &Path, destination: &Path, english: bool) -> Result<()> {
     );
     let movie = resonance_media::MovieDecoder::open(&temporary, 0)?;
     ensure!(movie.format().width == 640, "unexpected movie dimensions");
+    ensure!(
+        movie.format().sample_rate == resonance_audio::SOURCE_RATE,
+        "movie audio must use the native playback rate"
+    );
     drop(movie);
     resonance_media::MovieDecoder::frame(&temporary, 0)?;
     fs::rename(temporary, destination)?;
@@ -200,4 +205,117 @@ fn bind_fields(library: &Path, movies: &Mappings) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use resonance_media::MovieDecoder;
+    use std::{
+        path::PathBuf,
+        time::{Duration, Instant},
+    };
+
+    fn audio_tracks(path: &Path) -> Result<serde_json::Value> {
+        let output = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=sample_rate,channels,duration",
+                "-of",
+                "json",
+            ])
+            .arg(path)
+            .output()?;
+        ensure!(
+            output.status.success(),
+            "ffprobe failed: {}",
+            path.display()
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
+    }
+
+    #[test]
+    #[ignore = "requires installed Steam and FFmpeg9; private output only, no full cook or device"]
+    fn installed_colette_movie_normalizes_native_audio_and_preserves_video() -> Result<()> {
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
+        );
+        let source = root.join("P12E/Data/TOS_Server/Rawdata/WIN/MOVIE/TOS_PS2_AS01_720P.USM");
+        let temporary = tempfile::tempdir()?;
+        let destination = std::env::var_os("RESONANCE_MOVIE_TEST_OUTPUT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| temporary.path().join("colette-angel-transformation.mkv"));
+        ensure!(!destination.exists(), "private movie output must be new");
+        convert(&source, &destination, false)?;
+        let original = audio_tracks(&source)?;
+        let cooked = audio_tracks(&destination)?;
+        let original = original["streams"]
+            .as_array()
+            .context("original audio tracks")?;
+        let cooked = cooked["streams"]
+            .as_array()
+            .context("cooked audio tracks")?;
+        assert!(!original.is_empty());
+        assert_eq!(
+            cooked.len(),
+            original.len(),
+            "preserve all source language tracks"
+        );
+        for (index, (before, after)) in original.iter().zip(cooked).enumerate() {
+            assert_eq!(
+                after["sample_rate"],
+                resonance_audio::SOURCE_RATE.to_string()
+            );
+            assert_eq!(after["channels"], 2);
+            let decoder = MovieDecoder::open(&destination, index as u16)?;
+            assert_eq!(decoder.format().sample_rate, resonance_audio::SOURCE_RATE);
+            let started = Instant::now();
+            let mut frames = 0u64;
+            while !decoder.audio_complete() {
+                if let Some(chunk) = decoder.try_audio()? {
+                    assert_eq!(chunk.start_frame, frames);
+                    assert!(chunk.samples.len().is_multiple_of(2));
+                    frames += chunk.samples.len() as u64 / 2;
+                } else {
+                    ensure!(
+                        started.elapsed() < Duration::from_secs(30),
+                        "audio decode timed out"
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+            let source_seconds = before["duration"]
+                .as_str()
+                .context("source audio duration")?
+                .parse::<f64>()?;
+            assert!(
+                (frames as f64 / f64::from(resonance_audio::SOURCE_RATE) - source_seconds).abs()
+                    < 0.001
+            );
+            eprintln!("track{index}: native stereo, {frames} decoded frames");
+        }
+        let library = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_LIBRARY")
+                .context("set RESONANCE_TEST_LIBRARY to current Steam104 for video comparison")?,
+        );
+        let mappings: Mappings = serde_json::from_slice(&fs::read(library.join(MOVIES))?)?;
+        let baseline = library.join("movies").join(mappings.target(11)?);
+        let previous = MovieDecoder::open(&baseline, 0)?;
+        let normalized = MovieDecoder::open(&destination, 0)?;
+        assert_eq!(previous.video_timestamps()?, normalized.video_timestamps()?);
+        assert_eq!(
+            previous.format().frame_duration,
+            normalized.format().frame_duration
+        );
+        assert_eq!(
+            MovieDecoder::frame(&baseline, 3)?.rgba,
+            MovieDecoder::frame(&destination, 3)?.rgba
+        );
+        eprintln!("private normalized movie: {}", destination.display());
+        Ok(())
+    }
 }
