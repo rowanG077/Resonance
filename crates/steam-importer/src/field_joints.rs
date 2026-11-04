@@ -12,6 +12,16 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
         ("ela_d03b_OBJ001.TOMDLB_D", &["yuka", "yuka_br"][..]),
         ("hol_d03_OBJ000.TOMDLB_D", &["temae_kabe"][..]),
         ("elc_d16_OBJ000.TOMDLB_D", &["gareki"][..]),
+        (
+            "loy_i00_00_OBJ000.TOMDLB_D",
+            &[
+                "x_DOOR_C1",
+                "x_0100_2",
+                "x_window_C1",
+                "x_window_L1c",
+                "x_window_L1c2",
+            ][..],
+        ),
     ] {
         let names = model::Rig::read(&source.require(descriptor)?)?.joint_names();
         for &requested in requested {
@@ -36,6 +46,51 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires installed Steam; writes only a temporary Dirk scenery probe"]
+    fn installed_dirk_cutaway_aliases_select_the_authored_front_wall_draws() -> Result<()> {
+        let installation =
+            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?;
+        let source = Source::open(Path::new(&installation), crate::Language::English)?;
+        let temporary = tempfile::tempdir()?;
+        cook(&source, temporary.path())?;
+        let mappings: BTreeMap<String, String> =
+            serde_json::from_slice(&std::fs::read(temporary.path().join(JOINT_MAPPINGS))?)?;
+        let descriptor = "loy_i00_00_OBJ000.TOMDLB_D";
+        let native = model::Rig::read(&source.require(descriptor)?)?;
+        let (part, _) = model::cook(
+            &source,
+            temporary.path(),
+            descriptor,
+            "fields/dirks-house-0374",
+            "part-0",
+        )?;
+        for (requested, node) in [
+            ("x_0100_2", 74),
+            ("x_DOOR_C1", 75),
+            ("x_window_C1", 76),
+            ("x_window_L1c", 77),
+            ("x_window_L1c2", 78),
+        ] {
+            let target = &mappings[requested];
+            assert_eq!(*target, native.nodes[node].name);
+            assert_eq!(
+                part.bone_names.iter().position(|name| name == target),
+                Some(node)
+            );
+            assert_eq!(
+                part.material_nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(mesh, nodes)| nodes.contains(&(node as u16)).then_some(mesh))
+                    .collect::<Vec<_>>(),
+                [node]
+            );
+        }
+        assert_eq!(part.materials.len(), 81);
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires installed Steam; writes only a temporary ritual scenery probe"]
