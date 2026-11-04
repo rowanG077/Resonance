@@ -137,6 +137,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
         learn_both_arte_paths: false,
         graphics_backend: Default::default(),
         anti_aliasing: Default::default(),
+        vsync: false,
         display_mode: Default::default(),
         resolution: resonance_content::menu_data::default_display_resolution(),
     };

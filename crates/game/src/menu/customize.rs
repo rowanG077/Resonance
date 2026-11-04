@@ -3,7 +3,7 @@ use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, AntiAliasing, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS,
     CustomizeSettings, DISPLAY_MODE_OPTION, DISPLAY_RESOLUTIONS, DisplayMode,
     FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, GraphicsBackend,
-    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION,
+    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
 };
 
 pub const VISIBLE_OPTIONS: usize = 9;
@@ -502,6 +502,7 @@ impl Menu {
                         10 => draft.movie_subtitles = left,
                         11 => draft.battle_auto_zoom = left,
                         12 => draft.rumble = left,
+                        VSYNC_OPTION => draft.vsync = left,
                         DISPLAY_MODE_OPTION => {
                             let current = DisplayMode::ALL
                                 .iter()

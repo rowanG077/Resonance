@@ -2,7 +2,7 @@ use super::*;
 use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, DISPLAY_MODE_OPTION,
     FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION,
-    LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION,
+    LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
 };
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
@@ -263,27 +263,24 @@ impl Drawing<'_> {
                 }
                 6 => self.button(6, [x, y])?,
                 7..=12
+                | VSYNC_OPTION
                 | FLEXIBLE_BATTLE_PARTY_OPTION
                 | COMBINED_BATTLES_OPTION
                 | LEARN_ELEMENTAL_ARTES_OPTION
                 | LEARN_BOTH_ARTE_PATHS_OPTION => {
-                    let on = if row == FLEXIBLE_BATTLE_PARTY_OPTION {
-                        settings.flexible_battle_party
-                    } else if row == COMBINED_BATTLES_OPTION {
-                        settings.combined_battles
-                    } else if row == LEARN_ELEMENTAL_ARTES_OPTION {
-                        settings.learn_elemental_artes
-                    } else if row == LEARN_BOTH_ARTE_PATHS_OPTION {
-                        settings.learn_both_arte_paths
-                    } else {
-                        [
-                            settings.battle_voiceover,
-                            settings.event_voiceover,
-                            settings.skit_notifications,
-                            settings.movie_subtitles,
-                            settings.battle_auto_zoom,
-                            settings.rumble,
-                        ][row - 7]
+                    let on = match row {
+                        7 => settings.battle_voiceover,
+                        8 => settings.event_voiceover,
+                        9 => settings.skit_notifications,
+                        10 => settings.movie_subtitles,
+                        11 => settings.battle_auto_zoom,
+                        12 => settings.rumble,
+                        VSYNC_OPTION => settings.vsync,
+                        FLEXIBLE_BATTLE_PARTY_OPTION => settings.flexible_battle_party,
+                        COMBINED_BATTLES_OPTION => settings.combined_battles,
+                        LEARN_ELEMENTAL_ARTES_OPTION => settings.learn_elemental_artes,
+                        LEARN_BOTH_ARTE_PATHS_OPTION => settings.learn_both_arte_paths,
+                        _ => unreachable!(),
                     };
                     for (index, key) in ["on", "off"].into_iter().enumerate() {
                         self.text(

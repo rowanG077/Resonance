@@ -2623,7 +2623,7 @@ fn capture_field_cached(
         .active
         .store(true, std::sync::atomic::Ordering::Release);
     app.add_plugins(
-        DefaultPlugins
+        super::renderer::default_plugins()
             .set(bevy::pbr::PbrPlugin {
                 gltf_enable_standard_materials: false,
                 ..default()

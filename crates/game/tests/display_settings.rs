@@ -73,12 +73,20 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
     let mut data = data();
     data.defaults.display_mode = DisplayMode::Fullscreen;
     data.defaults.resolution = [1920, 1080];
+    data.defaults.vsync = true;
     let original = CustomizeSettings {
         resolution: [1279, 719],
         ..Default::default()
     };
     let mut menu = Menu::title_customize(original.clone(), data.clone())?;
     press(&mut menu, Idle);
+    menu.customize.row = VSYNC_OPTION;
+    menu.customize.first = VSYNC_OPTION - 8;
+    for (action, enabled) in [(Left, true), (Right, false), (Left, true)] {
+        press(&mut menu, action);
+        assert_eq!(menu.customize.draft.vsync, enabled);
+        assert_eq!(menu.customize.focus, Focus::Options);
+    }
     menu.customize.row = DISPLAY_MODE_OPTION;
     menu.customize.first = DISPLAY_MODE_OPTION - 8;
     for expected in [
@@ -145,6 +153,7 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
     assert!(menu.closed);
     assert_eq!(menu.customize.draft.display_mode, DisplayMode::Fullscreen);
     assert_eq!(menu.customize.draft.resolution, [1920, 1080]);
+    assert!(menu.preferences().unwrap().vsync);
     Ok(())
 }
 
@@ -528,7 +537,7 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
 }
 
 #[test]
-fn old_options_and_settings_gain_the_backend_selector_without_recooking() -> anyhow::Result<()> {
+fn old_options_and_settings_gain_graphics_options_without_recooking() -> anyhow::Result<()> {
     let mut doc = serde_json::to_value(options::Document::from_data(&data())?)?;
     doc["options"]
         .as_object_mut()
@@ -538,6 +547,8 @@ fn old_options_and_settings_gain_the_backend_selector_without_recooking() -> any
         .as_object_mut()
         .unwrap()
         .remove("graphics_backend");
+    doc["options"].as_object_mut().unwrap().remove("vsync");
+    doc["defaults"].as_object_mut().unwrap().remove("vsync");
     let doc: options::Document = serde_json::from_value(doc)?;
     let migrated = doc.prepare()?;
     assert_eq!(migrated.options.len(), CUSTOMIZE_OPTIONS);
@@ -549,6 +560,11 @@ fn old_options_and_settings_gain_the_backend_selector_without_recooking() -> any
         migrated.defaults.graphics_backend,
         GraphicsBackend::Automatic
     );
+    assert_eq!(migrated.option_name(VSYNC_OPTION), "VSync");
+    assert!(!migrated.defaults.vsync);
+    let mut saved = serde_json::to_value(CustomizeSettings::default())?;
+    saved.as_object_mut().unwrap().remove("vsync");
+    assert!(!serde_json::from_value::<CustomizeSettings>(saved)?.vsync);
     Ok(())
 }
 
