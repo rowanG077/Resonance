@@ -155,23 +155,28 @@ impl Battle {
         &self.ledger
     }
 
-    /// Construct results before experience growth and recovery, preserving party and reward-
-    /// eligible enemy order. New Game Plus grade modes are handled separately.
+    /// Construct results before growth and recovery; conditions follow current formation slots.
+    /// New Game Plus grade modes are handled separately.
     pub fn finalize_grade(
         &mut self,
         party_conditions: &[ConditionSet],
         enemy_grades: &[i16],
         level_difference: i8,
     ) -> Result<i16> {
+        let mut party: Vec<_> = self
+            .actors
+            .iter()
+            .filter(|a| a.side == Side::Party)
+            .collect();
         ensure!(
             self.phase() == BattlePhase::Results
                 && self.terminal.result == Some(crate::BattleResult::Victory)
                 && !self.ledger.finalized
                 && (-8..=8).contains(&level_difference)
-                && party_conditions.len()
-                    == self.actors.iter().filter(|a| a.side == Side::Party).count(),
+                && party_conditions.len() == party.len(),
             "invalid or repeated result grade construction"
         );
+        party.sort_by_key(|actor| actor.control_slot.index());
         let ledger = &mut self.ledger;
         ledger.adjust(0);
         match ledger.elapsed_ticks {
@@ -180,13 +185,7 @@ impl Battle {
             2400.. => ledger.adjust(0),
             _ => {}
         }
-        for (slot, (actor, &conditions)) in self
-            .actors
-            .iter()
-            .filter(|a| a.side == Side::Party)
-            .zip(party_conditions)
-            .enumerate()
-        {
+        for (slot, (actor, &conditions)) in party.into_iter().zip(party_conditions).enumerate() {
             if actor.hp >= actor.equipment.max_hp {
                 ledger.adjust(25);
             }

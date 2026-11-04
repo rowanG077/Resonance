@@ -1,6 +1,6 @@
 //! Escape requests, success checks, and gauge updates.
 //! Successful escape replaces party combat activity with departure.
-use crate::{ActorId, Battle, BattlePhase, BattleResult, Control, PreparedBattle, Side, Sound};
+use crate::{ActorId, Battle, BattlePhase, BattleResult, PreparedBattle, Side, Sound};
 use anyhow::{Context, Result, ensure};
 
 pub const MAX_ESCAPE_GAUGE: i16 = 1024;
@@ -227,16 +227,7 @@ impl Battle {
                     actor.reaction.protection.escape();
                 }
             }
-            let party = |(_, actor): &(usize, &crate::Actor)| actor.side == Side::Party;
-            let leader = self
-                .actors
-                .iter()
-                .enumerate()
-                .filter(party)
-                .find(|(_, actor)| actor.control != Control::Auto)
-                .or_else(|| self.actors.iter().enumerate().find(party))
-                .map(|(index, _)| ActorId(index as u8));
-            if let Some(leader) = leader {
+            if let Some(leader) = self.preferred_party_leader() {
                 self.ledger.ordinary_escape = Some(leader);
                 if self.actors[leader.index()].available()
                     && let Some(line) = self

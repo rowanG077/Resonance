@@ -4,6 +4,17 @@ use crate::{
     ActorSetup, AttackEvent, BattleInput, Control, MeleeDefinition, MeleeVolume, ResourceId,
 };
 
+#[test]
+fn formation_rotation_keeps_each_unison_opener_with_its_character() {
+    let mut battle = fixture(false);
+    let openers = battle.unison.openers.clone();
+    battle.unison.reorder_party(&[ActorId(1), ActorId(0)]);
+    let definition = battle.unison.definition.as_ref().unwrap();
+    assert_eq!(definition.members[0].actor, ActorId(1));
+    assert_eq!(definition.members[1].actor, ActorId(0));
+    assert_eq!(battle.unison.openers, [openers[1], openers[0]]);
+}
+
 // Deliberately synthetic timings and artwork: these cases exercise runtime ownership.
 fn hit(power: u16, finisher_grade: bool) -> Arc<MeleeDefinition> {
     Arc::new(MeleeDefinition {
