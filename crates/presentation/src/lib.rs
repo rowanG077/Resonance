@@ -127,7 +127,7 @@ pub struct RunOptions {
     pub replay: Option<PathBuf>,
     pub capture: Option<PathBuf>,
     pub reveal: bool,
-    pub selected: usize,
+    pub selected: Option<usize>,
     pub silent: bool,
     /// Stop at recoverable content/runtime errors instead of logging and continuing.
     pub paranoid: bool,
@@ -326,11 +326,6 @@ fn build_app(
             Ok(replay)
         })
         .transpose()?;
-    let state = TitleState {
-        selected: options.selected,
-        revealed: options.reveal,
-        ..Default::default()
-    };
     let music = Some(audio).filter(|audio| !audio.is_empty());
     let movie = movie::Playback::load(&library, &options)?;
     let boot = boot::Playback::from_assets(boot)?;
@@ -349,6 +344,13 @@ fn build_app(
         && options.replay.is_none();
     saves::install(&mut app, &options.saves, interactive_display)
         .context("initializing saves and preferences")?;
+    let state = TitleState {
+        selected: options
+            .selected
+            .unwrap_or_else(|| saves::title_selection(app.world())),
+        revealed: options.reveal,
+        ..Default::default()
+    };
     let resolution = match display_source {
         DisplaySource::Fixed(size) => size,
         DisplaySource::Player(override_size) if !interactive_display => {

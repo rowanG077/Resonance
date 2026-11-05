@@ -41,7 +41,7 @@ fn fixture() -> App {
             presentation_start: Some(2365),
             capture: None,
             reveal: false,
-            selected: 0,
+            selected: Some(0),
             silent: true,
             replay: None,
             skip_intro: true,

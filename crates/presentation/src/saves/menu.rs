@@ -179,7 +179,7 @@ fn start(world: &mut World, command: Command) -> Result<()> {
     Ok(())
 }
 
-fn slot_id(index: usize) -> Result<SlotId> {
+pub(super) fn slot_id(index: usize) -> Result<SlotId> {
     ensure!(index < SLOTS_PER_BANK * 2, "save slot is out of range");
     SlotId::new(format!(
         "{}-{:03}",

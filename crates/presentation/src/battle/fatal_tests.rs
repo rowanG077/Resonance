@@ -204,7 +204,7 @@ impl Fixture {
             replay: None,
             capture_at: None,
             reveal: false,
-            selected: 0,
+            selected: Some(0),
             silent: true,
             paranoid: true,
             skip_intro: true,

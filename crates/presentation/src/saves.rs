@@ -110,6 +110,33 @@ pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -
     Ok(())
 }
 
+/// Only files addressable by the player Load menu affect the title default.
+pub(super) fn title_selection(world: &World) -> usize {
+    match has_save_data(&world.resource::<Persistence>().store) {
+        Ok(saved) => usize::from(saved),
+        Err(error) => {
+            warn!("Cannot check title save data: {error:#}");
+            0
+        }
+    }
+}
+
+fn has_save_data(store: &Store) -> Result<bool> {
+    let slots = store.list(Kind::Save)?;
+    for index in 0..resonance_game::menu::SLOTS_PER_BANK * 2 {
+        let id = menu::slot_id(index)?;
+        if slots.binary_search(&id).is_ok()
+            && store
+                .read(Kind::Save, &id)
+                .and_then(|bytes| resonance_persistence::decode::<SceneCheckpoint>(&bytes))
+                .is_ok()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Field diagnostics use the same admission as a normal scene save.
 pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
     match scene_checkpoint(world)? {
@@ -331,6 +358,46 @@ pub(crate) fn report(world: &mut World, result: Result<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn title_default_uses_player_slots_and_ignores_quicksaves_and_broken_files() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::new(directory.path());
+        assert!(!has_save_data(&store)?);
+        let state: SceneCheckpoint = serde_json::from_value(serde_json::json!({
+            "field": {
+                "map_id": 330, "position": [0, 0, 0], "heading": 0, "played_ticks": 0,
+                "progress": {
+                    "script_globals": [], "event_flags": [], "random_state": 0, "tick": 0,
+                    "gameplay_random": resonance_events::GameplayRandom::default(),
+                    "event_records": {},
+                    "party": {
+                        "battles": resonance_events::party::BattleStatistics::default(),
+                        "members": [], "formation": [], "items": {}, "found_items": [],
+                        "recent_items": [], "gald": 0, "spent_gald": 0,
+                        "settings": resonance_events::party::Settings::default()
+                    }
+                }
+            }
+        }))?;
+        let header = Header {
+            version: resonance_persistence::VERSION,
+            label: "Save".into(),
+            location: "Field 330".into(),
+            played_ticks: 0,
+            saved_unix_seconds: 0,
+        };
+        let bytes = resonance_persistence::encode(&header, &state)?;
+        store.write(Kind::Quicksave, &SlotId::new("quick")?, &bytes)?;
+        store.write(Kind::Save, &SlotId::new("other")?, &bytes)?;
+        assert!(!has_save_data(&store)?);
+        let slot = menu::slot_id(253)?;
+        std::fs::write(store.path(Kind::Save, &slot), b"broken")?;
+        assert!(!has_save_data(&store)?);
+        store.write(Kind::Save, &slot, &bytes)?;
+        assert!(has_save_data(&store)?);
+        Ok(())
+    }
 
     #[test]
     fn unavailable_quicksave_does_not_queue_a_write() {

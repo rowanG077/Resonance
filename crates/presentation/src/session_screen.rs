@@ -115,6 +115,7 @@ fn return_to_title(world: &mut World, load: bool) -> Result<()> {
         .unwrap() = files;
     retire(world);
     world.insert_resource(Menu(resonance_game::TitleState {
+        selected: saves::title_selection(world),
         revealed: true,
         ..default()
     }));

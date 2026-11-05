@@ -71,8 +71,8 @@ struct Args {
     /// Reveal the menu immediately (development checkpoint).
     #[arg(long)]
     reveal: bool,
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=2))]
-    selected: u8,
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=2))]
+    selected: Option<u8>,
     /// Disable speaker output. Capture mode disables the audio device entirely.
     #[arg(long)]
     silent: bool,
@@ -184,7 +184,7 @@ fn run(mut args: Args) -> anyhow::Result<()> {
             replay: args.replay,
             capture: args.capture,
             reveal: args.reveal,
-            selected: args.selected as usize,
+            selected: args.selected.map(usize::from),
             silent: args.silent,
             paranoid: args.paranoid,
             skip_intro: args.skip_intro,
