@@ -104,6 +104,7 @@ pub(crate) struct Artwork {
     results: Option<results::Results>,
     notices: notice::Notices,
     labels: BTreeMap<ActorId, overlays::ActorLabel>,
+    tp_warnings: BTreeMap<ActorId, overlays::TpWarning>,
     combat: combat::Hud,
     numbers: combat_numbers::Numbers,
     scan: Option<items::Scan>,
@@ -182,7 +183,7 @@ impl Artwork {
         for enemy in enemies {
             font.validate_text(&enemy.name)?;
         }
-        art.font.validate_text("HP TP +0123456789.")?;
+        art.font.validate_text("HP TP XX +0123456789.")?;
         let inputs = crate::input_icons::prepare(&read, server)?;
         let mut pending_images = vec![PendingImage {
             image: inputs.image.clone(),
@@ -345,6 +346,7 @@ impl Artwork {
             results: None,
             notices: Default::default(),
             labels: BTreeMap::new(),
+            tp_warnings: BTreeMap::new(),
             combat,
             numbers: Default::default(),
             scan: None,
@@ -676,6 +678,7 @@ impl Artwork {
         self.combat.advance(frame, elapsed)?;
         self.notices.advance(frame, elapsed);
         self.advance_labels(frame.clock, elapsed);
+        overlays::advance_tp_warnings(&mut self.tp_warnings, frame, elapsed)?;
         // Apply this update's notifications after advancing existing labels.
         for cue in &frame.cues {
             match cue {
@@ -787,6 +790,12 @@ impl Artwork {
                 &mut panel,
                 &mut text,
             )?;
+        }
+        for (&actor, warning) in &self.tp_warnings {
+            let camera = frame.camera.context("TP warning has no camera")?;
+            let position = frame.actors[actor.index()].condition_label_origin();
+            let projected = resonance_battle::project_screen_point(camera, position);
+            warning.draw(&self.art.font, projected, &mut text)?;
         }
         for (layer, batch) in self.ui.labels.iter_mut().zip([panel, text]) {
             layer.upload(batch, commands, meshes)?;
@@ -937,5 +946,18 @@ fn required_fonts_decode_before_hud_activation() -> Result<()> {
         )
         .is_err()
     );
+    let missing_warning_glyph = test_artwork_with(
+        resonance_content::battle_ui::document::FONT,
+        |font| {
+            let mut bitmap: BitmapFont = serde_json::from_value(font.clone()).unwrap();
+            bitmap.glyphs.remove(&'X').unwrap();
+            *font = serde_json::to_value(bitmap).unwrap();
+        },
+        &diagnostics,
+    );
+    match missing_warning_glyph {
+        Err(error) => assert!(error.to_string().contains("glyph 'X' was not prepared")),
+        Ok(_) => panic!("HUD admitted a font missing the TP warning glyph"),
+    }
     Ok(())
 }
