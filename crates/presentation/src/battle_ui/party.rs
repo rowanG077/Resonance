@@ -310,6 +310,26 @@ fn vital(
     Ok(())
 }
 
+fn reserve_label(batch: &mut Batch, font: &BitmapFont, x: f32, tick: u64) -> Result<()> {
+    let alpha = (160. + 80. * ((tick % 60) as f32 * 6.).to_radians().sin()) as u8;
+    for (offset, colors) in [
+        (2., [[0, 0, 0, alpha / 2]; 2]),
+        (0., [[112, 112, 48, alpha], [96, 96, 128, alpha]]),
+    ] {
+        text::italic(
+            batch,
+            font,
+            "RESERVE.",
+            [x - 4. + offset, TOP + 34. + offset],
+            [13., 16.],
+            10.,
+            8.,
+            colors,
+        )?;
+    }
+    Ok(())
+}
+
 impl Artwork {
     pub(super) fn render_party(
         &mut self,
@@ -338,7 +358,12 @@ impl Artwork {
         let mut gauges = Batch::default();
         let mut digits = Batch::default();
         let mut patterned_digits = Batch::default();
-        for ((id, actor), &character) in actors.into_iter().zip(party.characters) {
+        let mut reserved_commands = Batch::default();
+        for (((id, actor), &character), &queued) in actors
+            .into_iter()
+            .zip(party.characters)
+            .zip(party.queued_techniques)
+        {
             if actor.availability == resonance_battle::ActorAvailability::Absent {
                 continue;
             }
@@ -385,6 +410,14 @@ impl Artwork {
                 )
                 .map(|v| v as f32);
                 rhythm_prompt.quad([x, top, x + 32., top + 32.], [u, v, u + w, v + h], [1.; 4]);
+            }
+            if queued {
+                reserve_label(
+                    &mut reserved_commands,
+                    &self.art.font,
+                    x,
+                    self.numbers.presentation_tick,
+                )?;
             }
             let numbers = self.numbers.actors.get(id);
             let values = numbers
@@ -444,7 +477,11 @@ impl Artwork {
         self.ui
             .patterned_vitals
             .upload(patterned_digits, commands, meshes)?;
-        self.ui.font.upload(digits, commands, meshes)
+        self.ui.font.upload(digits, commands, meshes)?;
+        // Command labels cover both ordinary and patterned vitals.
+        self.ui
+            .reserved_commands
+            .upload(reserved_commands, commands, meshes)
     }
 }
 
@@ -532,7 +569,7 @@ mod tests {
             &frame,
             PartyHudInput {
                 characters: &[Character::Lloyd, Character::Colette],
-                queued_techniques: &[false; 2],
+                queued_techniques: &[true, false],
                 names: &[None; 2],
             },
             &mut Commands::new(&mut queue, &world),
@@ -554,6 +591,22 @@ mod tests {
                 .fold(f32::INFINITY, f32::min);
             assert_eq!(actual, left(slot) - 320.);
         }
+        let markers = &artwork
+            .ui
+            .reserved_commands
+            .rendered
+            .as_ref()
+            .unwrap()
+            .uploaded
+            .as_ref()
+            .unwrap()
+            .0;
+        let marker_left = markers
+            .positions
+            .iter()
+            .map(|p| p[0])
+            .fold(f32::INFINITY, f32::min);
+        assert_eq!(marker_left, left(1) - 4. - 320.);
         artwork.render_numbers(&frame, &mut Commands::new(&mut queue, &world), &mut meshes)?;
         let recovered = &artwork
             .ui
@@ -610,6 +663,11 @@ mod tests {
         }
         frame.actors[0].hp = 1234;
         frame.actors[0].equipment.max_hp = 2000;
+        frame.actors[0].conditions =
+            resonance_battle::conditions::Conditions::new(resonance_battle::conditions::Layers {
+                base: POISON,
+                ..Default::default()
+            });
         frame.cues.push(resonance_battle::Cue::Recovered {
             floating: true,
             actor: resonance_battle::ActorId::from_index(0)?,
@@ -662,7 +720,12 @@ mod tests {
                     .indices
                     .is_empty()
             );
-            for layer in [&artwork.ui.font, &artwork.ui.gauges, &artwork.ui.recovery] {
+            for layer in [
+                &artwork.ui.font,
+                &artwork.ui.patterned_vitals,
+                &artwork.ui.gauges,
+                &artwork.ui.recovery,
+            ] {
                 let batch = &layer
                     .rendered
                     .as_ref()
@@ -675,6 +738,20 @@ mod tests {
                 assert!(batch.positions.iter().all(
                     |p| (-320. ..=320.).contains(&p[0]) && (-240. ..=240.).contains(&p[1])
                 ));
+            }
+            let markers = &artwork
+                .ui
+                .reserved_commands
+                .rendered
+                .as_ref()
+                .unwrap()
+                .uploaded
+                .as_ref()
+                .unwrap()
+                .0;
+            assert_eq!(markers.positions.len(), if queued { 8 * 4 * 2 } else { 0 });
+            for vitals in [&artwork.ui.font, &artwork.ui.patterned_vitals] {
+                assert!(artwork.ui.reserved_commands.definition.depth > vitals.definition.depth);
             }
             assert_eq!((materials.len(), meshes.len()), counts);
         }

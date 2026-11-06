@@ -183,7 +183,7 @@ impl Artwork {
         for enemy in enemies {
             font.validate_text(&enemy.name)?;
         }
-        art.font.validate_text("HP TP XX +0123456789.")?;
+        art.font.validate_text("HP TP XX +0123456789. RESERVE.")?;
         let inputs = crate::input_icons::prepare(&read, server)?;
         let mut pending_images = vec![PendingImage {
             image: inputs.image.clone(),
@@ -285,6 +285,7 @@ impl Artwork {
                     .offset_depth(1.)
                     .effect(TextureEffect::GlyphPattern),
             ),
+            reserved_commands: make(text(Depth::Vitals).offset_depth(2.)),
             floating: make(text(Depth::Meters)),
             recovery: make(text(Depth::Recovery)),
             scan,
@@ -946,18 +947,24 @@ fn required_fonts_decode_before_hud_activation() -> Result<()> {
         )
         .is_err()
     );
-    let missing_warning_glyph = test_artwork_with(
-        resonance_content::battle_ui::document::FONT,
-        |font| {
-            let mut bitmap: BitmapFont = serde_json::from_value(font.clone()).unwrap();
-            bitmap.glyphs.remove(&'X').unwrap();
-            *font = serde_json::to_value(bitmap).unwrap();
-        },
-        &diagnostics,
-    );
-    match missing_warning_glyph {
-        Err(error) => assert!(error.to_string().contains("glyph 'X' was not prepared")),
-        Ok(_) => panic!("HUD admitted a font missing the TP warning glyph"),
+    for character in ['X', 'V'] {
+        let missing_glyph = test_artwork_with(
+            resonance_content::battle_ui::document::FONT,
+            |font| {
+                let mut bitmap: BitmapFont = serde_json::from_value(font.clone()).unwrap();
+                bitmap.glyphs.remove(&character).unwrap();
+                *font = serde_json::to_value(bitmap).unwrap();
+            },
+            &diagnostics,
+        );
+        match missing_glyph {
+            Err(error) => assert!(
+                error
+                    .to_string()
+                    .contains(&format!("glyph {character:?} was not prepared"))
+            ),
+            Ok(_) => panic!("HUD admitted a font missing required glyph {character:?}"),
+        }
     }
     Ok(())
 }
