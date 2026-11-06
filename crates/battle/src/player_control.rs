@@ -91,6 +91,10 @@ impl Battle {
         };
         if let Some(candidate) = selected {
             let action = candidate.action;
+            if self.prepared.special_guard(actor) == Some(action) {
+                self.start_special_guard(actor, action, cues)?;
+                return Ok(());
+            }
             let [minimum, maximum] = candidate.range;
             self.activate_counter(actor, cues);
             self.begin_approach(
@@ -170,6 +174,10 @@ impl Battle {
             && (!self.actors[index].movement.flying || self.actors[index].movement.hover_ready())
         {
             let action = candidate.action;
+            if self.prepared.special_guard(actor) == Some(action) {
+                self.start_special_guard(actor, action, cues)?;
+                return Ok(());
+            }
             let [minimum, maximum] = candidate.range;
             self.begin_approach(
                 crate::ActionRequest {

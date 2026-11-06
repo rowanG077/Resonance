@@ -232,6 +232,86 @@ impl ActorLabel {
     }
 }
 
+pub(super) struct TpWarning {
+    remaining: u32,
+}
+impl TpWarning {
+    fn new() -> Self {
+        Self { remaining: 60 }
+    }
+
+    fn advance(&mut self, elapsed: u32) {
+        self.remaining = self.remaining.saturating_sub(elapsed);
+    }
+
+    pub(super) fn draw(
+        &self,
+        font: &BitmapFont,
+        [x, y]: [f32; 2],
+        batch: &mut Batch,
+    ) -> Result<()> {
+        let [x, y] = [x.trunc(), y.trunc()];
+        let color = if self.remaining & 4 == 0 {
+            [128, 128, 128, 255]
+        } else {
+            [96, 96, 128, 255]
+        };
+        for (label, offset, size, skew) in [
+            ("TP", [-28., 0.], [16., 20.], 8.),
+            ("XX", [2., 6.], [14., 14.], 6.),
+        ] {
+            text::italic(
+                batch,
+                font,
+                label,
+                [x + offset[0], y + offset[1]],
+                size,
+                14.,
+                skew,
+                [color; 2],
+            )?;
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn advance_tp_warnings(
+    warnings: &mut BTreeMap<ActorId, TpWarning>,
+    frame: &resonance_battle::BattleFrame,
+    elapsed: u32,
+) -> Result<()> {
+    use resonance_battle::{Cue, Rejection, Side};
+    if frame.recognized_result.is_some()
+        || frame
+            .cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::CombatRetired))
+    {
+        warnings.clear();
+        return Ok(());
+    }
+    warnings.retain(|_, warning| {
+        warning.advance(elapsed);
+        warning.remaining != 0
+    });
+    for cue in &frame.cues {
+        if let Cue::Rejected {
+            actor,
+            reason: Rejection::InsufficientTp,
+        } = cue
+        {
+            let owner = frame
+                .actors
+                .get(actor.index())
+                .ok_or_else(|| anyhow::anyhow!("unknown TP warning actor"))?;
+            if owner.side == Side::Party {
+                warnings.insert(*actor, TpWarning::new());
+            }
+        }
+    }
+    Ok(())
+}
+
 impl super::Artwork {
     pub(super) fn advance_labels(&mut self, clock: resonance_battle::BattleClock, elapsed: u32) {
         let activation_hold = matches!(
@@ -266,6 +346,110 @@ impl super::Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tp_warnings_filter_refresh_pause_and_expire_independently() -> Result<()> {
+        use super::super::fixtures;
+        use resonance_battle::{Cue, Rejection, Side};
+        let mut warnings = BTreeMap::new();
+        let actor = ActorId::from_index(0)?;
+        let ally = ActorId::from_index(1)?;
+        let enemy = ActorId::from_index(2)?;
+        let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        frame.actors.push(frame.actors[0].clone());
+        frame.actors.push(frame.actors[0].clone());
+        frame.actors[2].side = Side::Enemy;
+        frame.cues.push(Cue::Rejected {
+            actor,
+            reason: Rejection::Busy,
+        });
+        frame.cues.push(Cue::Rejected {
+            actor: enemy,
+            reason: Rejection::InsufficientTp,
+        });
+        advance_tp_warnings(&mut warnings, &frame, 1)?;
+        assert!(warnings.is_empty());
+        frame.cues = [actor, ally]
+            .map(|actor| Cue::Rejected {
+                actor,
+                reason: Rejection::InsufficientTp,
+            })
+            .into();
+        advance_tp_warnings(&mut warnings, &frame, 1)?;
+        assert_eq!(warnings.len(), 2);
+        assert_eq!(warnings[&actor].remaining, 60);
+        frame.cues.truncate(1);
+        advance_tp_warnings(&mut warnings, &frame, 59)?;
+        assert_eq!(warnings[&actor].remaining, 60);
+        assert_eq!(warnings[&ally].remaining, 1);
+        frame.cues.clear();
+        advance_tp_warnings(&mut warnings, &frame, 0)?;
+        assert_eq!(warnings[&actor].remaining, 60);
+        assert_eq!(warnings[&ally].remaining, 1);
+        advance_tp_warnings(&mut warnings, &frame, 1)?;
+        assert!(!warnings.contains_key(&ally));
+        Ok(())
+    }
+
+    #[test]
+    fn battle_end_clears_tp_warnings_even_with_a_rejection() -> Result<()> {
+        use super::super::fixtures;
+        use resonance_battle::{BattleResult, Cue, Rejection};
+        let actor = ActorId::from_index(0)?;
+        for retired in [false, true] {
+            let mut warnings = BTreeMap::from([(actor, TpWarning::new())]);
+            let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+            frame.cues.push(Cue::Rejected {
+                actor,
+                reason: Rejection::InsufficientTp,
+            });
+            if retired {
+                frame.cues.push(Cue::CombatRetired);
+            } else {
+                frame.recognized_result = Some(BattleResult::Victory);
+            }
+            advance_tp_warnings(&mut warnings, &frame, 0)?;
+            assert!(warnings.is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn tp_warning_draws_fixed_cells_and_blinks() -> Result<()> {
+        let font = BitmapFont {
+            texture: String::new(),
+            width: 32,
+            height: 32,
+            line_height: 20,
+            glyphs: ['T', 'P', 'X']
+                .map(|ch| {
+                    (
+                        ch,
+                        resonance_content::font::Glyph {
+                            rect: [0, 0, 10, 20],
+                            advance: 10,
+                        },
+                    )
+                })
+                .into(),
+        };
+        let mut warning = TpWarning::new();
+        let mut batch = Batch::default();
+        warning.draw(&font, [100.9, 200.9], &mut batch)?;
+        assert_eq!(batch.positions.len(), 16);
+        assert_eq!(batch.positions[0][0] + 320., 80.);
+        assert_eq!(batch.positions[8][0] + 320., 108.);
+        let initial_colors = batch.colors.clone();
+        warning.advance(4);
+        let mut batch = Batch::default();
+        warning.draw(&font, [100.9, 200.9], &mut batch)?;
+        assert_ne!(batch.colors, initial_colors);
+        warning.advance(4);
+        let mut batch = Batch::default();
+        warning.draw(&font, [100.9, 200.9], &mut batch)?;
+        assert_eq!(batch.colors, initial_colors);
+        Ok(())
+    }
 
     #[test]
     fn labels_replace_cancel_and_expire() {
