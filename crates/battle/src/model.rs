@@ -1903,6 +1903,7 @@ impl ModelSampler {
         actor: &Actor,
         sample: ModelSample,
         advance: bool,
+        adjust: &impl Fn(u16, &resonance_content::animation::Bone, pose::LocalPose) -> pose::LocalPose,
     ) -> Result<(ModelFrame, Vec<WeaponFrame>)> {
         let model = &mut self.0;
         let motion = model.definition.motion(
@@ -1947,7 +1948,22 @@ impl ModelSampler {
         model.shown.clip = sample.clip;
         model.shown.frame = sample.frame;
         model.shown.blend_weight = sample.blend_weight;
-        model.present(actor, advance, advance, advance)?;
+        // Controllers affect this displayed pose and its weapon attachments.
+        // Keep the authored pose for the next sample/cross-fade so relative
+        // adjustments cannot accumulate on paused frames.
+        let authored = model.animation.local.clone();
+        for (index, (local, bone)) in model
+            .animation
+            .local
+            .iter_mut()
+            .zip(&model.definition.skeleton.bones)
+            .enumerate()
+        {
+            *local = pose::BonePose::complete(adjust(index as u16, bone, local.value()));
+        }
+        let result = model.present(actor, advance, advance, advance);
+        model.animation.local = authored;
+        result?;
         model.sample_shadow(actor);
         Ok((model.shown.clone(), model.weapon_frames()))
     }

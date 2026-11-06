@@ -271,45 +271,8 @@ impl ResourceLibrary {
                 Ok((pose.motion.as_ref(), pose.frame(elapsed)))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        skeleton.sample_adjusted_matrix(&layers, bone, &|index, bone, mut local| {
-            use resonance_content::animation::{euler_rotation, pose::LocalPose};
-            for adjustment in actor
-                .appearance
-                .bone_adjustments
-                .values()
-                .filter(|adjustment| match &adjustment.bone {
-                    crate::BoneTarget::Name(name) => name == &bone.name,
-                    crate::BoneTarget::Index(target) => *target == index,
-                })
-            {
-                let angles = adjustment.sample(tick);
-                let rotation = euler_rotation(angles);
-                if adjustment.absolute_rotation {
-                    let mut value = match local {
-                        LocalPose::Trs(value) => value,
-                        LocalPose::Affine(_) => bone.bind,
-                    };
-                    value.rotation = rotation;
-                    local = LocalPose::Trs(value);
-                } else if angles != [0.; 3] {
-                    local = local.rotate(rotation);
-                }
-                if let Some(scale) = &adjustment.scale {
-                    local = local.with_scale(scale.sample(tick, bone.bind.scale));
-                }
-                if adjustment
-                    .translation
-                    .as_ref()
-                    .is_some_and(|translation| translation.absolute)
-                {
-                    let position = adjustment.translation(tick);
-                    match &mut local {
-                        LocalPose::Trs(value) => value.translation = position,
-                        LocalPose::Affine(matrix) => matrix[3][..3].copy_from_slice(&position),
-                    }
-                }
-            }
-            local
+        skeleton.sample_adjusted_matrix(&layers, bone, &|index, bone, local| {
+            actor.adjust_bone_pose(index, bone, local, tick)
         })
     }
 
@@ -439,5 +402,55 @@ impl AttachmentPose {
     fn frame(&self, tick: f32) -> f32 {
         (tick * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ)
             .min(self.motion.duration_frames)
+    }
+}
+
+impl crate::Actor {
+    /// Apply authored joint controllers to a sampled local pose before hierarchy composition.
+    pub fn adjust_bone_pose(
+        &self,
+        index: u16,
+        bone: &resonance_content::animation::Bone,
+        mut local: resonance_content::animation::pose::LocalPose,
+        tick: u32,
+    ) -> resonance_content::animation::pose::LocalPose {
+        use resonance_content::animation::{euler_rotation, pose::LocalPose};
+        for adjustment in self
+            .appearance
+            .bone_adjustments
+            .values()
+            .filter(|adjustment| match &adjustment.bone {
+                crate::BoneTarget::Name(name) => name == &bone.name,
+                crate::BoneTarget::Index(target) => *target == index,
+            })
+        {
+            let angles = adjustment.sample(tick);
+            let rotation = euler_rotation(angles);
+            if adjustment.absolute_rotation {
+                let mut value = match local {
+                    LocalPose::Trs(value) => value,
+                    LocalPose::Affine(_) => bone.bind,
+                };
+                value.rotation = rotation;
+                local = LocalPose::Trs(value);
+            } else if angles != [0.; 3] {
+                local = local.rotate(rotation);
+            }
+            if let Some(scale) = &adjustment.scale {
+                local = local.with_scale(scale.sample(tick, bone.bind.scale));
+            }
+            if adjustment
+                .translation
+                .as_ref()
+                .is_some_and(|translation| translation.absolute)
+            {
+                let position = adjustment.translation(tick);
+                match &mut local {
+                    LocalPose::Trs(value) => value.translation = position,
+                    LocalPose::Affine(matrix) => matrix[3][..3].copy_from_slice(&position),
+                }
+            }
+        }
+        local
     }
 }
