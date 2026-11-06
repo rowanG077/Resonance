@@ -51,7 +51,7 @@ fn publish_named_title_fields_fixture() -> Result<()> {
 }
 
 #[test]
-#[ignore = "publishes native data to a new RESONANCE_NAMED_BATTLE_ASSETS directory; requires extracted GameCube files"]
+#[ignore = "publishes native data to a new RESONANCE_NAMED_BATTLE_ASSETS directory; requires extracted source assets"]
 fn publish_complete_named_battle_fixture() -> Result<()> {
     let output = directory("RESONANCE_NAMED_BATTLE_ASSETS")?;
     let extracted = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
@@ -114,13 +114,85 @@ fn named_event_actors_capture_shared_field_settings() -> Result<()> {
             .files
             .contains_key(resonance_content::field::settings::PATH)
     );
-    let _actors = crate::battle::event_models::State::new(
+    let mut actors = crate::battle::event_models::State::new(
         &assets.files,
         prepared.lifecycle.event_scenes(),
         &prepared.core,
         &prepared.characters,
         &mut prepared.models,
     )?;
+    let scene = prepared
+        .lifecycle
+        .event_scenes()
+        .iter()
+        .find(|s| s.script.contains("rescue"))
+        .unwrap()
+        .clone();
+    let mut playback =
+        resonance_game::battle::event::Prepared::load(&assets.files, scene)?.enter(&party)?;
+    let mut checked_controllers = false;
+    for _ in 0..1500 {
+        playback.events.step()?;
+        for request in playback.events.world.dialogue.values() {
+            if request.operation.is_pending() {
+                request
+                    .operation
+                    .complete(None)
+                    .map_err(anyhow::Error::msg)?;
+            }
+        }
+        playback.events.world.voice = None;
+        let mut frame = prepared.core.snapshot();
+        actors.apply(&playback, &mut frame)?;
+        if !checked_controllers
+            && let Some(kratos) = playback.events.world.actors.get(&9)
+            && kratos.appearance.bone_adjustments.contains_key(&2)
+            && kratos.appearance.bone_adjustments[&2].sample(playback.events.tick()) != [0.; 3]
+        {
+            let adjusted = frame
+                .models
+                .iter()
+                .find(|m| m.actor.index() == 3)
+                .unwrap()
+                .bones
+                .clone();
+            let controllers = std::mem::take(
+                &mut playback
+                    .events
+                    .world
+                    .actors
+                    .get_mut(&9)
+                    .unwrap()
+                    .appearance
+                    .bone_adjustments,
+            );
+            actors.apply(&playback, &mut frame)?;
+            let unadjusted = &frame
+                .models
+                .iter()
+                .find(|m| m.actor.index() == 3)
+                .unwrap()
+                .bones;
+            assert_ne!(
+                &adjusted, unadjusted,
+                "Kratos's head/neck gesture must reach the displayed skeleton"
+            );
+            playback
+                .events
+                .world
+                .actors
+                .get_mut(&9)
+                .unwrap()
+                .appearance
+                .bone_adjustments = controllers;
+            checked_controllers = true;
+        }
+        if playback.events.main_finished() {
+            break;
+        }
+    }
+    assert!(playback.events.main_finished());
+    assert!(checked_controllers);
     assert!(!diagnostics.has_errors());
     Ok(())
 }

@@ -2034,20 +2034,47 @@ fn external_model_samples_hold_and_blend_without_advancing_a_combat_clock() -> R
         repeat: false,
         blend_ticks: 4,
     };
-    let (shown, _) = sampled.sample(&actor, sample, true)?;
+    let (shown, _) = sampled.sample(&actor, sample, true, &|_, _, local| local)?;
     assert_eq!(shown.frame, 8.);
     assert_eq!(shown.bones[1][3][0], 4.);
     let held = ModelSample {
         restart: false,
         ..sample
     };
-    assert_eq!(sampled.sample(&actor, held, false)?.0, shown);
+    assert_eq!(
+        sampled.sample(&actor, held, false, &|_, _, local| local)?.0,
+        shown
+    );
     let complete = ModelSample {
         blend_weight: 1.,
         ..held
     };
     assert_eq!(
-        sampled.sample(&actor, complete, true)?.0.bones[1][3][0],
+        sampled
+            .sample(&actor, complete, true, &|_, _, local| local)?
+            .0
+            .bones[1][3][0],
+        10.
+    );
+    let rotate = |index, _: &Bone, local: pose::LocalPose| {
+        if index == 0 {
+            local.rotate(resonance_content::animation::euler_rotation([0., 0., 90.]))
+        } else {
+            local
+        }
+    };
+    let adjusted = sampled.sample(&actor, complete, false, &rotate)?.0;
+    assert!(adjusted.bones[1][3][0].abs() < 0.00001);
+    assert!((adjusted.bones[1][3][1] - 10.).abs() < 0.00001);
+    assert_eq!(
+        sampled.sample(&actor, complete, false, &rotate)?.0,
+        adjusted
+    );
+    assert_eq!(
+        sampled
+            .sample(&actor, complete, false, &|_, _, local| local)?
+            .0
+            .bones[1][3][0],
         10.
     );
     assert_eq!(sampled.0.animation.clock.rate, 0.);

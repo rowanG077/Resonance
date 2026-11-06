@@ -381,6 +381,7 @@ impl State {
                     })?,
                 },
                 advance,
+                &|index, bone, local| source.adjust_bone_pose(index, bone, local, tick),
             )?;
             actor.selection = selection;
             model.visible =
