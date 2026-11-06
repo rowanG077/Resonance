@@ -1021,6 +1021,40 @@ mod tests {
     }
 
     #[test]
+    fn assigned_special_guard_targets_self_without_approaching() -> Result<()> {
+        for mode in [Control::Manual, Control::SemiAuto] {
+            for guarding in [false, true] {
+                let mut battle = special_battle();
+                battle.actors[0].control = mode;
+                if guarding {
+                    battle.step(BattleInput::from(ControlInput {
+                        guard: ButtonInput {
+                            held: true,
+                            pressed: true,
+                            released: false,
+                        },
+                        ..ControlInput::neutral(ActorId(0))
+                    }))?;
+                }
+                let initial_tp = battle.actors[0].tp;
+                let frame = battle.step(BattleInput::from(ControlInput {
+                    assigned_arte: Some(TechniqueId(34)),
+                    ..ControlInput::neutral(ActorId(0))
+                }))?;
+                let action = frame.actions.first().expect("Guardian starts").0;
+                assert_eq!(battle.sequence(&action).unwrap().target, ActorId(0));
+                assert!(battle.actors[0].guard.active);
+                assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Special);
+                assert_eq!(battle.actors[0].tp, initial_tp - 4);
+                battle.step(BattleInput::default())?;
+                assert_eq!(battle.actors[0].tp, initial_tp - 4);
+                assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(1));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn special_guard_input_enters_action_and_cleans_up_on_finish() -> Result<()> {
         let mut battle = special_battle();
         let initial_tp = battle.actors[0].tp;
