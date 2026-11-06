@@ -228,6 +228,9 @@ impl crate::GameWorld {
 
     pub fn complete_battle(&mut self, request: &Request, outcome: Outcome) -> Result<(), String> {
         request.complete(outcome)?;
+        // Battle audio retires field voices. Re-admit spatial ambience when
+        // this suspended scene resumes, even if its emitters have not moved.
+        self.ambient_voices = [None; 2];
         self.enemy_encounter_cooldown = 60;
         if let Some(white) = request.transition_white {
             self.fade = Some(crate::Fade {
@@ -345,6 +348,54 @@ mod tests {
                 },
             )
             .unwrap()
+    }
+
+    #[test]
+    fn battle_return_restarts_stationary_field_ambience() {
+        for outcome in [Outcome::Victory, Outcome::Escaped, Outcome::Defeat] {
+            let mut world = world(false);
+            // Burning Iselia uses these two persistent spatial fire cues.
+            for (actor, sound) in [(500, 383), (501, 384)] {
+                let mut emitter = Actor::new(0, [1000., 0., 0.]);
+                emitter.ambient_sound = Some(crate::AmbientSound {
+                    id: sound,
+                    volume: 127,
+                    radius: 2500.,
+                });
+                world.insert_actor(actor, emitter);
+            }
+            world.step_ambient_sound();
+            let voices = |commands: &[crate::AudioCommand]| {
+                commands
+                    .iter()
+                    .map(|command| {
+                        let crate::AudioCommand::RepeatSound {
+                            id,
+                            slot,
+                            volume,
+                            pan,
+                        } = command
+                        else {
+                            panic!("expected ambience admission")
+                        };
+                        (*id, *slot, *volume, *pan)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let before = voices(&std::mem::take(&mut world.audio_commands));
+            assert_eq!(before.len(), 2);
+            let request = request(&mut world);
+            world.complete_battle(&request, outcome).unwrap();
+            world.audio_commands.clear();
+            world.step_ambient_sound();
+            assert_eq!(voices(&world.audio_commands), before);
+            world.audio_commands.clear();
+            world.step_ambient_sound();
+            assert!(
+                world.audio_commands.is_empty(),
+                "active ambience must not restart every update"
+            );
+        }
     }
 
     #[test]
