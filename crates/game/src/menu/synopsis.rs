@@ -110,9 +110,9 @@ impl Menu {
             self.synopsis.line = 0;
             return Some(2);
         }
-        let page = matches!(input, Some(PreviousTab | NextTab));
-        let up = matches!(input, Some(Up | PreviousTab));
-        let down = matches!(input, Some(Down | NextTab));
+        let page = matches!(input, Some(PageUp | PageDown | PreviousTab | NextTab));
+        let up = matches!(input, Some(Up | PageUp | PreviousTab));
+        let down = matches!(input, Some(Down | PageDown | NextTab));
         if !up && !down {
             return None;
         }
@@ -166,5 +166,77 @@ impl Menu {
             state.list_scroll = (state.first as isize - first as isize).signum() as i8;
         }
         (old != state.row).then_some(if page { 38 } else { 1 })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_keys_and_shoulders_page_both_synopsis_views() -> anyhow::Result<()> {
+        let checkpoint = serde_json::from_value(serde_json::json!({
+            "map_id": 330, "position": [0, 0, 0], "heading": 0, "played_ticks": 0,
+            "progress": {
+                "script_globals": [], "event_flags": [], "random_state": 0, "tick": 0,
+                "gameplay_random": resonance_events::GameplayRandom::default(),
+                "event_records": {},
+                "party": {
+                    "battles": resonance_events::party::BattleStatistics::default(),
+                    "members": [], "formation": [], "items": {}, "found_items": [],
+                    "recent_items": [], "gald": 0, "spent_gald": 0,
+                    "settings": resonance_events::party::Settings::default()
+                }
+            }
+        }))?;
+        let mut menu = Menu::new(Page::Synopsis, Some(Checkpoint::Field(checkpoint)), false);
+        for id in 0..25 {
+            menu.checkpoint
+                .as_mut()
+                .unwrap()
+                .progress_mut()
+                .event_records
+                .insert(
+                    id,
+                    serde_json::from_value(serde_json::json!({"value": 1, "extra": 0, "tick": 0}))?,
+                );
+        }
+        menu.synopsis_data = Some(menu_data::SynopsisData {
+            entries: (0..25)
+                .map(|_| SynopsisEntry {
+                    heading: "Heading".into(),
+                    title: "Title".into(),
+                    location: None,
+                    text: vec![resonance_content::menu_data::SynopsisLine(vec![]); 28],
+                    updates: Default::default(),
+                })
+                .collect(),
+            months: Default::default(),
+        });
+        for (up, down) in [
+            (MenuAction::PageUp, MenuAction::PageDown),
+            (MenuAction::PreviousTab, MenuAction::NextTab),
+        ] {
+            menu.synopsis = Synopsis::default();
+            menu.synopsis.row = 2;
+            assert_eq!(menu.step_synopsis(Some(down)), Some(38));
+            assert_eq!((menu.synopsis.row, menu.synopsis.first), (14, 12));
+            assert_eq!(menu.step_synopsis(Some(down)), Some(38));
+            assert_eq!((menu.synopsis.row, menu.synopsis.first), (24, 24));
+            assert_eq!(menu.step_synopsis(Some(down)), None);
+            assert_eq!(menu.step_synopsis(Some(up)), Some(38));
+            assert_eq!((menu.synopsis.row, menu.synopsis.first), (12, 12));
+            menu.synopsis.reading = true;
+            menu.synopsis.text_opacity = 255;
+            assert_eq!(menu.step_synopsis(Some(down)), Some(38));
+            assert_eq!(menu.synopsis.line, 13);
+            assert_eq!(menu.step_synopsis(Some(down)), Some(38));
+            assert_eq!(menu.synopsis.line, 26);
+            assert_eq!(menu.step_synopsis(Some(down)), None);
+            assert_eq!(menu.step_synopsis(Some(up)), Some(38));
+            assert_eq!(menu.synopsis.line, 13);
+            assert_eq!(menu.synopsis.text_scroll, 0);
+        }
+        Ok(())
     }
 }

@@ -1007,15 +1007,27 @@ impl Menu {
                     return None;
                 }
                 let previous = self.slot;
-                if up {
-                    self.slot = self.slot.saturating_sub(1);
-                } else if down {
-                    self.slot = (self.slot + 1).min(SLOTS_PER_BANK - 1);
+                let page_up = matches!(input, Some(MenuAction::PageUp | MenuAction::PreviousTab));
+                let page_down = matches!(input, Some(MenuAction::PageDown | MenuAction::NextTab));
+                if page_up {
+                    let step = self.first_slot.min(VISIBLE_SLOTS);
+                    self.first_slot -= step;
+                    self.slot -= step;
+                } else if page_down && self.first_slot + VISIBLE_SLOTS < SLOTS_PER_BANK {
+                    self.first_slot =
+                        (self.first_slot + VISIBLE_SLOTS).min(SLOTS_PER_BANK - VISIBLE_SLOTS);
+                    self.slot = (self.slot + VISIBLE_SLOTS).min(SLOTS_PER_BANK - 1);
+                } else if up || down {
+                    self.slot = if up {
+                        self.slot.saturating_sub(1)
+                    } else {
+                        (self.slot + 1).min(SLOTS_PER_BANK - 1)
+                    };
+                    self.first_slot = self
+                        .first_slot
+                        .min(self.slot)
+                        .max(self.slot.saturating_sub(VISIBLE_SLOTS - 1));
                 }
-                self.first_slot = self
-                    .first_slot
-                    .min(self.slot)
-                    .max(self.slot.saturating_sub(VISIBLE_SLOTS - 1));
                 if input == Some(MenuAction::Confirm) {
                     if mode == Mode::Save || matches!(self.slots[self.index()], Slot::Saved { .. })
                     {
@@ -1029,7 +1041,11 @@ impl Menu {
                     }
                     return Some(4);
                 }
-                return (self.slot != previous).then_some(1);
+                return (self.slot != previous).then_some(if page_up || page_down {
+                    38
+                } else {
+                    1
+                });
             }
             _ => unreachable!("submenu input was already dispatched"),
         }
@@ -1224,6 +1240,56 @@ mod tests {
         });
         assert_eq!(slots.focus, SlotFocus::List);
         assert_eq!(slots.bank, 0);
+    }
+
+    #[test]
+    fn save_and_load_page_navigation_preserves_cursor_and_stops_at_bank_edges() {
+        for mode in [Mode::Save, Mode::Load] {
+            for (buttons, bank) in [(false, 0), (false, 1), (true, 0), (true, 1)] {
+                let mut menu = Menu::new(Page::Slots(mode), None, true);
+                menu.finish(None);
+                menu.bank = bank;
+                menu.focus = SlotFocus::List;
+                menu.slot = 2;
+                let page = |down| FieldInput {
+                    scroll_direction: if buttons {
+                        0
+                    } else if down {
+                        -1
+                    } else {
+                        1
+                    },
+                    pressed_buttons: if buttons {
+                        [if down {
+                            Button::NextPage
+                        } else {
+                            Button::PreviousPage
+                        }]
+                        .into()
+                    } else {
+                        Default::default()
+                    },
+                    ..Default::default()
+                };
+                assert_eq!(menu.step(page(true)), Some(38));
+                assert_eq!((menu.slot, menu.first_slot), (8, 6));
+                menu.step(Default::default());
+                assert_eq!(menu.step(page(false)), Some(38));
+                assert_eq!((menu.slot, menu.first_slot), (2, 0));
+                menu.step(Default::default());
+                assert_eq!(menu.step(page(false)), None);
+                menu.slot = 124;
+                menu.first_slot = 120;
+                menu.step(Default::default());
+                assert_eq!(menu.step(page(true)), Some(38));
+                assert_eq!((menu.slot, menu.first_slot), (126, 121));
+                assert!(menu.first_slot + VISIBLE_SLOTS <= SLOTS_PER_BANK);
+                menu.step(Default::default());
+                assert_eq!(menu.step(page(true)), None);
+                assert_eq!(menu.bank, bank);
+                assert!(menu.confirmation.is_none());
+            }
+        }
     }
 
     #[test]
