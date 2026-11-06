@@ -1,6 +1,6 @@
 // Adapted from Bevy 0.20.1's mesh.wesl, copyright the Bevy contributors,
-// licensed under MIT OR Apache-2.0. Standard skinning/morph processing remains
-// unchanged; field surfaces additionally interpolate the authored light ramp.
+// licensed under MIT OR Apache-2.0. Field surfaces additionally interpolate
+// the authored light ramp.
 import bevy_pbr::render::{
     mesh_bindings::mesh,
     mesh_functions,
@@ -11,13 +11,13 @@ import bevy_pbr::render::{
 };
 import resonance_presentation::surface_bindings::surface_data;
 
-// The instance_index parameter must match vertex_in.instance_index. This is a work around for a wgpu dx12 bug.
-// See https://github.com/gfx-rs/naga/issues/2416
+// Pass draw indices from the entry point so backend base offsets survive
+// vertex decompression and copying.
 @if(MORPH_TARGETS)
-fn morph_vertex(vertex_in: UncompressedVertex, instance_index: u32) -> UncompressedVertex {
+fn morph_vertex(vertex_in: UncompressedVertex, instance_index: u32, index: u32) -> UncompressedVertex {
     var vertex = vertex_in;
     let first_vertex = mesh[instance_index].first_vertex_index;
-    let vertex_index = vertex.index - first_vertex;
+    let vertex_index = index - first_vertex;
     let morph_descriptor_index = mesh[instance_index].morph_descriptor_index;
 
     let weight_count = bevy_pbr::render::morph::layer_count(morph_descriptor_index);
@@ -41,7 +41,7 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let uncompressed_vertex_no_morph = decompress_vertex(vertex_no_morph, vertex_no_morph.instance_index);
 
     @if(MORPH_TARGETS)
-    var vertex = morph_vertex(uncompressed_vertex_no_morph, vertex_no_morph.instance_index);
+    var vertex = morph_vertex(uncompressed_vertex_no_morph, vertex_no_morph.instance_index, vertex_no_morph.index);
     @else
     var vertex = uncompressed_vertex_no_morph;
 

@@ -1,4 +1,5 @@
 import bevy_pbr::render::forward_io::VertexOutput;
+import bevy_pbr::render::view_transformations::position_world_to_view;
 import bevy_pbr::render::mesh_bindings::mesh;
 import resonance_presentation::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon, tev_input};
 @if(CLAMP_COLOR)
@@ -110,7 +111,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         fog_color = view_fog.base_color.rgb;
     }
     if fog_range.y != fog_range.x {
-        let depth = 1.0 / in.position.w;
+        // View depth avoids backend differences in fragment W and also works
+        // with orthographic projections.
+        let depth = -position_world_to_view(in.world_position.xyz).z;
         var fog = clamp((depth - fog_range.x)
             / (fog_range.y - fog_range.x), 0.0, 1.0);
         if fog_range.z > 0.0 {
