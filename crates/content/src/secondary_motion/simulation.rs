@@ -63,7 +63,12 @@ impl Simulation {
         steps: u32,
         environment: Environment,
     ) {
-        if self.positions.len() != targets.len() {
+        // Held teleports need valid placement before the next physics tick.
+        if self.positions.len() != targets.len()
+            || (steps == 0
+                && !targets.is_empty()
+                && self.positions[0].distance(targets[0]) > RECOVERY_DISTANCE)
+        {
             self.reset(targets);
         }
         let previous_targets = std::mem::take(&mut self.targets);
@@ -321,20 +326,23 @@ mod tests {
         );
         assert!(simulation.positions()[2].z < targets[2].z);
         let moved = targets.map(|point| point + Vec3::X * 1000.);
-        simulation.advance(
-            &chain,
-            &moved,
-            None,
-            chain.attraction,
-            1,
-            Environment::default(),
-        );
-        assert_eq!(simulation.positions(), moved);
-        assert!(
-            simulation
-                .velocity()
-                .iter()
-                .all(|&velocity| velocity == Vec3::ZERO)
-        );
+        for steps in [0, 1] {
+            let mut teleported = simulation.clone();
+            teleported.advance(
+                &chain,
+                &moved,
+                None,
+                chain.attraction,
+                steps,
+                Environment::default(),
+            );
+            assert_eq!(teleported.positions(), moved);
+            assert!(
+                teleported
+                    .velocity()
+                    .iter()
+                    .all(|&velocity| velocity == Vec3::ZERO)
+            );
+        }
     }
 }
