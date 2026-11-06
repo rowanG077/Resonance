@@ -110,6 +110,17 @@ pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -
     Ok(())
 }
 
+/// Only files addressable through Continue affect the title default.
+pub(super) fn title_selection(world: &World) -> usize {
+    match menu::has_save_data(&world.resource::<Persistence>().store) {
+        Ok(saved) => usize::from(saved),
+        Err(error) => {
+            warn!("Cannot check title save data: {error:#}");
+            0
+        }
+    }
+}
+
 /// Field diagnostics use the same admission as a normal scene save.
 pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
     match scene_checkpoint(world)? {

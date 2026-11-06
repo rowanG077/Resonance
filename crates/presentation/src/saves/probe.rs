@@ -129,7 +129,6 @@ pub(super) fn app_with_target(
             silent: true,
             paranoid,
             skip_intro: true,
-            selected: 0,
             record_playthrough: None,
             record_title_ticks: 0,
             skip_battles: false,

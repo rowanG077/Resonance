@@ -70,7 +70,6 @@ pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOp
         capture_at: None,
         capture: None,
         reveal: false,
-        selected: 0,
         silent: true,
         paranoid: true,
         skip_intro: true,

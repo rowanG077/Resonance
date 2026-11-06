@@ -256,7 +256,7 @@ pub(super) fn return_to_title(world: &mut World) -> Result<()> {
     }
     let old = &world.resource::<super::Menu>().0;
     world.insert_resource(super::Menu(resonance_game::TitleState {
-        selected: 1,
+        selected: saves::title_selection(world),
         opacity: old.opacity,
         sound_test: old.sound_test,
         ..Default::default()
