@@ -85,7 +85,7 @@ impl Drawing<'_> {
                 [40., y + 1.],
                 [18., 22.],
                 252.,
-                if !learned { DISABLED } else { WHITE },
+                if !learned { 1 } else { WHITE },
             )?;
             if let Some(binding) = member.arte_bindings.iter().find(|b| b.technique == id) {
                 self.chord_icons(&binding.chord, [310., y], 24., 530.)?;
