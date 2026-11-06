@@ -58,7 +58,6 @@ enum Phase {
     Results { age: u16 },
     Defeat { age: u8 },
     EscapeNotice { age: u8, forced: bool },
-    EnemyRetreat { remaining: u8 },
     Closing,
     Finish,
     Finished,
@@ -78,10 +77,8 @@ const ESCAPE_NOTICE_DELAY: u8 = 90;
 const FORCED_ESCAPE_NOTICE_DELAY: u8 = 15;
 const ESCAPE_FADE_STEP: u8 = 8;
 const FORCED_ESCAPE_FADE_STEP: u8 = 4;
-const FADE_STEP: u8 = 16;
-const FADE_UPDATES: u8 = u8::MAX.div_ceil(FADE_STEP) + 1;
-/// Departure owns these updates before scene handoff; its closing fade is included.
-const ENEMY_RETREAT_UPDATES: u8 = 65;
+const CLOSING_WIPE_STEP: u8 = 4;
+const DEFEAT_WIPE_STEP: u8 = 2;
 const ORDER_APPLY_DELAY: u8 = 60;
 const ORDER_RESELECT_DELAY: u8 = 160;
 
@@ -358,24 +355,23 @@ impl Lifecycle {
                     presentation.request(Request::DefeatNotice, None, battle)?;
                     Phase::Defeat { age: 0 }
                 }
-                BattleResult::Escaped => {
-                    match battle.departure_reason() {
-                        Some(DepartureReason::EnemyRetreat) => {
-                            battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
-                            Phase::EnemyRetreat {
-                                // This visit also performs the first departure world update.
-                                remaining: ENEMY_RETREAT_UPDATES - 1,
-                            }
-                        }
-                        departure => {
-                            let forced = departure == Some(DepartureReason::ForcedEscape);
-                            if !forced {
-                                presentation.request(Request::EscapeNotice, None, battle)?;
-                            }
-                            Phase::EscapeNotice { age: 0, forced }
-                        }
+                BattleResult::Escaped => match battle.departure_reason() {
+                    Some(DepartureReason::EnemyRetreat) => {
+                        battle.begin_transition(
+                            TransitionKind::WipeOut,
+                            [0; 3],
+                            CLOSING_WIPE_STEP,
+                        )?;
+                        Phase::Closing
                     }
-                }
+                    departure => {
+                        let forced = departure == Some(DepartureReason::ForcedEscape);
+                        if !forced {
+                            presentation.request(Request::EscapeNotice, None, battle)?;
+                        }
+                        Phase::EscapeNotice { age: 0, forced }
+                    }
+                },
             };
             entered = true;
         }
@@ -448,7 +444,11 @@ impl Lifecycle {
                                 })
                         {
                             candidate.accept_victory()?;
-                            battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
+                            battle.begin_transition(
+                                TransitionKind::WipeOut,
+                                [0; 3],
+                                CLOSING_WIPE_STEP,
+                            )?;
                             Phase::Closing
                         } else {
                             next
@@ -469,7 +469,11 @@ impl Lifecycle {
                         )?;
                     }
                     if age > DEFEAT_NOTICE_DELAY && input.confirm {
-                        battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
+                        battle.begin_transition(
+                            TransitionKind::WipeOut,
+                            [0; 3],
+                            DEFEAT_WIPE_STEP,
+                        )?;
                         Phase::Closing
                     } else {
                         Phase::Defeat {
@@ -498,19 +502,11 @@ impl Lifecycle {
                         }
                     }
                 }
-                Phase::EnemyRetreat { remaining } => {
-                    let faded = remaining <= FADE_UPDATES && battle.advance_transition()?;
-                    if remaining <= 1 && faded {
-                        Phase::Finish
-                    } else {
-                        Phase::EnemyRetreat {
-                            remaining: remaining.saturating_sub(1),
-                        }
-                    }
-                }
                 Phase::Closing => {
                     if battle.advance_transition()? {
-                        if battle.recognize_result() == Some(BattleResult::Escaped) {
+                        if battle.recognize_result() == Some(BattleResult::Escaped)
+                            && battle.departure_reason() != Some(DepartureReason::EnemyRetreat)
+                        {
                             candidate.record_escape(battle)?;
                         }
                         Phase::Finish

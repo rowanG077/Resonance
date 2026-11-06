@@ -70,6 +70,7 @@ impl Opening {
         Some(crate::TransitionFrame {
             color: flash.color,
             alpha,
+            wipe: None,
         })
     }
 }

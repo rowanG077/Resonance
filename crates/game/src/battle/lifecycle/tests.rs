@@ -111,21 +111,28 @@ fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> 
     )?;
     let mut display = Display::default();
     let mut outcome = None;
-    for visit in 0..=65 {
+    for visit in 0..=66 {
         let frame = fixture.lifecycle.step(
             &mut fixture.battle,
             Input::default(),
             &mut fixture.candidate,
             &mut display,
         )?;
-        assert_eq!(frame.outcome.is_some(), visit == 65);
+        assert_eq!(frame.outcome.is_some(), visit == 66);
+        let transition = fixture.battle.transition().unwrap();
+        assert_eq!(transition.color, [0; 3]);
+        assert_eq!(transition.alpha, (visit * 4).min(255) as u8);
+        assert_eq!(
+            transition.wipe.as_ref().unwrap().progress,
+            visit.min(65) * 16,
+        );
         if frame.outcome.is_some() {
             outcome = frame.outcome;
         }
     }
     let outcome = outcome.expect("health retreat must complete");
     assert_eq!(outcome.result, BattleResult::Escaped);
-    assert_eq!(fixture.battle.ledger().elapsed_ticks, 65);
+    assert_eq!(fixture.battle.ledger().elapsed_ticks, 66);
     assert_eq!(fixture.battle.ledger().combat_ticks, 0);
     assert!(fixture.battle.ledger().ordinary_escape.is_none());
     assert!(fixture.candidate.pending_results().is_none());
@@ -228,7 +235,7 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
     let mut fixture = fixture(Some(Side::Party))?;
     let mut display = Display::default();
     let mut outcome = None;
-    for visit in 0..=110 {
+    for visit in 0..=222 {
         let frame = fixture.lifecycle.step(
             &mut fixture.battle,
             Input {
@@ -249,7 +256,11 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
             visit >= 91,
         );
         assert_eq!(fixture.battle.transition().is_some(), visit >= 92);
-        assert_eq!(frame.outcome.is_some(), visit == 110);
+        assert_eq!(frame.outcome.is_some(), visit == 222);
+        if let Some(transition) = fixture.battle.transition() {
+            assert_eq!(transition.alpha, ((visit - 92) * 2).min(255) as u8);
+            assert!(transition.wipe.is_some());
+        }
         if frame.outcome.is_some() {
             outcome = frame.outcome;
             break;
@@ -286,7 +297,7 @@ fn victory_fades_and_confirmation_keep_the_result_opening_readable() -> Result<(
         ..Default::default()
     };
     // Holding confirm must not skip the combat wash or the opening result performance.
-    for visit in 0..=185 {
+    for visit in 0..=233 {
         let frame = fixture.lifecycle.step(
             &mut fixture.battle,
             Input {
@@ -296,7 +307,7 @@ fn victory_fades_and_confirmation_keep_the_result_opening_readable() -> Result<(
             &mut fixture.candidate,
             &mut display,
         )?;
-        assert_eq!(frame.outcome.is_some(), visit == 185);
+        assert_eq!(frame.outcome.is_some(), visit == 233);
         assert_eq!(fixture.candidate.pending_results().is_some(), visit >= 45);
         if let Some(alpha) = match visit {
             0 => Some(0),
@@ -305,6 +316,9 @@ fn victory_fades_and_confirmation_keep_the_result_opening_readable() -> Result<(
             43..=56 => Some(255),
             57 => Some(250),
             107..=166 => Some(0),
+            168 => Some(4),
+            199 => Some(128),
+            231..=233 => Some(255),
             _ => None,
         } {
             assert_eq!(
@@ -312,6 +326,12 @@ fn victory_fades_and_confirmation_keep_the_result_opening_readable() -> Result<(
                 alpha,
                 "visit {visit}"
             );
+        }
+        if visit == 199 {
+            let wipe = fixture.battle.transition().unwrap().wipe.as_ref().unwrap();
+            assert_eq!(wipe.progress, 512);
+            assert!(wipe.offsets.iter().all(|&offset| offset < 640));
+            assert!(wipe.offsets.windows(2).any(|rows| rows[0] != rows[1]));
         }
         if let Some(pending) = fixture.candidate.pending_results() {
             assert_eq!(pending.party.gald, 50);

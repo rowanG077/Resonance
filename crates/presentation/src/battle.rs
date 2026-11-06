@@ -1828,6 +1828,7 @@ fn render(
             .map(|summon| resonance_battle::TransitionFrame {
                 color: [255; 3],
                 alpha: summon.flash,
+                wipe: None,
             });
         scene.diagnostics.attempt(
             "battle transition",
