@@ -769,6 +769,8 @@ pub struct BattleFrame {
     pub camera_fov_degrees: Option<f32>,
     /// Event cover rendered through the shared battle transition layer.
     pub event_fade: Option<crate::TransitionFrame>,
+    /// Captured outgoing scene blended over an event camera/formation change.
+    pub event_dissolve: u8,
     pub cues: Vec<Cue>,
     /// Recognition precedes the shared world visit; results still keep stepping.
     pub recognized_result: Option<BattleResult>,
@@ -2797,6 +2799,7 @@ impl Battle {
                 .or_else(|| self.camera.as_ref().map(|camera| camera.frame())),
             camera_fov_degrees: None,
             event_fade: None,
+            event_dissolve: 0,
             projectiles: self.projectiles.values().map(|p| p.frame.clone()).collect(),
             outcome,
         }

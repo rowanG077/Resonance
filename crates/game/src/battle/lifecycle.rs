@@ -195,8 +195,8 @@ impl Lifecycle {
                     battle.advance_event_transition()?;
                 }
                 let mut frame = battle.publish(cues);
-                if let Some(event) = self.event() {
-                    super::event::apply_view(&event.events, &mut frame)?;
+                if let Some(events) = &self.events {
+                    events.apply_view(&mut frame)?;
                 }
                 presentation.present(&frame)?;
                 return Ok(frame);
@@ -254,9 +254,15 @@ impl Lifecycle {
             let cues = if input.battle.paused {
                 candidate.world_update(battle, input.battle)?
             } else {
+                if let Some(events) = &mut self.events {
+                    events.advance_dissolve();
+                }
                 self.advance(battle, input, candidate, presentation)?
             };
-            let frame = battle.publish(cues);
+            let mut frame = battle.publish(cues);
+            if let Some(events) = &self.events {
+                events.apply_view(&mut frame)?;
+            }
             presentation.present(&frame)?;
             Ok(frame)
         })();
