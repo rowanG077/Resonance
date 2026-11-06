@@ -127,7 +127,6 @@ pub struct RunOptions {
     pub replay: Option<PathBuf>,
     pub capture: Option<PathBuf>,
     pub reveal: bool,
-    pub selected: Option<usize>,
     pub silent: bool,
     /// Stop at recoverable content/runtime errors instead of logging and continuing.
     pub paranoid: bool,
@@ -345,9 +344,12 @@ fn build_app(
     saves::install(&mut app, &options.saves, interactive_display)
         .context("initializing saves and preferences")?;
     let state = TitleState {
-        selected: options
-            .selected
-            .unwrap_or_else(|| saves::title_selection(app.world())),
+        // Title input fixtures always start at New Game.
+        selected: if replay.is_some() {
+            0
+        } else {
+            saves::title_selection(app.world())
+        },
         revealed: options.reveal,
         ..Default::default()
     };

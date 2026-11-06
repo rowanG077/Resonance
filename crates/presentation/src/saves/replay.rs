@@ -719,6 +719,14 @@ fn install_cursor(app: &mut App, steps: Vec<Step>, pad: Option<Entity>) {
         gamepad::{gamepad_connection_system, gamepad_event_processing_system},
         keyboard::keyboard_input_system,
     };
+    // Input fixtures start at New Game; observation-only captures keep the player default.
+    let has_input = steps.iter().any(|step| match step {
+        Step::Hold { keys, .. } | Step::Wait { keys, .. } => !keys.is_empty(),
+        Step::Capture { .. } => false,
+    });
+    if has_input && let Some(mut menu) = app.world_mut().get_resource_mut::<crate::Menu>() {
+        menu.0.selected = 0;
+    }
     app.insert_resource(ScenarioInput {
         steps,
         index: 0,
@@ -1899,6 +1907,29 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn title_selection_resets_only_for_scenarios_with_input() {
+        for (steps, selected) in [
+            (Step::tap(Key::Interact).to_vec(), 0),
+            (vec![Step::select(Event::TitleLoad, Key::Down)], 0),
+            (
+                vec![
+                    Step::wait(Event::TitleTick { tick: 1000 }, 1001),
+                    Step::capture("title"),
+                ],
+                1,
+            ),
+        ] {
+            let mut app = App::new();
+            app.insert_resource(crate::Menu(resonance_game::TitleState {
+                selected: 1,
+                ..default()
+            }));
+            install_cursor(&mut app, steps, None);
+            assert_eq!(app.world().resource::<crate::Menu>().0.selected, selected);
+        }
     }
 
     #[test]

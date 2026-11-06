@@ -204,7 +204,6 @@ impl Fixture {
             replay: None,
             capture_at: None,
             reveal: false,
-            selected: Some(0),
             silent: true,
             paranoid: true,
             skip_intro: true,
@@ -675,7 +674,7 @@ impl Fixture {
         result
     }
 
-    fn assert_title(&mut self) -> Result<()> {
+    fn assert_title(&mut self, selected: usize) -> Result<()> {
         let world = self.app.world_mut();
         assert!(!world.contains_resource::<game_over::Active>());
         assert!(!world.contains_resource::<saves::title::TitleMenu>());
@@ -709,7 +708,7 @@ impl Fixture {
         );
         assert!(!world.resource::<crate::timing::Ready>().0);
         let menu = &world.resource::<crate::Menu>().0;
-        assert_eq!((menu.selected, menu.opacity, menu.tick), (1, 137, 0));
+        assert_eq!((menu.selected, menu.opacity, menu.tick), (selected, 137, 0));
         world.resource_mut::<crate::Menu>().0.tick = 17;
         for _ in 0..5 {
             self.step(None)?;
@@ -1166,16 +1165,22 @@ fn failed_fatal_load_stays_in_menu_and_cancel_restarts_title_once() -> Result<()
         }
         fixture.step((tick % 12 == 0).then_some(KeyCode::Escape))?;
     }
-    fixture.assert_title()
+    fixture.assert_title(1)
 }
 
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn fatal_quit_cancels_the_request_and_restarts_title_once() -> Result<()> {
-    let mut fixture = Fixture::new("title")?;
-    fixture.enter_game_over()?;
-    fixture.choose(true)?;
-    fixture.assert_title()
+    for saved in [true, false] {
+        let mut fixture = Fixture::new("title")?;
+        if !saved {
+            std::fs::remove_file(fixture.store.path(Kind::Save, &SlotId::new("a-001")?))?;
+        }
+        fixture.enter_game_over()?;
+        fixture.choose(true)?;
+        fixture.assert_title(usize::from(saved))?;
+    }
+    Ok(())
 }
 
 #[test]

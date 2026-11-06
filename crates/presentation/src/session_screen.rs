@@ -316,6 +316,15 @@ mod tests {
             Diagnostics::new(true),
         )?);
         let mut app = App::new();
+        let saves = tempfile::tempdir()?;
+        saves::install(
+            &mut app,
+            &saves::SaveOptions {
+                directory: Some(saves.path().into()),
+                ..default()
+            },
+            false,
+        )?;
         app.add_plugins((
             MinimalPlugins,
             AssetPlugin {

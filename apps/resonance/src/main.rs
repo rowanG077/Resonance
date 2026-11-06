@@ -38,7 +38,7 @@ struct Args {
     #[arg(long, conflicts_with_all = ["capture", "tick", "movie_frame"])]
     record_music: Option<PathBuf>,
     /// Record rendered movie/title checkpoints and their mixed audio, without devices.
-    #[arg(long, conflicts_with_all = ["record_music", "capture", "tick", "movie_frame", "reveal", "selected"])]
+    #[arg(long, conflicts_with_all = ["record_music", "capture", "tick", "movie_frame", "reveal"])]
     record_playthrough: Option<PathBuf>,
     /// Title updates to record after the opening finishes.
     #[arg(long, requires = "record_playthrough", default_value_t = 1000)]
@@ -55,7 +55,7 @@ struct Args {
     #[arg(long, conflicts_with = "record_music")]
     presentation_start: Option<u32>,
     /// Play a native title input fixture.
-    #[arg(long, conflicts_with_all = ["reveal", "selected"])]
+    #[arg(long, conflicts_with = "reveal")]
     replay: Option<PathBuf>,
     #[arg(long, requires = "checkpoint")]
     capture: Option<PathBuf>,
@@ -71,8 +71,6 @@ struct Args {
     /// Reveal the menu immediately (development checkpoint).
     #[arg(long)]
     reveal: bool,
-    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=2))]
-    selected: Option<u8>,
     /// Disable speaker output. Capture mode disables the audio device entirely.
     #[arg(long)]
     silent: bool,
@@ -184,7 +182,6 @@ fn run(mut args: Args) -> anyhow::Result<()> {
             replay: args.replay,
             capture: args.capture,
             reveal: args.reveal,
-            selected: args.selected.map(usize::from),
             silent: args.silent,
             paranoid: args.paranoid,
             skip_intro: args.skip_intro,

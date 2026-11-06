@@ -179,7 +179,17 @@ fn start(world: &mut World, command: Command) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn slot_id(index: usize) -> Result<SlotId> {
+pub(super) fn has_save_data(store: &Store) -> Result<bool> {
+    let existing = store.list(Kind::Save)?;
+    for index in 0..SLOTS_PER_BANK * 2 {
+        if existing.binary_search(&slot_id(index)?).is_ok() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn slot_id(index: usize) -> Result<SlotId> {
     ensure!(index < SLOTS_PER_BANK * 2, "save slot is out of range");
     SlotId::new(format!(
         "{}-{:03}",
@@ -267,4 +277,33 @@ fn read_slots(store: &Store, library: &resonance_content::library::Library) -> R
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_default_only_checks_player_slot_existence() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::new(directory.path());
+        assert!(!has_save_data(&store)?);
+        for kind in [Kind::Save, Kind::Quicksave] {
+            std::fs::create_dir(directory.path().join(kind.directory()))?;
+        }
+        std::fs::write(
+            store.path(Kind::Quicksave, &SlotId::new("quick")?),
+            b"broken",
+        )?;
+        std::fs::write(store.path(Kind::Save, &SlotId::new("other")?), b"broken")?;
+        assert!(!has_save_data(&store)?);
+        for index in [0, SLOTS_PER_BANK * 2 - 1] {
+            let path = store.path(Kind::Save, &slot_id(index)?);
+            std::fs::write(&path, b"broken")?;
+            assert!(has_save_data(&store)?);
+            std::fs::remove_file(path)?;
+            assert!(!has_save_data(&store)?);
+        }
+        Ok(())
+    }
 }

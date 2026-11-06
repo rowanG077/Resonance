@@ -52,7 +52,6 @@ impl FieldCapture {
                 paranoid: true,
                 skip_intro: true,
                 reveal: self.checkpoint.is_none(),
-                selected: Some(0),
                 record_playthrough: None,
                 record_title_ticks: 0,
                 skip_battles: false,

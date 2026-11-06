@@ -100,7 +100,6 @@ fn run(
             presentation_start: None,
             capture: None,
             reveal: true,
-            selected: Some(0),
             silent: true,
             replay: None,
             skip_intro: true,
