@@ -208,12 +208,14 @@ impl Artwork {
         let main_font = load_image(font.texture.clone(), [font.width, font.height], false, true);
         let palette = Palette {
             solid: LayerDefinition::new(white, [1, 1], Depth::Background),
-            font: LayerDefinition::new(atlas, [art.font.width, art.font.height], Depth::Background),
+            font: LayerDefinition::new(atlas, [art.font.width, art.font.height], Depth::Background)
+                .pixel_center(),
             main_font: LayerDefinition::new(
                 main_font,
                 [font.width, font.height],
                 Depth::Background,
-            ),
+            )
+            .pixel_center(),
             nearest,
         };
         let solid = |depth| palette.solid.clone().at(depth);
@@ -829,6 +831,17 @@ impl Artwork {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+pub(super) fn test_tiled_surface(image: Handle<Image>, size: [u32; 2]) -> Surface {
+    let mut materials = Assets::default();
+    let layer = HudLayer::load(
+        LayerDefinition::new(image.clone(), size, Depth::Notice),
+        &image,
+        &mut materials,
+    );
+    materials.get(&layer.material).unwrap().clone()
 }
 
 #[cfg(test)]

@@ -145,11 +145,20 @@ pub(super) struct Surface {
     color_mask: Handle<Image>,
     #[uniform(6)]
     coverage: Coverage,
-    /// Keep frame textures and clipping masks on the same MSAA samples.
-    sample_coverage: bool,
+    interpolation: UiInterpolation,
     opaque: bool,
     additive: bool,
     texture_effect: TextureEffect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum UiInterpolation {
+    /// Retain pixel-center lookups for bitmap text.
+    Center,
+    /// Keep artwork lookups inside the primitive without supersampling texels.
+    Centroid,
+    /// Evaluate dialogue textures and clipping masks at matching MSAA samples.
+    Sample,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -174,14 +183,14 @@ impl Surface {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct SurfaceKey(bool, bool, TextureEffect, bool);
+pub(super) struct SurfaceKey(bool, bool, TextureEffect, UiInterpolation);
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
         Self(
             surface.opaque,
             surface.additive,
             surface.texture_effect,
-            surface.sample_coverage,
+            surface.interpolation,
         )
     }
 }
@@ -202,12 +211,17 @@ impl Material2d for Surface {
         key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
-        if descriptor.multisample.count > 1 && key.bind_group_data.3 {
-            // Masks and the slices they replace must cover the same samples.
-            // Evaluating their join only at the pixel center leaves MSAA holes.
-            descriptor.vertex.shader_defs.push("MULTISAMPLED_UI".into());
-            if let Some(fragment) = &mut descriptor.fragment {
-                fragment.shader_defs.push("MULTISAMPLED_UI".into());
+        if descriptor.multisample.count > 1 {
+            let definition = match key.bind_group_data.3 {
+                UiInterpolation::Center => None,
+                UiInterpolation::Centroid => Some("CENTROID_UI"),
+                UiInterpolation::Sample => Some("MULTISAMPLED_UI"),
+            };
+            if let Some(definition) = definition {
+                descriptor.vertex.shader_defs.push(definition.into());
+                if let Some(fragment) = &mut descriptor.fragment {
+                    fragment.shader_defs.push(definition.into());
+                }
             }
         }
         if key.bind_group_data.2 == TextureEffect::RedChannel
@@ -311,7 +325,7 @@ impl MenuOverlay {
             frame_mask: image.clone(),
             color_mask: image,
             coverage: Coverage::default(),
-            sample_coverage: false,
+            interpolation: UiInterpolation::Center,
             additive: false,
             texture_effect: Default::default(),
             opaque: false,
@@ -563,7 +577,7 @@ impl Artwork {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
-                    sample_coverage: false,
+                    interpolation: UiInterpolation::Center,
                     additive: false,
                     texture_effect: Default::default(),
                     opaque: false,
@@ -923,7 +937,7 @@ impl DialogueOverlay {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
-                    sample_coverage: false,
+                    interpolation: UiInterpolation::Center,
                     opaque: false,
                     additive: false,
                     texture_effect: Default::default(),
@@ -987,7 +1001,11 @@ fn prepare_dialogue(
             let mut template = materials.get(&surfaces[texture]).unwrap().clone();
             // Only sliced windows need sample-frequency masking. Bitmap text
             // and cursors retain pixel-center sampling, even on MSAA UI cameras.
-            template.sample_coverage = index < layer::FONT;
+            template.interpolation = if index < layer::FONT {
+                UiInterpolation::Sample
+            } else {
+                UiInterpolation::Center
+            };
             let material = materials.add(template);
             let order = index as f32;
             let entity = commands
@@ -2686,14 +2704,14 @@ mod tests {
             frame_mask: image.clone(),
             color_mask: image,
             coverage: Coverage::default(),
-            sample_coverage: false,
+            interpolation: UiInterpolation::Center,
             opaque: false,
             additive: false,
             texture_effect: Default::default(),
         };
         assert_eq!(
             SurfaceKey::from(&surface),
-            SurfaceKey(false, false, TextureEffect::Plain, false)
+            SurfaceKey(false, false, TextureEffect::Plain, UiInterpolation::Center)
         );
     }
 

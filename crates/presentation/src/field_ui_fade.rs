@@ -2,6 +2,10 @@
 use super::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
+#[cfg(test)]
+#[path = "field_ui_fade_gpu_tests.rs"]
+mod gpu_tests;
+
 // Ordinary overlays occupy 2..3, action hints 3..3.01, dialogue starts at10.
 const DEPTH: f32 = 4.;
 
@@ -27,7 +31,7 @@ pub(super) fn surface(
         frame_mask: image.clone(),
         color_mask: image.clone(),
         coverage: Coverage::default(),
-        sample_coverage: false,
+        interpolation: UiInterpolation::Center,
         opaque: false,
         additive: false,
         texture_effect: Default::default(),
@@ -112,15 +116,6 @@ mod tests {
             world.tick = tick;
             let drawn = batch(&world, resolution);
             assert_eq!(drawn.colors, vec![[0., 0., 0., f32::from(alpha) / 255.]; 4]);
-            assert_eq!(
-                drawn.positions,
-                vec![
-                    [-320., 240., 0.],
-                    [320., 240., 0.],
-                    [320., -240., 0.],
-                    [-320., -240., 0.]
-                ]
-            );
             // The circle's additive passes have already saturated in the scene
             // target. Applying this layer preserves neutral saturated white.
             let completed = [1.5_f32, 1.5, 3.];

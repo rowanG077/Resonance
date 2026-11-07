@@ -35,6 +35,7 @@ pub(super) struct LayerDefinition {
     pub(super) size: [u32; 2],
     pub(super) depth: f32,
     pub(super) nearest: bool,
+    interpolation: UiInterpolation,
     pub(super) texture_effect: TextureEffect,
 }
 impl LayerDefinition {
@@ -44,6 +45,7 @@ impl LayerDefinition {
             size,
             depth: depth.value(),
             nearest: false,
+            interpolation: UiInterpolation::Centroid,
             texture_effect: TextureEffect::Plain,
         }
     }
@@ -53,6 +55,11 @@ impl LayerDefinition {
     }
     pub(super) fn nearest(mut self) -> Self {
         self.nearest = true;
+        self
+    }
+    /// Bitmap glyphs retain their original pixel-center lookup under MSAA.
+    pub(super) fn pixel_center(mut self) -> Self {
+        self.interpolation = UiInterpolation::Center;
         self
     }
     pub(super) fn at(mut self, depth: Depth) -> Self {
@@ -87,7 +94,7 @@ impl HudLayer {
             frame_mask: image.clone(),
             color_mask: image.clone(),
             coverage: Coverage::default(),
-            sample_coverage: false,
+            interpolation: definition.interpolation,
             additive: false,
             texture_effect: definition.texture_effect,
             opaque: false,

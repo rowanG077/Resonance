@@ -93,7 +93,7 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
     );
     let ui_handle = assets.add(ui.clone());
     cache.set_shader(ui_handle.id(), ui);
-    for multisampled in [false, true] {
+    for interpolation in [None, Some("CENTROID_UI"), Some("MULTISAMPLED_UI")] {
         for effect in [
             None,
             Some("RED_CHANNEL"),
@@ -101,14 +101,14 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
             Some("OPAQUE_IMAGE"),
         ] {
             let mut defs = vec![ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2)];
-            if multisampled {
-                defs.push("MULTISAMPLED_UI".into());
+            if let Some(interpolation) = interpolation {
+                defs.push(interpolation.into());
             }
             if let Some(effect) = effect {
                 defs.push(effect.into());
             }
             cache.get(0, ui_handle.id(), &defs).map_err(|error| {
-                anyhow::anyhow!("UI multisampled={multisampled}, effect={effect:?}: {error:?}")
+                anyhow::anyhow!("UI interpolation={interpolation:?}, effect={effect:?}: {error:?}")
             })?;
         }
     }
