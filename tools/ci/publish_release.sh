@@ -18,7 +18,8 @@ assets=(
   "target/dist/resonance-$VERSION-linux-x64-symbols.tar.gz"
   "target/dist/resonance-$VERSION-linux-arm64-symbols.tar.gz"
 )
-notes="changelog/releases/$VERSION.md"
+notes="target/release-notes.md"
+python3 "$(dirname "${BASH_SOURCE[0]}")/release_notes.py" "$VERSION" > "$notes"
 for asset in "${assets[@]}" docs/installation.md "$notes"; do
   [[ -s "$asset" ]] || { echo "Missing release input: $asset" >&2; exit 1; }
 done

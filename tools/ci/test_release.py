@@ -432,9 +432,9 @@ class PublicationTests(unittest.TestCase):
         (self.root / "docs").mkdir()
         (self.root / "target/dist").mkdir(parents=True)
         (self.root / "docs/installation.md").write_text("Installation instructions")
-        (self.root / "changelog/releases").mkdir(parents=True)
         self.notes = "## 1.2.3\n\n### Added\n- Session logs and crash reports.\n"
-        (self.root / "changelog/releases/v1.2.3.md").write_text(self.notes)
+        (self.root / "CHANGELOG.md").write_text(
+            "# Changelog\n\n" + self.notes + "\n## 1.2.2\n\n- Older release.\n")
         for platform in PLATFORMS:
             suffix = ".zip" if platform.startswith("windows") else ".tar.gz"
             (self.root / f"target/dist/resonance-v1.2.3-{platform}{suffix}").write_bytes(platform.encode())
@@ -464,7 +464,7 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(len(state["uploaded"]), 10)
         self.assertEqual(state["notes"], self.notes)
         self.assertEqual(state["calls"][-1], ["release", "edit", "v1.2.3",
-                                             "--notes-file", "changelog/releases/v1.2.3.md", "--draft=false"])
+                                             "--notes-file", "target/release-notes.md", "--draft=false"])
         for line in (self.root / "target/dist/SHA256SUMS").read_text().splitlines():
             digest, filename = line.split("  ")
             self.assertEqual(digest, hashlib.sha256((self.root / "target/dist" / filename).read_bytes()).hexdigest())
@@ -502,8 +502,22 @@ class PublicationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(state["calls"], [])
 
-    def test_missing_versioned_notes_cannot_create_a_tag(self):
-        (self.root / "changelog/releases/v1.2.3.md").unlink()
+    def test_missing_changelog_cannot_create_a_tag(self):
+        (self.root / "CHANGELOG.md").unlink()
+        result, state = self.run_publication()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state["calls"], [])
+
+    def test_missing_release_section_cannot_create_a_tag(self):
+        (self.root / "CHANGELOG.md").write_text("## 1.2.2\n\n- Older release.\n")
+        result, state = self.run_publication()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state["calls"], [])
+
+    def test_pending_fragment_cannot_create_a_tag(self):
+        entries = self.root / "changelog/entries"
+        entries.mkdir(parents=True)
+        (entries / "pending.md").write_text("A pending change")
         result, state = self.run_publication()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(state["calls"], [])
