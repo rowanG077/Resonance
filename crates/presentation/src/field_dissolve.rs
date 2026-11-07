@@ -97,10 +97,12 @@ pub(super) fn battle(
     frame: &resonance_battle::BattleFrame,
     activation: &ActivationFeedback,
 ) {
-    let dissolve = frame.enemy_presentation.as_ref().map_or_else(
-        || frame.summon.as_ref().map_or(0, |summon| summon.dissolve),
-        |enemy| enemy.dissolve,
-    );
+    let dissolve = frame
+        .enemy_presentation
+        .as_ref()
+        .map_or(0, |enemy| enemy.dissolve)
+        .max(frame.summon.as_ref().map_or(0, |summon| summon.dissolve))
+        .max(frame.event_dissolve);
     let feedback = frame
         .enemy_presentation
         .as_ref()
@@ -543,5 +545,42 @@ mod tests {
         frame.update += 1;
         activation.advance(&frame);
         assert!(activation.frame.is_none());
+
+        // A retained boss presentation with no active dissolve must not hide
+        // the summon or event transition that currently owns the camera.
+        let mut world = World::new();
+        let camera = world.spawn_empty().id();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        frame.enemy_presentation = Some(resonance_battle::EnemyPresentationFrame {
+            hide_party: false,
+            hide_hud: false,
+            dissolve: 0,
+            flash: None,
+            feedback: None,
+            letterbox: 0,
+        });
+        frame.summon = Some(resonance_battle::SummonFrame {
+            owner: Some(actor),
+            age: Some(0),
+            hide_hud: true,
+            generation: 1,
+            dissolve: 200,
+            flash: 0,
+            flash_active: false,
+        });
+        for (event_dissolve, expected) in [(0, 200.), (255, 255.)] {
+            frame.event_dissolve = event_dissolve;
+            battle(
+                &mut Commands::new(&mut queue, &world),
+                camera,
+                &frame,
+                &activation,
+            );
+            queue.apply(&mut world);
+            assert_eq!(
+                world.get::<Settings>(camera).unwrap().opacity.x,
+                expected / 255.
+            );
+        }
     }
 }

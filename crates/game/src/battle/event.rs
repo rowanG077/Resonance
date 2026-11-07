@@ -150,6 +150,7 @@ pub(super) struct Sequence {
     pub(super) formation: Vec<[f32; 3]>,
     reserve: Option<resonance_battle::ActorId>,
     audio: Vec<resonance_events::AudioCommand>,
+    dissolve: u8,
 }
 impl Sequence {
     pub(super) fn new(
@@ -181,12 +182,26 @@ impl Sequence {
             reserve,
             formation: battle.actors().iter().map(|actor| actor.position).collect(),
             audio: Vec::new(),
+            dissolve: 0,
         })
     }
 
     pub(super) fn playback(&self) -> Option<&Playback> {
         self.playback.as_ref()
     }
+
+    pub(super) fn apply_view(&self, frame: &mut resonance_battle::BattleFrame) -> Result<()> {
+        frame.event_dissolve = self.dissolve;
+        if let Some(playback) = &self.playback {
+            apply_view(&playback.events, frame)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn advance_dissolve(&mut self) {
+        self.dissolve = self.dissolve.saturating_sub(8);
+    }
+
     pub(super) fn restores_formation(&self) -> bool {
         matches!(self.phase, Phase::Finished)
     }
@@ -226,6 +241,9 @@ impl Sequence {
         accelerate: bool,
     ) -> Result<Visit> {
         const RESCUE_COMBAT_TICK: u32 = 600;
+        if self.playback.is_some() {
+            self.advance_dissolve();
+        }
         if matches!(self.phase, Phase::Combat) && combat_ticks >= RESCUE_COMBAT_TICK {
             self.phase = Phase::RescueTransition;
             return Ok(Visit::Transition);
@@ -244,10 +262,15 @@ impl Sequence {
             return Ok(Visit::Enter);
         }
         if let Some(playback) = &mut self.playback {
+            let entering = matches!(self.phase, Phase::Rescue) && playback.events.tick() == 0;
             playback.step(confirm, accelerate)?;
+            if entering {
+                self.dissolve = u8::MAX;
+            }
             if playback.finished() {
                 self.audio.append(&mut playback.events.world.audio_commands);
                 self.playback = None;
+                self.dissolve = u8::MAX;
                 self.phase = match self.phase {
                     Phase::Opening => Phase::Combat,
                     Phase::Rescue => Phase::Finished,

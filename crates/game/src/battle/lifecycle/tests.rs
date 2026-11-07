@@ -509,6 +509,7 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
             "only rescue entry disposes pre-event effects"
         );
         assert_eq!(f.lifecycle.event().is_some(), matches!(tick, 1 | 2));
+        assert_eq!(frame.event_dissolve, if tick >= 2 { 255 } else { 0 });
         assert_eq!(
             (
                 f.battle.ledger().combat_ticks,
@@ -517,13 +518,27 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
             (600, 602)
         );
     }
-    f.lifecycle.step(
+    let frame = f.lifecycle.step(
         &mut f.battle,
         Input::default(),
         &mut f.candidate,
         &mut display,
     )?;
+    assert_eq!(frame.event_dissolve, 247);
     assert!(f.lifecycle.event().is_none());
+    let frame = f.lifecycle.step(
+        &mut f.battle,
+        Input {
+            battle: resonance_battle::BattleInput {
+                paused: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut display,
+    )?;
+    assert_eq!(frame.event_dissolve, 247);
     assert_eq!(
         (
             f.battle.ledger().combat_ticks,
