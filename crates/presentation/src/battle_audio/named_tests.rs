@@ -7,6 +7,165 @@ use resonance_content::{
 };
 
 #[test]
+#[ignore = "requires current RESONANCE_TEST_ASSETS; prepares Mithos's and Abyssion's health conversations and original PCM"]
+fn health_conversations_bind_party_branches_and_play_original_audio() -> Result<()> {
+    use resonance_content::{menu_data::MenuData, prepared::Files, session::SessionData};
+    use resonance_events::{
+        battle::{DefeatPolicy, Encounter, Setup},
+        party::Party,
+    };
+    use resonance_game::battle::encounter::{Assets as EncounterAssets, PrepareOptions};
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
+    let library = Library::open(std::path::Path::new(&root), &[])?;
+    let diagnostics = Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files = Files::from_snapshot(snapshot, || false, diagnostics.clone())?;
+    let data = SessionData::load(&files)?;
+    let menus = MenuData::load(&files)?;
+    let mut cache = Cache::default();
+    for (formation, members, expected) in [
+        (
+            79,
+            vec![1, 2],
+            vec![2050, 2051, 2052, 2038, 2039, 2040, 2041],
+        ),
+        (79, vec![1, 3], vec![2050, 2051, 2052, 2035, 2036, 2037]),
+        (86, vec![3, 4], vec![2064, 2065, 2066, 2067]),
+    ] {
+        let mut party = Party::new(&data, Default::default())?;
+        party.formation = members;
+        let mut snapshot = library.snapshot();
+        let catalogue = document::Catalogue::capture(&mut snapshot, &|| false)?;
+        let inputs = EncounterAssets::capture(
+            &mut snapshot,
+            &menus,
+            &data,
+            &party,
+            Setup {
+                route: [0; 5],
+                encounter: Encounter::Formation(formation),
+                arena: 60,
+                defeat: DefeatPolicy::GameOver,
+                music: Some(93),
+            },
+            diagnostics.clone(),
+            &|| false,
+        )?;
+        let (_, mut prepared, selected) = inputs.prepare_named(
+            &menus,
+            PrepareOptions {
+                hunting_symbol: None,
+                event_flags: Default::default(),
+                random_seed: 17,
+                map: 136,
+                world_music: 0,
+                story: 1000000,
+                colette_state: 0,
+                victory_story_flags: [false; 2],
+                devils_arms_unlocked: false,
+                overlimit_boost: false,
+            },
+            &catalogue,
+        )?;
+        assert!(expected.iter().all(|id| selected.streams.contains(id)));
+        let audio = Assets::capture_named(
+            &catalogue,
+            &Selection {
+                streams: expected.iter().copied().collect(),
+                ..Default::default()
+            },
+            &mut snapshot,
+            diagnostics.clone(),
+            &mut cache,
+            &|| false,
+        )?;
+        let boss = prepared
+            .core
+            .actor_ids()
+            .find(|id| prepared.core.actors()[id.index()].side == resonance_battle::Side::Enemy)
+            .unwrap();
+        prepared.core.suppress_automatic_decisions();
+        for _ in 0..1000 {
+            if prepared.core.phase() == resonance_battle::BattlePhase::Combat {
+                break;
+            }
+            prepared.core.step(Default::default())?;
+        }
+        assert_eq!(prepared.core.phase(), resonance_battle::BattlePhase::Combat);
+        let max = prepared.core.actors()[boss.index()].equipment.max_hp;
+        prepared.core.set_actor_vitals(boss, max / 2, max, 0, 0)?;
+        let (source, mut control) = audio.mixer.clone().session();
+        let mut frames = source.decoder();
+        let mut playback = Playback::begin(
+            &mut control,
+            audio.clone(),
+            Settings {
+                music: 0,
+                effects: 0,
+                battle_effects: 0,
+                voice: 127,
+                stereo: true,
+            },
+            None,
+        )?;
+        let mut heard = Vec::new();
+        let mut audible = std::collections::BTreeSet::new();
+        let mut speaking = None;
+        for _ in 0..10000 {
+            let frame = prepared.core.step(resonance_battle::BattleInput {
+                voice_busy: Some(playback.busy_voices()),
+                ..Default::default()
+            })?;
+            for cue in &frame.cues {
+                if let Cue::Voice {
+                    actor,
+                    sound: Sound::Stream(id),
+                    ..
+                } = *cue
+                    && expected.contains(&id)
+                {
+                    assert!(
+                        playback
+                            .voices
+                            .iter()
+                            .filter(|voice| voice.actor == actor)
+                            .all(|voice| voice.complete.load(std::sync::atomic::Ordering::Acquire)),
+                        "dialogue stream {id} interrupted the preceding line"
+                    );
+                    heard.push(id);
+                    speaking = Some(id);
+                }
+            }
+            playback.dispatch(&frame.cues, |_| None)?;
+            for _ in 0..RATE / 60 {
+                if frames.frame()?.unwrap() != [0.; 2]
+                    && let Some(id) = speaking
+                {
+                    audible.insert(id);
+                }
+            }
+            control.acknowledge_frames(frames.frame);
+            if heard.len() == expected.len()
+                && audible.len() == expected.len()
+                && playback.busy_voices() == resonance_battle::ActorSet::default()
+            {
+                break;
+            }
+        }
+        assert_eq!(heard, expected);
+        assert_eq!(audible, expected.into_iter().collect());
+        assert_eq!(
+            playback.busy_voices(),
+            resonance_battle::ActorSet::default(),
+            "final dialogue stream did not finish"
+        );
+        assert!(!diagnostics.has_errors());
+    }
+    Ok(())
+}
+
+#[test]
 fn recorded_music_volume_curve_survives_battle_entry_song_changes_and_return() -> Result<()> {
     let root = fixture()?;
     let path = resonance_audio::effect::recipe::TABLES;

@@ -138,6 +138,8 @@ impl Battle {
             None
         };
         if self.terminal.result.is_some() {
+            self.enemy_conversations
+                .finish(&mut self.actors, &mut self.pending_cues);
             // Idle actors stop when combat ends; AI no longer owns their movement.
             for (actor, runtime) in self.actors.iter_mut().zip(&self.runtime) {
                 if actor.available()

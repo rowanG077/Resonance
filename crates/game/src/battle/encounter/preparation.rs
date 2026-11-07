@@ -20,6 +20,61 @@ const HAMMER_MODEL: u8 = 1;
 const HAMMER_EFFECT: u16 = 14;
 const COLETTE_WING_CENTER_RISE: f32 = 10.;
 
+fn prepare_conversation(
+    conversation: &resonance_content::battle_enemy::HealthConversation,
+    sources: &[model::ModelSource],
+    ids: &[resonance_battle::ActorId],
+    owner: usize,
+    mut voice: impl FnMut(model::ModelSource, Option<Sound>) -> Result<Option<Sound>>,
+) -> Result<Option<resonance_battle::EnemyConversation>> {
+    ensure!(
+        conversation.hp_percent <= 100
+            && conversation.branches.iter().all(|branch| {
+                !branch.lines.is_empty()
+                    && branch.party.iter().all(|id| (1..=9).contains(id))
+                    && branch.lines.iter().all(|line| {
+                        line.speaker
+                            .is_none_or(|speaker| branch.party.contains(&speaker))
+                    })
+            }),
+        "invalid enemy conversation branch or speaker"
+    );
+    let party_speaker = |character| {
+        sources.iter().position(
+            |source| matches!(source, model::ModelSource::Party(id) if u8::from(*id) == character),
+        )
+    };
+    let Some(branch) = conversation.branches.iter().find(|branch| {
+        branch
+            .party
+            .iter()
+            .all(|&character| party_speaker(character).is_some())
+    }) else {
+        return Ok(None);
+    };
+    let lines = branch
+        .lines
+        .iter()
+        .map(|line| {
+            let speaker = line
+                .speaker
+                .map_or(Some(owner), party_speaker)
+                .context("conversation speaker is missing")?;
+            Ok(resonance_battle::EnemyConversationLine {
+                speaker: ids[speaker],
+                sound: voice(sources[speaker], line.voice.sound)?,
+                ticks: line.voice.ticks,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(resonance_battle::EnemyConversation {
+        actor: ids[owner],
+        hp_percent: conversation.hp_percent,
+        timing: conversation.timing,
+        lines,
+    }))
+}
+
 /// Source state observed when the field asks to enter battle. The independent
 /// battle seed is captured once; preparation may be retried without new draws.
 pub struct PrepareOptions {
@@ -1895,12 +1950,24 @@ impl Assets {
                 / result_enemies.len() as i32))
             .clamp(-8, 8) as i8;
         let mut enemy_presentations = Vec::new();
+        let mut enemy_conversations = Vec::new();
         for (index, source) in sources.iter().copied().enumerate() {
             let model::ModelSource::Enemy(enemy) = source else {
                 continue;
             };
             if let Some(mut presentation) = self.enemy_definitions[&enemy].presentation.clone() {
                 use resonance_content::battle_enemy::{EntranceCue, Opening};
+                if let Some(conversation) = presentation.conversation.take()
+                    && let Some(conversation) = prepare_conversation(
+                        &conversation,
+                        &sources,
+                        &ids,
+                        index,
+                        |source, line| voices.absolute(source, line, &mut sound),
+                    )?
+                {
+                    enemy_conversations.push(conversation);
+                }
                 let speaker_source = match &presentation.opening {
                     Some(Opening::Entrance(entrance)) => {
                         entrance.staging.as_ref().and_then(|staging| {
@@ -2191,6 +2258,7 @@ impl Assets {
             resonance_battle::PreparedBattle::new(participants, bindings, random.state())?
                 .with_formation_count(self.setup.formations()?.len())?
                 .with_enemy_presentations(enemy_presentations)?
+                .with_enemy_conversations(enemy_conversations)?
                 .with_hosted_participants(hosted_participants)?
                 .with_entry_choices(entry_choices)?
                 .with_arena_boundary()

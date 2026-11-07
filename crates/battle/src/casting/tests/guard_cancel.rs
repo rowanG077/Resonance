@@ -24,7 +24,24 @@ fn guard_cancels_unfinished_casts_without_payment_or_release() {
                     .casting_remaining(ActorId(0))
                     .is_some_and(|remaining| remaining > 0)
             );
+            battle.request_voice(
+                ActorId(0),
+                crate::Sound::Stream(7),
+                crate::VoicePriority::Announcement,
+            );
             let frame = battle.step(held(ActorId(0), true, false)).unwrap();
+            assert!(frame.cues.contains(&Cue::StopVoice {
+                actor: ActorId(0),
+                max_priority: crate::VoicePriority::Action,
+            }));
+            assert!(frame.cues.iter().any(|cue| matches!(
+                cue,
+                Cue::Voice {
+                    actor: ActorId(0),
+                    priority: crate::VoicePriority::Announcement,
+                    ..
+                }
+            )));
             assert_eq!(frame.actors[0].activity, crate::Activity::Idle);
             assert_eq!(frame.actors[0].tp, tp);
             assert_eq!(battle.actors[0].casting_state.interrupted, None);

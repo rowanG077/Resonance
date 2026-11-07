@@ -923,6 +923,7 @@ impl State {
                 let eligible = |target: ActorId| {
                     battle.actors[target.index()].available()
                         && !definition.immune_targets.contains(&target)
+                        && !battle.enemy_conversations.active(target)
                 };
                 if run.effective_contact.is_some_and(eligible) {
                     run.target = run
@@ -1050,6 +1051,7 @@ impl State {
             opponent.available()
                 && opponent.reaction.combo_hits > 0
                 && !definition.immune_targets.contains(target)
+                && !battle.enemy_conversations.active(*target)
         });
         battle.interrupt_actor(actor, cues);
         battle.request_pose(actor, Some(member.windup_motion), member.windup_pose);
