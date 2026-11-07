@@ -1,3 +1,5 @@
+# Changelog
+
 ## 0.3.0 - *04 Nov, 2026*
 
 ### Added:
