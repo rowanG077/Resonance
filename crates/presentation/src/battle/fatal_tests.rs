@@ -1185,6 +1185,30 @@ fn fatal_quit_cancels_the_request_and_restarts_title_once() -> Result<()> {
 
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
+fn covered_field_enters_the_next_battle_without_a_shatter() -> Result<()> {
+    let mut fixture = Fixture::new("covered-entry")?;
+    for fade in [None, Some(false), Some(true)] {
+        fixture
+            .app
+            .world_mut()
+            .resource_mut::<new_game::Session>()
+            .events_mut()
+            .world
+            .fade = fade.map(|white| resonance_events::Fade {
+            start_tick: 0,
+            duration: 0,
+            from: 255.,
+            to: 255.,
+            white,
+        });
+        transition::begin(fixture.app.world_mut(), 7, 1)?;
+        assert!(!fixture.app.world().contains_resource::<transition::State>());
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn invalid_battle_music_keeps_field_audio_and_state() -> Result<()> {
     let mut fixture = Fixture::new("music-failure")?;
     let random_before = fixture
