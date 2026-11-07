@@ -78,6 +78,7 @@ pub(crate) fn step(
                 cast.chant_pose(battle, actor, 0);
             }
             cues.push(Cue::Casting {
+                source: None,
                 actor,
                 action: sequence.action,
                 phase: CastPhase::Started,
@@ -413,6 +414,7 @@ impl CastRun {
         {
             self.incantation_pending = false;
             cues.push(Cue::Casting {
+                source: None,
                 actor: sequence.actor,
                 action: sequence.action,
                 phase: CastPhase::Incantation,
@@ -426,6 +428,7 @@ impl CastRun {
         ] {
             if enabled && elapsed.is_multiple_of(interval) {
                 cues.push(Cue::Casting {
+                    source: None,
                     actor: sequence.actor,
                     action: sequence.action,
                     phase,
@@ -781,6 +784,7 @@ impl CastRun {
                 self.stage = CastStage::Chanting;
                 if matches!(self.definition.release_pose, CastReleasePose::Scene { .. }) {
                     cues.push(Cue::Casting {
+                        source: Some(id),
                         actor,
                         action: sequence.action,
                         phase: crate::CastPhase::Released,

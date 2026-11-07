@@ -42,6 +42,7 @@ impl Feedback {
         let mut cues = Vec::new();
         if let Some((actor, sound)) = self.resources.entry_voice.take() {
             cues.push(Cue::Voice {
+                action: None,
                 actor,
                 sound,
                 priority: VoicePriority::Reaction,
@@ -65,6 +66,7 @@ impl Feedback {
                         }));
                     } else {
                         cues.extend(control.taunt.map(|sound| Cue::Voice {
+                            action: None,
                             actor,
                             sound,
                             priority: VoicePriority::Action,
@@ -159,6 +161,7 @@ impl Feedback {
                         .and_then(|actor| actor.acquisition_voice)
                     {
                         cues.push(Cue::Voice {
+                            action: None,
                             actor,
                             sound,
                             priority: VoicePriority::Announcement,
@@ -177,6 +180,7 @@ impl Feedback {
                 Cue::Casting {
                     actor,
                     action,
+                    source,
                     phase,
                 } => {
                     use resonance_battle::CastPhase;
@@ -250,6 +254,7 @@ impl Feedback {
                         }));
                     }
                     cues.extend(voice.map(|sound| Cue::Voice {
+                        action: source,
                         actor,
                         sound,
                         position: owner.audio_position(),
@@ -280,6 +285,7 @@ impl Feedback {
                             .get(actor.index())
                             .and_then(|feedback| feedback.overlimit_voice)
                             .map(|sound| Cue::Voice {
+                                action: None,
                                 actor,
                                 sound,
                                 position,
@@ -312,6 +318,7 @@ impl Feedback {
                             .get(actor.index())
                             .and_then(|control| control.technique_command)
                             .map(|sound| Cue::Voice {
+                                action: None,
                                 actor,
                                 sound,
                                 priority: VoicePriority::Announcement,
@@ -367,6 +374,7 @@ impl Feedback {
                                 feedback.discovery.filter(|_| discovered).or(feedback.used)
                             {
                                 cues.push(Cue::Voice {
+                                    action: None,
                                     actor: user,
                                     sound,
                                     priority: VoicePriority::Action,
@@ -479,6 +487,7 @@ impl Feedback {
                                     }
                                 })
                                 .map(|sound| Cue::Voice {
+                                    action: None,
                                     actor,
                                     sound,
                                     priority: VoicePriority::Action,
@@ -510,6 +519,7 @@ impl Feedback {
                         }
                         if let Some(sound) = feedback.voice {
                             cues.push(Cue::Voice {
+                                action: None,
                                 actor,
                                 sound,
                                 priority: VoicePriority::Reaction,
@@ -564,6 +574,7 @@ impl Feedback {
                         .and_then(|audio| audio.voices.defeat)
                     {
                         cues.push(Cue::Voice {
+                            action: None,
                             actor,
                             sound,
                             priority: VoicePriority::Announcement,
@@ -600,6 +611,7 @@ impl Feedback {
                                     reaction.voices[variant].filter(|_| recipient.available())
                                 {
                                     cues.push(Cue::Voice {
+                                        action: None,
                                         actor: reaction.recipient,
                                         sound,
                                         priority: VoicePriority::Announcement,
@@ -829,6 +841,7 @@ impl Feedback {
             };
             if let Some(sound) = voice {
                 cues.push(Cue::Voice {
+                    action: None,
                     actor,
                     sound,
                     priority,
@@ -998,11 +1011,13 @@ mod tests {
                     position: [0.; 3],
                 },
                 Cue::Casting {
+                    source: None,
                     actor,
                     action: ActionKey(0),
                     phase: CastPhase::Incantation,
                 },
                 Cue::Casting {
+                    source: None,
                     actor,
                     action: ActionKey(0),
                     phase: CastPhase::Released,
@@ -1422,6 +1437,13 @@ mod tests {
                 })
                 .collect();
             assert_eq!(voices.len(), 1);
+            assert!(frame.cues.iter().all(|cue| !matches!(
+                cue,
+                Cue::Voice {
+                    action: Some(_),
+                    ..
+                }
+            )));
             if let Some(voice) = voice {
                 assert_eq!(voices[0], Sound::Stream(voice));
             } else {
@@ -1632,6 +1654,7 @@ mod tests {
             frame.actors[ids[0].index()].activity =
                 resonance_battle::Activity::Casting { held: false };
             frame.cues = vec![Cue::Casting {
+                source: None,
                 actor: ids[0],
                 action: resonance_battle::ActionKey(0),
                 phase,
@@ -1674,6 +1697,7 @@ mod tests {
             },
             Cue::HammerRevenge { projectile: hammer },
             Cue::Casting {
+                source: Some(base.actions[0].0),
                 actor: ids[0],
                 action: resonance_battle::ActionKey(0),
                 phase: resonance_battle::CastPhase::Released,
@@ -1794,6 +1818,9 @@ mod tests {
             );
         }
         assert!(frame.cues.iter().any(|cue| matches!(cue,
+            Cue::Voice { sound: Sound::Stream(27), action: Some(action), .. }
+                if *action == base.actions[0].0)));
+        assert!(frame.cues.iter().any(|cue| matches!(cue,
             Cue::Effect(request) if request.appearance == effect(7))));
         assert!(
             frame.cues.iter().any(|cue| matches!(cue,
@@ -1811,6 +1838,7 @@ mod tests {
         ] {
             let mut frame = base.clone();
             frame.cues = vec![Cue::Casting {
+                source: None,
                 actor: ids[0],
                 action: resonance_battle::ActionKey(0),
                 phase,

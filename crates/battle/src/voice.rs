@@ -53,8 +53,19 @@ mod tests {
 
 impl crate::Battle {
     pub(crate) fn request_voice(&mut self, actor: ActorId, sound: Sound, priority: VoicePriority) {
+        self.request_action_voice(actor, sound, priority, None);
+    }
+
+    pub(crate) fn request_action_voice(
+        &mut self,
+        actor: ActorId,
+        sound: Sound,
+        priority: VoicePriority,
+        action: Option<crate::ActionId>,
+    ) {
         let cue = Cue::Voice {
             actor,
+            action,
             sound,
             priority,
             position: self.actors[actor.index()].audio_position(),

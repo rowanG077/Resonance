@@ -58,6 +58,7 @@ impl Battle {
     ) {
         let index = actor.index();
         cues.push(Cue::Casting {
+            source: None,
             actor,
             action,
             phase: crate::CastPhase::Stored,
@@ -161,6 +162,7 @@ impl Battle {
             return Ok(false);
         }
         cues.push(Cue::Casting {
+            source: parent,
             actor,
             action,
             phase,

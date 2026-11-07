@@ -177,6 +177,7 @@ impl Playing {
             && let Some(sound) = line.sound
         {
             cues.push(Cue::Voice {
+                action: None,
                 actor: line.speaker,
                 sound,
                 priority: VoicePriority::Announcement,
