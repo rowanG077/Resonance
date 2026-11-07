@@ -109,7 +109,7 @@ fn subdued(alpha: u8) -> u8 {
 fn draw_frame(left: f32, top: f32, tiles: u32, tint: [u8; 4], alpha: u8, batches: &mut [Batch]) {
     let color = hud_color([128, 128, 128, alpha]);
     let fill = hud_color([tint[0] / 2, tint[1] / 2, tint[2] / 2, subdued(alpha)]);
-    let right = left + 56. + (tiles * TILE_WIDTH) as f32;
+    let emblem_left = left + 56. + (tiles * TILE_WIDTH) as f32;
     // Whole patterned tiles and one half tile join the curl to the diamond.
     for tile in 0..=tiles {
         let x = left + 56. + (tile * TILE_WIDTH) as f32;
@@ -129,7 +129,7 @@ fn draw_frame(left: f32, top: f32, tiles: u32, tint: [u8; 4], alpha: u8, batches
         fill,
     );
     batches[FILL].quad(
-        [right + 8., top + 13., right + 40., top + 53.],
+        [emblem_left + 8., top + 13., emblem_left + 40., top + 53.],
         [480., 456., 512., 496.],
         fill,
     );
@@ -139,7 +139,7 @@ fn draw_frame(left: f32, top: f32, tiles: u32, tint: [u8; 4], alpha: u8, batches
         color,
     );
     batches[FRAME].quad(
-        [right - 1., top + 13., right + 39., top + 53.],
+        [emblem_left, top + 13., emblem_left + 40., top + 53.],
         [416., 408., 456., 448.],
         color,
     );
@@ -455,6 +455,66 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires cooked HUD artwork; checks actual atlas coverage without a GPU"]
+    fn notice_emblem_has_no_fill_holes_or_overdraw() -> Result<()> {
+        use resonance_asset_writer::texture::{Pixels, ktx2};
+
+        fn covered(batch: &Batch, image: &Pixels, point: Vec2) -> usize {
+            batch
+                .positions
+                .chunks_exact(4)
+                .zip(batch.uv.chunks_exact(4))
+                .filter(|(positions, uv)| {
+                    let a = Vec2::new(positions[0][0], positions[0][1]);
+                    let b = Vec2::new(positions[2][0], positions[2][1]);
+                    let fraction = (point - a) / (b - a);
+                    if !fraction.cmpge(Vec2::ZERO).all() || !fraction.cmplt(Vec2::ONE).all() {
+                        return false;
+                    }
+                    let uv = Vec2::from_array(uv[0])
+                        + (Vec2::from_array(uv[2]) - Vec2::from_array(uv[0])) * fraction;
+                    let u = (uv.x.floor() as u32).min(image.width - 1);
+                    let v = (uv.y.floor() as u32).min(image.height - 1);
+                    image.rgba[((v * image.width + u) * 4 + 3) as usize] != 0
+                })
+                .count()
+        }
+
+        let art = fixtures::battle_art()?;
+        let frame = ktx2(&std::fs::read(
+            fixtures::asset_root().join(&art.notices.frame.path),
+        )?)?
+        .remove(0);
+        let fill = ktx2(&std::fs::read(
+            fixtures::asset_root().join(&art.notices.fill.path),
+        )?)?
+        .remove(0);
+        let mut batches = (0..FACES).map(|_| Batch::default()).collect::<Vec<_>>();
+        draw_frame(180., 15., 1, [128; 4], 255, &mut batches);
+        let border = &batches[FRAME];
+        let first = border.positions.len() - 4;
+        let origin = Vec2::new(border.positions[first][0], border.positions[first][1]);
+        let [u, v] = border.uv[first].map(|value| value as u32);
+        for y in 0..40 {
+            let alpha = |x: u32| frame.rgba[(((v + y) * frame.width + u + x) * 4 + 3) as usize];
+            let Some(left) = (0..40).find(|&x| alpha(x) != 0) else {
+                continue;
+            };
+            let right = (0..40).rfind(|&x| alpha(x) != 0).unwrap();
+            for x in left..=right {
+                let point = origin + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5));
+                let fills = covered(&batches[FILL], &fill, point);
+                ensure!(fills <= 1, "overlapping emblem fill at {x},{y}");
+                ensure!(
+                    covered(border, &frame, point) != 0 || fills == 1,
+                    "empty emblem interior at {x},{y}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires cooked HUD artwork; CPU composition only"]
     fn notices_keep_the_full_emblem_and_composite_in_recency_order() -> Result<()> {
         let (mut hud, _, _app) = test_artwork()?;
@@ -468,7 +528,7 @@ mod tests {
             names: &[None],
         };
         hud.settings.colors.dialogue = [60, 140, 180, 232];
-        for (name, emblem_left, text_left) in [("Fire Ball", 379., 260.), ("Aqua Edge", 416., 255.)]
+        for (name, emblem_left, text_left) in [("Fire Ball", 380., 260.), ("Aqua Edge", 417., 255.)]
         {
             hud.notice_request(ActorId::from_index(0)?, name, 90, &frame)?;
             hud.notices.advance(&frame, 8);
