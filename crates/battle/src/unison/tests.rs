@@ -481,6 +481,51 @@ fn normal_finisher_keeps_the_combo_through_unison_opening_and_selection() {
 }
 
 #[test]
+fn conversation_immunity_preserves_authored_immunity_and_excludes_opening_contacts() {
+    for immune in [false, true] {
+        let mut battle = fixture(false);
+        let target = ActorId(2);
+        if immune {
+            Arc::make_mut(battle.unison.definition.as_mut().unwrap())
+                .immune_targets
+                .insert(target);
+        }
+        battle.enemy_conversations =
+            crate::enemy_conversation::State::new(vec![crate::EnemyConversation {
+                actor: target,
+                hp_percent: 100,
+                timing: resonance_content::battle_enemy::ConversationTiming::Continuous,
+                lines: vec![crate::EnemyConversationLine {
+                    speaker: target,
+                    sound: None,
+                    ticks: 1,
+                }],
+            }]);
+        battle.advance_enemy_conversations(None, &mut vec![]);
+        let opener = opening(&mut battle);
+        contact(&mut battle, opener);
+        for _ in 0..10 {
+            if battle.step(Default::default()).unwrap().unison.is_none() {
+                break;
+            }
+        }
+        assert!(!battle.unison.active());
+        crate::tests::step_idle(&mut battle, 4).unwrap();
+        assert!(!battle.enemy_conversations.active(target));
+        assert_eq!(
+            battle
+                .unison
+                .definition
+                .as_ref()
+                .unwrap()
+                .immune_targets
+                .contains(&target),
+            immune
+        );
+    }
+}
+
+#[test]
 fn opening_combo_handoff_releases_on_miss_and_excludes_finished_or_immune_targets() {
     for (expired, immune) in [(false, false), (true, false), (false, true)] {
         let mut battle = fixture(false);

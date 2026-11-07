@@ -78,10 +78,25 @@ impl crate::Battle {
         }
     }
 
-    pub(crate) fn stop_voice(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
-        self.pending_cues
-            .retain(|cue| !matches!(cue, Cue::Voice { actor: owner, .. } | Cue::TechniqueQueued { actor: owner } if *owner == actor));
-        cues.push(Cue::StopVoice { actor });
+    pub(crate) fn stop_voice(
+        &mut self,
+        actor: ActorId,
+        max_priority: VoicePriority,
+        cues: &mut Vec<Cue>,
+    ) {
+        self.pending_cues.retain(|cue| match cue {
+            Cue::Voice {
+                actor: owner,
+                priority,
+                ..
+            } => *owner != actor || *priority > max_priority,
+            Cue::TechniqueQueued { actor: owner } => *owner != actor,
+            _ => true,
+        });
+        cues.push(Cue::StopVoice {
+            actor,
+            max_priority,
+        });
     }
 
     pub fn stop_result_voices(&mut self) -> Result<Vec<Cue>> {
@@ -92,7 +107,7 @@ impl crate::Battle {
         let mut cues = Vec::new();
         for index in 0..self.actors.len() {
             if self.actors[index].side == crate::Side::Party {
-                self.stop_voice(ActorId(index as u8), &mut cues);
+                self.stop_voice(ActorId(index as u8), VoicePriority::Announcement, &mut cues);
             }
         }
         Ok(cues)

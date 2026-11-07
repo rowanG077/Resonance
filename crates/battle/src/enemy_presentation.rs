@@ -727,6 +727,7 @@ mod tests {
         .with_enemy_presentations(vec![EnemyPresentation {
             actor: ActorId(2),
             definition: Presentation {
+                conversation: None,
                 opening: Some(OpeningDefinition::Entrance(entrance)),
                 defeat: TimedVoice {
                     sound: None,
@@ -818,6 +819,7 @@ mod tests {
     #[test]
     fn enemy_opening_and_final_voice_hold_pause_and_finish_once() -> Result<()> {
         let definition = Presentation {
+            conversation: None,
             opening: Some(OpeningDefinition::Voice(TimedVoice {
                 sound: Some(Sound::Stream(7)),
                 ticks: 2,

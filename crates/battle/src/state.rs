@@ -306,6 +306,9 @@ pub struct ActionRequest {
 /// Input for one simulation update. A paused menu advances neither action ages nor tasks.
 #[derive(Debug, Default)]
 pub struct BattleInput {
+    /// Active announcement voices. Continuous speech follows mixer completion;
+    /// simulations without an audio owner fall back to authored line durations.
+    pub voice_busy: Option<ActorSet>,
     pub controllers: Vec<crate::ControlInput>,
     pub unison: Option<crate::UnisonInput>,
     /// Actor-owned executable roots; released children are dispatched internally.
@@ -641,8 +644,14 @@ pub enum Cue {
         position: [f32; 3],
         centered: bool,
     },
+    VoiceVolume {
+        actor: ActorId,
+        percent: u8,
+    },
     StopVoice {
         actor: ActorId,
+        /// Stop voices at or below this priority, preserving higher-priority speech.
+        max_priority: crate::VoicePriority,
     },
     Sound {
         actor: ActorId,
@@ -944,6 +953,7 @@ pub struct Battle {
     pub(crate) unison: crate::unison::State,
     pub(crate) summon_entry: crate::summon_entry::State,
     pub(crate) enemy_presentation: crate::enemy_presentation::State,
+    pub(crate) enemy_conversations: crate::enemy_conversation::State,
     pub(crate) defense_system: crate::defense_system::State,
     pub(crate) escape: crate::escape::State,
     pub(crate) items: crate::item::State,
@@ -1138,6 +1148,9 @@ impl Battle {
             &prepared.resources.enemy_presentations,
             prepared.entry_remaining != 0,
         );
+        let enemy_conversations = crate::enemy_conversation::State::new(std::mem::take(
+            &mut prepared.resources.enemy_conversations,
+        ));
         let entry_remaining = if enemy_presentation.opening() {
             0
         } else {
@@ -1240,6 +1253,7 @@ impl Battle {
             unison: Default::default(),
             summon_entry: Default::default(),
             enemy_presentation,
+            enemy_conversations,
             timed_hold: None,
             event_boss: None,
             clock: BattleClock::Running,
@@ -1738,6 +1752,7 @@ impl Battle {
         cues: &mut Vec<Cue>,
         items: &mut dyn crate::item::Provider,
     ) -> Result<()> {
+        self.advance_enemy_conversations(input.voice_busy, cues);
         for actor in &mut self.actors {
             actor.time_stop = actor.time_stop.saturating_sub(1);
         }

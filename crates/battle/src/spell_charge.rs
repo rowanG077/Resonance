@@ -69,7 +69,7 @@ impl Battle {
             actor,
             position: owner.condition_label_origin(),
         });
-        self.stop_voice(actor, cues);
+        self.stop_voice(actor, crate::VoicePriority::Action, cues);
         if self.has_pending_item(actor)
             || self.cast_command_changed(actor, action)
             || self.special_guard_threat_pending(actor)

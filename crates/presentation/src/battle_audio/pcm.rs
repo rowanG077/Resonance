@@ -33,6 +33,10 @@ impl Sampler {
         self.frame >= self.duration + RELEASE_FRAMES
     }
 
+    pub(super) fn channels(&self) -> usize {
+        self.clip.channels
+    }
+
     pub(super) fn sample(&mut self) -> Option<[f32; 2]> {
         if self.finished() {
             return None;

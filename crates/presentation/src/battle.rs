@@ -1319,6 +1319,7 @@ fn advance(
             scene.lifecycle.command_input_kind(),
         );
         let battle_input = resonance_battle::BattleInput {
+            voice_busy: Some(playback.busy_voices()),
             unison: input.unison_input(
                 scene.core.actors(),
                 scene.frame.as_ref().and_then(|frame| frame.unison.as_ref()),

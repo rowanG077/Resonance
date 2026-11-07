@@ -285,7 +285,7 @@ impl ActiveSummon {
             .iter()
             .filter(|(at, _)| u32::from(*at) == age)
         {
-            battle.stop_voice(owner, cues);
+            battle.stop_voice(owner, crate::VoicePriority::Announcement, cues);
             cues.push(Cue::Voice {
                 actor: owner,
                 sound,

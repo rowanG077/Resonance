@@ -349,7 +349,7 @@ impl Battle {
     }
 
     fn cancel_cast(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
-        self.stop_voice(actor, cues);
+        self.stop_voice(actor, crate::VoicePriority::Action, cues);
         self.clear_cast_memory(actor);
     }
 }

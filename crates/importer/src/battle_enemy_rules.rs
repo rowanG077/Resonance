@@ -1952,7 +1952,34 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
         } else {
             Value::Null
         };
-        json!({"opening":opening,"defeat":timed(sound)?})
+        let mut presentation = json!({"opening":opening,"defeat":timed(sound)?});
+        if selector == 23 {
+            // Mithos's half-health exchange includes Colette's replies when present.
+            let line = |speaker: Option<u8>, stream: u16| -> Result<Value> {
+                Ok(json!({"speaker":speaker,"voice":timed(Some(Sound::Stream(stream)))?}))
+            };
+            presentation["conversation"] = json!({"hp_percent":50,"branches":[
+                {"party":[1,2],"lines":[
+                    line(None,2050)?,line(None,2051)?,line(None,2052)?,
+                    line(Some(2),2038)?,line(Some(1),2039)?,line(None,2040)?,line(Some(2),2041)?
+                ]},
+                {"party":[1],"lines":[
+                    line(None,2050)?,line(None,2051)?,line(None,2052)?,
+                    line(Some(1),2035)?,line(None,2036)?,line(Some(1),2037)?
+                ]}
+            ]});
+        }
+        if selector == 24 {
+            // Abyssion speaks continuously at 75% HP.
+            presentation["conversation"] = json!({
+                "hp_percent":75,"timing":"continuous","branches":[{"party":[],"lines":
+                    (2064..=2067).map(|stream| -> Result<Value> {
+                        Ok(json!({"speaker":null,"voice":timed(Some(Sound::Stream(stream)))?}))
+                    }).collect::<Result<Vec<_>>>()?
+                }]
+            });
+        }
+        presentation
     } else {
         Value::Null
     };

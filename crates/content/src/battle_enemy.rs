@@ -56,6 +56,41 @@ impl WeaponVisibility {
 pub struct Presentation {
     pub opening: Option<Opening>,
     pub defeat: crate::battle_voice::TimedVoice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<HealthConversation>,
+}
+
+/// A one-time exchange after crossing a health threshold. The first branch
+/// whose required party members are present supplies the speaking order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthConversation {
+    pub hp_percent: u8,
+    #[serde(default)]
+    pub timing: ConversationTiming,
+    pub branches: Vec<ConversationBranch>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationTiming {
+    /// Each line ducks other actors' voices and leaves a thirty-update pause.
+    #[default]
+    Spaced,
+    /// Lines follow mixer completion without an additional pause.
+    Continuous,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationBranch {
+    pub party: Vec<u8>,
+    pub lines: Vec<ConversationLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationLine {
+    /// None selects the enemy owning this conversation.
+    pub speaker: Option<u8>,
+    pub voice: crate::battle_voice::TimedVoice,
 }
 
 /// An opening either holds for a voice or plays an authored entrance.

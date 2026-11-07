@@ -2,6 +2,58 @@ use super::*;
 use resonance_battle::TechniqueId;
 
 #[test]
+fn conversations_select_the_first_matching_branch_and_bind_each_enemy_instance() -> Result<()> {
+    use resonance_content::battle_enemy::HealthConversation;
+    let conversation: HealthConversation = serde_json::from_value(serde_json::json!({
+        "hp_percent": 50,
+        "branches": [
+            {"party": [1, 2], "lines": [{"speaker": 2, "voice": {"sound": {"stream": 7}, "ticks": 2}}]},
+            {"party": [1], "lines": [
+                {"speaker": null, "voice": {"sound": {"stream": 8}, "ticks": 3}},
+                {"speaker": 1, "voice": {"sound": {"stream": 9}, "ticks": 4}}
+            ]}
+        ]
+    }))?;
+    let mut sources = [
+        model::ModelSource::Party(Character::Lloyd),
+        model::ModelSource::Enemy(42),
+        model::ModelSource::Enemy(42),
+    ];
+    let ids = (0..sources.len())
+        .map(resonance_battle::ActorId::from_index)
+        .collect::<Result<Vec<_>>>()?;
+    for owner in [1, 2] {
+        let prepared =
+            prepare_conversation(&conversation, &sources, &ids, owner, |_, sound| Ok(sound))?
+                .unwrap();
+        assert_eq!(prepared.actor, ids[owner]);
+        assert_eq!(prepared.hp_percent, 50);
+        assert_eq!(
+            prepared
+                .lines
+                .iter()
+                .map(|line| (line.speaker, line.sound, line.ticks))
+                .collect::<Vec<_>>(),
+            [
+                (ids[owner], Some(Sound::Stream(8)), 3),
+                (ids[0], Some(Sound::Stream(9)), 4)
+            ]
+        );
+    }
+    sources[1] = model::ModelSource::Party(Character::Colette);
+    let prepared =
+        prepare_conversation(&conversation, &sources, &ids, 2, |_, sound| Ok(sound))?.unwrap();
+    assert_eq!(prepared.lines.len(), 1);
+    assert_eq!(prepared.lines[0].speaker, ids[1]);
+    assert_eq!(prepared.lines[0].sound, Some(Sound::Stream(7)));
+    sources[0] = model::ModelSource::Party(Character::Genis);
+    assert!(
+        prepare_conversation(&conversation, &sources, &ids, 2, |_, sound| Ok(sound))?.is_none()
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires current cooked encounter assets; CPU only"]
 fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
     use resonance_content::{diagnostics::Diagnostics, session::SessionData};

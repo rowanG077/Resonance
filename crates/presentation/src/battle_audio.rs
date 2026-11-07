@@ -113,6 +113,20 @@ struct PlayingVoice {
     priority: VoicePriority,
     complete: Arc<AtomicBool>,
 }
+
+impl Playback {
+    pub(crate) fn busy_voices(&self) -> resonance_battle::ActorSet {
+        let mut busy = resonance_battle::ActorSet::default();
+        for voice in &self.voices {
+            if voice.priority == VoicePriority::Announcement
+                && !voice.complete.load(Ordering::Acquire)
+            {
+                busy.insert(voice.actor);
+            }
+        }
+        busy
+    }
+}
 #[derive(Clone, Copy)]
 enum Handoff {
     Beginning {
@@ -367,15 +381,19 @@ impl Playback {
                         });
                         return Ok(());
                     }
-                    Cue::StopVoice { actor } => {
-                        if let Some(index) =
-                            self.voices.iter().position(|voice| voice.actor == actor)
-                        {
+                    Cue::StopVoice {
+                        actor,
+                        max_priority,
+                    } => {
+                        if let Some(index) = self.voices.iter().position(|voice| {
+                            voice.actor == actor && voice.priority <= max_priority
+                        }) {
                             self.enqueue(Command::Stop(self.voices[index].playback))?;
                             self.voices.remove(index);
                         }
                         return Ok(());
                     }
+                    Cue::VoiceVolume { actor, percent } => Command::VoiceVolume { actor, percent },
                     _ => return Ok(()),
                 };
                 self.enqueue(command)
@@ -463,6 +481,10 @@ pub(super) enum Command {
         x: Option<f32>,
         complete: Arc<AtomicBool>,
     },
+    VoiceVolume {
+        actor: ActorId,
+        percent: u8,
+    },
     PauseVoiceStreams(bool),
     Stop(VoiceId),
     Music(Option<i16>, u16),
@@ -509,6 +531,11 @@ impl std::fmt::Debug for Command {
             Self::PauseVoiceStreams(paused) => {
                 f.debug_tuple("PauseVoiceStreams").field(paused).finish()
             }
+            Self::VoiceVolume { actor, percent } => f
+                .debug_struct("VoiceVolume")
+                .field("actor", actor)
+                .field("percent", percent)
+                .finish(),
             Self::Stop(playback) => f.debug_tuple("Stop").field(playback).finish(),
             Self::Music(track, fade_ms) => {
                 f.debug_tuple("Music").field(track).field(fade_ms).finish()
@@ -576,12 +603,39 @@ impl VoiceSource {
 }
 struct Voice {
     actor: ActorId,
+    pan: u8,
+    spatial_percent: u8,
     playback: VoiceId,
     source: VoiceSource,
     submitted_until: u64,
     complete: Arc<AtomicBool>,
 }
 impl Voice {
+    fn set_volume(&mut self, percent: u8, state: &Assets, settings: Settings) {
+        let level = |percent: u8| {
+            usize::from(settings.voice) * usize::from(percent.min(100)) / 100
+                * usize::from(self.spatial_percent)
+                / 100
+        };
+        let gains = &state.mixer.voice_gains;
+        let gain = gains[level(percent)];
+        match &mut self.source {
+            VoiceSource::Score(player) => {
+                // Keep the score's authored velocity balance. The same attenuation
+                // ratio ducks current and future notes, including pre-fader sends.
+                let full = gains[level(100)];
+                player.controls.source_volume = if full == 0. { 0. } else { gain / full };
+            }
+            VoiceSource::Stream {
+                gain: stream_gain,
+                sampler,
+                ..
+            } => {
+                *stream_gain = gains::for_voice(gain, self.pan, sampler.channels());
+            }
+        }
+    }
+
     fn submitted_until(&self) -> u64 {
         match &self.source {
             VoiceSource::Score(player) => player.stream.submitted_until(),
@@ -595,6 +649,7 @@ pub(super) struct State {
     settings: Settings,
     effects: Vec<ScorePlayer>,
     voices: Vec<Voice>,
+    voice_volumes: [u8; 256],
     stop_music: bool,
     voice_streams_paused: bool,
 }
@@ -675,6 +730,7 @@ impl Frames {
                     settings,
                     effects,
                     voices: vec![],
+                    voice_volumes: [100; 256],
                     stop_music: false,
                     voice_streams_paused: false,
                 });
@@ -805,17 +861,9 @@ impl Frames {
                         VoiceSource::Score(player)
                     }
                     Source::Stream(clip) => {
-                        // Stream settings select the prepared attenuation curve,
-                        // just as spoken event audio does. A score's volume is a
-                        // synth control; PCM needs the resulting amplitude.
-                        let gain = gains::for_voice(
-                            state.assets.mixer.voice_gains[usize::from(level)],
-                            pan,
-                            clip.channels,
-                        );
                         let sampler = pcm::Sampler::new(clip)?;
                         VoiceSource::Stream {
-                            gain,
+                            gain: [[0.; 2]; 3],
                             sampler,
                             tail: None,
                         }
@@ -824,13 +872,21 @@ impl Frames {
                 if let Some(index) = state.voices.iter().position(|voice| voice.actor == actor) {
                     state.stop_voice(index, &self.synth, self.frame, &self.completions)?;
                 }
-                state.voices.push(Voice {
+                let mut voice = Voice {
                     actor,
+                    pan,
+                    spatial_percent: percent,
                     playback,
                     source,
                     submitted_until: 0,
                     complete,
-                });
+                };
+                voice.set_volume(
+                    state.voice_volumes[actor.index()],
+                    &state.assets,
+                    state.settings,
+                );
+                state.voices.push(voice);
                 debug!(
                     source_frame = self.frame,
                     actor = actor.index(),
@@ -840,6 +896,13 @@ impl Frames {
                     pan,
                     "Battle voice command applied"
                 );
+            }
+            Command::VoiceVolume { actor, percent } => {
+                let state = self.battle.as_mut().context("battle audio is not active")?;
+                state.voice_volumes[actor.index()] = percent.min(100);
+                for voice in state.voices.iter_mut().filter(|voice| voice.actor == actor) {
+                    voice.set_volume(percent, &state.assets, state.settings);
+                }
             }
             Command::PauseVoiceStreams(paused) => {
                 let state = self.battle.as_mut().context("battle audio is not active")?;
@@ -1295,6 +1358,8 @@ mod tests {
         let complete = Arc::new(AtomicBool::new(false));
         frames.battle.as_mut().unwrap().voices.push(Voice {
             actor: ActorId::from_index(0).unwrap(),
+            pan: 64,
+            spatial_percent: 100,
             playback,
             source,
             submitted_until: 0,
@@ -1306,7 +1371,7 @@ mod tests {
     #[test]
     fn streamed_battle_voices_use_prepared_attenuation_after_spatial_level() -> Result<()> {
         for channels in [1, 2] {
-            for level in [0, 32, 127] {
+            for (level, volume) in [(0, 100), (32, 100), (127, 100), (127, 50)] {
                 for x in [None, Some(0.), Some(320.)] {
                     let (source, _control) = Arc::new(mixer()).session();
                     let mut frames = source.decoder();
@@ -1324,6 +1389,10 @@ mod tests {
                         },
                         None,
                     ))?;
+                    frames.apply_battle_command(Command::VoiceVolume {
+                        actor: ActorId::from_index(0)?,
+                        percent: volume,
+                    })?;
                     frames.apply_battle_command(Command::Voice {
                         actor: ActorId::from_index(0)?,
                         playback: VoiceId(1),
@@ -1337,7 +1406,8 @@ mod tests {
                         complete: Arc::new(AtomicBool::new(false)),
                     })?;
                     let (pan, percent) = spatial(x, DEFAULT_VOICE_SPATIAL)?;
-                    let spatial_level = u16::from(level) * u16::from(percent) / 100;
+                    let spatial_level =
+                        u16::from(level) * u16::from(volume) / 100 * u16::from(percent) / 100;
                     let amplitude = gains[usize::from(spatial_level)];
                     let mut expected = [[0; 2]; 3];
                     gains::add(
@@ -1358,6 +1428,133 @@ mod tests {
                 }
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn volume_cues_follow_the_curve_for_current_and_future_scores_and_streams() -> Result<()> {
+        for channels in [0, 1, 2] {
+            let (source, mut control) = Arc::new(mixer()).session();
+            let mut frames = source.decoder();
+            let mut prepared = assets();
+            let mixer = Arc::get_mut(&mut Arc::get_mut(&mut prepared).unwrap().mixer).unwrap();
+            mixer.voice_gains = std::array::from_fn(|i| (i as f32 / 127.).powi(2));
+            mixer.sounds.insert(1, test_score());
+            mixer.voices.insert(
+                1,
+                Arc::new(test_clip(
+                    vec![16384; RATE as usize * channels.max(1)],
+                    RATE,
+                    channels.max(1),
+                )),
+            );
+            let actor = ActorId::from_index(0)?;
+            let mut playback = Playback::begin(
+                &mut control,
+                prepared,
+                Settings {
+                    voice: 127,
+                    stereo: true,
+                    ..settings()
+                },
+                None,
+            )?;
+            let voice = Cue::Voice {
+                actor,
+                priority: VoicePriority::Action,
+                sound: if channels == 0 {
+                    Sound::Cue(1)
+                } else {
+                    Sound::Stream(1)
+                },
+                position: [0.; 3],
+                centered: true,
+            };
+            let sample = |frames: &mut Frames| -> Result<f32> {
+                let mut sample = 0.;
+                for _ in 0..BLOCK_FRAMES * 2 {
+                    sample = frames.frame()?.unwrap()[0];
+                }
+                // PCM's dry bus excludes the reverb tail from earlier blocks;
+                // the score fixture has no auxiliary sends.
+                Ok(if channels == 0 {
+                    sample
+                } else {
+                    frames.stream_block[0][0][0] as f32 / 32768.
+                })
+            };
+            playback.dispatch(std::slice::from_ref(&voice), |_| None)?;
+            let id = playback.voices[0].playback;
+            let full = sample(&mut frames)?;
+            assert!(full > 0.);
+            for (percent, ratio) in [(50, (63_f32 / 127.).powi(2)), (0, 0.), (100, 1.)] {
+                playback.dispatch(&[Cue::VoiceVolume { actor, percent }], |_| None)?;
+                let actual = sample(&mut frames)? / full;
+                assert!(
+                    (actual - ratio).abs() < 0.001,
+                    "channels {channels}: {actual} != {ratio}"
+                );
+                assert_eq!(frames.battle.as_ref().unwrap().voices[0].playback, id);
+                assert!(!playback.voices[0].complete.load(Ordering::Acquire));
+            }
+            // A command queued before a new voice must also duck its first notes.
+            playback.dispatch(&[Cue::VoiceVolume { actor, percent: 50 }, voice], |_| None)?;
+            assert!((sample(&mut frames)? / full - (63_f32 / 127.).powi(2)).abs() < 0.001);
+            playback.dispatch(
+                &[Cue::VoiceVolume {
+                    actor,
+                    percent: 100,
+                }],
+                |_| None,
+            )?;
+            assert!((sample(&mut frames)? / full - 1.).abs() < 0.001);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn cast_voice_cancellation_preserves_announcements_until_explicit_stop() -> Result<()> {
+        let (source, mut control) = Arc::new(mixer()).session();
+        let mut frames = source.decoder();
+        let mut prepared = assets();
+        Arc::get_mut(&mut Arc::get_mut(&mut prepared).unwrap().mixer)
+            .unwrap()
+            .voices
+            .insert(1, Arc::new(test_clip([12000; 48000], RATE, 1)));
+        let actor = ActorId::from_index(0)?;
+        let mut playback = Playback::begin(&mut control, prepared, settings(), None)?;
+        playback.dispatch(
+            &[Cue::Voice {
+                actor,
+                sound: Sound::Stream(1),
+                priority: VoicePriority::Announcement,
+                position: [0.; 3],
+                centered: true,
+            }],
+            |_| None,
+        )?;
+        frames.frame()?;
+        let id = playback.voices[0].playback;
+        playback.dispatch(
+            &[Cue::StopVoice {
+                actor,
+                max_priority: VoicePriority::Action,
+            }],
+            |_| None,
+        )?;
+        frames.frame()?;
+        assert!(playback.busy_voices().contains(actor));
+        assert_eq!(frames.battle.as_ref().unwrap().voices[0].playback, id);
+        playback.dispatch(
+            &[Cue::StopVoice {
+                actor,
+                max_priority: VoicePriority::Announcement,
+            }],
+            |_| None,
+        )?;
+        frames.frame()?;
+        assert!(!playback.busy_voices().contains(actor));
+        assert!(frames.battle.as_ref().unwrap().voices.is_empty());
         Ok(())
     }
 
@@ -1424,6 +1621,7 @@ mod tests {
         playback.dispatch(
             &[Cue::StopVoice {
                 actor: ActorId::from_index(11).unwrap(),
+                max_priority: VoicePriority::Action,
             }],
             |_| None,
         )?;
