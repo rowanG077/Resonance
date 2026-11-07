@@ -28,10 +28,20 @@ pub(super) struct Material {
     image: Handle<Image>,
     #[uniform(2)]
     enabled: u32,
+    #[uniform(3)]
+    cover: Vec4,
 }
 impl Material {
     pub(super) fn visible(image: Handle<Image>) -> Self {
-        Self { image, enabled: 1 }
+        Self {
+            image,
+            enabled: 1,
+            cover: Vec4::ZERO,
+        }
+    }
+    pub(super) fn with_cover(mut self, cover: Vec4) -> Self {
+        self.cover = cover;
+        self
     }
 }
 impl Material2d for Material {
@@ -147,6 +157,7 @@ fn sync(
         let material = materials.add(Material {
             image: target.clone(),
             enabled: 0,
+            cover: Vec4::ZERO,
         });
         let entity = commands
             .spawn((

@@ -117,7 +117,21 @@ fn crack_color(formations: usize) -> Color {
     }
 }
 
+fn field_cover(field: Option<&resonance_events::GameWorld>) -> Vec4 {
+    field.map_or(Vec4::ZERO, |field| {
+        let white = field.fade.as_ref().is_some_and(|fade| fade.white);
+        Vec3::splat(if white { 1. } else { 0. }).extend(1. - field.brightness())
+    })
+}
+
 pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<()> {
+    let session = world.resource::<crate::new_game::Session>();
+    // A scripted encounter can follow another battle without revealing the field.
+    // Keep its completed cover while loading; there is no visible scene to shatter.
+    let cover = field_cover(session.is_field().then_some(&session.events().world));
+    if cover.w == 1. {
+        return Ok(());
+    }
     let source = world.resource::<crate::display::Targets>().source.clone();
     let descriptor = world
         .resource::<Assets<Image>>()
@@ -131,13 +145,14 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         .next()
         .map(|(entity, camera)| (entity, camera.is_active))
         .context("battle transition lost its outgoing camera")?;
-    let field = world.resource::<crate::new_game::Session>().events();
+    let session = world.resource::<crate::new_game::Session>();
+    let field = session.events();
     debug!(
         target: "resonance_presentation::battle_entry",
         field_tick = field.tick(),
         fade_alpha = field.world.fade.as_ref().map(|fade| fade.alpha(field.tick())),
         camera_active,
-        "Battle transition captures the field before UI and fades"
+        "Battle transition retains the field and its active fade cover"
     );
     let capture_format = crate::renderer::scene_color_format(
         world.get_resource::<bevy::render::renderer::RenderAdapterInfo>(),
@@ -158,7 +173,7 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         .add(mesh(&pieces, size, 0));
     let material = world
         .resource_mut::<Assets<crate::menu_backdrop::Material>>()
-        .add(crate::menu_backdrop::Material::visible(image));
+        .add(crate::menu_backdrop::Material::visible(image).with_cover(cover));
     let entity = world
         .spawn((
             Mesh2d(mesh.clone()),
@@ -417,6 +432,30 @@ fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
 mod tests {
     use super::*;
     use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn scripted_battle_entry_retains_black_white_and_partial_field_covers() {
+        // No field owner means an overworld encounter, without a field UI cover.
+        assert_eq!(field_cover(None), Vec4::ZERO);
+        let mut field = resonance_events::GameWorld::default();
+        // Before the first fade command, the field UI covers the scene in black.
+        assert_eq!(field_cover(Some(&field)), Vec4::W);
+        for white in [false, true] {
+            let shade = if white { 1. } else { 0. };
+            field.fade = Some(resonance_events::Fade {
+                start_tick: 10,
+                duration: 10,
+                from: 0.,
+                to: 256.,
+                white,
+            });
+            for (tick, alpha) in [(9, 0.), (10, 25.), (14, 128.), (30, 255.)] {
+                field.tick = tick;
+                let expected = Vec3::splat(shade).extend(alpha / 255.);
+                assert!((field_cover(Some(&field)) - expected).abs().max_element() < 0.00001);
+            }
+        }
+    }
 
     #[test]
     fn captured_image_cracks_then_holds_before_motion() {

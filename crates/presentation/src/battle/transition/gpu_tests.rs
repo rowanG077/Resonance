@@ -70,7 +70,7 @@ fn activation_reuses_the_warmed_fragment_pipeline() -> Result<()> {
         .world_mut()
         .spawn((
             Mesh2d(mesh),
-            MeshMaterial2d(material),
+            MeshMaterial2d(material.clone()),
             Transform::default(),
             RenderLayers::layer(LAYER),
             NoFrustumCulling,
@@ -138,6 +138,68 @@ fn activation_reuses_the_warmed_fragment_pipeline() -> Result<()> {
         // Render errors reach the main world on the following app update.
         app.update();
         crate::playthrough::check_exit(&app)?;
+    }
+    // This is the same retained-image material used at real battle entry.
+    // A fully covered field must not reveal its geometry between battles.
+    #[derive(Resource, Default)]
+    struct Captured(Option<Image>);
+    app.init_resource::<Captured>();
+    for (cover, expected) in [
+        (Vec4::new(0., 0., 0., 1.), [0, 0, 0]),
+        (Vec4::new(1., 1., 1., 1.), [255, 255, 255]),
+        (Vec4::new(1., 0., 0., 0.5), [255, 128, 128]),
+    ] {
+        let value = app
+            .world()
+            .resource::<Assets<crate::menu_backdrop::Material>>()
+            .get(&material)
+            .unwrap()
+            .clone()
+            .with_cover(cover);
+        *app.world_mut()
+            .resource_mut::<Assets<crate::menu_backdrop::Material>>()
+            .get_mut(&material)
+            .unwrap() = value;
+        for _ in 0..5 {
+            app.update();
+        }
+        app.world_mut().resource_mut::<Captured>().0 = None;
+        app.world_mut()
+            .spawn(bevy::render::view::screenshot::Screenshot::image(
+                target.clone(),
+            ))
+            .observe(
+                |shot: On<bevy::render::view::screenshot::ScreenshotCaptured>,
+                 mut captured: ResMut<Captured>| {
+                    captured.0 = Some(shot.image.clone());
+                },
+            );
+        while app.world().resource::<Captured>().0.is_none() {
+            ensure!(began.elapsed().as_secs() < 180, "cover readback timed out");
+            app.update();
+            crate::playthrough::check_exit(&app)?;
+        }
+        let image = app
+            .world_mut()
+            .resource_mut::<Captured>()
+            .0
+            .take()
+            .unwrap()
+            .try_into_dynamic()?
+            .to_rgba8();
+        let matching = image
+            .pixels()
+            .filter(|pixel| {
+                pixel.0[..3]
+                    .iter()
+                    .zip(expected)
+                    .all(|(&a, b)| a.abs_diff(b) <= 1)
+            })
+            .count();
+        assert!(
+            matching > 2000,
+            "cover {cover:?}: only {matching} retained pixels matched {expected:?}"
+        );
     }
     Ok(())
 }
