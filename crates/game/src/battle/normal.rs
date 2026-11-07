@@ -85,22 +85,27 @@ pub fn prepare_resources(
                     };
                     AttackEvent::Pose(pose)
                 }
-                Event::Contact(contact) => AttackEvent::Contact {
-                    definition: Arc::new(resonance_battle::MeleeDefinition {
-                        hit: super::hit::authored(&contact.hit, actor.recoil)?,
-                        volume: resonance_battle::MeleeVolume::Attached {
-                            anchors: actor
-                                .model
-                                .context("missing normal melee model")?
-                                .contact_anchors(&contact.attachments)?,
-                            shape: contact.shape,
-                            radius: contact.radius,
-                            half_height: contact.height,
-                        },
-                        trail: None,
-                    }),
-                    duration: contact.duration,
-                },
+                Event::Contact(contact) => {
+                    if let Some(trail) = contact_trail(contact)? {
+                        events.push((*at, trail));
+                    }
+                    AttackEvent::Contact {
+                        definition: Arc::new(resonance_battle::MeleeDefinition {
+                            hit: super::hit::authored(&contact.hit, actor.recoil)?,
+                            volume: resonance_battle::MeleeVolume::Attached {
+                                anchors: actor
+                                    .model
+                                    .context("missing normal melee model")?
+                                    .contact_anchors(&contact.attachments)?,
+                                shape: contact.shape,
+                                radius: contact.radius,
+                                half_height: contact.height,
+                            },
+                            trail: None,
+                        }),
+                        duration: contact.duration,
+                    }
+                }
                 Event::Projectile { .. } => {
                     anyhow::bail!("normal projectile recipe is not prepared")
                 }
@@ -163,6 +168,29 @@ pub fn prepare_resources(
         });
     }
     Ok(bindings)
+}
+
+/// Activate the first carried slot's ribbon for four updates per authored
+/// contact tick (the cooked duration includes its last tick).
+pub(super) fn contact_trail(
+    contact: &resonance_content::battle_action::MeleeContact,
+) -> Result<Option<AttackEvent>> {
+    let resonance_content::battle_action::ContactAttachments::Groups(groups) = &contact.attachments
+    else {
+        return Ok(None);
+    };
+    let Some(&slot) = groups.first() else {
+        return Ok(None);
+    };
+    let duration = contact
+        .duration
+        .checked_sub(1)
+        .and_then(|ticks| ticks.checked_mul(4))
+        .context("contact ribbon duration exceeds limit")?;
+    Ok(Some(AttackEvent::Trail {
+        slot: WeaponSlot(slot),
+        duration,
+    }))
 }
 
 fn flight(
@@ -236,4 +264,29 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
             anyhow::bail!("attack event requires actor resources")
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contact_ribbons_support_higher_carried_slots() -> Result<()> {
+        let contact = serde_json::from_value(serde_json::json!({
+            "duration": 11,
+            "groups": [4, 0],
+            "shape": { "kind": "box" },
+            "radius": 10.,
+            "height": 10.,
+            "hit": { "kind": "slash", "power": "normal" }
+        }))?;
+        assert!(matches!(
+            contact_trail(&contact)?,
+            Some(AttackEvent::Trail {
+                slot: WeaponSlot(4),
+                duration: 40,
+            })
+        ));
+        Ok(())
+    }
 }

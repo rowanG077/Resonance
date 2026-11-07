@@ -463,3 +463,92 @@ fn verify_encounters(library: Library, with_audio: bool) -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires installed battle assets; CPU simulation without audio devices"]
+fn normal_attacks_activate_the_authored_weapon_ribbon() -> Result<()> {
+    use resonance_battle::{
+        ActorId, BattleInput, BattlePhase, ButtonInput, Control, ControlInput, Cue, WeaponSlot,
+    };
+    let library = named_library()?;
+    let diagnostics = Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files = Files::from_snapshot(snapshot, || false, diagnostics.clone())?;
+    let data = SessionData::load(&files)?;
+    let menus = MenuData::load(&files)?;
+    let mut party = Party::new(&data, Default::default()).map_err(anyhow::Error::msg)?;
+    party.formation = vec![1];
+    let mut snapshot = library.snapshot();
+    let catalogue =
+        resonance_content::battle_audio::document::Catalogue::capture(&mut snapshot, &|| false)?;
+    let inputs = Assets::capture(
+        &mut snapshot,
+        &menus,
+        &data,
+        &party,
+        Setup {
+            route: [0; 5],
+            encounter: Encounter::Formation(1),
+            arena: 13,
+            defeat: DefeatPolicy::GameOver,
+            music: None,
+        },
+        diagnostics.clone(),
+        &|| false,
+    )?;
+    let (_, mut prepared, _) = inputs.prepare_named(&menus, options(1), &catalogue)?;
+    let owner = ActorId::from_index(0)?;
+    let mut ready = false;
+    for _ in 0..600 {
+        let mut frame = prepared.core.step(Default::default())?;
+        let clock = frame.clock;
+        prepared.core.advance_models(&mut frame, clock, false)?;
+        ready = prepared.core.phase() == BattlePhase::Combat && !clock.paused();
+        if ready {
+            break;
+        }
+    }
+    assert!(ready, "encounter did not reach active combat");
+    prepared.core.set_control_mode(owner, Control::Manual)?;
+
+    // Press attack once, then observe the complete swing and its recovery.
+    let mut trails = Vec::new();
+    for tick in 0..100 {
+        let mut input = ControlInput::neutral(owner);
+        input.attack = ButtonInput {
+            pressed: tick == 0,
+            held: tick == 0,
+            released: tick == 1,
+        };
+        let mut frame = prepared.core.step(BattleInput::from(input))?;
+        let clock = frame.clock;
+        prepared.core.advance_models(&mut frame, clock, false)?;
+        for cue in &frame.cues {
+            if let Cue::WeaponTrail {
+                actor,
+                slot,
+                duration,
+                highlighted,
+            } = *cue
+            {
+                assert_eq!(actor, owner);
+                assert!(
+                    !highlighted,
+                    "normal attacks keep their weapon's ordinary palette"
+                );
+                assert!(
+                    frame.weapons.iter().any(|weapon| weapon.owner == owner
+                        && weapon.slot == Some(slot)
+                        && weapon.visible),
+                    "ribbon must target a visible weapon"
+                );
+                trails.push((slot, duration));
+            }
+        }
+    }
+    // Lloyd's neutral contact uses the first sword for ten authored ticks.
+    assert_eq!(trails, [(WeaponSlot(0), 40)]);
+    assert!(!diagnostics.has_errors());
+    Ok(())
+}

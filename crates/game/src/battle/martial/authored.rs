@@ -213,24 +213,9 @@ impl Technique {
                         hit.effect = Some(resources.prepared.effect_member(&effect_bank, member)?);
                     }
                     if matches!(self.sequence, Sequence::FierceDemonFang)
-                        && let ContactAttachments::Groups(groups) = &contact.attachments
-                        && let Some(&slot) = groups.first()
+                        && let Some(trail) = crate::battle::normal::contact_trail(contact)?
                     {
-                        // Contact duration includes its final update. The ribbon
-                        // remains active for four updates per authored contact tick.
-                        const RIBBON_UPDATES_PER_CONTACT_TICK: u16 = 4;
-                        let duration = contact
-                            .duration
-                            .checked_sub(1)
-                            .and_then(|ticks| ticks.checked_mul(RIBBON_UPDATES_PER_CONTACT_TICK))
-                            .context("Fierce Demon Fang ribbon duration exceeds limit")?;
-                        events.push((
-                            *at,
-                            AttackEvent::Trail {
-                                slot: resonance_battle::WeaponSlot(slot),
-                                duration,
-                            },
-                        ));
+                        events.push((*at, trail));
                     }
                     let volume = if matches!(contact.attachments, ContactAttachments::BodyCenter {})
                     {
