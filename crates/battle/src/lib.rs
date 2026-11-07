@@ -163,7 +163,7 @@ pub use model::{
 #[cfg(feature = "test-support")]
 pub use movement::FixtureMotion;
 pub use movement::{Floor, Hover, Movement};
-pub use outcome::{BattlePhase, DepartureReason, TransitionFrame, TransitionKind};
+pub use outcome::{BattlePhase, DepartureReason, TransitionFrame, TransitionKind, TransitionWipe};
 pub use particle::{
     ParticleDefinition, ParticleFrame, ParticleGeometry, ParticleId, ParticleState,
     ParticleTemplate,

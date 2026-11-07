@@ -27,12 +27,21 @@ pub enum DepartureReason {
 pub enum TransitionKind {
     FadeOut,
     FadeIn,
+    WipeOut,
+}
+
+/// Closing wipe: each screen row starts at a different horizontal offset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransitionWipe {
+    pub offsets: Arc<[u16; 480]>,
+    pub progress: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitionFrame {
     pub color: [u8; 3],
     pub alpha: u8,
+    pub wipe: Option<TransitionWipe>,
 }
 
 struct Transition {
@@ -396,7 +405,7 @@ impl Battle {
         Ok(())
     }
 
-    /// Start a screen fade without consuming either random stream.
+    /// Start a screen transition. A closing wipe draws one random offset per row.
     pub fn begin_transition(
         &mut self,
         kind: TransitionKind,
@@ -404,6 +413,10 @@ impl Battle {
         speed: u8,
     ) -> Result<()> {
         ensure!(!self.ended && speed != 0, "invalid battle transition");
+        let wipe = (kind == TransitionKind::WipeOut).then(|| TransitionWipe {
+            offsets: Arc::new(std::array::from_fn(|_| self.random.next_u16() % 640)),
+            progress: 0,
+        });
         self.terminal.transition = Some(Transition {
             frame: TransitionFrame {
                 color,
@@ -412,6 +425,7 @@ impl Battle {
                 } else {
                     0
                 },
+                wipe,
             },
             kind,
             speed,
@@ -432,9 +446,12 @@ impl Battle {
                 transition.frame.alpha = transition.frame.alpha.saturating_sub(transition.speed);
                 Ok(complete)
             }
-            TransitionKind::FadeOut => {
+            TransitionKind::FadeOut | TransitionKind::WipeOut => {
                 let complete = transition.frame.alpha == 255;
                 transition.frame.alpha = transition.frame.alpha.saturating_add(transition.speed);
+                if let Some(wipe) = &mut transition.frame.wipe {
+                    wipe.progress = wipe.progress.saturating_add(16);
+                }
                 Ok(complete)
             }
         }

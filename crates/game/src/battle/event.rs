@@ -286,6 +286,7 @@ pub fn apply_view(events: &EventRuntime, frame: &mut resonance_battle::BattleFra
     });
     frame.camera_fov_degrees = Some(view.vertical_fov_degrees);
     frame.event_fade = Some(resonance_battle::TransitionFrame {
+        wipe: None,
         color: stage.fade.color,
         alpha: stage.fade.opacity,
     });

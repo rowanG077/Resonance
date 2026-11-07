@@ -611,6 +611,7 @@ impl Artwork {
             let peak_end = HOURGLASS_FLASH_RISE + HOURGLASS_FLASH_PEAK;
             resonance_battle::TransitionFrame {
                 color: [255; 3],
+                wipe: None,
                 alpha: if age < HOURGLASS_FLASH_RISE {
                     age * HOURGLASS_FLASH_STEP
                 } else if age < peak_end {
@@ -636,6 +637,31 @@ impl Artwork {
         }
         if let Some(frame) = frame.filter(|frame| frame.alpha != 0) {
             let [r, g, b] = frame.color.map(|channel| f32::from(channel) / 255.);
+            if let Some(wipe) = &frame.wipe {
+                let [left, top, right, bottom] = self.resolution.ui_rect();
+                let row_height = (bottom - top) / 480.;
+                for (row, offset) in wipe.offsets.iter().enumerate() {
+                    let width = f32::from(wipe.progress.saturating_sub(*offset));
+                    if width > 0. {
+                        let y = top + row as f32 * row_height;
+                        let start = batch.colors.len();
+                        batch.quad(
+                            [
+                                left,
+                                y,
+                                left + width / 640. * (right - left),
+                                y + row_height,
+                            ],
+                            [0.5; 4],
+                            [0., 0., 0., 1.],
+                        );
+                        // Rows fade from opaque at the left to clear at
+                        // their moving endpoint, including endpoints offscreen.
+                        batch.colors[start + 1][3] = 0.;
+                        batch.colors[start + 2][3] = 0.;
+                    }
+                }
+            }
             batch.quad(
                 self.resolution.ui_rect(),
                 [0.5; 4],
