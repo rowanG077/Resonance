@@ -72,6 +72,14 @@ impl Fixture {
     }
 
     fn with_package(label: &str, configure: impl FnOnce(&mut Package)) -> Result<Self> {
+        Self::with_session_and_package(label, |_| {}, configure)
+    }
+
+    fn with_session_and_package(
+        label: &str,
+        configure_session: impl FnOnce(&mut new_game::Session),
+        configure: impl FnOnce(&mut Package),
+    ) -> Result<Self> {
         let root = root();
         let mods = std::env::var_os("RESONANCE_NAMED_TITLE_FIELDS")
             .map(PathBuf::from)
@@ -110,6 +118,7 @@ impl Fixture {
             session.audio.take().context("missing field audio")?,
             session.field_mut(),
         );
+        configure_session(&mut session);
         session
             .field_mut()
             .events
@@ -1204,6 +1213,36 @@ fn covered_field_enters_the_next_battle_without_a_shatter() -> Result<()> {
         transition::begin(fixture.app.world_mut(), 7, 1)?;
         assert!(!fixture.app.world().contains_resource::<transition::State>());
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
+fn white_field_cover_is_retained_on_battle_activation() -> Result<()> {
+    let fixture = Fixture::with_session_and_package(
+        "white-entry",
+        |session| {
+            session.events_mut().world.fade = Some(resonance_events::Fade {
+                start_tick: 0,
+                duration: 0,
+                from: 255.,
+                to: 255.,
+                white: true,
+            });
+        },
+        |_| {},
+    )?;
+    let owner = fixture.app.world().resource::<Owner>();
+    let Phase::Scene(scene) = &owner.phase else {
+        unreachable!()
+    };
+    let mut frame = scene.core.snapshot();
+    scene.lifecycle.apply_view(&mut frame)?;
+    let fade = frame
+        .event_fade
+        .context("battle activation lost the cover")?;
+    assert_eq!((fade.color, fade.alpha), ([255; 3], 255));
+    assert!(fixture.request.is_pending());
     Ok(())
 }
 

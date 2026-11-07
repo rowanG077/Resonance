@@ -39,11 +39,22 @@ struct Display {
 
 #[test]
 fn ordinary_battle_entry_retains_its_cover_and_fades_only_on_live_updates() -> Result<()> {
+    for color in [[0; 3], [255; 3]] {
+        check_entry_fade(color)?;
+    }
+    Ok(())
+}
+
+fn check_entry_fade(color: [u8; 3]) -> Result<()> {
     let mut f = fixture(None)?;
+    if color != [0; 3] {
+        f.lifecycle = f.lifecycle.with_entry_color(color);
+    }
     assert!(!f.lifecycle.has_events());
     let mut frame = f.battle.snapshot();
     f.lifecycle.apply_view(&mut frame)?;
-    assert_eq!(frame.event_fade.as_ref().unwrap().alpha, 255);
+    let fade = frame.event_fade.as_ref().unwrap();
+    assert_eq!((fade.color, fade.alpha), (color, 255));
     let mut display = Display::default();
     for (paused, alpha) in [(true, 255), (false, 239), (true, 239), (false, 223)] {
         let frame = f.lifecycle.step(
@@ -59,7 +70,7 @@ fn ordinary_battle_entry_retains_its_cover_and_fades_only_on_live_updates() -> R
             &mut display,
         )?;
         let fade = frame.event_fade.unwrap();
-        assert_eq!((fade.color, fade.alpha), ([0; 3], alpha));
+        assert_eq!((fade.color, fade.alpha), (color, alpha));
     }
     for _ in 0..14 {
         frame = f.lifecycle.step(

@@ -93,6 +93,7 @@ pub struct Lifecycle {
     order_revision: u32,
     order_issuer: Option<resonance_battle::ActorId>,
     events: Option<super::event::Sequence>,
+    entry_color: [u8; 3],
     entry_alpha: u8,
 }
 
@@ -108,8 +109,15 @@ impl Lifecycle {
             order_revision: 0,
             order_issuer: None,
             events: None,
+            entry_color: [0; 3],
             entry_alpha: 255,
         }
+    }
+
+    /// Keep a completed field cover through activation and fade it into combat.
+    pub fn with_entry_color(mut self, color: [u8; 3]) -> Self {
+        self.entry_color = color;
+        self
     }
 
     pub fn with_events(
@@ -231,7 +239,7 @@ impl Lifecycle {
         // Authored event fades take precedence over the shared entry cover.
         if self.entry_alpha != 0 && frame.event_fade.as_ref().is_none_or(|fade| fade.alpha == 0) {
             frame.event_fade = Some(resonance_battle::TransitionFrame {
-                color: [0; 3],
+                color: self.entry_color,
                 alpha: self.entry_alpha,
                 wipe: None,
             });
