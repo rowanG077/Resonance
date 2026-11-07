@@ -132,7 +132,9 @@ pub(super) enum Visit {
     Combat,
     /// Retire the interrupted combat effects before the new scene is published.
     Enter,
-    Event,
+    Event {
+        entering: bool,
+    },
     /// Combat owns the returned view; its clock resumes on the following visit.
     Return,
     /// Resource ownership changes while gameplay time advances and combat waits.
@@ -171,10 +173,9 @@ impl Sequence {
             .position(|&character| character == 9)
             .map(resonance_battle::ActorId::from_index)
             .transpose()?;
-        let playback = plan.opening.enter(&party)?;
         Ok(Self {
             phase: Phase::Opening,
-            playback: Some(playback),
+            playback: Some(plan.opening.enter(&party)?),
             rescue: Some(plan.rescue),
             party,
             boss,
@@ -198,8 +199,12 @@ impl Sequence {
         Ok(())
     }
 
-    pub(super) fn advance_dissolve(&mut self) {
-        self.dissolve = self.dissolve.saturating_sub(8);
+    pub(super) fn advance_dissolve(&mut self, visit: Visit, paused: bool) {
+        self.dissolve = match visit {
+            Visit::Return | Visit::Event { entering: true } => u8::MAX,
+            Visit::Event { .. } | Visit::Combat if !paused => self.dissolve.saturating_sub(8),
+            _ => self.dissolve,
+        };
     }
 
     pub(super) fn restores_formation(&self) -> bool {
@@ -241,9 +246,6 @@ impl Sequence {
         accelerate: bool,
     ) -> Result<Visit> {
         const RESCUE_COMBAT_TICK: u32 = 600;
-        if self.playback.is_some() {
-            self.advance_dissolve();
-        }
         if matches!(self.phase, Phase::Combat) && combat_ticks >= RESCUE_COMBAT_TICK {
             self.phase = Phase::RescueTransition;
             return Ok(Visit::Transition);
@@ -264,13 +266,9 @@ impl Sequence {
         if let Some(playback) = &mut self.playback {
             let entering = matches!(self.phase, Phase::Rescue) && playback.events.tick() == 0;
             playback.step(confirm, accelerate)?;
-            if entering {
-                self.dissolve = u8::MAX;
-            }
             if playback.finished() {
                 self.audio.append(&mut playback.events.world.audio_commands);
                 self.playback = None;
-                self.dissolve = u8::MAX;
                 self.phase = match self.phase {
                     Phase::Opening => Phase::Combat,
                     Phase::Rescue => Phase::Finished,
@@ -278,7 +276,7 @@ impl Sequence {
                 };
                 return Ok(Visit::Return);
             }
-            Ok(Visit::Event)
+            Ok(Visit::Event { entering })
         } else {
             Ok(Visit::Combat)
         }
@@ -286,17 +284,23 @@ impl Sequence {
 }
 
 /// Applied after ordinary combat publication while the event owns presentation.
-pub fn apply_view(events: &EventRuntime, frame: &mut resonance_battle::BattleFrame) -> Result<()> {
-    // Camera commands publish on the first event update. Construction only queues
-    // their channels, so retain the battle view for the initial held frame.
-    if events.tick() == 0 {
-        return Ok(());
-    }
+fn apply_view(events: &EventRuntime, frame: &mut resonance_battle::BattleFrame) -> Result<()> {
     let stage = events
         .world
         .battle_event
         .as_ref()
         .context("battle event is not active")?;
+    // The initial held frame must retain its cover before camera commands publish.
+    frame.event_fade = Some(resonance_battle::TransitionFrame {
+        wipe: None,
+        color: stage.fade.color,
+        alpha: stage.fade.opacity,
+    });
+    // Camera commands publish on the first event update. Construction only queues
+    // their channels, so retain the battle view for the initial held frame.
+    if events.tick() == 0 {
+        return Ok(());
+    }
     let view = stage.camera.frame();
     let direction: [f32; 3] = std::array::from_fn(|axis| view.eye[axis] - view.target[axis]);
     let horizontal = direction[0].hypot(direction[2]);
@@ -308,10 +312,5 @@ pub fn apply_view(events: &EventRuntime, frame: &mut resonance_battle::BattleFra
         radius: horizontal.hypot(direction[1]),
     });
     frame.camera_fov_degrees = Some(view.vertical_fov_degrees);
-    frame.event_fade = Some(resonance_battle::TransitionFrame {
-        wipe: None,
-        color: stage.fade.color,
-        alpha: stage.fade.opacity,
-    });
     Ok(())
 }

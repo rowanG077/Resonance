@@ -1114,8 +1114,8 @@ fn prepare(
             scene
                 .core
                 .advance_models(&mut frame, resonance_battle::BattleClock::Held, false)?;
+            scene.lifecycle.apply_view(&mut frame)?;
             if let Some(event) = scene.lifecycle.event() {
-                resonance_game::battle::event::apply_view(&event.events, &mut frame)?;
                 scene
                     .event_models
                     .as_mut()

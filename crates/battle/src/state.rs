@@ -776,7 +776,7 @@ pub struct BattleFrame {
     pub camera: Option<crate::CameraPose>,
     /// An event-owned lens; None selects the ordinary combat projection.
     pub camera_fov_degrees: Option<f32>,
-    /// Event cover rendered through the shared battle transition layer.
+    /// Entry or event cover rendered through the shared battle transition layer.
     pub event_fade: Option<crate::TransitionFrame>,
     /// Captured outgoing scene blended over an event camera/formation change.
     pub event_dissolve: u8,

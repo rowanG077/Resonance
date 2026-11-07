@@ -38,6 +38,42 @@ struct Display {
 }
 
 #[test]
+fn ordinary_battle_entry_retains_its_cover_and_fades_only_on_live_updates() -> Result<()> {
+    let mut f = fixture(None)?;
+    assert!(!f.lifecycle.has_events());
+    let mut frame = f.battle.snapshot();
+    f.lifecycle.apply_view(&mut frame)?;
+    assert_eq!(frame.event_fade.as_ref().unwrap().alpha, 255);
+    let mut display = Display::default();
+    for (paused, alpha) in [(true, 255), (false, 239), (true, 239), (false, 223)] {
+        let frame = f.lifecycle.step(
+            &mut f.battle,
+            Input {
+                battle: BattleInput {
+                    paused,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &mut f.candidate,
+            &mut display,
+        )?;
+        let fade = frame.event_fade.unwrap();
+        assert_eq!((fade.color, fade.alpha), ([0; 3], alpha));
+    }
+    for _ in 0..14 {
+        frame = f.lifecycle.step(
+            &mut f.battle,
+            Input::default(),
+            &mut f.candidate,
+            &mut display,
+        )?;
+    }
+    assert!(frame.event_fade.is_none());
+    Ok(())
+}
+
+#[test]
 fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> Result<()> {
     use resonance_battle::{
         ActionDefinition, ActionExecution, ActionKey, ActorSetup, EnemyBehavior, EnemyChoice,
@@ -425,9 +461,9 @@ fn escape_notices_and_fades_finish_at_their_own_pace() -> Result<()> {
 fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Result<()> {
     use crate::battle::event::{Plan, Prepared};
     use std::sync::Arc;
-    let prepared = || -> Result<Prepared> {
+    let prepared = |delay: u16| -> Result<Prepared> {
         let words: [u16; 12] = [
-            4, 0, 0, 0, 0, 0x3000, 0x4000, 2, 0x3000, 0x4000, 0x2064, 0x20ff,
+            4, 0, 0, 0, 0, 0x3000, 0x4000, delay, 0x3000, 0x4000, 0x2064, 0x20ff,
         ];
         let bytes: Vec<_> = words.into_iter().flat_map(u16::to_be_bytes).collect();
         Ok(Prepared::new(
@@ -442,31 +478,43 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
         .find(|id| f.battle.actors()[id.index()].side == Side::Enemy)
         .unwrap();
     f.lifecycle = Lifecycle::new(None).with_events(
-        Plan::vidarr(prepared()?, prepared()?),
+        Plan::vidarr(prepared(20)?, prepared(4)?),
         f.field.clone(),
         boss,
         &f.battle,
     )?;
     f.battle.set_actor_vitals(boss, 20, 101, 0, 0)?;
     let mut display = Display::default();
-    for tick in 0..2 {
-        f.lifecycle.step(
+    let mut initial = f.battle.snapshot();
+    f.lifecycle.apply_view(&mut initial)?;
+    assert_eq!(initial.event_fade.as_ref().unwrap().color, [0; 3]);
+    assert_eq!(initial.event_fade.as_ref().unwrap().alpha, 255);
+    for tick in 0..20 {
+        let frame = f.lifecycle.step(
             &mut f.battle,
             Input::default(),
             &mut f.candidate,
             &mut display,
         )?;
-        assert_eq!(f.lifecycle.event().is_some(), tick == 0);
+        assert_eq!(f.lifecycle.event().is_some(), tick < 19);
+        assert_eq!(
+            frame.event_fade.as_ref().map_or(0, |fade| fade.alpha),
+            255_u16.saturating_sub((tick + 1) * 16) as u8
+        );
+        assert_eq!(frame.event_dissolve, if tick == 19 { 255 } else { 0 });
         assert_eq!(f.battle.ledger().combat_ticks, 0);
         assert_eq!(f.battle.actors()[boss.index()].hp, 50);
     }
-    for _ in 0..600 {
-        f.lifecycle.step(
+    for tick in 1..=600 {
+        let frame = f.lifecycle.step(
             &mut f.battle,
             Input::default(),
             &mut f.candidate,
             &mut display,
         )?;
+        if tick <= 32 {
+            assert_eq!(frame.event_dissolve, 255_u16.saturating_sub(tick * 8) as u8);
+        }
     }
     assert!(f.lifecycle.event().is_none());
     assert_eq!(
@@ -492,7 +540,7 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
         (600, 601)
     );
     assert_eq!(f.battle.actors()[boss.index()].hp, 20);
-    for tick in 0..4 {
+    for tick in 0..6 {
         let frame = f.lifecycle.step(
             &mut f.battle,
             Input::default(),
@@ -508,8 +556,8 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
             usize::from(tick == 1),
             "only rescue entry disposes pre-event effects"
         );
-        assert_eq!(f.lifecycle.event().is_some(), matches!(tick, 1 | 2));
-        assert_eq!(frame.event_dissolve, if tick >= 2 { 255 } else { 0 });
+        assert_eq!(f.lifecycle.event().is_some(), (1..=4).contains(&tick));
+        assert_eq!(frame.event_dissolve, [0, 0, 255, 247, 239, 255][tick]);
         assert_eq!(
             (
                 f.battle.ledger().combat_ticks,
