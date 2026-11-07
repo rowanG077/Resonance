@@ -5,7 +5,7 @@ use bevy::{
 };
 use resonance_content::overworld::TerrainSurface;
 
-// Native world terrain table in fn_2_10670, after cooking surface names.
+// Terrain-specific sounds shared by walking and running.
 fn footstep_sound(surface: TerrainSurface) -> Option<i16> {
     use TerrainSurface::*;
     match surface {
@@ -103,11 +103,11 @@ impl Particles {
                 } else {
                     u16::from(party.field_leader)
                 };
-                let slot = if session.travel.speed().abs() > 8. {
-                    2
-                } else {
-                    1
-                };
+                let slot = locomotion_slot(
+                    session.travel.displayed_mount(),
+                    session.travel.speed(),
+                    session.travel.speed_fraction(),
+                );
                 let clip = models[&Model::Actor(actor)]
                     .iter()
                     .flat_map(|p| &p.clips)
@@ -529,48 +529,80 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
         Default::default(),
     )?;
     let mut scene = Scene::new(session, package.world)?;
-    scene.session.events.world.audio_commands.clear();
-    for walk in [false, true, false] {
-        let duration = scene.models[&Model::Actor(scene.leader())]
-            .iter()
-            .flat_map(|part| &part.clips)
-            .find(|clip| clip.resource_slot == if walk { 1 } else { 2 })
-            .unwrap()
-            .duration_ticks();
-        let mut contacts = Vec::new();
-        for elapsed in 0..duration + 2 {
-            scene.step(game::Input {
-                travel: game::travel::Input {
-                    stick: [1., 0.],
-                    walk,
+    let initial = scene.session.travel.state().clone();
+    for mount in [Mount::Foot, Mount::Noishe] {
+        scene.session.travel = game::travel::Travel::new(
+            TravelState {
+                mount,
+                ..initial.clone()
+            },
+            Arc::new(scene.package.definition.movement.clone()),
+        )?;
+        let actor = if mount == Mount::Noishe {
+            202
+        } else {
+            scene.leader()
+        };
+        scene.session.events.world.audio_commands.clear();
+        for (pressure, slot) in [(0.5, 1), (0.5001, 2)] {
+            scene.step(game::Input::default())?;
+            scene.session.events.world.audio_commands.clear();
+            let duration = scene.models[&Model::Actor(actor)]
+                .iter()
+                .flat_map(|part| &part.clips)
+                .find(|clip| clip.resource_slot == slot)
+                .unwrap()
+                .duration_ticks();
+            let expected = [0, duration / 2, duration + 1];
+            let mut contacts = Vec::new();
+            for elapsed in 0..=*expected.last().unwrap() {
+                scene.step(game::Input {
+                    travel: game::travel::Input {
+                        stick: [pressure, 0.],
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            })?;
-            if elapsed == 0 {
-                assert_eq!(
-                    scene
-                        .effects
-                        .particles
-                        .gait_start(scene.leader(), if walk { 1 } else { 2 }),
-                    Some(scene.session.events.tick())
-                );
-            }
-            for command in std::mem::take(&mut scene.session.events.world.audio_commands) {
-                if let resonance_events::AudioCommand::Sound { id, slot: None, .. } = command
-                    && resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(id as u32))
-                {
-                    contacts.push(elapsed);
+                })?;
+                if elapsed == 0 {
+                    assert_eq!(
+                        scene.effects.particles.gait_start(actor, slot),
+                        Some(scene.session.events.tick())
+                    );
+                }
+                for command in std::mem::take(&mut scene.session.events.world.audio_commands) {
+                    if let resonance_events::AudioCommand::Sound { id, slot: None, .. } = command
+                        && resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(id as u32))
+                    {
+                        contacts.push(elapsed);
+                    }
                 }
             }
+            assert_eq!(contacts, expected, "mount={mount:?}, pressure={pressure}");
         }
-        assert_eq!(contacts, [0, duration / 2, duration + 1], "walk={walk}");
-    }
-    for _ in 0..60 {
-        scene.step(game::Input::default())?;
-        assert!(!std::mem::take(&mut scene.session.events.world.audio_commands).iter().any(|command|
-            matches!(command, resonance_events::AudioCommand::Sound { id, slot: None, .. }
-                if resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(*id as u32)))));
+        // Changing pressure within either gait must preserve the shared clock.
+        for pressures in [[0.25, 0.5, 0.1], [0.625, 1., 0.75]] {
+            scene.step(game::Input::default())?;
+            let start = scene.session.events.tick() + 1;
+            for pressure in pressures {
+                scene.step(game::Input {
+                    travel: game::travel::Input {
+                        stick: [pressure, 0.],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })?;
+                let slot = if pressure > 0.5 { 2 } else { 1 };
+                assert_eq!(scene.effects.particles.gait_start(actor, slot), Some(start));
+            }
+        }
+        scene.session.events.world.audio_commands.clear();
+        for _ in 0..60 {
+            scene.step(game::Input::default())?;
+            assert_eq!(scene.effects.particles.gait_start(actor, 2), None);
+            assert!(!std::mem::take(&mut scene.session.events.world.audio_commands).iter().any(|command|
+                matches!(command, resonance_events::AudioCommand::Sound { id, slot: None, .. }
+                    if resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(*id as u32)))));
+        }
     }
     Ok(())
 }

@@ -975,12 +975,12 @@ fn pose(
                             animation.slot
                         } else if mount == Mount::Noishe && id == scene.leader() {
                             4
-                        } else if session.travel.speed().abs() > 8. {
-                            2
-                        } else if session.travel.speed().abs() > 0.01 {
-                            1
                         } else {
-                            0
+                            locomotion_slot(
+                                mount,
+                                session.travel.speed(),
+                                session.travel.speed_fraction(),
+                            )
                         },
                     );
                     if id == 201 {
@@ -1226,6 +1226,21 @@ fn flight_position(session: &game::Session, member: usize) -> (Position, f32) {
         lift,
     )
 }
+fn locomotion_slot(mount: Mount, speed: f32, speed_fraction: f32) -> u16 {
+    let speed = speed.abs();
+    let running = match mount {
+        Mount::Foot | Mount::Noishe => speed_fraction > 0.5,
+        _ => speed > 8.,
+    };
+    if speed <= 0.01 {
+        0
+    } else if running {
+        2
+    } else {
+        1
+    }
+}
+
 fn animate(
     owner: State,
     art: Option<Res<Art>>,
@@ -1444,6 +1459,25 @@ pub(super) fn ready(world: &mut World) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn locomotion_uses_half_maximum_speed_for_foot_and_noishe_only() {
+        for mount in [Mount::Foot, Mount::Noishe] {
+            for (speed, fraction, expected) in [
+                (0., 0., 0),
+                (0.01, 0.001, 0),
+                (5., 0.5, 1),
+                (5.001, 0.5001, 2),
+                (10., 1., 2),
+            ] {
+                assert_eq!(locomotion_slot(mount, speed, fraction), expected);
+            }
+        }
+        for mount in [Mount::Ship, Mount::Rheairds] {
+            assert_eq!(locomotion_slot(mount, 8., 0.75), 1);
+            assert_eq!(locomotion_slot(mount, 8.001, 0.25), 2);
+        }
+    }
+
     #[test]
     fn flight_pitch_and_bank_follow_local_axes_at_every_heading() {
         for yaw in [0., std::f32::consts::FRAC_PI_2, std::f32::consts::PI] {
