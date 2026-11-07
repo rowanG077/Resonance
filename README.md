@@ -15,9 +15,9 @@ See the [installation and usage guide](docs/installation.md) to choose an archiv
 import your two GameCube disc images and start playing. Every download includes
 the game, the asset importer and a README with these instructions.
 
-Maintainers can [publish a release](docs/releasing.md) by pushing a
-`release/vX.X.X` branch; CI builds all platforms, creates tag `vX.X.X` and
-publishes the tested archives automatically.
+Maintainers can [publish a release](docs/releasing.md) by consolidating the
+changelog locally and pushing a `release/vX.X.X` branch; CI builds all platforms,
+creates tag `vX.X.X` and publishes the tested archives automatically.
 
 ## Clone and build
 

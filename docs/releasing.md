@@ -1,14 +1,19 @@
 # Publishing a release
 
-Push a branch named `release/vX.X.X`, for example:
+Prepare a branch named `release/vX.X.X` locally in `nix develop`, for example:
 
 ```sh
-git switch -c release/v0.2.0
-# Set [workspace.package].version in Cargo.toml to 0.2.0, then:
+git switch -c release/v0.4.0
+# Set [workspace.package].version in Cargo.toml to 0.4.0, then:
 cargo update --offline --workspace
-git add Cargo.toml Cargo.lock
-git commit -m "Release version 0.2.0"
-git push -u origin release/v0.2.0
+# Ensure every entry links to its relevant PR before collecting.
+qlog check --all
+qlog collect --version 0.4.0 --insert CHANGELOG.md --delete
+qlog clean
+git diff -- CHANGELOG.md changelog Cargo.toml Cargo.lock
+git add Cargo.toml Cargo.lock CHANGELOG.md changelog
+git commit -m "Release version 0.4.0"
+git push -u origin release/v0.4.0
 ```
 
 The branch must contain the release workflow. Use three numeric version
@@ -70,25 +75,29 @@ Each release platform runs those same tests before building and packaging releas
 executables. Every platform must pass before publication. New commits cancel
 obsolete runs rather than waiting behind hours of older builds.
 
-Release preparation consolidates entries into `changelog/releases/vX.Y.Z.md`,
-archives the fragments under that version, and pushes a bot commit to the release
-branch. It dispatches CI for the new commit; reruns without new entries add no commit.
+New changelog fragments live in `changelog/entries/`, with links to their relevant
+PRs. See [qlog's documentation](https://github.com/qbaylogic/qlog) for entry management.
+Local release preparation inserts the new notes into the top-level `CHANGELOG.md` and deletes
+the consumed fragments. Older release sections remain in that file; individual
+fragments are not archived. If more changes arrive after consolidation, add their
+notes and PR links directly to the release section before pushing again.
+CI validates that the release section exists and is nonempty and no pending
+fragments remain. It does not consolidate, commit, push or dispatch another run.
 
 After all builds pass, CI creates tag `vX.X.X` at the tested release-branch commit
 and creates a GitHub release. For release PRs, checkout, testing, packaging and
 tagging all use the PR head commit; GitHub's temporary merge commit is never
 published. CI attaches a Windows ZIP, three Unix
 `.tar.gz` archives, a matching `-symbols` archive for each platform, `README.md`
-and `SHA256SUMS`. The consolidated changelog is the GitHub release body. The installation
+and `SHA256SUMS`. Only the matching release section from `CHANGELOG.md` becomes
+the GitHub release body. The installation
 guide remains the attached README and the README inside every archive. CI artifacts
 remain available for 14 days; published GitHub release assets persist.
 
-Changelog preparation and publication receive `contents: write`; preparation also
-receives `actions: write` to dispatch CI. Both use the automatic `GITHUB_TOKEN`.
+Only publication receives `contents: write`, using the automatic `GITHUB_TOKEN`.
 No personal access token or additional secret is needed.
 Repository or organization policy must permit GitHub Actions to create tags and
 releases, and tag rules must permit this workflow to create `v*` tags.
-Release-branch protection must also allow the bot's changelog commit.
 
 If a build fails, fix the release branch and push again. No tag or release is
 created before all platforms pass. If publication fails after creating a tag or

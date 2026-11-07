@@ -7,6 +7,8 @@ import re
 import subprocess
 import tomllib
 
+from release_notes import prepared_release_notes
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -67,6 +69,8 @@ def main():
         version = manifest["workspace"]["package"]["version"]
         if f"v{version}" != decision["version"]:
             raise ValueError(f"Release {decision['version']} does not match Cargo.toml version {version}")
+    if decision["publish"]:
+        prepared_release_notes(ROOT, decision["version"])
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for key, value in decision.items():
             value = str(value).lower() if isinstance(value, bool) else value
