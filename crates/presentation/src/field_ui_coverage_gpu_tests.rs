@@ -1,54 +1,26 @@
-//! The real dialogue material must fill the union of adjoining masked slices.
-use super::super::{Surface, TextureEffect};
+//! UI slices must join without holes or neighboring atlas pixels under MSAA.
+use super::super::{Surface, TextureEffect, UiInterpolation};
 use super::*;
 use bevy::{
     camera::{RenderTarget, ScalingMode},
     core_pipeline::tonemapping::Tonemapping,
     render::{
-        RenderPlugin,
-        pipelined_rendering::PipelinedRenderingPlugin,
         render_resource::{Extent3d, TextureDimension, TextureFormat},
         renderer::{RenderAdapter, RenderDevice},
-        settings::{Backends, RenderCreation, WgpuFeatures, WgpuSettings, WgpuSettingsPriority},
+        settings::WgpuFeatures,
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
-    window::ExitCondition,
 };
 
 #[derive(Resource, Default)]
 struct Captures(Vec<Image>);
 
 #[test]
-#[ignore = "requires a GPU; checks actual dialogue masking at subpixel joins with every MSAA count"]
+#[ignore = "requires a GPU; checks dialogue masks and tiled artwork at subpixel MSAA joins"]
 fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                    backends: Some(if cfg!(target_os = "macos") {
-                        Backends::METAL
-                    } else if cfg!(target_os = "windows") {
-                        Backends::DX12
-                    } else {
-                        Backends::VULKAN
-                    }),
-                    priority: WgpuSettingsPriority::WebGPU,
-                    ..default()
-                })),
-                synchronous_pipeline_compilation: true,
-                ..default()
-            })
-            .disable::<PipelinedRenderingPlugin>()
-            .disable::<bevy::winit::WinitPlugin>()
-            .disable::<bevy::gilrs::GilrsPlugin>(),
-    )
-    .init_resource::<Captures>();
+    app.add_plugins(crate::test_support::render_plugins())
+        .init_resource::<Captures>();
     super::super::install(&mut app);
     let began = std::time::Instant::now();
     while app.plugins_state() == bevy::app::PluginsState::Adding {
@@ -81,6 +53,10 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                 .all(|f| f.flags.sample_count_supported(mode.samples()))
         })
         .collect();
+    anyhow::ensure!(
+        modes.iter().any(|mode| mode.samples() > 1),
+        "this test requires native MSAA support"
+    );
     let white = app
         .world_mut()
         .resource_mut::<Assets<Image>>()
@@ -162,16 +138,34 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
         },
     };
     let mut layers = Vec::new();
-    for (index, (rect, coverage, source, size, sample_coverage)) in [
-        ([292., 220., 348., 260.], mask, white.clone(), [1, 1], true),
-        (seam, Coverage::default(), white.clone(), [1, 1], true),
-        (textured, Coverage::default(), pattern.clone(), [2, 2], true),
+    for (index, (rect, coverage, source, size, interpolation)) in [
+        (
+            [292., 220., 348., 260.],
+            mask,
+            white.clone(),
+            [1, 1],
+            UiInterpolation::Sample,
+        ),
+        (
+            seam,
+            Coverage::default(),
+            white.clone(),
+            [1, 1],
+            UiInterpolation::Sample,
+        ),
+        (
+            textured,
+            Coverage::default(),
+            pattern.clone(),
+            [2, 2],
+            UiInterpolation::Sample,
+        ),
         (
             [292., 260., 348., 264.],
             Coverage::default(),
             pattern.clone(),
             [2, 2],
-            false,
+            UiInterpolation::Center,
         ),
     ]
     .into_iter()
@@ -192,7 +186,7 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                 frame_mask: pattern.clone(),
                 color_mask: white.clone(),
                 coverage,
-                sample_coverage,
+                interpolation,
                 opaque: false,
                 additive: false,
                 texture_effect: TextureEffect::Plain,
@@ -202,6 +196,67 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
             Mesh2d(mesh),
             MeshMaterial2d(material),
             Transform::from_xyz(0., 0., index as f32),
+        ));
+    }
+    // Nearest-filtered tiles must not read colored or transparent neighbors
+    // when a subpixel join puts the pixel center outside the covered primitive.
+    // Linear-filtered tiles must also retain clean pixel-aligned joins at native
+    // scale; evaluating their UVs at every MSAA sample introduces atlas bleed.
+    for (index, (width, sampler, [top, bottom], edges)) in [
+        (
+            3,
+            bevy::image::ImageSampler::nearest(),
+            [217., 219.],
+            [292., 320.25, 348.],
+        ),
+        (
+            26,
+            bevy::image::ImageSampler::linear(),
+            [219., 220.],
+            [292., 316., 340.],
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut tile = Image::new_fill(
+            Extent3d {
+                width,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[255; 4],
+            TextureFormat::Rgba8Unorm,
+            default(),
+        );
+        let pixels = tile.data.as_mut().unwrap();
+        pixels[..4].copy_from_slice(&[255, 0, 255, 255]);
+        *pixels.last_mut().unwrap() = 0;
+        tile.sampler = sampler;
+        let tile = app.world_mut().resource_mut::<Assets<Image>>().add(tile);
+        let surface = super::super::battle_ui::test_tiled_surface(tile, [width, 1]);
+        let material = app
+            .world_mut()
+            .resource_mut::<Assets<Surface>>()
+            .add(surface);
+        let mut tiled = Batch::default();
+        for edge in edges.windows(2) {
+            tiled.quad(
+                [edge[0], top, edge[1], bottom],
+                [1., 0., (width - 1) as f32, 1.],
+                [1.; 4],
+            );
+        }
+        let mesh = app
+            .world_mut()
+            .resource_mut::<Assets<Mesh>>()
+            .add(tiled.mesh([width, 1]));
+        layers.push((mesh.clone(), material.clone()));
+        app.world_mut().spawn((
+            Mesh2d(mesh),
+            MeshMaterial2d(material),
+            Transform::from_xyz(0., 0., 4. + index as f32),
         ));
     }
     for size in [UVec2::new(64, 48), UVec2::new(96, 72), UVec2::new(160, 120)] {
@@ -279,6 +334,24 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                         );
                     }
                 }
+                for y in (1.5 * scale).ceil() as u32..(3. * scale).floor() as u32 {
+                    for x in (6. * scale) as u32..(58. * scale) as u32 {
+                        let pixel = image.get_pixel(x, y).0;
+                        anyhow::ensure!(
+                            pixel[..3].iter().all(|v| v.abs_diff(expected) <= 1),
+                            "{mode:?}, {size:?}, opacity={opacity}: tiled HUD artifact at {x},{y}: {pixel:?}, expected {expected}"
+                        );
+                    }
+                }
+                if size.x == 64 {
+                    for x in 6..50 {
+                        let pixel = image.get_pixel(x, 3).0;
+                        anyhow::ensure!(
+                            pixel[..3].iter().all(|v| v.abs_diff(expected) <= 1),
+                            "{mode:?}, opacity={opacity}: linear atlas bleed at {x},3: {pixel:?}, expected {expected}"
+                        );
+                    }
+                }
                 if mode == Msaa::Off {
                     baseline = Some(image.clone());
                 } else {
@@ -292,7 +365,7 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                         }
                     }
                 }
-                println!("{mode:?}, {size:?}, opacity={opacity}: dialogue slices have no seams");
+                println!("{mode:?}, {size:?}, opacity={opacity}: UI slices have no artifacts");
             }
         }
     }

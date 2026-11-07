@@ -12,22 +12,34 @@ struct VertexOutput {
     @if(MULTISAMPLED_UI)
     @interpolate(perspective, sample)
     @location(0) world_position: vec4<f32>,
-    @if(!(MULTISAMPLED_UI))
+    @if(CENTROID_UI)
+    @interpolate(perspective, centroid)
+    @location(0) world_position: vec4<f32>,
+    @if(!(MULTISAMPLED_UI || CENTROID_UI))
     @location(0) world_position: vec4<f32>,
     @if(MULTISAMPLED_UI)
     @interpolate(perspective, sample)
     @location(2) uv: vec2<f32>,
-    @if(!(MULTISAMPLED_UI))
+    @if(CENTROID_UI)
+    @interpolate(perspective, centroid)
+    @location(2) uv: vec2<f32>,
+    @if(!(MULTISAMPLED_UI || CENTROID_UI))
     @location(2) uv: vec2<f32>,
     @if(GLYPH_PATTERN && MULTISAMPLED_UI)
     @interpolate(perspective, sample)
     @location(3) pattern_uv: vec2<f32>,
-    @if(GLYPH_PATTERN && !(MULTISAMPLED_UI))
+    @if(GLYPH_PATTERN && CENTROID_UI)
+    @interpolate(perspective, centroid)
+    @location(3) pattern_uv: vec2<f32>,
+    @if(GLYPH_PATTERN && !(MULTISAMPLED_UI || CENTROID_UI))
     @location(3) pattern_uv: vec2<f32>,
     @if(MULTISAMPLED_UI)
     @interpolate(perspective, sample)
     @location(4) color: vec4<f32>,
-    @if(!(MULTISAMPLED_UI))
+    @if(CENTROID_UI)
+    @interpolate(perspective, centroid)
+    @location(4) color: vec4<f32>,
+    @if(!(MULTISAMPLED_UI || CENTROID_UI))
     @location(4) color: vec4<f32>,
 };
 @vertex

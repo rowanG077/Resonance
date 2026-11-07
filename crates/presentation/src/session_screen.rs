@@ -194,7 +194,7 @@ fn show_game_over(world: &mut World) -> Result<()> {
         frame_mask: image.clone(),
         color_mask: image,
         coverage: Coverage::default(),
-        sample_coverage: false,
+        interpolation: UiInterpolation::Center,
         opaque: false,
         additive: false,
         texture_effect: Default::default(),
