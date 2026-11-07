@@ -1,118 +1,117 @@
 //! Proven ordinary native actions use the existing authored-action document.
 use super::*;
-use resonance_content::{battle_martial::AuthoredAction, battle_unison::Placement};
+use resonance_content::{
+    battle_martial::{AuthoredAction, Presentation},
+    battle_unison::Placement,
+};
 
-const SWORD_RAIN_TEMPEST: &str = "battle/artes/sword-rain-tempest/action.json";
+const ACTIONS: [(u16, u8, u16, &str); 6] = [
+    (30, 1, 149, "battle/artes/sword-rain-tempest/action.json"),
+    (153, 6, 151, "battle/artes/holy-binds-zelos/action.json"),
+    (196, 8, 132, "battle/artes/dragon-strike/action.json"),
+    (198, 8, 134, "battle/artes/heaven-rising/action.json"),
+    (199, 8, 135, "battle/artes/dragons-talon/action.json"),
+    (249, 9, 148, "battle/artes/holy-binds-kratos/action.json"),
+];
 
 pub(crate) fn action_path(image: &pe::Image<'_>, id: usize, row: &[u8]) -> Result<Option<String>> {
-    if let Some(path) = super::regal::action_path(image, id, row)? {
-        return Ok(Some(path));
-    }
     if id == 228 {
         return super::falcon::action_path(image, row).map(Some);
     }
-    if id != 30 {
+    let Some(&(_, _, member, path)) = ACTIONS
+        .iter()
+        .find(|&&(catalogue, ..)| usize::from(catalogue) == id)
+    else {
         return Ok(None);
+    };
+    ensure!(
+        pe::half(row, 0)? == member,
+        "authored martial source binding changed for {id}"
+    );
+    if matches!(id, 30 | 196 | 198 | 199) {
+        let descriptor = pe::word(image.slice(0x8e98d0 + u32::from(member) * 4, 4)?, 0)?;
+        ensure!(
+            pe::word(image.slice(descriptor, 4)?, 0)? == 0x427dc0
+                && pe::word(image.slice(descriptor + 4, 4)?, 0)? == 0x427f20,
+            "authored martial action {id} no longer uses the ordinary dispatcher"
+        );
     }
-    ensure!(
-        pe::half(row, 0)? == 149,
-        "Sword Rain: Tempest no longer selects ordinary martial149"
-    );
-    let descriptor = pe::word(image.slice(0x8e98d0 + 149 * 4, 4)?, 0)?;
-    let handlers = image.slice(descriptor, 8)?;
-    ensure!(
-        pe::word(handlers, 0)? == 0x427dc0 && pe::word(handlers, 4)? == 0x427f20,
-        "Sword Rain: Tempest has an unconverted native callback"
-    );
-    Ok(Some(SWORD_RAIN_TEMPEST.to_owned()))
+    Ok(Some(path.to_owned()))
 }
 
 pub(super) fn cook(source: &Source, library: &Path, catalogue: &Catalogue) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
-    let row = image.slice(0x8d84b0 + 30 * 96, 96)?;
-    let path =
-        action_path(&image, 30, row)?.context("missing Sword Rain: Tempest authored path")?;
-    let binding = catalogue
-        .bindings
-        .get(&30)
-        .and_then(|bindings| bindings.get(&1))
-        .context("Sword Rain: Tempest has no Lloyd source binding")?;
-    ensure!(
-        (binding.member, binding.variant) == (149, 0),
-        "Sword Rain: Tempest source binding changed"
-    );
-    let attack = catalogue.variant(*binding)?.clone();
-    ensure!(
-        attack
-            .events
-            .iter()
-            .any(|(_, event)| matches!(event, Event::Contact(_))),
-        "ordinary martial149 has no contact timeline"
-    );
-    output::json(
-        &library.join(path),
-        &AuthoredAction {
-            attack,
-            motions: BTreeMap::new(),
-            effects: None,
-            presentation: Vec::new(),
-            unison: Placement {
-                native_id: pe::half(row, 0)?,
-                altitude: pe::word(row, 0x50)?,
-                distance: pe::half(row, 0x54)?,
-                duration: pe::half(row, 0x56)?,
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    #[ignore = "requires native Steam; publishes only martial and technique rule owners"]
-    fn installed_sword_rain_tempest_publishes_existing_authored_action() -> Result<()> {
-        let source = Source::open(
-            &std::path::PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let temporary = tempfile::tempdir()?;
-        let library = std::env::var_os("RESONANCE_TEST_LIBRARY")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| temporary.path().to_owned());
-        crate::battle_martial::cook(&source, &library)?;
-        crate::techniques::cook(&source, &library)?;
-        let document: resonance_content::arte::document::Document =
-            serde_json::from_slice(&std::fs::read(library.join(resonance_content::arte::PATH))?)?;
-        let entry = &document.techniques[document.mappings.target(30)?];
-        assert_eq!(entry.rules.action.as_deref(), Some(SWORD_RAIN_TEMPEST));
-        for id in [31, 32] {
-            assert!(
-                document.techniques[document.mappings.target(id)?]
-                    .rules
-                    .action
-                    .is_none()
+    for (id, character, member, _) in ACTIONS {
+        let row = image.slice(0x8d84b0 + u32::from(id) * 96, 96)?;
+        let path =
+            action_path(&image, usize::from(id), row)?.context("missing authored action path")?;
+        let binding = *catalogue
+            .bindings
+            .get(&id)
+            .and_then(|characters| characters.get(&character))
+            .with_context(|| format!("missing authored martial binding {id}/{character}"))?;
+        ensure!(
+            (binding.member, binding.variant) == (member, 0),
+            "authored martial binding changed for {id}"
+        );
+        let attack = catalogue.variant(binding)?.clone();
+        if character == 8 {
+            ensure!(
+                attack
+                    .events
+                    .iter()
+                    .any(|(_, event)| matches!(event, Event::Contact(_))),
+                "Regal arte {id} has no native contact timeline"
             );
         }
-        let action: AuthoredAction =
-            serde_json::from_slice(&std::fs::read(library.join(SWORD_RAIN_TEMPEST))?)?;
-        let catalogue = crate::battle_martial::read(&source)?;
-        assert_eq!(
-            serde_json::to_value(&action.attack)?,
-            serde_json::to_value(catalogue.attack(30, 1)?)?
-        );
-        assert_eq!(action.unison.native_id, 149);
-        assert!(
-            action
-                .attack
+        let presentation = if matches!(id, 153 | 249) {
+            // These callbacks start their second stored program at raw ages4/34.
+            // The native opening blend holds the action clock before that age.
+            let blend = attack
                 .events
                 .iter()
-                .filter(|(_, event)| matches!(event, Event::Contact(_)))
-                .count()
-                >= 8
-        );
-        Ok(())
+                .find_map(|(at, event)| match event {
+                    Event::Pose(pose) if *at == 0 => Some(u16::from(pose.blend)),
+                    _ => None,
+                })
+                .context("Holy Binds has no opening pose")?;
+            let second_at = (if id == 249 { 34u16 } else { 4u16 })
+                .checked_add(blend)
+                .context("Holy Binds effect time overflow")?;
+            vec![
+                (
+                    0,
+                    Presentation::SkillEffect {
+                        member: 1,
+                        bone: None,
+                    },
+                ),
+                (
+                    second_at,
+                    Presentation::SkillEffect {
+                        member: 2,
+                        bone: None,
+                    },
+                ),
+            ]
+        } else {
+            Vec::new()
+        };
+        output::json(
+            &library.join(path),
+            &AuthoredAction {
+                attack,
+                motions: BTreeMap::new(),
+                effects: None,
+                presentation,
+                unison: Placement {
+                    native_id: pe::half(row, 0)?,
+                    altitude: pe::word(row, 0x50)?,
+                    distance: pe::half(row, 0x54)?,
+                    duration: pe::half(row, 0x56)?,
+                },
+            },
+        )?;
     }
+    Ok(())
 }

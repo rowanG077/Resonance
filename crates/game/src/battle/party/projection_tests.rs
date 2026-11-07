@@ -102,8 +102,7 @@ pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
 #[test]
 fn costume_titles_do_not_prevent_battle_loadouts() -> Result<()> {
     let (mut menus, mut member) = fixture()?;
-    menus.titles[0][usize::from(member.title - 1)].costume =
-        Some(resonance_content::menu_data::Costume::Variant2);
+    menus.titles[0][usize::from(member.title - 1)].costume = Some(2);
     member.costume = 2;
     loadout(&menus, &member, Character::Lloyd)?;
     member.title = u8::MAX;

@@ -211,7 +211,7 @@ pub use character_models::character_dynamics::{
 };
 pub use character_models::{cook_character_models, party_model_mappings};
 pub use characters::cook_characters;
-pub use cooking::{cook_cooking, merge_ingredients as merge_cooking_ingredients};
+pub use cooking::{Source as CookingSource, cook_cooking, document as cooking_document};
 pub use credits_screen::cook_credits_screen;
 pub use descriptor::cook_descriptor;
 pub use dialogue_font::{cook_dialogue_art, cook_dialogue_font, cook_font_styles};

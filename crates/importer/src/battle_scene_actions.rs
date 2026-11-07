@@ -243,6 +243,7 @@ fn variant(
         duration,
         chain_at: (chain_at <= duration).then_some(chain_at),
         recovery: dol::u16(row, 2)?,
+        skill_effects: false,
         effect: match dol::u16(row, 10)? {
             u16::MAX => None,
             value => Some(value),

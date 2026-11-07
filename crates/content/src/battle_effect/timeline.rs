@@ -170,21 +170,6 @@ fn vertices_empty(values: &[[Option<ValueRange>; 3]; 4]) -> bool {
     values.iter().all(empty)
 }
 
-fn quad_birth_vertices<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> std::result::Result<[[Option<ValueRange>; 3]; 4], D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Vertices {
-        Four([[Option<ValueRange>; 3]; 4]),
-        Three([[Option<ValueRange>; 3]; 3]),
-    }
-    Ok(match Vertices::deserialize(deserializer)? {
-        Vertices::Four(vertices) => vertices,
-        Vertices::Three([a, b, c]) => [a, b, c, [None; 3]],
-    })
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelParent {
@@ -282,10 +267,7 @@ pub struct ParticleBirth {
     #[serde(skip_serializing_if = "empty")]
     pub size_acceleration: [Option<ValueRange>; 3],
     /// Direct edits to all four authored quad vertices.
-    #[serde(
-        skip_serializing_if = "vertices_empty",
-        deserialize_with = "quad_birth_vertices"
-    )]
+    #[serde(skip_serializing_if = "vertices_empty")]
     pub vertices: [[Option<ValueRange>; 3]; 4],
     #[serde(skip_serializing_if = "vertices_empty")]
     pub vertex_velocity: [[Option<ValueRange>; 3]; 4],
@@ -552,7 +534,7 @@ mod quad_birth_tests {
     use super::*;
 
     #[test]
-    fn four_corner_edits_round_trip_and_three_corner_documents_still_load() -> Result<()> {
+    fn four_corner_edits_round_trip() -> Result<()> {
         let mut birth = ParticleBirth::default();
         birth.vertices[0][0] = Some(ValueRange::fixed(2.));
         birth.vertices[3][2] = Some(ValueRange::fixed(7.));
@@ -560,11 +542,6 @@ mod quad_birth_tests {
         let decoded: ParticleBirth = serde_json::from_value(value.clone())?;
         assert_eq!(decoded, birth);
         decoded.validate()?;
-        let mut legacy = value;
-        legacy["vertices"].as_array_mut().unwrap().truncate(3);
-        let decoded: ParticleBirth = serde_json::from_value(legacy)?;
-        assert_eq!(decoded.vertices[0][0], birth.vertices[0][0]);
-        assert_eq!(decoded.vertices[3], [None; 3]);
         assert!(
             serde_json::from_str::<ParticleBirth>("{\"vertices\":[[null,null,null]]}").is_err()
         );

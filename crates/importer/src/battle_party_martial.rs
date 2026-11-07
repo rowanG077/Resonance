@@ -588,6 +588,7 @@ fn attack(
             u16::MAX => None,
             effect => Some(effect),
         },
+        skill_effects: false,
         events,
         callback_hits: BTreeMap::new(),
         pose_sequence,

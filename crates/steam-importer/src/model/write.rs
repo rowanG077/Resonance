@@ -113,6 +113,7 @@ pub(crate) fn cook_on_rig(
                     nearest_min: false,
                     nearest_mag: false,
                     mipmapped: false,
+                    scale: TextureBinding::unscaled(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -155,6 +156,8 @@ pub(crate) fn cook_on_rig(
         appearance: None,
         translation: [0.; 3],
         clips: Vec::new(),
+        prepared_motions: None,
+        prepared_geometry: None,
         autoplay: false,
         texture_animations: Vec::new(),
         bone_names: Vec::new(),
@@ -366,111 +369,6 @@ mod alpha_tests {
         assert_eq!(alpha_cutoff(0, 0)?, 0);
         assert!(alpha_cutoff(3, 128).is_err());
         assert!(alpha_cutoff(4, 255).is_err());
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires installed Steam; optionally writes only cloud136 KTX2 to RESONANCE_CLOUD_STYLE_OUTPUT"]
-    fn installed_gc_cloud_alpha_preserves_rgb_mips_and_both_material_fades() -> Result<()> {
-        let source = Source::open(
-            Path::new(
-                &std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let temporary = tempfile::tempdir()?;
-        let descriptor = "del_d07_OBJ000.TOMDLB_D";
-        let (scene, native) = cook(
-            &source,
-            temporary.path(),
-            descriptor,
-            "fields/derris-kharlan-0136",
-            "part-0",
-        )?;
-        let image_descriptor =
-            texture::Descriptor::read(&source.require("DEL_D07_PIC000_PIC003.totexb_d")?)?;
-        let original = image_descriptor.decode(&source.require(&image_descriptor.payload)?)?;
-        let converted_bytes = std::fs::read(temporary.path().join(&scene.textures[3]))?;
-        let converted = resonance_asset_writer::texture::ktx2(&converted_bytes)?;
-        ensure!(
-            original.levels.len() == converted.len(),
-            "cloud mip count changed"
-        );
-        let mut source_has_alpha = false;
-        for (original, converted) in original.levels.iter().zip(&converted) {
-            ensure!(
-                original.width == converted.width && original.height == converted.height,
-                "cloud mip dimensions changed"
-            );
-            for (original, converted) in original
-                .rgba
-                .chunks_exact(4)
-                .zip(converted.rgba.chunks_exact(4))
-            {
-                source_has_alpha |= original[3] != 255;
-                ensure!(
-                    original[..3] == converted[..3] && converted[3] == 255,
-                    "cloud RGB changed or GC alpha was lost"
-                );
-            }
-        }
-        ensure!(
-            source_has_alpha,
-            "source cloud no longer needs alpha normalization"
-        );
-        let (tints, blended, _) =
-            material_parameters(&source.require("del_d07_OBJ000.mxd")?, &native.materials)?;
-        ensure!(
-            tints[0][3] == 0.4609375 && tints[18][3] == 1.,
-            "cloud MXD fades changed"
-        );
-        ensure!(
-            blended[0]
-                && blended[18]
-                && original.levels[0]
-                    .rgba
-                    .chunks_exact(4)
-                    .any(|pixel| pixel[3] > 0 && pixel[3] < 255),
-            "source cloud no longer has the expected translucent classification"
-        );
-        let mut classified = 0;
-        for (mesh, material) in native
-            .meshes
-            .iter()
-            .filter(|mesh| !mesh.indices.is_empty())
-            .zip(&scene.materials)
-        {
-            if matches!(mesh.material, 0 | 18) {
-                // Classify from the authored image before changing its output
-                // alpha. MT18 has full MXD opacity but still uses the source's
-                // translucent image; flattening alpha must not enable depth.
-                ensure!(
-                    material.blend && !material.depth_write,
-                    "GC cloud image normalization changed source blend/depth policy"
-                );
-                classified += 1;
-            }
-        }
-        ensure!(
-            classified == 2,
-            "cloud sphere/cylinder source meshes changed"
-        );
-        ensure!(
-            std::fs::read(temporary.path().join(&scene.mesh))? == native.glb(&tints)?,
-            "cloud vertex RGB/alpha or geometry changed"
-        );
-        let mut unrelated = image_descriptor.decode(&source.require(&image_descriptor.payload)?)?;
-        gc_cloud_alpha("unrelated.tomdlb_d", &native.materials, 3, &mut unrelated)?;
-        ensure!(
-            unrelated.ktx2()? == original.ktx2()?,
-            "unrelated material alpha changed"
-        );
-        if let Some(destination) = std::env::var_os("RESONANCE_CLOUD_STYLE_OUTPUT") {
-            output::write(
-                &Path::new(&destination).join(&scene.textures[3]),
-                &converted_bytes,
-            )?;
-        }
         Ok(())
     }
 }

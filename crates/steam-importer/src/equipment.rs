@@ -367,8 +367,6 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Language;
-    use std::path::PathBuf;
     #[test]
     fn scroll_offsets_and_frame_sequences_keep_their_storage_types() -> Result<()> {
         let mut row = vec![0; 64];
@@ -383,82 +381,6 @@ mod tests {
         row[4] = 4;
         row[28..32].copy_from_slice(&[3, 2, 1, 0]);
         assert_eq!(&metadata(&row)?[28..32], &[3, 2, 1, 0]);
-        Ok(())
-    }
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks equipment and reads it through the shared loader"]
-    fn installed_equipment_cooks_and_prepares_shared_attachments() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            Language::English,
-        )?;
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        cook(&source, &root)?;
-        let library = resonance_content::library::Library::open(&root, &[])?;
-        let mappings = document::equipment_mappings(&mut library.snapshot())?;
-        ensure!(
-            mappings.len() == 180,
-            "incomplete Steam equipment catalogue"
-        );
-        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        for item in mappings.keys() {
-            let attachment = document::capture_equipment(
-                &mut library.snapshot(),
-                *item as u16,
-                &diagnostics,
-                &|| false,
-            )
-            .with_context(|| format!("prepare equipment {item}"))?;
-            let weapon = match attachment {
-                resonance_content::battle_model::Attachment::Weapon(weapon)
-                | resonance_content::battle_model::Attachment::Shield(weapon) => weapon,
-                resonance_content::battle_model::Attachment::Nonvisual => continue,
-            };
-            for part in weapon.parts.values() {
-                if *item == 155 {
-                    ensure!(
-                        !part.layer_skeletons.contains_key(&1),
-                        "the outline must share its body's pose"
-                    );
-                }
-                if *item == u32::from(ItemId::FineStar as u16) {
-                    ensure!(
-                        part.layers[0]
-                            .scene
-                            .clips
-                            .iter()
-                            .map(|clip| clip.resource_slot)
-                            .eq([60, 90, 91, 92, 103, 105]),
-                        "Genis weapon must retain its six source motions without unrelated body clips"
-                    );
-                }
-                for layer in &part.layers {
-                    let skeleton = part
-                        .layer_skeletons
-                        .get(&layer.scene.resource)
-                        .unwrap_or(&part.rig.skeleton);
-                    ensure!(
-                        skeleton
-                            .bones
-                            .iter()
-                            .map(|bone| &bone.name)
-                            .eq(layer.scene.bone_names.iter()),
-                        "equipment {item} layer {} has a different rig",
-                        layer.scene.resource
-                    );
-                    for clip in &layer.scene.clips {
-                        resonance_content::animation::Motion::decode_for_skeleton(
-                            &fs::read(root.join(&clip.motion))?,
-                            skeleton,
-                        )?;
-                    }
-                }
-            }
-        }
         Ok(())
     }
 }

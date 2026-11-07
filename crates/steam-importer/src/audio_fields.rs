@@ -1,17 +1,17 @@
 //! Field entry points select the same recorded audio resources as the GC cook.
-use crate::{output, source::Source};
-use anyhow::{Context, Result, ensure};
+use crate::{
+    output,
+    script_audio::{self, Script, select},
+    source::Source,
+};
+use anyhow::{Context, Result};
 use resonance_content::{
     field::document::Definition,
     field_audio::{ServiceCue, document as audio, speech},
     library::{FIELDS, Mappings},
 };
 use std::{collections::BTreeSet, fs, path::Path};
-use symphonia_script::{
-    NativeCall, Program,
-    message::{Message, Token},
-    scenario,
-};
+use symphonia_script::{NativeCall, message::Message};
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     crate::audio_effects::bind_services(source, library)?;
@@ -32,78 +32,26 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
         let path = library.join(format!("fields/{name}/field.json"));
         let mut field: Definition = serde_json::from_slice(&fs::read(&path)?)?;
         let bytes = fs::read(library.join(&field.script))?;
-        let program = Program::decode(&bytes)?;
-        let analysis = scenario::analyze(&bytes)?;
-        let arguments = |call, arity, position| -> Result<Vec<Option<i32>>> {
-            Ok(
-                scenario::calls::analyzed_arguments(&program, &analysis, call, arity)?
-                    .into_values()
-                    .map(|args| args[position])
-                    .collect(),
-            )
-        };
+        let script = Script::read(&bytes)?;
         let mut selected = audio::Definition {
             reverbs: field.audio.reverbs,
             ..Default::default()
         };
-        select(
-            arguments(NativeCall::AudioCommand, 1, 0)?,
-            &music,
-            &mut selected.music,
-        )
-        .with_context(|| format!("field {id} music"))?;
+        selected.music = select(script.arguments(NativeCall::AudioCommand, 1, 0)?, &music)
+            .with_context(|| format!("field {id} music"))?;
         selected
             .effects
             .extend(ServiceCue::ALL.iter().map(|cue| *cue as u32));
-        let mut dynamic_effects = false;
-        for (call, arity, position) in crate::script_audio::CALLS {
-            let values = arguments(call, arity, position)?;
-            dynamic_effects |= values.iter().any(Option::is_none);
-            for &value in values.iter().flatten().filter(|value| **value >= 0) {
-                if !effects.contains(&(value as u32)) {
-                    crate::audio_effects::bind_unused(source, library, value as u32)
-                        .with_context(|| format!("field {id} {call:?}"))?;
-                    effects.insert(value as u32);
-                }
-            }
-            select(values, &effects, &mut selected.effects)
-                .with_context(|| format!("field {id} {call:?}"))?;
-        }
-        let mut requested = BTreeSet::new();
-        let mut voice = |value: Option<i32>| {
-            match value {
-                Some(value) if value >= 0 => {
-                    requested.insert(value as u32);
-                }
-                Some(_) => (),
-                // Dynamic selectors use the published speech catalogue, just
-                // as dynamic music/effects select their existing catalogues.
-                None => requested.extend(&voices),
-            }
-        };
-        for value in arguments(NativeCall::PlayVoice, 1, 0)? {
-            voice(value);
-        }
+        let dynamic_effects = script
+            .effects(source, library, &mut effects, &mut selected.effects)
+            .with_context(|| format!("field {id} effects"))?;
+        let mut requested = script.arguments(NativeCall::PlayVoice, 1, 0)?;
         if let Some(messages) = &field.messages {
             let messages: Vec<Message> =
                 serde_json::from_slice(&fs::read(library.join(messages))?)?;
-            for message in messages {
-                for token in message.tokens {
-                    if let Token::Control {
-                        opcode: 9,
-                        expression,
-                    } = token
-                    {
-                        voice(expression.constant());
-                    }
-                }
-            }
+            requested.extend(script_audio::message_voices(&messages));
         }
-        ensure!(
-            requested.is_subset(&voices),
-            "field {id} has missing voices: {:?}",
-            requested.difference(&voices).collect::<Vec<_>>()
-        );
+        let requested = select(requested, &voices).with_context(|| format!("field {id} speech"))?;
         if !requested.is_empty() {
             selected.speech.push(audio::Speech {
                 ids: requested,
@@ -121,24 +69,6 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
             field.audio.effects.extend(&effects);
         }
         output::json(&path, &field)?;
-    }
-    Ok(())
-}
-
-fn select(
-    values: Vec<Option<i32>>,
-    available: &BTreeSet<u32>,
-    selected: &mut BTreeSet<u32>,
-) -> Result<()> {
-    for value in values {
-        match value {
-            Some(id) if id >= 0 => {
-                ensure!(available.contains(&(id as u32)), "unmapped audio ID {id}");
-                selected.insert(id as u32);
-            }
-            Some(_) => (), // Stop/pause/resume sentinels do not select recordings.
-            None => selected.extend(available),
-        }
     }
     Ok(())
 }

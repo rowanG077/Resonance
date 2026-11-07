@@ -55,7 +55,7 @@ fn continued_pose_samples_rate_changes_before_advancing() -> Result<()> {
                   through: u16|
      -> Result<(Option<u16>, f32)> {
         let mut definition = (*definition()).clone();
-        definition.motions.get_mut(&1).unwrap().duration_frames = end;
+        Arc::make_mut(definition.motions.get_mut(&1).unwrap()).duration_frames = end;
         let actor = actor();
         let mut model = Model::new(Arc::new(definition), ActorId(0), &actor)?;
         model.play(

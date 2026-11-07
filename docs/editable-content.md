@@ -555,6 +555,10 @@ selected costume's actual rig. Motion files use 30 animation frames per second;
 contact windows, duration and recovery use gameplay updates. Hit-stop pauses
 the action clock. A `pose_sequence` additionally accounts for authored blend
 holds; ordinary `events` use absolute ages directly.
+Optional `presentation` entries use the same action clock. For example,
+`[44,{"skill_effect":{"member":2}}]` starts a stored skill effect at age 44.
+Preparation captures the skill artwork declared by these entries. Holy Binds
+uses this format, so its effect schedule can be edited with its action.
 An `after_previous` pose waits for the previous finite clip to finish, including
 scheduled animation-rate changes and a zero-rate hold followed by a resume.
 An unresumed hold cannot provide a finite following start.
@@ -567,10 +571,11 @@ Skill effects and temporary weapons require this arte's stored skill scene;
 an optional effect `bone` names a joint on the selected actor's actual model.
 An omitted presentation list is empty.
 
-The `effects` bank is optional; absent selects the shared technique bank.
-`attack.effect`, timed `effect` events and contact `hit.effect` select programs
-in this bank. Named particle templates, models and textures use the ordinary
-battle effect format. `unison` supplies the placement/timing and a unique native
+The optional `effects` bank supplies `attack.effect`, timed `effect` events and
+contact `hit.effect`; absent selects the shared technique bank. An attack with
+`skill_effects: true` selects the arte's stored skill scene instead and initializes
+its startup effect immediately. Named particle templates, models and textures use
+the ordinary battle effect format. `unison` supplies the placement/timing and a unique native
 identity for Unison recipes without editing the shared Unison catalogue.
 
 The attack uses the shared martial timeline format. Native recipe fields such

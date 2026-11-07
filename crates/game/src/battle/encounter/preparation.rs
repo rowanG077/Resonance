@@ -1315,9 +1315,13 @@ impl Assets {
                         .parts
                         .get(&0)
                         .context("thrown primary weapon artwork is missing")?;
-                    if let Some((model, render)) =
-                        render::effect_model(&self.files, part, handles.resource(), true, &self.effect_models)?
-                    {
+                    if let Some((model, render)) = render::effect_model(
+                        &self.files,
+                        part,
+                        handles.resource(),
+                        true,
+                        &self.effect_models,
+                    )? {
                         variants.insert(weapon.primary_resource(), model);
                         models.push(render);
                     }

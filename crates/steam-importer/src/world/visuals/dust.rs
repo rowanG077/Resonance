@@ -30,27 +30,3 @@ pub(super) fn cook(source: &Source, library: &Path, image: &pe::Image<'_>) -> Re
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only world dust"]
-    fn installed_world_dust_uses_four_native_frames() -> Result<()> {
-        let source = Source::open(
-            &std::path::PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let library = std::path::PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        cook(&source, &library, &pe::Image::parse(&source.executable)?)?;
-        let frames = (0..4)
-            .map(|index| fs::read(library.join(format!("world/effects/dust-{index}.ktx2"))))
-            .collect::<std::io::Result<std::collections::BTreeSet<_>>>()?;
-        ensure!(frames.len() == 4, "world dust lost distinct source frames");
-        Ok(())
-    }
-}

@@ -473,7 +473,7 @@ impl Strategy {
             Some(MenuAction::Down) => edit.row = (edit.row + 1) % 9,
             Some(MenuAction::NextPosition | MenuAction::NextTab) => {
                 return Ok(
-                    if edit.position < edit.value.len()
+                    if edit.position < edit.value.chars().count()
                         && edit.position < STRATEGY_NAME_CHARACTERS - 1
                     {
                         edit.position += 1;

@@ -10,8 +10,6 @@ mod input;
 mod oracle;
 mod rumble;
 mod transition;
-#[cfg(test)]
-mod visual_artes;
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{

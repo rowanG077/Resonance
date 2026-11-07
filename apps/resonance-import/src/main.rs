@@ -70,6 +70,12 @@ enum Action {
         output: PathBuf,
         #[arg(long, default_value = "english")]
         language: resonance_steam_importer::Language,
+        /// Recook one category in an existing library; its dependencies must already be cooked.
+        #[arg(long)]
+        category: Option<resonance_steam_importer::Category>,
+        /// Limit a category to these native IDs (repeat for enemy categories).
+        #[arg(long, requires = "category")]
+        id: Vec<u16>,
     },
     /// Decode native effect declarations for an external observation.
     InspectEffectTemplates,
@@ -163,8 +169,16 @@ fn main() -> Result<()> {
             directory,
             output,
             language,
+            category,
+            id,
         } => {
-            resonance_steam_importer::cook_all(&directory, &output, language)?;
+            if let Some(category) = category {
+                resonance_steam_importer::cook_category(
+                    &directory, &output, language, category, &id,
+                )?;
+            } else {
+                resonance_steam_importer::cook_all(&directory, &output, language)?;
+            }
             println!("Cooked Steam categories: {}", output.display());
         }
         Action::InspectEffectTemplates => {

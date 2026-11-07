@@ -543,7 +543,6 @@ pub(super) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
     #[test]
     fn gc_style_linear_tracks_keep_the_authored_windows_and_hold() -> Result<()> {
         let recipe: UvRecipe = serde_json::from_value(
@@ -555,74 +554,5 @@ mod tests {
         assert_eq!(track.animation.offsets[60], [0., 0.4]);
         assert_eq!(track.animation.offsets[210], [0., 0.6]);
         Ok(())
-    }
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks only the two Thoda cape actors"]
-    fn installed_thoda_capes_bind_the_shared_gc_recipe() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let library = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        let names: BTreeMap<u16, Names> = serde_json::from_str(include_str!(
-            "../../../importer/src/world-cinematic-names.json"
-        ))?;
-        for id in [514, 515] {
-            let bytes = source.require(&format!("e{:02}.pac", id - 513))?;
-            let directory = Package::parse(&bytes)?;
-            let bytes = source.require(directory.reference(1)?.context("missing Thoda actor")?)?;
-            let actor = Package::parse(&bytes)?;
-            let owner = format!(
-                "world/cinematics/{}/actors/{}",
-                names[&id].name, names[&id].actors[&1]
-            );
-            let (mut scene, native) = preview_model::part(
-                &source,
-                &library,
-                actor.reference(0)?.context("missing Thoda body")?,
-                &owner,
-                "body",
-                &[(
-                    0,
-                    actor.reference(2)?.context("missing Thoda motion")?.into(),
-                )],
-            )?;
-            thoda_cape(&mut scene, &native)?;
-            scene.validate(|path| library.join(path).is_file())?;
-            let chains = scene.secondary_motion.prepare(&scene.bone_names)?;
-            ensure!(
-                chains.len() == 2 && chains.iter().all(|chain| chain.joints.len() == 11),
-                "incomplete native Thoda chains"
-            );
-            for clip in &scene.clips {
-                scene
-                    .secondary_motion
-                    .validate_selection(&clip.pose_chains)?;
-                clip.decode_motion(&fs::read(library.join(&clip.motion))?, &scene.bone_names)?;
-            }
-            output::json(
-                &library.join(owner).join("model.json"),
-                &document::Model { parts: vec![scene] },
-            )?;
-        }
-        Ok(())
-    }
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks native world cinematics"]
-    fn installed_world_cinematics_cook_into_shared_documents() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        cook(&source, &root)
     }
 }

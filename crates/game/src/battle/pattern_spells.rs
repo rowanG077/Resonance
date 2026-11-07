@@ -168,6 +168,7 @@ pub(crate) mod tests {
         assert!(matches!(spell.projectiles[0].launch, SpellLaunch::Live));
         assert_eq!(spell.effects.len(), 1);
         resources.prepare_effects(
+            &Default::default(),
             &mut |_| Ok(None),
             &resonance_content::diagnostics::Diagnostics::new(true),
         )?;

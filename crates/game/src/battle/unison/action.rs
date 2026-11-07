@@ -331,6 +331,7 @@ mod tests {
             chain_at: None,
             recovery: 20,
             effect: None,
+            skill_effects: false,
             events: vec![
                 (0, Event::Pose(ActionPose { clip: 0, ..pose })),
                 (19, Event::Pose(ActionPose { clip: 61, ..pose })),

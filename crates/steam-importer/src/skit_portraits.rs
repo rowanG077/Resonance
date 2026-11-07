@@ -66,7 +66,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                     && image.height.is_multiple_of(8),
                 "invalid portrait dimensions"
             );
-            images.push(path);
+            images.push(image);
         }
         ensure!(!images.is_empty(), "portrait {id} has no images");
         ensure!(

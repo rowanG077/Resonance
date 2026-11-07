@@ -8,7 +8,7 @@ fn member() -> Result<Member> {
     let shot = json!({"projectile":{"member":2,"hit":hit,"feedback":{"effect":3,"sound":0,"on_guard":false}}});
     let pose = json!({"clip":"idle","blend":0,"rate":0.0});
     let attack: Attack = serde_json::from_value(json!({
-        "duration":50,"recovery":10,"events":[[0,contact],[0,shot],[3,{"projectile":{"member":3}}]],
+        "duration":50,"recovery":10,"skill_effects":true,"events":[[0,contact],[0,shot],[3,{"projectile":{"member":3}}]],
         "callback_hits":{"1":hit},"pose_sequence":[{"start":{"at":0},"pose":pose}],
         "flight":{"gravity_at":10,"gravity":-1.0,"finish_pose":pose},
         "hammer":{"pattern":{"kind":"single","alternate_events":[[2,contact],[4,shot]]},"hits":[hit,hit,hit],"impact_effect":1,"impact_sound":2},

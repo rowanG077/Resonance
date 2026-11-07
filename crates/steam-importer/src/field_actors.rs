@@ -20,12 +20,7 @@ use std::{
 };
 use symphonia_script::{NativeCall, Program, scenario};
 
-pub(crate) fn cook(
-    source: &Source,
-    library: &Path,
-    models: &mut Models,
-    selected: Option<u32>,
-) -> Result<()> {
+pub(crate) fn cook(source: &Source, library: &Path, models: &mut Models) -> Result<()> {
     let fields: Mappings = serde_json::from_slice(&fs::read(library.join(FIELDS))?)?;
     let image = pe::Image::parse(&source.executable)?;
     let mut motions = BTreeMap::<(String, String), String>::new();
@@ -36,10 +31,7 @@ pub(crate) fn cook(
         .iter()
         .map(|(&id, name)| Ok((name.to_ascii_lowercase(), models.mappings.model_path(id)?)))
         .collect::<Result<BTreeMap<_, _>>>()?;
-    for (id, name) in fields
-        .iter()
-        .filter(|(id, _)| selected.is_none_or(|only| only == *id))
-    {
+    for (id, name) in fields.iter() {
         eprintln!("  Field actors: {name} ({id})");
         let bytes =
             source.require(image.text(pe::word(image.slice(0x8cb908 + id * 24, 4)?, 0)?)?)?;

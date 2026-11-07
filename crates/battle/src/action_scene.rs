@@ -41,11 +41,15 @@ mod tests {
                 .into_iter()
                 .map(|side| (crate::tests::actor(side), ActorSetup::default()))
                 .collect(),
-            vec![scene, ordinary].into(),
+            vec![scene.clone(), ordinary, {
+                crate::tests::attack_mut(&mut scene).end_at = 30;
+                scene
+            }]
+            .into(),
             3,
         )?;
         for actor in 0..4 {
-            for action in 0..2 {
+            for action in 0..3 {
                 crate::tests::assign_action(&mut prepared, actor, ActionKey(action));
             }
         }
@@ -138,7 +142,7 @@ mod tests {
             });
         }
         assert!(prior_sound);
-        assert!(battle.action_scene.is_none());
+        assert!(battle.action_scenes.is_empty());
         assert!(battle.command_admission_allowed());
         Ok(())
     }
@@ -158,7 +162,7 @@ mod tests {
                 reason: Rejection::Petrified
             }
         )));
-        assert_eq!(battle.action_scene.unwrap().owner, ActorId(1));
+        assert_eq!(battle.action_scenes[0].owner, ActorId(1));
         Ok(())
     }
 
@@ -166,11 +170,19 @@ mod tests {
     fn enemy_reservation_keeps_party_admissions_and_all_termination_paths_release() -> Result<()> {
         for termination in 0..3 {
             let mut battle = fixture()?;
-            battle.start_admitted_action(request(2, 0, 0), &mut vec![])?;
+            battle.start_admitted_action(request(2, 2, 0), &mut vec![])?;
             assert!(battle.action_scene_blocks(ActorId(3)));
             assert!(!battle.action_scene_blocks(ActorId(0)));
             assert!(battle.start_actor_command(request(0, 1, 2), &mut vec![])?);
-            let scene = battle.action_scene.unwrap();
+            let scene = battle.action_scenes[0];
+            assert!(battle.start_actor_command(request(1, 0, 2), &mut vec![])?);
+            for _ in 0..10 {
+                battle.step(BattleInput::default())?;
+            }
+            assert!(battle.command_admission_allowed());
+            assert_eq!(battle.action_scenes.len(), 1);
+            assert!(battle.action_scene_blocks(ActorId(3)));
+            assert!(!battle.start_actor_command(request(3, 0, 0), &mut vec![])?);
             match termination {
                 0 => battle.interrupt_actor(ActorId(2), &mut vec![]),
                 1 => {
@@ -178,10 +190,10 @@ mod tests {
                 }
                 _ => battle.set_task(2, crate::state::ActorTask::None),
             }
-            assert!(battle.action_scene.is_none(), "termination{termination}");
+            assert!(battle.action_scenes.is_empty(), "termination{termination}");
             battle.start_admitted_action(request(3, 0, 0), &mut vec![])?;
             battle.end_action_scene(scene.action);
-            assert_eq!(battle.action_scene.unwrap().owner, ActorId(3));
+            assert_eq!(battle.action_scenes[0].owner, ActorId(3));
         }
         Ok(())
     }
@@ -189,7 +201,7 @@ mod tests {
 
 impl Battle {
     pub(crate) fn action_scene_blocks(&self, actor: ActorId) -> bool {
-        self.action_scene.is_some_and(|scene| {
+        self.action_scenes.iter().any(|scene| {
             actor != scene.owner
                 && (self.actors[scene.owner.index()].side == Side::Party
                     || self.actors[actor.index()].side == Side::Enemy)
@@ -197,7 +209,7 @@ impl Battle {
     }
 
     pub(crate) fn begin_action_scene(&mut self, action: ActionId, owner: ActorId, protection: u16) {
-        self.action_scene = Some(Reservation { action, owner });
+        self.action_scenes.push(Reservation { action, owner });
         self.target_selector = None;
         self.command_target = None;
         if self.actors[owner.index()].side != Side::Party {
@@ -228,11 +240,6 @@ impl Battle {
     }
 
     pub(crate) fn end_action_scene(&mut self, action: ActionId) {
-        if self
-            .action_scene
-            .is_some_and(|scene| scene.action == action)
-        {
-            self.action_scene = None;
-        }
+        self.action_scenes.retain(|scene| scene.action != action);
     }
 }

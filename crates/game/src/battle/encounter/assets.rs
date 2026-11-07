@@ -117,9 +117,7 @@ pub(super) fn choreography_ids(
             if crate::battle::skill_scene::contains(catalogue)
                 || profiles
                     .martial_attack(catalogue, character as u8)
-                    .is_ok_and(|attack| {
-                        crate::battle::skill_scene::callback_artwork(catalogue, attack)
-                    })
+                    .is_ok_and(|attack| crate::battle::skill_scene::callback_artwork(attack))
             {
                 skill_ids.insert(catalogue);
             }

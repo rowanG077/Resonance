@@ -2,8 +2,98 @@
 //! Pure expressions are replayed with ordinary calculator operations; no VM
 //! instructions, scratch globals or edition-dependent native handlers are needed.
 use anyhow::{Context, Result, ensure};
-use std::{collections::BTreeMap, ops::Range};
-use symphonia_script::{NativeCall, Op, Program, scenario, semantics::NativeRegistry};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
+use symphonia_script::{NativeCall, Program, scenario};
+
+/// Decode once while collecting a scene's audio dependencies.
+pub(crate) struct Script {
+    program: Program,
+    analysis: scenario::Analysis,
+}
+
+impl Script {
+    pub fn read(bytes: &[u8]) -> Result<Self> {
+        Ok(Self {
+            program: Program::decode(bytes)?,
+            analysis: scenario::analyze(bytes)?,
+        })
+    }
+
+    pub fn arguments(
+        &self,
+        call: NativeCall,
+        arity: usize,
+        position: usize,
+    ) -> Result<Vec<Option<i32>>> {
+        Ok(
+            scenario::calls::analyzed_arguments(&self.program, &self.analysis, call, arity)?
+                .into_values()
+                .map(|args| args[position])
+                .collect(),
+        )
+    }
+
+    /// Publish rejected native selectors as explicit silence, then select cues.
+    /// The caller can refresh dynamic selections after discovering further aliases.
+    pub fn effects(
+        &self,
+        source: &crate::source::Source,
+        library: &Path,
+        available: &mut BTreeSet<u32>,
+        selected: &mut BTreeSet<u32>,
+    ) -> Result<bool> {
+        let mut dynamic = false;
+        for (call, arity, position) in CALLS {
+            let values = self.arguments(call, arity, position)?;
+            dynamic |= values.iter().any(Option::is_none);
+            for &id in values.iter().flatten().filter(|&&id| id >= 0) {
+                if !available.contains(&(id as u32)) {
+                    crate::audio_effects::bind_unused(source, library, id as u32)
+                        .with_context(|| format!("{call:?}"))?;
+                    available.insert(id as u32);
+                }
+            }
+            selected.extend(select(values, available)?);
+        }
+        Ok(dynamic)
+    }
+}
+
+pub(crate) fn select(
+    values: impl IntoIterator<Item = Option<i32>>,
+    available: &BTreeSet<u32>,
+) -> Result<BTreeSet<u32>> {
+    let mut selected = BTreeSet::new();
+    for value in values {
+        match value {
+            Some(id) if id >= 0 => {
+                ensure!(available.contains(&(id as u32)), "unmapped audio ID {id}");
+                selected.insert(id as u32);
+            }
+            Some(_) => (), // Stop/pause/resume sentinels do not select recordings.
+            None => selected.extend(available),
+        }
+    }
+    Ok(selected)
+}
+
+pub(crate) fn message_voices(
+    messages: &[symphonia_script::message::Message],
+) -> impl Iterator<Item = Option<i32>> + '_ {
+    messages
+        .iter()
+        .flat_map(|message| &message.tokens)
+        .filter_map(|token| match token {
+            symphonia_script::message::Token::Control {
+                opcode: 9,
+                expression,
+            } => Some(expression.constant()),
+            _ => None,
+        })
+}
 
 pub(crate) const CALLS: [(NativeCall, usize, usize); 4] = [
     (NativeCall::PlaySoundSimple, 2, 0),
@@ -23,7 +113,6 @@ pub(crate) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
         return Ok(bytes.to_vec());
     }
     let program = Program::decode(bytes)?;
-    let registry = NativeRegistry::gqseaf();
     let known = CALLS
         .iter()
         .map(|&(call, arity, _)| {
@@ -34,123 +123,66 @@ pub(crate) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
     let mut replacements = BTreeMap::new();
-    for block in analysis.basic_blocks() {
-        let mut values: Vec<Option<Range<u32>>> = Vec::new();
-        let mut expression = None;
-        let mut arguments = Vec::new();
-        for pc in block.instruction_pcs {
-            let (op, next) = program.instruction(pc).unwrap();
-            match op {
-                Op::Push(_) | Op::Load(_, _) => values.push(Some(pc..next)),
-                Op::Calculate(0) => expression = values.pop().flatten(),
-                Op::Calculate(op @ 1..=8) => {
-                    let span = values
-                        .pop()
-                        .flatten()
-                        .filter(|span| op >= 5 && span.end == pc)
-                        .map(|span| span.start..next);
-                    values.push(span);
-                }
-                Op::Calculate(op) => {
-                    let right = values.pop().flatten();
-                    let left = values.pop().flatten();
-                    let pure =
-                        op == 0x0f || (0x20..=0x27).contains(&op) || (0x31..=0x3a).contains(&op);
-                    values.push(
-                        left.zip(right)
-                            .filter(|(left, right)| {
-                                pure && left.end == right.start && right.end == pc
-                            })
-                            .map(|(left, _)| left.start..next),
-                    );
-                }
-                Op::Argument => arguments.push((pc, expression.clone())),
-                Op::Native(call) => {
-                    let Some(signature) = registry.get(call) else {
-                        values.clear();
-                        arguments.clear();
-                        expression = None;
-                        continue;
-                    };
-                    if let Some(&(_, arity, position)) =
-                        CALLS.iter().find(|(native, _, _)| *native as u8 == call)
-                    {
-                        let start = arguments
-                            .len()
-                            .checked_sub(arity)
-                            .context("sound arguments cross a branch")?;
-                        let (argument, origin) = &arguments[start + position];
-                        let constant = known[&call][&pc][position];
-                        let original = if let Some(value) = constant {
-                            literal(value)
-                        } else {
-                            let origin = origin.as_ref().with_context(|| {
-                                format!("sound ID at PC {pc:#x} is not a pure expression")
-                            })?;
-                            let base = analysis.header.code_base();
-                            bytes[base + origin.start as usize * 2..base + origin.end as usize * 2]
-                                .as_chunks::<2>()
-                                .0
-                                .iter()
-                                .map(|word| u16::from_be_bytes(*word))
-                                .collect()
-                        };
-                        let mut code = Vec::new();
-                        if let Some(value) = constant {
-                            let mapped = if value as u16 == u16::MAX {
-                                -1
-                            } else {
-                                i32::from(crate::audio_effects::id(value as u16)?)
-                            };
-                            code.extend(literal(mapped));
-                        } else {
-                            // The native consumer uses the low unsigned word,
-                            // even when an S16 script load sign-extends a stream
-                            // selector. For u = x & FFFF, lower to
-                            // u + 512 - (u >= 8000)*1200 - (u == FFFF)*F000.
-                            // This retains the native FFFF stop sentinel as -1.
-                            code.extend_from_slice(&original);
-                            code.extend(literal(0xffff));
-                            code.push(0x3036);
-                            code.extend(literal(512));
-                            code.push(0x3031);
-                            code.extend_from_slice(&original);
-                            code.extend(literal(0xffff));
-                            code.push(0x3036);
-                            code.extend(literal(0x8000));
-                            code.push(0x3023);
-                            code.extend(literal(0x1200));
-                            code.extend([0x3033, 0x3032]);
-                            code.extend_from_slice(&original);
-                            code.extend(literal(0xffff));
-                            code.push(0x3036);
-                            code.extend(literal(0xffff));
-                            code.push(0x3020);
-                            code.extend(literal(0xf000));
-                            code.extend([0x3033, 0x3032]);
-                        }
-                        code.extend([0x3000, 0x4000]);
-                        // Later arguments and the caller see the original expression.
-                        code.extend(original);
-                        code.push(0x3000);
-                        if let Some(previous) = replacements.insert(*argument, code.clone()) {
-                            ensure!(previous == code, "sound argument has conflicting owners");
-                        }
-                    }
-                    arguments.truncate(arguments.len().saturating_sub(signature.arguments.len()));
-                    match signature.returns_value {
-                        Some(true) => values.push(None),
-                        Some(false) => (),
-                        None => values.clear(),
-                    }
-                    expression = None;
-                }
-                _ => {
-                    values.clear();
-                    arguments.clear();
-                    expression = None;
-                }
-            }
+    for call in crate::script::arguments::read(bytes, &program, &analysis) {
+        let Some(&(_, _, position)) = CALLS
+            .iter()
+            .find(|(native, _, _)| *native as u8 == call.opcode)
+        else {
+            continue;
+        };
+        let arguments = call.arguments.context("sound arguments cross a branch")?;
+        let argument = arguments[position].pc;
+        let origin = &arguments[position].expression;
+        let (pc, call) = (call.pc, call.opcode);
+        let constant = known[&call][&pc][position];
+        let original = if let Some(value) = constant {
+            literal(value)
+        } else {
+            let origin = origin
+                .as_ref()
+                .with_context(|| format!("sound ID at PC {pc:#x} is not a pure expression"))?;
+            origin.words.clone()
+        };
+        let mut code = Vec::new();
+        if let Some(value) = constant {
+            let mapped = if value as u16 == u16::MAX {
+                -1
+            } else {
+                i32::from(crate::audio_effects::id(value as u16)?)
+            };
+            code.extend(literal(mapped));
+        } else {
+            // The native consumer uses the low unsigned word,
+            // even when an S16 script load sign-extends a stream
+            // selector. For u = x & FFFF, lower to
+            // u + 512 - (u >= 8000)*1200 - (u == FFFF)*F000.
+            // This retains the native FFFF stop sentinel as -1.
+            code.extend_from_slice(&original);
+            code.extend(literal(0xffff));
+            code.push(0x3036);
+            code.extend(literal(512));
+            code.push(0x3031);
+            code.extend_from_slice(&original);
+            code.extend(literal(0xffff));
+            code.push(0x3036);
+            code.extend(literal(0x8000));
+            code.push(0x3023);
+            code.extend(literal(0x1200));
+            code.extend([0x3033, 0x3032]);
+            code.extend_from_slice(&original);
+            code.extend(literal(0xffff));
+            code.push(0x3036);
+            code.extend(literal(0xffff));
+            code.push(0x3020);
+            code.extend(literal(0xf000));
+            code.extend([0x3033, 0x3032]);
+        }
+        code.extend([0x3000, 0x4000]);
+        // Later arguments and the caller see the original expression.
+        code.extend(original);
+        code.push(0x3000);
+        if let Some(previous) = replacements.insert(argument, code.clone()) {
+            ensure!(previous == code, "sound argument has conflicting owners");
         }
     }
     crate::script::rewrite(bytes, &analysis, replacements)

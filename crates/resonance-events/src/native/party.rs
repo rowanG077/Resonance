@@ -197,16 +197,16 @@ impl NativeHost<'_> {
                     let member = &mut party.members[id as usize - 1];
                     value = Some(i32::from(member.costume));
                     if a[1] != -1 {
-                        require((0..5).contains(&a[1]), "unknown character costume")?;
+                        let costume = u8::try_from(a[1]).map_err(|_| "invalid costume ID")?;
                         require(
                             self.resources
                                 .model(resonance_content::appearance::costume_resource(
-                                    id as u32, a[1] as u8,
+                                    id as u32, costume,
                                 ))
                                 .is_some(),
                             "character costume body is not cooked",
                         )?;
-                        member.costume = a[1] as u8;
+                        member.costume = costume;
                         self.world.update_costumes(self.resources);
                     }
                 }

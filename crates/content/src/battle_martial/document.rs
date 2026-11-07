@@ -84,6 +84,7 @@ fn map_events<A, B>(attack: Attack<A>, mut map: impl FnMut(A) -> Result<B>) -> R
         chain_at: attack.chain_at,
         recovery: attack.recovery,
         effect: attack.effect,
+        skill_effects: attack.skill_effects,
         events: track(attack.events, &mut map)?,
         callback_hits: attack.callback_hits,
         pose_sequence: attack.pose_sequence,

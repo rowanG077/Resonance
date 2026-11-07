@@ -1,15 +1,15 @@
 {
   "font": "fonts/battle.json",
   "portraits": {
-    "lloyd": "ui/battle/portraits/lloyd.ktx2",
-    "colette": "ui/battle/portraits/colette.ktx2",
-    "genis": "ui/battle/portraits/genis.ktx2",
-    "raine": "ui/battle/portraits/raine.ktx2",
-    "sheena": "ui/battle/portraits/sheena.ktx2",
-    "zelos": "ui/battle/portraits/zelos.ktx2",
-    "presea": "ui/battle/portraits/presea.ktx2",
-    "regal": "ui/battle/portraits/regal.ktx2",
-    "kratos": "ui/battle/portraits/kratos.ktx2"
+    "lloyd": {"image": "ui/battle/portraits/lloyd.ktx2", "size": [64, 256]},
+    "colette": {"image": "ui/battle/portraits/colette.ktx2", "size": [64, 256]},
+    "genis": {"image": "ui/battle/portraits/genis.ktx2", "size": [64, 256]},
+    "raine": {"image": "ui/battle/portraits/raine.ktx2", "size": [64, 256]},
+    "sheena": {"image": "ui/battle/portraits/sheena.ktx2", "size": [64, 256]},
+    "zelos": {"image": "ui/battle/portraits/zelos.ktx2", "size": [64, 256]},
+    "presea": {"image": "ui/battle/portraits/presea.ktx2", "size": [64, 256]},
+    "regal": {"image": "ui/battle/portraits/regal.ktx2", "size": [64, 256]},
+    "kratos": {"image": "ui/battle/portraits/kratos.ktx2", "size": [64, 256]}
   },
   "meters": {
     "bars": {
@@ -81,21 +81,21 @@
     ]
   },
   "targets": {
-    "frame": "ui/battle/atlas.ktx2",
-    "player_1": "ui/battle/atlas.ktx2",
-    "player_2": "ui/battle/atlas.ktx2",
-    "player_3": "ui/battle/atlas.ktx2",
-    "player_4": "ui/battle/atlas.ktx2"
+    "frame": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "player_1": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "player_2": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "player_3": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "player_4": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]}
   },
-  "stun": "ui/battle/atlas.ktx2",
+  "stun": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
   "notices": {
-    "frame": "ui/battle/atlas.ktx2",
-    "fill": "ui/battle/atlas.ktx2",
+    "frame": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "fill": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
     "icons": {
-      "arte": "ui/battle/atlas.ktx2",
-      "spell": "ui/battle/atlas.ktx2",
-      "item": "ui/battle/atlas.ktx2",
-      "outcome": "ui/battle/atlas.ktx2"
+      "arte": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "spell": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "item": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "outcome": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]}
     },
     "icon_origins": {
       "arte": [384, 464],
@@ -105,15 +105,15 @@
     },
     "defeated": "Defeated",
     "faces": {
-      "lloyd": "ui/battle/atlas.ktx2",
-      "colette": "ui/battle/atlas.ktx2",
-      "genis": "ui/battle/atlas.ktx2",
-      "raine": "ui/battle/atlas.ktx2",
-      "sheena": "ui/battle/atlas.ktx2",
-      "zelos": "ui/battle/atlas.ktx2",
-      "presea": "ui/battle/atlas.ktx2",
-      "regal": "ui/battle/atlas.ktx2",
-      "kratos": "ui/battle/atlas.ktx2"
+      "lloyd": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "colette": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "genis": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "raine": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "sheena": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "zelos": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "presea": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "regal": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "kratos": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]}
     }
   },
   "combo": {
@@ -159,23 +159,23 @@
     ]
   },
   "stat_icons": {
-    "attack": "ui/battle/atlas.ktx2",
-    "defense": "ui/battle/atlas.ktx2",
-    "up": "ui/battle/atlas.ktx2",
-    "magic_attack": "ui/battle/atlas.ktx2",
-    "physical_barrier": "ui/battle/atlas.ktx2",
-    "magical_barrier": "ui/battle/atlas.ktx2",
-    "accuracy_curse": "ui/battle/atlas.ktx2",
-    "reduced_item_effect": "ui/battle/atlas.ktx2",
-    "holy_song": "ui/battle/atlas.ktx2",
-    "down": "ui/battle/atlas.ktx2"
+    "attack": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "defense": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "up": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "magic_attack": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "physical_barrier": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "magical_barrier": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "accuracy_curse": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "reduced_item_effect": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "holy_song": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+    "down": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]}
   },
   "unison_buttons": {
-    "a_b": "ui/controls/input-prompts.ktx2",
-    "x_y": "ui/controls/input-prompts.ktx2"
+    "a_b": {"image": "ui/controls/input-prompts.ktx2", "size": [512, 512]},
+    "x_y": {"image": "ui/controls/input-prompts.ktx2", "size": [512, 512]}
   },
   "commands": {
-    "texture": "ui/battle/atlas.ktx2",
+    "texture": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
     "icons": {
       "techniques": [
         [49, 161, 46, 46],
@@ -299,27 +299,27 @@
       ]
     },
     "scan_icons": {
-      "neutral": "ui/battle/atlas.ktx2",
-      "water": "ui/battle/atlas.ktx2",
-      "wind": "ui/battle/atlas.ktx2",
-      "fire": "ui/battle/atlas.ktx2",
-      "earth": "ui/battle/atlas.ktx2",
-      "lightning": "ui/battle/atlas.ktx2",
-      "ice": "ui/battle/atlas.ktx2",
-      "light": "ui/battle/atlas.ktx2",
-      "darkness": "ui/battle/atlas.ktx2",
-      "headings": "ui/battle/atlas.ktx2"
+      "neutral": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "water": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "wind": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "fire": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "earth": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "lightning": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "ice": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "light": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "darkness": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "headings": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]}
     },
-    "unison_frame": "ui/battle/atlas.ktx2",
+    "unison_frame": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
     "unison_ready": "READY",
     "unison_text": [
       [112, 112, 48, 176],
       [96, 96, 128, 176]
     ],
     "escape": {
-      "frame": "ui/battle/atlas.ktx2",
-      "needle": "ui/battle/atlas.ktx2",
-      "fill": "ui/battle/atlas.ktx2"
+      "frame": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "needle": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]},
+      "fill": {"image": "ui/battle/atlas.ktx2", "size": [512, 512]}
     },
     "escape_positions": {
       "left": [8, 32],

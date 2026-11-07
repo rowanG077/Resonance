@@ -26,7 +26,9 @@ mod battle_scenes;
 mod battle_ui;
 mod battle_unison;
 mod battle_voices;
+mod category;
 mod character_models;
+pub use category::{Category, cook_category};
 mod characters;
 mod cooking;
 mod coordinates;
@@ -91,12 +93,7 @@ use std::{path::Path, time::Instant};
 /// Additional Steam categories are being ported to the current library format.
 pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Result<()> {
     let source = source::Source::open(installation, language)?;
-    let root = installation.canonicalize()?;
-    let destination = std::path::absolute(output)?;
-    ensure!(
-        !destination.starts_with(&root),
-        "cooked output must be outside the Steam installation"
-    );
+    validate_output(installation, output)?;
     let start = Instant::now();
     cook_tables(&source, output)?;
     eprintln!("[asset type 12/63] Cooking shared field settings");
@@ -104,14 +101,13 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
     eprintln!("[asset type 13/63] Cooking field scripts and collision");
     field_core::cook(&source, output, None).context("Steam field scripts and collision")?;
     eprintln!("[asset type 14/63] Cooking field scenery and cameras");
-    field_scene::cook(&source, output, None).context("Steam field scenery and cameras")?;
+    field_scene::cook(&source, output).context("Steam field scenery and cameras")?;
     eprintln!("[asset type 15/63] Cooking party models and field motions");
-    character_models::cook(&source, output, None)
-        .context("Steam party models and field motions")?;
+    character_models::cook(&source, output).context("Steam party models and field motions")?;
     eprintln!("[asset type 16/63] Cooking shared field models");
     let mut models = field_models::cook(&source, output).context("Steam shared field models")?;
     eprintln!("[asset type 17/63] Cooking field actors and animation bindings");
-    field_actors::cook(&source, output, &mut models, None).context("Steam field actors")?;
+    field_actors::cook(&source, output, &mut models).context("Steam field actors")?;
     eprintln!("[asset type 18/63] Cooking manual, name editor and options");
     menu_settings::cook(&source, output).context("Steam menu settings")?;
     eprintln!("[asset type 19/63] Cooking dialogue font, artwork and subtitles");
@@ -158,7 +154,7 @@ pub fn cook_all(installation: &Path, output: &Path, language: Language) -> Resul
     eprintln!("[asset type 39/63] Cooking skit portrait images and tracks");
     skit_portraits::cook(&source, output).context("Steam skit portraits")?;
     eprintln!("[asset type 40/63] Cooking movies and field movie selections");
-    movies::cook(&source, output, None).context("Steam movies")?;
+    movies::cook(&source, output).context("Steam movies")?;
     eprintln!("[asset type 41/63] Cooking ending artwork and credits");
     ending::cook(&source, output).context("Steam ending and credits")?;
     eprintln!("[asset type 42/63] Cooking save-point and treasure models");
@@ -243,3 +239,13 @@ fn cook_tables(source: &source::Source, output: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+fn validate_output(installation: &Path, output: &Path) -> Result<()> {
+    let root = installation.canonicalize()?;
+    let destination = std::path::absolute(output)?;
+    ensure!(
+        !destination.starts_with(&root),
+        "cooked output must be outside the Steam installation"
+    );
+    Ok(())
+}

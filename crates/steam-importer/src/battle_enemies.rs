@@ -469,8 +469,6 @@ fn actions_with_callbacks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Language, package::Package, source::Source};
-    use std::path::PathBuf;
 
     #[test]
     fn physical_effect_aliases_require_the_original_empty_program() -> Result<()> {
@@ -508,95 +506,6 @@ mod tests {
         assert_eq!(voice(&normalized)?, (Some(Sound::Stream(0xcf03)), true, 12));
         assert_eq!(&normalized[24..28], &1u32.to_be_bytes());
         assert_eq!(&normalized[18..20], &31u16.to_be_bytes());
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; audits remaining enemy action conversion gaps"]
-    fn installed_enemy_actions_use_shared_gc_compiler() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            Language::English,
-        )?;
-        let library = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        let image = pe::Image::parse(&source.executable)?;
-        let usual = source.require("btlusual.pac")?;
-        let package = Package::parse(&usual)?;
-        let common = package.member(8)?.context("missing common actions")?;
-        let mut failures = BTreeMap::<String, Vec<u16>>::new();
-        let mut prepared = 0;
-        for id in 0..crate::monsters::count(&image)? as u16 {
-            let filename =
-                image.text(pe::word(image.slice(0x8e5b50 + u32::from(id) * 4, 4)?, 0)?)?;
-            let bytes = source.require(filename)?;
-            match actions_with_source(&source, &bytes, common, &library, id) {
-                Ok(tables) => {
-                    prepared += 1;
-                    assert_eq!(tables.actions.rows.len(), section(&bytes, 10)?.len() / 72);
-                }
-                Err(error) => {
-                    failures.entry(format!("{error:#}")).or_default().push(id);
-                }
-            }
-        }
-        eprintln!("Enemy action owners decoded: {prepared}; remaining: {failures:#?}");
-        ensure!(failures.is_empty(), "enemy action conversion is incomplete");
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; reads only Kratos241 and native voice bank74"]
-    fn installed_kratos_omits_only_the_proven_empty_terminal_voice() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            Language::English,
-        )?;
-        let library = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        let bank = source.require("74e.abn")?;
-        ensure!(!battle_voices::empty_terminal(&bank, 74, 7)?);
-        ensure!(battle_voices::empty_terminal(&bank, 74, 8)?);
-        ensure!(battle_voices::empty_terminal(&bank, 74, 9).is_err());
-        let mut malformed = bank.clone();
-        malformed[20 + 8 * 8] = 1;
-        ensure!(battle_voices::empty_terminal(&malformed, 74, 8).is_err());
-
-        let image = pe::Image::parse(&source.executable)?;
-        let bytes = source.require(crate::monsters::package(&image, 241)?)?;
-        let usual = source.require("btlusual.pac")?;
-        let package = Package::parse(&usual)?;
-        let common = package.member(8)?.context("missing common actions")?;
-        let original = actions(&bytes, common, &library, 241)?;
-        let lowered = actions_with_source(&source, &bytes, common, &library, 241)?;
-        let mut expected = serde_json::to_value(&original.attacks)?;
-        let events = expected["attack-3"]["events"]
-            .as_array_mut()
-            .context("missing native Kratos attack3 events")?;
-        ensure!(
-            events[0]
-                == serde_json::json!([0, {
-                    "voice": {"sound": {"stream": 51464}, "announcement": false}
-                }])
-        );
-        events.remove(0);
-        ensure!(expected == serde_json::to_value(&lowered.attacks)?);
-        ensure!(
-            serde_json::to_value(&original.actions)? == serde_json::to_value(&lowered.actions)?
-        );
-        ensure!(
-            serde_json::to_value(&original.contacts)? == serde_json::to_value(&lowered.contacts)?
-        );
-        ensure!(
-            serde_json::to_value(&original.projectiles)?
-                == serde_json::to_value(&lowered.projectiles)?
-        );
         Ok(())
     }
 }

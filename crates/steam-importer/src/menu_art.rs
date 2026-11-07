@@ -419,11 +419,12 @@ pub(crate) fn cook(source: &Source, output: &Path) -> Result<()> {
         shade: [colors.shade_top, colors.shade_bottom],
         palette,
         labels,
-        sprites: MenuSprites {
-            rects,
-            names: names.clone(),
-            number_colors,
-            bar_colors: vec![
+        sprites: {
+            let mut sprites = MenuSprites::default();
+            sprites.rects = rects;
+            sprites.names = names.clone();
+            sprites.number_colors = number_colors;
+            sprites.bar_colors = vec![
                 [
                     [192, 48, 48, 255],
                     [192, 192, 48, 255],
@@ -437,8 +438,8 @@ pub(crate) fn cook(source: &Source, output: &Path) -> Result<()> {
                     [48, 48, 192, 255],
                 ],
                 [[0, 0, 0, 160]; 4],
-            ],
-            ..Default::default()
+            ];
+            sprites
         },
     };
     let items: resonance_content::items::Document =

@@ -519,7 +519,9 @@ pub(super) fn run(
             serde_json::from_slice(&fs::read(cooked.join(format!("monsters/{id:03}.json")))?)?;
         record.validate(items.len())?;
         ensure!(
-            record.id == id && variant > 0 && usize::from(variant) < record.statistics.len(),
+            record.id == u16::from(id)
+                && variant > 0
+                && usize::from(variant) < record.statistics.len(),
             "monster {id} has no variant {variant}"
         );
         let entry = monsters

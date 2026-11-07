@@ -124,7 +124,7 @@ impl Drawing<'_> {
             .position(|title| {
                 title
                     .costume
-                    .is_some_and(|costume| costume as u8 == member.costume)
+                    .is_some_and(|costume| costume == member.costume)
             })
             .map(|title| {
                 data.title_text((index + 1) as u8, (title + 1) as u8)

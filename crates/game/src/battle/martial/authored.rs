@@ -229,17 +229,19 @@ impl Technique {
                 .try_into()
                 .context("martial shoulder index exceeds limit")?;
         }
-        let effect_bank = resources
-            .authored_effects
-            .get(&self.catalogue)
-            .unwrap_or(&resources.techniques)
-            .clone();
+        let effect_bank = if attack.skill_effects {
+            resources
+                .skill_scenes
+                .get(&self.catalogue)
+                .context("martial action has no stored skill artwork")?
+        } else {
+            resources
+                .authored_effects
+                .get(&self.catalogue)
+                .unwrap_or(&resources.techniques)
+        }
+        .clone();
         let recoil = resources.recoil;
-        let finisher = attack
-            .events
-            .iter()
-            .any(|(_, event)| matches!(event, Event::ActionScene { .. }));
-        let stored_callback = crate::battle::skill_scene::callback_artwork(self.catalogue, &attack);
         let pose = |source: ActionPose| -> Result<AttackPose> {
             crate::battle::model::action_pose(Some(model), source)
                 .context("missing martial action pose")
@@ -250,7 +252,7 @@ impl Technique {
             (0, AttackEvent::Notice { duration: 90 }),
             (0, AttackEvent::Braking(GROUND_BRAKING)),
         ];
-        if let Some(member) = attack.effect {
+        if let Some(member) = attack.effect.filter(|_| !attack.skill_effects) {
             let appearance = resources.prepared.effect_member(&effect_bank, member)?;
             events.push((
                 0,
@@ -281,19 +283,7 @@ impl Technique {
                         hit.sound = (resources.sound)(sound)?;
                     }
                     if let Some(member) = contact.hit.effect {
-                        let contact_bank = if finisher
-                            && self.character == Character::Regal
-                            && self.catalogue == 200
-                        {
-                            ensure!(member == 2, "Final Fury contact program changed");
-                            resources
-                                .skill_scenes
-                                .get(&200)
-                                .context("Final Fury has no stored skill contact artwork")?
-                        } else {
-                            &effect_bank
-                        };
-                        hit.effect = Some(resources.prepared.effect_member(contact_bank, member)?);
+                        hit.effect = Some(resources.prepared.effect_member(&effect_bank, member)?);
                     }
                     if matches!(self.sequence, Sequence::FierceDemonFang)
                         && let Some(trail) = crate::battle::normal::contact_trail(contact)?
@@ -431,22 +421,14 @@ impl Technique {
             end_at: attack.duration,
             recovery: attack.recovery,
         };
-        if stored_callback
-            && matches!(
-                (self.character, self.catalogue),
-                (resonance_battle::Character::Kratos, 249)
-                    | (resonance_battle::Character::Zelos, 153)
-            )
-        {
-            crate::battle::skill_scene::holy_binds(resources, &mut prepared, self.catalogue)?;
-        }
-        if finisher
-            && matches!(
-                (self.character, self.catalogue),
-                (Character::Presea, 260 | 261) | (Character::Regal, 200)
-            )
-        {
-            crate::battle::skill_scene::finisher(resources, &mut prepared, self.catalogue)?;
+        if let Some(member) = attack.effect.filter(|_| attack.skill_effects) {
+            prepared.events.push((
+                0,
+                AttackEvent::InitializedActionEffect {
+                    appearance: resources.prepared.effect_member(&effect_bank, member)?,
+                    origin: resonance_battle::AttackOrigin::ActorRoot,
+                },
+            ));
         }
         prepared.events.extend(presentation);
         prepared.events.sort_by_key(|(at, _)| *at);
@@ -520,6 +502,7 @@ mod tests {
             chain_at: Some(65),
             recovery: 10,
             effect: None,
+            skill_effects: false,
             events: vec![(0, Event::Gravity(0.1)), (46, Event::Forward(7.))],
             pose_sequence: Some(vec![
                 PoseStep {

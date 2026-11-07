@@ -425,6 +425,7 @@ impl Assets {
         // Capture action dependencies before freezing the encounter snapshot. Reserve
         // capacity for every learnable arte, including ones acquired during battle.
         let mut authored_effects = BTreeMap::new();
+        let mut authored_skills = BTreeSet::new();
         for input in &mut party_actors {
             for &id in catalogue.learned_by(input.character as u8)? {
                 let Some(path) = &catalogue.definition(usize::from(id))?.action else {
@@ -436,6 +437,15 @@ impl Assets {
                         path, JSON_LIMIT,
                     )?,
                 };
+                if action.presentation.iter().any(|(_, event)| {
+                    matches!(
+                        event,
+                        resonance_content::battle_martial::Presentation::SkillEffect { .. }
+                            | resonance_content::battle_martial::Presentation::EquipSkillWeapon
+                    )
+                }) {
+                    authored_skills.insert(id);
+                }
                 rules.unison.placements.insert(id, action.unison);
                 if let Some(path) = &action.effects {
                     if !authored_effects.contains_key(&id) {
@@ -465,13 +475,14 @@ impl Assets {
         }
         let recoil = crate::battle::recoil::Parameters::from_table(rules.recoil);
         let unison = Arc::new(rules.unison);
-        let (scene_ids, skill_ids) = choreography_ids(
+        let (scene_ids, mut skill_ids) = choreography_ids(
             &catalogue,
             &rules.party,
             &unison,
             party_actors.iter().map(|actor| actor.character),
             &enemy_definitions,
         )?;
+        skill_ids.extend(authored_skills);
         let mut spell_scenes = BTreeMap::new();
         let mut skill_scenes = BTreeMap::new();
         for (kind, ids, target) in [

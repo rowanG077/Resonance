@@ -363,6 +363,17 @@ fn rename_rejects_empty_names_restores_original_and_cancels_without_saving() {
         .step(Some(MenuAction::PreviousPosition), &mut party, &data)
         .unwrap();
     assert_eq!(state.rename.position, 0);
+    state.rename.value = "Défense".into();
+    state.rename.position = state.rename.value.chars().count();
+    for action in [MenuAction::NextPosition, MenuAction::NextTab] {
+        assert_eq!(
+            state.step(Some(action), &mut party, &data).unwrap().cue,
+            None
+        );
+        assert_eq!(state.rename.position, 7);
+    }
+    state.rename.value = original.clone();
+    state.rename.position = 0;
     assert_eq!(
         state
             .step(Some(MenuAction::Details), &mut party, &data)

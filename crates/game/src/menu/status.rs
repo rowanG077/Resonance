@@ -229,7 +229,7 @@ impl Menu {
                                 self.resources.as_ref()?.data.titles[index][usize::from(title)]
                                     .costume
                             })
-                            .map_or_else(|| self.default_costume(), |costume| costume as u8);
+                            .unwrap_or_else(|| self.default_costume());
                         self.checkpoint.as_mut()?.progress_mut().party.members[index].costume =
                             costume;
                     } else {

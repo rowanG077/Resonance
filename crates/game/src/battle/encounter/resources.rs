@@ -530,6 +530,7 @@ mod callback_tests {
                 (261, Character::Presea),
                 (200, Character::Regal),
             ] {
+                let callbacks_expected = callbacks_expected || id == 51;
                 let callback =
                     profiles
                         .martial_attack(id, character as u8)

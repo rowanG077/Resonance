@@ -170,6 +170,8 @@ pub(super) fn attach(
         (0, Event::TransitionProtection(protection)),
         (0, Event::ActionScene { party_protection }),
     ]);
+    attack.effect = Some(1);
+    attack.skill_effects = true;
     if member == 147 {
         ensure!(
             image.slice(0x40d937, 7)? == [0xc6, 0x86, 0x60, 0x35, 1, 0, 0]

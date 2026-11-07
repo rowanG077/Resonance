@@ -119,6 +119,7 @@ mod tests {
         assert_eq!(spell.projectiles.len(), 1);
         assert_eq!(spell.projectiles[0].at, 253);
         resources.prepare_effects(
+            &Default::default(),
             &mut |_| Ok(None),
             &resonance_content::diagnostics::Diagnostics::new(true),
         )?;

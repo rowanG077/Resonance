@@ -48,15 +48,14 @@ pub struct Voices {
     pub item_use: Option<Sound>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acquisition: Option<Sound>,
-    /// Character-specific lines. Explicit null is silence; old libraries get
-    /// their original choices only when the corresponding field is absent.
-    #[serde(default = "legacy_charge")]
+    /// Character-specific lines; absent roles are silent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charge: Option<Sound>,
-    #[serde(default = "legacy_charge_failed")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charge_failed: Option<Sound>,
-    #[serde(default = "legacy_stunned")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stunned: Option<Sound>,
-    #[serde(default = "legacy_item_discovery")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_discovery: Option<Sound>,
     pub entry: [Option<Sound>; 3],
     pub major_enemy: Option<Sound>,
@@ -142,19 +141,6 @@ impl Voices {
     }
 }
 
-fn legacy_charge() -> Option<Sound> {
-    Some(Sound::Stream(753))
-}
-fn legacy_charge_failed() -> Option<Sound> {
-    Some(Sound::Cue(1258))
-}
-fn legacy_stunned() -> Option<Sound> {
-    Some(Sound::Cue(725))
-}
-fn legacy_item_discovery() -> Option<Sound> {
-    Some(Sound::Cue(878))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,39 +169,5 @@ mod tests {
             .into_iter()
             .collect()
         );
-}
-
-    #[test]
-    fn extra_roles_preserve_legacy_libraries_and_allow_explicit_silence() -> anyhow::Result<()> {
-        let mut document = serde_json::to_value(Voices::default())?;
-        let silent: Voices = serde_json::from_value(document.clone())?;
-        assert_eq!(
-            [
-                silent.charge,
-                silent.charge_failed,
-                silent.stunned,
-                silent.item_discovery
-            ],
-            [None; 4]
-        );
-        for field in ["charge", "charge_failed", "stunned", "item_discovery"] {
-            document.as_object_mut().unwrap().remove(field);
-        }
-        let legacy: Voices = serde_json::from_value(document)?;
-        assert_eq!(
-            [
-                legacy.charge,
-                legacy.charge_failed,
-                legacy.stunned,
-                legacy.item_discovery
-            ],
-            [
-                Some(Sound::Stream(753)),
-                Some(Sound::Cue(1258)),
-                Some(Sound::Cue(725)),
-                Some(Sound::Cue(878))
-            ]
-        );
-        Ok(())
     }
 }

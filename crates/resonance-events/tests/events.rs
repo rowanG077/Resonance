@@ -1013,7 +1013,7 @@ fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
     for (name, encoded) in [
         ("sword", b"sword".as_slice()),
         ("spine-03", b"Bone_sebone03".as_slice()),
-        ("ｵﾌﾞｼﾞｪｸﾄ04", b"\xb5\xcc\xde\xbc\xde\xaa\xb8\xc404".as_slice()),
+        ("ｵﾌﾞｼﾞｪｸﾄ04", "ｵﾌﾞｼﾞｪｸﾄ04".as_bytes()),
     ] {
         let mut code = vec![0x1200, 0x100];
         native(&mut code, Call::FindActorNode, &[9, 0]);
@@ -1121,8 +1121,8 @@ fn named_nodes_warn_once_when_a_mapped_joint_is_missing() {
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn costume_change_selects_a_body_and_survives_save() {
     let data = Arc::new(common::session(&asset_root()));
-    let body = resonance_content::appearance::costume_resource(4, 2);
-    let setup = script(&[(Call::SetCharacterCostume, &[4, 2])]);
+    let body = resonance_content::appearance::costume_resource(4, 255);
+    let setup = script(&[(Call::SetCharacterCostume, &[4, 255])]);
     let mut world = GameWorld::default();
     world.party = Some(party::Party::new(&data, Default::default()).unwrap());
     world.actors.insert(4, Actor::new(4, [0.; 3]));
@@ -1151,8 +1151,11 @@ fn costume_change_selects_a_body_and_survives_save() {
     assert_eq!(events.world.actors[&4].appearance.hidden_nodes, [38].into());
     let query = script(&[(Call::SetCharacterCostume, &[4, -1])]);
     let restored = reload(&events, &query, &[0x20ff]);
-    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 2);
-    assert_eq!(restored.world.party.as_ref().unwrap().members[3].costume, 2);
+    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 255);
+    assert_eq!(
+        restored.world.party.as_ref().unwrap().members[3].costume,
+        255
+    );
 }
 
 #[test]

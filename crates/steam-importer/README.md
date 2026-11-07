@@ -30,6 +30,28 @@ files, so keep authored modifications in separate mod directories. After a cooke
 layout change, use a fresh output directory instead of mixing obsolete files into
 the current library.
 
+For focused development, recook one category in an existing library:
+
+```sh
+resonance-import steam "/path/to/Tales of Symphonia" --output local/steam-preview \
+  --category enemy-effects --id 23 --id 245
+resonance-import steam "/path/to/Tales of Symphonia" --output local/steam-preview \
+  --category martial-attacks
+```
+
+Categories are `tables`, `field-scripts`, `party-models`, `martial-attacks`,
+`enemy-models`, `enemy-effects`, `enemy-rules` and `resident-effects`. Dependencies
+must already be cooked in the current library format. Enemy categories accept
+repeated `--id`; `field-scripts` accepts one `--id`.
+
+Scenery, actor bindings and audio require a full cook. Their final documents
+combine several passes, including shared model aliases, event motions, service
+actors, voice catalogues and field media selections.
+Omit IDs to visit every owner in the category. Keep modifications in separate
+mod directories, since selected owners are overwritten.
+After updating callback presentation, recook `martial-attacks` to publish action
+documents, technique bindings and the finishers' stored-skill artwork selection.
+
 ## Architecture
 
 - `lib.rs` lists direct category writers in dependency order. Each writes its
@@ -81,25 +103,9 @@ commands; Inspect Magic uses the existing scan result flow. Party secondary
 motion reuses the GameCube chain binder, and costume-owned weapon props use
 optional visual metadata without changing equipped items or combat attributes.
 
-Native arena brightness and alpha comparisons are normalized during importing.
-Startup-effect selectors, palette roles and opacity bindings likewise become
-shared effect data rather than runtime edition choices.
-Steam's native particle update applies RGBA brighten and fade rates twice per
-tick. The importer converts those rates to the shared single-update contract,
-including constructor overrides. Initial colors, alpha units, fade thresholds
-and native emission timestamps remain unchanged.
-Carried models retain their source-declared layers and embedded outlines; their
-half-range vertex RGB converts to the shared color range with alpha preserved.
-Rigid effect models also retain their source outline shell when separate roots
-have coincident bind poses and every model clip remains static.
-Actor bodies use the GC depth-writing pass, including blended feather and wing
-edges, so their backface outlines cannot cover the shaded body surface.
-Lightning Spear binds an authored filled Steam lightning fork for GC-style
-readability. Living Armor's stat-up uses the existing purple energy palette and
-GC visual fade rates. These artwork conversions preserve native action events,
-particle births, lifetimes and gameplay timing.
-Field scenery preserves native alpha cutoffs and draws translucent glass after
-opaque scenery, restoring the exterior visible through Iselia's classroom panes.
+Source-specific color ranges, material layers, particle rates and native IDs are
+normalized during import. The runtime consumes the same scene, effect, motion
+and audio contracts as the GameCube library.
 
 ## Remaining work and limits
 
@@ -120,9 +126,9 @@ opaque scenery, restoring the exterior visible through Iselia's classroom panes.
   differences are allowed. Exhaustive enemy-row checks, repeated basic attacks,
   full-game walkthroughs and mechanical equivalence sweeps are deferred.
 
-See [arte visual review](../../tools/arte-visuals/review.md) for capture provenance,
-reference selection and independent review status. Generated inventories,
-captures and review decisions live under `local/`, outside the cooked library.
+Visual capture/review tooling is maintained separately from the importer.
+Generated inventories, captures and review decisions live under `local/`,
+outside the cooked library.
 
 ## Targeted validation
 
@@ -132,42 +138,23 @@ Run parser/conversion unit tests without installed assets:
 cargo test -p resonance-steam-importer --offline
 ```
 
-Native-source tests are ignored by default. Set the installation and a disposable
-output library; tests named `installed_*` can cook or overwrite their owned files.
-Tests named `cooked_*` exercise an already cooked library through shared readers.
+The optional integration tests below cover source conversion in all five text
+languages, then gameplay/save admission, representative fields, battle models,
+stored scenes, world content and audio through the shared readers. Source
+conversion writes only to temporary output; cooked-library checks are read-only.
 
 ```sh
 export RESONANCE_TEST_STEAM="/path/to/Tales of Symphonia"
 export RESONANCE_TEST_LIBRARY="/absolute/path/to/steam-preview"
-export RESONANCE_TEST_ASSETS="$RESONANCE_TEST_LIBRARY"
 
-# Inventory attachments: cook, then check every shared rig and motion binding.
-cargo test -p resonance-steam-importer --offline \
-  installed_equipment_cooks_and_prepares_shared_attachments -- --ignored
+# Private source conversion, including authored martial actions.
+cargo test -p resonance-steam-importer --offline installed_gameplay_menu_tables -- --ignored
 
-# HUD: cook and capture through the shared battle-UI reader.
-cargo test -p resonance-steam-importer --offline \
-  installed_battle_ui_cooks_and_loads_through_shared_reader -- --ignored
-
-# Existing output: gameplay/session, field actors, stored-scene art and world.
-cargo test -p resonance-steam-importer --offline cooked_gameplay_definitions -- --ignored
-cargo test -p resonance-steam-importer --offline cooked_field_actor_documents -- --ignored
-cargo test -p resonance-steam-importer --offline cooked_ordinary_and_combination_scenes -- --ignored
-cargo test -p resonance-steam-importer --offline cooked_world_owners -- --ignored
-
-# CPU preparation of the opening formations; integration check, not visual proof.
-cargo test -p resonance-game --test battle_preparation --offline \
-  encounter::complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generation \
-  -- --exact --ignored --nocapture
-
-# Execute a prepared spell through release, damage and TP/usage accounting.
-cargo test -p resonance-game --test battle_preparation --offline \
-  fire_ball::prepared_genis_cast_pays_once_and_releases_a_damaging_volley \
-  -- --exact --ignored --nocapture
+# Validate the completed library without recooking it.
+cargo test -p resonance-steam-importer --offline cooked_ -- --ignored
 ```
 
+Runtime action regressions remain in `resonance-battle` and `resonance-game`.
 In the repository's Nix environment, prefix Cargo commands with
-`nix develop --offline -c`. Prefer the owner check relevant to a change, then the
-opening CPU preparation check once its required publications are cooked. Use the
-arte capture harness for visual changes; whole-game walkthroughs are not a
-prerequisite for importer iteration.
+`nix develop --offline -c`. These CPU checks do not establish visual fidelity or
+whole-game progression.

@@ -137,7 +137,7 @@ impl Animation {
                 .into_iter()
                 .map(|(bone, node)| Track {
                     bone: bone as u16,
-                    nodes: vec![node],
+                    nodes: vec![node.into()],
                 })
                 .collect(),
         };

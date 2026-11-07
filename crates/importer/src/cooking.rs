@@ -108,7 +108,7 @@ fn grade(bytes: &[u8]) -> Result<Grade> {
 }
 
 // Preserve the order of three mastery lists while merging repeated ingredients.
-pub fn merge_ingredients(lists: &[Vec<u16>; 3]) -> Vec<(u16, u8)> {
+fn merge_ingredients(lists: &[Vec<u16>; 3]) -> Vec<(u16, u8)> {
     fn visit(
         lists: &[Vec<u16>; 3],
         at: [usize; 3],
@@ -158,7 +158,30 @@ fn merge_extras(grades: &[Grade; 3]) -> Vec<(u16, u8)> {
     merge_ingredients(&lists)
 }
 
-fn convert(exe: &[u8]) -> Result<Document> {
+/// Canonical big-endian recipe rows and decoded native lists from either source.
+pub struct Source<'a> {
+    pub recipes: &'a [u8],
+    pub group_items: &'a [Vec<u16>],
+    pub group_icons: &'a [u8],
+    pub likes: &'a [Vec<u16>],
+    pub dislikes: &'a [Vec<u16>],
+    pub bonus_skill: u16,
+}
+
+/// Assemble named rules once; source readers provide localized captions.
+pub fn document(
+    source: Source<'_>,
+    recipe_caption: impl Fn(u32) -> Result<String>,
+    group_caption: impl Fn(usize) -> Result<String>,
+) -> Result<Document> {
+    ensure!(
+        source.recipes.len() == RECIPE_COUNT * 700
+            && source.group_items.len() == 32
+            && source.group_icons.len() == 32
+            && source.likes.len() == 9
+            && source.dislikes.len() == 9,
+        "incomplete native cooking tables"
+    );
     let mappings: Mappings = serde_json::from_str(include_str!("recipe-names.json"))?;
     let group_names: Vec<String> =
         serde_json::from_str(include_str!("ingredient-group-names.json"))?;
@@ -168,10 +191,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
     );
     let mut recipes = BTreeMap::new();
     let mut used_groups = BTreeSet::new();
-    for (id, row) in dol::slice(exe, RECIPES, RECIPE_COUNT * 700)?
-        .chunks_exact(700)
-        .enumerate()
-    {
+    for (id, row) in source.recipes.chunks_exact(700).enumerate() {
         let required = ingredients(&row[8..16])?
             .into_iter()
             .map(|value| {
@@ -237,8 +257,8 @@ fn convert(exe: &[u8]) -> Result<Document> {
         }
         let recipe = Recipe {
             text: serde_json::json!({
-                "name": text::string(exe, dol::u32(row, 0)?)?,
-                "description": text::string(exe, dol::u32(row, 4)?)?,
+                "name": recipe_caption(dol::u32(row, 0)?)?,
+                "description": recipe_caption(dol::u32(row, 4)?)?,
             }),
             effects: recipe_effects.context("recipe has no cooks")?,
             required,
@@ -252,12 +272,11 @@ fn convert(exe: &[u8]) -> Result<Document> {
         );
     }
 
-    let source_group_lists = lists(exe, GROUP_LISTS, 32)?;
-    let source_group_names = dol::slice(exe, GROUP_NAMES, 32 * 4)?;
-    let source_icons = dol::slice(exe, 0x80199e68, 32)?;
+    let source_group_lists = source.group_items;
+    let source_icons = source.group_icons;
     let mut groups = BTreeMap::new();
     for id in used_groups {
-        let name = text::string(exe, dol::u32(source_group_names, id * 4)?)?;
+        let name = group_caption(id)?;
         groups.insert(
             group_names[id].clone(),
             Group {
@@ -270,10 +289,8 @@ fn convert(exe: &[u8]) -> Result<Document> {
             },
         );
     }
-    let likes = lists(exe, LIKES, 9)?;
-    let dislikes = lists(exe, DISLIKES, 9)?;
     let mut preferences = BTreeMap::new();
-    for (id, (likes, dislikes)) in likes.into_iter().zip(dislikes).enumerate() {
+    for (id, (likes, dislikes)) in source.likes.iter().zip(source.dislikes).enumerate() {
         if likes.is_empty() && dislikes.is_empty() {
             continue;
         }
@@ -281,16 +298,43 @@ fn convert(exe: &[u8]) -> Result<Document> {
             PartyCharacter::try_from(id as u8 + 1)?,
             Preferences {
                 likes: likes
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(item_name)
                     .collect::<Result<Vec<_>>>()?,
                 dislikes: dislikes
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(item_name)
                     .collect::<Result<Vec<_>>>()?,
             },
         );
     }
+    let ex_names: Mappings = serde_json::from_str(include_str!("ex-skill-names.json"))?;
+    Ok(Document {
+        mappings,
+        recipes,
+        groups,
+        preferences,
+        genis_bonus_ex_skill: ex_names.target(u32::from(source.bonus_skill))?.to_owned(),
+        labels: Default::default(),
+        effect_names: Default::default(),
+    })
+}
+
+fn convert(exe: &[u8]) -> Result<Document> {
+    let mut document = document(
+        Source {
+            recipes: dol::slice(exe, RECIPES, RECIPE_COUNT * 700)?,
+            group_items: &lists(exe, GROUP_LISTS, 32)?,
+            group_icons: dol::slice(exe, 0x80199e68, 32)?,
+            likes: &lists(exe, LIKES, 9)?,
+            dislikes: &lists(exe, DISLIKES, 9)?,
+            bonus_skill: dol::u16(dol::slice(exe, 0x8018d1f4, 2)?, 0)?,
+        },
+        |address| text::string(exe, address),
+        |id| text::pointer(exe, GROUP_NAMES + id as u32 * 4),
+    )?;
     let mut labels = BTreeMap::new();
     for (id, name) in [
         "cook",
@@ -320,15 +364,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
             ))
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
-    let ex_names: Mappings = serde_json::from_str(include_str!("ex-skill-names.json"))?;
-    let bonus_id = dol::u16(dol::slice(exe, 0x8018d1f4, 2)?, 0)?;
-    Ok(Document {
-        mappings,
-        recipes,
-        groups,
-        preferences,
-        genis_bonus_ex_skill: ex_names.target(u32::from(bonus_id))?.to_owned(),
-        labels: serde_json::to_value(labels)?,
-        effect_names,
-    })
+    document.labels = serde_json::to_value(labels)?;
+    document.effect_names = effect_names;
+    Ok(document)
 }

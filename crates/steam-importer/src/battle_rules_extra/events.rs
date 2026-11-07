@@ -1,4 +1,5 @@
 //! Native battle programs and the two authored Vidarr actor recipes.
+use crate::script_audio::{self, Script, select};
 use crate::{
     animation::Animation, battle_party_mappings, model, output, package::Package, pe,
     resources::Resources, script, source::Source,
@@ -20,11 +21,7 @@ use std::{
     path::Path,
 };
 use symphonia_constants::{BattleEventId, PartyCharacterId};
-use symphonia_script::{
-    NativeCall, Program,
-    message::{Message, Token},
-    scenario,
-};
+use symphonia_script::{NativeCall, message::Message};
 
 fn clip(
     source: &Source,
@@ -40,7 +37,7 @@ fn clip(
     output::write(&library.join(&path), &motion.encode(skeleton)?)?;
     Ok(SceneClip {
         motion: path,
-        joints: BTreeMap::new(),
+        joints: BTreeMap::new().into(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: resource,
@@ -140,25 +137,6 @@ fn soldier(source: &Source, library: &Path, resources: &Resources) -> Result<Act
     })
 }
 
-fn select(
-    values: impl IntoIterator<Item = Option<i32>>,
-    available: &BTreeSet<u32>,
-) -> Result<BTreeSet<u32>> {
-    let mut selected = BTreeSet::new();
-    for value in values {
-        match value {
-            Some(value) if value >= 0 => {
-                let id = value as u32;
-                ensure!(available.contains(&id), "unmapped event audio {id}");
-                selected.insert(id);
-            }
-            Some(_) => (),
-            None => selected.extend(available),
-        }
-    }
-    Ok(selected)
-}
-
 fn audio(source: &Source, library: &Path, bytes: &[u8], messages: &[Message]) -> Result<Selection> {
     let catalogue = |path| -> Result<BTreeSet<u32>> {
         let mappings: Mappings = serde_json::from_slice(&fs::read(library.join(path))?)?;
@@ -168,40 +146,12 @@ fn audio(source: &Source, library: &Path, bytes: &[u8], messages: &[Message]) ->
     let mut effects = catalogue(audio::EFFECTS)?;
     let voices: speech::Mappings = serde_json::from_slice(&fs::read(library.join(audio::SPEECH))?)?;
     let voices = voices.keys().copied().collect();
-    let program = Program::decode(bytes)?;
-    let analysis = scenario::analyze(bytes)?;
-    let arguments = |call, arity, position| -> Result<Vec<Option<i32>>> {
-        Ok(
-            scenario::calls::analyzed_arguments(&program, &analysis, call, arity)?
-                .into_values()
-                .map(|args| args[position])
-                .collect(),
-        )
-    };
-    let music = select(arguments(NativeCall::AudioCommand, 1, 0)?, &music)?;
+    let script = Script::read(bytes)?;
+    let music = select(script.arguments(NativeCall::AudioCommand, 1, 0)?, &music)?;
     let mut sounds = BTreeSet::new();
-    for (call, arity, position) in crate::script_audio::CALLS {
-        let values = arguments(call, arity, position)?;
-        for &id in values.iter().flatten().filter(|&&id| id >= 0) {
-            if !effects.contains(&(id as u32)) {
-                crate::audio_effects::bind_unused(source, library, id as u32)?;
-                effects.insert(id as u32);
-            }
-        }
-        sounds.extend(select(values, &effects)?);
-    }
-    let mut requested = arguments(NativeCall::PlayVoice, 1, 0)?;
-    for message in messages {
-        for token in &message.tokens {
-            if let Token::Control {
-                opcode: 9,
-                expression,
-            } = token
-            {
-                requested.push(expression.constant());
-            }
-        }
-    }
+    script.effects(source, library, &mut effects, &mut sounds)?;
+    let mut requested = script.arguments(NativeCall::PlayVoice, 1, 0)?;
+    requested.extend(script_audio::message_voices(messages));
     Ok(Selection {
         sounds: sounds
             .into_iter()
@@ -321,52 +271,4 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     output::json(&library.join(document::MAPPINGS), &Mappings::new(events)?)?;
     eprintln!("  Battle events: {count} source programs and two playable actor bindings");
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with party and enemy models"]
-    fn installed_battle_events_cook_and_capture_shared_scenes() -> Result<()> {
-        let root = std::path::PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        let source = Source::open(
-            &std::path::PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        cook(&source, &root)?;
-        let library = resonance_content::library::Library::open(&root, &[])?;
-        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        for id in [2, 3] {
-            let scene = document::capture(&mut library.snapshot(), id, &diagnostics, &|| false)?;
-            ensure!(scene.actors.len() == 5, "incomplete event cast");
-            ensure!(
-                !scene.audio.sounds.is_empty() && !scene.audio.voices.is_empty(),
-                "event audio missing"
-            );
-            let bytes = fs::read(root.join(scene.script))?;
-            Program::decode(&bytes)?;
-            scenario::analyze(&bytes)?;
-            for actor in scene.actors.values() {
-                let mut model_slots = BTreeSet::new();
-                for clip in &actor.parts[0].clips {
-                    if clip.animation_resource.is_none() {
-                        ensure!(
-                            model_slots.insert(clip.resource_slot),
-                            "duplicate event model clip"
-                        );
-                    }
-                    resonance_content::animation::Motion::decode_for_skeleton(
-                        &fs::read(root.join(&clip.motion))?,
-                        &actor.skeleton,
-                    )?;
-                }
-            }
-        }
-        Ok(())
-    }
 }

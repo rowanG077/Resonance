@@ -154,25 +154,9 @@ fn layer_texture_animation(
     independent: bool,
     controls: Option<&AttachmentAnimation>,
 ) -> Result<Option<AttachmentTextureAnimation>> {
-    // An untextured outline shares the primary rig, not its sampled texture.
-    // Independent layers keep their own explicit animation and validation.
-    if !independent
-        && scene.outline_color.is_some()
-        && scene
-            .materials
-            .iter()
-            .all(|material| scene.outline_color_for(material).is_some())
-    {
-        return Ok(None);
-    }
-    let animation = controls.and_then(|controls| {
-        if independent {
-            &controls.independent
-        } else {
-            &controls.primary
-        }
-        .clone()
-    });
+    let animation = controls
+        .and_then(|controls| controls.texture_for_layer(scene, independent))
+        .cloned();
     if let Some(animation) = &animation {
         validate_texture_animation(animation, scene.textures.len())?;
     }
@@ -362,50 +346,6 @@ pub(crate) fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn inherited_uv_scroll_skips_only_untextured_outlines() -> Result<()> {
-        let body: ScenePart = serde_json::from_value(serde_json::json!({
-            "mesh": "body.glb",
-            "textures": ["body.ktx2"],
-            "materials": [{"meshes": [0], "color": {"texture": 0}}]
-        }))?;
-        let mut outline: ScenePart = serde_json::from_value(serde_json::json!({
-            "mesh": "outline.glb",
-            "outline_color": [0, 0, 0, 127],
-            "materials": [{"meshes": [0]}]
-        }))?;
-        let scroll = AttachmentTextureAnimation::Scroll {
-            texture: 0,
-            step_milli_uv: [0, 20],
-            offset_milli_uv: [0, 0],
-        };
-        let mut controls = AttachmentAnimation {
-            primary: Some(scroll.clone()),
-            independent: Some(scroll.clone()),
-            ..Default::default()
-        };
-        assert_eq!(
-            layer_texture_animation(&body, false, Some(&controls))?,
-            Some(scroll)
-        );
-        assert_eq!(
-            layer_texture_animation(&outline, false, Some(&controls))?,
-            None
-        );
-        // Even an outline must validate an independent layer's own binding.
-        assert!(layer_texture_animation(&outline, true, Some(&controls)).is_err());
-        controls.primary = Some(AttachmentTextureAnimation::Scroll {
-            texture: 1,
-            step_milli_uv: [0, 20],
-            offset_milli_uv: [0, 0],
-        });
-        assert!(layer_texture_animation(&body, false, Some(&controls)).is_err());
-        // An outline with a sampled material is not a constant-color layer.
-        outline.materials = body.materials.clone();
-        assert!(layer_texture_animation(&outline, false, Some(&controls)).is_err());
-        Ok(())
-    }
 
     #[test]
     fn cached_bytes_are_republished_after_field_residency_changes() -> Result<()> {

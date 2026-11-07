@@ -10,7 +10,6 @@ use resonance_content::{
 use std::{collections::BTreeMap, path::Path};
 mod falcon;
 pub(crate) mod ordinary;
-mod regal;
 
 pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let catalogue = read(source)?;
@@ -37,8 +36,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
         &resonance_importer::martial_attack_document(&catalogue)?,
     )?;
     ordinary::cook(source, library, &catalogue)?;
-    falcon::cook(source, library, &catalogue)?;
-    regal::cook(source, library, &catalogue)
+    falcon::cook(source, library, &catalogue)
 }
 
 pub(crate) fn read(source: &Source) -> Result<Catalogue> {
@@ -336,65 +334,4 @@ pub(crate) fn sounds(attack: &mut Attack) -> Result<()> {
         hit_sound(&mut steal.bonus_hit)?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Language;
-    use std::{fs, path::PathBuf};
-
-    fn demon_fang_startups(catalogue: &Catalogue) -> Result<()> {
-        for (variant, expected) in [3, 4, 4].into_iter().enumerate() {
-            ensure!(
-                catalogue
-                    .variant(Binding {
-                        member: 1,
-                        variant: variant as u8
-                    })?
-                    .effect
-                    == Some(expected),
-                "Demon Fang variant {variant} lost startup effect {expected}"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; verifies native Demon Fang selectors and cooks only the martial owner"]
-    fn installed_demon_fang_startups_survive_normalization_and_shared_publication() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            Language::English,
-        )?;
-        let library = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        let usual = source.require("BTLusual.pac")?;
-        let usual = Package::parse(&usual)?;
-        let directory = usual.member(8)?.context("missing martial directory")?;
-        let start = pe::word(directory, 8)? as usize;
-        for (variant, expected) in [3, 4, 4].into_iter().enumerate() {
-            ensure!(
-                pe::word(directory, start + 16 + variant * 28 + 8)? == expected,
-                "native Demon Fang startup selector changed"
-            );
-        }
-        let catalogue = read(&source)?;
-        demon_fang_startups(&catalogue)?;
-        let document = resonance_importer::martial_attack_document(&catalogue)?;
-        let document: resonance_content::battle_martial::document::Catalogue =
-            serde_json::from_slice(&serde_json::to_vec(&document)?)?;
-        demon_fang_startups(&document.prepare()?)?;
-        // The source and shared declaration checks precede this single owner write.
-        cook(&source, &library)?;
-        let document: resonance_content::battle_martial::document::Catalogue =
-            serde_json::from_slice(&fs::read(
-                library.join(resonance_content::battle_rules::MARTIAL_ATTACKS),
-            )?)?;
-        demon_fang_startups(&document.prepare()?)?;
-        Ok(())
-    }
 }

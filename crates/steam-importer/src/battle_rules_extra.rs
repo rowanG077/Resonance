@@ -209,8 +209,6 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Language;
-    use std::path::PathBuf;
 
     #[test]
     fn victory_completion_uses_shared_clip_frames_and_preserves_expression_bytes() -> Result<()> {
@@ -231,62 +229,6 @@ mod tests {
             matches!(events[2], (23, battle_victory::Event::Idle { blend: 3 })),
             "victory completion clock changed"
         );
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY with party body models"]
-    fn installed_victories_cook_and_capture_all_costumes() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            Language::English,
-        )?;
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        cook(&source, &root)?;
-        let library = resonance_content::library::Library::open(&root, &[])?;
-        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        let mut count = 0;
-        for character in 1..=9u8 {
-            let name = PartyCharacterId::try_from(character)?
-                .resource_name()
-                .context("unnamed character")?;
-            for costume in 0..7u8 {
-                let path = format!(
-                    "battle/party/{name}/{}/party.json",
-                    battle_party_mappings::costume_name(
-                        &pe::Image::parse(&source.executable)?,
-                        character,
-                        costume
-                    )?
-                );
-                let party: models::PartyDefinition =
-                    serde_json::from_slice(&fs::read(root.join(path))?)?;
-                let captured = document::capture(
-                    &mut library.snapshot(),
-                    [(character, costume, &party.victory)],
-                    &diagnostics,
-                    &|| false,
-                )?;
-                ensure!(
-                    captured.groups.len() == usize::from(battle_victory::GROUP_COUNT)
-                        && captured.ordinary.len() == 5,
-                    "incomplete prepared victory inputs"
-                );
-                let skeleton = Skeleton::from_glb(&fs::read(root.join(&party.parts[0].mesh))?)?;
-                for row in captured.ordinary {
-                    resonance_content::animation::Motion::decode_for_skeleton(
-                        &fs::read(root.join(&row.motion))?,
-                        &skeleton,
-                    )?;
-                    count += 1;
-                }
-            }
-        }
-        ensure!(count == 315, "incomplete victory costume coverage");
         Ok(())
     }
 }

@@ -9,6 +9,16 @@ use symphonia_script::message::TextEncoding;
 
 const ARCHIVES: &str = "P12E/Data/TOS_Server/Archive/Release";
 
+pub(crate) fn base_encoding(name: &str) -> TextEncoding {
+    // English scenarios mix retained Japanese punctuation and Western accents.
+    // The untranslated skit debugger retains its original Japanese code page.
+    if name.eq_ignore_ascii_case("FC_C004.skp") {
+        TextEncoding::ShiftJis
+    } else {
+        TextEncoding::ShiftJisWithWesternFallback
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     #[default]
@@ -141,7 +151,7 @@ impl Source {
         Ok(self
             .base
             .read(name)?
-            .map(|bytes| (bytes, TextEncoding::ShiftJis)))
+            .map(|bytes| (bytes, base_encoding(name))))
     }
 
     pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {

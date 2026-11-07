@@ -99,20 +99,20 @@ mod tests {
             "playback cursors must remain independent"
         );
 
-        let tables_path = resonance_audio::effect::recipe::TABLES;
-        let original = std::fs::read(root.path().join(tables_path))?;
-        let mut tables: serde_json::Value = serde_json::from_slice(&original)?;
-        tables["mix"]["volume"][64] = 0.125.into();
-        write(root.path(), tables_path, &serde_json::to_vec(&tables)?)?;
+        let mix_path = resonance_content::field_audio::mix::PATH;
+        let original = std::fs::read(root.path().join(mix_path))?;
+        let mut mix: serde_json::Value = serde_json::from_slice(&original)?;
+        mix["music_gains"][64] = 0.5.into();
+        write(root.path(), mix_path, &serde_json::to_vec(&mix)?)?;
         let changed = capture(&mut cache)?;
         assert!(!Arc::ptr_eq(&first.recordings[&7], &changed.recordings[&7]));
-        assert_eq!(changed.recordings[&7].gains[64], 0.125);
-        write(root.path(), tables_path, b"invalid volume table")?;
+        assert_eq!(changed.recordings[&7].gains[64], 0.5);
+        write(root.path(), mix_path, b"invalid volume table")?;
         assert!(
             capture(&mut cache).is_err(),
-            "bad new tables must not reuse a previous validated recording"
+            "an invalid music mix must not reuse a previous validated recording"
         );
-        write(root.path(), tables_path, &original)?;
+        write(root.path(), mix_path, &original)?;
 
         write(
             root.path(),

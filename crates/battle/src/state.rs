@@ -972,7 +972,7 @@ pub struct Battle {
     pub(crate) random_inputs: Option<crate::random_inputs::Inputs>,
     pub(crate) unison_gauge: i16,
     pub(crate) unison: crate::unison::State,
-    pub(crate) action_scene: Option<crate::action_scene::Reservation>,
+    pub(crate) action_scenes: Vec<crate::action_scene::Reservation>,
     pub(crate) summon_entry: crate::summon_entry::State,
     pub(crate) enemy_presentation: crate::enemy_presentation::State,
     pub(crate) enemy_conversations: crate::enemy_conversation::State,
@@ -998,6 +998,7 @@ pub struct Battle {
     pub(crate) actor_emission_centers: Vec<[f32; 3]>,
     pub(crate) volleys: BTreeMap<ActionId, crate::release::Volley>,
     pub(crate) random: Random,
+    pub(crate) cosmetic_random: Random,
     pub(crate) model_requests: Vec<crate::ModelRequest>,
     pub(crate) models: Option<crate::Models>,
     pub(crate) projectiles: BTreeMap<ProjectileId, Projectile>,
@@ -1254,6 +1255,7 @@ impl Battle {
             ),
             actors,
             random: Random::new(prepared.random_seed),
+            cosmetic_random: Random::new(!prepared.random_seed),
             model_requests: Vec::new(),
             models: None,
             camera: prepared.camera,
@@ -1282,7 +1284,7 @@ impl Battle {
             paused_actors: Vec::new(),
             next_action: 1,
             next_projectile: 1,
-            action_scene: None,
+            action_scenes: Vec::with_capacity(2),
             terminal: Default::default(),
             ended: false,
             prepared: prepared.resources,
@@ -1388,8 +1390,9 @@ impl Battle {
             && !self.summon_entry.active()
             && !self.enemy_presentation.holding()
             && !self
-                .action_scene
-                .is_some_and(|scene| self.actors[scene.owner.index()].side == Side::Party)
+                .action_scenes
+                .iter()
+                .any(|scene| self.actors[scene.owner.index()].side == Side::Party)
     }
 
     pub fn random_state(&self) -> u64 {
@@ -1431,12 +1434,10 @@ impl Battle {
     }
 
     pub(crate) fn set_task(&mut self, index: usize, task: ActorTask) {
-        if let Some(scene) = self.action_scene
-            && scene.owner.index() == index
-            && !matches!(&task, ActorTask::Action { id, .. } if *id == scene.action)
-        {
-            self.end_action_scene(scene.action);
-        }
+        self.action_scenes.retain(|scene| {
+            scene.owner.index() != index
+                || matches!(&task, ActorTask::Action { id, .. } if *id == scene.action)
+        });
         self.runtime[index].task = task;
     }
 
@@ -1483,9 +1484,7 @@ impl Battle {
     }
 
     pub(crate) fn interrupt_actor(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
-        if let Some(scene) = self.action_scene.filter(|scene| scene.owner == actor) {
-            self.end_action_scene(scene.action);
-        }
+        self.action_scenes.retain(|scene| scene.owner != actor);
         self.interrupt_capture(actor);
         let runtime = &mut self.runtime[actor.index()];
         runtime.body_bypass = false;

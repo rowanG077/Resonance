@@ -147,30 +147,7 @@ fn layer_texture_animation(
     independent: bool,
     scene: &ScenePart,
 ) -> Result<Option<WeaponTextureAnimation>> {
-    // Constant-color outlines share the primary rig without sampling its
-    // texture. Independent layers still validate their own explicit controls.
-    if !independent
-        && scene.outline_color.is_some()
-        && scene
-            .materials
-            .iter()
-            .all(|material| scene.outline_color_for(material).is_some())
-    {
-        return Ok(None);
-    }
-    texture_animation(animation, independent, scene.textures.len())
-}
-
-fn texture_animation(
-    animation: &AttachmentAnimation,
-    independent: bool,
-    texture_count: usize,
-) -> Result<Option<WeaponTextureAnimation>> {
-    let Some(channel) = (if independent {
-        &animation.independent
-    } else {
-        &animation.primary
-    }) else {
+    let Some(channel) = animation.texture_for_layer(scene, independent) else {
         return Ok(None);
     };
     let (texture, prepared) = match channel {
@@ -213,7 +190,7 @@ fn texture_animation(
         }
     };
     ensure!(
-        texture < texture_count,
+        texture < scene.textures.len(),
         "weapon texture animation binding is missing"
     );
     Ok(Some(prepared))
@@ -236,48 +213,6 @@ pub fn owner_linked() -> WeaponPlayback {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn inherited_atlas_animates_body_without_binding_untextured_outline() -> Result<()> {
-        let body: ScenePart = serde_json::from_value(serde_json::json!({
-            "mesh": "body.glb",
-            "textures": ["atlas.ktx2", "body.ktx2"],
-            "materials": [{"meshes": [0], "color": {"texture": 0}}]
-        }))?;
-        let mut outline: ScenePart = serde_json::from_value(serde_json::json!({
-            "mesh": "outline.glb",
-            "outline_color": [0, 0, 0, 127],
-            "materials": [{"meshes": [0]}]
-        }))?;
-        let mut animation: AttachmentAnimation = serde_json::from_value(serde_json::json!({
-            "primary": {"kind": "atlas", "rows": 4, "ticks_per_frame": 3},
-            "independent": {"kind": "scroll", "step_milli_uv": [0, -12]}
-        }))?;
-        assert!(matches!(
-            layer_texture_animation(&animation, false, &body)?,
-            Some(WeaponTextureAnimation::Atlas {
-                texture: 0,
-                rows: 4,
-                ticks_per_frame: 3,
-                ..
-            })
-        ));
-        assert!(layer_texture_animation(&animation, false, &outline)?.is_none());
-        assert!(matches!(
-            layer_texture_animation(&animation, true, &body)?,
-            Some(WeaponTextureAnimation::Scroll { texture: 0, .. })
-        ));
-        assert!(layer_texture_animation(&animation, true, &outline).is_err());
-        animation.primary = Some(AttachmentTextureAnimation::Scroll {
-            texture: 2,
-            step_milli_uv: [0, 20],
-            offset_milli_uv: [0, 0],
-        });
-        assert!(layer_texture_animation(&animation, false, &body).is_err());
-        outline.materials = body.materials.clone();
-        assert!(layer_texture_animation(&animation, false, &outline).is_err());
-        Ok(())
-    }
 
     #[test]
     #[ignore = "requires current stored battle scenes; metadata only"]
@@ -322,6 +257,9 @@ mod tests {
             "primary":{"kind":"scroll","texture":1,"step_milli_uv":[80,0],"offset_milli_uv":[-128,4]},
             "independent":{"kind":"scroll","texture":2,"step_milli_uv":[0,-12],"offset_milli_uv":[7,-9]}
         }))?;
+        let mut scene: ScenePart = serde_json::from_value(serde_json::json!({
+            "mesh":"weapon.glb", "textures":["a.ktx2", "b.ktx2", "c.ktx2"]
+        }))?;
         for (independent, expected) in [
             (false, (1, [-128, 4], [80, 0])),
             (true, (2, [7, -9], [0, -12])),
@@ -330,17 +268,19 @@ mod tests {
                 texture,
                 initial,
                 step,
-            }) = texture_animation(&animation, independent, 3)?
+            }) = layer_texture_animation(&animation, independent, &scene)?
             else {
                 panic!("missing scroll channel")
             };
             assert_eq!((texture, initial, step), expected);
-            assert!(texture_animation(&animation, independent, expected.0).is_err());
+            scene.textures.truncate(expected.0);
+            assert!(layer_texture_animation(&animation, independent, &scene).is_err());
+            scene.textures.resize(3, String::new());
         }
         animation.primary = None;
-        assert!(texture_animation(&animation, false, 0)?.is_none());
-        assert!(texture_animation(&animation, true, 3)?.is_some());
-        assert!(texture_animation(&AttachmentAnimation::default(), true, 0)?.is_none());
+        assert!(layer_texture_animation(&animation, false, &scene)?.is_none());
+        assert!(layer_texture_animation(&animation, true, &scene)?.is_some());
+        assert!(layer_texture_animation(&AttachmentAnimation::default(), true, &scene)?.is_none());
         Ok(())
     }
 
@@ -349,6 +289,9 @@ mod tests {
         let animation: AttachmentAnimation = serde_json::from_value(serde_json::json!({
             "primary":{"kind":"atlas", "rows":4, "ticks_per_frame":9, "frames":[0,1,2,3,2,1]},
             "independent":{"kind":"atlas", "rows":4, "ticks_per_frame":6}
+        }))?;
+        let mut scene: ScenePart = serde_json::from_value(serde_json::json!({
+            "mesh":"weapon.glb", "textures":["atlas.ktx2"]
         }))?;
         for (independent, expected_ticks, expected_order) in [
             (false, 9, vec![0, 1, 2, 3, 2, 1]),
@@ -359,7 +302,7 @@ mod tests {
                 rows,
                 ticks_per_frame,
                 order,
-            }) = texture_animation(&animation, independent, 1)?
+            }) = layer_texture_animation(&animation, independent, &scene)?
             else {
                 panic!("missing weapon atlas");
             };
@@ -368,7 +311,8 @@ mod tests {
                 (0, 4, expected_ticks, expected_order)
             );
         }
-        assert!(texture_animation(&animation, false, 0).is_err());
+        scene.textures.clear();
+        assert!(layer_texture_animation(&animation, false, &scene).is_err());
         assert!(
             serde_json::from_value::<AttachmentAnimation>(serde_json::json!({
                 "primary":{"kind":"atlas", "rows":4, "ticks_per_frame":0}

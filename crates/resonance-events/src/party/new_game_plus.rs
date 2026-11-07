@@ -240,12 +240,12 @@ mod tests {
 
     #[test]
     fn carried_titles_keep_independent_outfits_without_carrying_story_costumes() {
-        use resonance_content::menu_data::{Costume, Title};
+        use resonance_content::menu_data::Title;
         let mut data = crate::party::tests::data();
         let mut menus = crate::party::tests::technique_menu();
         menus.titles[0].push(Title {
             growth: [0; 7],
-            costume: Some(Costume::Variant2),
+            costume: Some(2),
         });
         data.rules = Some(std::sync::Arc::new(menus));
         for (carry, equipped, costume, owns_costume) in [

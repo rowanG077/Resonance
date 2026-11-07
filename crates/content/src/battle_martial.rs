@@ -166,6 +166,9 @@ pub struct Attack<E = Event> {
     pub recovery: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect: Option<u16>,
+    /// Resolve startup and melee contact effects from the selected stored skill.
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+    pub skill_effects: bool,
     pub events: Vec<(u16, E)>,
     #[serde(
         default,

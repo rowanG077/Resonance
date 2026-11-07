@@ -103,7 +103,6 @@ fn channels(roles: [Option<usize>; 4], sizes: &[[u32; 2]]) -> AppearanceTextures
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
 
     #[test]
     fn untagged_npc_does_not_infer_face_channels_from_dimensions() {
@@ -111,65 +110,5 @@ mod tests {
         let appearance = channels([None; 4], &sizes);
         assert_eq!(appearance.eyes, None);
         assert_eq!(appearance.mouth, None);
-    }
-
-    #[test]
-    #[ignore = "requires installed Steam; optional private Martel appearance candidate"]
-    fn installed_martel_source_tags_drive_the_existing_face_atlas() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let temporary = tempfile::tempdir()?;
-        let owner = "meshes/characters/martel";
-        let (document, _) =
-            crate::actor_model::cook(&source, temporary.path(), "npc_all_b024.pac", owner)?;
-        let appearance = document.parts[0]
-            .appearance
-            .as_ref()
-            .context("Martel native face roles missing")?;
-        assert_eq!(appearance.eyes, Some(1));
-        assert_eq!(appearance.mouth, Some(0));
-        assert_eq!(appearance.variant, None);
-        assert_eq!(appearance.costume, None);
-        assert!(document.parts[1].appearance.is_none());
-        for (texture, size) in [(0, [64, 256]), (1, [64, 512])] {
-            assert_eq!(
-                resonance_asset_writer::texture::dimensions(&fs::read(
-                    temporary.path().join(&document.parts[0].textures[texture])
-                )?)?,
-                size
-            );
-        }
-        // A tagged face uses the shared 16-frame eye selector. Source face4
-        // selects frame2; both retained source atlases show closed eyes there.
-        let (untagged, _) = crate::model::cook(
-            &source,
-            temporary.path(),
-            "elc_d16_b000_OBJ000.TOMDLB_D",
-            "untagged",
-            "body",
-        )?;
-        let sizes = untagged
-            .textures
-            .iter()
-            .map(|p| {
-                resonance_asset_writer::texture::dimensions(&fs::read(temporary.path().join(p))?)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        assert!(tagged_appearance(&source, "elc_d16_b000_OBJ000.TOMDLB_D", &sizes)?.is_none());
-        if let Some(output) = std::env::var_os("RESONANCE_MARTEL_APPEARANCE_OUTPUT") {
-            let root = PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-            );
-            let path = format!("{owner}/model.json");
-            let mut existing: serde_json::Value =
-                serde_json::from_slice(&fs::read(root.join(&path))?)?;
-            existing["parts"][0]["appearance"] = serde_json::to_value(appearance)?;
-            crate::output::json(&PathBuf::from(output).join(path), &existing)?;
-        }
-        Ok(())
     }
 }

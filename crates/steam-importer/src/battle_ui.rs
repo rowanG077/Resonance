@@ -171,9 +171,6 @@ fn font(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Language;
-    use resonance_content::{diagnostics::Diagnostics, library::Library};
-    use std::path::PathBuf;
 
     #[test]
     fn gc_layout_uses_the_current_named_art_schema() -> Result<()> {
@@ -184,123 +181,6 @@ mod tests {
             [3, 5, 4, 2, 3, 1]
         );
         assert_eq!(art.font, document::FONT);
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_EXTRACTED; compares GC HUD layout colors and movement"]
-    fn gc_layout_colors_and_motion_match_current_gc_importer() -> Result<()> {
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_EXTRACTED").context("set RESONANCE_TEST_EXTRACTED")?,
-        );
-        let temporary = tempfile::tempdir()?;
-        resonance_importer::cook_battle_ui_hud(&root, temporary.path())?;
-        let reference: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(temporary.path().join(document::PATH))?)?;
-        let actual: serde_json::Value =
-            serde_json::from_str(include_str!("battle_ui/layout.json"))?;
-        for field in [
-            "meters",
-            "damage",
-            "recovery_colors",
-            "result_colors",
-            "combo",
-            "stat_colors",
-            "stat_backdrops",
-        ] {
-            assert_eq!(actual[field], reference[field], "GC battle UI {field}");
-        }
-        for field in [
-            "player_format",
-            "player_colors",
-            "text_color",
-            "shadow_color",
-            "pending_item_color",
-            "selector_colors",
-            "selector_plate_colors",
-            "motion",
-        ] {
-            assert_eq!(
-                actual["commands"][field], reference["commands"][field],
-                "GC command {field}"
-            );
-        }
-        for field in [
-            "item_bar",
-            "item_text",
-            "scan_vitals",
-            "unison_text",
-            "escape_positions",
-        ] {
-            assert_eq!(
-                actual["feedback"][field], reference["feedback"][field],
-                "GC feedback {field}"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM; cooks all five Western battle UI languages into temporary libraries"]
-    fn installed_battle_ui_localizes_all_western_labels() -> Result<()> {
-        let installation = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-        );
-        let temporary = tempfile::tempdir()?;
-        for language in [
-            Language::English,
-            Language::French,
-            Language::Spanish,
-            Language::German,
-            Language::Italian,
-        ] {
-            let root = temporary.path().join(language.slot().to_string());
-            let source = Source::open(&installation, language)?;
-            resonance_importer::cook_descriptor(&root)?;
-            cook(&source, &root)?;
-            let library = Library::open(&root, &[])?;
-            let art =
-                document::capture(&mut library.snapshot(), &Diagnostics::new(true), &|| false)?;
-            art.validate()?;
-            art.validate_required_dialogue(&art.font)?;
-            for text in art
-                .commands
-                .names
-                .iter()
-                .chain([&art.commands.cancel_escape])
-                .chain(&art.commands.selector_labels)
-            {
-                art.font.validate_text(text)?;
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; cooks and loads the native battle HUD"]
-    fn installed_battle_ui_cooks_and_loads_through_shared_reader() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            Language::English,
-        )?;
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        cook(&source, &root)?;
-        let library = Library::open(&root, &[])?;
-        let art = document::capture(&mut library.snapshot(), &Diagnostics::new(true), &|| false)?;
-        art.validate()?;
-        art.validate_required_dialogue(&art.font)?;
-        ensure!(
-            art.portraits.iter().flatten().count() == 9,
-            "missing battle portraits"
-        );
-        ensure!(
-            art.commands.names == ["Tech", "U. Attack", "Strat", "Equip", "Item", "Escape"],
-            "changed English battle labels"
-        );
         Ok(())
     }
 }

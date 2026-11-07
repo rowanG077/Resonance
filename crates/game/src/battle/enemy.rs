@@ -292,26 +292,33 @@ impl super::encounter::resources::Resources<'_> {
                 }
                 EnemyExecution::Attack(attack) | EnemyExecution::Physical { attack, .. } => attack,
             };
-            let final_fury =
-                attack.events.iter().any(|(_, event)| {
-                    matches!(event, EnemyEvent::AuthoredCallback { skill: 200, .. })
-                }) && matches!(execution, EnemyExecution::Physical { technique: 152, .. });
-            let callback_bank = if final_fury {
+            let physical = if let EnemyExecution::Physical { technique, .. } = execution {
+                Some((
+                    technique,
+                    self.voices.party_table().martial_attacks.variant(
+                        resonance_content::battle_martial::Binding::enemy(*technique),
+                    )?,
+                ))
+            } else {
+                None
+            };
+            let callback_bank = if let Some((technique, common)) = physical
+                && common.skill_effects
+            {
+                let catalogue = catalogue_id(placements, *technique)
+                    .context("enemy skill has no catalogue binding")?;
                 Some(
                     self.skill_scenes
-                        .get(&200)
-                        .context("Final Fury enemy has no stored skill artwork")?
+                        .get(&catalogue)
+                        .context("enemy action has no stored skill artwork")?
                         .clone(),
                 )
             } else {
                 None
             };
             let mut events = vec![(0, Event::Armor(attack.armor))];
-            if let EnemyExecution::Physical { technique, .. } = execution {
+            if let Some((technique, common)) = physical {
                 events.push((0, Event::Notice { duration: 90 }));
-                let common = self.voices.party_table().martial_attacks.variant(
-                    resonance_content::battle_martial::Binding::enemy(*technique),
-                )?;
                 let effect = common.effect;
                 let lightning_hit = if matches!(*technique, 85 | 87) {
                     Some(
@@ -337,11 +344,15 @@ impl super::encounter::resources::Resources<'_> {
                 const ARTE_BRAKING: f32 = 0.55;
                 events.push((0, Event::Braking(ARTE_BRAKING)));
                 if let Some(member) = effect {
+                    let bank = callback_bank.as_ref().unwrap_or(&self.techniques);
+                    let appearance = self.prepared.effect_member(bank, member)?;
+                    let origin = resonance_battle::AttackOrigin::ActorRoot;
                     events.push((
                         0,
-                        Event::ActionEffect {
-                            appearance: self.prepared.effect_member(&self.techniques, member)?,
-                            origin: resonance_battle::AttackOrigin::ActorRoot,
+                        if callback_bank.is_some() {
+                            Event::InitializedActionEffect { appearance, origin }
+                        } else {
+                            Event::ActionEffect { appearance, origin }
                         },
                     ));
                 }
@@ -814,8 +825,11 @@ impl super::encounter::resources::Resources<'_> {
                     None,
                 )?;
             }
-            if final_fury {
-                super::skill_scene::finisher(self, &mut prepared, 200)?;
+            if prepared
+                .events
+                .iter()
+                .any(|(_, event)| matches!(event, Event::ActionScene { .. }))
+            {
                 prepared.chain_at = None;
             }
             let key = bindings.insert(ActionDefinition {

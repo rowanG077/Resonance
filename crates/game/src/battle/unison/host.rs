@@ -47,6 +47,7 @@ pub(crate) fn prepare_host(
             chain_at: None,
             recovery: opener.recovery,
             effect: None,
+            skill_effects: false,
             events: opener.events.clone(),
             flight: None,
             pose_sequence: None,

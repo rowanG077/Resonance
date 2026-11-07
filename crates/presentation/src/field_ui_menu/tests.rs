@@ -82,9 +82,7 @@ fn status_costume_selector_distinguishes_default_owned_and_unavailable_outfits()
     ] {
         let costume_title = fixture.data.titles[character]
             .iter()
-            .position(|title| {
-                title.costume == Some(resonance_content::menu_data::Costume::Variant2)
-            })
+            .position(|title| title.costume == Some(2))
             .context("fixture has no variant 2 title")? as u8
             + 1;
         let mut menu = fixture.field_menu();
@@ -206,7 +204,7 @@ fn status_titles_and_costumes_draw_with_numeric_growth_and_fit_the_panels() -> R
     let mut fixture = Fixture::load()?;
     let costume_title = fixture.data.titles[0]
         .iter()
-        .position(|title| title.costume == Some(resonance_content::menu_data::Costume::Variant2))
+        .position(|title| title.costume == Some(2))
         .context("fixture has no variant 2 title")? as u8
         + 1;
     fixture.party.members[0].costume = 2;

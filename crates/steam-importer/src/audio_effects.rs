@@ -2,7 +2,10 @@
 use crate::{audio_streams, output, package::Package, pe, source::Source};
 use anyhow::{Context, Result, ensure};
 use resonance_audio::effect::{Definition, Loop, Wave};
-use resonance_content::{field_audio::ServiceCue, library::Mappings};
+use resonance_content::{
+    field_audio::{FOOTSTEP_EFFECTS, ServiceCue},
+    library::Mappings,
+};
 use std::{collections::BTreeMap, fs, ops::Range, path::Path};
 
 pub(crate) fn id(native: u16) -> Result<u16> {
@@ -91,6 +94,13 @@ pub(crate) fn bind_services(source: &Source, library: &Path) -> Result<()> {
     for (service, native) in CUES {
         let recording = entries.target(u32::from(id(native)?))?.to_owned();
         mappings.insert(service as u32, recording);
+    }
+    // Field materials select SYS rows 11..=23 at 0x4cfe77..0x4cfecb.
+    // World terrain uses the same rows, but forests select SYS row 3
+    // in the table initialized at 0x4b651f, corresponding to shared cue 27.
+    for cue in FOOTSTEP_EFFECTS {
+        let native = if cue == 27 { 3 } else { cue as u16 };
+        mappings.insert(cue, entries.target(u32::from(id(native)?))?.to_owned());
     }
     ensure!(
         ServiceCue::ALL

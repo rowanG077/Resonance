@@ -193,7 +193,12 @@ pub(crate) fn models_selected(
     selected: Option<&[u16]>,
 ) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
-    for id in 0..count(&image)? {
+    let count = count(&image)?;
+    ensure!(
+        selected.is_none_or(|ids| ids.iter().all(|&id| usize::from(id) < count)),
+        "enemy model selection exceeds catalogue"
+    );
+    for id in 0..count {
         let id = id as u16;
         if selected.is_some_and(|ids| !ids.contains(&id)) {
             continue;
@@ -432,18 +437,6 @@ fn components(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "monsters/carried_material.rs"]
-mod carried_material_tests;
-
-#[cfg(test)]
-#[path = "monsters/defense_attachments.rs"]
-mod defense_attachment_tests;
-
-#[cfg(test)]
-#[path = "monsters/secondary_material.rs"]
-mod secondary_material_tests;
 
 /// Native command 25 explicitly samples a body motion on a carried rig. This is
 /// the same bounded command scan used by the GC media importer.

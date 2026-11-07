@@ -200,22 +200,7 @@ pub struct Title {
     pub growth: [u8; 7],
     /// Unlocks this variant in the costume selector when the title is owned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub costume: Option<Costume>,
-}
-
-/// Character model variants; numbered title costumes differ between characters.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[repr(u8)]
-#[serde(rename_all = "snake_case")]
-pub enum Costume {
-    #[default]
-    Standard = 0,
-    Variant1 = 1,
-    Variant2 = 2,
-    Story = 3,
-    Variant4 = 4,
-    Variant5 = 5,
-    Variant6 = 6,
+    pub costume: Option<u8>,
 }
 
 impl MenuData {

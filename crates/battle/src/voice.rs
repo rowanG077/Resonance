@@ -14,6 +14,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn voice_choices_leave_gameplay_randomness_unchanged() -> Result<()> {
+        use crate::{ActionKey, ActionRequest, ActorSetup, AttackEvent, BattleInput, Side};
+        for chance in [0, 50, 100] {
+            let mut action = crate::tests::action(4);
+            crate::tests::attack_mut(&mut action).events.push((
+                0,
+                AttackEvent::VoiceChoice {
+                    choice: resonance_content::battle_voice::Choice {
+                        sounds: [Some(Sound::Cue(10)), Some(Sound::Cue(20))],
+                        first_chance: chance,
+                    },
+                    priority: VoicePriority::Action,
+                },
+            ));
+            let mut prepared = crate::PreparedBattle::new(
+                [Side::Party, Side::Enemy]
+                    .map(|side| (crate::tests::actor(side), ActorSetup::default()))
+                    .into(),
+                vec![action].into(),
+                1234,
+            )?;
+            crate::tests::assign_action(&mut prepared, 0, ActionKey(0));
+            let mut battle = prepared.finish()?;
+            let before = battle.random_state();
+            let frame = battle.step(BattleInput {
+                actions: vec![ActionRequest {
+                    actor: ActorId(0),
+                    action: ActionKey(0),
+                    target: ActorId(1),
+                }],
+                ..Default::default()
+            })?;
+            assert_eq!(battle.random_state(), before);
+            assert!(frame.cues.iter().any(
+                |cue| matches!(cue, Cue::Voice { action: Some(_), sound: Sound::Cue(line), .. }
+                if (*line == 10 && chance > 0) || (*line == 20 && chance < 100))
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn core_requests_count_once_and_result_voices_do_not_count() {
         let mut battle = crate::PreparedBattle::new(
             [crate::Side::Party, crate::Side::Enemy]

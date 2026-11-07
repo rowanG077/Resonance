@@ -1,6 +1,6 @@
 //! Party bodies and field/service motions use the ordinary shared model documents.
 use crate::{actor_model, animation::Animation, output, package::Package, pe, source::Source};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use resonance_content::{
     SceneClip,
     animation::Skeleton,
@@ -13,18 +13,12 @@ use resonance_content::{
 use std::{collections::BTreeMap, fs, path::Path};
 use symphonia_constants::PartyCharacterId;
 
-pub(crate) fn cook(source: &Source, library: &Path, selected: Option<u8>) -> Result<()> {
-    if let Some(id) = selected {
-        ensure!((1..=9).contains(&id), "invalid party character {id}");
-    }
+pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
     let image = pe::Image::parse(&source.executable)?;
     let common = resonance_importer::party_model_mappings()?;
     let mut mappings = BTreeMap::new();
     let mut owners = BTreeMap::<String, String>::new();
     for id in 1..=9u8 {
-        if selected.is_some_and(|only| only != id) {
-            continue;
-        }
         let name = PartyCharacterId::try_from(id)?
             .resource_name()
             .context("unnamed party character")?;

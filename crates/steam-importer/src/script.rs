@@ -2,6 +2,7 @@
 use anyhow::{Context, Result, ensure};
 use std::collections::BTreeSet;
 pub use symphonia_script::message::TextEncoding;
+pub(crate) mod arguments;
 mod patch;
 pub(crate) use patch::rewrite;
 
@@ -229,26 +230,32 @@ mod tests {
     }
 
     #[test]
-    fn mixed_english_skit_text_preserves_japanese_punctuation_and_western_accents() -> Result<()> {
+    fn english_scenarios_preserve_japanese_punctuation_and_western_accents() -> Result<()> {
         let mut native = vec![4, 0, 0, 0, 5, 0, 0, 0, 0xff, 0x20, 4, 0, 0, 0];
         // The accent immediately precedes a control expression, so treating it
         // as a Shift-JIS lead byte would also corrupt the numeric byte order.
         native.extend(b"caf\xe9\x09\x01\x00\x00\x30\xff\x20 \x81gOK\x81h\x82\xa0\0");
-        let script = decode(&native, TextEncoding::ShiftJisWithWesternFallback)?;
+        for name in ["field.bin_", "world.bin", "FC_W001.skp"] {
+            let script = decode(&native, crate::source::base_encoding(name))?;
+            assert_eq!(
+                script.messages[0].tokens,
+                [
+                    Token::Text {
+                        text: "café".into()
+                    },
+                    Token::Control {
+                        opcode: 9,
+                        expression: Expression::Constant(1)
+                    },
+                    Token::Text {
+                        text: " “OK”あ".into()
+                    },
+                ]
+            );
+        }
         assert_eq!(
-            script.messages[0].tokens,
-            [
-                Token::Text {
-                    text: "café".into()
-                },
-                Token::Control {
-                    opcode: 9,
-                    expression: Expression::Constant(1)
-                },
-                Token::Text {
-                    text: " “OK”あ".into()
-                },
-            ]
+            crate::source::base_encoding("fc_c004.SKP"),
+            TextEncoding::ShiftJis
         );
         Ok(())
     }

@@ -159,6 +159,7 @@ fn customize(source: &Menu<'_>) -> Result<options::Document> {
         .context("invalid default window")?;
     let shared = CustomizeSettings::default();
     let defaults = options::Defaults {
+        vsync: shared.vsync,
         message_speed: native[0],
         difficulty: options::DIFFICULTIES
             .get(usize::from(native[0xb9]))

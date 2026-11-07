@@ -58,6 +58,7 @@ pub(crate) fn cook(source: &Source, output: &Path) -> Result<()> {
         if let Some((fade_out_at, skip_after)) = timing {
             logos.push(Logo {
                 image: image.path,
+                size: [image.width, image.height],
                 fade_out_at,
                 skip_after,
                 fade_ticks: 64,

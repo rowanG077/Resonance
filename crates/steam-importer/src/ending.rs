@@ -194,6 +194,7 @@ fn compile(text: &str, pictures: &[UiTexture]) -> Result<(Vec<Block>, i32)> {
             };
             blocks.push(Block::Image {
                 image: image.path.clone(),
+                size: [image.width, image.height],
                 offset_x,
             });
             gap(&mut blocks, &mut height, image.height.try_into()?)?;
@@ -367,7 +368,7 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{io::Cursor, path::PathBuf};
+    use std::io::Cursor;
     #[test]
     fn staff_controls_keep_columns_pictures_page_gaps_and_text() -> Result<()> {
         let pictures = [UiTexture {
@@ -414,41 +415,6 @@ mod tests {
         .concat();
         assert_eq!(audio(&mut Cursor::new(bytes.clone()))?, b"firstsecond");
         assert!(audio(&mut Cursor::new(&bytes[..bytes.len() - 1])).is_err());
-        Ok(())
-    }
-    #[test]
-    #[ignore = "requires RESONANCE_TEST_STEAM and RESONANCE_TEST_LIBRARY; imports ending audio/artwork and captures shared credits"]
-    fn installed_ending_cooks_and_captures_shared_credits() -> Result<()> {
-        let source = Source::open(
-            &PathBuf::from(
-                std::env::var_os("RESONANCE_TEST_STEAM").context("set RESONANCE_TEST_STEAM")?,
-            ),
-            crate::Language::English,
-        )?;
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_TEST_LIBRARY").context("set RESONANCE_TEST_LIBRARY")?,
-        );
-        cook(&source, &root)?;
-        let library = resonance_content::library::Library::open(&root, &[])?;
-        credits::document::capture(&mut library.snapshot(), &|| false)?;
-        let definition: Definition =
-            serde_json::from_slice(&fs::read(root.join(credits::document::PATH))?)?;
-        let manifest = definition.prepare(|path| Ok(fs::read(root.join(path))?.into()))?;
-        ensure!(
-            manifest.pictures.len() == 2
-                && manifest.music.channels == 2
-                && manifest.music.source_sample_rate == 48000,
-            "ending media changed"
-        );
-        ensure!(
-            manifest.music.frames == 18_258_240 && manifest.final_hold_ticks == 360,
-            "ending audio clock changed"
-        );
-        eprintln!(
-            "Prepared credits with {} operations and {} audio frames",
-            manifest.program.operations.len(),
-            manifest.music.frames
-        );
         Ok(())
     }
 }

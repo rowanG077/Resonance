@@ -780,6 +780,7 @@ fn install_cursor(app: &mut App, steps: Vec<Step>, pad: Option<Entity>) {
     // Input fixtures start at New Game; observation-only captures keep the player default.
     let has_input = steps.iter().any(|step| match step {
         Step::Hold { keys, .. } | Step::Wait { keys, .. } => !keys.is_empty(),
+        Step::AdvanceDialogue { .. } => true,
         Step::Capture { .. } => false,
     });
     if has_input && let Some(mut menu) = app.world_mut().get_resource_mut::<crate::Menu>() {
@@ -1973,6 +1974,18 @@ mod tests {
         for (steps, selected) in [
             (Step::tap(Key::Interact).to_vec(), 0),
             (vec![Step::select(Event::TitleLoad, Key::Down)], 0),
+            (
+                vec![Step::AdvanceDialogue {
+                    until: Event::Field {
+                        map_id: 332,
+                        free_control: true,
+                        story: None,
+                        max_x: None,
+                    },
+                    max_updates: 120,
+                }],
+                0,
+            ),
             (
                 vec![
                     Step::wait(Event::TitleTick { tick: 1000 }, 1001),

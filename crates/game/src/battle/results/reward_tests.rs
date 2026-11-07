@@ -221,8 +221,7 @@ fn happiness_keeps_inactive_owner_separate_from_active_reward_traits() -> Result
             .compound_ex_skills
             .clear();
         if !active {
-            Arc::make_mut(&mut fixture.candidate.menus).titles[3][0].costume =
-                Some(resonance_content::menu_data::Costume::Variant1);
+            Arc::make_mut(&mut fixture.candidate.menus).titles[3][0].costume = Some(1);
         }
         let modifiers = fixture.candidate.reward_modifiers(&fixture.battle)?;
         assert_eq!(modifiers.happiness_luck.is_some(), active);

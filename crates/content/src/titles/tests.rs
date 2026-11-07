@@ -59,6 +59,36 @@ fn shared_titles_use_stat_points_without_changing_character_ids() -> Result<()> 
 }
 
 #[test]
+fn title_costumes_resolve_modded_slots_from_mappings() -> Result<()> {
+    let (mut document, items) = fixture()?;
+    document.titles.get_mut("shared-title").unwrap().costume = Some("mod-outfit".into());
+    let mut files = crate::prepared::Files::default();
+    let mut insert = |path: &str, value: Value| {
+        files.insert(path.into(), serde_json::to_vec(&value).unwrap().into());
+    };
+    insert(PATH, serde_json::to_value(document)?);
+    insert(
+        crate::battle_model::document::PARTY,
+        serde_json::to_value(Mappings::new(
+            (1..=9).map(|id| (id, format!("character-{id}"))).collect(),
+        )?)?,
+    );
+    for id in 1..=9 {
+        insert(
+            &format!("battle/party/character-{id}/mappings.json"),
+            serde_json::json!({"255":"mod-outfit"}),
+        );
+    }
+    assert!(
+        load(&files, &items)?
+            .rules
+            .iter()
+            .all(|titles| titles[0].costume == Some(255))
+    );
+    Ok(())
+}
+
+#[test]
 fn named_awards_preserve_order_recipients_slots_and_item_alternatives() -> Result<()> {
     let (mut document, items) = fixture()?;
     let rules: menu_data::TitleAwardRules = serde_json::from_value(serde_json::json!({

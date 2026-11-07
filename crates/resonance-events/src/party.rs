@@ -140,7 +140,7 @@ impl Member {
         self.titles.iter().copied().find(|&id| {
             titles[usize::from(id - 1)]
                 .costume
-                .is_some_and(|costume| costume as u8 == self.costume)
+                .is_some_and(|costume| costume == self.costume)
         })
     }
 }
@@ -527,12 +527,11 @@ pub(crate) mod tests {
 
     #[test]
     fn costume_unlock_depends_on_owned_titles_and_selected_outfit() {
-        use resonance_content::menu_data::{Costume, Title};
-        let titles =
-            [None, Some(Costume::Variant2), Some(Costume::Variant1)].map(|costume| Title {
-                growth: [0; 7],
-                costume,
-            });
+        use resonance_content::menu_data::Title;
+        let titles = [None, Some(2), Some(1)].map(|costume| Title {
+            growth: [0; 7],
+            costume,
+        });
         let mut party = Party::new(&data(), Default::default()).unwrap();
         let member = &mut party.members[0];
         member.titles = [1, 2].into();
@@ -1337,10 +1336,6 @@ impl Party {
         );
         ensure!(
             self.members.len() == data.characters.len()
-                && self
-                    .members
-                    .iter()
-                    .all(|m| m.costume <= resonance_content::menu_data::Costume::Variant6 as u8)
                 && (1..=8).contains(&self.formation.len())
                 && self.formation.contains(&self.field_leader)
                 && self

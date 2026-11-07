@@ -98,7 +98,14 @@ pub(super) fn read(
         entrances::read(selector, profile, fallback)?
     };
     let deferred = has_entrance && opening.is_none();
-    Ok((Some(Presentation { opening, defeat }), deferred))
+    Ok((
+        Some(Presentation {
+            opening,
+            defeat,
+            conversation: None,
+        }),
+        deferred,
+    ))
 }
 
 /// Package-relative launch commands join the ordinary shared presentation data.

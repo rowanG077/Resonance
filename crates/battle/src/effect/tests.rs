@@ -104,7 +104,7 @@ fn emit(at: u32, birth: ParticleBirth) -> ScheduledEvent {
 #[test]
 fn authored_fourth_corner_edits_reach_the_particle_frame() -> Result<()> {
     let original = [[-1., 1., 2.], [3., 4., 5.], [6., 7., 8.], [9., 10., 11.]];
-    let mut particle = crate::tests::particle_definition(77, 0);
+    let mut particle = crate::tests::particle_definition(77);
     particle.data.state.geometry = ParticleGeometry::Quad {
         vertices: original,
         velocity: [[0.; 3]; 4],
@@ -141,7 +141,7 @@ fn quad_corner_velocity_and_independent_sums_share_the_authored_draws() -> Resul
         draw: Some(1),
         reverse: false,
     };
-    let mut particle = crate::tests::particle_definition(77, 0);
+    let mut particle = crate::tests::particle_definition(77);
     particle.data.geometry_acceleration_until = None;
     particle.data.state.geometry = ParticleGeometry::Quad {
         vertices: [[0.; 3]; 4],

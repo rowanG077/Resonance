@@ -132,7 +132,7 @@ impl Document {
     pub fn prepare(
         &self,
         items: &Mappings,
-        mut costume: impl FnMut(PartyCharacter, &str) -> Result<menu_data::Costume>,
+        mut costume: impl FnMut(PartyCharacter, &str) -> Result<u8>,
     ) -> Result<Prepared> {
         ensure!(
             self.mappings.len() == 9,
@@ -249,15 +249,6 @@ pub fn load(files: &crate::prepared::Files, items: &Mappings) -> Result<Prepared
             .find(|(_, target)| *target == name)
             .with_context(|| format!("unknown title costume {character:?}/{name}"))?
             .0;
-        Ok(match id {
-            0 => menu_data::Costume::Standard,
-            1 => menu_data::Costume::Variant1,
-            2 => menu_data::Costume::Variant2,
-            3 => menu_data::Costume::Story,
-            4 => menu_data::Costume::Variant4,
-            5 => menu_data::Costume::Variant5,
-            6 => menu_data::Costume::Variant6,
-            _ => anyhow::bail!("unsupported title costume slot {id}"),
-        })
+        Ok(id.try_into()?)
     })
 }

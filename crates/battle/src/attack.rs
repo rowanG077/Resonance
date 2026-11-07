@@ -1549,9 +1549,16 @@ pub(crate) fn step(
                 });
             }
             AttackEvent::VoiceChoice { choice, priority } => {
-                let roll = (battle.random.next_u16() % 100) as u8;
+                let roll = (battle.cosmetic_random.next_u16() % 100) as u8;
                 if let Some(sound) = choice.select(roll) {
-                    battle.request_voice(actor, sound, *priority);
+                    battle.request_action_voice(
+                        actor,
+                        sound,
+                        *priority,
+                        (*priority == crate::VoicePriority::Action
+                            && sequence.definition.normal.is_none())
+                        .then_some(id),
+                    );
                 }
             }
             AttackEvent::Voice { sound, priority } => {

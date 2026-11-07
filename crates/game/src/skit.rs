@@ -288,7 +288,8 @@ mod tests {
                         .into_iter()
                         .collect(),
                     });
-                    let prepared = Prepared::load(catalog, &files, parent.resources())?;
+                    let prepared =
+                        Prepared::load(catalog, &files, parent.resources(), &Default::default())?;
                     // No completion operation: this is the automatic UI path,
                     // shared by field and world callers as well as preview.
                     let mut playback =

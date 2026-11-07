@@ -109,20 +109,13 @@ pub(crate) fn cook(source: &Source, library: &Path) -> Result<()> {
                 filename.to_ascii_lowercase().ends_with(".skp"),
                 "invalid skit filename {filename}"
             );
-            let Some((bytes, mut encoding)) = source.read_encoded(filename)? else {
+            let Some((bytes, encoding)) = source.read_encoded(filename)? else {
                 ensure!(
                     !enabled && !preview_order.contains(&id),
                     "required skit {id} is missing: {filename}"
                 );
                 continue;
             };
-            // The English bank mixes retained Japanese punctuation and Western
-            // accents; the untranslated debugger keeps its original code page.
-            if encoding == script::TextEncoding::ShiftJis
-                && !filename.eq_ignore_ascii_case("FC_C004.skp")
-            {
-                encoding = script::TextEncoding::ShiftJisWithWesternFallback;
-            }
             let mut program = member(&bytes)?.to_vec();
             if id == 615 {
                 // FC_W015 contains an unfinished outer loop whose impossible

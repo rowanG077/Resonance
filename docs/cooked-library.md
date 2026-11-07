@@ -187,7 +187,7 @@ only that request. No archive numbers or ID reconstruction rules are needed.
 
 ## Resolved views and source owners
 
-In layout 107, catalogue paths in this guide (for example `game/items.json`)
+In layout 108, catalogue paths in this guide (for example `game/items.json`)
 are resolved document views. The importer publishes independently editable owners
 under the corresponding directory, and the game assembles/caches them at startup.
 Use `resonance-import resolve --assets PATH --document game/items.json` to inspect
@@ -2430,6 +2430,9 @@ selector when the title is owned. Equipping a title never changes the selected
 costume. Omit `costume` for titles that unlock no outfit. The selector's Default
 entry restores the story-selected outfit. A named alias selects the first matching
 costume ID.
+Costume IDs follow the mappings rather than a fixed list of outfits. Scripts,
+title unlocks and saved parties accept additional mapped slots; field costume
+changes still require the corresponding body to be prepared.
 
 `awards.levels`, `awards.combos` and `awards.equipment` are ordered lists. Keep
 list order to preserve award notices. A level rule can be

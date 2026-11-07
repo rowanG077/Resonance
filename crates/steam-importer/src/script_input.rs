@@ -50,64 +50,41 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>> {
         .collect::<Vec<_>>();
     let mut replacements = BTreeMap::new();
     let program = Program::decode(bytes)?;
-    let registry = NativeRegistry::gqseaf();
     validate_context_reservation(&program, &analysis)?;
     // Instrument the argument's existing scalar, before expression-end consumes
     // it. Assignment * 0 + the original scalar preserves its reference, number,
     // stack depth, expression register and pending outer native arguments.
-    for block in analysis.basic_blocks() {
-        let mut arguments = Vec::new();
-        let mut previous = None;
-        for pc in block.instruction_pcs {
-            match program.instruction(pc).unwrap().0 {
-                Op::Argument => arguments.push((pc, previous)),
-                Op::Native(opcode) => {
-                    let Some(signature) = registry.get(opcode) else {
-                        // Leave unrelated source natives untouched. Their unknown
-                        // signature cannot justify following pending arguments.
-                        arguments.clear();
-                        previous = Some(pc);
-                        continue;
-                    };
-                    let count = signature.arguments.len();
-                    if matches!(opcode, 0x39 | 0x3a | 0xb8) {
-                        let start = arguments
-                            .len()
-                            .checked_sub(count)
-                            .context("input lifecycle arguments cross a branch")?;
-                        if opcode == NativeCall::ReadMappedInput as u8 {
-                            let (argument, producer) = arguments[start];
-                            let producer = producer.context("input player has no expression")?;
-                            ensure!(
-                                program.instruction(producer) == Some((Op::Calculate(0), argument)),
-                                "input player expression is not adjacent to its argument"
-                            );
-                            // Keep the original, possibly impure value on the value
-                            // stack while passing zero, then restore its expression.
-                            replacements.insert(producer, vec![0, 0x3000, 0x4000, 0x3000]);
-                            replacements.insert(argument, vec![]);
-                        } else {
-                            let (argument, producer) = arguments[start + count - 1];
-                            let producer = producer.context("input lifecycle has no expression")?;
-                            ensure!(
-                                program.instruction(producer) == Some((Op::Calculate(0), argument)),
-                                "input lifecycle expression is not adjacent to its argument"
-                            );
-                            let mut code = Code::default();
-                            code.set_context(if opcode == NativeCall::SpawnEvent as u8 {
-                                5
-                            } else {
-                                0
-                            });
-                            code.words.push(0x3000);
-                            replacements.insert(producer, code.words);
-                        }
-                    }
-                    arguments.truncate(arguments.len().saturating_sub(count));
-                }
-                _ => (),
-            }
-            previous = Some(pc);
+    for call in crate::script::arguments::read(bytes, &program, &analysis) {
+        let opcode = call.opcode;
+        if !matches!(opcode, 0x39 | 0x3a | 0xb8) {
+            continue;
+        }
+        let arguments = call
+            .arguments
+            .context("input lifecycle arguments cross a branch")?;
+        let argument = if opcode == NativeCall::ReadMappedInput as u8 {
+            &arguments[0]
+        } else {
+            arguments.last().unwrap()
+        };
+        let producer = argument.end.context("input lifecycle has no expression")?;
+        ensure!(
+            program.instruction(producer) == Some((Op::Calculate(0), argument.pc)),
+            "input lifecycle expression is not adjacent to its argument"
+        );
+        if opcode == NativeCall::ReadMappedInput as u8 {
+            // Keep the source scalar on the value stack while passing zero.
+            replacements.insert(producer, vec![0, 0x3000, 0x4000, 0x3000]);
+            replacements.insert(argument.pc, vec![]);
+        } else {
+            let mut code = Code::default();
+            code.set_context(if opcode == NativeCall::SpawnEvent as u8 {
+                5
+            } else {
+                0
+            });
+            code.words.push(0x3000);
+            replacements.insert(producer, code.words);
         }
     }
     if calls.is_empty() {
