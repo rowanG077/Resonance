@@ -141,6 +141,18 @@ fn final_scene_visible_mithos_duplicates_receive_mouth_animation() -> Result<()>
         triggered && scene.events.battle_pending(),
         "final scene did not reach battle"
     );
+    let request = scene.events.world.battle_request.as_ref().unwrap();
+    ensure!(request.setup.arena == 60, "wrong Mithos battle arena");
+    let fade = scene
+        .events
+        .world
+        .fade
+        .as_ref()
+        .context("missing Mithos entry fade")?;
+    ensure!(
+        fade.white && fade.alpha(scene.events.tick()) == 255.,
+        "Rainbow Angel battle must start under the completed white field fade"
+    );
     ensure!(!lines.is_empty(), "Mithos did not speak");
     ensure!(
         wings_attached,

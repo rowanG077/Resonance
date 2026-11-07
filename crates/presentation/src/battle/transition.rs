@@ -124,6 +124,17 @@ fn field_cover(field: Option<&resonance_events::GameWorld>) -> Vec4 {
     })
 }
 
+pub(super) fn entry_color(field: Option<&resonance_events::GameWorld>) -> [u8; 3] {
+    let cover = field_cover(field);
+    // A visible field is revealed by the shatter over the ordinary black entry.
+    // A completed white fade instead stays white until the battle fades in.
+    if cover.w == 1. && cover.x == 1. {
+        [255; 3]
+    } else {
+        [0; 3]
+    }
+}
+
 pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<()> {
     let session = world.resource::<crate::new_game::Session>();
     // A scripted encounter can follow another battle without revealing the field.
@@ -437,9 +448,11 @@ mod tests {
     fn scripted_battle_entry_retains_black_white_and_partial_field_covers() {
         // No field owner means an overworld encounter, without a field UI cover.
         assert_eq!(field_cover(None), Vec4::ZERO);
+        assert_eq!(entry_color(None), [0; 3]);
         let mut field = resonance_events::GameWorld::default();
         // Before the first fade command, the field UI covers the scene in black.
         assert_eq!(field_cover(Some(&field)), Vec4::W);
+        assert_eq!(entry_color(Some(&field)), [0; 3]);
         for white in [false, true] {
             let shade = if white { 1. } else { 0. };
             field.fade = Some(resonance_events::Fade {
@@ -453,6 +466,14 @@ mod tests {
                 field.tick = tick;
                 let expected = Vec3::splat(shade).extend(alpha / 255.);
                 assert!((field_cover(Some(&field)) - expected).abs().max_element() < 0.00001);
+                assert_eq!(
+                    entry_color(Some(&field)),
+                    if white && alpha == 255. {
+                        [255; 3]
+                    } else {
+                        [0; 3]
+                    },
+                );
             }
         }
     }

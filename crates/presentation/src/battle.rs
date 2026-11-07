@@ -904,7 +904,10 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
     phase_timing("Candidate/settings", started);
     let started = std::time::Instant::now();
     let core = prepared.core;
-    let mut lifecycle = prepared.lifecycle;
+    let session = world.resource::<super::new_game::Session>();
+    let mut lifecycle = prepared.lifecycle.with_entry_color(transition::entry_color(
+        session.is_field().then_some(&session.events().world),
+    ));
     let memory = world.resource::<MenuMemory>();
     lifecycle.restore_menu_memory(resonance_game::battle::command::Memory {
         inventory: memory.inventory,
