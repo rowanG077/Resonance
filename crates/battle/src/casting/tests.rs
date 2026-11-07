@@ -915,6 +915,7 @@ fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Res
             0
         };
         assert!(paid.cues.contains(&Cue::Casting {
+            source: Some(parent),
             actor: ActorId(0),
             action: CAST,
             phase: CastPhase::SceneOpening,
@@ -948,6 +949,7 @@ fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Res
             let mut frame = battle.step(BattleInput::default())?;
             assert_eq!(
                 frame.cues.contains(&Cue::Casting {
+                    source: Some(parent),
                     actor: ActorId(0),
                     action: CAST,
                     phase: CastPhase::Released,
@@ -1043,6 +1045,7 @@ fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Res
                 ) {
                     assert_eq!(previous.frame, release_frames);
                     assert!(frame.cues.contains(&Cue::Casting {
+                        source: Some(parent),
                         actor: ActorId(0),
                         action: CAST,
                         phase: CastPhase::Released,
@@ -1107,6 +1110,7 @@ fn resident_cast_pays_once_then_waits_for_its_release_pose_endpoint() -> anyhow:
         );
         assert!(!released(&paid));
         let announcement = Cue::Casting {
+            source: Some(paid.actions[0].0),
             actor: ActorId(0),
             action: CAST,
             phase: CastPhase::Released,

@@ -1457,7 +1457,14 @@ pub(crate) fn step(
                 });
             }
             AttackEvent::Voice { sound, priority } => {
-                battle.request_voice(actor, *sound, *priority);
+                battle.request_action_voice(
+                    actor,
+                    *sound,
+                    *priority,
+                    (*priority == crate::VoicePriority::Action
+                        && sequence.definition.normal.is_none())
+                    .then_some(id),
+                );
             }
             AttackEvent::Sound(sound) => {
                 if let Some(sound) = sound {

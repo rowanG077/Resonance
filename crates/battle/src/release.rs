@@ -933,6 +933,7 @@ impl Volley {
             && let Some(action) = self.scene_action.take()
         {
             cues.push(Cue::Casting {
+                source: Some(id),
                 actor: self.actor,
                 action,
                 phase: crate::CastPhase::Released,

@@ -837,6 +837,7 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
         .unwrap();
     battle.volleys.get_mut(&resident).unwrap().scene_action = Some(crate::ActionKey(0));
     let release = Cue::Casting {
+        source: Some(resident),
         actor: ActorId(0),
         action: crate::ActionKey(0),
         phase: crate::CastPhase::Released,

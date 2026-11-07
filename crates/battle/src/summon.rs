@@ -287,6 +287,7 @@ impl ActiveSummon {
         {
             battle.stop_voice(owner, crate::VoicePriority::Announcement, cues);
             cues.push(Cue::Voice {
+                action: None,
                 actor: owner,
                 sound,
                 priority: crate::VoicePriority::Announcement,

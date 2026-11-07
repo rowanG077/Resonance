@@ -186,7 +186,7 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
             );
             ensure!(
                 frame.cues.iter().any(|cue| matches!(cue,
-                    Cue::Casting { actor: owner, action: stored, phase: resonance_battle::CastPhase::Stored }
+                    Cue::Casting { actor: owner, action: stored, phase: resonance_battle::CastPhase::Stored, .. }
                         if *owner == actor && *stored == action
                 )),
                 "stored spell omitted its presentation event"

@@ -428,6 +428,7 @@ fn ambient_births_match_recorded_arena_clock_and_world_origin() -> Result<()> {
     uninterrupted.advance(&frame, false)?;
     let mut held = frame.clone();
     held.cues.push(Cue::Casting {
+        source: None,
         actor: ActorId(0),
         action: crate::ActionKey(0),
         phase: crate::CastPhase::SceneOpening,
@@ -1461,6 +1462,7 @@ fn spell_openings_preserve_existing_effect_schedules() -> Result<()> {
     effects.advance(&frame, false)?;
     frame.cues = vec![
         Cue::Casting {
+            source: None,
             actor: ActorId(1),
             action: crate::ActionKey(0),
             phase: crate::CastPhase::SceneOpening,
@@ -1606,6 +1608,7 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
     frame.cues = vec![
         Cue::ClearEffects,
         Cue::Casting {
+            source: None,
             actor: ActorId(0),
             action: crate::ActionKey(0),
             phase: crate::CastPhase::SceneOpening,
@@ -1667,6 +1670,7 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
     }
     delayed.advance(&frame, false)?;
     frame.cues = vec![Cue::Casting {
+        source: None,
         actor: ActorId(0),
         action: crate::ActionKey(0),
         phase: crate::CastPhase::SceneOpening,

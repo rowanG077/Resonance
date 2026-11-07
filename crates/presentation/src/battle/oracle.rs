@@ -2076,6 +2076,7 @@ impl Oracle {
                         actor,
                         action,
                         phase: resonance_battle::CastPhase::Started,
+                        ..
                     } if *actor == owner => Some(*action),
                     _ => None,
                 }) {

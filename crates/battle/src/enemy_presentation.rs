@@ -464,6 +464,7 @@ impl Battle {
                     }))
                 }
                 EntranceCue::Voice(sound) => cues.push(Cue::Voice {
+                    action: None,
                     actor: id,
                     sound,
                     priority: crate::VoicePriority::Announcement,
@@ -473,6 +474,7 @@ impl Battle {
                 EntranceCue::PartyVoice(sound) => {
                     let speaker = opening.speaker.expect("prepared entrance speaker");
                     cues.push(Cue::Voice {
+                        action: None,
                         actor: speaker,
                         sound,
                         priority: crate::VoicePriority::Announcement,
@@ -552,6 +554,7 @@ impl Battle {
                         && let Some(sound) = voice.sound
                     {
                         cues.push(Cue::Voice {
+                            action: None,
                             actor: opening.actor,
                             sound,
                             priority: crate::VoicePriority::Announcement,

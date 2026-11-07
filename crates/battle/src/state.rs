@@ -428,6 +428,8 @@ pub enum Cue {
     Casting {
         actor: ActorId,
         action: crate::ActionKey,
+        /// Owning action for a release callout that may wait for an announcement.
+        source: Option<ActionId>,
         phase: crate::CastPhase,
     },
     TechniqueQueued {
@@ -639,6 +641,8 @@ pub enum Cue {
     },
     Voice {
         actor: ActorId,
+        /// Deferrable arte callout owner; reactions and incidental speech use None.
+        action: Option<ActionId>,
         priority: crate::VoicePriority,
         sound: crate::Sound,
         position: [f32; 3],
