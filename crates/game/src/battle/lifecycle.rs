@@ -79,6 +79,7 @@ const ESCAPE_FADE_STEP: u8 = 8;
 const FORCED_ESCAPE_FADE_STEP: u8 = 4;
 const CLOSING_WIPE_STEP: u8 = 4;
 const DEFEAT_WIPE_STEP: u8 = 2;
+const ENTRY_FADE_STEP: u8 = 16;
 const ORDER_APPLY_DELAY: u8 = 60;
 const ORDER_RESELECT_DELAY: u8 = 160;
 
@@ -92,6 +93,7 @@ pub struct Lifecycle {
     order_revision: u32,
     order_issuer: Option<resonance_battle::ActorId>,
     events: Option<super::event::Sequence>,
+    entry_alpha: u8,
 }
 
 impl Lifecycle {
@@ -106,6 +108,7 @@ impl Lifecycle {
             order_revision: 0,
             order_issuer: None,
             events: None,
+            entry_alpha: 255,
         }
     }
 
@@ -143,7 +146,7 @@ impl Lifecycle {
     pub fn step(
         &mut self,
         battle: &mut Battle,
-        mut input: Input,
+        input: Input,
         candidate: &mut Candidate,
         presentation: &mut impl Presentation,
     ) -> Result<BattleFrame> {
@@ -171,7 +174,7 @@ impl Lifecycle {
                 }
                 battle.hold_event_boss_hp(events.holds_hp().then_some(events.boss))?;
             }
-            if event_visit != super::event::Visit::Combat {
+            let cues = if event_visit != super::event::Visit::Combat {
                 self.command.close();
                 let mut cues = candidate.world_update(
                     battle,
@@ -194,75 +197,20 @@ impl Lifecycle {
                 if event_visit == super::event::Visit::Transition {
                     battle.advance_event_transition()?;
                 }
-                let mut frame = battle.publish(cues);
-                if let Some(events) = &self.events {
-                    events.apply_view(&mut frame)?;
-                }
-                presentation.present(&frame)?;
-                return Ok(frame);
-            }
-            if !input.battle.paused {
-                if battle.phase() == BattlePhase::Combat
-                    && self.command.input_kind() == command::InputKind::Command
-                    && let Some(order) = input.order
-                {
-                    if order != self.order || self.order_age >= ORDER_RESELECT_DELAY {
-                        if order != self.order {
-                            self.command_events.push(command::Event::Cue(1));
-                        }
-                        self.order_issuer = battle.actor_ids().find(|id| {
-                            let actor = &battle.actors()[id.index()];
-                            actor.side == resonance_battle::Side::Party
-                                && actor.control_slot == input.command.controller
-                                && actor.available()
-                                && matches!(
-                                    actor.control,
-                                    resonance_battle::Control::Manual
-                                        | resonance_battle::Control::SemiAuto
-                                )
-                        });
-                        self.order = order;
-                        self.order_age = 0;
-                        self.order_revision = self.order_revision.wrapping_add(1);
-                    }
-                }
-                let admission = self
-                    .command_setup
-                    .as_ref()
-                    .and_then(|setup| setup.admission(battle, input.command.controller));
-                let command = self.command.step_with_candidate(
-                    input.command,
-                    admission,
-                    battle,
-                    candidate,
-                )?;
-                self.command_events.extend(command.events);
-                if battle.phase() == BattlePhase::Combat {
-                    if self.order_age >= ORDER_APPLY_DELAY
-                        && self.command.controller().is_none()
-                        && candidate.active_order() != self.order
-                    {
-                        candidate.apply_order(battle, self.order)?;
-                        if let Some(actor) = self.order_issuer.take() {
-                            battle.record_strategy_order(actor);
-                        }
-                    }
-                    self.order_age = self.order_age.saturating_add(1).min(ORDER_RESELECT_DELAY);
-                }
-                input.battle.paused = command.paused;
-            }
-            let cues = if input.battle.paused {
-                candidate.world_update(battle, input.battle)?
+                cues
             } else {
-                if let Some(events) = &mut self.events {
-                    events.advance_dissolve();
-                }
-                self.advance(battle, input, candidate, presentation)?
+                self.advance_combat(battle, input, candidate, presentation)?
             };
             let mut frame = battle.publish(cues);
-            if let Some(events) = &self.events {
-                events.apply_view(&mut frame)?;
+            let paused =
+                event_visit == super::event::Visit::Combat && frame.clock.feedback_paused();
+            if !paused {
+                self.entry_alpha = self.entry_alpha.saturating_sub(ENTRY_FADE_STEP);
             }
+            if let Some(events) = &mut self.events {
+                events.advance_dissolve(event_visit, paused);
+            }
+            self.apply_view(&mut frame)?;
             presentation.present(&frame)?;
             Ok(frame)
         })();
@@ -273,6 +221,83 @@ impl Lifecycle {
             battle.invalidate();
         }
         result
+    }
+
+    /// Publish the same cover during activation and ordinary encounter updates.
+    pub fn apply_view(&self, frame: &mut BattleFrame) -> Result<()> {
+        if let Some(events) = &self.events {
+            events.apply_view(frame)?;
+        }
+        // Authored event fades take precedence over the shared entry cover.
+        if self.entry_alpha != 0 && frame.event_fade.as_ref().is_none_or(|fade| fade.alpha == 0) {
+            frame.event_fade = Some(resonance_battle::TransitionFrame {
+                color: [0; 3],
+                alpha: self.entry_alpha,
+                wipe: None,
+            });
+        }
+        Ok(())
+    }
+
+    fn advance_combat(
+        &mut self,
+        battle: &mut Battle,
+        mut input: Input,
+        candidate: &mut Candidate,
+        presentation: &mut impl Presentation,
+    ) -> Result<Vec<resonance_battle::Cue>> {
+        if input.battle.paused {
+            return candidate.world_update(battle, input.battle);
+        }
+        if battle.phase() == BattlePhase::Combat
+            && self.command.input_kind() == command::InputKind::Command
+            && let Some(order) = input.order
+        {
+            if order != self.order || self.order_age >= ORDER_RESELECT_DELAY {
+                if order != self.order {
+                    self.command_events.push(command::Event::Cue(1));
+                }
+                self.order_issuer = battle.actor_ids().find(|id| {
+                    let actor = &battle.actors()[id.index()];
+                    actor.side == resonance_battle::Side::Party
+                        && actor.control_slot == input.command.controller
+                        && actor.available()
+                        && matches!(
+                            actor.control,
+                            resonance_battle::Control::Manual | resonance_battle::Control::SemiAuto
+                        )
+                });
+                self.order = order;
+                self.order_age = 0;
+                self.order_revision = self.order_revision.wrapping_add(1);
+            }
+        }
+        let admission = self
+            .command_setup
+            .as_ref()
+            .and_then(|setup| setup.admission(battle, input.command.controller));
+        let command =
+            self.command
+                .step_with_candidate(input.command, admission, battle, candidate)?;
+        self.command_events.extend(command.events);
+        if battle.phase() == BattlePhase::Combat {
+            if self.order_age >= ORDER_APPLY_DELAY
+                && self.command.controller().is_none()
+                && candidate.active_order() != self.order
+            {
+                candidate.apply_order(battle, self.order)?;
+                if let Some(actor) = self.order_issuer.take() {
+                    battle.record_strategy_order(actor);
+                }
+            }
+            self.order_age = self.order_age.saturating_add(1).min(ORDER_RESELECT_DELAY);
+        }
+        input.battle.paused = command.paused;
+        if input.battle.paused {
+            candidate.world_update(battle, input.battle)
+        } else {
+            self.advance(battle, input, candidate, presentation)
+        }
     }
 
     /// Pending and visible command visits keep the admitted controller slot.
