@@ -67,9 +67,11 @@ impl Resolution {
         let (width, height) = (WIDTH as f32, HEIGHT as f32);
         Vec2::new((height * aspect).max(width), (width / aspect).max(height))
     }
-    /// Visible bounds around the centered, authored UI canvas.
+    /// Visible bounds in authored coordinates, including overlay alignment.
     pub(super) fn ui_rect(self) -> [f32; 4] {
-        let center = Vec2::new(WIDTH as f32, HEIGHT as f32) * 0.5;
+        let alignment = super::camera::overlay_alignment().translation;
+        let center =
+            Vec2::new(WIDTH as f32, HEIGHT as f32) * 0.5 + Vec2::new(alignment.x, -alignment.y);
         let half = self.ui_size() * 0.5;
         [
             center.x - half.x,

@@ -221,7 +221,7 @@ jobs:
             anti_aliasing::smaa::tests::regular_smaa_preserves_scene_colors \
             field_refraction::tests::captured_meshes_obey_per_sample_depth_in_every_aa_mode
 
-      - name: Check camera clears and UI seams with MSAA
+      - name: Check camera clears, UI seams and fade coverage with MSAA
         if: matrix.platform == 'linux-x64'
         env:
           # Mesa's software Vulkan adapter provides MSAA without a physical GPU.
@@ -231,7 +231,8 @@ jobs:
           cargo test --locked --profile release-fast -p resonance-presentation --lib -- \
             --ignored --exact --test-threads=1 \
             anti_aliasing::compositing_tests::shared_targets_respect_clear_and_load_with_msaa \
-            field_ui::coverage::gpu_tests::dialogue_slices_have_no_msaa_seams
+            field_ui::coverage::gpu_tests::dialogue_slices_have_no_msaa_seams \
+            field_ui::fade::gpu_tests::full_screen_fades_cover_aligned_viewport_with_msaa
 
       - name: Build release executables
         if: needs.prepare.outputs.publish == 'true'
