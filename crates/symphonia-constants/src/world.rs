@@ -272,6 +272,7 @@ ids! {
     pub enum WorldId: u8 {
         Sylvarant = 0,
         TetheAlla = 1,
+        United = 2,
     }
 }
 

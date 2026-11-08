@@ -16,6 +16,12 @@ use std::path::Path;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Probe {
+    /// Overhead development survey covering a complete terrain tile.
+    #[serde(default)]
+    pub survey: bool,
+    /// Ordered mod layers used by the visual observer.
+    #[serde(default)]
+    pub mods: Vec<std::path::PathBuf>,
     pub state: resonance_content::overworld::TravelState,
     pub story: i32,
     #[serde(default)]
@@ -59,6 +65,9 @@ pub struct Probe {
     #[serde(default)]
     pub settle_simulation_ticks: u16,
 }
+
+#[derive(Resource)]
+pub(super) struct SurveyView;
 fn camera_ticks() -> u16 {
     300
 }
@@ -105,8 +114,9 @@ struct Capture {
 pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()> {
     let mut clock = resonance_game::clock::PresentationClock::new(probe.presentation_start);
     let root = root.canonicalize()?;
-    let prepared = super::Package::prepare(
-        &root,
+    let library = resonance_content::library::Library::open_paths(&root, &probe.mods)?;
+    let prepared = super::Package::capture(
+        &library,
         &mut Default::default(),
         || false,
         resonance_content::diagnostics::Diagnostics::new(true),
@@ -311,6 +321,9 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     crate::field_ui::install(&mut app);
     crate::materials::install(&mut app);
     sparse_animation::install(&mut app);
+    if probe.survey {
+        app.insert_resource(SurveyView);
+    }
     crate::renderer::configure(&mut app);
     let ready = crate::RenderReady::default();
     app.insert_resource(ready.clone());

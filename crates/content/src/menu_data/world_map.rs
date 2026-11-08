@@ -63,7 +63,7 @@ impl WorldMapData {
         for (world, entries) in landmarks.worlds.into_iter().enumerate() {
             for entry in entries {
                 ensure!(
-                    usize::from(entry.id / 256) == world && entry.id % 256 != 0,
+                    entry.id > 0 && entry.id % 256 != 0 && entry.world().index() == world,
                     "map location ID belongs to another world"
                 );
                 ensure!(
@@ -108,7 +108,7 @@ impl WorldMapData {
             ensure!(
                 [id, location.visit_alias.unwrap_or(id)]
                     .into_iter()
-                    .all(|id| (1..=98).contains(&id) || (257..=337).contains(&id)),
+                    .all(|id| (1..=98).contains(&id) || (257..=337).contains(&id) || id >= 1024),
                 "field {field} references invalid travel locations"
             );
         }
@@ -123,7 +123,7 @@ impl WorldMapData {
         }
         for (&id, location) in &self.locations {
             ensure!(
-                (1..=98).contains(&id) || (257..=337).contains(&id),
+                (1..=98).contains(&id) || (257..=337).contains(&id) || id >= 1024,
                 "invalid world location {id}"
             );
             ensure!(

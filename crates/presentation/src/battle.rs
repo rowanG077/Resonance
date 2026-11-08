@@ -48,7 +48,7 @@ pub(super) struct Entry {
 
 impl Entry {
     /// Seed the private candidate. Only a completed battle publishes its draw.
-    fn capture(
+    pub(super) fn capture(
         session: &super::new_game::Session,
         request: &resonance_events::battle::Request,
     ) -> Result<Self> {

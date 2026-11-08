@@ -836,7 +836,8 @@ impl GameWorld {
         if destination.map >= 3000 {
             let location = destination.position[0];
             if location.fract() != 0.
-                || !(0. ..=337.).contains(&location)
+                || !((0. ..=337.).contains(&location)
+                    || (1024. ..=f32::from(u16::MAX)).contains(&location))
                 || destination.heading.fract() != 0.
                 || destination.heading < f32::from(i16::MIN)
                 || destination.heading > f32::from(i16::MAX)
@@ -873,6 +874,7 @@ impl GameWorld {
         if !(location == 0
             || (1..=98).contains(&location)
             || (257..=337).contains(&location)
+            || location >= 1024
             || cinematic)
             || cinematic != following.is_some()
         {

@@ -46,6 +46,7 @@ impl Checkpoint {
             Self::World(c) => match c.state.world {
                 crate::overworld::World::Sylvarant => "Sylvarant".into(),
                 crate::overworld::World::TetheAlla => "Tethe'alla".into(),
+                crate::overworld::World::United => "United World".into(),
             },
         }
     }

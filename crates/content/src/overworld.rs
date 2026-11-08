@@ -42,6 +42,7 @@ pub enum WorldKind {
     TetheAlla,
     /// Encounter table only; shares Tethe'alla's terrain and region grid.
     TetheAllaLate,
+    United,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -85,6 +86,7 @@ pub struct EncounterTables {
     pub area_grids: Vec<Vec<[u8; AREA_COLUMNS]>>,
     /// Paired embark/disembark endpoints in their authored order.
     pub travel_points: Vec<[TravelEndpoint; 2]>,
+    pub united_travel_points: Vec<[TravelEndpoint; 2]>,
     pub later_story: i32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,14 +110,15 @@ pub struct EncounterArea {
 impl EncounterTables {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.worlds.len() == 3
+            (self.worlds.len() == 3 || self.worlds.len() == 4)
                 && self
                     .worlds
                     .iter()
                     .zip([
                         WorldKind::Sylvarant,
                         WorldKind::TetheAlla,
-                        WorldKind::TetheAllaLate
+                        WorldKind::TetheAllaLate,
+                        WorldKind::United,
                     ])
                     .all(|(world, kind)| world.kind == kind
                         && !world.areas.is_empty()
@@ -124,14 +127,14 @@ impl EncounterTables {
             "invalid world encounter tables"
         );
         ensure!(
-            self.surface_terrain.len() == 2
-                && self.area_grids.len() == 2
+            self.surface_terrain.len() == self.worlds.len() - 1
+                && self.area_grids.len() == self.worlds.len() - 1
                 && self.area_grids.iter().all(|grid| grid.len() == AREA_ROWS),
             "invalid world region grids"
         );
         for (index, world) in self.worlds.iter().enumerate() {
             ensure!(
-                self.area_grids[index.min(1)]
+                self.area_grids[if index == 3 { 2 } else { index.min(1) }]
                     .iter()
                     .flatten()
                     .all(|area| world
@@ -144,6 +147,7 @@ impl EncounterTables {
         ensure!(
             self.travel_points
                 .iter()
+                .chain(&self.united_travel_points)
                 .flatten()
                 .all(|p| (0..WORLD_WIDTH as i32).contains(&p.map_x)
                     && (0..WORLD_DEPTH as i32).contains(&p.map_z)

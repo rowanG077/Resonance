@@ -5,7 +5,7 @@ use resonance_playback::Decodable;
 pub(super) fn capture(app: App, at: CaptureAt, path: &std::path::Path) -> Result<()> {
     use saves::{CheckpointReplay, ScenarioEvent as Event, ScenarioStep as Step};
     let (event, updates) = match at {
-        CaptureAt::LoadedField => (Event::FieldReady, 600),
+        CaptureAt::LoadedField => (Event::SceneReady, 600),
         CaptureAt::TitleTick(tick) => (Event::TitleTick { tick }, tick.saturating_add(1)),
         CaptureAt::BootTick(tick) => {
             anyhow::ensure!(

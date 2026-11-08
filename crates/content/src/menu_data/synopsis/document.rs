@@ -89,6 +89,7 @@ pub(super) mod world {
         let world = match id {
             0 => World::Sylvarant,
             1 => World::TetheAlla,
+            2 => World::United,
             _ => return Err(serde::ser::Error::custom("invalid synopsis world")),
         };
         world.serialize(serializer)

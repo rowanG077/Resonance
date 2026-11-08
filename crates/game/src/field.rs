@@ -354,10 +354,22 @@ impl FieldSession {
                     .map_err(anyhow::Error::msg)?;
                 return Ok(());
             }
-            self.events
+            // Retain the original overworld playground's automatic victories.
+            // The post-fusion campaign uses ordinary battles; its launcher has
+            // an explicit --skip-battles option when surveying is desired.
+            if !self
+                .events
                 .world
-                .skip_battle_as_victory()
-                .map_err(anyhow::Error::msg)?;
+                .party
+                .as_ref()
+                .and_then(|party| party.travel.overworld.as_ref())
+                .is_some_and(|state| state.world == resonance_content::overworld::World::United)
+            {
+                self.events
+                    .world
+                    .skip_battle_as_victory()
+                    .map_err(anyhow::Error::msg)?;
+            }
         }
         let result = self.step_inner(input);
         if !self.allow_incomplete_scripts {
@@ -367,6 +379,23 @@ impl FieldSession {
             self.enter_exploration(format!("{error:#}"))?;
         }
         if !self.entered_control {
+            // Some retail entrances are campaign guards that immediately send
+            // the party back outside. In the post-fusion exploration sandbox,
+            // expose their prepared field instead. Once walking has begun,
+            // ordinary exits retain their original behavior.
+            if self.events.world.world_transition.is_some()
+                && self
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .and_then(|party| party.travel.overworld.as_ref())
+                    .is_some_and(|state| state.world == resonance_content::overworld::World::United)
+            {
+                self.enter_exploration(
+                    "Post-fusion entrance bypassed a completed campaign guard".into(),
+                )?;
+            }
             self.entry_wait_ticks += 1;
             if self.entry_wait_ticks >= 1200
                 && self.events.world.dialogue.is_empty()

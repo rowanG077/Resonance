@@ -68,6 +68,7 @@ fn convert(bytes: &[u8]) -> Result<MovementParameters> {
         maximum_altitude: value(0x9f4)?,
         flight_clearance: value(0x954)?,
         flight_zones: FlightZones {
+            united: Vec::new(),
             sylvarant: Vec::new(),
             tethe_alla: vec![
                 FlightZone {

@@ -226,7 +226,7 @@ impl Session {
         state.position = locations.push_out(state.world, state.position, state.mount)?;
         // Script global 4 selects the base world/music bank. Preserve the late
         // Tethe'alla bank when returning from a field.
-        let bank = if state.world == super::World::Sylvarant {
+        let bank = if state.world != super::World::TetheAlla {
             MusicBankId::Sylvarant
         } else if resonance_events::script_global(
             &persistent.memory,
@@ -883,7 +883,7 @@ impl Session {
     }
     fn portal_prompt(&mut self) -> Result<()> {
         let state = self.travel.state();
-        if state.mount != Mount::Rheairds {
+        if state.mount != Mount::Rheairds || state.world == super::World::United {
             return Ok(());
         }
         let id = if state.world == super::World::Sylvarant {
@@ -1041,7 +1041,12 @@ impl Session {
                 self.refresh_locations()?;
                 return Ok(());
             }
-            if contact.id == 94 {
+            if contact.id == 94
+                || self
+                    .locations
+                    .definition(contact.id)
+                    .is_some_and(|entry| entry.source_location == Some(94))
+            {
                 // Sandworm uses encounter group 0x60 and desert arena 5.
                 self.begin_battle(
                     resonance_events::battle::Encounter::Formation(96),
@@ -1055,7 +1060,7 @@ impl Session {
                     .context("world party is missing")?
                     .travel
                     .visited_locations
-                    .insert(94);
+                    .insert(contact.id);
                 return Ok(());
             }
             if let Some(post) = self.locations.guidepost(contact.id)

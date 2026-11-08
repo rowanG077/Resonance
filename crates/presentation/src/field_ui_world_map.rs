@@ -4,8 +4,8 @@ use resonance_content::overworld::{WORLD_DEPTH, WORLD_WIDTH};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 pub(super) struct Artwork {
-    maps: [Layer; 2],
-    map_sizes: [[u32; 2]; 2],
+    maps: Vec<Layer>,
+    map_sizes: Vec<[u32; 2]>,
     decorations: Layer,
     atlas_size: [u32; 2],
     sprites: Vec<[u32; 4]>,
@@ -16,8 +16,18 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<Self> {
-        let art = [menu.world_map_art(0), menu.world_map_art(1)];
-        let map_sizes = art.clone().map(|(_, size)| size);
+        let art: Vec<_> = (0..if menu
+            .spec
+            .textures
+            .contains_key(&resonance_content::menu::MenuArt::UNITED_WORLD_MAP_TEXTURE)
+        {
+            3
+        } else {
+            2
+        })
+            .map(|world| menu.world_map_art(world))
+            .collect();
+        let map_sizes = art.iter().map(|(_, size)| *size).collect();
         let mut layer = |material: Handle<Surface>, z| {
             let mut batch = Batch::default();
             batch.quad([0., 0., 1., 1.], [0.; 4], [0.; 4]);
@@ -38,7 +48,10 @@ impl Artwork {
                 visible: false,
             }
         };
-        let maps = art.map(|(material, _)| layer(material, 2.));
+        let maps = art
+            .into_iter()
+            .map(|(material, _)| layer(material, 2.))
+            .collect();
         let (material, atlas_size, sprites) = menu.world_hud_art()?;
         anyhow::ensure!(sprites.len() == 7, "world HUD artwork is incomplete");
         Ok(Self {

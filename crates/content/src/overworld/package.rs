@@ -12,7 +12,7 @@ pub struct Package {
     pub encounters: EncounterTables,
     pub landmarks: Landmarks,
     /// Row-major terrain, both variants prepared even before their story trigger.
-    pub worlds: [Vec<TerrainTile>; 2],
+    pub worlds: Vec<Vec<TerrainTile>>,
     pub visuals: Visuals,
 }
 
@@ -23,7 +23,7 @@ pub struct Visuals {
     pub dust: [String; 4],
     /// Native world actor IDs: party 1..9, encounters 100/101, vehicles 200..216.
     pub actors: BTreeMap<u16, Vec<ScenePart>>,
-    pub markers: [BTreeMap<u8, Vec<ScenePart>>; 2],
+    pub markers: Vec<BTreeMap<u8, Vec<ScenePart>>>,
     /// Original normal and late-story sky models.
     pub skies: [Vec<ScenePart>; 2],
     /// Numbered original presentations, selected by native command 0x4c.
@@ -133,6 +133,18 @@ impl Package {
                 "landmark flight floor exceeds the maximum altitude"
             );
         }
+        ensure!(
+            (2..=3).contains(&self.worlds.len()),
+            "unsupported world slot count"
+        );
+        ensure!(
+            self.visuals.markers.len() >= self.worlds.len(),
+            "missing world marker slot"
+        );
+        ensure!(
+            self.encounters.area_grids.len() == self.worlds.len(),
+            "missing world encounter slot"
+        );
         for world in &self.worlds {
             ensure!(
                 world.len() == TILE_COLUMNS * TILE_ROWS,

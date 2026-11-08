@@ -161,3 +161,12 @@ The importer automatically includes [Ghost Wolf](mods/ghost-wolf/README.md), an
 explicit modding example that adds a new Lloyd arte through editable action,
 animation, effect, learning and menu assets. Its Blender source is included for
 animation editing.
+
+
+## United-world modding prototype
+
+The optional [United World prototype](mods/united-world/README.md) adds a third
+explorable overworld inspired by Phantasia, entrances from both original worlds,
+and the new Confluence Hollow dungeon. Run `mods/united-world/play.sh` after
+importing the discs. Sylvarant and Tethe'alla remain available in their original
+slots, including when the mod is enabled.

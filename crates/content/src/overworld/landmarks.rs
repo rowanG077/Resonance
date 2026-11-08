@@ -48,8 +48,14 @@ fn is_active_only(value: &bool) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Landmark {
-    /// World-event registry key: Sylvarant 1..255, Tethe'alla 257..511.
+    /// World-event registry key: native IDs retain their identities; custom locations use IDs >= 1024.
     pub id: u16,
+    /// Physical map placement; omitted preserves the original ID-based world.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world: Option<super::World>,
+    /// Registry/field-return identity of an entrance reused on another map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_location: Option<u16>,
     pub position: [f32; 2],
     /// None follows terrain; Some(0) is an authored sea-level placement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,6 +100,13 @@ pub struct ShopVariant {
 }
 
 impl Landmark {
+    pub fn world(&self) -> super::World {
+        self.world.unwrap_or(if self.id < 256 {
+            super::World::Sylvarant
+        } else {
+            super::World::TetheAlla
+        })
+    }
     /// Position on the 384 × 288 world-map image, derived from travel coordinates.
     pub fn map_point(&self) -> [i16; 2] {
         self.position.map(|value| (value / 200.).trunc() as i16)
@@ -166,16 +179,19 @@ impl EntryOverride {
 #[serde(from = "NamedWorlds", into = "NamedWorlds")]
 pub struct Landmarks {
     /// Source order is significant when contact radii overlap.
-    pub worlds: [Vec<Landmark>; 2],
+    pub worlds: [Vec<Landmark>; 3],
 }
 impl Landmarks {
     pub fn validate(&self) -> Result<()> {
         let mut ids = BTreeSet::new();
         for (world, entries) in self.worlds.iter().enumerate() {
-            ensure!(!entries.is_empty(), "world has no landmarks");
+            ensure!(
+                world == 2 || !entries.is_empty(),
+                "original world has no landmarks"
+            );
             for entry in entries {
                 ensure!(
-                    usize::from(entry.id / 256) == world && entry.id % 256 != 0,
+                    entry.id > 0 && entry.id % 256 != 0 && entry.world().index() == world,
                     "landmark ID belongs to another world or uses its reserved zero ID"
                 );
                 ensure!(
@@ -189,7 +205,7 @@ impl Landmarks {
                     "invalid world landmark geometry or name"
                 );
                 if let Marker::Model(id) = entry.marker {
-                    ensure!((1..=17).contains(&id), "invalid landmark model");
+                    ensure!(id != 0, "invalid landmark model");
                 }
                 if let Some(floor) = entry.flight_floor {
                     ensure!(
@@ -270,20 +286,23 @@ pub use symphonia_constants::PartyCharacterId as PartyCharacter;
 struct NamedWorlds {
     sylvarant: Vec<Landmark>,
     tethe_alla: Vec<Landmark>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    united: Vec<Landmark>,
 }
 impl From<NamedWorlds> for Landmarks {
     fn from(worlds: NamedWorlds) -> Self {
         Self {
-            worlds: [worlds.sylvarant, worlds.tethe_alla],
+            worlds: [worlds.sylvarant, worlds.tethe_alla, worlds.united],
         }
     }
 }
 impl From<Landmarks> for NamedWorlds {
     fn from(landmarks: Landmarks) -> Self {
-        let [sylvarant, tethe_alla] = landmarks.worlds;
+        let [sylvarant, tethe_alla, united] = landmarks.worlds;
         Self {
             sylvarant,
             tethe_alla,
+            united,
         }
     }
 }

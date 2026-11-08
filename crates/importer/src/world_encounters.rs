@@ -296,9 +296,11 @@ fn convert(bytes: Vec<u8>) -> Result<Definition> {
             .filter_map(|(id, &terrain)| terrain.map(|_| (TerrainSurface::ALL[id], terrain)))
             .collect(),
         docks,
+        united_docks: Vec::new(),
         later_story: 10_405_000,
         sylvarant: continent(0)?,
         tethe_alla: continent(1)?,
+        united: None,
     })
 }
 

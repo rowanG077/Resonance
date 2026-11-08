@@ -593,7 +593,8 @@ impl NativeHost<'_> {
                     require(
                         location == 0
                             || (1..=98).contains(&location)
-                            || (257..=337).contains(&location),
+                            || (257..=337).contains(&location)
+                            || location >= 1024,
                         "invalid world landmark",
                     )?;
                     let direction =

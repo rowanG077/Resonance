@@ -99,3 +99,28 @@ fn invalid_region_references_ids_terrain_and_unused_native_fields_are_rejected()
         );
     }
 }
+
+#[test]
+fn united_encounters_do_not_replace_the_late_tethealla_table() -> Result<()> {
+    let mut doc = document();
+    doc["tethe_alla"]["regions"]["home"]["later"] = json!({"grassland":[21,22]});
+    doc["united"] = doc["sylvarant"].clone();
+    doc["united"]["regions"]["home"]["groups"] = json!({"grassland":[31,32]});
+    let tables: EncounterTables = serde_json::from_value(doc)?;
+    let restored: EncounterTables = serde_json::from_slice(&serde_json::to_vec(&tables)?)?;
+    for data in [&tables, &restored] {
+        data.validate()?;
+        assert_eq!(data.worlds[2].kind, WorldKind::TetheAllaLate);
+        assert_eq!(
+            data.worlds[2].areas[0].as_ref().unwrap().encounter_groups[0],
+            [21, 22]
+        );
+        assert_eq!(data.worlds[3].kind, WorldKind::United);
+        assert_eq!(
+            data.worlds[3].areas[0].as_ref().unwrap().encounter_groups[0],
+            [31, 32]
+        );
+        assert_eq!(data.area_grids.len(), 3);
+    }
+    Ok(())
+}

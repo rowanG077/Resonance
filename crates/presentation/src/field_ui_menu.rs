@@ -66,7 +66,6 @@ pub(super) fn model_preview_depth() -> f32 {
 }
 const ATLAS: MaterialKey = MaterialKey::Texture(MenuArt::ATLAS_TEXTURE);
 const PORTRAITS: usize = MenuArt::PORTRAIT_TEXTURES.start;
-const WORLD_MAPS: usize = MenuArt::WORLD_MAP_TEXTURES.start;
 type WorldHudArt = (Handle<Surface>, [u32; 2], Vec<[u32; 4]>);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -276,7 +275,7 @@ struct MenuMaterial {
 
 pub(super) struct MenuArtwork {
     resolution: super::super::Resolution,
-    spec: MenuArt,
+    pub(super) spec: MenuArt,
     server: AssetServer,
     draws: MenuDraws,
     experience: std::sync::Arc<[u32]>,
@@ -333,7 +332,7 @@ impl MenuArtwork {
     }
 
     pub(super) fn world_map_art(&self, world: usize) -> (Handle<Surface>, [u32; 2]) {
-        let material = &self.materials[&MaterialKey::Texture(WORLD_MAPS + world)];
+        let material = &self.materials[&MaterialKey::Texture(MenuArt::world_map_texture(world))];
         (material.material.clone(), material.size)
     }
 
@@ -351,7 +350,8 @@ impl MenuArtwork {
         materials: &mut Assets<Surface>,
     ) -> Result<Vec<Handle<Image>>> {
         // The world HUD draws these materials outside the menu's submission path.
-        MenuArt::WORLD_MAP_TEXTURES
+        self.spec
+            .world_map_textures()
             .chain([MenuArt::ATLAS_TEXTURE])
             .map(|index| {
                 let prepared = self

@@ -17,12 +17,15 @@ pub struct FlightZones {
     pub sylvarant: Vec<FlightZone>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tethe_alla: Vec<FlightZone>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub united: Vec<FlightZone>,
 }
 impl FlightZones {
     pub fn get(&self, world: super::World) -> &[FlightZone] {
         match world {
             super::World::Sylvarant => &self.sylvarant,
             super::World::TetheAlla => &self.tethe_alla,
+            super::World::United => &self.united,
         }
     }
 }
@@ -163,7 +166,11 @@ impl MovementParameters {
                 && self.ship_speed_multiplier * speed >= self.turn_limit * self.altitude_per_pitch,
             "world turning can produce a negative speed"
         );
-        for zones in [&self.flight_zones.sylvarant, &self.flight_zones.tethe_alla] {
+        for zones in [
+            &self.flight_zones.sylvarant,
+            &self.flight_zones.tethe_alla,
+            &self.flight_zones.united,
+        ] {
             for zone in zones {
                 ensure!(
                     zone.position.into_iter().all(f32::is_finite)

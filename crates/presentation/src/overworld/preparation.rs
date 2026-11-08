@@ -7,9 +7,11 @@ use resonance_content::{
     prepared::Files,
     skit,
 };
+#[cfg(test)]
 use std::path::Path;
 
 impl Package {
+    #[cfg(test)]
     pub(crate) fn prepare(
         root: &Path,
         cache: &mut crate::loading::Cache,

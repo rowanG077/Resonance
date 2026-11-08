@@ -207,7 +207,7 @@ impl Host for RuleHost<'_> {
             h.set(a[0], |a| a.marker = Marker::None)
         })
         .register_typed(Native::SetModel.declaration(), |h, a, _| {
-            if !(1..=17).contains(&a[1]) {
+            if !(1..=255).contains(&a[1]) {
                 return Err("invalid landmark model".into());
             }
             h.set(a[0], |appearance| {
@@ -277,9 +277,16 @@ impl Rules {
         cache: &mut PreparationCache,
         sources: &impl SourceResolver,
     ) -> Result<Arc<Self>> {
-        let generation = cache.prepare(["world::rules"], sources, &native_declarations())?;
+        Self::prepare_module(cache, sources, "world::rules")
+    }
+    pub fn prepare_module(
+        cache: &mut PreparationCache,
+        sources: &impl SourceResolver,
+        module_name: &str,
+    ) -> Result<Arc<Self>> {
+        let generation = cache.prepare([module_name], sources, &native_declarations())?;
         let module = generation
-            .module("world::rules")
+            .module(module_name)
             .context("world rules missing")?;
         ensure!(module.assets.is_empty(), "world rules cannot load assets");
         let authored = module
@@ -293,7 +300,11 @@ impl Rules {
         Vm::validate_bindings::<RuleHost>(&module.program)?;
         let mut entries = [0; Rule::ALL.len()];
         for rule in Rule::ALL {
-            let (name, parameters, results) = rule.signature();
+            let (native_name, parameters, results) = rule.signature();
+            let name = format!(
+                "{module_name}::{}",
+                native_name.rsplit("::").next().unwrap()
+            );
             let function = authored
                 .functions
                 .iter()

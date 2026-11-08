@@ -6,7 +6,7 @@ mod logging;
 
 #[derive(Parser)]
 #[command(version, about = "Resonance — Tales of Symphonia reimplementation")]
-#[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load", "test_overworld"]).multiple(false)))]
+#[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load", "test_overworld", "test_united_world"]).multiple(false)))]
 struct Args {
     #[arg(long, default_value = "local/all-assets")]
     assets: PathBuf,
@@ -28,6 +28,9 @@ struct Args {
     /// Temporary playground: start above Sylvarant on unlocked Rheairds.
     #[arg(long, conflicts_with_all = ["record_music", "record_playthrough"])]
     test_overworld: bool,
+    /// Post-fusion playground; enable mods/united-world/generated with --mod.
+    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough"])]
+    test_united_world: bool,
     /// Resolve encounters as victories for exploration testing.
     #[arg(long)]
     skip_battles: bool,
@@ -140,10 +143,15 @@ fn run(mut args: Args) -> anyhow::Result<()> {
     );
     // Keep the fixture and default save slots alive for this run only. The
     // ordinary checkpoint loader then owns rendering, audio and flight input.
-    let _playground = if args.test_overworld {
+    let _playground = if args.test_overworld || args.test_united_world {
         let directory = tempfile::tempdir()?;
         let checkpoint = directory.path().join("rheairds.json");
-        resonance_presentation::prepare_overworld_test_fixture(
+        let prepare = if args.test_united_world {
+            resonance_presentation::prepare_united_world_test_fixture
+        } else {
+            resonance_presentation::prepare_overworld_test_fixture
+        };
+        prepare(
             &args.assets,
             &args.mods,
             args.scripts.as_deref(),
@@ -186,7 +194,7 @@ fn run(mut args: Args) -> anyhow::Result<()> {
             paranoid: args.paranoid,
             skip_intro: args.skip_intro,
             skip_battles: args.skip_battles || args.test_overworld,
-            allow_incomplete_scripts: args.test_overworld,
+            allow_incomplete_scripts: args.test_overworld || args.test_united_world,
             record_playthrough: args.record_playthrough,
             record_title_ticks: args.record_title_ticks,
         },

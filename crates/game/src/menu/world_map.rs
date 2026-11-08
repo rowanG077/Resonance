@@ -88,7 +88,7 @@ impl Menu {
             .locations
             .iter()
             .filter(|&(id, location)| {
-                id / 256 == u16::from(self.world_map.world)
+                location.world().index() == usize::from(self.world_map.world)
                     && location.map_listed
                     && travel.visited_locations.contains(id)
             })

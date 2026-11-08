@@ -123,6 +123,8 @@ fn native_locations(exe: &[u8]) -> Result<Landmarks> {
             let elevation = float(row, 8)?;
             entries.push(Landmark {
                 id,
+                world: None,
+                source_location: None,
                 name: name.clone(),
                 position: [x as f32, z as f32],
                 height: if elevation == 0. {
@@ -149,7 +151,10 @@ fn native_locations(exe: &[u8]) -> Result<Landmarks> {
             });
         }
     }
-    let mut result = Landmarks { worlds };
+    let [sylvarant, tethe_alla] = worlds;
+    let mut result = Landmarks {
+        worlds: [sylvarant, tethe_alla, Vec::new()],
+    };
     for row in dol::slice(exe, REWARDS, 22 * 4)?.chunks_exact(4) {
         let id = dol::u16(row, 0)?;
         if id == 0 {

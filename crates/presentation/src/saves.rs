@@ -8,7 +8,9 @@ mod replay;
 #[cfg(test)]
 use crate::test_support::field_checkpoint;
 pub use fixture::prepare_checkpoint_fixture;
-pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_probe};
+pub use overworld_test::{
+    prepare_overworld_test_fixture, prepare_united_world_test_fixture, run_overworld_field_probe,
+};
 #[cfg(test)]
 pub(crate) use replay::assert_checkpoint;
 pub use replay::{

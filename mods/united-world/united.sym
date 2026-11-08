@@ -1,0 +1,37 @@
+script library;
+use std::music::MusicId;
+use std::world::MountId;
+use std::world::WorldInteraction;
+use game::world;
+use world::locations;
+
+// Post-fusion exploration keeps every authored entrance available. Campaign
+// visibility, caravans and terrain changes still belong to the original maps.
+fn discoveries(first: i32, end: i32) {
+    for location in first .. end {
+        if world::visited(location) || !world::party_available(location) {
+            world::set_interaction(location, i32(WorldInteraction::Disabled));
+            world::hide_marker(location);
+        }
+    }
+}
+pub fn refresh() {
+    discoveries(1087, 1119);
+    discoveries(1330, 1362);
+    locations::refresh_guideposts();
+}
+pub fn on_enter(world: i32) {}
+pub fn records_visit(location: i32) -> bool {
+    let source = location - 1024;
+    return (source >= 63 && source <= 94) || (source >= 306 && source <= 337);
+}
+pub fn music(mount: i32, bank: i32) -> i32 {
+    if mount == i32(MountId::Ship) {
+        return i32(MusicId::TripOnTheShip);
+    }
+    if mount == i32(MountId::Rheairds) {
+        return i32(MusicId::AviatorsRheaBird);
+    }
+    return i32(MusicId::TheLandOfSylvarant);
+}
+pub fn terrain_variants(world: i32) {}

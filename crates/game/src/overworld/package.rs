@@ -18,6 +18,7 @@ pub struct Prepared {
     pub resources: Arc<ResourceLibrary>,
     program: Arc<Program>,
     story_rules: Arc<super::scripts::Rules>,
+    united_rules: Option<Arc<super::scripts::Rules>>,
     skits: Arc<std::collections::BTreeMap<u16, crate::skit::Prepared>>,
 }
 
@@ -50,7 +51,17 @@ impl Prepared {
         )?);
         let story_rules =
             super::scripts::Rules::prepare(&mut Default::default(), &files.script_sources()?)?;
+        let united_rules = if definition.worlds.len() > 2 {
+            Some(super::scripts::Rules::prepare_module(
+                &mut Default::default(),
+                &files.script_sources()?,
+                "world::united",
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
+            united_rules,
             story_rules,
             definition: Arc::new(definition),
             files,
@@ -67,9 +78,10 @@ impl Prepared {
         world: World,
         persistent: &PersistentState,
     ) -> Result<Vec<(TileCoordinate, &'a TileResources)>> {
+        let story_rules = self.rules(world)?;
         let mut locations = Locations::new(
             Arc::new(self.definition.landmarks.clone()),
-            self.story_rules.clone(),
+            story_rules.clone(),
         )?;
         let party = persistent.party.as_ref().context("world party missing")?;
         let progress = Progress::new(
@@ -79,10 +91,11 @@ impl Prepared {
             &persistent.script_state,
         );
         locations.refresh(&progress)?;
-        let alternates = self
-            .story_rules
-            .terrain_variants(&locations, &progress, world)?;
-        self.definition.worlds[world.index()]
+        let alternates = story_rules.terrain_variants(&locations, &progress, world)?;
+        self.definition
+            .worlds
+            .get(world.index())
+            .context("requested overworld is not installed")?
             .iter()
             .map(|tile| {
                 let coordinate = TileCoordinate::new(tile.column, tile.row)?;
@@ -98,6 +111,15 @@ impl Prepared {
             .collect()
     }
 
+    fn rules(&self, world: World) -> Result<Arc<super::scripts::Rules>> {
+        if world == World::United {
+            self.united_rules
+                .clone()
+                .context("united-world rules are missing")
+        } else {
+            Ok(self.story_rules.clone())
+        }
+    }
     pub fn assets(&self, world: World, persistent: &PersistentState) -> Result<Arc<Assets>> {
         let terrain = self
             .terrain(world, persistent)?
@@ -113,11 +135,13 @@ impl Prepared {
                 terrain,
                 self.definition.movement.collision,
             )?),
-            rules: Arc::new(super::Rules::new(self.definition.encounters.clone())?),
+            rules: Arc::new(
+                super::Rules::new(self.definition.encounters.clone())?.for_world(world),
+            ),
             movement: Arc::new(self.definition.movement.clone()),
             landmarks: Arc::new(self.definition.landmarks.clone()),
             program: self.program.clone(),
-            story_rules: self.story_rules.clone(),
+            story_rules: self.rules(world)?,
             resources: self.resources.clone(),
             skits: self.skits.clone(),
         }))

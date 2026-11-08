@@ -14,7 +14,7 @@ pub use portal::Portal;
 pub use session::{Assets, Checkpoint, Input, Prompt, Session, SpecialEncounter};
 pub mod travel;
 use anyhow::Result;
-use resonance_content::overworld::{EncounterTables, Terrain, TerrainSurface};
+use resonance_content::overworld::{EncounterTables, Terrain, TerrainSurface, TravelEndpoint};
 pub use resonance_content::overworld::{Position, TileCoordinate, World};
 
 /// The battle owner resolves this group through its weighted formation table.
@@ -26,11 +26,23 @@ pub struct Encounter {
     pub area: u8,
 }
 
-pub struct Rules(EncounterTables);
+pub struct Rules(EncounterTables, World);
 impl Rules {
     pub fn new(tables: EncounterTables) -> Result<Self> {
         tables.validate()?;
-        Ok(Self(tables))
+        Ok(Self(tables, World::Sylvarant))
+    }
+
+    pub(crate) fn for_world(mut self, world: World) -> Self {
+        self.1 = world;
+        self
+    }
+    fn docks(&self) -> &[[TravelEndpoint; 2]] {
+        if self.1 == World::United {
+            &self.0.united_travel_points
+        } else {
+            &self.0.travel_points
+        }
     }
 
     pub fn area(&self, world: World, position: Position) -> u8 {
@@ -81,14 +93,14 @@ impl Rules {
 
     fn last_dock(&self, position: Position, side: usize, radius: i32) -> Option<usize> {
         let [x, z, _] = position.map();
-        self.0.travel_points.iter().rposition(|pair| {
+        self.docks().iter().rposition(|pair| {
             (pair[side].map_x - x as i32).abs() < radius
                 && (pair[side].map_z - z as i32).abs() < radius
         })
     }
 
     fn endpoint(&self, pair: usize, side: usize) -> Option<Position> {
-        let point = &self.0.travel_points.get(pair)?[side];
+        let point = &self.docks().get(pair)?[side];
         Position::from_map([point.map_x as f32, point.map_z as f32, point.height]).ok()
     }
 
@@ -107,7 +119,9 @@ impl Rules {
         }
         let terrain = self.terrain(world, surface)?;
         let area = self.area(world, position);
-        let table = if world == World::TetheAlla && story >= self.0.later_story {
+        let table = if world == World::United {
+            3
+        } else if world == World::TetheAlla && story >= self.0.later_story {
             2
         } else {
             world.index()
@@ -117,7 +131,12 @@ impl Rules {
                 .as_ref()?
                 .encounter_groups[terrain.index()][usize::from(symbol_variant)],
             // The later encounter set does not replace the world's arena table.
-            arena: self.0.worlds[world.index()].arena_by_terrain[terrain.index()],
+            arena: self.0.worlds[if world == World::United {
+                3
+            } else {
+                world.index()
+            }]
+            .arena_by_terrain[terrain.index()],
             terrain,
             area,
         })
@@ -161,6 +180,7 @@ mod tests {
                 2
             ],
             area_grids: vec![vec![[0; 24]; 18]; 2],
+            united_travel_points: Vec::new(),
             travel_points: vec![
                 [
                     TravelEndpoint {
@@ -503,5 +523,47 @@ mod tests {
         let mut invalid = tables();
         invalid.worlds.swap(1, 2);
         assert!(Rules::new(invalid).is_err());
+    }
+    #[test]
+    fn united_sailing_docks_do_not_replace_original_world_docks() -> Result<()> {
+        let mut data = tables();
+        data.united_travel_points = vec![[
+            TravelEndpoint {
+                map_x: 45000,
+                map_z: 40000,
+                height: 80.,
+            },
+            TravelEndpoint {
+                map_x: 45300,
+                map_z: 40000,
+                height: 0.,
+            },
+        ]];
+        let native = data.travel_points[0].clone();
+        let new_sea = Position::from_map([45300., 40000., 0.])?;
+        let original_sea = Position::from_map([
+            native[1].map_x as f32,
+            native[1].map_z as f32,
+            native[1].height,
+        ])?;
+        for world in [World::Sylvarant, World::TetheAlla] {
+            let rules = Rules::new(data.clone())?.for_world(world);
+            assert_eq!(rules.disembark_destination(new_sea), None);
+            assert_eq!(
+                rules.disembark_destination(original_sea),
+                Some(Position::from_map([
+                    native[0].map_x as f32,
+                    native[0].map_z as f32,
+                    native[0].height
+                ])?)
+            );
+        }
+        let united = Rules::new(data)?.for_world(World::United);
+        assert_eq!(
+            united.disembark_destination(new_sea),
+            Some(Position::from_map([45000., 40000., 80.])?)
+        );
+        assert_eq!(united.disembark_destination(original_sea), None);
+        Ok(())
     }
 }

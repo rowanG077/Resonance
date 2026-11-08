@@ -78,9 +78,13 @@ pub struct Definition {
     pub surface_terrain: SurfaceTerrain,
     /// Ordered: overlapping docks select the last match; embark falls back to the first.
     pub docks: Vec<Dock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub united_docks: Vec<Dock>,
     pub later_story: i32,
     pub sylvarant: Continent,
     pub tethe_alla: Continent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub united: Option<Continent>,
 }
 
 fn surfaces(values: &[Option<Terrain>; SURFACES]) -> SurfaceTerrain {
@@ -112,7 +116,7 @@ impl Serialize for EncounterTables {
             .map(|(pair, _)| pair)
             .unwrap_or([0; 2]);
         let continent = |index: usize| -> Result<Continent> {
-            let world = &self.worlds[index];
+            let world = &self.worlds[if index == 2 { 3 } else { index }];
             let mut regions = BTreeMap::new();
             let mut owners = BTreeMap::<[[u16; 2]; TERRAINS], String>::new();
             let mut later_owners = BTreeMap::<[[u16; 2]; TERRAINS], String>::new();
@@ -206,9 +210,22 @@ impl Serialize for EncounterTables {
                     sea: endpoint(&p[1]),
                 })
                 .collect(),
+            united_docks: self
+                .united_travel_points
+                .iter()
+                .map(|p| Dock {
+                    land: endpoint(&p[0]),
+                    sea: endpoint(&p[1]),
+                })
+                .collect(),
             later_story: self.later_story,
             sylvarant: continent(0).map_err(serde::ser::Error::custom)?,
             tethe_alla: continent(1).map_err(serde::ser::Error::custom)?,
+            united: if self.worlds.len() == 4 {
+                Some(continent(2).map_err(serde::ser::Error::custom)?)
+            } else {
+                None
+            },
         }
         .serialize(serializer)
     }
@@ -320,6 +337,13 @@ impl Definition {
             WorldKind::TetheAllaLate,
             true,
         )?);
+        if let Some(source) = &self.united {
+            worlds.push(make_world(source, WorldKind::United, false)?);
+            let mut surface = base_surface;
+            apply_surfaces(&mut surface, &source.surface_terrain)?;
+            surface_terrain.push(surface);
+            area_grids.push(source.grid.clone());
+        }
         let endpoint = |p: Endpoint| TravelEndpoint {
             map_x: p.position[0],
             map_z: p.position[1],
@@ -331,6 +355,11 @@ impl Definition {
             area_grids,
             travel_points: self
                 .docks
+                .into_iter()
+                .map(|d| [endpoint(d.land), endpoint(d.sea)])
+                .collect(),
+            united_travel_points: self
+                .united_docks
                 .into_iter()
                 .map(|d| [endpoint(d.land), endpoint(d.sea)])
                 .collect(),

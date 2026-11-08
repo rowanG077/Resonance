@@ -12,12 +12,14 @@ impl Drawing<'_> {
         let left = -((fade * 224 / 256) as f32);
         self.opacity = opacity;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(
+        self.heading(if state.world == 2 {
+            "United World"
+        } else {
             map_text
                 .names
                 .get(usize::from(state.world))
-                .context("world map caption was not prepared")?,
-        )?;
+                .context("world map caption was not prepared")?
+        })?;
         self.offset = [left, 0.];
         self.frame([16., 60., 212., 266.])?;
         self.offset = [0., (fade * 120 / 256) as f32];
@@ -37,7 +39,7 @@ impl Drawing<'_> {
         }
         self.opacity = opacity;
         self.offset = [(fade * 404 / 256) as f32, 0.];
-        let index = WORLD_MAPS + usize::from(state.world);
+        let index = MenuArt::world_map_texture(usize::from(state.world));
         let texture = self.spec.texture(index)?;
         self.plane = 0;
         self.quad_role(
@@ -67,8 +69,8 @@ impl Drawing<'_> {
             } else {
                 travel
                     .current_location
-                    .filter(|id| id / 256 == u16::from(state.world))
                     .and_then(|id| data.world_map.locations.get(&id))
+                    .filter(|location| location.world().index() == usize::from(state.world))
                     .map(|location| location.map_point())
             };
         if let Some(point) = current {

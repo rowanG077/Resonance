@@ -110,6 +110,7 @@ impl Step {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Event {
+    SceneReady,
     FieldReady,
     FieldEmote {
         map_id: u32,
@@ -264,6 +265,13 @@ impl Event {
             .get_resource::<new_game::Session>()
             .filter(|s| s.is_field());
         Ok(match self {
+            Self::SceneReady => {
+                if scene::phase(world)? == scene::Phase::World {
+                    crate::overworld::capture_ready(world)
+                } else {
+                    Self::FieldReady.matches(world)?
+                }
+            }
             Self::FieldReady => {
                 scene::phase(world)? == scene::Phase::Field
                     && session.is_some_and(|session| {

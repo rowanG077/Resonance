@@ -174,8 +174,28 @@ impl Scene {
 }
 pub(super) fn destination(
     location: u16,
+    landmarks: &resonance_content::overworld::Landmarks,
     progress: &resonance_events::PersistentState,
 ) -> Result<game::World> {
+    if let Some(world) = progress
+        .party
+        .as_ref()
+        .and_then(|party| party.travel.overworld.as_ref())
+        .map(|state| state.world)
+        && landmarks.worlds[world.index()]
+            .iter()
+            .any(|entry| entry.source_location == Some(location))
+    {
+        return Ok(world);
+    }
+    if let Some(landmark) = landmarks
+        .worlds
+        .iter()
+        .flatten()
+        .find(|entry| entry.id == location)
+    {
+        return Ok(landmark.world());
+    }
     match location {
         0 => progress
             .party
@@ -351,6 +371,7 @@ struct TerrainDraw {
     tile: usize,
     material: u32,
     secondary: bool,
+    water: bool,
 }
 fn retire(world: &mut World) {
     let current = world
@@ -703,6 +724,16 @@ fn bind(
                             tile,
                             material,
                             secondary: part.spec.resource == 2,
+                            water: part.spec.resource == 2
+                                && (part.spec.mesh.ends_with("/water.glb")
+                                    || part.spec.mesh.ends_with("/wave-ribbons.glb")
+                                    || part.spec.material_nodes.get(slot).is_some_and(|nodes| {
+                                        nodes.iter().any(|&node| {
+                                            part.spec.bone_names[usize::from(node)]
+                                                .to_ascii_lowercase()
+                                                .contains("wave")
+                                        })
+                                    })),
                         });
                     }
                 }
@@ -762,11 +793,36 @@ fn terrain_order(
         rank[tile] = order as u32;
     }
     for (draw, mut order) in &mut draws {
-        let key =
-            ((if draw.secondary { 3 } else { 1 }) << 20) + rank[draw.tile] * 4096 + draw.material;
+        // Complete the united sea and foam before secondary forest crowns.
+        // Those native crowns intentionally do not write depth; a water tile
+        // submitted afterwards can otherwise erase their overhanging edges.
+        let phase = terrain_phase(state.world, draw.secondary, draw.water);
+        let key = phase + rank[draw.tile] * 4096 + draw.material;
         if order.0 != super::draw_order::Layer::Scene(key) {
             order.0 = super::draw_order::Layer::Scene(key);
         }
+    }
+}
+
+fn terrain_phase(world: resonance_content::overworld::World, secondary: bool, water: bool) -> u32 {
+    if world == resonance_content::overworld::World::United && water {
+        (3 << 20) - (1 << 19)
+    } else {
+        (if secondary { 3 } else { 1 }) << 20
+    }
+}
+
+#[test]
+fn united_water_finishes_before_depthless_forest_crowns_across_all_tiles() {
+    use resonance_content::overworld::World;
+    let last_water = terrain_phase(World::United, true, true) + 107 * 4096 + 4095;
+    let first_crown = terrain_phase(World::United, true, false);
+    assert!(last_water < first_crown);
+    for world in [World::Sylvarant, World::TetheAlla] {
+        assert_eq!(
+            terrain_phase(world, true, true),
+            terrain_phase(world, true, false)
+        );
     }
 }
 fn pose(
@@ -1331,6 +1387,7 @@ fn animate(
 }
 fn camera(
     owner: State,
+    survey: Option<Res<capture::SurveyView>>,
     display: Res<super::display::Display>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
@@ -1387,6 +1444,18 @@ fn camera(
         )
     };
     for (mut transform, mut projection) in &mut cameras {
+        if survey.is_some() {
+            *transform = Transform::from_xyz(0., 0., 4000.).looking_at(Vec3::ZERO, Vec3::Y);
+            *projection = Projection::Orthographic(OrthographicProjection {
+                scaling_mode: bevy::camera::ScalingMode::FixedVertical {
+                    viewport_height: 7200.,
+                },
+                near: 100.,
+                far: 20000.,
+                ..OrthographicProjection::default_3d()
+            });
+            continue;
+        }
         *transform = Transform::from_translation(eye).with_rotation(rotation);
         *projection = Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
             fov: fov.to_radians(),
@@ -1445,6 +1514,16 @@ fn ui(
     }
 }
 
+/// The binding system publishes active only after the scene and UI are prepared.
+pub(super) fn capture_ready(world: &World) -> bool {
+    world
+        .get_resource::<Art>()
+        .is_some_and(|art| art.ready && art.spawned)
+        && world
+            .resource::<super::loading::Resident>()
+            .active
+            .load(Ordering::Acquire)
+}
 pub(super) fn ready(world: &mut World) -> bool {
     world
         .get_resource::<Art>()

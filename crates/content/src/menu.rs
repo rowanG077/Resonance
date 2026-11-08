@@ -168,6 +168,21 @@ pub struct MenuTexture {
 impl MenuArt {
     pub const ATLAS_TEXTURE: usize = 18;
     pub const PORTRAIT_TEXTURES: std::ops::Range<usize> = 19..28;
+    pub const UNITED_WORLD_MAP_TEXTURE: usize = 79;
+    pub fn world_map_texture(world: usize) -> usize {
+        if world == 2 {
+            Self::UNITED_WORLD_MAP_TEXTURE
+        } else {
+            Self::WORLD_MAP_TEXTURES.start + world
+        }
+    }
+    pub fn world_map_textures(&self) -> impl Iterator<Item = usize> + '_ {
+        Self::WORLD_MAP_TEXTURES.chain(
+            self.textures
+                .contains_key(&Self::UNITED_WORLD_MAP_TEXTURE)
+                .then_some(Self::UNITED_WORLD_MAP_TEXTURE),
+        )
+    }
     pub const WORLD_MAP_TEXTURES: std::ops::Range<usize> = 28..30;
 
     pub fn validate(&self, item_count: usize) -> Result<()> {

@@ -142,12 +142,17 @@ impl MenuArt {
         {
             if let Some(index) = diagnostics.attempt(
                 &format!("menu image {name}"),
-                IMAGES
-                    .iter()
-                    .position(|&role| role == name)
-                    .context("unknown menu image role"),
+                if name == "united_map" {
+                    Ok(MenuArt::UNITED_WORLD_MAP_TEXTURE)
+                } else {
+                    IMAGES
+                        .iter()
+                        .position(|&role| role == name)
+                        .map(|index| index + 13)
+                        .context("unknown menu image role")
+                },
             )? {
-                textures.insert(index + 13, image.into());
+                textures.insert(index, image.into());
             }
         }
         let patterns: Vec<serde_json::Value> =
@@ -343,6 +348,11 @@ impl Serialize for MenuArt {
                             .get(&(i + 13))
                             .map(|value| (name, Image::from(value)))
                     })
+                    .chain(
+                        self.textures
+                            .get(&MenuArt::UNITED_WORLD_MAP_TEXTURE)
+                            .map(|value| ("united_map", Image::from(value))),
+                    )
                     .collect(),
                 patterns,
                 windows,

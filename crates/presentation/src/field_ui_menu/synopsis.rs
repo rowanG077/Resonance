@@ -42,7 +42,7 @@ impl Drawing<'_> {
             self.opacity = 255;
             self.quad(FONT, [328., 148., 600., 356.], [0.5; 4], [0., 0., 0., 1.]);
             self.opacity = 255 - state.transition.page_fade;
-            let index = WORLD_MAPS + usize::from(location.world);
+            let index = MenuArt::world_map_texture(usize::from(location.world));
             let texture = self.spec.texture(index)?;
             self.quad_role(
                 DrawRole::Content,

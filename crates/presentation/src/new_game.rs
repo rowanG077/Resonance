@@ -355,7 +355,11 @@ impl Session {
                 .world_transition
                 .as_ref()
                 .context("world transition is missing")?;
-            let destination = super::overworld::destination(request.location, &persistent)?;
+            let destination = super::overworld::destination(
+                request.location,
+                &package.world.definition.landmarks,
+                &persistent,
+            )?;
             let play_time = self.play_time();
             let assets = package.world.assets(destination, &persistent)?;
             if (513..=526).contains(&request.location) {

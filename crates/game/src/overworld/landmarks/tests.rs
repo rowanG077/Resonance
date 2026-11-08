@@ -3,9 +3,14 @@ use super::*;
 pub(crate) fn definitions() -> Landmarks {
     Landmarks {
         worlds: std::array::from_fn(|world| {
+            if world == 2 {
+                return Vec::new();
+            }
             (1..=if world == 0 { 98 } else { 81 })
                 .map(|id| Landmark {
                     id: (world * 256 + id) as u16,
+                    world: None,
+                    source_location: None,
                     position: [10000. + id as f32 * 200., 10000.],
                     height: None,
                     radius: 80.,
@@ -536,5 +541,65 @@ fn installed_flight_floors_preserve_activation_seams_and_clearance_boundaries() 
             &serde_json::json!({"cases":cases,"landmark_floors":4,"circular_zones":2,"activation_patterns":16}),
         )?,
     )?;
+    Ok(())
+}
+
+#[test]
+fn united_air_contacts_use_native_identity_and_exire_elevation() -> Result<()> {
+    let mut data = definitions();
+    for (source, x, height) in [
+        (11, 1000., 0.),
+        (25, 3000., 0.),
+        (265, 5000., 0.),
+        (24, 2000., 0.),
+        (280, 4000., 0.),
+        (266, 6000., 520.),
+        (304, 8000., 1500.),
+    ] {
+        let world = usize::from(source >= 256);
+        let mut entry = data.worlds[world]
+            .iter()
+            .find(|e| e.id == source)
+            .unwrap()
+            .clone();
+        entry.id += 1024;
+        entry.world = Some(World::United);
+        entry.source_location = Some(source);
+        entry.position = [x, 5000.];
+        entry.height = Some(height);
+        entry.interaction = Interaction::Active;
+        data.worlds[2].push(entry);
+    }
+    let locations = Locations::new(Arc::new(data), crate::overworld::scripts::fixture())?;
+    for (source, x, altitude) in [
+        (11, 1000., 800.),
+        (25, 3000., 1300.),
+        (265, 5000., 800.),
+        (24, 2000., 800.),
+        (280, 4000., 800.),
+        (266, 6000., 800.),
+        (304, 8000., 1500.),
+    ] {
+        let point = Position::from_map([x, 5000., 0.])?;
+        assert_eq!(
+            locations
+                .contact(World::United, point, Mount::Rheairds, altitude)
+                .unwrap()
+                .id,
+            source + 1024
+        );
+    }
+    let exire = Position::from_map([6000., 5000., 0.])?;
+    assert!(
+        locations
+            .contact(World::United, exire, Mount::Rheairds, 1500.)
+            .is_none()
+    );
+    let dragon = Position::from_map([8000., 5000., 0.])?;
+    assert!(
+        locations
+            .contact(World::United, dragon, Mount::Rheairds, 1200.)
+            .is_none()
+    );
     Ok(())
 }

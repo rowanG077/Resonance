@@ -58,6 +58,14 @@ pub struct Locations {
     pub(super) story_rules: Arc<super::scripts::Rules>,
 }
 impl Locations {
+    /// An interior keeps its original exit ID while returning to its current map.
+    pub fn return_location(&self, world: World, source: u16) -> Option<u16> {
+        self.definitions.worlds[world.index()]
+            .iter()
+            .find(|entry| entry.source_location == Some(source))
+            .map(|entry| entry.id)
+    }
+
     pub fn new(
         definitions: Arc<Landmarks>,
         story_rules: Arc<super::scripts::Rules>,
@@ -245,7 +253,7 @@ impl Locations {
     }
 
     /// Probes the proposed position before movement commits. Airborne contact
-    /// is restricted to the towers and the height-sensitive flying dragon.
+    /// is restricted to towers, the flying dragon and the united Exire arrival.
     pub fn contact(
         &self,
         world: World,
@@ -264,8 +272,11 @@ impl Locations {
                     return None;
                 }
                 if mount.airborne() {
-                    match landmark.id {
+                    match landmark.source_location.unwrap_or(landmark.id) {
                         24 | 280 => {}
+                        11 | 25 | 265 if world == World::United => {}
+                        266 if world == World::United
+                            && (landmark.height.unwrap_or(520.) - altitude).abs() < 600. => {}
                         304 if (landmark.height.unwrap_or(0.) - altitude).abs() < 200. => {}
                         _ => return None,
                     }

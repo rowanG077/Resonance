@@ -120,3 +120,20 @@ fn location_mod_edits_remain_local_and_keep_retained_snapshots() -> Result<()> {
     assert_eq!(retained.json::<Landmarks>(path, 1024 * 1024)?, before);
     Ok(())
 }
+
+#[test]
+fn united_locations_keep_original_worlds_and_have_independent_identity() -> Result<()> {
+    let mut source = document();
+    source["united"] = json!([
+        {"id":1026,"world":"united","source_location":2,"name":"Second","position":[800.,900.],"radius":50.},
+        {"id":1281,"world":"united","source_location":257,"name":"Other world","position":[1800.,900.],"radius":50.}
+    ]);
+    let data: Landmarks = serde_json::from_value(source.clone())?;
+    data.validate()?;
+    assert_eq!(data.worlds[0].len(), 2);
+    assert_eq!(data.worlds[1].len(), 1);
+    assert_eq!(data.worlds[2].len(), 2);
+    assert_eq!(data.worlds[2][0].world(), super::super::World::United);
+    assert_eq!(serde_json::to_value(data)?, source);
+    Ok(())
+}

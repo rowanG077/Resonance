@@ -1,6 +1,6 @@
 //! Field exits place the player outside an authored world landmark.
 use super::{
-    Position, World,
+    Position,
     landmarks::Locations,
     travel::{Mount, State},
 };
@@ -20,15 +20,13 @@ pub(super) fn resolve(
             .cloned()
             .context("world resume has no saved location");
     }
-    ensure!(id < 513, "world cinematic {id} requires its scripted scene");
+    let id = previous
+        .and_then(|state| locations.return_location(state.world, id))
+        .unwrap_or(id);
     let landmark = locations
         .definition(id)
         .context("world return landmark is missing")?;
-    let world = if id < 256 {
-        World::Sylvarant
-    } else {
-        World::TetheAlla
-    };
+    let world = landmark.world();
     let mut state = previous.cloned().unwrap_or(State {
         world,
         position: Position::from_map([0.; 3])?,
@@ -117,6 +115,7 @@ fn quantize(angle: f32, steps: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::overworld::World;
     use crate::overworld::{
         landmarks::tests::definitions,
         travel::tests::{parameters, state},
@@ -238,4 +237,33 @@ mod tests {
         assert!(Locations::new(Arc::new(data), crate::overworld::scripts::fixture()).is_err());
         Ok(())
     }
+}
+
+#[cfg(test)]
+#[test]
+fn reused_field_exits_return_to_the_world_the_player_entered_from() -> Result<()> {
+    use crate::overworld::{
+        World,
+        landmarks::tests::definitions,
+        travel::tests::{parameters, state},
+    };
+    use std::sync::Arc;
+    let mut data = definitions();
+    data.worlds[1][0].interaction = Interaction::Active;
+    let mut united = data.worlds[1][0].clone();
+    united.id = 1281;
+    united.world = Some(World::United);
+    united.source_location = Some(257);
+    united.position = [20000., 30000.];
+    united.interaction = Interaction::Active;
+    data.worlds[2].push(united);
+    let locations = Locations::new(Arc::new(data), crate::overworld::scripts::fixture())?;
+    let original = resolve(&locations, &parameters(), None, 257, 2)?;
+    assert_eq!(original.world, World::TetheAlla);
+    let mut previous = state(Mount::Foot);
+    previous.world = World::United;
+    let next = resolve(&locations, &parameters(), Some(&previous), 257, 2)?;
+    assert_eq!(next.world, World::United);
+    assert_eq!(next.position.map(), [20000., 30180., 0.]);
+    Ok(())
 }

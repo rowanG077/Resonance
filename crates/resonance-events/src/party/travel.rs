@@ -35,6 +35,15 @@ pub struct Travel {
 impl Travel {
     pub fn enter_field(&mut self, data: &WorldMapData, field: u32) {
         if let Some(&id) = data.field_locations.get(&field) {
+            let id = self
+                .overworld
+                .as_ref()
+                .and_then(|state| {
+                    data.locations.values().find(|entry| {
+                        entry.world() == state.world && entry.source_location == Some(id)
+                    })
+                })
+                .map_or(id, |entry| entry.id);
             self.current_location = Some(id);
             self.visited_locations
                 .insert(data.locations[&id].visit_alias.unwrap_or(id));
@@ -60,7 +69,7 @@ impl Travel {
             self.visited_locations
                 .iter()
                 .chain(self.current_location.iter())
-                .all(|id| (1..=98).contains(id) || (257..=337).contains(id))
+                .all(|id| (1..=98).contains(id) || (257..=337).contains(id) || *id >= 1024)
                 && self.visited_shops.iter().all(|&id| id < 52),
             "invalid saved travel history"
         );

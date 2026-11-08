@@ -130,14 +130,15 @@ pub fn capture(
     ensure!(!cancelled(), "world preparation cancelled");
     let definition: Definition = snapshot.json(PATH, JSON_LIMIT)?;
     definition.validate()?;
-    let mut worlds: [Vec<TerrainTile>; 2] = Default::default();
+    let mut worlds = Vec::new();
     let continents = entries(snapshot, &definition.continents)?;
     ensure!(
-        continents == [0, 1],
-        "world mappings must contain continents 0 and 1"
+        continents == [0, 1] || continents == [0, 1, 2],
+        "world mappings must contain continents 0 and 1, optionally 2"
     );
     for id in continents {
         ensure!(!cancelled(), "world preparation cancelled");
+        worlds.push(Vec::new());
         let path = snapshot.resolve(&definition.continents, id, Some("world.json"))?;
         let continent: Continent = snapshot.json(&path, JSON_LIMIT)?;
         continent.validate(&path)?;
@@ -224,9 +225,17 @@ pub fn capture_markers(
     snapshot: &mut Snapshot,
     path: &str,
     cancelled: &impl Fn() -> bool,
-) -> Result<[BTreeMap<u8, Vec<crate::ScenePart>>; 2]> {
-    let mut worlds: [BTreeMap<u8, Vec<crate::ScenePart>>; 2] = Default::default();
-    for id in entries(snapshot, path)? {
+) -> Result<Vec<BTreeMap<u8, Vec<crate::ScenePart>>>> {
+    let ids = entries(snapshot, path)?;
+    let count = ids
+        .iter()
+        .map(|id| (id / 256) as usize + 1)
+        .max()
+        .unwrap_or(2)
+        .max(2);
+    ensure!(count <= 3, "unknown marker world");
+    let mut worlds: Vec<BTreeMap<u8, Vec<crate::ScenePart>>> = vec![BTreeMap::new(); count];
+    for id in ids {
         // As with location IDs, the upper byte identifies the world. This keeps
         // ordinary per-ID mod overrides and lets both worlds share one owner.
         let world = worlds
@@ -316,7 +325,10 @@ mod tests {
         let library = Library::open_paths(root, &[modifications.path().to_owned()])?;
         let mut retained = library.snapshot();
         let before = capture_markers(&mut retained, MARKERS, &|| false)?;
-        assert_eq!(before.each_ref().map(BTreeMap::len), [17, 10]);
+        assert_eq!(
+            before.iter().map(BTreeMap::len).collect::<Vec<_>>(),
+            [17, 10]
+        );
         let path = "world/markers/stone-guidepost/model.json";
         let mut model: Model = serde_json::from_slice(&fs::read(root.join(path))?)?;
         model.parts[0].translation = [10., 20., 30.];

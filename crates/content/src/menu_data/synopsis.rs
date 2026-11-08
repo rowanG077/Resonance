@@ -87,7 +87,7 @@ impl SynopsisData {
         );
         for entry in &self.entries {
             ensure!(
-                entry.location.as_ref().is_none_or(|p| p.world < 2)
+                entry.location.as_ref().is_none_or(|p| p.world < 3)
                     && entry.updates.keys().all(|state| (2..=3).contains(state))
                     && std::iter::once(&entry.text)
                         .chain(entry.updates.values())
