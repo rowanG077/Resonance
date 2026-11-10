@@ -1,16 +1,40 @@
 script library;
-use std::story::QuestStep;
 use std::story::GlobalId;
+use std::story::ColetteAngelStage;
+use std::story::LuinRebuildingStage;
+use std::story::BookOfRegenerationStage;
+use std::story::LinkiteTreeStage;
+use std::story::PalmacostaRanchAssaultStage;
+use std::story::PalmacostaRanchDorrStage;
+use std::story::AsgardRanchStage;
 use game::world;
-pub fn at(quest: GlobalId, step: QuestStep) -> bool {
-    return world::global(i32(quest)) == i32(step);
+pub fn palmacosta_assault_reached(stage: PalmacostaRanchAssaultStage) -> bool {
+    return world::global(i32(GlobalId::PalmacostaRanchAssaultRoute)) >= i32(stage);
 }
-pub fn before(quest: GlobalId, step: QuestStep) -> bool {
-    return world::global(i32(quest)) < i32(step);
+pub fn palmacosta_dorr_reached(stage: PalmacostaRanchDorrStage) -> bool {
+    return world::global(i32(GlobalId::PalmacostaRanchDorrRoute)) >= i32(stage);
 }
-pub fn through(quest: GlobalId, step: QuestStep) -> bool {
-    return world::global(i32(quest)) <= i32(step);
+pub fn palmacosta_dorr_through(stage: PalmacostaRanchDorrStage) -> bool {
+    return world::global(i32(GlobalId::PalmacostaRanchDorrRoute)) <= i32(stage);
 }
-pub fn reached(quest: GlobalId, step: QuestStep) -> bool {
-    return world::global(i32(quest)) >= i32(step);
+pub fn asgard_ranch_reached(stage: AsgardRanchStage) -> bool {
+    return world::global(i32(GlobalId::AsgardRanch)) >= i32(stage);
+}
+pub fn luin_before(stage: LuinRebuildingStage) -> bool {
+    return world::global(i32(GlobalId::LuinRebuilding)) < i32(stage);
+}
+pub fn book_before(stage: BookOfRegenerationStage) -> bool {
+    return world::global(i32(GlobalId::BookOfRegeneration)) < i32(stage);
+}
+pub fn linkite_before(stage: LinkiteTreeStage) -> bool {
+    return world::global(i32(GlobalId::LinkiteTree)) < i32(stage);
+}
+pub fn linkite_reached(stage: LinkiteTreeStage) -> bool {
+    return world::global(i32(GlobalId::LinkiteTree)) >= i32(stage);
+}
+pub fn colette_at(stage: ColetteAngelStage) -> bool {
+    return world::global(i32(GlobalId::ColetteAngelProgress)) == i32(stage);
+}
+pub fn colette_before(stage: ColetteAngelStage) -> bool {
+    return world::global(i32(GlobalId::ColetteAngelProgress)) < i32(stage);
 }

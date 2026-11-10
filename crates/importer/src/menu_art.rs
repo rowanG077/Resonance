@@ -305,7 +305,7 @@ fn prepare(extracted: &Path) -> Result<(MenuArt, BTreeMap<String, Vec<u8>>)> {
             .collect(),
     )?;
     sprites.name_catalogue(Sprite::ItemImages, &item_names)?;
-    let recipes: Mappings = serde_json::from_str(include_str!("recipe-names.json"))?;
+    let recipes: Mappings = crate::known_ids::mappings::<symphonia_constants::RecipeId>()?;
     sprites.name_catalogue(Sprite::Recipes, &recipes)?;
     sprites.use_character_defaults(&character_names(&exe)?)?;
 

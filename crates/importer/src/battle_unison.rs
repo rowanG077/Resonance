@@ -210,8 +210,10 @@ fn openers(module: &Rel) -> Result<Vec<Opener>> {
 }
 
 fn action_names() -> Result<(Mappings, Mappings)> {
-    let physical: BTreeMap<u16, String> =
-        serde_json::from_str(include_str!("technique-names.json"))?;
+    let physical: BTreeMap<u16, String> = symphonia_constants::TechniqueId::ALL
+        .iter()
+        .map(|&id| (id.raw(), id.resource_name().unwrap().to_owned()))
+        .collect();
     let techniques = Mappings::new(
         physical
             .iter()

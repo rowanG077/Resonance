@@ -10,8 +10,16 @@ use std::fmt;
 pub trait KnownId: Copy + 'static {
     const ALL: &'static [Self];
     const TYPE_NAME: &'static str;
+    /// Reviewed notes published with the script enum, independent of its values.
+    const DOCUMENTATION: &'static str = "";
     fn value(self) -> u32;
+    /// Signed script identity; selector enums also contain negative sentinels.
+    fn script_value(self) -> i64;
     fn name(self) -> &'static str;
+    /// Reviewed notes published beside this member in cooked definitions.
+    fn documentation(self) -> &'static str {
+        ""
+    }
     fn resource_name(self) -> Option<&'static str>;
 }
 
@@ -34,14 +42,14 @@ impl fmt::Display for UnknownName {
 impl std::error::Error for UnknownName {}
 
 macro_rules! ids {
-    ($(#[$attribute:meta])* pub enum $name:ident: $repr:ident {
-        $($variant:ident = $value:expr $(=> $resource:expr)?),* $(,)?
+    ($(#[$($attribute:tt)*])* pub enum $name:ident: $repr:ident {
+        $($(#[doc = $documentation:literal])* $variant:ident = $value:expr $(=> $resource:expr)?),* $(,)?
     }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-        $(#[$attribute])*
+        $(#[$($attribute)*])*
         #[repr($repr)]
-        pub enum $name { $($variant = $value),* }
+        pub enum $name { $($(#[doc = $documentation])* $variant = $value),* }
 
         impl $name {
             pub const ALL: [Self; <[()]>::len(&[$(ids!(@unit $variant)),*])] = [$(Self::$variant),*];
@@ -56,8 +64,13 @@ macro_rules! ids {
         impl crate::KnownId for $name {
             const ALL: &'static [Self] = &Self::ALL;
             const TYPE_NAME: &'static str = stringify!($name);
+            const DOCUMENTATION: &'static str = ids!(@documentation $(#[$($attribute)*])*);
             fn value(self) -> u32 { self as u32 }
+            fn script_value(self) -> i64 { self as i64 }
             fn name(self) -> &'static str { self.name() }
+            fn documentation(self) -> &'static str {
+                match self { $(Self::$variant => concat!($($documentation, "\n",)*)),* }
+            }
             fn resource_name(self) -> Option<&'static str> { self.resource_name() }
         }
         impl From<$name> for $repr {
@@ -88,6 +101,9 @@ macro_rules! ids {
         }
     };
     (@unit $variant:ident) => { () };
+    (@documentation $(#[$($attribute:tt)*])*) => { concat!($(ids!(@doc $($attribute)*)),*) };
+    (@doc doc = $text:literal) => { concat!($text, "\n") };
+    (@doc $($other:tt)*) => { "" };
     (@resource $resource:expr) => { Some($resource) };
     (@resource) => { None };
 }
@@ -95,29 +111,49 @@ macro_rules! ids {
 mod arenas;
 mod battle_scenes;
 mod characters;
+mod debug_flags;
 mod effects;
+mod ex_skills;
 mod field_equipment;
 mod field_system;
 mod fields;
 mod figurines;
+mod formations;
 mod items;
 mod monsters;
 mod music;
+mod recipes;
+mod resources;
+mod scenario;
+mod scene_flags;
+mod skits;
 mod story;
+mod techniques;
+mod titles;
 mod treasure;
 mod world;
 pub use arenas::*;
 pub use battle_scenes::*;
 pub use characters::*;
+pub use debug_flags::*;
 pub use effects::*;
+pub use ex_skills::*;
 pub use field_equipment::*;
 pub use field_system::*;
 pub use fields::*;
 pub use figurines::*;
+pub use formations::*;
 pub use items::*;
 pub use monsters::*;
 pub use music::*;
+pub use recipes::*;
+pub use resources::*;
+pub use scenario::*;
+pub use scene_flags::*;
+pub use skits::*;
 pub use story::*;
+pub use techniques::*;
+pub use titles::*;
 pub use treasure::*;
 pub use world::*;
 

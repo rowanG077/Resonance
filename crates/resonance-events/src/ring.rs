@@ -2,8 +2,9 @@
 mod controller;
 pub(crate) use controller::Controller;
 use serde::{Deserialize, Serialize};
+use symphonia_constants::SorcerersRingMode as RingMode;
 
-pub const ITEM: u16 = 55;
+pub const ITEM: u16 = symphonia_constants::ItemId::SorcererSRing.raw();
 pub(crate) const SCRIPT_ACTOR: i32 = 99_992;
 
 pub(crate) const CALLBACK: u32 = u32::MAX;
@@ -61,31 +62,64 @@ pub enum BubblePhase {
 
 impl SorcerersRing {
     const MODES: &[(Self, [u8; 2])] = &[
-        (Self::Disabled, [0, 0]),
-        (Self::Fire, [1, 0]),
-        (Self::Fire, [2, 0]),
-        (Self::Shrink, [3, 0]),
-        (Self::Mana, [4, 0]),
-        (Self::ElectricOrb(ElectricOrbKind::Sylvarant), [5, 0]),
-        (Self::Radar, [6, 0]),
-        (Self::Water, [7, 0]),
-        (Self::Wind, [8, 0]),
-        (Self::LongRangeFire, [9, 0]),
-        (Self::Sunlight, [10, 0]),
-        (Self::ElectricOrb(ElectricOrbKind::Tethealla), [11, 0]),
-        (Self::Bomb, [12, 0]),
-        (Self::Lightning(LightningColor::Blue), [13, 0]),
-        (Self::Lightning(LightningColor::Yellow), [13, 1]),
-        (Self::Lightning(LightningColor::Red), [13, 2]),
-        (Self::Ice, [14, 0]),
-        (Self::Earthquake, [15, 0]),
-        (Self::Darkness, [16, 0]),
-        (Self::Sound, [17, 0]),
-        (Self::AnimalCall(CallColor::Pink), [18, 0]),
-        (Self::AnimalCall(CallColor::White), [18, 1]),
-        (Self::AnimalCall(CallColor::Blue), [18, 2]),
-        (Self::Bubble(BubblePhase::Release), [19, 0]),
-        (Self::Bubble(BubblePhase::Float), [19, 1]),
+        (Self::Disabled, [RingMode::Disabled.raw() as u8, 0]),
+        (Self::Fire, [RingMode::Fire.raw() as u8, 0]),
+        (Self::Fire, [RingMode::FireAlternate.raw() as u8, 0]),
+        (Self::Shrink, [RingMode::Shrink.raw() as u8, 0]),
+        (Self::Mana, [RingMode::Mana.raw() as u8, 0]),
+        (
+            Self::ElectricOrb(ElectricOrbKind::Sylvarant),
+            [RingMode::SylvarantElectricOrb.raw() as u8, 0],
+        ),
+        (Self::Radar, [RingMode::Radar.raw() as u8, 0]),
+        (Self::Water, [RingMode::Water.raw() as u8, 0]),
+        (Self::Wind, [RingMode::Wind.raw() as u8, 0]),
+        (
+            Self::LongRangeFire,
+            [RingMode::LongRangeFire.raw() as u8, 0],
+        ),
+        (Self::Sunlight, [RingMode::Sunlight.raw() as u8, 0]),
+        (
+            Self::ElectricOrb(ElectricOrbKind::Tethealla),
+            [RingMode::TetheAllaElectricOrb.raw() as u8, 0],
+        ),
+        (Self::Bomb, [RingMode::Bomb.raw() as u8, 0]),
+        (
+            Self::Lightning(LightningColor::Blue),
+            [RingMode::Lightning.raw() as u8, 0],
+        ),
+        (
+            Self::Lightning(LightningColor::Yellow),
+            [RingMode::Lightning.raw() as u8, 1],
+        ),
+        (
+            Self::Lightning(LightningColor::Red),
+            [RingMode::Lightning.raw() as u8, 2],
+        ),
+        (Self::Ice, [RingMode::Ice.raw() as u8, 0]),
+        (Self::Earthquake, [RingMode::Earthquake.raw() as u8, 0]),
+        (Self::Darkness, [RingMode::Darkness.raw() as u8, 0]),
+        (Self::Sound, [RingMode::Sound.raw() as u8, 0]),
+        (
+            Self::AnimalCall(CallColor::Pink),
+            [RingMode::AnimalCall.raw() as u8, 0],
+        ),
+        (
+            Self::AnimalCall(CallColor::White),
+            [RingMode::AnimalCall.raw() as u8, 1],
+        ),
+        (
+            Self::AnimalCall(CallColor::Blue),
+            [RingMode::AnimalCall.raw() as u8, 2],
+        ),
+        (
+            Self::Bubble(BubblePhase::Release),
+            [RingMode::Bubble.raw() as u8, 0],
+        ),
+        (
+            Self::Bubble(BubblePhase::Float),
+            [RingMode::Bubble.raw() as u8, 1],
+        ),
     ];
 }
 impl TryFrom<[u8; 2]> for SorcerersRing {

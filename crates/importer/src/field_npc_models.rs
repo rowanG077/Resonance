@@ -79,7 +79,8 @@ fn npc_geometry_owners(
 pub(crate) fn npc_mappings(extracted: &Path) -> Result<BTreeMap<u32, ModelTarget>> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let bank = native_bank(extracted, &exe)?;
-    let names: BTreeMap<u32, String> = serde_json::from_str(include_str!("mesh-model-names.json"))?;
+    let names: BTreeMap<u32, String> =
+        crate::known_ids::names::<symphonia_constants::FieldModelId>();
     let owners = npc_geometry_owners(extracted, &bank, &names)?;
     let mut packages = BTreeMap::<&[u8], String>::new();
     for (&id, name) in names.iter().filter(|(id, _)| **id >> 16 == 2) {
@@ -565,7 +566,8 @@ pub fn cook_field_npc_model(extracted: &Path, library: &Path, id: u32) -> Result
         !aliases.contains_key(&id),
         "NPC model {id} is an alias; cook its physical owner instead"
     );
-    let names: BTreeMap<u32, String> = serde_json::from_str(include_str!("mesh-model-names.json"))?;
+    let names: BTreeMap<u32, String> =
+        crate::known_ids::names::<symphonia_constants::FieldModelId>();
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let bank = native_bank(extracted, &exe)?;
     let additions = npc_mappings(extracted)?;
@@ -696,7 +698,8 @@ pub(crate) fn field_sources(
 /// Publish every named shared field model from one native physical source.
 /// Alias IDs remain in meshes/mappings.json and do not duplicate media.
 pub fn cook_field_models(extracted: &Path, library: &Path) -> Result<()> {
-    let names: BTreeMap<u32, String> = serde_json::from_str(include_str!("mesh-model-names.json"))?;
+    let names: BTreeMap<u32, String> =
+        crate::known_ids::names::<symphonia_constants::FieldModelId>();
     let aliases: BTreeMap<u32, String> =
         serde_json::from_str(include_str!("mesh-model-aliases.json"))?;
     let mut selected = names
@@ -891,7 +894,8 @@ pub fn cook_field_model(extracted: &Path, library: &Path, field_id: u32, id: u32
         (field_id as usize) < field_core::FIELD_COUNT,
         "field ID is outside native catalogue"
     );
-    let names: BTreeMap<u32, String> = serde_json::from_str(include_str!("mesh-model-names.json"))?;
+    let names: BTreeMap<u32, String> =
+        crate::known_ids::names::<symphonia_constants::FieldModelId>();
     let name = names.get(&id).context("unnamed field model")?;
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     if service_source(id).is_some() {

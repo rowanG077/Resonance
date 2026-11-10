@@ -2,8 +2,9 @@ script library;
 use std::story::StoryStage;
 use std::story::GlobalId;
 use game::world;
-// Story values are ordered save-data milestones. Their cutscene identities
-// have not been established; do not infer names from a visibility side effect.
+// These helpers compare the original shared save-data word. Reviewed phase
+// names live in std::story; a visibility side effect alone does not establish
+// a scene identity, and the original writes need not always move forward.
 pub fn at(stage: StoryStage) -> bool {
     return world::global(i32(GlobalId::Story)) == i32(stage);
 }

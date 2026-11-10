@@ -20,3 +20,9 @@ ids! {
         KratosShield = 131358 => "props/model-131315/alternate",
     }
 }
+
+// Script native2B/2D selectors differ from the six fields' physical save order:
+// selectors3/4 are accessories; selector5 is the shield/gauntlet/bracelet slot.
+ids! { pub enum EquipmentSlot: u8 {
+    Weapon = 0, Body = 1, Head = 2, Accessory1 = 3, Accessory2 = 4, Arm = 5,
+} }

@@ -290,3 +290,9 @@ ids! {
         BushBaby = 287 => "bush-baby-0287",
     }
 }
+
+// Native8A (80040AF0) returns previous ownership for every operation; only
+// operations0/1 change the bit. Figurines are unique flags, not item counts.
+ids! { pub enum FigurineOperation: u8 {
+    SetOwned = 0, ClearOwned = 1, QueryOwned = 2,
+} }

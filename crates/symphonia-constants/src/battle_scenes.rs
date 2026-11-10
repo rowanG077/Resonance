@@ -1,6 +1,19 @@
 //! Known native stored spell and skill package identities.
 //! Publication names are independent of localized battle captions.
 
+// Original native93 (80042FE4), battle export table data+5380, and camera
+// services5CEA4/5C7F4. Commands0/1 route other services and stay unnamed.
+ids! { pub enum BattleCameraCommand: u8 {
+    SetPose = 2, MoveTo = 3, MoveBy = 4, PitchTo = 5, PitchBy = 6,
+    HeadingTo = 7, HeadingBy = 8, MoveInHeading = 9, SetFovTenths = 10,
+} }
+// Original nativeC0 (80044DE0) selects one of four preference bytes by a
+// one-based party formation slot. It does not accept a character ID. Invalid slots
+// query slot1 without writing. A full-width -1 mode is also a query.
+ids! { pub enum BattleControlSlot: u8 { Slot1 = 1, Slot2 = 2, Slot3 = 3, Slot4 = 4 } }
+// New-game choice text15 and its three nativeC0 branches establish0..2.
+ids! { pub enum BattleControlMode: i32 { Query = -1, Manual = 0, SemiAuto = 1, Auto = 2 } }
+
 ids! {
     pub enum BattleSceneId: u16 {
         Spread = 201 => "spread-0201",

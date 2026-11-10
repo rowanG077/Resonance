@@ -266,7 +266,7 @@ fn decode(
 }
 
 fn convert(exe: &[u8]) -> Result<Document> {
-    let mappings: Mappings = serde_json::from_str(include_str!("technique-names.json"))?;
+    let mappings: Mappings = crate::known_ids::mappings::<symphonia_constants::TechniqueId>()?;
     let characters = Mappings::new(
         PartyCharacterId::ALL
             .iter()

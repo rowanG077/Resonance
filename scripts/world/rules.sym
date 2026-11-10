@@ -8,8 +8,10 @@ use std::world::WorldInteraction;
 use std::world::SylvarantMarkerId;
 use std::world::TetheAllaMarkerId;
 use std::story::StoryFlag;
-use std::story::GlobalId;
-use std::story::QuestStep;
+use std::story::AsgardRanchStage;
+use std::story::LuinRebuildingStage;
+use std::story::LinkiteTreeStage;
+use std::story::ColetteAngelStage;
 use std::story::StoryStage;
 use world::locations;
 use world::flags;
@@ -41,18 +43,18 @@ fn event(location: WorldLocationId, available: bool) {
     }
 }
 fn update_towns_and_dungeons() {
-    if quests::before(GlobalId::LuinRebuilding, QuestStep::UnknownId1000) {
+    if quests::luin_before(LuinRebuildingStage::Ruined) {
         locations::sylvarant_model(WorldLocationId::Luin7, SylvarantMarkerId::Luin);
-    } else if quests::before(GlobalId::LuinRebuilding, QuestStep::UnknownId10000) {
+    } else if quests::luin_before(LuinRebuildingStage::EarlyReconstructionStarted) {
         locations::sylvarant_model(WorldLocationId::Luin7, SylvarantMarkerId::LuinRuins);
-    } else if quests::before(GlobalId::LuinRebuilding, QuestStep::UnknownId40000) {
+    } else if quests::luin_before(LuinRebuildingStage::WorldModelRestoredBoundary) {
         locations::sylvarant_model(WorldLocationId::Luin7, SylvarantMarkerId::LuinRebuilding);
-    } else if quests::before(GlobalId::LuinRebuilding, QuestStep::UnknownId600000) {
+    } else if quests::luin_before(LuinRebuildingStage::ExpandedCityStatuePhase) {
         locations::sylvarant_model(WorldLocationId::Luin7, SylvarantMarkerId::Luin);
     } else {
         locations::sylvarant_model(WorldLocationId::Luin7, SylvarantMarkerId::LuinRebuilt);
     }
-    if story::reached(StoryStage::IseliaExile) && story::before(StoryStage::UnknownId1208000) {
+    if story::reached(StoryStage::IseliaExile) && story::before(StoryStage::TrietFirstSealDepartureReady) {
         locations::sylvarant_model(WorldLocationId::Iselia, SylvarantMarkerId::IseliaDamaged);
     } else {
         locations::sylvarant_model(WorldLocationId::Iselia, SylvarantMarkerId::Iselia);
@@ -63,9 +65,9 @@ fn update_towns_and_dungeons() {
         locations::tethe_alla_model(WorldLocationId::Ozette, TetheAllaMarkerId::Ozette);
     }
     for location in[WorldLocationId::Palmacosta, WorldLocationId::TrietRuins, WorldLocationId::ThodaGeyser, WorldLocationId::BalacrufMausoleum, WorldLocationId::TowerOfMana] {
-        block(location, story::reached(StoryStage::UnknownId20201000));
+        block(location, story::reached(StoryStage::AltessaMithosTabathaQuakeCutawayComplete));
     }
-    block(WorldLocationId::AsgardRanch, quests::reached(GlobalId::AsgardRanch, QuestStep::UnknownId6000));
+    block(WorldLocationId::AsgardRanch, quests::asgard_ranch_reached(AsgardRanchStage::AsgardRestDepartureAgreed));
     enable(WorldLocationId::TowerOfSalvation24, story::before(StoryStage::ManaCannonFired));
     if story::before(StoryStage::ManaCannonFired) {
         locations::sylvarant_model(WorldLocationId::TowerOfSalvation24, SylvarantMarkerId::TowerOfSalvation);
@@ -73,17 +75,17 @@ fn update_towns_and_dungeons() {
         locations::hide(WorldLocationId::TowerOfSalvation24);
     }
     block(WorldLocationId::TowerOfSalvation280, story::before(StoryStage::ZelosCruxisCrystalRecovered));
-    if story::reached(StoryStage::UnknownId22601000) {
+    if story::reached(StoryStage::Heimdall0292DestructionCutawayComplete) {
         locations::tethe_alla_model(WorldLocationId::TowerOfSalvation280, TetheAllaMarkerId::TowerOfSalvationLate);
     } else {
         locations::tethe_alla_model(WorldLocationId::TowerOfSalvation280, TetheAllaMarkerId::TowerOfSalvation);
     }
-    if quests::reached(GlobalId::LinkiteTree, QuestStep::UnknownId40000) {
+    if quests::linkite_reached(LinkiteTreeStage::LinkiteOcarinaReceived) {
         locations::sylvarant_model(WorldLocationId::LinkiteTree, SylvarantMarkerId::LinkiteTreeRestored);
     } else {
         locations::sylvarant_model(WorldLocationId::LinkiteTree, SylvarantMarkerId::LinkiteTreeDormant);
     }
-    if story::after(StoryStage::UnknownId20801000) {
+    if story::after(StoryStage::PhaidraTowerDisappearanceBriefingComplete) {
         locations::set_interaction(WorldLocationId::IslandRanch, WorldInteraction::Blocked);
         locations::sylvarant_model(WorldLocationId::IslandRanch, SylvarantMarkerId::ManaCannon);
     } else {
@@ -94,12 +96,12 @@ fn update_towns_and_dungeons() {
 fn update_story_events() {
     event(WorldLocationId::Skit00, story::before(StoryStage::IseliaExile));
     event(WorldLocationId::Skit01, story::reached(StoryStage::IseliaExile) && story::before(StoryStage::TrietWantedPostersSeen) && !locations::visited(WorldLocationId::Skit01));
-    event(WorldLocationId::Skit02, story::reached(StoryStage::UnknownId1101000) && story::through(StoryStage::UnknownId1201000) && !locations::visited(WorldLocationId::Skit02));
-    event(WorldLocationId::Skit03, story::reached(StoryStage::UnknownId1208000) && story::through(StoryStage::GuardTechniqueTutorialComplete));
+    event(WorldLocationId::Skit02, story::reached(StoryStage::SylvarantBaseLloydImprisoned) && story::through(StoryStage::TrietExitInputReleaseMarker) && !locations::visited(WorldLocationId::Skit02));
+    event(WorldLocationId::Skit03, story::reached(StoryStage::TrietFirstSealDepartureReady) && story::through(StoryStage::GuardTechniqueTutorialComplete));
     event(WorldLocationId::ExSkillTutorialEvent, story::reached(StoryStage::IseliaExile) && story::before(StoryStage::FirstCampComplete));
     event(WorldLocationId::OzetteAttackEvent, story::at(StoryStage::OzetteAttack));
     event(WorldLocationId::OtherworldlyGate, story::at(StoryStage::OtherworldlyGateSearch));
-    if story::reached(StoryStage::RheairdsRecovered) && story::through(StoryStage::UnknownId12400000) {
+    if story::reached(StoryStage::RheairdsRecovered) && story::through(StoryStage::FlyingDragonWorldVisibilityUpperBound) {
         locations::set_interaction(WorldLocationId::FlyingDragon, WorldInteraction::Blocked);
         locations::tethe_alla_model(WorldLocationId::FlyingDragon, TetheAllaMarkerId::FlyingDragon);
     } else {
@@ -121,7 +123,7 @@ fn update_story_events() {
 fn update_discoveries() {
     locations::discoveries(WorldLocationId::SylvarantExploration00Genis, WorldLocationId::SylvarantExploration31SandWorm);
     locations::discoveries(WorldLocationId::TetheallaExploration00Item, WorldLocationId::TetheallaExploration31Item);
-    if quests::at(GlobalId::Hima, QuestStep::UnknownId301) {
+    if quests::colette_at(ColetteAngelStage::FourthSealNightComplete) {
         for location in[WorldLocationId::SylvarantExploration03Colette, WorldLocationId::SylvarantExploration16Colette, WorldLocationId::SylvarantExploration24Colette] {
             enable(location, false);
         }

@@ -6,8 +6,8 @@ use std::locations::WorldLocationId;
 use world::story;
 use std::story::StoryStage;
 use world::quests;
-use std::story::GlobalId;
-use std::story::QuestStep;
+use std::story::PalmacostaRanchAssaultStage;
+use std::story::PalmacostaRanchDorrStage;
 struct LandmarkTile {
     location: WorldLocationId,
     column: i32,
@@ -15,7 +15,7 @@ struct LandmarkTile {
 }
 pub fn select(realm: WorldId) {
     if realm == WorldId::TetheAlla {
-        if story::reached(StoryStage::UnknownId22601000) {
+        if story::reached(StoryStage::Heimdall0292DestructionCutawayComplete) {
             world::alternate_tile(5, 5);
             world::alternate_tile(6, 5);
         }
@@ -37,7 +37,7 @@ pub fn select(realm: WorldId) {
             world::alternate_tile(tile.column, tile.row);
         }
     }
-    if quests::reached(GlobalId::PalmacostaRanchAssaultRoute, QuestStep::UnknownId10000) || quests::reached(GlobalId::PalmacostaRanchDorrRoute, QuestStep::PalmacostaDorrRouteComplete) {
+    if quests::palmacosta_assault_reached(PalmacostaRanchAssaultStage::DorrVisitAfterRanchReady) || quests::palmacosta_dorr_reached(PalmacostaRanchDorrStage::CrisisAftermathComplete) {
         world::alternate_tile(9, 6);
     }
 }

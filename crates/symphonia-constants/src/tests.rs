@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn promoted_catalogues_preserve_every_prior_id_and_publication_name() {
+    // Fingerprints of the maintained cooker tables before promotion. This
+    // guards complete ID/name associations without retaining a second catalogue.
+    fn fingerprint<T: KnownId>() -> (usize, u64) {
+        let mut names: Vec<_> = T::ALL
+            .iter()
+            .filter_map(|&id| id.resource_name().map(|name| (id.value(), name)))
+            .collect();
+        names.sort();
+        let mut hash = 0xcbf29ce484222325u64;
+        for (id, name) in &names {
+            for byte in id.to_be_bytes().into_iter().chain(name.bytes()).chain([0]) {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+            }
+        }
+        (names.len(), hash)
+    }
+    assert_eq!(fingerprint::<TechniqueId>(), (259, 0x6accbc571459b903));
+    assert_eq!(fingerprint::<RecipeId>(), (24, 0xbac1a8f0298f4b0b));
+    assert_eq!(fingerprint::<ExSkillId>(), (136, 0x6d9bb3c1eba7899c));
+    assert_eq!(fingerprint::<TitleId>(), (159, 0x3e63c96d693209c2));
+    assert_eq!(fingerprint::<SkitId>(), (475, 0xfde71c93aaeaf8fb));
+    assert_eq!(fingerprint::<PortraitId>(), (108, 0x68ed9741e2d93aaf));
+    assert_eq!(fingerprint::<FieldModelId>(), (461, 0x4fdd1559e142a2db));
+    assert_eq!(fingerprint::<FieldAnimationId>(), (765, 0x381115debb8ff469));
+}
+
+#[test]
+fn scenario_selectors_preserve_signed_sentinels_and_distinct_operand_domains() {
+    assert_eq!(CameraSelector::FollowPlayer.raw(), -1);
+    assert_eq!(CameraSelector::FollowPlayer.script_value(), -1);
+    assert_eq!(ActorSelector::Controlled.raw(), 999999);
+    assert_eq!(WaitCondition::CameraPathComplete.raw(), 9);
+    assert_eq!(WaitCondition::CameraPathPosition.raw(), 10);
+    assert_eq!(WaitCondition::CameraPathFov.raw(), 13);
+    assert_eq!(ActorProperty::DisableGrounding.raw(), 10);
+    assert_eq!(CameraProperty::PositionMinY.raw(), 10);
+    assert_eq!(GeometryQuery::Bearing.raw(), 0);
+    assert_eq!(GeometryQuery::DistanceXYZ.raw(), 3);
+    assert_eq!(AnimationFlag::Paused.raw(), 2);
+    assert_eq!(AnimationFlag::Once.raw(), 8);
+    assert_eq!(TitleId::ColetteFledglingChosen.raw(), 0x101);
+    assert_eq!(RecipeId::Sandwich.raw(), 0);
+    assert_eq!(PortraitId::LloydNeutral.raw(), 0xd0000);
+}
+
+#[test]
 fn ids_keep_game_domains_and_open_numeric_boundaries() {
     assert_eq!(FieldId::Iselia0332.raw(), 332);
     assert_eq!(WorldLocationId::Iselia.raw(), 2);

@@ -62,8 +62,8 @@ fn convert(exe: &[u8]) -> Result<characters::Document> {
             .filter_map(|&id| id.resource_name().map(|name| (id.value(), name.to_owned())))
             .collect(),
     )?;
-    let techniques: Mappings = serde_json::from_str(include_str!("technique-names.json"))?;
-    let recipes: Mappings = serde_json::from_str(include_str!("recipe-names.json"))?;
+    let techniques: Mappings = crate::known_ids::mappings::<symphonia_constants::TechniqueId>()?;
+    let recipes: Mappings = crate::known_ids::mappings::<symphonia_constants::RecipeId>()?;
     let ex = ex_skills::convert(exe)?;
     let rows = dol::slice(exe, CHARACTERS, 11 * STRIDE)?;
     let learning = dol::slice(exe, 0x80202dc8, 11 * 41)?;

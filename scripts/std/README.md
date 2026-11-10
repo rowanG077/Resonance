@@ -19,9 +19,16 @@ use std::music::MusicId;
 
 Modules cover characters, fields, music, items, monsters, figurines, world
 landmarks, travel, story flags, globals, quest milestones and shared sound cues.
+They also cover techniques, recipes, packed titles, EX skills, skits, portraits,
+shared field model/motion resources and original scenario ABI selectors. These
+catalogs supply the importer's initial asset names as well as script symbols.
 Field IDs and world landmark IDs are separate types. Track IDs and music bank
 IDs are separate types. Unidentified flags do not need thousands of placeholder
 constants: scripts can still use a raw number or declare their own constant.
+
+The [item and story-flag coverage record](../../docs/symphonia-script.md#verified-item-and-story-flag-scope)
+documents all 350 observed item IDs and the nine flag values intentionally left
+numeric, with their exact original uses and matching-recompilation checks.
 
 The initial resource name belongs to the same Rust declaration as its ID. Cooked
 `mappings.json` files remain editable; enum names never override a mod's mappings

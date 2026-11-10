@@ -16,8 +16,7 @@ pub fn cook_titles(extracted: &Path, library: &Path) -> Result<()> {
 }
 
 fn convert(exe: &[u8]) -> Result<Document> {
-    let mappings: BTreeMap<PartyCharacter, Mappings> =
-        serde_json::from_str(include_str!("title-names.json"))?;
+    let mappings: BTreeMap<PartyCharacter, Mappings> = crate::known_ids::titles()?;
     let costumes: BTreeMap<u8, BTreeMap<u8, CostumeName>> =
         serde_json::from_str(include_str!("costume-names.json"))?;
     let awards: resonance_content::menu_data::TitleAwardRules =

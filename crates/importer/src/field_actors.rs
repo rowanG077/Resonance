@@ -183,7 +183,7 @@ pub(crate) fn animation_banks(
 ) -> Result<BTreeMap<u32, String>> {
     let script = field_core::optional_section(&archive, 6)?.context("field has no script")?;
     let names: BTreeMap<u32, String> =
-        serde_json::from_str(include_str!("field-animation-names.json"))?;
+        crate::known_ids::names::<symphonia_constants::FieldAnimationId>();
     let local = field_core::optional_section(&archive, 7)?
         .map(field_npc_models::field_model_entries)
         .transpose()?
@@ -418,7 +418,7 @@ pub(crate) fn cook_from_source(
     let dynamic_resources = matches!(id, 544 | 545);
     let declared = declarations_with_unresolved(script, dynamic_resources)?;
     let names: BTreeMap<u32, String> =
-        serde_json::from_str(include_str!("field-animation-names.json"))?;
+        crate::known_ids::names::<symphonia_constants::FieldAnimationId>();
     let models = mesh_mappings::mesh_mappings()?;
     let root = format!("fields/{}", field_core::field_name(id as usize));
     let mut actors = Actors::default();

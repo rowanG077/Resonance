@@ -103,7 +103,7 @@ fn read_member(file: &mut fs::File, member: &Member) -> Result<Vec<u8>> {
 fn names() -> Result<(BTreeMap<u32, Binding>, BTreeMap<u32, String>)> {
     Ok((
         serde_json::from_str(include_str!("skit-speech.json"))?,
-        serde_json::from_str(include_str!("skit-titles.json"))?,
+        crate::known_ids::names::<symphonia_constants::SkitId>(),
     ))
 }
 

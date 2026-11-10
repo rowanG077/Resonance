@@ -126,8 +126,7 @@ fn recipes(exe: &[u8], names: &BTreeMap<u32, String>) -> Result<BTreeMap<String,
 
 /// Read only the executable's portrait tracks; no textures are decoded.
 pub fn skit_portrait_animations(root: &Path) -> Result<BTreeMap<String, Animation>> {
-    let names: BTreeMap<u32, String> =
-        serde_json::from_str(include_str!("skit-portrait-names.json"))?;
+    let names: BTreeMap<u32, String> = crate::known_ids::names::<symphonia_constants::PortraitId>();
     recipes(&fs::read(root.join("disc1/sys/main.dol"))?, &names)
 }
 
@@ -177,8 +176,7 @@ fn portrait_images(
 
 /// One named native member, for a focused image review.
 pub fn cook_skit_portrait(root: &Path, library: &Path, id: u32) -> Result<()> {
-    let names: BTreeMap<u32, String> =
-        serde_json::from_str(include_str!("skit-portrait-names.json"))?;
+    let names: BTreeMap<u32, String> = crate::known_ids::names::<symphonia_constants::PortraitId>();
     let owner = names.get(&id).context("unnamed skit portrait")?;
     let index = u16::try_from(id.checked_sub(0xd0000).context("invalid portrait ID")?)?;
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
@@ -191,8 +189,7 @@ pub fn cook_skit_portrait(root: &Path, library: &Path, id: u32) -> Result<()> {
 
 /// One-time direct archive conversion with shared image paths for identical KTX2 data.
 pub fn cook_skit_portraits(root: &Path, library: &Path) -> Result<()> {
-    let names: BTreeMap<u32, String> =
-        serde_json::from_str(include_str!("skit-portrait-names.json"))?;
+    let names: BTreeMap<u32, String> = crate::known_ids::names::<symphonia_constants::PortraitId>();
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let archive = archive(root, &exe)?;
     let count = dol::u32(&archive, 0)?;

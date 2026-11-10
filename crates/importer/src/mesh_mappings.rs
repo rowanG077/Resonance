@@ -34,7 +34,8 @@ fn merge(
 
 /// Combine the maintained names with party costumes and their physical owners.
 pub fn mesh_mappings() -> Result<ModelMappings> {
-    let names: BTreeMap<u32, String> = serde_json::from_str(include_str!("mesh-model-names.json"))?;
+    let names: BTreeMap<u32, String> =
+        crate::known_ids::names::<symphonia_constants::FieldModelId>();
     let aliases: BTreeMap<u32, String> =
         serde_json::from_str(include_str!("mesh-model-aliases.json"))?;
     let mut mappings = names

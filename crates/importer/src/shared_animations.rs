@@ -193,7 +193,7 @@ pub(crate) fn native_motion_banks(
 
 fn names(ids: impl IntoIterator<Item = u32>) -> Result<BTreeMap<u32, String>> {
     let mut names: BTreeMap<u32, String> =
-        serde_json::from_str(include_str!("field-animation-names.json"))?;
+        crate::known_ids::names::<symphonia_constants::FieldAnimationId>();
     for id in ids {
         if !names.contains_key(&id) {
             names.insert(id, field_actors::animation_name(id, &names));

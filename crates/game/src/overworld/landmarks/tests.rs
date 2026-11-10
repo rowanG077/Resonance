@@ -194,11 +194,11 @@ fn caravan_camps_follow_story_quests_and_key_items_for_drawing_and_contact() -> 
     p.items = [(54, 1), (64, 1)].into();
     check(&p, &[60])?;
     p.items = [(54, 1), (64, 1), (52, 1)].into();
-    p.set(Global::Hima, 300);
+    p.set(Global::ColetteAngelProgress, 300);
     check(&p, &[57, 60])?;
-    p.set(Global::Hima, 301);
+    p.set(Global::ColetteAngelProgress, 301);
     check(&p, &[55, 60])?;
-    p.set(Global::Hima, 302);
+    p.set(Global::ColetteAngelProgress, 302);
     check(&p, &[60])?;
 
     Ok(())

@@ -79,6 +79,7 @@ mod figurine_media;
 mod game_over_screen;
 mod game_ui;
 mod items;
+mod known_ids;
 mod manual;
 mod menu_art;
 mod menu_catalogues;

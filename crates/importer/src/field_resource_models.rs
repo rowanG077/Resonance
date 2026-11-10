@@ -58,7 +58,8 @@ fn tile_name(id: u32) -> String {
 }
 
 fn shared_models(extracted: &Path) -> Result<BTreeMap<u32, (String, Vec<u8>)>> {
-    let known: BTreeMap<u32, String> = serde_json::from_str(include_str!("mesh-model-names.json"))?;
+    let known: BTreeMap<u32, String> =
+        crate::known_ids::names::<symphonia_constants::FieldModelId>();
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let bank = models::grouped_bank(extracted, &exe, 1)?;
     let mut result = BTreeMap::new();

@@ -42,7 +42,7 @@ fn item(id: u16) -> Result<String> {
 }
 
 pub(crate) fn convert(exe: &[u8]) -> Result<Document> {
-    let mappings: Mappings = serde_json::from_str(include_str!("ex-skill-names.json"))?;
+    let mappings: Mappings = crate::known_ids::mappings::<symphonia_constants::ExSkillId>()?;
     let definitions = dol::slice(exe, 0x80209544, 166 * 20)?;
     ensure!(
         dol::u16(definitions, 16)? == 0,

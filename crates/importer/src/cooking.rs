@@ -155,7 +155,7 @@ fn merge_extras(grades: &[Grade; 3]) -> Vec<(u16, u8)> {
 }
 
 fn convert(exe: &[u8]) -> Result<Document> {
-    let mappings: Mappings = serde_json::from_str(include_str!("recipe-names.json"))?;
+    let mappings: Mappings = crate::known_ids::mappings::<symphonia_constants::RecipeId>()?;
     let group_names: Vec<String> =
         serde_json::from_str(include_str!("ingredient-group-names.json"))?;
     ensure!(
@@ -316,7 +316,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
             ))
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
-    let ex_names: Mappings = serde_json::from_str(include_str!("ex-skill-names.json"))?;
+    let ex_names: Mappings = crate::known_ids::mappings::<symphonia_constants::ExSkillId>()?;
     let bonus_id = dol::u16(dol::slice(exe, 0x8018d1f4, 2)?, 0)?;
     Ok(Document {
         mappings,

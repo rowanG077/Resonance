@@ -6,13 +6,16 @@ const COLETTE: u32 = 2;
 const GENIS: u32 = 3;
 const RAINE: u32 = 4;
 const PRESEA: u32 = 7;
-const CRUXIS_CRYSTAL_RECEIVED: u16 = 24;
-const CRUXIS_CRYSTAL_INACTIVE: u16 = 19;
-const GENIS_EXSPHERE_RECEIVED: u16 = 25;
-const RAINE_EXSPHERE_RECEIVED: u16 = 18;
-const EXSPHERE_UNCOVERED: u16 = 29;
-const PRESEA_COSTUME_CHANGE: u16 = 28;
-pub const ANGEL_PROGRESS: u16 = 0x4c;
+const CRUXIS_CRYSTAL_RECEIVED: u16 =
+    symphonia_constants::StoryFlag::ColetteCruxisCrystalReceived.raw();
+const CRUXIS_CRYSTAL_INACTIVE: u16 =
+    symphonia_constants::StoryFlag::ColetteCruxisCrystalInactive.raw();
+const GENIS_EXSPHERE_RECEIVED: u16 = symphonia_constants::StoryFlag::GenisExsphereReceived.raw();
+const RAINE_EXSPHERE_RECEIVED: u16 = symphonia_constants::StoryFlag::RaineExsphereReceived.raw();
+const EXSPHERE_UNCOVERED: u16 = symphonia_constants::StoryFlag::LloydExsphereUncovered.raw();
+const PRESEA_COSTUME_CHANGE: u16 = symphonia_constants::StoryFlag::PreseaCostumeChanged.raw();
+pub const ANGEL_PROGRESS: u16 =
+    0x40 + symphonia_constants::GlobalId::ColetteAngelProgress.raw() * 4;
 
 pub fn story_costume(resource: u32, angel_progress: i32, flags: &BTreeSet<u16>) -> u8 {
     match resource {
@@ -41,7 +44,10 @@ pub fn costume_frame(resource: u32, flags: &BTreeSet<u16>) -> u8 {
 
 pub fn forced_face(resource: u32, angel_progress: i32) -> Option<u8> {
     const RED_EYES_FRAME: u8 = 15;
-    (resource == COLETTE && (1000..2000).contains(&angel_progress)).then_some(RED_EYES_FRAME)
+    let soul_lost = symphonia_constants::ColetteAngelStage::SoulLost.raw() as i32;
+    let soul_restored = symphonia_constants::ColetteAngelStage::SoulRestored.raw() as i32;
+    (resource == COLETTE && (soul_lost..soul_restored).contains(&angel_progress))
+        .then_some(RED_EYES_FRAME)
 }
 
 pub fn costume_resource(resource: u32, costume: u8) -> u32 {

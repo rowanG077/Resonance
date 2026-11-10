@@ -3,6 +3,7 @@ use crate::{dol, field_actors, ui_controls, world_texture};
 use anyhow::{Result, ensure};
 use resonance_content::{effect::OverlayArt, physical_scene::TextureImage};
 use std::path::Path;
+use symphonia_constants::FieldOverlayId;
 
 /// An overlay's coordinate space stays independent of its stored image size.
 pub(crate) fn image(path: impl Into<String>, size: [u32; 2]) -> TextureImage {
@@ -29,19 +30,19 @@ pub(crate) fn image_files(texture: TextureImage, ktx: Vec<u8>) -> Result<[(Strin
 }
 
 pub(crate) fn overlay_files(
-    name: &str,
+    stem: &str,
     source: &[u8],
     repeat: bool,
 ) -> Result<[(String, Vec<u8>); 2]> {
     ensure!(
         dol::u32(source, 0)? == 0x0020_af30,
-        "{name} is not a native TPL"
+        "{stem} is not a native TPL"
     );
     ensure!(
         dol::u32(source, 4)? == 1,
-        "{name} is not a single overlay image"
+        "{stem} is not a single overlay image"
     );
-    let mut texture = image(format!("effects/overlays/{name}.ktx2"), [0; 2]);
+    let mut texture = image(format!("{stem}.ktx2"), [0; 2]);
     if repeat {
         texture.sampler.wrap = [resonance_content::TextureWrap::Repeat; 2];
     }
@@ -50,22 +51,27 @@ pub(crate) fn overlay_files(
     image_files(texture, ktx)
 }
 
-fn cook_image(library: &Path, name: &str, source: &[u8], repeat: bool) -> Result<()> {
-    for (path, bytes) in overlay_files(name, source, repeat)? {
+fn cook_image(library: &Path, stem: &str, source: &[u8], repeat: bool) -> Result<()> {
+    for (path, bytes) in overlay_files(stem, source, repeat)? {
         crate::output::write(&library.join(path), &bytes)?;
     }
     Ok(())
 }
 
 pub fn cook_field_overlay_media(extracted: &Path, library: &Path) -> Result<()> {
-    for (id, name, repeat) in [(68611, "radial-burst", false), (68614, "ornate-ring", true)] {
-        let native = field_actors::read_shared_resource(extracted, id)?;
-        cook_image(library, name, &native, repeat)?;
+    for overlay in FieldOverlayId::ALL {
+        let native = field_actors::read_shared_resource(extracted, overlay.raw())?;
+        cook_image(
+            library,
+            overlay.resource_name().expect("overlay publication name"),
+            &native,
+            overlay.repeats(),
+        )?;
     }
     let flames = ui_controls::field_archive(extracted, 171)?;
     cook_image(
         library,
-        "flames",
+        "effects/overlays/flames",
         &ui_controls::local_texture(&flames, 23)?,
         true,
     )?;
@@ -73,7 +79,7 @@ pub fn cook_field_overlay_media(extracted: &Path, library: &Path) -> Result<()> 
     for (section, name, repeat) in [(17, "gold-glow", false), (22, "gold-light-strip", true)] {
         cook_image(
             library,
-            name,
+            &format!("effects/overlays/{name}"),
             &ui_controls::local_texture(&gold, section)?,
             repeat,
         )?;

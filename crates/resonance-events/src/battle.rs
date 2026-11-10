@@ -76,19 +76,19 @@ impl Setup {
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    Escaped = 1,
-    Victory = 2,
-    Defeat = 3,
+    Escaped = symphonia_constants::BattleOutcome::Escaped as i32,
+    Victory = symphonia_constants::BattleOutcome::Victory as i32,
+    Defeat = symphonia_constants::BattleOutcome::Defeat as i32,
 }
 
 impl TryFrom<i32> for Outcome {
     type Error = String;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Self::Escaped),
-            2 => Ok(Self::Victory),
-            3 => Ok(Self::Defeat),
+        match symphonia_constants::BattleOutcome::try_from(value) {
+            Ok(symphonia_constants::BattleOutcome::Escaped) => Ok(Self::Escaped),
+            Ok(symphonia_constants::BattleOutcome::Victory) => Ok(Self::Victory),
+            Ok(symphonia_constants::BattleOutcome::Defeat) => Ok(Self::Defeat),
             _ => Err(format!("invalid battle result {value}")),
         }
     }

@@ -10,8 +10,14 @@ use std::{
     fs,
     path::Path,
 };
+use symphonia_constants::FieldOverlayId;
 
 fn image_owner(id: u32, image: usize, portraits: &Portraits) -> Option<String> {
+    if image == 0
+        && let Ok(overlay) = FieldOverlayId::try_from(id)
+    {
+        return Some(overlay.texture_path());
+    }
     let fixed = match (id, image) {
         (35, 1) => Some("ui/title/continue-alternate.ktx2"),
         (35, 14) => Some("ui/game-over/background.ktx2"),
@@ -20,8 +26,6 @@ fn image_owner(id: u32, image: usize, portraits: &Portraits) -> Option<String> {
         (38, 0) => Some("ui/location-titles/iselia-japanese.ktx2"),
         (49, 0) => Some("ui/ending/party-with-kratos.ktx2"),
         (50, 0) => Some("ui/ending/party-with-zelos.ktx2"),
-        (68611, 0) => Some("effects/overlays/radial-burst.ktx2"),
-        (68614, 0) => Some("effects/overlays/ornate-ring.ktx2"),
         (68864, 2) => Some("ui/location-titles/japanese/transparent-caption.ktx2"),
         (68864..=68872 | 68874..=68887, 0) => Some("ui/location-titles/frame-line.ktx2"),
         _ => None,
@@ -45,6 +49,15 @@ fn image_owner(id: u32, image: usize, portraits: &Portraits) -> Option<String> {
 }
 
 fn bank_name(id: u32, portraits: &Portraits) -> String {
+    if let Ok(overlay) = FieldOverlayId::try_from(id) {
+        return overlay
+            .resource_name()
+            .expect("overlay publication name")
+            .rsplit('/')
+            .next()
+            .unwrap()
+            .into();
+    }
     match id {
         35 => "title".into(),
         36 | 39 => "iselia-japanese-caption".into(),
@@ -53,8 +66,6 @@ fn bank_name(id: u32, portraits: &Portraits) -> String {
         49 => "ending-with-kratos".into(),
         50 => "ending-with-zelos".into(),
         51 => "fin".into(),
-        68611 => "radial-burst".into(),
-        68614 => "ornate-ring".into(),
         68864..=68887 => format!("japanese-location-title-{:02}", id - 68863),
         _ => portraits
             .mappings

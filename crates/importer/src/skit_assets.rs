@@ -27,7 +27,10 @@ const TABLES: [(u32, usize, u32, usize); 5] = [
 
 fn sources(root: &Path) -> Result<(Mappings, BTreeMap<u16, PathBuf>)> {
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
-    let titles: BTreeMap<u16, String> = serde_json::from_str(include_str!("skit-titles.json"))?;
+    let titles: BTreeMap<u16, String> = symphonia_constants::SkitId::ALL
+        .iter()
+        .map(|&id| (id.raw(), id.resource_name().unwrap().to_owned()))
+        .collect();
     let mut mappings = BTreeMap::new();
     let mut files = BTreeMap::new();
     for (definitions, rows, filenames, slots) in TABLES {

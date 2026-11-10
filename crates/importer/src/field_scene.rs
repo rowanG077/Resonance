@@ -12,6 +12,7 @@ use std::{
     fs,
     path::Path,
 };
+use symphonia_constants::FieldOverlayId;
 
 const LAYERS: [usize; 4] = [0, 10, 12, 2];
 
@@ -295,14 +296,15 @@ fn local_overlay_path(id: u32, section: usize) -> Option<String> {
     }
 }
 
-fn global_overlay_path(id: u32) -> Option<&'static str> {
+fn global_overlay_path(id: u32) -> Option<String> {
+    if let Ok(overlay) = FieldOverlayId::try_from(id) {
+        return Some(overlay.scene_path());
+    }
     match id {
-        38 => Some("ui/location-titles/iselia-japanese.json"),
-        49 => Some("ui/ending/party-with-kratos.json"),
-        50 => Some("ui/ending/party-with-zelos.json"),
-        51 => Some("ui/ending/fin.json"),
-        68611 => Some("effects/overlays/radial-burst.json"),
-        68614 => Some("effects/overlays/ornate-ring.json"),
+        38 => Some("ui/location-titles/iselia-japanese.json".into()),
+        49 => Some("ui/ending/party-with-kratos.json".into()),
+        50 => Some("ui/ending/party-with-zelos.json".into()),
+        51 => Some("ui/ending/fin.json".into()),
         _ => None,
     }
 }
@@ -338,7 +340,7 @@ fn overlay_paths(extracted: &Path, archive: &[u8], id: u32) -> Result<BTreeMap<i
             dol::u32(&source, 0)? == 0x0020_af30,
             "field {id} overlay {resource} is not a TPL"
         );
-        paths.insert(i32::try_from(resource)?, path.into());
+        paths.insert(i32::try_from(resource)?, path);
     }
     Ok(paths)
 }
@@ -562,16 +564,14 @@ fn prepare(
     if let Some((path, _)) = panorama {
         scene["panorama"] = json!(path);
     }
-    if matches!(id, 184 | 475)
-        && overlays
-            .values()
-            .any(|path| path == "effects/overlays/radial-burst.json")
-    {
-        let native = field_actors::read_shared_resource(extracted, 68611)?;
+    let radial = FieldOverlayId::RadialBurst;
+    let radial_path = radial.scene_path();
+    if matches!(id, 184 | 475) && overlays.values().any(|path| path == &radial_path) {
+        let native = field_actors::read_shared_resource(extracted, radial.raw())?;
         files.extend(crate::field_overlays::overlay_files(
-            "radial-burst",
+            radial.resource_name().expect("overlay publication name"),
             &native,
-            false,
+            radial.repeats(),
         )?);
     }
     if !overlays.is_empty() {
