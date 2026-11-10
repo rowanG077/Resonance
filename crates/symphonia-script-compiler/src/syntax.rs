@@ -103,14 +103,14 @@ pub(crate) fn lex(file: &str, source: &str) -> Result<Vec<Token>, Diagnostic> {
             }
             (Kind::Number(rest[..length].into()), length)
         } else if let Some(symbol) = [
-            "::", "->", "=>", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "..", "+=", "-=",
-            "*=", "/=",
+            "<<=", ">>=", "::", "->", "=>", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "..",
+            "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "++", "--",
         ]
         .into_iter()
         .find(|v| rest.starts_with(v))
         {
             (Kind::Symbol(symbol.into()), symbol.len())
-        } else if "{}[](),;:.=+-*/%!<>|&^".contains(ch) {
+        } else if "{}[](),;:.=+-*/%!<>|&^~".contains(ch) {
             (Kind::Symbol(ch.to_string()), 1)
         } else {
             return Err(at.error("expected ASCII identifier or punctuation"));
@@ -263,6 +263,10 @@ pub(crate) fn parse(file: &str, source: &str) -> Result<Module, Diagnostic> {
     parser(file, source)?.module()
 }
 
+pub(crate) fn header_kind(file: &str, source: &str) -> Result<ScriptKind, Diagnostic> {
+    parser(file, source)?.header()
+}
+
 fn parser(file: &str, source: &str) -> Result<Parser, Diagnostic> {
     let tokens = lex(file, source)?
         .into_iter()
@@ -280,16 +284,17 @@ impl Parser {
             return Err(self
                 .token()
                 .at
-                .error("expected 'script field;', 'script model;' or 'script library;'; script declaration must precede imports and definitions"));
+                .error("expected 'script field;', 'script model;', 'script library;' or 'script scenario;'; script declaration must precede imports and definitions"));
         }
         let kind = match self.name()?.as_str() {
             "field" => ScriptKind::Field,
             "model" => ScriptKind::Model,
             "library" => ScriptKind::Library,
+            "scenario" => ScriptKind::Scenario,
             _ => {
                 return Err(self.tokens[self.index - 1]
                     .at
-                    .error("unknown script kind; expected field, model or library"));
+                    .error("unknown script kind; expected field, model, library or scenario"));
             }
         };
         self.expect(";")?;

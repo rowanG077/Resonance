@@ -30,6 +30,11 @@ impl Host {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Decompile original scripts to .sym or compile them to matching bytecode.
+    Scenario {
+        #[command(subcommand)]
+        command: ScenarioCommand,
+    },
     /// Compile modules and their imports without starting the game.
     Check {
         /// Select a runtime host; field/model entries otherwise use their declared mode.
@@ -55,9 +60,49 @@ enum Command {
     Nodes { model: PathBuf },
 }
 
+#[derive(Subcommand)]
+enum ScenarioCommand {
+    Decompile {
+        input: PathBuf,
+        output: PathBuf,
+        #[arg(long)]
+        assets: Option<PathBuf>,
+    },
+    Compile {
+        input: PathBuf,
+        output: PathBuf,
+        #[arg(long)]
+        assets: Option<PathBuf>,
+    },
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
+        Command::Scenario { command } => {
+            let (operation, input, output, assets) = match command {
+                ScenarioCommand::Decompile {
+                    input,
+                    output,
+                    assets,
+                } => ("decompile", input, output, assets),
+                ScenarioCommand::Compile {
+                    input,
+                    output,
+                    assets,
+                } => ("compile", input, output, assets),
+            };
+            let mut args = vec![
+                "scenario".into(),
+                operation.into(),
+                input.display().to_string(),
+                output.display().to_string(),
+            ];
+            if let Some(assets) = assets {
+                args.extend(["--assets".into(), assets.display().to_string()]);
+            }
+            symphonia_script_tools::run(args, &[], &mut std::io::stdout().lock())?;
+        }
         Command::Check {
             host,
             assets,
@@ -84,7 +129,7 @@ fn main() -> anyhow::Result<()> {
                 let selected = host.or(match kind {
                     ScriptKind::Field => Some(Host::Field),
                     ScriptKind::Model => Some(Host::Model),
-                    ScriptKind::Library => None,
+                    ScriptKind::Library | ScriptKind::Scenario => None,
                 });
                 anyhow::ensure!(
                     !matches!(

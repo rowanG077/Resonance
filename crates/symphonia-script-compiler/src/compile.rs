@@ -221,6 +221,7 @@ pub(super) fn compile(
         program,
         assets: compiler.assets,
         sources: inputs,
+        scenario_bytes: None,
     })
 }
 

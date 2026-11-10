@@ -6,7 +6,12 @@ use crate::{
 /// Normalize indentation and spacing while preserving every comment and text
 /// literal. The formatter first parses, so invalid input is never rewritten.
 pub fn format(file: &str, source: &str) -> Result<String, Diagnostic> {
-    parse(file, source)?;
+    let scenario = crate::syntax::header_kind(file, source)? == crate::ScriptKind::Scenario;
+    if scenario {
+        crate::scenario::validate_syntax(file, source)?;
+    } else {
+        parse(file, source)?;
+    }
     let mut output = String::new();
     let mut indent = 0usize;
     let mut parentheses = 0usize;
@@ -70,6 +75,10 @@ pub fn format(file: &str, source: &str) -> Result<String, Diagnostic> {
                 output.push('\n');
                 line_start = true;
             }
+            ":" if scenario && parentheses == 0 && brackets == 0 => {
+                output.push('\n');
+                line_start = true;
+            }
             _ => {}
         }
         previous = text;
@@ -78,10 +87,14 @@ pub fn format(file: &str, source: &str) -> Result<String, Diagnostic> {
         output.pop();
     }
     output.push('\n');
-    Ok(output)
+    Ok(if scenario {
+        crate::scenario::wrap_calls(&output)
+    } else {
+        output
+    })
 }
 
-fn quote(value: &str) -> String {
+pub(crate) fn quote(value: &str) -> String {
     let mut text = String::from("\"");
     for character in value.chars() {
         match character {

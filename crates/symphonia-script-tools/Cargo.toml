@@ -11,5 +11,11 @@ path = "src/main.rs"
 [dependencies]
 symphonia-script.workspace = true
 symphonia-script-compiler.workspace = true
+resonance-script-content.workspace = true
 thiserror.workspace = true
 tempfile = "3"
+
+[dev-dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+symphonia-constants.workspace = true

@@ -3,7 +3,7 @@ use std::{fs, io::Write};
 use symphonia_script::authored::NativeDeclaration;
 use symphonia_script_compiler::{SourceResolver, check, format, native_reference};
 
-const USAGE: &str = "usage: symphonia-script check ROOT MODULE...\n       symphonia-script fmt [--check] ROOT [MODULE...]\n       symphonia-script api\n       symphonia-script scenario disassemble INPUT.ssb OUTPUT.ssasm\n       symphonia-script scenario assemble INPUT.ssasm OUTPUT.ssb";
+const USAGE: &str = "usage: symphonia-script check ROOT MODULE...\n       symphonia-script fmt [--check] ROOT [MODULE...]\n       symphonia-script api\n       symphonia-script scenario decompile INPUT.ssb OUTPUT.sym [--assets ROOT]\n       symphonia-script scenario compile INPUT.sym OUTPUT.ssb [--assets ROOT]\n       symphonia-script scenario disassemble INPUT.ssb OUTPUT.ssasm\n       symphonia-script scenario assemble INPUT.ssasm OUTPUT.ssb";
 
 /// Shared CLI entry point. Game tools pass their actual declaration table; the
 /// standalone binary checks language-only modules with an empty native API.

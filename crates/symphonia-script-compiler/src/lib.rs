@@ -2,6 +2,7 @@
 //! world; native signatures are supplied by the same declarations used by hosts.
 mod compile;
 mod format;
+pub mod scenario;
 mod syntax;
 
 use std::collections::BTreeMap;
@@ -15,6 +16,8 @@ pub enum ScriptKind {
     Field,
     Model,
     Library,
+    /// Readable original-game bytecode, retaining the legacy memory/native ABI.
+    Scenario,
 }
 
 impl std::fmt::Display for ScriptKind {
@@ -23,13 +26,18 @@ impl std::fmt::Display for ScriptKind {
             Self::Field => "field",
             Self::Model => "model",
             Self::Library => "library",
+            Self::Scenario => "scenario",
         })
     }
 }
 
-/// Read and validate the required leading `script field|model|library;` header.
+/// Read the required leading `script field|model|library|scenario;` header.
 pub fn script_kind(module: &str, source: &str) -> Result<ScriptKind, Diagnostic> {
-    syntax::parse(module, source).map(|module| module.kind)
+    if syntax::header_kind(module, source)? == ScriptKind::Scenario {
+        Ok(ScriptKind::Scenario)
+    } else {
+        syntax::parse(module, source).map(|module| module.kind)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +85,8 @@ pub struct Compilation {
     pub assets: Vec<AssetReference>,
     /// Exact transitive source inputs, useful for preparation-cache invalidation.
     pub sources: BTreeMap<String, String>,
+    /// Original-VM binary for a scenario module; authored modules use their IR.
+    pub scenario_bytes: Option<Vec<u8>>,
 }
 
 /// Resolve a source graph, type-check it and produce an immutable VM program.
@@ -86,6 +96,35 @@ pub fn compile(
     sources: &impl SourceResolver,
     natives: &[NativeDeclaration],
 ) -> Result<Compilation, Diagnostic> {
+    if let Some(source) = sources.source(entry_module)
+        && script_kind(entry_module, source)? == ScriptKind::Scenario
+    {
+        use std::cell::RefCell;
+        struct Inputs<'a, S> {
+            resolver: &'a S,
+            read: RefCell<BTreeMap<String, String>>,
+        }
+        impl<S: SourceResolver> SourceResolver for Inputs<'_, S> {
+            fn source(&self, module: &str) -> Option<&str> {
+                let source = self.resolver.source(module)?;
+                self.read.borrow_mut().insert(module.into(), source.into());
+                Some(source)
+            }
+        }
+        let inputs = Inputs {
+            resolver: sources,
+            read: RefCell::new(BTreeMap::from([(entry_module.into(), source.into())])),
+        };
+        let definitions = scenario::Definitions::from_sources(&inputs)?;
+        let (bytes, program) = scenario::compile_program(entry_module, source, &definitions)?;
+        return Ok(Compilation {
+            kind: ScriptKind::Scenario,
+            program,
+            assets: Vec::new(),
+            sources: inputs.read.into_inner(),
+            scenario_bytes: Some(bytes),
+        });
+    }
     compile::compile(entry_module, sources, natives)
 }
 

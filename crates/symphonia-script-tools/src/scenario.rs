@@ -1,5 +1,4 @@
-//! Explicit lossless editing of the original VM instruction representation.
-//! The installed `.ssb` is authoritative; assembly is a user's working source.
+//! Readable original-VM source, matching binary export and lossless assembly.
 use crate::Error;
 use std::{
     fs,
@@ -8,7 +7,7 @@ use std::{
 };
 use symphonia_script::{Program, scenario};
 
-const USAGE: &str = "usage: symphonia-script scenario disassemble INPUT.ssb OUTPUT.ssasm\n       symphonia-script scenario assemble INPUT.ssasm OUTPUT.ssb";
+const USAGE: &str = "usage: symphonia-script scenario decompile INPUT.ssb OUTPUT.sym [--assets ROOT]\n       symphonia-script scenario compile INPUT.sym OUTPUT.ssb [--assets ROOT]\n       symphonia-script scenario disassemble INPUT.ssb OUTPUT.ssasm\n       symphonia-script scenario assemble INPUT.ssasm OUTPUT.ssb";
 const BINARY_LIMIT: usize = 4 * 1024 * 1024;
 const SOURCE_LIMIT: usize = 64 * 1024 * 1024;
 
@@ -17,14 +16,21 @@ pub(crate) fn run(
     output: &mut impl Write,
 ) -> Result<(), Error> {
     let args = args.collect::<Vec<_>>();
-    let [command, input, target] = args.as_slice() else {
-        return Err(Error::Usage(USAGE.into()));
+    let (args, assets) = match args.as_slice() {
+        [_, _, _, flag, assets] if flag == "--assets" => (&args[..3], Some(assets)),
+        [_, _, _] => (args.as_slice(), None),
+        _ => return Err(Error::Usage(USAGE.into())),
+    };
+    let [command, input, target] = args else {
+        unreachable!()
     };
     let input = Path::new(input);
     let target = Path::new(target);
     let (input_extension, output_extension, limit) = match command.as_str() {
         "disassemble" => ("ssb", "ssasm", BINARY_LIMIT),
         "assemble" => ("ssasm", "ssb", SOURCE_LIMIT),
+        "decompile" => ("ssb", "sym", BINARY_LIMIT),
+        "compile" => ("sym", "ssb", SOURCE_LIMIT),
         _ => return Err(Error::Usage(USAGE.into())),
     };
     if !input
@@ -56,7 +62,51 @@ pub(crate) fn run(
     if bytes.len() > limit {
         return Err(invalid(format!("input exceeds {limit} bytes")));
     }
-    let (encoded, diagnostics) = if command == "disassemble" {
+    let (encoded, diagnostics) = if command == "decompile" || command == "compile" {
+        let generated = resonance_script_content::modules();
+        let cooked = assets
+            .map(|root| crate::SourceTree::load(Path::new(root).join("scripts")))
+            .transpose()?;
+        let sources: &dyn symphonia_script_compiler::SourceResolver = cooked
+            .as_ref()
+            .map(|s| s as &dyn symphonia_script_compiler::SourceResolver)
+            .unwrap_or(&generated);
+        struct Resolve<'a>(&'a dyn symphonia_script_compiler::SourceResolver);
+        impl symphonia_script_compiler::SourceResolver for Resolve<'_> {
+            fn source(&self, module: &str) -> Option<&str> {
+                self.0.source(module)
+            }
+        }
+        let definitions =
+            symphonia_script_compiler::scenario::Definitions::from_sources(&Resolve(sources))?;
+        let encoded = if command == "decompile" {
+            let context = assets
+                .and_then(|root| {
+                    let root = fs::canonicalize(root).ok()?;
+                    let input = fs::canonicalize(input).ok()?;
+                    input
+                        .strip_prefix(root)
+                        .ok()
+                        .map(symphonia_script_compiler::scenario::Context::from_path)
+                })
+                .unwrap_or_else(|| symphonia_script_compiler::scenario::Context::from_path(input));
+            symphonia_script_compiler::scenario::decompile_with_context(
+                &bytes,
+                &definitions,
+                context,
+            )?
+            .source
+            .into_bytes()
+        } else {
+            let source = std::str::from_utf8(&bytes).map_err(|e| invalid(e.to_string()))?;
+            symphonia_script_compiler::scenario::compile(
+                &input.display().to_string(),
+                source,
+                &definitions,
+            )?
+        };
+        (encoded, Vec::new())
+    } else if command == "disassemble" {
         let (listing, analysis) =
             scenario::disassemble(&bytes).map_err(|error| invalid(error.to_string()))?;
         if listing.len() > SOURCE_LIMIT {
@@ -80,6 +130,14 @@ pub(crate) fn run(
         let analysis = scenario::analyze(&encoded).map_err(|error| invalid(error.to_string()))?;
         (encoded, analysis.diagnostics)
     };
+    let output_limit = if command == "decompile" || command == "disassemble" {
+        SOURCE_LIMIT
+    } else {
+        BINARY_LIMIT
+    };
+    if encoded.len() > output_limit {
+        return Err(invalid(format!("output exceeds {output_limit} bytes")));
+    }
     let parent = target
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
