@@ -933,21 +933,25 @@ impl EventRuntime {
             });
             camera.shake.step(&mut self.world.random_state);
             if camera.motion.is_none()
-                && let Some(playback) = &self.world.camera
+                && let Some(playback) = &mut self.world.camera
                 && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
             {
-                let key = playback.sample(self.world.tick, track)?;
+                let key = playback.visit(track)?;
+                let target_actor = (playback.target_actor != 0).then_some(
+                    if playback.target_actor == crate::CONTROLLED_ACTOR {
+                        self.world.controlled_actor
+                    } else {
+                        playback.target_actor
+                    },
+                );
+                let target = target_actor.and_then(|id| self.world.actors.get(&id));
                 camera.position = key.position;
                 camera.up = key.up();
-                camera.orientation = (!self.world.actors.contains_key(&playback.target_actor))
-                    .then_some(key.orientation);
-                camera.target = self
-                    .world
-                    .actors
-                    .get(&playback.target_actor)
-                    .map_or(key.target, |actor| {
-                        std::array::from_fn(|i| actor.position[i] + playback.target_offset[i])
-                    });
+                camera.orientation = target.is_none().then_some(key.orientation);
+                camera.target = target.map_or(key.target, |actor| {
+                    std::array::from_fn(|i| actor.position[i] + playback.target_offset[i])
+                });
+                playback.advance(track.duration_frames());
             }
         }
         self.world.update_collision_attachments(&self.resources)?;

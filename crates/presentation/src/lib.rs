@@ -831,8 +831,8 @@ fn field_camera(
         return;
     };
     let track = &scene.assets.camera_tracks[&camera.resource];
-    // The title camera samples two updates behind the title counter.
-    let Ok(key) = camera.sample(events.0.tick().saturating_sub(2), track) else {
+    // Keep the title's preceding camera visit, including native float stepping.
+    let Ok(key) = camera.sample_previous(track) else {
         return;
     };
     for mut camera in &mut cameras {

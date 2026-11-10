@@ -1258,7 +1258,7 @@ impl NativeHost<'_> {
                 let resource = self.resolve(a[0], ResourceKind::Camera)?;
                 let mut playback = CameraTrack::new(resource, self.world.tick);
                 playback.playing = a[1] == 0;
-                playback.repeat = a[2] == 1;
+                playback.repeat = u8::from(a[2] == 1);
                 self.world.field_camera.get_or_insert_default().motion = None;
                 self.world.camera = Some(playback);
             }
@@ -1275,18 +1275,9 @@ impl NativeHost<'_> {
                     .ok_or("camera track is not cooked")?
                     .duration_frames();
                 if op == NativeCall::MapCameraTrackPosition {
-                    require(a[2] != a[3], "camera mapping range is empty")?;
-                    let fraction =
-                        ((a[1] as f64 - a[2] as f64) / (a[3] as f64 - a[2] as f64)).clamp(0., 1.);
-                    playback.retime(self.world.tick, duration);
-                    playback.seek(duration * fraction as f32, self.world.tick);
+                    playback.map_position(a[1], a[2], a[3], duration);
                 } else {
-                    let argument = if a[0] == 11 && a[1] == crate::CONTROLLED_ACTOR {
-                        self.world.controlled_actor
-                    } else {
-                        a[1]
-                    };
-                    value = Some(playback.configure(a[0], argument, self.world.tick, duration)?);
+                    value = Some(playback.configure(a[0], a[1], duration)?);
                 }
             }
             NativeCall::CreateSceneActor | NativeCall::SpawnInteractionActor => {

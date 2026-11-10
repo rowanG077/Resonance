@@ -2,6 +2,8 @@
 use crate::Actor;
 use std::collections::BTreeMap;
 pub mod motion;
+#[cfg(test)]
+mod native_bank_tests;
 mod playback;
 mod shake;
 pub mod stage;
@@ -11,6 +13,8 @@ pub use shake::Shake;
 /// Script-addressable camera target, present for the lifetime of a field.
 pub const ANCHOR_ACTOR: i32 = 90_020;
 pub const ANCHOR_RESOURCE: u32 = 24;
+/// Original field initializer 80060100 creates eight independent camera records.
+pub const TEMPLATE_COUNT: usize = 8;
 
 /// Exponential-squared perspective fog (GX type 5).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -177,6 +181,8 @@ impl EntryCamera {
                 angles: [322., 0., 42.],
                 distance: 1890.,
                 offset: [0., 0., 87.],
+                position_bounds: [[-10000., 10000.]; 3],
+                target_bounds: [[-10000., 10000.]; 3],
                 ..Default::default()
             },
             position_rate: 8.,
@@ -195,7 +201,7 @@ pub struct CameraRig {
     /// field's view live. This transient handoff is not part of a saved game.
     pub entry: Option<EntryCamera>,
     pub selected: usize,
-    pub cameras: [FieldCamera; 4],
+    pub cameras: [FieldCamera; TEMPLATE_COUNT],
     pub position: [f32; 3],
     pub target: [f32; 3],
     pub up: [f32; 3],

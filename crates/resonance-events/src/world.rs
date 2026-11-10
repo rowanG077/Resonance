@@ -647,10 +647,13 @@ impl BoneAdjustment {
 pub struct CameraTrack {
     pub resource: u32,
     pub start_tick: u32,
-    pub(crate) start_frame: f32,
+    pub(crate) frame: f32,
+    pub(crate) sampled_frames: [f32; 2],
     pub(crate) rate: f32,
     pub(crate) playing: bool,
-    pub(crate) repeat: bool,
+    // configure_camera_track stores and reads the original byte, even when
+    // the caller uses a noncanonical nonzero loop encoding.
+    pub(crate) repeat: u8,
     pub(crate) completed: bool,
     pub(crate) target_actor: i32,
     pub(crate) target_offset: [f32; 3],

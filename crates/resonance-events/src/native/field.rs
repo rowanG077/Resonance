@@ -1769,9 +1769,10 @@ impl NativeHost<'_> {
                     .configure(a[0] as f32, a[1] as u16, a[2]);
             }
             NativeCall::SelectCamera => {
+                let selected = usize::from(a[0] as u8);
                 require(
-                    (-2..4).contains(&a[0]),
-                    "camera selector is not implemented",
+                    matches!(a[0], -2 | -1) || selected < crate::camera::TEMPLATE_COUNT,
+                    "camera selector addresses outside the native camera bank",
                 )?;
                 let rig = self.world.field_camera.get_or_insert_default();
                 value = Some(rig.selected as i32);
@@ -1782,7 +1783,7 @@ impl NativeHost<'_> {
                         self.world.controlled_actor,
                     ));
                 } else {
-                    rig.selected = a[0] as usize;
+                    rig.selected = selected;
                     rig.motion = None;
                     rig.position_settled = false;
                     rig.target_settled = false;

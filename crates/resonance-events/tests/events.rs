@@ -6340,16 +6340,18 @@ fn camera_tracks_hold_mapped_positions_then_resume_and_loop() {
     );
     assert!(events.trigger(42, true).unwrap());
     steps(&mut events, 31);
+    // The pose is sampled before advancing: this visit publishes frame19.5
+    // and leaves frame20 for subsequent script queries.
     assert_eq!(
         events.world.field_camera.as_ref().unwrap().position,
-        [40., 0., 0.]
+        [39., 0., 0.]
     );
     let camera = events.world.camera.as_ref().unwrap();
-    assert!(!camera.finished(events.world.tick, 20.));
+    assert!(!camera.finished());
     steps(&mut events, 30);
     assert_eq!(
         events.world.field_camera.as_ref().unwrap().position,
-        [30., 0., 0.]
+        [29., 0., 0.]
     );
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
 }
@@ -6839,4 +6841,167 @@ fn ordinary_interactions_supply_their_actor() {
     assert!(events.interact(42).unwrap());
     events.step().unwrap();
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 42);
+}
+
+#[test]
+fn camera_track_start_options_use_full_width_tests_before_repeat_byte_storage() {
+    for start in [0, 1, 256, -1] {
+        for repeat in [0, 1, 257, -1] {
+            let setup = script(&[
+                (Call::PlayCameraTrack, &[555, start, repeat]),
+                (Call::ConfigureCameraTrack, &[9, 0]),
+            ]);
+            let resources = ResourceLibrary {
+                bindings: [(555, (ResourceKind::Camera, 22))].into(),
+                camera_tracks: [(
+                    22,
+                    resonance_content::camera_motion::CameraMotion::from_keys(&[
+                        resonance_content::CameraKey::looking_at(0., [0.; 3], [0., 10., 0.]),
+                        resonance_content::CameraKey::looking_at(20., [40., 0., 0.], [0., 10., 0.]),
+                    ])
+                    .unwrap(),
+                )]
+                .into(),
+                ..Default::default()
+            };
+            let mut events = runtime(program(&setup, &[0x20ff]), resources, controlled_world());
+            assert_eq!(
+                events.memory().read(0x20, Width::S32).unwrap(),
+                i32::from(repeat == 1)
+            );
+            steps(&mut events, 2);
+            let frame = events.world.camera.as_ref().unwrap().frame();
+            assert_eq!(frame > 0., start == 0, "start={start} repeat={repeat}");
+        }
+    }
+}
+
+#[test]
+fn camera_track_targets_resolve_the_controlled_selector_on_each_pose_visit() {
+    let setup = script(&[
+        (Call::PlayCameraTrack, &[555, 1, 0]),
+        (Call::ConfigureCameraTrack, &[11, 999999]),
+    ]);
+    let resources = ResourceLibrary {
+        bindings: [(555, (ResourceKind::Camera, 22))].into(),
+        camera_tracks: [(
+            22,
+            resonance_content::camera_motion::CameraMotion::from_keys(&[
+                resonance_content::CameraKey::looking_at(0., [0., -10., 5.], [0., 10., 0.]),
+                resonance_content::CameraKey::looking_at(20., [40., -10., 5.], [0., 10., 0.]),
+            ])
+            .unwrap(),
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = controlled_world();
+    world.insert_actor(0, Actor::new(99, [100., 200., 300.]));
+    world.insert_actor(1, Actor::new(1, [10., 20., 30.]));
+    world.insert_actor(2, Actor::new(2, [40., 50., 60.]));
+    world.controlled_actor = 1;
+    let clear_target = script(&[(Call::ConfigureCameraTrack, &[11, 0])]);
+    let mut events = runtime(program(&setup, &clear_target), resources, world);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 999999);
+    steps(&mut events, 1);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().target,
+        [10., 20., 30.]
+    );
+    events.world.controlled_actor = 2;
+    steps(&mut events, 1);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().target,
+        [40., 50., 60.]
+    );
+    assert!(
+        events
+            .world
+            .field_camera
+            .as_ref()
+            .unwrap()
+            .orientation
+            .is_none()
+    );
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 2);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().target,
+        [0., 10., 0.]
+    );
+    assert!(
+        events
+            .world
+            .field_camera
+            .as_ref()
+            .unwrap()
+            .orientation
+            .is_some()
+    );
+}
+
+#[test]
+fn camera_tracks_publish_the_seeked_pose_before_their_single_update_advance() {
+    let setup = script(&[
+        (Call::PlayCameraTrack, &[555, 0, 0]),
+        (Call::ConfigureCameraTrack, &[3, 5]),
+    ]);
+    let query = script(&[(Call::ConfigureCameraTrack, &[6, 0])]);
+    let resources = ResourceLibrary {
+        bindings: [(555, (ResourceKind::Camera, 22))].into(),
+        camera_tracks: [(
+            22,
+            resonance_content::camera_motion::CameraMotion::from_keys(&[
+                resonance_content::CameraKey::looking_at(0., [0.; 3], [0., 10., 0.]),
+                resonance_content::CameraKey::looking_at(20., [40., 0., 0.], [0., 10., 0.]),
+            ])
+            .unwrap(),
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut events = runtime(program(&setup, &query), resources, controlled_world());
+    assert_eq!(events.world.camera.as_ref().unwrap().frame(), 5.);
+    steps(&mut events, 1);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().position,
+        [10., 0., 0.]
+    );
+    assert_eq!(events.world.camera.as_ref().unwrap().frame(), 5.5);
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 1);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().position,
+        [11., 0., 0.]
+    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 6);
+}
+
+#[test]
+fn camera_mapping_uses_native_degenerate_range_results_before_sampling() {
+    for (position, expected) in [(6, 20), (4, 0), (5, i32::MIN)] {
+        let setup = script(&[
+            (Call::PlayCameraTrack, &[555, 1, 0]),
+            (
+                Call::MapCameraTrackPosition,
+                &[999, position, 5, 5, 1, 2, 3, 4],
+            ),
+            (Call::ConfigureCameraTrack, &[6, 0]),
+        ]);
+        let resources = ResourceLibrary {
+            bindings: [(555, (ResourceKind::Camera, 22))].into(),
+            camera_tracks: [(
+                22,
+                resonance_content::camera_motion::CameraMotion::from_keys(&[
+                    resonance_content::CameraKey::looking_at(0., [0.; 3], [0., 10., 0.]),
+                    resonance_content::CameraKey::looking_at(20., [40., 0., 0.], [0., 10., 0.]),
+                ])
+                .unwrap(),
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let events = runtime(program(&setup, &[0x20ff]), resources, controlled_world());
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
+    }
 }
