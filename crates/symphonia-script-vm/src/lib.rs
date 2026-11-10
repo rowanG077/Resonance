@@ -168,6 +168,8 @@ pub struct Vm {
     frames: Vec<Frame>,
     // Retail arg/branch read the slot just popped by expression_end.
     expression: Option<i32>,
+    // Only the immediately preceding resultless native permits a terminal alias.
+    legacy_no_result: bool,
     trace_limit: usize,
     trace: VecDeque<TraceEntry>,
 }
@@ -221,6 +223,7 @@ impl Vm {
             locals,
             frames,
             expression: None,
+            legacy_no_result: false,
             trace_limit: 0,
             trace: VecDeque::new(),
         })
@@ -475,13 +478,19 @@ impl Vm {
         self.values.pop().ok_or(Fault::ValueUnderflow)
     }
     /// The retail interpreter puts its value depth immediately before the value
-    /// array. Two native instruction sequences briefly address that depth as a
+    /// array. Proven native instruction sequences briefly address that depth as a
     /// value. Model their observable result while keeping other underflows fatal.
-    fn native_stack_alias(&mut self, op: u8, next: u32) -> bool {
+    fn native_stack_alias(&mut self, op: u8, next: u32, no_result: bool) -> bool {
         if self.program.authored().is_some() {
             return false;
         }
         if op == 0 && self.values.is_empty() {
+            // A fresh message expression with a native that pushes no value
+            // finishes at depth-1; its consumer reads that aliased depth word.
+            if no_result && matches!(self.program.instruction(next), Some((Op::End, _))) {
+                self.expression = Some(-1);
+                return true;
+            }
             // At depth zero, expression-end decrements depth to -1. The next
             // argument reads that depth word, then a push restores depth zero.
             if let Some((Op::Argument, after_argument)) = self.program.instruction(next)
@@ -531,6 +540,7 @@ impl Vm {
             });
         }
         self.pc = next;
+        let no_result = std::mem::take(&mut self.legacy_no_result);
         match op {
             Op::Push(n) => self.push(Value::scalar(n))?,
             Op::Load(offset, width) => self.push(Value {
@@ -545,7 +555,7 @@ impl Vm {
                     .push(self.expression.ok_or(Fault::ValueUnderflow)?);
             }
             Op::Calculate(op) => {
-                if !self.native_stack_alias(op, next) {
+                if !self.native_stack_alias(op, next, no_result) {
                     self.calculate(op, memory)?;
                 }
             }
@@ -607,6 +617,10 @@ impl Vm {
                         binding.declaration.and_then(|d| d.result),
                         memory,
                     )?,
+                    NativeResult::LegacyNoResult if !is_authored => {
+                        self.legacy_no_result = true;
+                    }
+                    NativeResult::LegacyNoResult => return Err(Fault::NativeResult),
                     NativeResult::Values(values) => {
                         let ty = binding
                             .declaration

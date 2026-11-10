@@ -610,6 +610,19 @@ fn decode_instruction(
     }
 }
 
+/// Inspect a single wordcode location, including code unreachable from the
+/// resource's current event registry. This does not add an executable entry.
+pub fn decode_at(data: &[u8], pc: u32) -> Result<(Instruction, Vec<Diagnostic>), Error> {
+    let header = parse_header(data)?;
+    let auxiliary = header.auxiliary_offset();
+    let end = if header.code_base() < auxiliary && auxiliary <= data.len() {
+        auxiliary
+    } else {
+        data.len()
+    };
+    Ok(decode_instruction(data, header, pc, end))
+}
+
 fn successors(instruction: &Instruction) -> Vec<u32> {
     match instruction.control {
         Control::Stop | Control::Return => vec![],

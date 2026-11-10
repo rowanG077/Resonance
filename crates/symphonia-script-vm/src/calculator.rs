@@ -1,13 +1,5 @@
 use crate::{Fault, Memory, Value, Vm};
 
-// Imported bytecode uses non-trapping signed division. An exceptional quotient
-// is zero for a nonnegative dividend and -1 for a negative dividend.
-fn divide(dividend: i32, divisor: i32) -> i32 {
-    dividend
-        .checked_div(divisor)
-        .unwrap_or(if dividend < 0 { -1 } else { 0 })
-}
-
 fn store(memory: &mut Memory, value: Value) -> Result<(), Fault> {
     if let Some((offset, width)) = value.reference {
         memory.write(offset, width, value.number)?;
@@ -63,32 +55,9 @@ pub(crate) fn calculate(
         return Ok(());
     }
     let a = left.number;
-    left.number = match op {
-        0x10 => right,
-        0x11 | 0x31 => a.wrapping_add(right),
-        0x12 | 0x32 => a.wrapping_sub(right),
-        0x13 | 0x33 => a.wrapping_mul(right),
-        0x14 | 0x34 => divide(a, right),
-        0x15 | 0x35 => a.wrapping_sub(divide(a, right).wrapping_mul(right)),
-        0x16 | 0x36 => a & right,
-        0x17 | 0x37 => a | right,
-        0x18 | 0x38 => a ^ right,
-        // PowerPC variable shifts use six count bits, with >=32 shifting
-        // out the full word (Rust wrapping_shl would incorrectly mask to 5).
-        0x19 | 0x39 => a.checked_shl((right as u32) & 63).unwrap_or(0),
-        0x1a | 0x3a => a
-            .checked_shr((right as u32) & 63)
-            .unwrap_or(if a < 0 { -1 } else { 0 }),
-        0x20 => i32::from(a == right),
-        0x21 => i32::from(a != right),
-        0x22 => i32::from(a <= right),
-        0x23 => i32::from(a >= right),
-        0x24 => i32::from(a > right),
-        0x25 => i32::from(a < right),
-        0x26 => i32::from(a != 0 && right != 0),
-        0x27 => i32::from(a != 0 || right != 0),
-        _ => return Err(Fault::Calculator(op)),
-    };
+    left.number = symphonia_script::semantics::calculator_binary_value(op, a, right)
+        .ok_or(Fault::Calculator(op))?;
+
     if (0x10..=0x1a).contains(&op) {
         store(memory, *left)?;
     }

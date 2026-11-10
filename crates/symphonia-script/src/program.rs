@@ -66,6 +66,39 @@ pub enum ProgramError {
     Invalid(String),
 }
 
+/// Decode a canonical legacy instruction without granting it runtime reachability.
+pub(crate) fn legacy_op(i: &scenario::Instruction) -> Result<Op, ProgramError> {
+    if i.raw {
+        return Err(ProgramError::Invalid(format!(
+            "undecoded instruction at PC {:#x}",
+            i.pc
+        )));
+    }
+    let operand = || i.operands[0];
+    Ok(match i.mnemonic {
+        "push.s8" | "push.s16" | "push.u16" | "push.s32" => Op::Push(operand() as i32),
+        "load.s8" => Op::Load(operand() as u16, Width::S8),
+        "load.s16" => Op::Load(operand() as u16, Width::S16),
+        "load.s32" => Op::Load(operand() as u16, Width::S32),
+        "arg" => Op::Argument,
+        "calc" if crate::semantics::calculator(operand() as u8).is_some() => {
+            Op::Calculate(operand() as u8)
+        }
+        "jump" => Op::Jump(operand() as u32),
+        "call" => Op::Call(operand() as u32),
+        "ret" => Op::Return,
+        "branch_false" => Op::BranchFalse(operand() as u32),
+        "proc" => Op::Native(operand() as u8),
+        "end" => Op::End,
+        _ => {
+            return Err(ProgramError::Invalid(format!(
+                "unsupported instruction at PC {:#x}",
+                i.pc
+            )));
+        }
+    })
+}
+
 impl Program {
     pub fn decode(bytes: &[u8]) -> Result<Self, ProgramError> {
         Self::decode_with_analysis(bytes).map(|(program, _)| program)
@@ -102,27 +135,8 @@ impl Program {
         }
         let mut code = BTreeMap::new();
         for (&pc, i) in &analysis.instructions {
-            if i.raw {
-                return Err(invalid(format!("undecoded instruction at PC {pc:#x}")));
-            }
             let operand = || i.operands[0];
-            let op = match i.mnemonic {
-                "push.s8" | "push.s16" | "push.u16" | "push.s32" => Op::Push(operand() as i32),
-                "load.s8" => Op::Load(operand() as u16, Width::S8),
-                "load.s16" => Op::Load(operand() as u16, Width::S16),
-                "load.s32" => Op::Load(operand() as u16, Width::S32),
-                "arg" => Op::Argument,
-                "calc" if crate::semantics::calculator(operand() as u8).is_some() => {
-                    Op::Calculate(operand() as u8)
-                }
-                "jump" => Op::Jump(operand() as u32),
-                "call" => Op::Call(operand() as u32),
-                "ret" => Op::Return,
-                "branch_false" => Op::BranchFalse(operand() as u32),
-                "proc" => Op::Native(operand() as u8),
-                "end" => Op::End,
-                _ => return Err(invalid(format!("unsupported instruction at PC {pc:#x}"))),
-            };
+            let op = legacy_op(i)?;
             let targets: Vec<u32> = match i.control {
                 Control::Jump => vec![operand() as u32],
                 Control::Call | Control::Branch => vec![operand() as u32, i.end_pc()],

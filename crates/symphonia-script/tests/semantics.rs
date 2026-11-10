@@ -29,6 +29,9 @@ fn native_registry_is_data_driven_and_validated() {
     )
     .unwrap();
     assert_eq!(registry.get(10).unwrap().name, "play_sound");
+    assert!(NativeRegistry::from_json(
+        r#"{"schema_version":2,"game":"test","procedures":[{"opcode":10,"name":"play_sound","arguments":["sound_id"],"argument_types":["i32","i32"]}]}"#
+    ).is_err());
     assert!(
         NativeRegistry::from_json(
             r#"{"schema_version":2,"game":"test","procedures":[{"opcode":10,"name":"not valid"}]}"#
@@ -55,6 +58,65 @@ fn native_registry_is_data_driven_and_validated() {
     assert_eq!(retail.get(0xD7).unwrap().arguments[0], "operation");
     assert_eq!(retail.get_by_name("motion_command").unwrap().opcode, 0xD7);
     assert_eq!(retail.get(0xE1).unwrap().name, "configure_sound");
+}
+
+#[test]
+fn native_argument_aliases_are_optional_validated_and_position_specific() {
+    let retail = NativeRegistry::gqseaf();
+    let simple = retail.get(0x52).unwrap();
+    assert_eq!(simple.arguments, ["sound_id", "pan_offset"]);
+    assert!(simple.accepts_argument_name(1, "pan_offset"));
+    assert!(simple.accepts_argument_name(1, "raw_velocity"));
+    assert!(!simple.accepts_argument_name(0, "raw_velocity"));
+    assert!(!simple.accepts_argument_name(1, "volume"));
+    assert!(!simple.accepts_argument_name(2, "raw_velocity"));
+    let extended = retail.get(0xe0).unwrap();
+    assert_eq!(
+        extended.arguments,
+        ["sound_id", "pan_offset", "volume", "binding_index"]
+    );
+    for (index, alias) in [(1, "raw_velocity"), (2, "channel"), (3, "note")] {
+        assert!(extended.accepts_argument_name(index, alias));
+        assert!(!extended.accepts_argument_name(0, alias));
+    }
+    assert!(
+        !retail
+            .get(0x53)
+            .unwrap()
+            .accepts_argument_name(2, "channel")
+    );
+    let surface = retail.control_surface();
+    assert_eq!(
+        surface.iter().find(|r| r.opcode == 0xe0).unwrap().arguments,
+        extended.arguments
+    );
+    for aliases in [
+        r#"{"missing":["old"]}"#,
+        r#"{"first":["not valid"]}"#,
+        r#"{"first":["old","old"]}"#,
+        r#"{"first":["old"],"second":["old"]}"#,
+        r#"{"first":["second"]}"#,
+    ] {
+        let json = format!(
+            r#"{{"schema_version":2,"game":"test","procedures":[{{"opcode":10,"name":"test","arguments":["first","second"],"argument_aliases":{aliases}}}]}}"#
+        );
+        let error = NativeRegistry::from_json(&json).unwrap_err().to_string();
+        assert!(error.contains("invalid argument aliases"), "{error}");
+    }
+    let duplicate = NativeRegistry::from_json(r#"{"schema_version":2,"game":"bad","procedures":[{"opcode":10,"name":"test","arguments":["value","value"],"argument_aliases":{"value":["old_value"]}}]}"#).unwrap_err().to_string();
+    assert!(
+        duplicate.contains("ambiguous canonical argument"),
+        "{duplicate}"
+    );
+    let old = NativeRegistry::from_json(r#"{"schema_version":2,"game":"old","procedures":[{"opcode":10,"name":"test","arguments":["value"]}]}"#).unwrap();
+    assert!(old.get(10).unwrap().argument_aliases.is_empty());
+    assert!(old.get(10).unwrap().accepts_argument_name(0, "value"));
+    assert!(
+        serde_json::to_value(old.get(10).unwrap())
+            .unwrap()
+            .get("argument_aliases")
+            .is_none()
+    );
 }
 
 #[test]

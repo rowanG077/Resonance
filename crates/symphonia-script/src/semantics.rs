@@ -1,6 +1,6 @@
 //! Recovered calculator semantics and data-driven native-call naming.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -15,6 +15,39 @@ pub enum OperatorForm {
     Assignment,
     Binary,
     CompoundAssignment,
+}
+
+/// Value computation shared by the original VM and constant source encodings.
+/// Reference writes for assignment operations are performed by the VM caller.
+#[must_use]
+pub fn calculator_binary_value(op: u8, left: i32, right: i32) -> Option<i32> {
+    let divide = |a: i32, b: i32| a.checked_div(b).unwrap_or(if a < 0 { -1 } else { 0 });
+    Some(match op {
+        0x10 => right,
+        0x11 | 0x31 => left.wrapping_add(right),
+        0x12 | 0x32 => left.wrapping_sub(right),
+        0x13 | 0x33 => left.wrapping_mul(right),
+        0x14 | 0x34 => divide(left, right),
+        0x15 | 0x35 => left.wrapping_sub(divide(left, right).wrapping_mul(right)),
+        0x16 | 0x36 => left & right,
+        0x17 | 0x37 => left | right,
+        0x18 | 0x38 => left ^ right,
+        // PowerPC variable shifts use six count bits. Counts >=32 shift out
+        // the full word; Rust's wrapping shifts would mask these to five bits.
+        0x19 | 0x39 => left.checked_shl((right as u32) & 63).unwrap_or(0),
+        0x1a | 0x3a => left
+            .checked_shr((right as u32) & 63)
+            .unwrap_or(if left < 0 { -1 } else { 0 }),
+        0x20 => i32::from(left == right),
+        0x21 => i32::from(left != right),
+        0x22 => i32::from(left <= right),
+        0x23 => i32::from(left >= right),
+        0x24 => i32::from(left > right),
+        0x25 => i32::from(left < right),
+        0x26 => i32::from(left != 0 && right != 0),
+        0x27 => i32::from(left != 0 || right != 0),
+        _ => return None,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,6 +221,10 @@ pub struct NativeProcedure {
     pub name: String,
     #[serde(default)]
     pub arguments: Vec<String>,
+    /// Previous source spellings, keyed by the canonical argument name.
+    /// Aliases are accepted only at that argument's original position.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub argument_aliases: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub argument_types: Vec<String>,
     #[serde(default)]
@@ -200,6 +237,48 @@ pub struct NativeProcedure {
     pub yields: bool,
     #[serde(default)]
     pub control_flow: bool,
+}
+
+impl NativeProcedure {
+    /// Accept a canonical name or its declared compatibility spelling at this
+    /// position. Arguments retain their native evaluation and stack order.
+    #[must_use]
+    pub fn accepts_argument_name(&self, index: usize, name: &str) -> bool {
+        self.arguments.get(index).is_some_and(|canonical| {
+            canonical == name
+                || self
+                    .argument_aliases
+                    .get(canonical)
+                    .is_some_and(|aliases| aliases.iter().any(|alias| alias == name))
+        })
+    }
+
+    fn validate_argument_aliases(&self) -> Result<(), RegistryError> {
+        let mut names: BTreeSet<_> = self.arguments.iter().map(String::as_str).collect();
+        for (argument, aliases) in &self.argument_aliases {
+            if self
+                .arguments
+                .iter()
+                .filter(|name| *name == argument)
+                .count()
+                != 1
+            {
+                return Err(RegistryError::ArgumentAliases {
+                    name: self.name.clone(),
+                    message: format!("unknown or ambiguous canonical argument {argument:?}"),
+                });
+            }
+            for alias in aliases {
+                if !valid_identifier(alias) || !names.insert(alias.as_str()) {
+                    return Err(RegistryError::ArgumentAliases {
+                        name: self.name.clone(),
+                        message: format!("invalid or ambiguous alias {alias:?} for {argument:?}"),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 const fn default_true() -> bool {
@@ -245,6 +324,14 @@ pub enum RegistryError {
     Duplicate(u8),
     #[error("native procedure name {0:?} is not a valid SymphoniaScript identifier")]
     InvalidName(String),
+    #[error("native procedure {name} has {arguments} arguments but {types} argument types")]
+    ArgumentTypes {
+        name: String,
+        arguments: usize,
+        types: usize,
+    },
+    #[error("invalid argument aliases for native procedure {name}: {message}")]
+    ArgumentAliases { name: String, message: String },
     #[error("native registry declares {declared} dispatch entries but contains {actual}")]
     DispatchCount { declared: usize, actual: usize },
 }
@@ -285,6 +372,15 @@ impl NativeRegistry {
             if !valid_identifier(&call.name) {
                 return Err(RegistryError::InvalidName(call.name));
             }
+            if !call.argument_types.is_empty() && call.argument_types.len() != call.arguments.len()
+            {
+                return Err(RegistryError::ArgumentTypes {
+                    name: call.name,
+                    arguments: call.arguments.len(),
+                    types: call.argument_types.len(),
+                });
+            }
+            call.validate_argument_aliases()?;
             let opcode = call.opcode;
             if calls.insert(opcode, call).is_some() {
                 return Err(RegistryError::Duplicate(opcode));

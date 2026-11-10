@@ -44,6 +44,30 @@ pub fn analyzed_arguments(
     call: NativeCall,
     arguments: usize,
 ) -> Result<BTreeMap<u32, Vec<Option<i32>>>, Error> {
+    observed_arguments(analysis, call, arguments, |pc| {
+        Ok(program.instruction(pc).unwrap().0)
+    })
+}
+
+/// Observe a supplied canonical instruction view, including retained code when
+/// present. This does not make those instructions executable or prove their
+/// reachability. Basic-block entries start with unknown stack/memory values.
+pub fn decoded_arguments(
+    analysis: &scenario::Analysis,
+    call: NativeCall,
+    arguments: usize,
+) -> Result<BTreeMap<u32, Vec<Option<i32>>>, Error> {
+    observed_arguments(analysis, call, arguments, |pc| {
+        crate::program::legacy_op(&analysis.instructions[&pc])
+    })
+}
+
+fn observed_arguments(
+    analysis: &scenario::Analysis,
+    call: NativeCall,
+    arguments: usize,
+    mut operation: impl FnMut(u32) -> Result<Op, ProgramError>,
+) -> Result<BTreeMap<u32, Vec<Option<i32>>>, Error> {
     let registry = NativeRegistry::gqseaf();
     if !(1..=16).contains(&arguments)
         || registry
@@ -56,7 +80,7 @@ pub fn analyzed_arguments(
     for block in analysis.basic_blocks() {
         let mut expressions = expressions::Expressions::default();
         for pc in block.instruction_pcs {
-            let op = program.instruction(pc).unwrap().0;
+            let op = operation(pc)?;
             if op == Op::Native(call as u8) {
                 values.insert(
                     pc,

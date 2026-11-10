@@ -33,7 +33,10 @@
       "arguments": [
         "slot"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::DialogueSlot"
+      ]
     },
     {
       "opcode": 11,
@@ -55,7 +58,17 @@
         "primary_message",
         "secondary_message"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::DialogueSlot",
+        "scenario::DialogueFlag",
+        "scenario::DialogueAnchor",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 13,
@@ -63,7 +76,11 @@
       "arguments": [
         "slot"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::DialogueSlot"
+      ],
+      "result_type": "scenario::DialogueStatus"
     },
     {
       "opcode": 14,
@@ -83,7 +100,12 @@
         "actor_id",
         "defeat_policy"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "result_type": "battle::BattleOutcome",
+      "argument_types": [
+        "i32",
+        "battle::BattleDefeatPolicy"
+      ]
     },
     {
       "opcode": 16,
@@ -177,11 +199,11 @@
       "opcode": 24,
       "name": "move_actor_relative",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4"
+        "actor_id",
+        "heading_degrees",
+        "distance",
+        "speed_or_duration",
+        "facing"
       ],
       "returns_value": false
     },
@@ -220,7 +242,11 @@
         "actor_id",
         "property"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "i32",
+        "scenario::ActorProperty"
+      ]
     },
     {
       "opcode": 29,
@@ -230,18 +256,23 @@
         "property",
         "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "i32",
+        "scenario::ActorProperty",
+        "i32"
+      ]
     },
     {
       "opcode": 30,
       "name": "set_actor_path_point",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5"
+        "actor_id",
+        "point",
+        "x",
+        "y",
+        "z",
+        "reverse"
       ],
       "returns_value": false
     },
@@ -249,22 +280,22 @@
       "opcode": 31,
       "name": "spawn_enemy_actor",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12",
-        "arg13",
-        "arg14",
-        "arg15"
+        "actor_id",
+        "formation_id",
+        "arena_id",
+        "x",
+        "y",
+        "z",
+        "yaw",
+        "normal_speed",
+        "alert_speed",
+        "event_key",
+        "resource_id",
+        "behavior",
+        "random_turns",
+        "alert_response",
+        "radius",
+        "unused"
       ],
       "returns_value": false
     },
@@ -275,7 +306,11 @@
         "item_id",
         "amount"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "items::ItemId",
+        "i32"
+      ]
     },
     {
       "opcode": 33,
@@ -283,7 +318,10 @@
       "arguments": [
         "item_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "items::ItemId"
+      ]
     },
     {
       "opcode": 34,
@@ -291,7 +329,11 @@
       "arguments": [
         "member_or_mode"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId"
+      ],
+      "result_type": "characters::CharacterId"
     },
     {
       "opcode": 35,
@@ -307,7 +349,10 @@
       "arguments": [
         "input_value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId"
+      ]
     },
     {
       "opcode": 37,
@@ -315,7 +360,10 @@
       "arguments": [
         "character_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId"
+      ]
     },
     {
       "opcode": 38,
@@ -324,15 +372,22 @@
         "replacement_character",
         "old_character"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "characters::CharacterId"
+      ]
     },
     {
       "opcode": 39,
       "name": "find_party_member",
       "arguments": [
-        "arg0"
+        "character_or_slot"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId"
+      ]
     },
     {
       "opcode": 40,
@@ -342,7 +397,12 @@
         "operation",
         "value"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::HeadingOperation",
+        "i32"
+      ]
     },
     {
       "opcode": 41,
@@ -350,7 +410,10 @@
       "arguments": [
         "packed_title"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::TitleId"
+      ]
     },
     {
       "opcode": 42,
@@ -359,43 +422,64 @@
         "character",
         "packed_title"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "characters::TitleId"
+      ]
     },
     {
       "opcode": 43,
       "name": "get_equipped_item",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "slot"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "items::EquipmentSlot"
+      ],
+      "result_type": "items::ItemId"
     },
     {
       "opcode": 44,
       "name": "equip_item",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "item_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "items::ItemId"
+      ]
     },
     {
       "opcode": 45,
       "name": "unequip_item",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "slot"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "items::EquipmentSlot"
+      ]
     },
     {
       "opcode": 46,
       "name": "learn_technique",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "technique_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "techniques::TechniqueId"
+      ]
     },
     {
       "opcode": 47,
@@ -404,20 +488,24 @@
         "character_id",
         "technique_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "techniques::TechniqueId"
+      ]
     },
     {
       "opcode": 48,
       "name": "create_automatic_event_trigger",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
+        "record_key",
+        "x0",
+        "y0",
+        "z0",
+        "x1",
+        "y1",
+        "z1",
+        "height"
       ],
       "returns_value": false
     },
@@ -425,7 +513,7 @@
       "opcode": 49,
       "name": "remove_automatic_event_triggers",
       "arguments": [
-        "arg0"
+        "record_key"
       ],
       "returns_value": false
     },
@@ -434,13 +522,13 @@
       "name": "create_script_record",
       "arguments": [
         "record_key",
-        "value_18",
-        "value_1a",
-        "value_1c",
-        "value_1e",
-        "value_20",
-        "value_22",
-        "value_24"
+        "x0",
+        "y0",
+        "z0",
+        "x1",
+        "y1",
+        "z1",
+        "height"
       ],
       "returns_value": false
     },
@@ -448,7 +536,7 @@
       "opcode": 51,
       "name": "remove_touch_triggers",
       "arguments": [
-        "arg0"
+        "record_key"
       ],
       "returns_value": false
     },
@@ -456,23 +544,35 @@
       "opcode": 52,
       "name": "heal_party",
       "arguments": [
-        "arg0"
+        "mode"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::PartyRecoveryMode"
+      ]
     },
     {
       "opcode": 53,
       "name": "create_treasure_chest",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6"
+        "treasure_flag",
+        "reward",
+        "kind",
+        "x",
+        "y",
+        "z",
+        "yaw"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "treasure::TreasureFlag",
+        "i32",
+        "treasure::TreasureKind",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 54,
@@ -480,7 +580,10 @@
       "arguments": [
         "treasure_flag"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "treasure::TreasureFlag"
+      ]
     },
     {
       "opcode": 55,
@@ -490,7 +593,13 @@
         "arena_id",
         "defeat_flags"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "result_type": "battle::BattleOutcome",
+      "argument_types": [
+        "battle::FormationId",
+        "battle::ArenaId",
+        "battle::BattleDefeatPolicy"
+      ]
     },
     {
       "opcode": 56,
@@ -524,13 +633,13 @@
         "value_10",
         "value_12",
         "value_14",
-        "value_18",
-        "value_1a",
-        "value_1c",
-        "value_1e",
-        "value_20",
-        "value_22",
-        "value_24"
+        "x0",
+        "y0",
+        "z0",
+        "x1",
+        "y1",
+        "z1",
+        "height"
       ],
       "returns_value": false
     },
@@ -583,7 +692,7 @@
       "opcode": 62,
       "name": "remove_confirmed_triggers",
       "arguments": [
-        "arg0"
+        "record_key"
       ],
       "returns_value": false
     },
@@ -594,7 +703,11 @@
         "event_handle",
         "command"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::EventControl"
+      ]
     },
     {
       "opcode": 64,
@@ -607,35 +720,55 @@
         "yaw"
       ],
       "yields": true,
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "fields::FieldId",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 65,
       "name": "get_current_field",
       "arguments": [],
-      "returns_value": true
+      "returns_value": true,
+      "result_type": "fields::FieldId"
     },
     {
       "opcode": 66,
       "name": "configure_scenery_animation",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5"
+        "layer",
+        "channel",
+        "resource_id",
+        "start_frame",
+        "rate",
+        "flags"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::SceneryLayer",
+        "scenario::SceneryAnimationChannel",
+        "i32",
+        "i32",
+        "i32",
+        "scenario::AnimationFlag"
+      ]
     },
     {
       "opcode": 67,
       "name": "clear_scenery_animation",
       "arguments": [
-        "scenery",
+        "layer",
         "channel"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::SceneryLayer",
+        "scenario::SceneryAnimationChannel"
+      ]
     },
     {
       "opcode": 68,
@@ -645,7 +778,12 @@
         "channel",
         "frame"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::SceneryLayer",
+        "scenario::SceneryAnimationChannel",
+        "i32"
+      ]
     },
     {
       "opcode": 69,
@@ -655,16 +793,25 @@
         "channel",
         "rate"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::SceneryLayer",
+        "scenario::SceneryAnimationChannel",
+        "i32"
+      ]
     },
     {
       "opcode": 70,
       "name": "configure_rendering",
       "arguments": [
-        "arg0",
-        "arg1"
+        "command",
+        "value"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::RenderingCommand",
+        "i32"
+      ]
     },
     {
       "opcode": 71,
@@ -675,18 +822,25 @@
       "opcode": 72,
       "name": "preload_field",
       "arguments": [
-        "arg0"
+        "field_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "fields::FieldId"
+      ]
     },
     {
       "opcode": 73,
       "name": "set_treasure_model",
       "arguments": [
-        "arg0",
-        "arg1"
+        "kind",
+        "resource_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "treasure::TreasureKind",
+        "i32"
+      ]
     },
     {
       "opcode": 74,
@@ -771,7 +925,10 @@
       "arguments": [
         "command"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "music::MusicId"
+      ]
     },
     {
       "opcode": 81,
@@ -788,20 +945,33 @@
       "name": "play_sound_simple",
       "arguments": [
         "sound_id",
-        "raw_velocity"
+        "pan_offset"
       ],
-      "returns_value": false
+      "argument_aliases": {
+        "pan_offset": ["raw_velocity"]
+      },
+      "returns_value": false,
+      "argument_types": [
+        "effects::EffectId",
+        "i32"
+      ]
     },
     {
       "opcode": 83,
       "name": "set_actor_ambient_sound",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
+        "actor_id",
+        "sound_id",
+        "volume",
+        "radius"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "effects::EffectId",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 84,
@@ -817,6 +987,10 @@
       "arguments": [
         "sound_id",
         "pan_offset"
+      ],
+      "argument_types": [
+        "effects::EffectId",
+        "i32"
       ]
     },
     {
@@ -831,35 +1005,53 @@
       "opcode": 87,
       "name": "create_portrait",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12"
+        "portrait_id",
+        "resource_id",
+        "x",
+        "y",
+        "width",
+        "height",
+        "angle",
+        "red",
+        "green",
+        "blue",
+        "alpha",
+        "fade_ticks",
+        "timeline"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "skits::PortraitId",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "skits::PortraitId"
+      ]
     },
     {
       "opcode": 88,
       "name": "load_portrait",
       "arguments": [
-        "arg0"
+        "resource_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "skits::PortraitId"
+      ]
     },
     {
       "opcode": 89,
       "name": "wait_media_position",
       "arguments": [
-        "arg0"
+        "position"
       ],
       "returns_value": false
     },
@@ -870,18 +1062,22 @@
         "character",
         "costume_or_minus_one"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "i32"
+      ]
     },
     {
       "opcode": 92,
       "name": "create_ring_station",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5"
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "unused_4",
+        "resource_id"
       ],
       "returns_value": false
     },
@@ -897,9 +1093,9 @@
       "opcode": 94,
       "name": "scale_portrait",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
+        "portrait_id",
+        "scale_percent",
+        "ticks"
       ],
       "returns_value": false
     },
@@ -943,7 +1139,11 @@
         "mode",
         "duration"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::TransitionMode",
+        "i32"
+      ]
     },
     {
       "opcode": 100,
@@ -953,7 +1153,11 @@
         "value"
       ],
       "yields": true,
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::WaitCondition",
+        "i32"
+      ]
     },
     {
       "opcode": 101,
@@ -974,7 +1178,14 @@
         "flags"
       ],
       "returns_value": true,
-      "yields": true
+      "yields": true,
+      "argument_types": [
+        "scenario::DialogueSlot",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 103,
@@ -991,7 +1202,10 @@
       "arguments": [
         "bit"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "story::StoryFlag"
+      ]
     },
     {
       "opcode": 105,
@@ -999,7 +1213,10 @@
       "arguments": [
         "bit"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "story::StoryFlag"
+      ]
     },
     {
       "opcode": 106,
@@ -1007,13 +1224,16 @@
       "arguments": [
         "bit"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "story::StoryFlag"
+      ]
     },
     {
       "opcode": 107,
       "name": "add_gald",
       "arguments": [
-        "arg0"
+        "amount"
       ],
       "returns_value": true
     },
@@ -1027,10 +1247,14 @@
       "opcode": 109,
       "name": "configure_session",
       "arguments": [
-        "arg0",
-        "arg1"
+        "command",
+        "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::SessionCommand",
+        "i32"
+      ]
     },
     {
       "opcode": 110,
@@ -1069,7 +1293,14 @@
         "wrap_digits"
       ],
       "returns_value": true,
-      "yields": true
+      "yields": true,
+      "argument_types": [
+        "scenario::DialogueSlot",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 114,
@@ -1130,7 +1361,11 @@
         "character_id",
         "delta"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "i32"
+      ]
     },
     {
       "opcode": 119,
@@ -1139,7 +1374,11 @@
         "character_id",
         "delta"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "i32"
+      ]
     },
     {
       "opcode": 120,
@@ -1148,7 +1387,12 @@
         "mode",
         "variant"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::SorcerersRingMode",
+        "i32"
+      ],
+      "result_type": "scenario::SorcerersRingMode"
     },
     {
       "opcode": 121,
@@ -1175,7 +1419,8 @@
         "include_member_8",
         "include_member_9"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "result_type": "characters::CharacterId"
     },
     {
       "opcode": 123,
@@ -1186,7 +1431,13 @@
         "z",
         "unlock_flag"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "story::StoryFlag"
+      ]
     },
     {
       "opcode": 124,
@@ -1208,10 +1459,14 @@
       "opcode": 126,
       "name": "preload_voice_bank",
       "arguments": [
-        "arg0",
-        "arg1"
+        "voice_reference",
+        "bank_slot"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "resources::VoiceArchiveReference",
+        "scenario::VoiceBankSlot"
+      ]
     },
     {
       "opcode": 127,
@@ -1247,7 +1502,13 @@
         "level",
         "skill"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "i32",
+        "i32",
+        "characters::ExSkillId"
+      ]
     },
     {
       "opcode": 130,
@@ -1257,7 +1518,12 @@
         "operation",
         "enabled"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::DialogueSlot",
+        "scenario::DialogueFlagOperation",
+        "i32"
+      ]
     },
     {
       "opcode": 131,
@@ -1268,7 +1534,12 @@
         "repeat_if_seen"
       ],
       "yields": true,
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "skits::SkitId",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 132,
@@ -1276,7 +1547,10 @@
       "arguments": [
         "skit"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "skits::SkitId"
+      ]
     },
     {
       "opcode": 133,
@@ -1294,7 +1568,11 @@
         "character_id",
         "technique_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "techniques::TechniqueId"
+      ]
     },
     {
       "opcode": 135,
@@ -1302,15 +1580,21 @@
       "arguments": [
         "packed_title"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::TitleId"
+      ]
     },
     {
       "opcode": 136,
       "name": "forget_recipe",
       "arguments": [
-        "arg0"
+        "recipe_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "recipes::RecipeId"
+      ]
     },
     {
       "opcode": 137,
@@ -1318,7 +1602,10 @@
       "arguments": [
         "operation"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::PartySnapshotOperation"
+      ]
     },
     {
       "opcode": 138,
@@ -1327,7 +1614,11 @@
         "operation",
         "figurine_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "figurines::FigurineOperation",
+        "figurines::FigurineId"
+      ]
     },
     {
       "opcode": 139,
@@ -1344,7 +1635,12 @@
         "character_id",
         "title_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "characters::TitleId"
+      ],
+      "result_type": "characters::TitleId"
     },
     {
       "opcode": 141,
@@ -1353,7 +1649,11 @@
         "character",
         "message"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "i32"
+      ]
     },
     {
       "opcode": 142,
@@ -1372,7 +1672,7 @@
       "opcode": 144,
       "name": "actor_exists",
       "arguments": [
-        "arg0"
+        "actor_id"
       ],
       "returns_value": true
     },
@@ -1382,7 +1682,10 @@
       "arguments": [
         "character_id"
       ],
-      "yields": true
+      "yields": true,
+      "argument_types": [
+        "characters::CharacterId"
+      ]
     },
     {
       "opcode": 146,
@@ -1391,11 +1694,15 @@
         "command",
         "argument"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "fields::FieldSystemCommand",
+        "i32"
+      ]
     },
     {
       "opcode": 147,
-      "name": "stage_command",
+      "name": "configure_battle_camera",
       "arguments": [
         "command",
         "arg0",
@@ -1425,17 +1732,17 @@
       "opcode": 149,
       "name": "create_triangle_trigger",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10"
+        "record_key",
+        "x0",
+        "y0",
+        "z0",
+        "x1",
+        "y1",
+        "z1",
+        "x2",
+        "y2",
+        "z2",
+        "height"
       ],
       "returns_value": false
     },
@@ -1500,16 +1807,27 @@
         "duration_or_frame",
         "flags"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "scenario::AnimationFlag"
+      ]
     },
     {
       "opcode": 156,
       "name": "set_actor_animation_flags",
       "arguments": [
-        "arg0",
-        "arg1"
+        "actor_id",
+        "flags"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::AnimationFlag"
+      ]
     },
     {
       "opcode": 157,
@@ -1535,7 +1853,12 @@
         "property",
         "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "i32",
+        "scenario::AnimationProperty",
+        "i32"
+      ]
     },
     {
       "opcode": 160,
@@ -1543,7 +1866,10 @@
       "arguments": [
         "camera"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::CameraSelector"
+      ]
     },
     {
       "opcode": 161,
@@ -1552,7 +1878,11 @@
         "property",
         "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::CameraProperty",
+        "i32"
+      ]
     },
     {
       "opcode": 162,
@@ -1560,7 +1890,10 @@
       "arguments": [
         "property"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::CameraProperty"
+      ]
     },
     {
       "opcode": 163,
@@ -1651,10 +1984,14 @@
       "opcode": 171,
       "name": "configure_screen_copy",
       "arguments": [
-        "arg0",
-        "arg1"
+        "command",
+        "depth_hundredths"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::ScreenCopyCommand",
+        "i32"
+      ]
     },
     {
       "opcode": 172,
@@ -1673,11 +2010,16 @@
       "opcode": 173,
       "name": "play_camera_track",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
+        "resource_handle",
+        "start_mode",
+        "repeat_mode"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::CameraTrackStart",
+        "scenario::CameraTrackRepeat"
+      ]
     },
     {
       "opcode": 174,
@@ -1686,7 +2028,11 @@
         "operation",
         "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::CameraTrackCommand",
+        "i32"
+      ]
     },
     {
       "opcode": 175,
@@ -1702,14 +2048,19 @@
         "first_actor_id",
         "second_actor_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::GeometryQuery",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 177,
       "name": "wait_actor_animation_frame",
       "arguments": [
-        "arg0",
-        "arg1"
+        "actor_id",
+        "frame"
       ],
       "returns_value": false
     },
@@ -1736,22 +2087,34 @@
       "name": "find_actor_body_part",
       "arguments": [
         "actor_id",
-        "resource_kind"
+        "body_part"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "i32",
+        "scenario::BodyPartId"
+      ]
     },
     {
       "opcode": 181,
       "name": "configure_actor_bone_rotation",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5"
+        "actor_id",
+        "controller_slot",
+        "bone_index",
+        "rotation_x",
+        "rotation_z",
+        "rotation_y"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::BoneControllerSlot",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 182,
@@ -1789,14 +2152,14 @@
       "opcode": 185,
       "name": "create_scene_actor",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "heading",
+        "resource",
+        "behavior",
+        "speed"
       ],
       "returns_value": false
     },
@@ -1835,7 +2198,7 @@
       "name": "find_actor_node",
       "arguments": [
         "actor_id",
-        "animation_resource_slot"
+        "name_index"
       ],
       "returns_value": true
     },
@@ -1843,9 +2206,12 @@
       "opcode": 189,
       "name": "read_coordinate_register",
       "arguments": [
-        "arg0"
+        "register"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::CoordinateRegister"
+      ]
     },
     {
       "opcode": 190,
@@ -1882,30 +2248,63 @@
         "parameter8",
         "parameter9"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "scenario::EmitterRecipe",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 192,
       "name": "configure_battle_control",
       "arguments": [
-        "arg0",
-        "arg1"
+        "party_slot",
+        "mode"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "battle::BattleControlSlot",
+        "battle::BattleControlMode"
+      ]
     },
     {
       "opcode": 193,
       "name": "configure_actor_attachment",
       "arguments": [
         "actor_id",
-        "value",
-        "part_index",
-        "x",
-        "y",
-        "z",
-        "scale"
+        "controller_slot",
+        "bone_index",
+        "rotation_x",
+        "rotation_z",
+        "rotation_y",
+        "duration"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::BoneControllerSlot",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 194,
@@ -1925,15 +2324,24 @@
       "opcode": 195,
       "name": "configure_actor_bone_translation",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6"
+        "actor_id",
+        "controller_slot",
+        "bone_index",
+        "x",
+        "y",
+        "z",
+        "duration"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::BoneControllerSlot",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 196,
@@ -1941,21 +2349,30 @@
       "arguments": [
         "actor_id",
         "controller_slot",
-        "node_index",
+        "bone_index",
         "scale_x_percent",
         "scale_y_percent",
         "scale_z_percent",
         "duration"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::BoneControllerSlot",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 197,
       "name": "set_actor_animation",
       "arguments": [
         "actor_id",
-        "animation_id",
-        "loop_or_mode"
+        "node_index",
+        "visible"
       ],
       "returns_value": false
     },
@@ -1991,17 +2408,23 @@
       "opcode": 199,
       "name": "has_recipe",
       "arguments": [
-        "arg0"
+        "recipe_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "recipes::RecipeId"
+      ]
     },
     {
       "opcode": 200,
       "name": "learn_recipe",
       "arguments": [
-        "arg0"
+        "recipe_id"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "recipes::RecipeId"
+      ]
     },
     {
       "opcode": 201,
@@ -2010,16 +2433,24 @@
         "character_id",
         "recipe_id"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "recipes::RecipeId"
+      ]
     },
     {
       "opcode": 202,
       "name": "raise_party_member_level",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "level"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "characters::CharacterId",
+        "i32"
+      ]
     },
     {
       "opcode": 203,
@@ -2038,8 +2469,8 @@
       "opcode": 204,
       "name": "read_actor_attachment",
       "arguments": [
-        "arg0",
-        "arg1"
+        "actor_id",
+        "bone_index"
       ],
       "returns_value": false
     },
@@ -2047,10 +2478,10 @@
       "opcode": 205,
       "name": "start_battle",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
+        "formation_id",
+        "arena_id",
+        "defeat_flags",
+        "music_id",
         "arg4",
         "arg5",
         "arg6",
@@ -2061,7 +2492,21 @@
         "arg11"
       ],
       "returns_value": true,
-      "result_type": "i32"
+      "result_type": "battle::BattleOutcome",
+      "argument_types": [
+        "battle::FormationId",
+        "battle::ArenaId",
+        "battle::BattleDefeatPolicy",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 206,
@@ -2090,21 +2535,36 @@
       "opcode": 208,
       "name": "create_particle",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12"
+        "sprite",
+        "lifetime",
+        "x",
+        "y",
+        "z",
+        "velocity_x",
+        "velocity_y",
+        "velocity_z",
+        "size",
+        "alpha",
+        "fade",
+        "palette",
+        "variant"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::ParticleRecipe",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 209,
@@ -2114,7 +2574,12 @@
         "property",
         "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "i32",
+        "scenario::EffectProperty",
+        "i32"
+      ]
     },
     {
       "opcode": 210,
@@ -2145,7 +2610,23 @@
         "palette",
         "variant"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::ParticleRecipe",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 212,
@@ -2191,14 +2672,14 @@
       "opcode": 214,
       "name": "spawn_interaction_actor",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "heading",
+        "resource",
+        "behavior",
+        "speed"
       ],
       "returns_value": false
     },
@@ -2213,7 +2694,15 @@
         "speed_or_duration",
         "auxiliary"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "scenario::CameraPathCommand",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 216,
@@ -2247,7 +2736,10 @@
       "arguments": [
         "treasure_flag"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "treasure::TreasureFlag"
+      ]
     },
     {
       "opcode": 221,
@@ -2275,7 +2767,12 @@
         "property",
         "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "i32",
+        "scenario::ModelParticleProperty",
+        "i32"
+      ]
     },
     {
       "opcode": 223,
@@ -2288,11 +2785,22 @@
       "name": "play_sound",
       "arguments": [
         "sound_id",
-        "raw_velocity",
-        "channel",
-        "note"
+        "pan_offset",
+        "volume",
+        "binding_index"
       ],
-      "returns_value": false
+      "argument_aliases": {
+        "pan_offset": ["raw_velocity"],
+        "volume": ["channel"],
+        "binding_index": ["note"]
+      },
+      "returns_value": false,
+      "argument_types": [
+        "effects::EffectId",
+        "i32",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 225,
@@ -2302,18 +2810,29 @@
         "operation",
         "value"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "scenario::SoundSlotOperation",
+        "i32"
+      ]
     },
     {
       "opcode": 226,
       "name": "play_actor_sound",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
+        "actor_id",
+        "sound_id",
+        "volume",
+        "radius"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "effects::EffectId",
+        "i32",
+        "i32"
+      ]
     },
     {
       "opcode": 227,
@@ -2343,12 +2862,16 @@
     },
     {
       "opcode": 231,
-      "name": "native_e7",
+      "name": "configure_battle_rules",
       "arguments": [
-        "arg0",
-        "arg1"
+        "rule",
+        "value"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::BattleRule",
+        "i32"
+      ]
     },
     {
       "opcode": 232,
@@ -2358,7 +2881,12 @@
         "recipe_id",
         "amount"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "characters::CharacterId",
+        "recipes::RecipeId",
+        "i32"
+      ]
     },
     {
       "opcode": 233,
@@ -2383,7 +2911,11 @@
         "monster",
         "flags"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "monsters::MonsterId",
+        "i32"
+      ]
     },
     {
       "opcode": 236,
@@ -2392,7 +2924,11 @@
         "kind",
         "key"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "argument_types": [
+        "scenario::TriggerKind",
+        "i32"
+      ]
     },
     {
       "opcode": 237,
@@ -2409,7 +2945,10 @@
         "skit_id"
       ],
       "yields": true,
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "skits::SkitId"
+      ]
     },
     {
       "opcode": 240,
@@ -2421,10 +2960,14 @@
       "opcode": 241,
       "name": "set_portrait_talking",
       "arguments": [
-        "arg0",
-        "arg1"
+        "portrait_id",
+        "mode"
       ],
-      "returns_value": false
+      "returns_value": false,
+      "argument_types": [
+        "i32",
+        "skits::PortraitTalkMode"
+      ]
     },
     {
       "opcode": 242,
@@ -2445,9 +2988,9 @@
       "opcode": 244,
       "name": "set_skit_subtitle",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
+        "portrait_id",
+        "unused",
+        "message"
       ],
       "returns_value": false
     }

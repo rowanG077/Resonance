@@ -301,3 +301,32 @@ fn registered_handlers_borrow_state_and_enforce_their_own_abi() {
 fn duplicate_registration_cannot_replace_an_existing_handler() {
     TestHost::NATIVES.register(0x66, 0, false, |_, _, _| Ok(NativeResult::Continue(None)));
 }
+
+#[test]
+fn legacy_native_branches_can_leave_the_stack_unchanged_before_a_terminal_expression() {
+    struct NoResult;
+    impl Host for NoResult {
+        const NATIVES: NativeBindings<Self> =
+            NativeBindings::new()
+                .register(0x66, 0, true, |_, _, _| Ok(NativeResult::LegacyNoResult));
+    }
+    let mut memory = Memory::default();
+    memory.write(0x20, Width::S32, 77).unwrap();
+    let mut runner = vm(&[0x2066, 0x3000, 0x20ff]);
+    assert_eq!(
+        runner.run(&mut NoResult, &mut memory, 20).unwrap().event,
+        RunEvent::Halted
+    );
+    assert_eq!(runner.expression(), Some(-1));
+    assert_eq!(runner.value_depth(), 0);
+    assert_eq!(memory.read(0x20, Width::S32).unwrap(), 77);
+    let mut runner = vm(&[0x2066, 0x20ff]);
+    runner.run(&mut NoResult, &mut memory, 20).unwrap();
+    assert_eq!(runner.expression(), None);
+    assert_eq!(runner.value_depth(), 0);
+    let mut runner = vm(&[9, 0x2066, 0x3000, 0x20ff]);
+    runner.run(&mut NoResult, &mut memory, 20).unwrap();
+    assert_eq!(runner.expression(), Some(9));
+    assert_eq!(runner.value_depth(), 0);
+    assert_eq!(memory.read(0x20, Width::S32).unwrap(), 77);
+}

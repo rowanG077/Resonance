@@ -162,7 +162,7 @@ native_calls! {
     ActorExists = 0x90,
     OpenRenameMenu = 0x91,
     FieldSystem = 0x92,
-    StageCommand = 0x93,
+    ConfigureBattleCamera = 0x93,
     StageOpcode148 = 0x94,
     CreateTriangleTrigger = 0x95,
     CreateAreaTrigger = 0x96,

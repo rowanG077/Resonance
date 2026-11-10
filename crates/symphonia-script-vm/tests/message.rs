@@ -108,3 +108,78 @@ fn all_imported_message_expressions_match_the_original_vm() {
         "All {checked} expression/memory comparisons preserve values, errors and every memory byte ({state_expressions} state expressions; {errors} error cases)."
     );
 }
+
+#[test]
+fn native_message_calls_keep_eager_argument_order_and_the_shared_result_cache() {
+    use symphonia_script_vm::{NativeResult, message::evaluate_with_host};
+    let call = |name: &str, argument| Expression::Call {
+        function: name.into(),
+        arguments: vec![argument],
+    };
+    let expression = Expression::Calculate {
+        operator: 0x31,
+        arguments: vec![
+            call(
+                "first",
+                Expression::Calculate {
+                    operator: 1,
+                    arguments: vec![Expression::State {
+                        offset: 100,
+                        width: Width::S16,
+                    }],
+                },
+            ),
+            call(
+                "second",
+                Expression::State {
+                    offset: 100,
+                    width: Width::S16,
+                },
+            ),
+        ],
+    };
+    let mut memory = Memory::default();
+    memory.write(100, Width::S16, 7).unwrap();
+    let mut calls = Vec::new();
+    let value = evaluate_with_host(&expression, &mut memory, &mut |name, args, _| {
+        calls.push((name.to_owned(), args.to_vec()));
+        Ok(NativeResult::Continue(Some(args[0] * 10)))
+    })
+    .unwrap();
+    assert_eq!(value, 150);
+    assert_eq!(
+        calls,
+        [("first".into(), vec![7]), ("second".into(), vec![8])]
+    );
+    assert_eq!(memory.read(100, Width::S16).unwrap(), 8);
+    assert_eq!(memory.read(0x20, Width::S32).unwrap(), 80);
+}
+
+#[test]
+fn a_resultless_native_message_root_uses_the_terminal_depth_alias() {
+    use symphonia_script_vm::{Fault, NativeResult, message::evaluate_with_host};
+    let call = Expression::Call {
+        function: "no_result".into(),
+        arguments: vec![],
+    };
+    let mut memory = Memory::default();
+    memory.write(0x20, Width::S32, 77).unwrap();
+    assert_eq!(
+        evaluate_with_host(&call, &mut memory, &mut |_, _, _| Ok(
+            NativeResult::LegacyNoResult
+        ))
+        .unwrap(),
+        -1
+    );
+    assert_eq!(memory.read(0x20, Width::S32).unwrap(), 77);
+    let nested = Expression::Calculate {
+        operator: 0x31,
+        arguments: vec![Expression::Constant(5), call],
+    };
+    assert!(matches!(
+        evaluate_with_host(&nested, &mut memory, &mut |_, _, _| Ok(
+            NativeResult::LegacyNoResult
+        )),
+        Err(Fault::ValueUnderflow)
+    ));
+}

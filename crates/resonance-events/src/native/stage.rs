@@ -15,7 +15,7 @@ impl NativeHost<'_> {
             .as_mut()
             .ok_or("battle event is not active")?;
         match call {
-            NativeCall::StageCommand => {
+            NativeCall::ConfigureBattleCamera => {
                 stage.camera.command(
                     arguments
                         .try_into()

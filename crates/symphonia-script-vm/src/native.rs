@@ -10,6 +10,9 @@ pub struct NativeSignature {
 #[derive(Debug, Clone)]
 pub enum NativeResult {
     Continue(Option<i32>),
+    /// Retail native branch intentionally leaves the operand stack unchanged.
+    /// Authored signatures still require their declared result shape.
+    LegacyNoResult,
     /// Immediate fixed-layout authored result, flattened in declaration order.
     Values(Vec<i32>),
     Suspend,
@@ -116,6 +119,25 @@ impl<H> NativeBindings<H> {
         self.entries
             .iter()
             .filter_map(|entry| entry.as_ref()?.declaration)
+    }
+    /// Invoke the same registered service from a headerless message expression.
+    pub fn invoke(
+        &self,
+        opcode: u8,
+        host: &mut H,
+        arguments: &[i32],
+        memory: &mut Memory,
+    ) -> Result<NativeResult, String> {
+        let binding = self
+            .get(opcode)
+            .ok_or_else(|| format!("native {opcode:#x} is unavailable"))?;
+        if arguments.len() != binding.signature.arguments {
+            return Err(format!(
+                "native {opcode:#x} expects {} arguments",
+                binding.signature.arguments
+            ));
+        }
+        (binding.handler)(host, arguments, memory)
     }
     pub fn get(&self, opcode: u8) -> Option<&NativeBinding<H>> {
         self.entries[usize::from(opcode)].as_ref()

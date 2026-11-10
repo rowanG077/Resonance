@@ -648,3 +648,36 @@ fn named_bindings_allocate_free_opcodes_and_keep_their_handlers() {
     );
     assert_eq!(vm.result(), Some(vec![14]));
 }
+
+#[test]
+fn authored_native_signatures_reject_legacy_resultless_branches() {
+    const MISSING: NativeDeclaration = NativeDeclaration {
+        name: "missing_result",
+        opcode: 3,
+        parameters: &[],
+        result: Some(Type::I32),
+        suspends: false,
+    };
+    struct NoResult;
+    impl Host for NoResult {
+        const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::new()
+            .register_typed(MISSING, |_, _, _| Ok(NativeResult::LegacyNoResult));
+    }
+    let shared = Arc::new(
+        Program::from_authored(Module {
+            code: vec![Op::Native(3), Op::ReturnValues(1)],
+            functions: vec![function("main", 0, 0, 0, 1)],
+            natives: vec![MISSING],
+            ..Module::default()
+        })
+        .unwrap(),
+    );
+    let mut runner = Vm::new(shared, 0).unwrap();
+    assert!(matches!(
+        runner
+            .run(&mut NoResult, &mut Memory::default(), 10)
+            .unwrap_err()
+            .fault,
+        Fault::NativeResult
+    ));
+}

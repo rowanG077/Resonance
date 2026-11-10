@@ -14,7 +14,7 @@ macro_rules! bindings {
 }
 impl Host for NativeHost<'_> {
     const NATIVES: NativeBindings<Self> = bindings! {
-        StageCommand(7) -> i32 = stage;
+        ConfigureBattleCamera(7) -> i32 = stage;
         StageOpcode148(7) -> i32 = stage;
         StageOpcode206(7) -> i32 = stage;
         CloseDialogue(1) -> () = dispatch;
