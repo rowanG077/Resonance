@@ -13,12 +13,12 @@ pub struct State {
 impl Party {
     pub fn record_clear(&mut self, shop: &Shop) -> Result<u8> {
         let previous = self.game_clears;
-        if !self.new_game_plus.cleared {
-            let refund = shop.cost(&self.new_game_plus.benefits)?;
-            self.grade_hundredths = self.grade_hundredths.saturating_add(refund).min(MAX_GRADE);
-            self.game_clears = self.game_clears.saturating_add(1).min(100);
-            self.new_game_plus.cleared = true;
-        }
+        // Native session command10 records every invocation, including repeated
+        // calls in a script, and returns the previous count.
+        let refund = shop.cost(&self.new_game_plus.benefits)?;
+        self.grade_hundredths = self.grade_hundredths.saturating_add(refund).min(MAX_GRADE);
+        self.game_clears = self.game_clears.saturating_add(1).min(100);
+        self.new_game_plus.cleared = true;
         Ok(previous)
     }
 
@@ -66,6 +66,7 @@ impl Party {
         }
         if has(Benefit::Figurines) {
             next.figurines = self.figurines.clone();
+            next.figurine_reserved_flags = self.figurine_reserved_flags.clone();
             next.figurine_book_complete = self.figurine_book_complete;
         }
         if has(Benefit::MonsterList) {
@@ -370,7 +371,35 @@ mod tests {
     }
 
     #[test]
-    fn purchases_are_atomic_and_previous_benefits_are_refunded_once() {
+    fn repeated_clear_recording_keeps_the_native_count_and_grade_caps() {
+        let shop = Shop {
+            options: vec![Purchase {
+                benefit: Benefit::Gald,
+                price: 10,
+                name: "Gald".into(),
+                description: String::new(),
+                excludes: vec![],
+            }],
+            labels: Default::default(),
+        };
+        let mut party = Party::new(&crate::party::tests::data(), Default::default()).unwrap();
+        party.new_game_plus.benefits.insert(Benefit::Gald);
+        party.game_clears = 99;
+        party.grade_hundredths = MAX_GRADE - 500;
+        assert_eq!(party.record_clear(&shop).unwrap(), 99);
+        assert_eq!(
+            (party.game_clears, party.grade_hundredths),
+            (100, MAX_GRADE)
+        );
+        assert_eq!(party.record_clear(&shop).unwrap(), 100);
+        assert_eq!(
+            (party.game_clears, party.grade_hundredths),
+            (100, MAX_GRADE)
+        );
+    }
+
+    #[test]
+    fn purchases_are_atomic_and_each_clear_refunds_previous_benefits() {
         let shop = Shop {
             options: vec![Purchase {
                 benefit: Benefit::Gald,
@@ -385,23 +414,23 @@ mod tests {
         party.grade_hundredths = 250;
         party.new_game_plus.benefits.insert(Benefit::Gald);
         assert_eq!(party.record_clear(&shop).unwrap(), 0);
-        party.record_clear(&shop).unwrap();
-        assert_eq!((party.game_clears, party.grade_hundredths), (1, 1250));
+        assert_eq!(party.record_clear(&shop).unwrap(), 1);
+        assert_eq!((party.game_clears, party.grade_hundredths), (2, 2250));
         assert!(
             party
                 .buy_new_game_plus(&shop, [Benefit::Tech].into())
                 .is_err()
         );
-        assert_eq!(party.grade_hundredths, 1250);
+        assert_eq!(party.grade_hundredths, 2250);
         party
             .buy_new_game_plus(&shop, [Benefit::Gald].into())
             .unwrap();
-        assert_eq!(party.grade_hundredths, 250);
+        assert_eq!(party.grade_hundredths, 1250);
         assert!(
             party
                 .buy_new_game_plus(&shop, [Benefit::Gald].into())
                 .is_err()
         );
-        assert_eq!(party.grade_hundredths, 250);
+        assert_eq!(party.grade_hundredths, 1250);
     }
 }

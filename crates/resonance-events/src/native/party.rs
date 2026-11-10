@@ -39,7 +39,7 @@ impl NativeHost<'_> {
                 value = Some(match a[0] {
                     0 => {
                         let previous = party
-                            .exchange_battle_flags(a[1])
+                            .exchange_battle_flags(i32::from(a[1] as u16))
                             .map_err(|error| error.to_string())?;
                         i32::from(previous)
                     }
@@ -48,7 +48,8 @@ impl NativeHost<'_> {
                     3 => i32::from(replace(&mut rules.attack_adjustment, a[1] as i8)),
                     4 => i32::from(replace(&mut rules.defense_adjustment, a[1] as i8)),
                     5 => i32::from(replace(&mut rules.intelligence_adjustment, a[1] as i8)),
-                    _ => return Err("unknown battle rule".into()),
+                    // Retail ignores unknown selectors and pushes zero.
+                    _ => 0,
                 });
             }
             NativeCall::ConfigureMonsterKnowledge => {
@@ -72,21 +73,30 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::ConfigureFigurine => {
-                let id = u16::try_from(a[1]).map_err(|_| "invalid figurine")?;
-                require(
-                    usize::from(id) < resonance_content::figurine::FIGURINE_COUNT,
-                    "unknown figurine",
-                )?;
-                value = Some(i32::from(party.figurines.contains(&id)));
-                match a[0] {
-                    0 => {
-                        party.figurines.insert(id);
+                // Native8A bounds the bit bank at328, independently of the
+                //288 catalogue records. Negative IDs can alias unrelated retail
+                // memory and remain unsupported rather than guessing that state.
+                if a[1] >= 328 {
+                    value = Some(0);
+                } else {
+                    let id = u16::try_from(a[1])
+                        .map_err(|_| "unsupported negative figurine bank alias")?;
+                    let owned = if usize::from(id) < resonance_content::figurine::FIGURINE_COUNT {
+                        &mut party.figurines
+                    } else {
+                        &mut party.figurine_reserved_flags
+                    };
+                    value = Some(i32::from(owned.contains(&id)));
+                    match a[0] {
+                        0 => {
+                            owned.insert(id);
+                        }
+                        1 => {
+                            owned.remove(&id);
+                        }
+                        // The original switch treats every other value as a query.
+                        _ => {}
                     }
-                    1 => {
-                        party.figurines.remove(&id);
-                    }
-                    2 => {}
-                    _ => return Err("unknown figurine operation".into()),
                 }
             }
             NativeCall::RecipeProficiency => {
@@ -255,14 +265,24 @@ impl NativeHost<'_> {
             NativeCall::FindPartyMember => {
                 value = Some(if a[0] & !0xffff != 0 {
                     let slot = (a[0] & 0xffff) as usize;
-                    require(slot < 8, "party slot out of range")?;
-                    party.formation.get(slot).copied().map_or(0, i32::from)
+                    if slot < 8 {
+                        party
+                            .formation
+                            .get(slot)
+                            .copied()
+                            .map_or(0, |id| i32::from(id as i8))
+                    } else {
+                        0
+                    }
+                } else if a[0] == 0 {
+                    0
                 } else {
-                    party
-                        .formation
-                        .iter()
-                        .position(|&id| i32::from(id) == a[0])
-                        .map_or(0, |index| index as i32 + 1)
+                    // The native helper narrows a nonzero query to a byte,
+                    // then searches all eight saved cells, including zeros.
+                    // Thus 256 finds the first empty cell, while 0 returns 0.
+                    (0..8)
+                        .find(|&slot| party.formation.get(slot).copied().unwrap_or(0) == a[0] as u8)
+                        .map_or(0, |slot| slot as i32 + 1)
                 });
             }
             NativeCall::GetTitle if a[1] == 0 => {
@@ -348,28 +368,35 @@ impl NativeHost<'_> {
             }
             NativeCall::GetEquippedItem => {
                 value = Some(
-                    party
-                        .members
-                        .get(member()?)
+                    member()
+                        .ok()
+                        .and_then(|index| party.members.get(index))
                         .and_then(|m| {
                             usize::try_from(a[1])
                                 .ok()
                                 .and_then(|slot| m.equipment.get(slot))
                         })
                         .copied()
-                        .map_or(0, i32::from),
+                        .map_or(0, |item| i32::from(item as i16)),
                 );
             }
-            NativeCall::EquipItem => party.equip(
-                data,
-                member()?,
-                u16::try_from(a[1]).map_err(|_| "invalid equipment item")?,
-            )?,
-            NativeCall::UnequipItem => party.unequip(
-                data,
-                member()?,
-                usize::try_from(a[1]).map_err(|_| "invalid equipment slot")?,
-            )?,
+            NativeCall::EquipItem => {
+                if let Ok(member) = member() {
+                    party.equip_from_script(
+                        data,
+                        member,
+                        u16::try_from(a[1]).map_err(|_| "invalid equipment item")?,
+                    )?;
+                }
+            }
+            NativeCall::UnequipItem => {
+                if let Ok(member) = member()
+                    && let Ok(slot) = usize::try_from(a[1])
+                    && slot < 6
+                {
+                    party.unequip_from_script(data, member, slot)?;
+                }
+            }
             NativeCall::LearnTechnique | NativeCall::HasTechnique | NativeCall::ForgetTechnique => {
                 let id = u16::try_from(a[1]).map_err(|_| "invalid technique")?;
                 let index = member()?;
@@ -414,7 +441,8 @@ impl NativeHost<'_> {
                         }
                         party.adjust_vitals_percent(change);
                     }
-                    _ => return Err("unsupported party recovery mode".into()),
+                    // Native mode1 and unsigned values above23 have no action.
+                    _ => {}
                 }
             }
             NativeCall::AddGald => value = Some(party.add_gald(a[0]) as i32),

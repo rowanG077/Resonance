@@ -88,36 +88,87 @@ fn battle_flags_exchange_supported_values_and_return_previous_value() {
 }
 
 #[test]
-fn battle_flags_reject_unsupported_inputs_atomically() {
-    for (selector, value) in [
-        (0, -1),
-        (0, 65536),
-        (0, 65544),
-        (0, -65528),
-        (-1, 0),
-        (6, 8),
-        (i32::MIN, 8),
-        (i32::MAX, 8),
+fn legacy_battle_flags_truncate_to_the_native_halfword() {
+    for (value, expected) in [
+        (-1, 65535),
+        (65536, 0),
+        (65544, 8),
+        (-65528, 8),
+        (i32::MIN, 0),
+        (i32::MAX, 65535),
     ] {
+        let mut world = world();
+        world.party.as_mut().unwrap().battle_rules.modifiers = 8;
+        let random = world.random_state;
+        let gameplay = world.gameplay_random;
+        let events = runtime(world, &[(0, value)], false);
+        assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 8);
+        assert_eq!(
+            events.world.party.as_ref().unwrap().battle_rules.modifiers,
+            expected
+        );
+        assert_eq!(events.world.random_state, random);
+        assert_eq!(events.world.gameplay_random, gameplay);
+    }
+}
+
+#[test]
+fn unknown_battle_rule_selectors_return_zero_without_mutation() {
+    for selector in [-1, 6, i32::MIN, i32::MAX] {
         let mut world = world();
         world.party.as_mut().unwrap().battle_rules.modifiers = 8;
         let before = world.party.as_ref().unwrap().battle_rules;
         let random = world.random_state;
         let gameplay = world.gameplay_random;
-        let mut events = runtime(world, &[(selector, value)], true);
-        let error = format!("{:#}", events.step().unwrap_err());
-        assert!(
-            error.contains(if selector == 0 {
-                "unsupported saved battle flags"
-            } else {
-                "unknown battle rule"
-            }),
-            "{error}"
-        );
+        let events = runtime(world, &[(selector, 65535)], false);
+        assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 0);
         assert_eq!(events.world.party.as_ref().unwrap().battle_rules, before);
         assert_eq!(events.world.random_state, random);
         assert_eq!(events.world.gameplay_random, gameplay);
     }
+}
+
+#[test]
+fn battle_rule_bytes_return_old_signed_values_and_booleanize_coliseum() {
+    let events = runtime(
+        world(),
+        &[
+            (1, -1),
+            (1, 256),
+            (3, 255),
+            (3, 128),
+            (4, 255),
+            (4, 129),
+            (5, -128),
+            (5, 511),
+            (2, -1),
+            (2, 0),
+        ],
+        false,
+    );
+    for (index, old) in [0, 255, 0, -1, 0, -1, 0, -128, 0, 1]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + index as u16 * 4, Width::S32)
+                .unwrap(),
+            old
+        );
+    }
+    let rules = events.world.party.as_ref().unwrap().battle_rules;
+    assert_eq!(rules.disabled_commands, 0);
+    assert_eq!(
+        [
+            rules.attack_adjustment,
+            rules.defense_adjustment,
+            rules.intelligence_adjustment
+        ],
+        [-128, -127, -1]
+    );
+    assert!(!rules.coliseum);
 }
 
 #[test]

@@ -163,6 +163,67 @@ impl Party {
         Ok(true)
     }
 
+    /// Retail event native2C is a sequence of inventory writes, not the menu's
+    /// atomic exchange. In occupied non-accessory slots it adds the NEW item
+    /// before removing one, losing the old item. At capacity the add fails but
+    /// the removal still happens. Accessories consume first and return slot4.
+    pub(crate) fn equip_from_script(
+        &mut self,
+        data: &SessionData,
+        member: usize,
+        id: u16,
+    ) -> Result<(), String> {
+        let item = data.items.get(usize::from(id)).ok_or("unknown item")?;
+        let character = self.members.get(member).ok_or("unknown party member")?;
+        if self.items.get(&id).copied().unwrap_or(0) == 0
+            || item.allowed_characters & (1 << member) == 0
+        {
+            return Ok(());
+        }
+        let Some(slot) = item
+            .equipment_kind
+            .and_then(|kind| character.preferred_equipment_slot(kind))
+        else {
+            return Ok(());
+        };
+        let old = character.equipment[slot];
+        if item.equipment_kind == Some(4) {
+            self.change_item(data, id, -1)?;
+            if old != 0 {
+                self.change_item(data, old, 1)?;
+            }
+        } else {
+            if old != 0 {
+                self.change_item(data, id, 1)?;
+            }
+            self.change_item(data, id, -1)?;
+        }
+        self.members[member].equipment[slot] = id;
+        self.members[member].clamp_vitals();
+        Ok(())
+    }
+
+    /// Retail native2D clears the slot even if a full inventory rejects the
+    /// returned item. The equipment menu retains its atomic capacity check.
+    pub(crate) fn unequip_from_script(
+        &mut self,
+        data: &SessionData,
+        member: usize,
+        slot: usize,
+    ) -> Result<(), String> {
+        let old = *self
+            .members
+            .get(member)
+            .and_then(|m| m.equipment.get(slot))
+            .ok_or("unknown equipment slot")?;
+        if old != 0 {
+            self.change_item(data, old, 1)?;
+        }
+        self.members[member].equipment[slot] = 0;
+        self.members[member].clamp_vitals();
+        Ok(())
+    }
+
     pub fn can_use_group_item(&self, menus: &MenuData, id: u16) -> bool {
         let Some(ItemUse::Recover {
             hp,

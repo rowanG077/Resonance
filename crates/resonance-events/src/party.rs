@@ -5,6 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 mod battle_flags_tests;
 mod battles;
 mod bestiary;
+#[cfg(test)]
+mod collection_script_tests;
+#[cfg(test)]
+mod script_equipment_tests;
 pub use battles::BattleStatistics;
 mod conditions;
 mod cooking;
@@ -972,6 +976,81 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn gald_adjustment_wraps_before_clamping_and_only_counts_negative_requests() {
+        let data = data();
+        for (previous, amount, spent, expected, expected_spent) in [
+            (500, -600, 0, 0, 500),
+            (0, i32::MAX, 0, MAX_GALD, 0),
+            (1, i32::MAX, 17, 0, 17),
+            (MAX_GALD, i32::MAX, 23, 0, 23),
+            (MAX_GALD, 1, 37, MAX_GALD, 37),
+            (500, -100, u32::MAX - 49, 400, 50),
+            (500, -1000, u32::MAX, 0, 499),
+            (500, 0, 99, 500, 99),
+            (MAX_GALD, i32::MIN, u32::MAX, 0, MAX_GALD - 1),
+        ] {
+            let mut party = Party::new(&data, Default::default()).unwrap();
+            party.gald = previous;
+            party.spent_gald = spent;
+            assert_eq!(party.add_gald(amount), expected, "{previous}, {amount}");
+            assert_eq!(party.spent_gald, expected_spent, "{previous}, {amount}");
+        }
+    }
+
+    #[test]
+    fn unassigned_recovery_modes_leave_party_and_randomness_unchanged() {
+        use std::sync::Arc;
+        let data = Arc::new(data());
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        party.members[0].hp = 17;
+        party.members[0].tp = 5;
+        party.members[0].ailments.poison = Poison::Both;
+        let before = serde_json::to_value(&party).unwrap();
+        let mut words = vec![4, 0, 0, 0];
+        for mode in [1_i32, 24, 25, -1, i32::MIN, i32::MAX] {
+            words.extend([
+                0x0200,
+                mode as u16,
+                (mode as u32 >> 16) as u16,
+                0x3000,
+                0x4000,
+                0x2034,
+            ]);
+        }
+        words.push(0x20ff);
+        let program = Arc::new(
+            symphonia_script::Program::decode(
+                &words
+                    .into_iter()
+                    .flat_map(u16::to_be_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap(),
+        );
+        let resources = Arc::new(crate::ResourceLibrary {
+            session_data: Some(data),
+            ..Default::default()
+        });
+        let gameplay = crate::GameplayRandom::new(41);
+        let events = crate::EventRuntime::with_state(
+            program,
+            resources,
+            crate::GameWorld {
+                party: Some(party),
+                gameplay_random: gameplay,
+                ..Default::default()
+            },
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(events.world.party.as_ref().unwrap()).unwrap(),
+            before
+        );
+        assert_eq!(events.world.gameplay_random, gameplay);
+    }
+
+    #[test]
     fn field_growth_and_healing_use_saved_gameplay_randomness() {
         use std::sync::Arc;
         use symphonia_script::NativeCall;
@@ -1218,6 +1297,9 @@ pub struct Party {
     pub battle_rules: crate::battle::Rules,
     #[serde(default)]
     pub figurines: BTreeSet<u16>,
+    /// Retail native8A also exposes bank bits288..327, outside the catalogue.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub figurine_reserved_flags: BTreeSet<u16>,
     #[serde(default)]
     pub monsters: BTreeMap<u8, MonsterKnowledge>,
     #[serde(default)]
@@ -1355,6 +1437,12 @@ impl Party {
                 .iter()
                 .all(|&id| usize::from(id) < resonance_content::figurine::FIGURINE_COUNT),
             "invalid saved figurine"
+        );
+        ensure!(
+            self.figurine_reserved_flags
+                .iter()
+                .all(|&id| (288..328).contains(&id)),
+            "invalid saved reserved figurine flag"
         );
         ensure!(
             self.encounter_modifier
@@ -1530,6 +1618,7 @@ impl Party {
             battle_rules: Default::default(),
             monsters: BTreeMap::new(),
             figurines: BTreeSet::new(),
+            figurine_reserved_flags: BTreeSet::new(),
             travel: Travel::default(),
             field_leader: 1,
             leader_locked: false,
@@ -1594,10 +1683,16 @@ impl Party {
     }
     pub fn add_gald(&mut self, amount: i32) -> u32 {
         let previous = self.gald;
-        self.gald = (i64::from(previous) + i64::from(amount)).clamp(0, i64::from(MAX_GALD)) as u32;
-        self.spent_gald = self
-            .spent_gald
-            .saturating_add(previous.saturating_sub(self.gald));
+        // Native8004DC10 wraps the signed addition before clamping. Only a
+        // negative request records spending, whose counter also wraps.
+        self.gald = (previous as i32)
+            .wrapping_add(amount)
+            .clamp(0, MAX_GALD as i32) as u32;
+        if amount < 0 {
+            self.spent_gald = self
+                .spent_gald
+                .wrapping_add(previous.saturating_sub(self.gald));
+        }
         self.gald
     }
     pub fn heal(&mut self, mut random: impl FnMut() -> u32) {
