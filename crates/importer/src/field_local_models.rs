@@ -641,3 +641,93 @@ fn cook_scene_capture(archive: &[u8], section: usize, output: ModelOutput<'_>) -
         hidden_geometry: Vec::new(),
     })
 }
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires the original GQSEAF MAP archives at local/extracted"]
+fn original_ymir_shared_models_select_the_scene_model_packages() -> Result<()> {
+    use symphonia_constants::{Field0519ModelId, Field0520ModelId, Field0521ModelId};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+    let mut packages: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+    for field in [519, 520, 521] {
+        let (_, archive) = field_core::read(&root, field)?;
+        let models = local_models(field, &archive)?;
+        for (index, size) in [
+            9344, 9344, 9344, 9600, 9888, 10240, 43456, 12384, 39008, 34720, 109888, 111744,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let section = 16 + index;
+            let handle = 0xffee_0000u32 + index as u32;
+            let package = field_core::optional_section(&archive, section)?.unwrap();
+            assert_eq!(package.len(), size, "field{field} section{section}");
+            assert_eq!(dol::u32(package, 0)?, 31, "field{field} section{section}");
+            if let Some(original) = packages.get(&section) {
+                assert_eq!(
+                    package,
+                    original.as_slice(),
+                    "shared Ymir package differs in field{field}"
+                );
+            } else {
+                packages.insert(section, package.to_vec());
+            }
+            let (_, actor) = models.iter().find(|(index, _)| *index == section).unwrap();
+            assert_eq!(actor.resource, handle);
+            assert_eq!(
+                actor.model,
+                format!(
+                    "fields/ymir-forest-{field:04}/models/unidentified-{}.json",
+                    section - 15
+                )
+            );
+            println!(
+                "field{field} section{section}: {}bytes, handle{handle:#x}",
+                package.len()
+            );
+        }
+    }
+    for (field, handles) in [
+        (
+            519,
+            Field0519ModelId::ALL
+                .iter()
+                .map(|id| id.raw())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            520,
+            Field0520ModelId::ALL.iter().map(|id| id.raw()).collect(),
+        ),
+        (
+            521,
+            Field0521ModelId::ALL.iter().map(|id| id.raw()).collect(),
+        ),
+    ] {
+        let (_, archive) = field_core::read(&root, field)?;
+        let models = local_models(field, &archive)?;
+        for handle in handles {
+            assert!(
+                models
+                    .iter()
+                    .any(|(_, actor)| actor.resource == handle as u32),
+                "field{field} handle{handle}"
+            );
+        }
+    }
+    assert_eq!(Field0519ModelId::SmallFish.raw() as u32, 0xffee_0007);
+    for (small, large) in [
+        (
+            Field0520ModelId::SmallFish.raw(),
+            Field0520ModelId::LargeFish.raw(),
+        ),
+        (
+            Field0521ModelId::SmallFish.raw(),
+            Field0521ModelId::LargeFish.raw(),
+        ),
+    ] {
+        assert_eq!(small as u32, 0xffee_0007);
+        assert_eq!(large as u32, 0xffee_0008);
+    }
+    Ok(())
+}

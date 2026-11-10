@@ -2,6 +2,9 @@
 use anyhow::Result;
 use std::path::Path;
 
+#[cfg(test)]
+mod tests;
+
 fn definitions() -> &'static symphonia_script_compiler::scenario::Definitions {
     static DEFINITIONS: std::sync::OnceLock<symphonia_script_compiler::scenario::Definitions> =
         std::sync::OnceLock::new();

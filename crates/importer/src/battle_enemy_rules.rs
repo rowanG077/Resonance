@@ -2021,3 +2021,58 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
     crate::output::json(&output, &entry)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires the original GQSEAF enemy archives at local/extracted"]
+    fn original_enemy_action_flags_survive_cooking_without_becoming_eligibility_bits() -> Result<()>
+    {
+        let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
+        let mut packages = EnemyPackages::open(&extracted)?;
+        let mut count = 0;
+        let mut gated = Vec::new();
+        for enemy in MonsterId::ALL {
+            let data = packages.read(enemy.raw())?;
+            assert_eq!(&data[..4], b"em8\0");
+            let rows = section(&data, 10)?;
+            assert!(rows.len().is_multiple_of(68));
+            assert_eq!(usize::from(section(&data, 12)?[23]), rows.len() / 68);
+            for (index, row) in rows.chunks_exact(68).enumerate() {
+                count += 1;
+                let required_flag = half(row, 58)?;
+                if required_flag != 0 {
+                    gated.push((enemy, index, required_flag));
+                }
+                if enemy != MonsterId::BabyDragon {
+                    continue;
+                }
+                // Exercise the production serializer on the original row. The
+                // prerequisite is independent of the packed eligibility mask.
+                let flags = word(row, 8)?;
+                let requirements = requirements(row, flags)?;
+                let cooked = choice(row, flags, requirements, Value::Null)?;
+                let decoded: resonance_content::battle_action::EnemyAction =
+                    serde_json::from_value(cooked)?;
+                assert_eq!(
+                    decoded.required_flag,
+                    (required_flag != 0).then_some(required_flag)
+                );
+                assert!(decoded.requirements.predicates.is_empty());
+            }
+        }
+        assert_eq!(MonsterId::ALL.len(), 251);
+        assert_eq!(count, 1210);
+        assert_eq!(
+            gated,
+            [(
+                MonsterId::BabyDragon,
+                4,
+                symphonia_constants::StoryFlag::IslandRanch0222Visited.raw()
+            )]
+        );
+        Ok(())
+    }
+}
