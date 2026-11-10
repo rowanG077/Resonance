@@ -13,6 +13,8 @@ glam.workspace = true
 gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names", "extras"] }
 hound = "3.5"
 resonance-asset-writer.workspace = true
+symphonia-script-compiler.workspace = true
+symphonia-script.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }

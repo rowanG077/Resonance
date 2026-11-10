@@ -43,7 +43,7 @@ fn fixture() -> Result<Fixture> {
         document::MAPPINGS,
         serde_json::json!({"1":"arrival"}),
     );
-    fixture.write("base/skits/arrival/scenario.ssb", b"scenario");
+    fixture.write("base/skits/arrival/scenario.sym", b"scenario");
     fixture.publish(
         "base",
         "audio/speech/mappings.json",
@@ -237,13 +237,13 @@ fn skit_dialogue_can_be_added_by_a_mod_without_changing_the_catalogue() -> Resul
 #[test]
 fn optional_dialogue_does_not_make_the_scenario_optional() -> Result<()> {
     let fixture = fixture()?;
-    fs::remove_file(fixture.0.path().join("base/skits/arrival/scenario.ssb"))?;
+    fs::remove_file(fixture.0.path().join("base/skits/arrival/scenario.sym"))?;
     let error = format!(
         "{:#}",
         document::capture(&mut fixture.open(&[])?.snapshot(), &|| false).unwrap_err()
     );
     assert!(
-        error.contains("missing skit resource skits/arrival/scenario.ssb"),
+        error.contains("missing skit resource skits/arrival/scenario.sym"),
         "{error}"
     );
     Ok(())
@@ -261,13 +261,13 @@ fn shared_skit_owners_keep_ids_and_allow_independent_mod_overrides() -> Result<(
     assert!(!shared.resources[&1].allow_skip);
     assert!(shared.resources[&2].allow_skip);
     fixture.write("mod/skits/mappings/2.json", br#""new-conversation""#);
-    fixture.write("mod/skits/new-conversation/scenario.ssb", b"replacement");
+    fixture.write("mod/skits/new-conversation/scenario.sym", b"replacement");
     fixture.write("mod/skits/new-conversation/messages.json", br#"["Hello"]"#);
     let fresh = document::capture(&mut fixture.open(&["mod"])?.snapshot(), &|| false)?;
-    assert_eq!(fresh.resources[&1].script, "skits/arrival/scenario.ssb");
+    assert_eq!(fresh.resources[&1].script, "skits/arrival/scenario.sym");
     assert_eq!(
         fresh.resources[&2].script,
-        "skits/new-conversation/scenario.ssb"
+        "skits/new-conversation/scenario.sym"
     );
     assert!(fresh.resources[&1].messages.is_none());
     assert_eq!(
@@ -276,7 +276,7 @@ fn shared_skit_owners_keep_ids_and_allow_independent_mod_overrides() -> Result<(
     );
     assert_eq!(
         document::capture(&mut held, &|| false)?.resources[&2].script,
-        "skits/arrival/scenario.ssb"
+        "skits/arrival/scenario.sym"
     );
     Ok(())
 }

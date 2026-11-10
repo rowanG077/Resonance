@@ -89,6 +89,7 @@ impl Capture {
         let source = self.0.lock().unwrap();
         let mut snapshot = source.library.snapshot();
         snapshot.common = source.common.clone();
+        snapshot.scenarios = source.scenarios.clone();
         snapshot.source = Some(self.0.clone());
         snapshot
     }

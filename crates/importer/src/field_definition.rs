@@ -8,7 +8,6 @@ use resonance_content::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::Path,
 };
 use symphonia_script::{NativeCall, Program, message, scenario};
@@ -68,7 +67,7 @@ pub fn cook_field_definition(extracted: &Path, library: &Path, id: u32) -> Resul
         "invalid field ID {id}"
     );
     let root = format!("fields/{}", field_core::field_name(id as usize));
-    let script = format!("{root}/scripts/scenario.ssb");
+    let script = format!("{root}/scripts/scenario.sym");
     let scene = format!("{root}/scene.json");
     let actors = format!("{root}/actors.json");
     let collision = format!("{root}/collision.glb");
@@ -82,7 +81,7 @@ pub fn cook_field_definition(extracted: &Path, library: &Path, id: u32) -> Resul
         crate::authoring::document_exists(library, "fields/settings.json"),
         "field {id} lacks shared field settings"
     );
-    let bytes = fs::read(library.join(&script))?;
+    let bytes = crate::scripts::read_scenario(&library.join(&script))?;
     let program = Program::decode(&bytes)?;
     let analysis = scenario::analyze(&bytes)?;
     let messages = message::parse(

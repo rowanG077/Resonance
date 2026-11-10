@@ -98,10 +98,11 @@ fn capture(
         .get(&ORB_SPRITE)
         .context("missing title glow sprite")?
         .clone();
-    let events =
-        resonance_game::title_events::start(&files.read(&assets.script)?, &assets, |path| {
-            files.read(path)
-        })?;
+    let events = resonance_game::title_events::start(
+        &resonance_content::scenario::read(&files, &assets.script)?,
+        &assets,
+        |path| files.read(path),
+    )?;
     ensure!(!cancelled(), "title preparation cancelled");
     Ok(Prepared {
         scene: Scene { assets, glow },

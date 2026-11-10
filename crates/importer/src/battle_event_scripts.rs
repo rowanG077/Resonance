@@ -1,4 +1,4 @@
-//! Original battle programs retain native IDs; identical programs share one file.
+//! Readable battle programs retain native IDs; identical programs share one file.
 use anyhow::{Result, ensure};
 use resonance_content::library::Mappings;
 use std::{collections::BTreeMap, fs, path::Path};
@@ -13,8 +13,8 @@ fn program(library: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     );
     Program::decode(bytes)?;
     let messages = message::parse(&bytes[header.auxiliary_offset()..])?;
-    let path = library.join(format!("battle/scripts/{name}.ssb"));
-    crate::output::write(&path, bytes)?;
+    let path = library.join(format!("battle/scripts/{name}.sym"));
+    crate::scripts::cook_scenario(library, &path, bytes)?;
     let path = library.join(format!("battle/scripts/{name}-messages.json"));
     if !messages.is_empty() {
         crate::output::json(&path, &messages)?;
@@ -37,10 +37,10 @@ pub fn cook_battle_event_scripts(root: &Path, library: &Path, selected: Option<u
             .or_insert_with(|| event.resource_name().unwrap().into())
             .clone();
         if selected.is_none_or(|wanted| wanted == id) {
-            if !names.values().any(|name| name == &format!("{owner}.ssb")) {
+            if !names.values().any(|name| name == &format!("{owner}.sym")) {
                 program(library, &owner, &bytes)?;
             }
-            names.insert(u32::from(id), format!("{owner}.ssb"));
+            names.insert(u32::from(id), format!("{owner}.sym"));
         }
     }
     const MAPPINGS: &str = "battle/scripts/mappings.json";

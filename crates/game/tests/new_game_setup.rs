@@ -6,7 +6,7 @@ use resonance_events::{
     Actor, EventRuntime, GameWorld, ResourceLibrary, camera::CameraRig, dialogue::ChoiceExit,
     party::Party,
 };
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 use symphonia_script::Program;
 use symphonia_script_vm::Memory;
 
@@ -18,7 +18,7 @@ fn field_entry_has_a_pose_before_the_first_update() {
 
     for map in [7, 332, 481] {
         let assets: FieldAssets = common::field(map);
-        let script = fs::read(asset_root().join(&assets.script)).unwrap();
+        let script = resonance_content::scenario::read_root(&asset_root(), &assets.script).unwrap();
         for idle_animation in [None, Some(slot::WALK)] {
             let session = FieldSession::enter(
                 &script,
@@ -48,7 +48,10 @@ fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
     assets.validate().unwrap();
     let data: SessionData = common::session();
     let data = Arc::new(data);
-    let program = Arc::new(Program::decode(&fs::read(root.join(&assets.script)).unwrap()).unwrap());
+    let program = Arc::new(
+        Program::decode(&resonance_content::scenario::read_root(&root, &assets.script).unwrap())
+            .unwrap(),
+    );
     let resources = Arc::new(ResourceLibrary {
         messages: assets.messages.as_deref().map(cooked).unwrap_or_default(),
         session_data: Some(data.clone()),

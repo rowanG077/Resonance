@@ -13,6 +13,7 @@ pub struct Files {
     diagnostics: Diagnostics,
     overrides: Vec<crate::library::Override>,
     library: Option<crate::library::Library>,
+    pub(crate) scenarios: crate::scenario::Cache,
 }
 impl Default for Files {
     fn default() -> Self {
@@ -28,6 +29,7 @@ impl Files {
             diagnostics,
             overrides: Vec::new(),
             library: None,
+            scenarios: Default::default(),
         }
     }
 }
@@ -88,6 +90,7 @@ impl Files {
         result.overrides = captured.overrides;
         result.bytes = Arc::new(captured.files);
         result.common = captured.common;
+        result.scenarios = captured.scenarios;
         Ok(result)
     }
 
@@ -117,9 +120,11 @@ impl Files {
             .with_context(|| format!("unprepared cooked resource {path}"))
     }
     pub fn insert(&mut self, path: String, bytes: Arc<[u8]>) {
+        self.scenarios.invalidate(&path);
         Arc::make_mut(&mut self.bytes).insert(path, bytes);
     }
     pub fn remove(&mut self, path: &str) {
+        self.scenarios.invalidate(path);
         // Explicit editing APIs materialize the inherited view locally. Runtime
         // preparations keep startup bytes shared and immutable.
         let bytes = Arc::make_mut(&mut self.bytes);
@@ -131,6 +136,7 @@ impl Files {
         bytes.remove(path);
     }
     pub fn clear(&mut self) {
+        self.scenarios = Default::default();
         self.bytes = Default::default();
         self.common = None;
     }

@@ -22,5 +22,6 @@ serde.workspace = true
 serde_json.workspace = true
 symphonia-constants.workspace = true
 symphonia-script.workspace = true
+symphonia-script-compiler.workspace = true
 tempfile = "3"
 sha2.workspace = true

@@ -11,7 +11,7 @@ use resonance_events::{
     party::{Ailments, Party, Poison, StatBuff},
 };
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldInput, FieldSession};
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
 fn session_data() -> Arc<SessionData> {
     Arc::new(SessionData::load(&menu_files()).unwrap())
@@ -44,7 +44,7 @@ fn classroom(mut entry: FieldEntry) -> FieldSession {
     })
     .unwrap();
     FieldSession::enter(
-        &entry.menu_files.read(&assets.script).unwrap(),
+        &resonance_content::scenario::read(&entry.menu_files, &assets.script).unwrap(),
         entry
             .menu_files
             .json_or_default(assets.messages.as_deref())
@@ -177,7 +177,7 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     let enter = |mut entry: FieldEntry| {
         entry.menu_data = Some(menus.clone());
         FieldSession::enter(
-            &fs::read(root.join(&assets.script)).unwrap(),
+            &resonance_content::scenario::read_root(&root, &assets.script).unwrap(),
             assets.messages.as_deref().map(cooked).unwrap_or_default(),
             &assets,
             entry,
@@ -3214,35 +3214,15 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
     let root = asset_root();
     let library = resonance_content::library::Library::open(&root, &[]).unwrap();
     let mut snapshot = library.snapshot();
-    let catalog = Arc::new(common::skits());
-    let text: Arc<resonance_content::session::GameText> = Arc::new(common::game_text());
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false).unwrap();
+    let catalog =
+        Arc::new(resonance_content::skit::document::capture(&mut snapshot, &|| false).unwrap());
+    let files =
+        resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics).unwrap();
+    let text = Arc::new(resonance_content::session::GameText::load(&files).unwrap());
+    let data = Arc::new(SessionData::load(&files).unwrap());
     let mut failures = Vec::new();
-    let data: Arc<SessionData> = session_data();
-    let mut files = resonance_content::prepared::Files::default();
-    for path in
-        [
-            resonance_content::characters::PATH,
-            resonance_content::titles::PATH,
-            resonance_content::cooking::PATH,
-            resonance_content::ex_skills::PATH,
-            resonance_content::strategy::PATH,
-            resonance_content::foraging::PATH,
-            resonance_content::library::FIELDS,
-            resonance_content::items::PATH,
-            resonance_content::arte::PATH,
-        ]
-        .into_iter()
-        .chain(catalog.resources.values().flat_map(|paths| {
-            std::iter::once(paths.script.as_str()).chain(paths.messages.as_deref())
-        }))
-    {
-        files.insert(
-            path.to_owned(),
-            snapshot
-                .read(path, resonance_content::preparation::ASSET_LIMIT)
-                .unwrap(),
-        );
-    }
     let prepared = resonance_game::skit::Prepared::load(
         catalog.clone(),
         &files,
@@ -3264,9 +3244,9 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                 actor_names: ResourceLibrary::character_names(),
                 ..Default::default()
             });
-            let program = Arc::new(symphonia_script::Program::decode(&fs::read(
-                root.join(&paths.script),
-            )?)?);
+            let program = Arc::new(symphonia_script::Program::decode(
+                &resonance_content::scenario::read(&files, &paths.script)?,
+            )?);
             let mut world = GameWorld::default();
             world.skit = Some(Default::default());
             world.party = Some(resonance_events::party::Party::new(
@@ -4138,7 +4118,7 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
         }
     }
     let mut field = FieldSession::enter(
-        &fs::read(root.join(&assets.script)).unwrap(),
+        &resonance_content::scenario::read_root(&root, &assets.script).unwrap(),
         assets.messages.as_deref().map(cooked).unwrap_or_default(),
         &assets,
         FieldEntry {

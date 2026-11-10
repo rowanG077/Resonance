@@ -1,4 +1,4 @@
-//! Native skit packages directly into named scenario bytecode and messages.
+//! Native skit packages directly into readable scenario source and messages.
 //! The source filename arrays determine playable IDs; physical source paths
 //! never enter the cooked library.
 use crate::{dol, text};
@@ -25,7 +25,7 @@ const TABLES: [(u32, usize, u32, usize); 5] = [
     (0x8020d4d8, 94, 0x8020fe84, 94),
 ];
 
-fn sources(root: &Path) -> Result<(Mappings, BTreeMap<u16, PathBuf>)> {
+pub(crate) fn sources(root: &Path) -> Result<(Mappings, BTreeMap<u16, PathBuf>)> {
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let titles: BTreeMap<u16, String> = symphonia_constants::SkitId::ALL
         .iter()
@@ -228,7 +228,7 @@ fn catalogue_media(mappings: &Mappings, files: &BTreeMap<u16, PathBuf>) -> Resul
     Ok(media)
 }
 
-fn script(path: &Path) -> Result<(Vec<u8>, Vec<message::Message>)> {
+pub(crate) fn script(path: &Path) -> Result<(Vec<u8>, Vec<message::Message>)> {
     let source = fs::read(path).with_context(|| format!("read skit {}", path.display()))?;
     parse_script(&source, path)
 }
@@ -255,14 +255,14 @@ fn parse_script(source: &[u8], path: &Path) -> Result<(Vec<u8>, Vec<message::Mes
     Ok((bytes, messages))
 }
 
-/// Focused conversion of one ID, preserving the original SSB bytecode.
+/// Focused conversion of one ID to .sym that compiles to its original bytecode.
 pub fn cook_skit_script(root: &Path, library: &Path, id: u16) -> Result<()> {
     let (mapping, files) = sources(root)?;
     let name = mapping.target(u32::from(id))?;
     let path = files.get(&id).context("skit has no native package")?;
     let (bytes, messages) = script(path)?;
     let directory = library.join("skits").join(name);
-    crate::output::write(&directory.join("scenario.ssb"), &bytes)?;
+    crate::scripts::cook_scenario(library, &directory.join("scenario.sym"), &bytes)?;
     if !messages.is_empty() {
         crate::output::write(
             &directory.join("messages.json"),
@@ -308,7 +308,7 @@ pub fn cook_skits(root: &Path, library: &Path) -> Result<()> {
         written.insert(name.clone(), source);
         media.extend(requested_voices(&bytes)?);
         let directory = library.join("skits").join(name);
-        crate::output::write(&directory.join("scenario.ssb"), &bytes)?;
+        crate::scripts::cook_scenario(library, &directory.join("scenario.sym"), &bytes)?;
         if !messages.is_empty() {
             crate::output::write(
                 &directory.join("messages.json"),
@@ -329,7 +329,7 @@ pub fn cook_skits(root: &Path, library: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Native test programs have no gameplay ID; preserve their ordinary SSB payload.
+/// Native test programs have no gameplay ID; publish their matching `.sym` source.
 pub fn cook_unassigned_skits(root: &Path, library: &Path) -> Result<()> {
     let (_, selected) = sources(root)?;
     for entry in fs::read_dir(root.join("disc1/files/CHT"))? {
@@ -350,7 +350,7 @@ pub fn cook_unassigned_skits(root: &Path, library: &Path) -> Result<()> {
         };
         let (bytes, messages) = script(&path)?;
         let directory = library.join("skits").join(name);
-        crate::output::write(&directory.join("scenario.ssb"), &bytes)?;
+        crate::scripts::cook_scenario(library, &directory.join("scenario.sym"), &bytes)?;
         if !messages.is_empty() {
             crate::output::write(
                 &directory.join("messages.json"),

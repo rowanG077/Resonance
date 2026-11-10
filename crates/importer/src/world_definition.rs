@@ -95,7 +95,7 @@ pub fn cook_world_definition(root: &Path, library: &Path) -> Result<()> {
         }
     }
     let definition = world::Definition {
-        script: "world/scripts/scenario.ssb".into(),
+        script: "world/scripts/scenario.sym".into(),
         messages: (!messages.is_empty()).then(|| "world/messages.json".into()),
         audio: audio::Definition {
             music,

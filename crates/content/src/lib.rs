@@ -61,6 +61,7 @@ pub mod preparation;
 pub mod prepared;
 pub mod random;
 pub mod resource;
+pub mod scenario;
 pub(crate) mod scene_clips;
 mod scene_materials;
 pub mod secondary_motion;

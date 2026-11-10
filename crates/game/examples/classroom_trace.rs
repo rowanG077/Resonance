@@ -1,6 +1,6 @@
 //! Device-free development probe of the original classroom event entry.
 use anyhow::Result;
-use std::{fs, path::Path};
+use std::path::Path;
 fn main() -> Result<()> {
     let root = Path::new("local/cooked");
     let library = resonance_content::library::Library::open(root, &[])?;
@@ -15,7 +15,10 @@ fn main() -> Result<()> {
     let messages = files.json_or_default(field.messages.as_deref())?;
     if let Some(pc) = std::env::args().nth(1).filter(|a| !a.starts_with("--")) {
         let start = u32::from_str_radix(pc.trim_start_matches("0x"), 16)?;
-        let program = symphonia_script::Program::decode(&fs::read(root.join(&field.script))?)?;
+        let program = symphonia_script::Program::decode(&resonance_content::scenario::read(
+            &files,
+            &field.script,
+        )?)?;
         for pc in start..start + 200 {
             if let Some((op, _)) = program.instruction(pc) {
                 println!("{pc:04x} {op:?}");
@@ -23,8 +26,11 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
-    let mut events =
-        resonance_game::field::start(&fs::read(root.join(&field.script))?, messages, &field)?;
+    let mut events = resonance_game::field::start(
+        &resonance_content::scenario::read(&files, &field.script)?,
+        messages,
+        &field,
+    )?;
     let automatic = std::env::args().any(|a| a == "--auto");
     let interaction = std::env::args().any(|a| a == "--interact");
     let mut interacted = false;

@@ -29,7 +29,7 @@ fn original_world_script_initializes_and_routes_all_landmark_handlers() -> Resul
         .as_ref()
         .context("missing session data")?
         .clone();
-    let bytes = prepared.files.read(&prepared.definition.script)?;
+    let bytes = resonance_content::scenario::read(&prepared.files, &prepared.definition.script)?;
     let program = Arc::new(Program::decode(&bytes)?);
     let resources = prepared.resources.clone();
     let mut party = Party::new(&data, Default::default())?;

@@ -1577,7 +1577,7 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
     )?);
     world.input_enabled = true;
     let program = Arc::new(symphonia_script::Program::decode(
-        &prepared.files.read(&prepared.definition.script)?,
+        &resonance_content::scenario::read(&prepared.files, &prepared.definition.script)?,
     )?);
     let mut parent = resonance_events::EventRuntime::with_state(
         program,

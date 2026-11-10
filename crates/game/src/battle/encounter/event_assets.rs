@@ -86,8 +86,6 @@ pub fn load(files: &Files, scene: Arc<Scene>) -> Result<crate::battle::event::Pr
             .insert(resource as i32, (ResourceKind::Model, resource));
         resources.models.insert(resource, prepared);
     }
-    let program = Arc::new(symphonia_script::Program::decode(
-        &files.read(&scene.script)?,
-    )?);
+    let program = resonance_content::scenario::program(files, &scene.script)?;
     Ok(crate::battle::event::Prepared::new(program, Arc::new(resources)).with_scene(scene))
 }

@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         }
     };
     let mut session = FieldSession::enter(
-        &fs::read(root.join(&assets.script))?,
+        &resonance_content::scenario::read(&files, &assets.script)?,
         messages,
         &assets,
         entry,
@@ -256,7 +256,7 @@ fn main() -> Result<()> {
                 files.diagnostics().clone(),
             )?;
             let next = FieldSession::enter(
-                &next_files.read(&assets.script)?,
+                &resonance_content::scenario::read(&next_files, &assets.script)?,
                 next_files.json_or_default(assets.messages.as_deref())?,
                 &assets,
                 FieldEntry {

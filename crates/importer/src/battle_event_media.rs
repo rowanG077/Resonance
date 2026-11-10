@@ -265,7 +265,7 @@ pub fn cook_battle_event_media(root: &Path, library: &Path, selected: Option<u16
             actors.insert(9, actor_path("kratos"));
         }
         let definition = Definition {
-            script: format!("battle/scripts/{name}.ssb"),
+            script: format!("battle/scripts/{name}.sym"),
             messages: Some(format!("battle/scripts/{name}-messages.json")),
             blink: None,
             audio: audio(event.raw() == 3),

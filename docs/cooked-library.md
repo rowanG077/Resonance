@@ -74,7 +74,7 @@ model documents with GLB meshes and motions. Seven unassigned motions live in
 `battle/scripts/mappings.json` preserves original event program IDs 2–9. IDs 5–9
 share one program. Playable battle event definitions remain under
 `battle/events/`; a preserved program alone does not supply its actors or rules.
-`battle/scripts/common.ssb` retains the separate common program.
+`battle/scripts/common.sym` retains the separate common program.
 
 Four arrangements without known music IDs are ordinary looping WAVs under
 `audio/music/unmapped/`. They use the native instrument bank with dry output;
@@ -1369,19 +1369,40 @@ silent placeholders have `events/unassigned/` names without an empty directory.
 
 ## Original scenarios and saves
 
-Original `.ssb` scenarios remain bytecode. Edit dialogue through `messages.json`.
-For instruction changes, keep a working assembly file outside the library:
+Original field, world, battle and skit scenarios are readable `.sym` source.
+Override the selected file at its relative path in a mod. Preparation compiles
+the source against the captured `scripts/std/*.sym` definitions. Edit dialogue
+through `messages.json`. Explicit binary inspection and export remain available:
 
 ```sh
-symphonia-script scenario disassemble /path/to/scenario.ssb work/scenario.ssasm
-symphonia-script scenario assemble work/scenario.ssasm /path/to/mod/scenario.ssb
+symphonia-script scenario decompile /path/to/scenario.ssb work/scenario.sym --assets /path/to/cooked
+symphonia-script scenario compile work/scenario.sym work/scenario.ssb --assets /path/to/cooked
 ```
 
-Use the original relative scenario path in your mod. The selected `.ssb` is
-authoritative; assembly validates it before replacing the target. This is
-instruction-level editing: changing instruction sizes can require updating the
-explicit registry and auxiliary table layout. Authored `.sym` modules are already
-readable source and need no manual compilation.
+Use the same current cooked library for both commands so they share its editable
+standard definitions.
+
+Unedited decompiled sources reproduce every input byte. The compiler relocates
+branch labels, event entries and auxiliary offsets after edits. Source retains
+explicit memory widths and rare VM intrinsics where stack values cross control
+flow. Layout 103 requires a fresh cook to publish the new source paths.
+
+The byte comparison covers the scenario input, including its headers and data.
+Cooking applies existing gameplay corrections to fields 0126, 0127, 0139, 0377,
+0413 and 0524 before decompilation, so those sources match the prepared scripts.
+To preserve an unmodified original scenario, decompile that input directly.
+Disc archive compression and packaging are outside this compiler.
+
+Audit a fresh publication against a preserved normalized binary corpus with:
+
+```sh
+cargo run -p symphonia-script-tools --example verify_cooked_sources --offline -- /path/to/normalized-originals /path/to/cooked
+```
+
+This compiles each corresponding `.sym` using the cooked library's own
+`scripts/std` definitions and compares every byte. Missing source, changed
+constants, compilation failures, differing bytes and leftover cooked `.ssb`
+files fail the audit. It reads both libraries without regenerating their files.
 
 Saves contain a format version and gameplay state. Changing assets, scripts or
 rules does not invalidate saves. Loading resolves the saved location and required
@@ -1944,7 +1965,7 @@ canvas unchanged for a frame. `image:0` copies from the current canvas, which ma
 already contain earlier patches. `position` is a pixel offset and defaults to
 `[0,0]`. Patch results persist; extra overlays draw first, then eyes, then mouth.
 The image files remain editable KTX2. These compact recipes describe controlled
-patch drawing; scenario programs remain `.ssb` and are outside this review.
+patch drawing; scenario programs are covered by the separate `.sym` pipeline.
 
 ## Field atmosphere and rendering inputs
 

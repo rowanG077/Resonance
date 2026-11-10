@@ -21,6 +21,9 @@ impl Programs {
         files: &resonance_content::prepared::Files,
         path: &str,
     ) -> Result<Arc<Program>> {
+        if path.ends_with(".sym") {
+            return resonance_content::scenario::program(files, path);
+        }
         let bytes = files.read(path)?;
         if let Some((captured, program)) = self.0.get(path)
             && resonance_content::same_bytes(captured, &bytes)
@@ -82,11 +85,15 @@ fn inspect(
     cancelled: &impl Fn() -> bool,
 ) -> Result<(Arc<[u8]>, Program, bool)> {
     ensure!(!cancelled(), "session-screen preparation cancelled");
-    let bytes = snapshot.read(path, preparation::JSON_LIMIT)?;
+    let bytes = if path.ends_with(".sym") {
+        resonance_content::scenario::capture(snapshot, path, cancelled)?
+    } else {
+        snapshot.read(path, preparation::JSON_LIMIT)?
+    };
     let (program, calls) = calls::program_arguments(&bytes, NativeCall::ConfigureSession, 2)
         .with_context(|| format!("discover session screens in {path}"))?;
     Ok((
-        bytes,
+        snapshot.read(path, preparation::JSON_LIMIT)?,
         program,
         calls
             .values()

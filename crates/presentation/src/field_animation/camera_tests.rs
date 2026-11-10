@@ -78,7 +78,7 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
         assets.join(&part.clips[0].motion),
     )?)?);
     let mut field = resonance_game::field::FieldSession::new(
-        &std::fs::read(assets.join(&manifest.script))?,
+        &resonance_content::scenario::read_root(&assets, &manifest.script)?,
         vec![],
         &manifest,
     )?;

@@ -199,6 +199,9 @@ pub fn capture(
             .read(path, ASSET_LIMIT)
             .with_context(|| format!("{PATH} refers to {path}"))?;
     }
+    if definition.script.ends_with(".sym") {
+        crate::preparation::scripts(snapshot, cancelled)?;
+    }
     let package = Package {
         script: definition.script.clone(),
         messages: definition.messages.clone(),

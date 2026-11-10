@@ -137,7 +137,7 @@ pub fn read(mut read: impl FnMut(&str, usize) -> Result<Option<Arc<[u8]>>>) -> R
             resource.script.is_empty() && resource.messages.is_none(),
             "skit paths are determined by skits/mappings.json"
         );
-        resource.script = format!("{root}/scenario.ssb");
+        resource.script = format!("{root}/scenario.sym");
         validate_path(&resource.script)?;
         required(&mut read, &resource.script, 64 * 1024 * 1024)
             .with_context(|| format!("skit {id} refers to {}", resource.script))?;
@@ -174,6 +174,7 @@ fn required(
 }
 
 pub fn capture(snapshot: &mut Snapshot, cancelled: &impl Fn() -> bool) -> Result<SkitCatalog> {
+    crate::preparation::scripts(snapshot, cancelled)?;
     read(|path, limit| {
         ensure!(!cancelled(), "skit preparation cancelled");
         snapshot.read_optional(path, limit)

@@ -108,7 +108,7 @@ The JSON owns the coordinate dimensions. Texture bindings are prepared up front.
 
 ## Finding a resource
 
-A library starts with `content.json`: `{"version":107,"game":"tales-of-symphonia"}`.
+A library starts with `content.json`: `{"version":108,"game":"tales-of-symphonia"}`.
 It identifies the cooked format and semantic game, with no source platform,
 product code, revision, file inventory or checksums. A future Steam importer
 targets the same layout and resource contracts; actual gameplay determines save
@@ -129,7 +129,7 @@ fields/
     messages/collection.json
     messages/0.json
     collision.glb
-    scripts/scenario.ssb
+    scripts/scenario.sym
 game/
   items/mappings/0.json
   items/items/apple-gel/definition.json
@@ -427,29 +427,23 @@ for dimensions or adds layout metadata to the image bytes. Mod authors can
 replace a KTX2 without adding metadata or editing JSON to increase resolution.
 Cooked layout version 106 requires a fresh import to populate these declarations.
 
-Authored SymphoniaScript modules live under `scripts/`. Original scenarios use
-`.ssb` VM bytecode with a lossless assembly editing workflow:
+Authored SymphoniaScript modules live under `scripts/`. Original field, world,
+battle and skit scenarios are readable `.sym` files beside their owning resources.
+Override the selected source at the same relative path in your mod:
 
 ```sh
-cargo run -p symphonia-script-tools -- scenario disassemble \
-  cooked/fields/iselia-1/scripts/scenario.ssb work/scenario.ssasm
-# Edit work/scenario.ssasm, then publish it to the matching mod path:
-cargo run -p symphonia-script-tools -- scenario assemble \
-  work/scenario.ssasm mods/my-mod/fields/iselia-1/scripts/scenario.ssb
+mkdir -p mods/my-mod/fields/iselia-1/scripts
+cp cooked/fields/iselia-1/scripts/scenario.sym mods/my-mod/fields/iselia-1/scripts/scenario.sym
+# Edit the copied .sym, then restart the game.
 ```
 
-Use the actual field name from `fields/mappings.json`. The installed `.ssb` is
-authoritative; the `.ssasm` is your working source outside the library. Assembly
-checks the VM program before atomically replacing the target. A failed command
-leaves the previous target intact. An unchanged disassembly assembles to exactly
-the original bytes, including raw tables and padding. No mapping or stored hash
-needs changing. Restart to load the result; gameplay edits can invalidate saves.
-
-This is instruction-level editing. Labels handle branch targets, but the original
-header, registry overlay and auxiliary tables retain explicit layout values;
-changing instruction sizes can require adjusting those values. For dialogue,
-edit the field's `messages/<id>.json`. See the [scenario editing reference](symphonia-script.md#editing-original-scenarios)
-for the assembly contract and the authored high-level language.
+Use the actual field name from `fields/mappings.json`. Preparation compiles the
+selected `.sym` and the current generated `scripts/std/*.sym` definitions before
+activation. Errors fail preparation. Unedited cooked sources compile to the
+original input bytes; branches, event PCs and auxiliary offsets relocate after
+edits. No binary copy or stored hash needs updating. Dialogue remains in the
+owning `messages/<id>.json`. See the [scenario source reference](symphonia-script.md#editing-original-scenarios)
+for syntax and the remaining explicit VM operations.
 
 An optional `--scripts ROOT` project has its own modules and `fields.json` bindings.
 It is compiled from the current source when preparing the field. Changing the

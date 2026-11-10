@@ -40,7 +40,7 @@ fn room(map: u32, position: [f32; 3]) -> FieldSession {
         .write(0x40, symphonia_script::Width::S32, 12_203_000)
         .unwrap();
     let mut session = FieldSession::enter(
-        &fs::read(root.join(&assets.script)).unwrap(),
+        &resonance_content::scenario::read_root(&root, &assets.script).unwrap(),
         assets.messages.as_deref().map(cooked).unwrap_or_default(),
         &assets,
         entry,

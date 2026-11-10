@@ -102,7 +102,11 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
     let library = resonance_content::library::Library::open(&root, &[])?;
     let (_, manifest) =
         resonance_content::field::document::capture_scene(&mut library.snapshot(), 7, || false)?;
-    let mut field = FieldSession::new(&fs::read(root.join(&manifest.script))?, vec![], &manifest)?;
+    let mut field = FieldSession::new(
+        &resonance_content::scenario::read_root(&root, &manifest.script)?,
+        vec![],
+        &manifest,
+    )?;
     field.events.world.actors.clear();
     for id in [1, 2] {
         let mut actor = resonance_events::Actor::new(0, [0.; 3]);

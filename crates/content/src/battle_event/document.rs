@@ -57,7 +57,7 @@ pub fn capture(
     ensure!(!cancelled(), "battle event preparation cancelled");
     let path = snapshot.resolve(MAPPINGS, u32::from(id), Some("event.json"))?;
     let definition: Definition = snapshot.json(&path, JSON_LIMIT)?;
-    snapshot.read(&definition.script, ASSET_LIMIT)?;
+    crate::scenario::capture(snapshot, &definition.script, cancelled)?;
     if let Some(path) = &definition.messages {
         snapshot.read(path, JSON_LIMIT)?;
     }

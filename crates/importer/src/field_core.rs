@@ -192,7 +192,7 @@ pub fn cook_field_core(extracted: &Path, library: &Path, selected: Option<u32>) 
         )
         .with_context(|| format!("field {id} messages"))?;
         let base = library.join("fields").join(field_name(id));
-        crate::output::write(&base.join("scripts/scenario.ssb"), script)?;
+        crate::scripts::cook_scenario(library, &base.join("scripts/scenario.sym"), script)?;
         if !messages.is_empty() {
             crate::output::json(&base.join("messages.json"), &messages)?;
         }

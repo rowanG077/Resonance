@@ -1,10 +1,10 @@
-//! Preserve the world's native script bytecode and extract any message table.
+//! Lift the world's native script to matching .sym source and extract messages.
 use anyhow::{Context, Result};
 use std::{fs, path::Path};
 use symphonia_script::{Program, message, scenario};
 
 pub fn cook_world_script(root: &Path, library: &Path) -> Result<()> {
-    let script_path = library.join("world/scripts/scenario.ssb");
+    let script_path = library.join("world/scripts/scenario.sym");
     let messages_path = library.join("world/messages.json");
     let bytes = fs::read(root.join("disc1/files/field_sil.so"))?;
     let header = scenario::parse_header(&bytes)?;
@@ -14,7 +14,7 @@ pub fn cook_world_script(root: &Path, library: &Path) -> Result<()> {
             .get(header.auxiliary_offset()..)
             .context("world script message offset exceeds file")?,
     )?;
-    crate::output::write(&script_path, &bytes)?;
+    crate::scripts::cook_scenario(library, &script_path, &bytes)?;
     if !messages.is_empty() {
         crate::output::json(&messages_path, &messages)?;
     }

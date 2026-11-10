@@ -158,6 +158,9 @@ impl Definition {
             crate::physical_scene::capture(snapshot, path, &cancelled)
                 .with_context(|| format!("unbound geometry referenced by {}", self.scene))?;
         }
+        if self.script.ends_with(".sym") {
+            crate::preparation::scripts(snapshot, &cancelled)?;
+        }
         Ok(field)
     }
 

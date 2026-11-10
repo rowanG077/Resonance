@@ -41,4 +41,12 @@ and can be overridden in a mod directory. Runtime prepares the cooked copies
 before activation, with no embedded fallback and no source I/O during gameplay.
 Development field-entry scripts can also be supplied with `--scripts ROOT`; see
 [the language documentation](../docs/symphonia-script.md#running-authored-field-entries).
-Scenario bytecode readability is a separate, deferred task.
+Original field, world, battle and skit scenarios are cooked as readable `.sym`
+files beside their owning resources. Their `script scenario;` profile retains
+the original VM semantics and refers to the same generated `std` definitions.
+Recognized name/dialogue tables contain editable `sjis("text")` data and
+`relative16`/`relative32` references, so changing text length updates table offsets.
+`message_control` exposes embedded substitutions and calculations, including
+named character/item/title/technique IDs. Formatting bytes and opaque data remain
+explicit.
+See [original scenarios](../docs/symphonia-script.md#editing-original-scenarios).

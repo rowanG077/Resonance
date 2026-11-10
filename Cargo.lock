@@ -4906,6 +4906,8 @@ dependencies = [
  "serde",
  "serde_json",
  "symphonia-constants",
+ "symphonia-script",
+ "symphonia-script-compiler",
  "tempfile",
  "tracing",
  "windows-sys 0.61.2",
@@ -4983,6 +4985,7 @@ dependencies = [
  "sha2",
  "symphonia-constants",
  "symphonia-script",
+ "symphonia-script-compiler",
  "tempfile",
 ]
 

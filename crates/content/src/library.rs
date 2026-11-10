@@ -18,7 +18,7 @@ pub use stream::StreamReader;
 mod capture;
 pub use capture::Capture;
 
-pub const VERSION: u32 = 107;
+pub const VERSION: u32 = 108;
 /// The game contract, independent of the release used to import its content.
 pub const GAME: &str = "tales-of-symphonia";
 pub const DESCRIPTOR: &str = "content.json";
@@ -488,6 +488,7 @@ impl Library {
             source: None,
             read_locks: BTreeMap::new(),
             missing: BTreeSet::new(),
+            scenarios: Default::default(),
         }
     }
 
@@ -502,6 +503,7 @@ impl Library {
         );
         let mut snapshot = self.snapshot();
         snapshot.common = Some(common.startup_bytes()?);
+        snapshot.scenarios = common.scenarios.clone();
         snapshot.overrides.extend_from_slice(common.overrides());
         Ok(snapshot)
     }
@@ -520,6 +522,7 @@ pub(crate) struct CapturedFiles {
     pub overrides: Vec<Override>,
     pub files: BTreeMap<String, Arc<[u8]>>,
     pub common: Option<Arc<crate::prepared::Bytes>>,
+    pub scenarios: crate::scenario::Cache,
 }
 
 /// Captures each input on its first read. Parsing and compilation all
@@ -539,6 +542,7 @@ pub struct Snapshot {
     source: Option<Arc<std::sync::Mutex<Snapshot>>>,
     read_locks: BTreeMap<String, Arc<std::sync::Mutex<()>>>,
     missing: BTreeSet<String>,
+    pub(crate) scenarios: crate::scenario::Cache,
 }
 
 impl Snapshot {
@@ -579,6 +583,7 @@ impl Snapshot {
             overrides: self.overrides.clone(),
             files: self.bytes.clone(),
             common: self.common.clone(),
+            scenarios: self.scenarios.clone(),
         }
     }
 
@@ -617,6 +622,7 @@ impl Snapshot {
             overrides: self.overrides,
             files: self.bytes,
             common: self.common,
+            scenarios: self.scenarios,
         }
     }
 
