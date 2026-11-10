@@ -87,13 +87,24 @@ impl NativeHost<'_> {
                 return Ok(NativeResult::Continue(None));
             }
             (DialogueClosed | DialogueReady, _) => {
-                let Some(dialogue) = self.world.dialogue.get(&(value as u8)) else {
-                    return self.yield_update();
-                };
-                if command == DialogueClosed {
-                    Wait::Complete(dialogue.operation.clone())
+                require(value >= 0, "negative dialogue wait slot")?;
+                // Original 80005760 compares the full signed selector, not its
+                // low byte. Values >=3 address the main window. The dispatcher
+                // re-reads that window's status on each update, even if another
+                // script replaces it while this caller is waiting.
+                let slot = if value < i32::from(crate::dialogue::DIALOGUE_SLOTS) {
+                    value as u8
                 } else {
-                    Wait::Ready(dialogue.operation.clone())
+                    0
+                };
+                Wait::Dialogue {
+                    slot,
+                    ready: command == DialogueReady,
+                    operation: self
+                        .world
+                        .dialogue
+                        .get(&slot)
+                        .map(|window| window.operation.clone()),
                 }
             }
             (ActorMotion | ActorExit, true) => return self.yield_update(),

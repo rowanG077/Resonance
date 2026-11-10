@@ -92,6 +92,11 @@ pub enum WaitObservation {
     ActorAnimation {
         actor: i32,
     },
+    Dialogue {
+        slot: u8,
+        ready: bool,
+        operation: Option<OperationObservation>,
+    },
     Complete {
         operation: OperationObservation,
     },
@@ -173,6 +178,14 @@ pub(crate) fn wait(wait: &Wait, world: &GameWorld) -> WaitObservation {
         Wait::ActorMotion(actor) => O::ActorMotion { actor: *actor },
         Wait::ActorHeading(actor) => O::ActorHeading { actor: *actor },
         Wait::ActorAnimation(actor) => O::ActorAnimation { actor: *actor },
+        Wait::Dialogue { slot, ready, .. } => O::Dialogue {
+            slot: *slot,
+            ready: *ready,
+            operation: world
+                .dialogue
+                .get(slot)
+                .map(|window| operation(&window.operation, world)),
+        },
         Wait::Complete(op) | Wait::Result(op) => O::Complete {
             operation: operation(op, world),
         },

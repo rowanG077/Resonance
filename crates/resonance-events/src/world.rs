@@ -987,6 +987,12 @@ pub enum AudioCommand {
     },
 }
 impl AudioCommand {
+    /// The native sound controller keeps seven bits. Apply this after spatial
+    /// attenuation; callers resolve the field-level default before conversion.
+    pub(crate) const fn native_sound_volume(raw: u8) -> u8 {
+        raw & 0x7f
+    }
+
     pub fn voice(resource: u32) -> Self {
         Self::Voice {
             resource,
@@ -1011,13 +1017,7 @@ pub struct Trigger {
     /// Touch-trigger action and destination/preload hints, independent of activation.
     pub touch_metadata: [u32; 3],
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i16)]
-pub(crate) enum TriggerKind {
-    Touch = 1,
-    Automatic = 2,
-    Confirmed = 3,
-}
+pub(crate) use symphonia_constants::TriggerKind;
 impl Trigger {
     pub(crate) fn registry_kind(&self) -> u32 {
         match self.kind() {

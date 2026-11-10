@@ -8,7 +8,7 @@ use crate::{
     operation::Wait,
 };
 use symphonia_script::{NativeCall, Program};
-use symphonia_script_vm::{Memory, NativeResult};
+use symphonia_script_vm::{Host, Memory, NativeResult};
 mod battle;
 mod bindings;
 mod camera_path;
@@ -39,6 +39,7 @@ pub(crate) struct NativeHost<'a> {
     pub events: &'a mut Vec<EventCommand>,
     pub free_slots: u32,
     pub wait: &'a mut Option<Wait>,
+    pub message_depth: usize,
 }
 fn require(ok: bool, what: &str) -> Result<(), String> {
     if ok { Ok(()) } else { Err(what.into()) }
@@ -83,7 +84,72 @@ fn sprite_property(
     Some(previous)
 }
 impl NativeHost<'_> {
+    fn resolve_message(
+        &mut self,
+        message: &symphonia_script::message::Message,
+        memory: &mut Memory,
+    ) -> Result<crate::dialogue::ResolvedMessage, String> {
+        require(
+            self.message_depth < 32,
+            "message expression frame limit exceeded",
+        )?;
+        self.message_depth += 1;
+        let resources = self.resources;
+        let names = resources.names(self.world.party.as_ref());
+        let controlled = self.world.controlled_actor;
+        let result = crate::dialogue::resolve_with(
+            message,
+            memory,
+            &names,
+            &resources.text,
+            controlled,
+            &mut |expression, memory| {
+                symphonia_script_vm::message::evaluate_with_host(
+                    expression,
+                    memory,
+                    &mut |function, arguments, memory| {
+                        static REGISTRY: std::sync::OnceLock<
+                            symphonia_script::semantics::NativeRegistry,
+                        > = std::sync::OnceLock::new();
+                        let procedure = REGISTRY
+                            .get_or_init(symphonia_script::semantics::NativeRegistry::gqseaf)
+                            .get_by_name(function)
+                            .ok_or_else(|| format!("unknown message native {function}"))?;
+                        let binding = Self::NATIVES
+                            .get(procedure.opcode)
+                            .ok_or_else(|| format!("message native {function} is unavailable"))?;
+                        let expected = binding.signature.returns_value;
+                        let parent_wait = self.wait.take();
+                        let result =
+                            Self::NATIVES.invoke(procedure.opcode, self, arguments, memory);
+                        let child_wait = self.wait.take();
+                        *self.wait = parent_wait;
+                        let result = result?;
+                        if child_wait.is_some() || matches!(result, NativeResult::Suspend) {
+                            return Err(format!("message native {function} suspended"));
+                        }
+                        match result {
+                            NativeResult::Continue(None) if !expected => {
+                                Ok(NativeResult::LegacyNoResult)
+                            }
+                            NativeResult::Continue(Some(_)) if expected => Ok(result),
+                            NativeResult::LegacyNoResult => Ok(result),
+                            _ => Err(format!("invalid result from message native {function}")),
+                        }
+                    },
+                )
+                .map_err(|error| error.to_string())
+            },
+        );
+        self.message_depth -= 1;
+        result
+    }
+
     fn find_actor_node(&mut self, actor: i32, requested: &str) -> Option<usize> {
+        // Field lookup reserves zero as no actor; mode9 forwards a literal key.
+        if actor == 0 && self.world.battle_event.is_none() {
+            return None;
+        }
         let name = self
             .resources
             .joint_mappings
@@ -194,6 +260,11 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::SetActorAnimationFlags => {
+                let flags = a[1] as u16;
+                // Field update2 adds pause without clearing Once. The battle
+                // bridge replaces low flags for every nonzero update.
+                let replace_playback =
+                    flags != 0 && (flags != 2 || self.world.battle_event.is_some());
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
                 } else {
@@ -205,9 +276,8 @@ impl NativeHost<'_> {
                     .get_mut(&id)
                     .and_then(|actor| actor.animation.as_mut())
                 {
-                    let flags = a[1] as u16;
                     animation.script_pause(flags & 2 != 0, self.world.tick);
-                    if flags != 0 && flags != 2 {
+                    if replace_playback {
                         animation.repeat = flags & 8 == 0;
                     }
                 }
@@ -222,7 +292,15 @@ impl NativeHost<'_> {
                 } else if a[0] >= 4 {
                     self.world.screen_copy_depth[index] = [174., 190.][index];
                 }
-                value = Some((previous * 100.) as i32);
+                // Gekko fctiwz truncates/saturates, with MIN for NaN.
+                // Dolphin's ConvertToInteger documents this distinction:
+                // https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatingPoint.cpp
+                let scaled = previous * 100.;
+                value = Some(if scaled.is_nan() {
+                    i32::MIN
+                } else {
+                    scaled as i32
+                });
             }
             NativeCall::WaitActorAnimationFrame => {
                 *self.wait = Some(Wait::Service {
@@ -326,21 +404,10 @@ impl NativeHost<'_> {
                         .cloned()
                         .ok_or("missing cooked message")
                 };
-                let names = self.resources.names(self.world.party.as_ref());
-                let speaker = crate::dialogue::resolve(
-                    &message(a[6])?,
-                    memory,
-                    &names,
-                    &self.resources.text,
-                    self.world.controlled_actor,
-                )?;
-                let body = crate::dialogue::resolve(
-                    &message(a[7])?,
-                    memory,
-                    &names,
-                    &self.resources.text,
-                    self.world.controlled_actor,
-                )?;
+                let speaker_message = message(a[6])?;
+                let body_message = message(a[7])?;
+                let speaker = self.resolve_message(&speaker_message, memory)?;
+                let body = self.resolve_message(&body_message, memory)?;
                 let anchor = match a[2] {
                     -1 => DialogueAnchor::Actor(a[3]),
                     -2 => DialogueAnchor::ScreenGrid(a[3]),
@@ -437,6 +504,21 @@ impl NativeHost<'_> {
                 } else {
                     a[0]
                 };
+                if op == NativeCall::GetActorProperty && self.world.battle_event.is_none() {
+                    // Fixed native actor records exist even before a cooked
+                    // model is installed in the corresponding world actor.
+                    let fixed = matches!(a[0], 99990 | 999980 | 999996 | 999997 | 999998 | 999999)
+                        || a[0] == self.world.controlled_actor;
+                    let present = a[0] != 0 && (fixed || self.world.actors.contains_key(&id));
+                    if !present && !(100..113).contains(&a[1]) {
+                        return Ok(NativeResult::Continue(Some(0)));
+                    }
+                    // The native switch has no default result push. Ymir's
+                    // retained reversed-looking queries use selector999999.
+                    if !matches!(a[1], 1..=67 | 100..=105 | 112..=122) {
+                        return Ok(NativeResult::LegacyNoResult);
+                    }
+                }
                 // Reserved properties accept writes without changing actor state.
                 if matches!(a[1], 0 | 6) {
                     return Ok(NativeResult::Continue(Some(0)));
@@ -899,8 +981,10 @@ impl NativeHost<'_> {
                 });
             }
             NativeCall::ConfigureRendering => match a[0] {
-                0..=7 => {
-                    self.world.texture_bindings.insert(a[0], a[1]);
+                // Signed command<=7 selects the low three bits, including
+                // negative aliases. Other unsupported commands have no effect.
+                command if command <= 7 => {
+                    self.world.texture_bindings.insert(command & 7, a[1]);
                 }
                 128 => {
                     self.world.texture_animation_enabled = a[1] != 0;
@@ -916,7 +1000,7 @@ impl NativeHost<'_> {
                         state.reset(animation, self.world.texture_animation_effect_tick);
                     }
                 }
-                _ => return Err("render configuration command is not implemented".into()),
+                _ => {}
             },
             NativeCall::CreateOverlay => {
                 let resource = self.resolve(a[1], ResourceKind::Overlay)?;
@@ -1497,7 +1581,14 @@ impl NativeHost<'_> {
             }
             NativeCall::ReadActorAttachment => {
                 if a[1] != -1 {
-                    let point = self.attachment(a[0], a[1])?;
+                    // Native mode9 forwards the node index as the actor request
+                    // key too; its first argument is only consumed in the field.
+                    let actor = if self.world.battle_event.is_some() {
+                        a[1]
+                    } else {
+                        a[0]
+                    };
+                    let point = self.attachment(actor, a[1])?;
                     self.registers[..3].copy_from_slice(&point);
                 }
             }
@@ -1589,6 +1680,16 @@ impl NativeHost<'_> {
         // Resolve the controlled-actor alias before adapting actor-service arguments.
         let mut adapted;
         let values = if arguments.first() == Some(&crate::CONTROLLED_ACTOR)
+            && !(self.world.battle_event.is_some()
+                && matches!(
+                    call,
+                    NativeCall::ConfigureActorBoneRotation
+                        | NativeCall::ConfigureActorAttachment
+                        | NativeCall::ConfigureActorBoneTranslation
+                        | NativeCall::ConfigureActorBoneScale
+                        | NativeCall::FindActorNode
+                        | NativeCall::FindActorBodyPart
+                ))
             && matches!(
                 call,
                 NativeCall::SetActorHeading
@@ -1604,10 +1705,12 @@ impl NativeHost<'_> {
                     | NativeCall::TurnActorHead
                     | NativeCall::ConfigureActorHeadNeck
                     | NativeCall::ConfigureActorAttachment
+                    | NativeCall::ConfigureActorBoneRotation
                     | NativeCall::ConfigureActorBoneTranslation
                     | NativeCall::ConfigureActorBoneScale
                     | NativeCall::SetActorAnimationProperty
                     | NativeCall::FindActorNode
+                    | NativeCall::FindActorBodyPart
                     | NativeCall::SetActorAnimation
                     | NativeCall::SetActorFace
                     | NativeCall::SetActorMouth

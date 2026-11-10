@@ -24,6 +24,10 @@ impl NativeHost<'_> {
         let mut value = None;
         match op {
             NativeCall::PlayActorSound => {
+                // The original actor lookup returns null in battle mode9.
+                if self.world.battle_event.is_some() {
+                    return Ok(NativeResult::Continue(None));
+                }
                 require(
                     self.world.audio_commands.len() < 512,
                     "audio command queue is not being consumed",
@@ -209,10 +213,11 @@ impl NativeHost<'_> {
             NativeCall::ClearSceneryAnimation
             | NativeCall::SeekSceneryAnimation
             | NativeCall::SetSceneryAnimationRate => {
+                // These handlers only recognize numbered layers2/3. Actor-key
+                // aliases and layer4 fall back to the main bank in the original.
                 let id = match a[0] {
-                    2 | SECOND_SCENERY => SECOND_SCENERY,
-                    3 | THIRD_SCENERY => THIRD_SCENERY,
-                    4 | 0xF422C => 0xF422C,
+                    2 => SECOND_SCENERY,
+                    3 => THIRD_SCENERY,
                     _ => MAIN_SCENERY,
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
@@ -241,7 +246,14 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::SetActorAmbientSound => {
-                if let Some(actor) = self.world.actors.get_mut(&a[0]) {
+                let actor = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                if self.world.battle_event.is_none()
+                    && let Some(actor) = self.world.actors.get_mut(&actor)
+                {
                     actor.ambient_sound = (a[1] != -1).then_some(crate::AmbientSound {
                         id: a[1] as i16,
                         volume: if a[2] as u8 == 255 { 127 } else { a[2] as u8 },
@@ -683,7 +695,11 @@ impl NativeHost<'_> {
                         match a[1] {
                             100 => AudioCommand::SoundVolume {
                                 slot,
-                                volume: if a[2] == 255 { 127 } else { a[2] as u8 },
+                                volume: if a[2] == 255 {
+                                    127
+                                } else {
+                                    AudioCommand::native_sound_volume(a[2] as u8)
+                                },
                             },
                             101 => AudioCommand::SoundPan {
                                 slot,
@@ -708,7 +724,7 @@ impl NativeHost<'_> {
                     _ => AudioCommand::Sound {
                         id: a[0] as i16,
                         volume: if op == NativeCall::PlaySound && a[2] != 255 {
-                            a[2].clamp(0, 127) as u8
+                            AudioCommand::native_sound_volume(a[2] as u8)
                         } else {
                             127
                         },
@@ -1120,16 +1136,14 @@ impl NativeHost<'_> {
                     "leg-03-right",
                     "leg-04-right",
                 ];
-                let unknown = format!("<body part {}>", a[1]);
-                let name = usize::try_from(a[1])
+                // Retail selects no name for positive selectors >=17, including
+                // Dirk's House's retained56. Do not turn that no-op into a search
+                // for a placeholder name that a mod might legitimately contain.
+                let result = usize::try_from(a[1])
                     .ok()
                     .and_then(|i| NAMES.get(i))
-                    .copied()
-                    .unwrap_or(&unknown);
-                value = Some(
-                    self.find_actor_node(a[0], name)
-                        .map_or(-1, |index| index as i32),
-                );
+                    .and_then(|name| self.find_actor_node(a[0], name));
+                value = Some(result.map_or(-1, |index| index as i32));
             }
             NativeCall::ConfigureActorBoneRotation => {
                 return self.field(
@@ -1386,7 +1400,9 @@ impl NativeHost<'_> {
             NativeCall::SpawnActor
             | NativeCall::SpawnCollisionActor
             | NativeCall::SpawnSceneryActor => {
-                if a[0] < 0 {
+                let use_field_spawn =
+                    op == NativeCall::SpawnActor && self.world.battle_event.is_none();
+                if use_field_spawn && a[0] < 0 {
                     let target = if a[5] == crate::CONTROLLED_ACTOR {
                         self.world.controlled_actor
                     } else {
@@ -1420,7 +1436,7 @@ impl NativeHost<'_> {
                     }
                     return Ok(NativeResult::Continue(None));
                 }
-                if a[0] == 0xF423F {
+                if use_field_spawn && a[0] == 0xF423F {
                     return Ok(NativeResult::Continue(None));
                 }
                 require(self.world.actors.len() < 4096, "actor limit exceeded")?;
@@ -1431,7 +1447,9 @@ impl NativeHost<'_> {
                     self.resolve(if a[5] == 0 { 1 } else { a[5] }, ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
-                if self.world.field_camera.is_some() {
+                if self.world.field_camera.is_some()
+                    && (use_field_spawn || op != NativeCall::SpawnActor)
+                {
                     let behavior = crate::Behavior::from(a[6] as u8);
                     require(a[7] >= 0, "negative ambient movement speed")?;
                     require(
@@ -1683,10 +1701,16 @@ impl NativeHost<'_> {
                 self.world.input_enabled = true;
             }
             NativeCall::SetEventBit | NativeCall::ClearEventBit | NativeCall::TestEventBit => {
-                require(
-                    (0..2048).contains(&a[0]),
-                    "event flag is outside the session",
-                )?;
+                require(a[0] >= 0, "event flag is outside the session")?;
+                // All three native handlers consume the argument before their
+                // signed >=2048 return. The query pushes no result on this path.
+                if a[0] >= 2048 {
+                    return Ok(if op == NativeCall::TestEventBit {
+                        NativeResult::LegacyNoResult
+                    } else {
+                        NativeResult::Continue(None)
+                    });
+                }
                 let flag = a[0] as u16;
                 match op {
                     NativeCall::SetEventBit => {

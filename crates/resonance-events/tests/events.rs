@@ -1009,6 +1009,329 @@ fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values(
 }
 
 #[test]
+fn node_queries_resolve_field_controlled_aliases_and_keep_literal_battle_keys() {
+    for battle in [false, true] {
+        let mut code = Vec::new();
+        for (index, (operation, args)) in [
+            (Call::FindActorNode, [CONTROLLED_ACTOR, 0]),
+            (Call::FindActorBodyPart, [CONTROLLED_ACTOR, 2]),
+            (Call::FindActorNode, [0, 0]),
+            (Call::FindActorBodyPart, [0, 2]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            code.extend([0x1200, 0x100 + index as u16 * 4]);
+            native(&mut code, operation, &args);
+            code.extend([0x3010, 0x3000]);
+        }
+        code.push(0x20ff);
+        let mut bytes: Vec<_> = [4, 0, (4 + code.len()) as u16, 0]
+            .into_iter()
+            .chain(code)
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        bytes.extend(4_u32.to_be_bytes());
+        bytes.extend(b"Bone_sebone01\0");
+        let resources = ResourceLibrary {
+            joint_mappings: Arc::new([("Bone_sebone01".into(), "spine-01".into())].into()),
+            models: [
+                (1, vec!["spine-01".into()]),
+                (2, vec!["root".into(), "spine-01".into()]),
+                (3, vec!["root".into(), "coat".into(), "spine-01".into()]),
+            ]
+            .into_iter()
+            .map(|(id, names)| {
+                (
+                    id,
+                    ModelResource {
+                        names,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+            ..Default::default()
+        };
+        let mut world = GameWorld::default();
+        world.controlled_actor = 7;
+        world.insert_actor(7, Actor::new(1, [0.; 3]));
+        world.insert_actor(CONTROLLED_ACTOR, Actor::new(2, [0.; 3]));
+        world.insert_actor(0, Actor::new(3, [0.; 3]));
+        if battle {
+            world.battle_event = Some(battle_event::State::new(45.).unwrap());
+        }
+        let events = runtime(Arc::new(Program::decode(&bytes).unwrap()), resources, world);
+        let expected = if battle { [1, 1, 2, 2] } else { [0, 0, -1, -1] };
+        for (index, expected) in expected.into_iter().enumerate() {
+            assert_eq!(
+                events
+                    .memory()
+                    .read(0x100 + index as u16 * 4, Width::S32)
+                    .unwrap(),
+                expected,
+                "battle={battle}, query={index}"
+            );
+        }
+        assert!(events.world.warnings.is_empty());
+    }
+}
+
+#[test]
+fn invalid_body_part_selectors_do_not_search_placeholder_joint_names() {
+    let mut code = Vec::new();
+    arg(&mut code, 2);
+    arg(&mut code, 6);
+    native(&mut code, Call::FindActorBodyPart, &[2, 56]);
+    code.extend([0x3000, 0x4000]);
+    for value in [45, 15, 0, 16] {
+        arg(&mut code, value);
+    }
+    code.push(0x2000 | Call::ConfigureActorAttachment as u16);
+    code.push(0x20ff);
+    let resources = ResourceLibrary {
+        models: [(
+            1,
+            ModelResource {
+                names: vec!["<body part 56>".into()],
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = GameWorld::default();
+    world.insert_actor(2, Actor::new(1, [0.; 3]));
+    let events = runtime(program(&code, &[0x20ff]), resources, world);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -1);
+    assert!(events.world.warnings.is_empty());
+    assert!(
+        events.world.actors[&2]
+            .appearance
+            .bone_adjustments
+            .is_empty()
+    );
+}
+
+#[test]
+fn dialogue_expressions_use_native_queries_and_keep_resultless_ymir_debug_reads() {
+    use resonance_events::dialogue::TextToken;
+    use symphonia_script::message::Expression;
+    let call = |function: &str, values: &[i32]| Expression::Call {
+        function: function.into(),
+        arguments: values.iter().copied().map(Expression::Constant).collect(),
+    };
+    let mut code = Vec::new();
+    native(&mut code, Call::SetEventBit, &[623]);
+    native(
+        &mut code,
+        Call::ConfigureDialogue,
+        &[0, 4, -2, 4, 0, 0, 0, 1],
+    );
+    code.push(0x20ff);
+    let resources = ResourceLibrary {
+        messages: vec![
+            Message { tokens: vec![] },
+            Message {
+                tokens: vec![
+                    Token::Control {
+                        opcode: 5,
+                        expression: call("test_event_bit", &[623]),
+                    },
+                    Token::Text { text: ",".into() },
+                    Token::Control {
+                        opcode: 6,
+                        expression: Expression::Calculate {
+                            operator: 0x10,
+                            arguments: vec![
+                                Expression::State {
+                                    offset: 0x810,
+                                    width: Width::S32,
+                                },
+                                call("get_actor_property", &[CONTROLLED_ACTOR, 1]),
+                            ],
+                        },
+                    },
+                    Token::Control {
+                        opcode: 5,
+                        expression: Expression::State {
+                            offset: 0x810,
+                            width: Width::S32,
+                        },
+                    },
+                    Token::Text { text: ",".into() },
+                    Token::Control {
+                        opcode: 5,
+                        expression: call("get_actor_property", &[1, 999999]),
+                    },
+                    Token::Text { text: ",".into() },
+                    Token::Control {
+                        opcode: 5,
+                        expression: call("get_actor_property", &[2, 999999]),
+                    },
+                    Token::Text { text: ",".into() },
+                    Token::Control {
+                        opcode: 5,
+                        expression: call("measure_actor_geometry", &[1, 1, 3]),
+                    },
+                ],
+            },
+        ],
+        ..Default::default()
+    };
+    let mut world = GameWorld::default();
+    world.controlled_actor = 1;
+    world.insert_actor(1, Actor::new(1, [10., 0., 0.]));
+    world.insert_actor(3, Actor::new(1, [13., 4., 0.]));
+    let events = runtime(program(&code, &[0x20ff]), resources, world);
+    let text: String = events.world.dialogue[&0]
+        .body
+        .tokens
+        .iter()
+        .map(|token| match token {
+            TextToken::Text { text } => text.as_str(),
+            _ => panic!("unexpected control"),
+        })
+        .collect();
+    assert_eq!(text, "1,10,-1,0,5");
+    assert_eq!(events.memory().read(0x810, Width::S32).unwrap(), 10);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 5);
+}
+
+#[test]
+fn event_flag_writes_ignore_indices_above_the_native_bank() {
+    let code = script(&[
+        (Call::SetEventBit, &[0]),
+        (Call::SetEventBit, &[2047]),
+        (Call::SetEventBit, &[2048]),
+        (Call::SetEventBit, &[65536]),
+        (Call::SetEventBit, &[i32::MAX]),
+        (Call::ClearEventBit, &[2048]),
+        (Call::ClearEventBit, &[65536]),
+        (Call::ClearEventBit, &[i32::MAX]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        Default::default(),
+        Default::default(),
+    );
+    assert_eq!(events.world.event_flags, [0, 2047].into());
+}
+
+#[test]
+fn high_event_flag_queries_preserve_native_no_result_in_tasks_and_messages() {
+    use symphonia_script::message::Expression;
+    for (bit, expected) in [
+        (0, 0),
+        (1, 1),
+        (2047, 1),
+        (2048, -1),
+        (65536, -1),
+        (i32::MAX, -1),
+    ] {
+        let mut code = vec![0x1200, 0x20, 77, 0x3010, 0x3000];
+        native(&mut code, Call::EnableMappedInput, &[]);
+        native(&mut code, Call::TestEventBit, &[bit]);
+        code.extend([0x3000, 0x20ff]);
+        let child = script(&[(Call::ConfigureDialogue, &[0, 4, -2, 4, 0, 0, 0, 1])]);
+        let resources = ResourceLibrary {
+            messages: vec![
+                Message { tokens: vec![] },
+                Message {
+                    tokens: vec![Token::Control {
+                        opcode: 5,
+                        expression: Expression::Call {
+                            function: "test_event_bit".into(),
+                            arguments: vec![Expression::Constant(bit)],
+                        },
+                    }],
+                },
+            ],
+            ..Default::default()
+        };
+        let mut world = GameWorld::default();
+        world.event_flags.extend([1, 2047]);
+        let mut events = runtime(program(&code, &child), resources, world);
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        let dialogue::TextToken::Text { text } = &events.world.dialogue[&0].body.tokens[0] else {
+            panic!("missing number");
+        };
+        assert_eq!(text, &expected.to_string(), "bit {bit}");
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            if expected == -1 { 77 } else { expected }
+        );
+        assert_eq!(events.world.event_flags, [1, 2047].into());
+    }
+}
+
+#[test]
+fn unrecognized_field_property_reads_preserve_the_native_no_result_branch() {
+    use symphonia_script::message::Expression;
+    for (actor, present, selector, expected) in [
+        (42, true, 999999, -1),
+        (42, false, 999999, 0),
+        (42, true, 0, -1),
+        (42, false, 0, 0),
+        (42, true, -1, -1),
+        (42, false, 106, -1),
+        (CONTROLLED_ACTOR, false, 999999, -1),
+        (999996, false, 999999, -1),
+        (999997, false, 999999, -1),
+        (999998, false, 999999, -1),
+        (999980, false, 999999, -1),
+        (99990, false, 999999, -1),
+        (0, true, 999999, 0),
+    ] {
+        let mut code = vec![0x1200, 0x20, 77, 0x3010, 0x3000];
+        native(
+            &mut code,
+            Call::ConfigureDialogue,
+            &[0, 4, -2, 4, 0, 0, 0, 1],
+        );
+        code.push(0x20ff);
+        let resources = ResourceLibrary {
+            messages: vec![
+                Message { tokens: vec![] },
+                Message {
+                    tokens: vec![Token::Control {
+                        opcode: 5,
+                        expression: Expression::Call {
+                            function: "get_actor_property".into(),
+                            arguments: vec![
+                                Expression::Constant(actor),
+                                Expression::Constant(selector),
+                            ],
+                        },
+                    }],
+                },
+            ],
+            ..Default::default()
+        };
+        let mut world = GameWorld::default();
+        if present {
+            world.insert_actor(actor, Actor::new(1, [99., 0., 0.]));
+        }
+        let events = runtime(program(&code, &[0x20ff]), resources, world);
+        let resonance_events::dialogue::TextToken::Text { text } =
+            &events.world.dialogue[&0].body.tokens[0]
+        else {
+            panic!("missing number");
+        };
+        assert_eq!(
+            text,
+            &expected.to_string(),
+            "actor={actor}, selector={selector}"
+        );
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            if expected == -1 { 77 } else { 0 }
+        );
+    }
+}
+
+#[test]
 fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
     for (name, encoded) in [
         ("sword", b"sword".as_slice()),
@@ -2693,6 +3016,107 @@ fn actor_sounds_attenuate_pan_and_ignore_removed_emitters() {
 }
 
 #[test]
+fn controlled_actor_ambient_requests_configure_and_disable_the_player_emitter() {
+    let setup = script(&[(
+        Call::SetActorAmbientSound,
+        &[CONTROLLED_ACTOR, 289, 255, 3200],
+    )]);
+    let disable = script(&[(
+        Call::SetActorAmbientSound,
+        &[CONTROLLED_ACTOR, -1, 255, 2000],
+    )]);
+    let mut world = controlled_world();
+    world.controlled_actor = 7;
+    world.insert_actor(7, Actor::new(7, [0.; 3]));
+    let mut other = Actor::new(1, [5000., 0., 0.]);
+    other.ambient_sound = Some(AmbientSound {
+        id: 130,
+        volume: 25,
+        radius: 700.,
+    });
+    world.insert_actor(100, other);
+    let mut events = runtime(program(&setup, &disable), Default::default(), world);
+    let sound = events.world.actors[&7].ambient_sound.unwrap();
+    assert_eq!((sound.id, sound.volume, sound.radius), (289, 127, 3200.));
+    steps(&mut events, 2);
+    assert!(events.world.audio_commands.iter().any(|command| matches!(
+        command,
+        AudioCommand::RepeatSound {
+            id: 289,
+            slot: 5,
+            volume: 127,
+            ..
+        }
+    )));
+    events.world.audio_commands.clear();
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 2);
+    assert!(events.world.actors[&7].ambient_sound.is_none());
+    assert!(
+        events
+            .world
+            .audio_commands
+            .iter()
+            .any(|command| matches!(command, AudioCommand::StopSound(5)))
+    );
+    let other = events.world.actors[&100].ambient_sound.unwrap();
+    assert_eq!((other.id, other.volume, other.radius), (130, 25, 700.));
+}
+
+#[test]
+fn actor_audio_preserves_full_width_disable_checks_and_the_battle_noop() {
+    for battle in [false, true] {
+        for cue in [-1, 65535, 65537] {
+            let code = script(&[
+                (
+                    Call::SetActorAmbientSound,
+                    &[CONTROLLED_ACTOR, cue, 300, 2000],
+                ),
+                (Call::PlayActorSound, &[CONTROLLED_ACTOR, 289, 100, 1000]),
+            ]);
+            let mut world = GameWorld::default();
+            world.controlled_actor = 7;
+            let mut actor = Actor::new(7, [0.; 3]);
+            actor.ambient_sound = Some(AmbientSound {
+                id: 130,
+                volume: 25,
+                radius: 700.,
+            });
+            world.insert_actor(7, actor);
+            if battle {
+                world.battle_event = Some(battle_event::State::new(45.).unwrap());
+            }
+            let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+            let sound = events.world.actors[&7].ambient_sound;
+            if battle {
+                let sound = sound.unwrap();
+                assert_eq!((sound.id, sound.volume, sound.radius), (130, 25, 700.));
+                assert!(events.world.audio_commands.is_empty());
+            } else {
+                if cue == -1 {
+                    assert!(sound.is_none());
+                } else {
+                    let sound = sound.unwrap();
+                    assert_eq!(
+                        (sound.id, sound.volume, sound.radius),
+                        (cue as i16, 44, 2000.)
+                    );
+                }
+                assert!(matches!(
+                    events.world.audio_commands.as_slice(),
+                    [AudioCommand::Sound {
+                        id: 289,
+                        volume: 100,
+                        slot: None,
+                        ..
+                    }]
+                ));
+            }
+        }
+    }
+}
+
+#[test]
 fn sewer_actor_sound_sentinel_preserves_the_preceding_cue() {
     // SEW_D00's background event plays cue 318, then immediately issues
     // PlayActorSound(actor, -1, 0, 0). Actor audio uses an unbound voice:
@@ -2747,6 +3171,47 @@ fn sound_slot_controls_ignore_unknown_operations_and_continue() {
         ]
     ));
     assert_eq!(events.active_instances(), 0);
+}
+
+#[test]
+fn scripted_sound_volume_uses_the_native_seven_bit_controller() {
+    // Includes the stock Toize Remedy volume200 and the three -80 calls.
+    for (raw, expected) in [
+        (-80, 48),
+        (200, 72),
+        (-1, 127),
+        (255, 127),
+        (256, 0),
+        (511, 127),
+        (128, 0),
+        (129, 1),
+        (127, 127),
+        (0, 0),
+        (300, 44),
+    ] {
+        let code = script(&[
+            (Call::PlaySound, &[132, 0, raw, 255]),
+            (Call::PlaySound, &[390, -60, raw, 2]),
+            (Call::ConfigureSound, &[2, 100, raw]),
+        ]);
+        let events = runtime(
+            program(&code, &[0x20ff]),
+            Default::default(),
+            Default::default(),
+        );
+        assert!(
+            matches!(
+                events.world.audio_commands.as_slice(),
+                [
+                    AudioCommand::Sound { id: 132, pan: 64, volume: a, slot: None },
+                    AudioCommand::Sound { id: 390, pan: 34, volume: b, slot: Some(2) },
+                    AudioCommand::SoundVolume { slot: 2, volume: c },
+                ] if (*a, *b, *c) == (expected, expected, expected)
+            ),
+            "raw volume {raw}: {:?}",
+            events.world.audio_commands
+        );
+    }
 }
 
 #[test]
@@ -3496,6 +3961,83 @@ fn wing_profiles_follow_their_models_and_keep_instance_state_isolated() {
 }
 
 #[test]
+fn attachment_queries_use_the_bone_index_as_the_battle_actor_key() {
+    use resonance_content::animation::{Bone, Skeleton, Transform};
+    for battle in [false, true] {
+        for first in [7, CONTROLLED_ACTOR] {
+            let resources = ResourceLibrary {
+                models: [(
+                    1,
+                    ModelResource {
+                        names: vec!["root".into(), "attachment".into()],
+                        attachments: ModelAttachments {
+                            skeleton: Some(Arc::new(Skeleton {
+                                bones: [
+                                    ("root", None, [0.; 3]),
+                                    ("attachment", Some(0), [1.75, -2.5, 3.25]),
+                                ]
+                                .into_iter()
+                                .map(|(name, parent, translation)| Bone {
+                                    name: name.into(),
+                                    parent,
+                                    parent_transform: None,
+                                    shadow_bounds: true,
+                                    bind: Transform {
+                                        translation,
+                                        ..Default::default()
+                                    },
+                                })
+                                .collect(),
+                            })),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                )]
+                .into(),
+                ..Default::default()
+            };
+            let mut world = GameWorld::default();
+            world.controlled_actor = 7;
+            world.actors.insert(7, Actor::new(1, [10., 20., 30.]));
+            world.actors.insert(1, Actor::new(1, [100., 200., 300.]));
+            if battle {
+                world.battle_event = Some(battle_event::State::new(45.).unwrap());
+            }
+            let mut code = Vec::new();
+            // Bone -1 preserves the previous registers; a missing actor writes zero.
+            for (sample, query) in [[first, 1], [999998, -1], [88, 2]].into_iter().enumerate() {
+                native(&mut code, Call::ReadActorAttachment, &query);
+                for axis in 0..3 {
+                    code.extend([0x1200, 0x100 + sample as u16 * 12 + axis * 4]);
+                    native(&mut code, Call::ReadCoordinateRegister, &[i32::from(axis)]);
+                    code.extend([0x3010, 0x3000]);
+                }
+            }
+            code.push(0x20ff);
+            let events = runtime(program(&code, &[0x20ff]), resources, world);
+            let point = if battle {
+                [101, 197, 303]
+            } else {
+                [11, 17, 33]
+            };
+            for (sample, expected) in [point, point, [0; 3]].into_iter().enumerate() {
+                for (axis, value) in expected.into_iter().enumerate() {
+                    assert_eq!(
+                        events
+                            .memory()
+                            .read(0x100 + sample as u16 * 12 + axis as u16 * 4, Width::S32)
+                            .unwrap(),
+                        value,
+                        "battle={battle}, first={first}, sample={sample}, axis={axis}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pose_delay() {
     use resonance_content::animation::{
         Bone, Channel, FRAME_HZ, Interpolation, Motion, NodeTrack, Skeleton, Track, Transform,
@@ -3855,6 +4397,55 @@ fn confirmed_polygons_preserve_their_coordinates_and_transition_hints() {
 }
 
 #[test]
+fn trigger_queries_distinguish_touch_automatic_and_confirmed_records() {
+    use symphonia_constants::TriggerKind;
+    for (constructor, arguments, expected) in [
+        (
+            Call::CreateCircleTrigger,
+            vec![2000, 0, 0, 0, 10, 200],
+            TriggerKind::Touch,
+        ),
+        (
+            Call::CreateAutomaticCircleTrigger,
+            vec![2000, 0, 0, 0, 10, 200],
+            TriggerKind::Automatic,
+        ),
+        (
+            Call::CreateConfirmedCircleTrigger,
+            vec![2000, 18, 0, 243, 0, 0, 0, 10, 200],
+            TriggerKind::Confirmed,
+        ),
+    ] {
+        for kind in 0..=4 {
+            let code = script(&[
+                (constructor, &arguments),
+                (Call::TriggerExists, &[kind, 2000]),
+            ]);
+            let events = runtime(
+                program(&code, &[0x20ff]),
+                Default::default(),
+                Default::default(),
+            );
+            assert_eq!(
+                events.memory().read(0x20, Width::S32).unwrap(),
+                i32::from(kind == i32::from(expected.raw())),
+                "{expected:?}, query {kind}"
+            );
+        }
+        let code = script(&[
+            (constructor, &arguments),
+            (Call::TriggerExists, &[i32::from(expected.raw()), 2001]),
+        ]);
+        let events = runtime(
+            program(&code, &[0x20ff]),
+            Default::default(),
+            Default::default(),
+        );
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    }
+}
+
+#[test]
 fn touch_metadata_updates_the_first_touch_shape_without_changing_activation() {
     let code = script(&[
         (
@@ -3923,6 +4514,67 @@ fn emotes_resolve_the_current_party_leader_alias() {
     assert!(events.world.emotes.contains_key(&-100));
     events.step().unwrap();
     assert!(!events.world.emotes.contains_key(&-100));
+}
+
+#[test]
+fn battle_spawns_ignore_field_movement_and_keep_literal_actor_keys() {
+    for key in [-100, 100, CONTROLLED_ACTOR] {
+        for behavior in [0, 1, 255] {
+            for speed in [-1, 0] {
+                let code =
+                    script(&[(Call::SpawnActor, &[key, 10, 20, 30, 45, 1, behavior, speed])]);
+                let resources = ResourceLibrary {
+                    bindings: [(1, (ResourceKind::Model, 1))].into(),
+                    // No walk clip: the ignored behavior must not require one.
+                    models: [(1, model([12], 60))].into(),
+                    ..Default::default()
+                };
+                let mut world = controlled_world();
+                world.controlled_actor = 7;
+                world.insert_actor(7, Actor::new(1, [0.; 3]));
+                world.field_camera = Some(Default::default());
+                world.battle_event = Some(battle_event::State::new(45.).unwrap());
+                let events = runtime(program(&code, &[0x20ff]), resources, world);
+                let actor = &events.world.actors[&key];
+                assert_eq!(actor.position, [10., 20., 30.]);
+                assert_eq!(actor.heading, 45.);
+                assert_eq!(actor.resource, 1);
+                assert!(actor.autonomy.is_none());
+                assert!(events.world.emotes.is_empty());
+                assert_eq!(events.world.actors[&7].position, [0.; 3]);
+            }
+        }
+    }
+}
+
+#[test]
+fn collision_and_scenery_spawns_keep_signed_scene_keys() {
+    for constructor in [Call::SpawnCollisionActor, Call::SpawnSceneryActor] {
+        for key in [-100, -1, 4, CONTROLLED_ACTOR] {
+            let code = script(&[(constructor, &[key, 10, 20, 30, 45, 1, 0, 0])]);
+            let resources = ResourceLibrary {
+                bindings: [(1, (ResourceKind::Model, 1))].into(),
+                models: [(1, model([12], 60))].into(),
+                ..Default::default()
+            };
+            let mut world = controlled_world();
+            world.controlled_actor = 7;
+            world.insert_actor(7, Actor::new(1, [0.; 3]));
+            let events = runtime(program(&code, &[0x20ff]), resources, world);
+            let actor = &events.world.actors[&key];
+            assert_eq!(actor.position, [10., 20., 30.]);
+            assert_eq!(actor.heading, 45.);
+            assert_eq!(actor.resource, 1);
+            assert!(actor.model_collision.is_some());
+            assert_eq!(actor.pushable, constructor == Call::SpawnSceneryActor);
+            assert_eq!(
+                actor.appearance.model_hidden,
+                constructor == Call::SpawnCollisionActor
+            );
+            assert!(events.world.emotes.is_empty());
+            assert_eq!(events.world.actors[&7].position, [0.; 3]);
+        }
+    }
 }
 
 #[test]
@@ -4706,6 +5358,45 @@ fn animation_release_rebinds_the_same_slot_with_the_requested_blend() {
     assert_eq!(animation.blend_ticks, 3);
     assert_eq!(animation.start_tick, events.tick());
     assert_eq!(actor.position, [100., 200., 0.]);
+}
+
+#[test]
+fn animation_flag_updates_resume_or_replace_playback_using_the_native_host_rules() {
+    for battle in [false, true] {
+        for (update, paused, field_repeats, battle_repeats) in [
+            (0, false, false, false), // Resume retains Once.
+            (1, false, true, true),   // Default replaces Once and pause.
+            (2, true, false, true),   // Field pause retains Once; battle replaces it.
+        ] {
+            let code = script(&[
+                (Call::ConfigureActorAnimation, &[17, -1, 12, 0, 10]),
+                (Call::SetActorAnimationFlags, &[17, update]),
+            ]);
+            let mut resources = ResourceLibrary::default();
+            resources.models.insert(17, model([12], 44));
+            let mut world = GameWorld::default();
+            world.actors.insert(17, Actor::new(17, [0.; 3]));
+            if battle {
+                world.battle_event = Some(battle_event::State::new(45.).unwrap());
+            }
+            let events = runtime(program(&code, &[0x20ff]), resources, world);
+            let animation = events.world.actors[&17].animation.as_ref().unwrap();
+            assert_eq!(
+                animation.paused_rate.is_some(),
+                paused,
+                "battle={battle}, update={update}"
+            );
+            assert_eq!(
+                animation.repeat,
+                if battle {
+                    battle_repeats
+                } else {
+                    field_repeats
+                },
+                "battle={battle}, update={update}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -6392,6 +7083,82 @@ fn actor_queries_follow_the_controlled_actor_through_a_scripted_move() {
 }
 
 #[test]
+fn scenery_animation_edits_keep_the_original_numbered_layer_routing() {
+    let layers = [999996, 999997, 999998, 999980];
+    for operation in [
+        Call::ConfigureSceneryAnimation,
+        Call::ClearSceneryAnimation,
+        Call::SeekSceneryAnimation,
+        Call::SetSceneryAnimationRate,
+    ] {
+        for selector in [0, 1, 2, 3, 4, 999980, 999996, 999997, 999998, 999999] {
+            for channel in [-1, 0, 3] {
+                let selected = match (operation, selector) {
+                    (_, 2) | (Call::ConfigureSceneryAnimation, 999997) => 999997,
+                    (_, 3) | (Call::ConfigureSceneryAnimation, 999998) => 999998,
+                    (Call::ConfigureSceneryAnimation, 4 | 999980) => 999980,
+                    _ => 999996,
+                };
+                let args = match operation {
+                    Call::ConfigureSceneryAnimation => vec![selector, channel, -65536, 5, 100, 8],
+                    Call::ClearSceneryAnimation => vec![selector, channel],
+                    Call::SeekSceneryAnimation => vec![selector, channel, 5],
+                    _ => vec![selector, channel, 250],
+                };
+                let code = script(&[(Call::ResolveScriptResource, &[123]), (operation, &args)]);
+                let mut world = GameWorld::default();
+                for id in layers {
+                    let mut actor = Actor::new(1, [0.; 3]);
+                    actor.animation = Some(Animation::new(1, 12, 200, 0));
+                    for slot in 0..4 {
+                        actor
+                            .scenery_animations
+                            .insert(slot, Animation::new(1, 12, 200, 0));
+                    }
+                    world.actors.insert(id, actor);
+                }
+                let resources = ResourceLibrary {
+                    animations: [(123, model([12], 200).clips)].into(),
+                    ..Default::default()
+                };
+                let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+                steps(&mut events, 2);
+                for id in layers {
+                    let actor = &events.world.actors[&id];
+                    let animation = if channel == -1 {
+                        actor.animation.as_ref()
+                    } else {
+                        actor.scenery_animations.get(&(channel as i8))
+                    };
+                    if operation == Call::ClearSceneryAnimation {
+                        assert_eq!(
+                            animation.is_none(),
+                            id == selected,
+                            "{operation:?}, {selector}, {channel}, {id}"
+                        );
+                    } else {
+                        let animation = animation.unwrap();
+                        match operation {
+                            Call::ConfigureSceneryAnimation => {
+                                assert_eq!(animation.resource, if id == selected { 123 } else { 1 })
+                            }
+                            Call::SeekSceneryAnimation => assert_eq!(
+                                animation.start_frame,
+                                if id == selected { 10. } else { 0. }
+                            ),
+                            _ => assert_eq!(
+                                animation.script_rate(),
+                                if id == selected { 2.5 } else { 1. }
+                            ),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn scenery_motion_layers_pause_and_clear_independently() {
     let code = script(&[
         (Call::ResolveScriptResource, &[123]),
@@ -6498,6 +7265,239 @@ fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
     assert!(events.contact_enemy(90).unwrap());
     events.step().unwrap();
     assert!(events.world.event_flags.contains(&123));
+}
+
+#[test]
+fn frame_waits_follow_the_current_controlled_actor_and_require_exact_frames() {
+    let code = script(&[
+        (Call::WaitActorAnimationFrame, &[CONTROLLED_ACTOR, 3]),
+        (Call::SetEventBit, &[123]),
+    ]);
+    let mut world = GameWorld::default();
+    world.controlled_actor = 7;
+    for (id, frame) in [(7, 0.), (9, 8.)] {
+        let mut actor = Actor::new(1, [0.; 3]);
+        actor.scripted_animation = true;
+        let mut animation = Animation::new(1, 12, 30, 0);
+        animation.rate = 0.;
+        animation.start_frame = frame;
+        actor.animation = Some(animation);
+        world.actors.insert(id, actor);
+    }
+    let mut events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary {
+            models: [(1, model([12], 30))].into(),
+            ..Default::default()
+        },
+        world,
+    );
+    steps(&mut events, 2);
+    assert!(!events.world.event_flags.contains(&123));
+    events.world.controlled_actor = 9;
+    steps(&mut events, 2);
+    assert!(!events.world.event_flags.contains(&123));
+    events
+        .world
+        .actors
+        .get_mut(&9)
+        .unwrap()
+        .animation
+        .as_mut()
+        .unwrap()
+        .start_frame = 6.;
+    steps(&mut events, 2);
+    assert!(events.world.event_flags.contains(&123));
+}
+
+#[test]
+fn frame_waits_use_literal_battle_keys_and_release_missing_battle_actors() {
+    for battle in [false, true] {
+        for present in [false, true] {
+            let code = script(&[
+                (Call::WaitActorAnimationFrame, &[CONTROLLED_ACTOR, 3]),
+                (Call::SetEventBit, &[123]),
+            ]);
+            let mut world = GameWorld::default();
+            world.controlled_actor = 7;
+            if battle {
+                world.battle_event = Some(battle_event::State::new(45.).unwrap());
+            }
+            if present {
+                let mut actor = Actor::new(1, [0.; 3]);
+                actor.scripted_animation = true;
+                let mut animation = Animation::new(1, 12, 30, 0);
+                animation.rate = 0.;
+                animation.start_frame = 6.;
+                actor.animation = Some(animation);
+                world.actors.insert(CONTROLLED_ACTOR, actor);
+            }
+            let mut events = runtime(
+                program(&code, &[0x20ff]),
+                ResourceLibrary {
+                    models: [(1, model([12], 30))].into(),
+                    ..Default::default()
+                },
+                world,
+            );
+            steps(&mut events, 4);
+            assert_eq!(
+                events.world.event_flags.contains(&123),
+                battle,
+                "battle={battle}, present={present}"
+            );
+        }
+    }
+}
+
+#[test]
+fn rotation_and_scale_controllers_preserve_axes_steps_and_host_actor_keys() {
+    for operation in [
+        Call::ConfigureActorBoneRotation,
+        Call::ConfigureActorAttachment,
+        Call::ConfigureActorBoneScale,
+    ] {
+        for battle in [false, true] {
+            let args = match operation {
+                Call::ConfigureActorBoneRotation => vec![CONTROLLED_ACTOR, 2, 0, 10, 20, 30],
+                Call::ConfigureActorAttachment => vec![CONTROLLED_ACTOR, 2, 0, 10, 20, 30, 0],
+                _ => vec![CONTROLLED_ACTOR, 2, 0, 50, 100, 200, 0],
+            };
+            let code = script(&[(operation, &args)]);
+            let mut world = GameWorld::default();
+            world.controlled_actor = 17;
+            for id in [17, CONTROLLED_ACTOR] {
+                world.actors.insert(id, Actor::new(1, [0.; 3]));
+            }
+            if battle {
+                world.battle_event = Some(battle_event::State::new(45.).unwrap());
+            }
+            let events = runtime(
+                program(&code, &[0x20ff]),
+                ResourceLibrary {
+                    models: [(
+                        1,
+                        ModelResource {
+                            names: vec!["Root".into()],
+                            ..Default::default()
+                        },
+                    )]
+                    .into(),
+                    ..Default::default()
+                },
+                world,
+            );
+            let target = if battle { CONTROLLED_ACTOR } else { 17 };
+            let other = if battle { 17 } else { CONTROLLED_ACTOR };
+            let adjustment = &events.world.actors[&target].appearance.bone_adjustments[&2];
+            if operation == Call::ConfigureActorBoneScale {
+                assert_eq!(
+                    adjustment
+                        .scale
+                        .as_ref()
+                        .unwrap()
+                        .sample(events.tick(), [1.; 3]),
+                    [0.5, 1., 2.]
+                );
+            } else {
+                assert_eq!(adjustment.angles, [10., 30., 20.]);
+                assert_eq!(
+                    adjustment.duration_ticks,
+                    if operation == Call::ConfigureActorBoneRotation {
+                        30
+                    } else {
+                        1
+                    }
+                );
+            }
+            assert!(
+                events.world.actors[&other]
+                    .appearance
+                    .bone_adjustments
+                    .is_empty()
+            );
+        }
+    }
+}
+
+#[test]
+fn ignored_bone_targets_skip_controller_validation_and_actor_lookup() {
+    for battle in [false, true] {
+        let code = script(&[
+            (
+                Call::ConfigureActorBoneRotation,
+                &[CONTROLLED_ACTOR, 99, -1, 10, 20, 30],
+            ),
+            (
+                Call::ConfigureActorAttachment,
+                &[CONTROLLED_ACTOR, 99, -1, 10, 20, 30, -1],
+            ),
+            (
+                Call::ConfigureActorBoneScale,
+                &[CONTROLLED_ACTOR, 99, -1, 50, 100, 200, -1],
+            ),
+        ]);
+        let mut world = GameWorld::default();
+        world.controlled_actor = 17;
+        if battle {
+            world.battle_event = Some(battle_event::State::new(45.).unwrap());
+        }
+        world.actors.insert(17, Actor::new(1, [0.; 3]));
+        let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        assert!(
+            events.world.actors[&17]
+                .appearance
+                .bone_adjustments
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn bone_translation_keeps_battle_keys_distinct_from_field_controlled_aliases() {
+    for battle in [false, true] {
+        let code = script(&[(
+            Call::ConfigureActorBoneTranslation,
+            &[CONTROLLED_ACTOR, 0, 0, 7, 8, 9, 0],
+        )]);
+        let mut world = GameWorld::default();
+        world.controlled_actor = 17;
+        for id in [17, CONTROLLED_ACTOR] {
+            world.actors.insert(id, Actor::new(1, [0.; 3]));
+        }
+        if battle {
+            world.battle_event = Some(battle_event::State::new(45.).unwrap());
+        }
+        let events = runtime(
+            program(&code, &[0x20ff]),
+            ResourceLibrary {
+                models: [(
+                    1,
+                    ModelResource {
+                        names: vec!["Root".into()],
+                        ..Default::default()
+                    },
+                )]
+                .into(),
+                ..Default::default()
+            },
+            world,
+        );
+        let target = if battle { CONTROLLED_ACTOR } else { 17 };
+        let other = if battle { 17 } else { CONTROLLED_ACTOR };
+        let translation = events.world.actors[&target].appearance.bone_adjustments[&0]
+            .translation
+            .as_ref()
+            .unwrap();
+        assert_eq!(translation.to, [7., 8., 9.]);
+        assert_eq!(translation.duration_ticks, 1);
+        assert!(
+            events.world.actors[&other]
+                .appearance
+                .bone_adjustments
+                .is_empty()
+        );
+    }
 }
 
 #[test]
@@ -6844,6 +7844,122 @@ fn ordinary_interactions_supply_their_actor() {
 }
 
 #[test]
+fn rendering_setting_aliases_and_nonzero_toggles_follow_the_native_dispatch() {
+    let calls = [
+        (-1, 17),
+        (-8, 80),
+        (i32::MIN, 14),
+        (8, 99),
+        (127, 99),
+        (130, 99),
+        (i32::MAX, 99),
+    ];
+    let mut code = Vec::new();
+    for (command, value) in calls {
+        native(&mut code, Call::ConfigureRendering, &[command, value]);
+    }
+    code.push(0x20ff);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary::default(),
+        GameWorld::default(),
+    );
+    assert_eq!(events.world.texture_bindings, [(0, 14), (7, 17)].into());
+    for value in [-1, 1, 2, i32::MIN] {
+        let code = script(&[(Call::ConfigureRendering, &[128, value])]);
+        let events = runtime(
+            program(&code, &[0x20ff]),
+            ResourceLibrary::default(),
+            GameWorld::default(),
+        );
+        assert!(events.world.texture_animation_enabled);
+    }
+    let code = script(&[
+        (Call::ConfigureRendering, &[128, 1]),
+        (Call::ConfigureRendering, &[128, 0]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary::default(),
+        GameWorld::default(),
+    );
+    assert!(!events.world.texture_animation_enabled);
+}
+
+#[test]
+fn screen_copy_reads_and_resets_evaluate_ignored_arguments_and_return_old_depths() {
+    let mut code = Vec::new();
+    for command in 0..=5 {
+        arg(&mut code, command);
+        if command < 2 {
+            arg(&mut code, if command == 0 { 12345 } else { 17890 });
+        } else {
+            code.extend([0x1200, 0x810, 0x3001, 0x3000, 0x4000]);
+        }
+        code.push(0x2000 | Call::ConfigureScreenCopy as u16);
+        code.extend([
+            0x3000,
+            0x1200,
+            0x100 + command as u16 * 4,
+            0x1200,
+            0x20,
+            0x3010,
+            0x3000,
+        ]);
+    }
+    code.push(0x20ff);
+    let mut world = GameWorld::default();
+    world.screen_copy_depth = [174., 190.];
+    let events = runtime(program(&code, &[0x20ff]), ResourceLibrary::default(), world);
+    for (index, expected) in [17400, 19000, 12345, 17890, 12345, 17890]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + index as u16 * 4, Width::S32)
+                .unwrap(),
+            expected
+        );
+    }
+    assert_eq!(events.memory().read(0x810, Width::S32).unwrap(), 4);
+    assert_eq!(events.world.screen_copy_depth, [174., 190.]);
+    for (depth, expected) in [
+        (f32::NAN, i32::MIN),
+        (f32::INFINITY, i32::MAX),
+        (f32::NEG_INFINITY, i32::MIN),
+        (3.125, 312),
+        (-0.009, 0),
+    ] {
+        let mut world = GameWorld::default();
+        world.screen_copy_depth[0] = depth;
+        let code = script(&[(Call::ConfigureScreenCopy, &[2, 0])]);
+        let events = runtime(program(&code, &[0x20ff]), ResourceLibrary::default(), world);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
+    }
+}
+
+#[test]
+fn voice_preload_uses_only_the_high_word_and_two_buffer_roles() {
+    let code = script(&[
+        (Call::PreloadVoiceBank, &[0x000a0056, 0]),
+        (Call::PreloadVoiceBank, &[0x000affff, 0]),
+        (Call::PreloadVoiceBank, &[0x000b0001, 1]),
+        (Call::PreloadVoiceBank, &[0x000c0042, -1]),
+        (Call::PreloadVoiceBank, &[0x00000001, 0]),
+        (Call::PreloadVoiceBank, &[0, 1]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary::default(),
+        GameWorld::default(),
+    );
+    assert_eq!(events.world.voice_banks, [Some(10), Some(12)]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+}
+
+#[test]
 fn camera_track_start_options_use_full_width_tests_before_repeat_byte_storage() {
     for start in [0, 1, 256, -1] {
         for repeat in [0, 1, 257, -1] {
@@ -7003,5 +8119,112 @@ fn camera_mapping_uses_native_degenerate_range_results_before_sampling() {
         };
         let events = runtime(program(&setup, &[0x20ff]), resources, controlled_world());
         assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
+    }
+}
+
+#[test]
+fn native_dialogue_waits_match_original_statuses_and_full_selector_fallbacks() {
+    use resonance_events::dialogue::{DialogueStatus, ResolvedMessage};
+    // 154 unmodified original Native64/8005B3F0 snapshots: commands2/3,
+    // selectors0,1,2,3,8,20,255,256,257,258,MAX, each with seven distinct
+    // status arrangements across the three real windows. No native code patched.
+    let expected = concat!(
+        "10000000000001000010010000001000000100000010000001000000100000010000001000000",
+        "00000110000110001100000000110000011000001100000110000011000001100000110000011",
+    )
+    .as_bytes();
+    let phases = [
+        DialogueStatus::Closed,
+        DialogueStatus::Waiting,
+        DialogueStatus::Opening,
+        DialogueStatus::Revealing,
+        DialogueStatus::PageReady,
+        DialogueStatus::Finished,
+        DialogueStatus::Closing,
+    ];
+    let mut index = 0;
+    for command in [2, 3] {
+        for selector in [0, 1, 2, 3, 8, 20, 255, 256, 257, 258, i32::MAX] {
+            for status in 0..7 {
+                let code = script(&[
+                    (Call::YieldCommand, &[command, selector]),
+                    (Call::SetEventBit, &[777]),
+                ]);
+                let mut world = GameWorld::default();
+                for (slot, phase) in [status, (status + 1) % 7, (status + 3) % 7]
+                    .into_iter()
+                    .enumerate()
+                {
+                    world
+                        .show_notice(ResolvedMessage { tokens: vec![] }, 0)
+                        .unwrap();
+                    world.dialogue.get_mut(&(slot as u8)).unwrap().status = phases[phase];
+                }
+                let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+                steps(&mut events, 4);
+                let ready = expected[index] == b'1';
+                assert_eq!(
+                    events.world.event_flags.contains(&777),
+                    ready,
+                    "snapshot {index}: command {command}, selector {selector}, status arrangement {status}"
+                );
+                if !ready {
+                    let slot = if selector < 3 { selector as u8 } else { 0 };
+                    events.world.dialogue.get_mut(&slot).unwrap().status = if command == 2 {
+                        DialogueStatus::Closed
+                    } else {
+                        DialogueStatus::Finished
+                    };
+                    events.step().unwrap();
+                    assert!(!events.world.event_flags.contains(&777));
+                    events.step().unwrap();
+                    assert!(events.world.event_flags.contains(&777));
+                }
+                assert_eq!(events.active_instances(), 0);
+                index += 1;
+            }
+        }
+    }
+    assert_eq!(index, expected.len());
+}
+
+#[test]
+fn native_dialogue_waits_observe_replacement_windows_and_closed_is_not_ready() {
+    use resonance_events::dialogue::{DialogueStatus, ResolvedMessage};
+    for command in [2, 3] {
+        let code = script(&[
+            (Call::YieldCommand, &[command, 20]),
+            (Call::SetEventBit, &[777]),
+        ]);
+        let mut world = GameWorld::default();
+        let old = world
+            .show_notice(ResolvedMessage { tokens: vec![] }, 0)
+            .unwrap();
+        let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        // Replace the physical window while its native caller is waiting.
+        events.world.dialogue.remove(&0);
+        old.cancel();
+        let operation = events
+            .world
+            .show_notice(ResolvedMessage { tokens: vec![] }, 0)
+            .unwrap();
+        events.world.dialogue.get_mut(&0).unwrap().status = DialogueStatus::Opening;
+        steps(&mut events, 3);
+        assert!(!events.world.event_flags.contains(&777));
+        if command == 2 {
+            operation.complete(None).unwrap();
+        } else {
+            // A missing window has original status0, so wait3 must keep waiting
+            // until a later window is finished, even if an older one completed.
+            let window = events.world.dialogue.remove(&0).unwrap();
+            steps(&mut events, 3);
+            assert!(!events.world.event_flags.contains(&777));
+            events.world.dialogue.insert(0, window);
+            events.world.dialogue.get_mut(&0).unwrap().status = DialogueStatus::Finished;
+        }
+        events.step().unwrap();
+        assert!(!events.world.event_flags.contains(&777));
+        events.step().unwrap();
+        assert!(events.world.event_flags.contains(&777));
     }
 }

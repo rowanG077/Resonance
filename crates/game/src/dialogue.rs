@@ -482,6 +482,9 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                         _ => [255; 3],
                     }
                 }
+                // Retail consumes a zero voice word without starting/stopping
+                // a voice or replacing the current voice completion state.
+                9 if *value == 0 => {}
                 9 => {
                     let page = pages.last_mut().unwrap();
                     let voice = if *value == -1 {
@@ -906,5 +909,41 @@ mod tests {
         assert!(player.voice_finished());
         assert!(player.operation.progress().ready);
         assert!(!player.is_talking());
+    }
+}
+
+#[cfg(test)]
+mod voice_control_zero_tests {
+    use super::*;
+
+    #[test]
+    fn zero_voice_controls_do_not_replace_play_or_stop_actions() {
+        let message = ResolvedMessage {
+            tokens: vec![
+                TextToken::Control {
+                    opcode: 9,
+                    value: 0xa0028,
+                },
+                TextToken::Control {
+                    opcode: 9,
+                    value: 0,
+                },
+                TextToken::Text { text: "A".into() },
+                TextToken::Control {
+                    opcode: 9,
+                    value: -1,
+                },
+                TextToken::Control {
+                    opcode: 9,
+                    value: 0,
+                },
+            ],
+        };
+        let pages = pages(&message, 2).unwrap();
+        assert_eq!(
+            pages[0].voices,
+            [(0, VoiceAction::Play(0xa0028)), (1, VoiceAction::Stop)]
+        );
+        assert_eq!(pages[0].text(), "A");
     }
 }

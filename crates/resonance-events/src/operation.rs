@@ -133,6 +133,14 @@ pub(crate) enum Wait {
     },
     ActorAnimation(i32),
     ActorAnimationFrame(i32, i32),
+    /// Native waits test the current window in a slot on every update.
+    Dialogue {
+        slot: u8,
+        ready: bool,
+        // Preserve cancellation ownership of the initial window without using
+        // that generation's callback as the readiness condition.
+        operation: Option<Operation>,
+    },
     Complete(Operation),
     Result(Operation),
     Choice {
@@ -152,7 +160,11 @@ impl Wait {
                 scope.track(result)?;
                 window.track(scope)
             }
-            Self::Complete(op)
+            Self::Dialogue {
+                operation: Some(op),
+                ..
+            }
+            | Self::Complete(op)
             | Self::Result(op)
             | Self::Battle(op)
             | Self::Menu(op)
@@ -197,6 +209,21 @@ impl Wait {
                     })
                 });
             }
+            Self::Dialogue { slot, ready, .. } => {
+                use crate::dialogue::DialogueStatus;
+                let status = world
+                    .dialogue
+                    .get(slot)
+                    .filter(|dialogue| dialogue.operation.is_pending())
+                    .map_or(DialogueStatus::Closed, |dialogue| dialogue.status);
+                // Original wait2 requires status0; wait3 requires status >=5.
+                // A closed/missing window does not satisfy the latter.
+                return Ok(if *ready {
+                    status as i32 >= DialogueStatus::Finished as i32
+                } else {
+                    status == DialogueStatus::Closed
+                });
+            }
             Self::Voice => {
                 return Ok(world
                     .voice
@@ -221,9 +248,20 @@ impl Wait {
                 // Native model time is in 30-Hz authored frames; cooked poses
                 // use 60-Hz ticks. This wait tests the integer frame, including
                 // a paused final frame, rather than waiting for clip completion.
+                let battle = world.battle_event.is_some();
+                let id = if !battle && *id == crate::CONTROLLED_ACTOR {
+                    world.controlled_actor
+                } else {
+                    *id
+                };
+                // Field lookup is retried while absent. The native battle
+                // request instead releases the wait when its actor is absent.
+                if battle && !world.actors.contains_key(&id) {
+                    return Ok(true);
+                }
                 return Ok(world
                     .actors
-                    .get(id)
+                    .get(&id)
                     .and_then(|a| a.animation.as_ref())
                     .is_some_and(|a| {
                         (a.sample(world.tick, 0, a.duration_ticks as f32) / 2.) as i32 == *frame

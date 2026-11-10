@@ -32,7 +32,9 @@ fn owner_observation_borrows_call_and_service_state_without_polling_or_resuming(
     assert_eq!(initial[0]["legacy_return_stack"], serde_json::json!([2]));
     assert_eq!(initial[0]["legacy_program"], true);
     assert_eq!(initial[0]["wait"]["kind"], "service");
-    assert_eq!(initial[0]["wait"]["condition"]["kind"], "complete");
+    assert_eq!(initial[0]["wait"]["condition"]["kind"], "dialogue");
+    assert_eq!(initial[0]["wait"]["condition"]["slot"], 0);
+    assert_eq!(initial[0]["wait"]["condition"]["ready"], false);
     assert_eq!(
         initial[0]["wait"]["condition"]["operation"]["dialogue_slots"],
         serde_json::json!([0])

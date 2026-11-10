@@ -196,6 +196,30 @@ pub(crate) fn resolve(
     text: &resonance_content::session::GameText,
     controlled: i32,
 ) -> Result<ResolvedMessage, String> {
+    resolve_with(
+        message,
+        memory,
+        names,
+        text,
+        controlled,
+        &mut |expression, memory| {
+            symphonia_script_vm::message::evaluate(expression, memory)
+                .map_err(|error| error.to_string())
+        },
+    )
+}
+
+pub(crate) fn resolve_with<F>(
+    message: &Message,
+    memory: &mut Memory,
+    names: &BTreeMap<i32, String>,
+    text: &resonance_content::session::GameText,
+    controlled: i32,
+    evaluate: &mut F,
+) -> Result<ResolvedMessage, String>
+where
+    F: FnMut(&symphonia_script::message::Expression, &mut Memory) -> Result<i32, String>,
+{
     use symphonia_script::message::Token;
     let mut tokens = Vec::new();
     for token in &message.tokens {
@@ -203,8 +227,7 @@ pub(crate) fn resolve(
             Token::Text { text } => tokens.push(TextToken::Text { text: text.clone() }),
             Token::Raw { value } => return Err(format!("undecoded message byte {value:#x}")),
             Token::Control { opcode, expression } => {
-                let value = symphonia_script_vm::message::evaluate(expression, memory)
-                    .map_err(|error| error.to_string())?;
+                let value = evaluate(expression, memory)?;
                 match opcode {
                     1 => {
                         let id = if value == crate::CONTROLLED_ACTOR {

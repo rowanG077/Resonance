@@ -27,7 +27,7 @@ impl GameWorld {
         {
             self.audio_commands.push(AudioCommand::Sound {
                 id: voice.id,
-                volume: voice.volume,
+                volume: AudioCommand::native_sound_volume(voice.volume),
                 pan: voice.pan,
                 slot: None,
             });
@@ -119,7 +119,7 @@ impl GameWorld {
                     if old.volume != new.volume {
                         self.audio_commands.push(AudioCommand::SoundVolume {
                             slot,
-                            volume: new.volume,
+                            volume: AudioCommand::native_sound_volume(new.volume),
                         });
                     }
                     if old.pan != new.pan {
@@ -129,7 +129,7 @@ impl GameWorld {
                 }
                 (_, Some(new)) => self.audio_commands.push(AudioCommand::RepeatSound {
                     id: new.id,
-                    volume: new.volume,
+                    volume: AudioCommand::native_sound_volume(new.volume),
                     pan: new.pan,
                     slot: slot as u8,
                 }),
@@ -145,6 +145,82 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::Actor;
+
+    #[test]
+    fn spatial_sound_masks_volume_after_attenuation() {
+        for (raw, distant, nearby) in [(176, 88, 48), (200, 100, 72)] {
+            let mut world = GameWorld {
+                controlled_actor: 1,
+                ..Default::default()
+            };
+            world.actors.insert(1, Actor::new(1, [0.; 3]));
+            let sound = AmbientSound {
+                id: 390,
+                volume: raw,
+                radius: 100.,
+            };
+            let mut emitter = Actor::new(0, [50., 0., 0.]);
+            emitter.ambient_sound = Some(sound);
+            world.actors.insert(10, emitter);
+            world.actor_sound(10, sound);
+            world.step_ambient_sound();
+            assert!(matches!(
+                world.audio_commands.as_slice(),
+                [
+                    AudioCommand::Sound { volume: a, slot: None, .. },
+                    AudioCommand::RepeatSound { volume: b, slot: 5, .. },
+                ] if (*a, *b) == (distant, distant)
+            ));
+            world.audio_commands.clear();
+            world.actors.get_mut(&10).unwrap().position[0] = 0.;
+            world.actor_sound(10, sound);
+            world.step_ambient_sound();
+            assert!(matches!(
+                world.audio_commands.as_slice(),
+                [
+                    AudioCommand::Sound { volume: a, slot: None, .. },
+                    AudioCommand::SoundVolume { volume: b, slot: 5 },
+                ] if (*a, *b) == (nearby, nearby)
+            ));
+        }
+    }
+
+    #[test]
+    fn ambient_selection_uses_volume_before_controller_masking() {
+        let mut world = GameWorld {
+            controlled_actor: 1,
+            ..Default::default()
+        };
+        world.actors.insert(1, Actor::new(1, [0.; 3]));
+        for (id, volume) in [(390, 200), (389, 176), (132, 100)] {
+            let mut emitter = Actor::new(0, [0.; 3]);
+            emitter.ambient_sound = Some(AmbientSound {
+                id,
+                volume,
+                radius: 100.,
+            });
+            world.actors.insert(i32::from(id), emitter);
+        }
+        world.step_ambient_sound();
+        assert!(matches!(
+            world.audio_commands.as_slice(),
+            [
+                AudioCommand::RepeatSound {
+                    id: 390,
+                    slot: 5,
+                    volume: 72,
+                    ..
+                },
+                AudioCommand::RepeatSound {
+                    id: 389,
+                    slot: 6,
+                    volume: 48,
+                    ..
+                },
+            ]
+        ));
+    }
+
     #[test]
     fn emitters_deduplicate_preserve_channels_and_stop_out_of_range() {
         let mut world = GameWorld {

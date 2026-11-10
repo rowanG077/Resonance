@@ -1409,6 +1409,7 @@ impl EventRuntime {
                             }
                         }),
                     wait: &mut wait,
+                    message_depth: 0,
                 };
                 instance.vm.run(
                     &mut host,

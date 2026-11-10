@@ -74,10 +74,13 @@ fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
             if events.world.field_transition.is_some() {
                 break;
             }
-            for dialogue in events.world.dialogue.values() {
+            for dialogue in events.world.dialogue.values_mut() {
                 if !dialogue.operation.progress().ready {
                     dialogue.operation.advance(1).unwrap();
                 }
+                // This fixture supplies the presentation service: native wait3
+                // observes the published window status, not a generic callback.
+                dialogue.status = resonance_events::dialogue::DialogueStatus::Finished;
             }
             for (&slot, choice) in &mut events.world.choices {
                 if choice.operation.is_pending() {
