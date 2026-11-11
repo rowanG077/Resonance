@@ -16,6 +16,7 @@ const LAYER: usize = 25;
 const HOLD_TICKS: u16 = 22;
 const FADE_START: u16 = 43;
 const END_TICK: u16 = 90;
+const ENTRY_VOICE_TICK: u16 = HOLD_TICKS + (END_TICK - HOLD_TICKS) / 2;
 const FADE_STEP: f32 = 1. / (END_TICK - FADE_START) as f32;
 const EDGE_SPEED: f32 = 2.5;
 const CRACK_SPREAD: f32 = 1.025;
@@ -72,6 +73,10 @@ impl State {
 
     pub(super) fn finished(&self) -> bool {
         self.age == Some(END_TICK)
+    }
+
+    pub(super) fn entry_voice_ready(&self) -> bool {
+        self.age.is_some_and(|age| age >= ENTRY_VOICE_TICK)
     }
 
     pub(super) fn diagnostic(&self) -> serde_json::Value {
@@ -482,6 +487,7 @@ mod tests {
                     app.world().resource::<State>().age,
                     Some((tick + 1).min(HOLD_TICKS)),
                 );
+                assert!(!app.world().resource::<State>().entry_voice_ready());
             }
             app.world_mut().resource_mut::<State>().start_shatter();
             let age = app.world().resource::<State>().age.unwrap();
@@ -490,6 +496,7 @@ mod tests {
                 let state = app.world().resource::<State>();
                 assert_eq!(state.age, Some(next));
                 assert_eq!(state.finished(), next == END_TICK);
+                assert_eq!(state.entry_voice_ready(), next >= 56);
             }
             app.world_mut().run_schedule(FixedUpdate);
             assert!(app.world().resource::<State>().finished());

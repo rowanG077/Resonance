@@ -56,6 +56,150 @@ fn rules() -> Rules {
 }
 
 #[test]
+fn enemy_visibility_uses_ground_distance_in_both_views() -> Result<()> {
+    // Foot/Noishe horizons are 700/1,000 units, with a 255-unit fade.
+    // Distance truncation preserves alpha one at the visible edge.
+    for perspective in [false, true] {
+        for (mount, samples) in [
+            (
+                Mount::Foot,
+                [(445.25, 255), (600.5, 100), (699.75, 1), (700., 0)],
+            ),
+            (
+                Mount::Noishe,
+                [(745.25, 255), (900.5, 100), (999.75, 1), (1000., 0)],
+            ),
+        ] {
+            let mut state = state(mount);
+            state.alternate_perspective = perspective;
+            // Cross the wrapping map seam and ignore vertical separation.
+            state.position = Position::from_map([76790., 100., 80.])?;
+            let travel = Travel::new(state, parameters())?;
+            for (distance, expected) in samples {
+                let position = travel.state.position.translated([distance, 0., 900.])?;
+                assert_eq!(travel.enemy_opacity(position), expected);
+            }
+            assert_eq!(travel.enemy_opacity(travel.state.position), 255);
+            assert_eq!(
+                travel.enemy_opacity(travel.state.position.translated([1050., 0., 0.])?),
+                0,
+                "newly admitted symbols stay resident beyond their draw horizon"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn enemy_fade_horizon_tracks_mount_changes_during_perspective_zooms() -> Result<()> {
+    let terrain = terrain(TerrainSurface::Grassland);
+    let rules = rules();
+    let context = Context {
+        event_flags: &[903].into(),
+        rheairds_owned: false,
+        landing_clear: true,
+    };
+    let mut parameters = (*parameters()).clone();
+    parameters.zoom_transition_ticks = 4.;
+    let parameters = Arc::new(parameters);
+    for perspective in [false, true] {
+        for (mount, expected) in [
+            (Mount::Foot, [25, 100, 175, 250]),
+            (Mount::Noishe, [175, 100, 25, 0]),
+        ] {
+            // Change perspective with the mount action or one update before it.
+            for perspective_change in [None, Some(0), Some(1)] {
+                let mut state = state(mount);
+                state.alternate_perspective = perspective;
+                let mut travel = Travel::new(state, parameters.clone())?;
+                let position = travel.state.position.translated([750.5, 0., 0.])?;
+                if perspective_change == Some(1) {
+                    travel.step(
+                        Input {
+                            toggle_perspective: true,
+                            ..Default::default()
+                        },
+                        &context,
+                        &terrain,
+                        &rules,
+                    )?;
+                }
+                for (tick, expected) in expected.into_iter().enumerate() {
+                    let cues = travel.step(
+                        Input {
+                            toggle_noishe: tick == 0,
+                            toggle_perspective: tick == 0 && perspective_change == Some(0),
+                            ..Default::default()
+                        },
+                        &context,
+                        &terrain,
+                        &rules,
+                    )?;
+                    if tick == 0 {
+                        let token = cues
+                            .iter()
+                            .find_map(|cue| match cue {
+                                Cue::Animation { token, .. } => Some(*token),
+                                _ => None,
+                            })
+                            .unwrap();
+                        assert!(travel.finish_animation(token));
+                    }
+                    assert_eq!(travel.enemy_opacity(position), expected);
+                }
+            }
+        }
+    }
+    for mount in [Mount::Rheairds, Mount::Ship] {
+        let travel = Travel::new(state(mount), parameters.clone())?;
+        assert_eq!(travel.enemy_opacity(travel.state.position), 0);
+    }
+    Ok(())
+}
+
+#[test]
+fn perspective_zoom_keeps_the_enemy_horizon_on_foot_and_noishe() -> Result<()> {
+    let terrain = terrain(TerrainSurface::Grassland);
+    let rules = rules();
+    let context = Context {
+        event_flags: &[903].into(),
+        rheairds_owned: false,
+        landing_clear: true,
+    };
+    for perspective in [false, true] {
+        for mount in [Mount::Foot, Mount::Noishe] {
+            let mut state = state(mount);
+            state.alternate_perspective = perspective;
+            let mut travel = Travel::new(state, parameters())?;
+            let radius = if mount == Mount::Foot { 700. } else { 1000. };
+            let fading = travel.state.position.translated([radius - 49.5, 0., 0.])?;
+            let hidden = travel.state.position.translated([radius + 50.5, 0., 0.])?;
+            for tick in 0..30 {
+                travel.step(
+                    Input {
+                        toggle_perspective: tick == 0,
+                        ..Default::default()
+                    },
+                    &context,
+                    &terrain,
+                    &rules,
+                )?;
+                assert_eq!(travel.enemy_opacity(fading), 50);
+                assert_eq!(travel.enemy_opacity(hidden), 0);
+                assert!(travel.player_has_control());
+            }
+            assert_eq!(travel.state.alternate_perspective, !perspective);
+            assert_eq!(
+                travel.camera_distance(),
+                travel.parameters.camera_distances.for_view(!perspective)
+                    [usize::from(mount.long_range())]
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn foot_travel_runs_by_default_and_walk_modifier_limits_speed_to_a_walk() -> Result<()> {
     let terrain = terrain(TerrainSurface::Grassland);
     let rules = rules();

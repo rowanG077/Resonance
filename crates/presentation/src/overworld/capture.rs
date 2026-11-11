@@ -408,9 +408,10 @@ fn capture(
     mut scene: ResMut<Scene>,
     mut clock: ResMut<crate::Clock>,
     art: Option<Res<Art>>,
-    parts: Query<(Entity, &Instance)>,
+    parts: Query<(Entity, &Instance, &Visibility)>,
     children: Query<&Children>,
     geometry: Query<(&super::super::materials::MaterialSlot, &Visibility)>,
+    surfaces: Res<Assets<TitleSurface>>,
     framebuffer: Res<crate::Framebuffer>,
     ready: Res<crate::RenderReady>,
     resident: Res<crate::loading::Resident>,
@@ -425,7 +426,7 @@ fn capture(
     }
     if art.is_none_or(|a| !a.ready)
         || parts.is_empty()
-        || parts.iter().any(|(_, p)| !p.prepared)
+        || parts.iter().any(|(_, p, _)| !p.prepared)
         || !resident.active.load(Ordering::Acquire)
         || !ready.0.load(Ordering::Acquire)
     {
@@ -452,15 +453,38 @@ fn capture(
     let path = capture.path.clone();
     let hidden_geometry: Vec<_> = parts
         .iter()
-        .filter(|(_, p)| p.model == Model::Actor(scene.0.leader()))
-        .map(|(root, p)| {
+        .filter(|(_, p, _)| p.model == Model::Actor(scene.0.leader()))
+        .map(|(root, p, _)| {
             serde_json::json!({"part": p.part, "hidden_materials": children.iter_descendants(root)
             .filter_map(|entity| geometry.get(entity).ok())
             .filter(|(_, visibility)| **visibility == Visibility::Hidden)
             .map(|(slot, _)| slot.0).collect::<Vec<_>>()})
         })
         .collect();
-    let state = serde_json::json!({"kind":"overworld-development-observer", "presentation_tick": clock.0.tick(), "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
+    let enemy_symbols: Vec<_> = (0..game::enemies::SLOTS)
+        .filter_map(|slot| {
+            scene.0.session.enemies.get(slot).map(|symbol| {
+                serde_json::json!({"slot": slot, "variant": symbol.variant,
+                    "position": symbol.position,
+                    "opacity": scene.0.session.travel.enemy_opacity(symbol.position)})
+            })
+        })
+        .collect();
+    let enemy_materials: Vec<_> = parts
+        .iter()
+        .filter_map(|(_, part, visibility)| {
+            part.enemy.map(|slot| {
+                serde_json::json!({"slot": slot, "model": format!("{:?}", part.model),
+                    "part": part.part, "visible": *visibility != Visibility::Hidden,
+                    "surfaces": part.materials.iter()
+                        .filter_map(|handle| surfaces.get(handle))
+                        .map(|surface| serde_json::json!({"tint": surface.tint.to_array(),
+                            "alpha_blend": surface.blend == Some(Blend::Alpha)}))
+                        .collect::<Vec<_>>()})
+            })
+        })
+        .collect();
+    let state = serde_json::json!({"kind":"overworld-development-observer", "presentation_tick": clock.0.tick(), "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "enemy_symbols": enemy_symbols, "enemy_materials": enemy_materials, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>, mut exit: crate::diagnostics::Fatal| {
             match crate::screenshot::write(&event.image, &path, Some(&state)) {
