@@ -346,14 +346,10 @@ impl Travel {
         let mut camera_input = input.rotate_camera * p.stick_maximum;
         if matches!(self.state.mount, Mount::Foot | Mount::Noishe) {
             let [x, y] = input.stick;
-            let magnitude = x
-                .hypot(y)
-                .min(if input.walk && self.state.mount == Mount::Foot {
-                    0.5
-                } else {
-                    1.
-                });
-            self.speed = (magnitude * p.stick_maximum) / self.stick_divisor;
+            self.speed = (x.hypot(y).min(1.) * p.stick_maximum) / self.stick_divisor;
+            if input.walk && self.state.mount == Mount::Foot {
+                self.speed = self.speed.min(resonance_events::stride::MAXIMUM_WALK_SPEED);
+            }
             if self.speed > 0. {
                 self.state.heading = (x.atan2(-y) - self.state.camera_yaw).rem_euclid(TAU);
             }
