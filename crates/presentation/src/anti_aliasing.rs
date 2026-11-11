@@ -12,6 +12,8 @@ use resonance_content::menu_data::AntiAliasing;
 mod smaa;
 use smaa::Smaa;
 #[cfg(test)]
+pub(crate) use smaa::test_smaa_ready;
+#[cfg(test)]
 mod compositing_tests;
 
 /// Choices valid for all scene color formats and sampled refraction depth.

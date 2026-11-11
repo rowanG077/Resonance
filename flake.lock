@@ -19,11 +19,11 @@
     "qlog": {
       "flake": false,
       "locked": {
-        "lastModified": 1791973212,
-        "narHash": "sha256-EDQkWkgz7skHRbi1Ie+IidOPGmvgS8M2aATDE6fB1Ls=",
+        "lastModified": 1794314408,
+        "narHash": "sha256-tX0qWTMSyEFfARPxe6OiOl3LRmWzSVmbsd9BjlDFFcY=",
         "owner": "qbaylogic",
         "repo": "qlog",
-        "rev": "104e262c1c91939486bb507b962b12d6020b99a7",
+        "rev": "b5790d62af9a29fbbb79e5842399ee7257270b1d",
         "type": "github"
       },
       "original": {
