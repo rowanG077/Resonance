@@ -1062,6 +1062,7 @@ impl EventRuntime {
                             && *id == self.world.controlled_actor,
                         player_controlled: self.world.input_enabled
                             && *id == self.world.controlled_actor,
+                        stride_scale: self.world.player_size.model_scale(),
                         release: None,
                     },
                 );

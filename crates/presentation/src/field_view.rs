@@ -886,7 +886,7 @@ pub(super) fn gather_controls(
     }
     controls.input.pressed_buttons = controls.input.pressed_buttons.union(tapped);
     controls.input.held_buttons = held;
-    controls.input.run = physical.running(&map, Vec2::from_array(controls.input.direction));
+    controls.input.run = !physical.down(&map, A::Walk);
 }
 
 #[cfg(test)]
@@ -895,7 +895,7 @@ mod control_tests {
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
-    fn movement_runs_by_default_and_walks_with_a_modifier_or_half_stick() {
+    fn movement_follows_the_stick_and_walks_only_with_the_modifier() {
         let mut world = World::new();
         world.init_resource::<Controls>();
         world.init_resource::<ButtonInput<KeyCode>>();
@@ -911,21 +911,24 @@ mod control_tests {
         assert!(!world.resource::<Controls>().input.run);
         world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
         let pad = world.spawn(Gamepad::default()).id();
-        for (x, y, running) in [
-            (0.5, 0., false),
-            (0.3, 0.4, false),
-            (0.51, 0., true),
-            (1., 0., true),
-            (-0.4, 0., false),
+        for (x, y, length) in [
+            (0.2, 0., 0.),
+            (0.4, 0., 0.25),
+            (0.36, 0.48, 0.5),
+            (1., 0., 1.),
+            (-0.8, 0., 0.75),
         ] {
             let mut gamepad = world.get_mut::<Gamepad>(pad).unwrap();
             gamepad.analog_mut().set(GamepadAxis::LeftStickX, x);
             gamepad.analog_mut().set(GamepadAxis::LeftStickY, y);
             drop(gamepad);
             world.run_system_once(gather_controls).unwrap();
-            assert_eq!(
-                world.resource::<Controls>().input.run,
-                running,
+            let input = &world.resource::<Controls>().input;
+            assert!(input.run, "stick {x}, {y}");
+            let direction = Vec2::from_array(input.direction);
+            assert!((direction.length() - length).abs() < 1e-5, "stick {x}, {y}");
+            assert!(
+                length == 0. || direction.angle_to(Vec2::new(x, y)).abs() < 1e-5,
                 "stick {x}, {y}"
             );
         }
