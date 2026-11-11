@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Mods · Resonance{% endblock %}
+{% block content %}
+<section class="wrap page-intro">
+  <div class="section-heading">
+    <div><h1>Mods</h1><p>Download mods for Resonance or upload your own.</p></div>
+    <a href="/mods/new" class="button">Upload a mod</a>
+  </div>
+</section>
+<section class="wrap library">
+  <form class="window filters" method="get" action="/mods">
+    <div>
+      <label for="q">Search mods</label>
+      <input type="search" id="q" name="q" value="{{ data.q }}" placeholder="Name, author, or description" maxlength="120">
+    </div>
+    <div>
+      <label for="category">Category</label>
+      <select id="category" name="category">
+        <option value="">All categories</option>
+        {% for category in categories %}<option {% if data.category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="button">Search</button>
+  </form>
+  <p class="library-count">{{ data.mods|length }} mod{% if data.mods|length != 1 %}s{% endif %}</p>
+  {% include "cards.html" %}
+  <aside class="notice"><p>Download and install mods manually for now. Each mod page includes instructions. An in-game mod menu is planned.</p></aside>
+</section>
+{% endblock %}

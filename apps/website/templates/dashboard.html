@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Your mods · Resonance{% endblock %}
+{% block content %}
+<section class="wrap page-intro">
+  <div class="section-heading">
+    <div><h1>Your mods</h1><p>Signed in as {{ user.username }}.</p></div>
+    {% if author_policy.status == 'approved' %}<a href="/mods/new" class="button">Upload a mod</a>{% endif %}
+  </div>
+</section>
+<section class="wrap dashboard-list">
+  <p class="notice">Upload access: {{ author_policy.status|title }} · {{ (author_policy.used / 1048576)|round(2) }} / {{ author_policy.quota_mib }} MiB stored or reserved.</p>
+  {% if author_policy.status == 'unapproved' %}
+  <form class="window form-panel" method="post" action="/account/upload-access">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h2>Request upload access</h2><label for="reason">What mods would you like to share?</label>
+    <textarea id="reason" name="reason" minlength="10" maxlength="2000" rows="3" required></textarea>
+    <button class="button">Send request</button>
+  </form>
+  {% elif author_policy.status == 'requested' %}<p>An administrator will review your request.</p>
+  {% elif author_policy.status == 'suspended' %}<p>Your upload access is suspended. Your mods and downloads are unavailable to visitors.</p>{% endif %}
+  <p class="notice">Your limits: {{ upload_limits.zip_mib }} MiB per ZIP · {{ upload_limits.expanded_mib }} MiB expanded. Ask an administrator if you need more space.</p>
+  {% if data.mods %}
+  {% for mod in data.mods %}
+  <article class="window dashboard-item">
+    <div>
+      <span class="tag">{% if not mod.published %}Hidden{% else %}{{ mod.releases[0].review_status|title }}{% endif %}</span>
+      <h2><a href="/mods/{{ mod.id }}">{{ mod.title }}</a></h2>
+      <p>v{{ mod.releases[0].version }} · {{ mod.releases|length }} release{% if mod.releases|length != 1 %}s{% endif %} · {{ mod.category }}</p>
+    </div>
+    <div class="actions">
+      {% if author_policy.status == 'approved' %}<a class="button" href="/mods/new?mod={{ mod.id }}">Add a release</a>{% endif %}
+      <form method="post" action="/mods/{{ mod.id }}/visibility">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="published" value="{% if mod.published %}false{% else %}true{% endif %}">
+        <button class="text-button">{% if mod.published %}Hide mod{% else %}Show approved releases{% endif %}</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+  <p class="muted">Each release needs administrator approval. Hiding a mod disables its public downloads; its files still count toward your storage allowance.</p>
+  {% else %}
+  {% include "cards.html" %}
+  {% endif %}
+</section>
+{% endblock %}

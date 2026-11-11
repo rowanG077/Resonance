@@ -1,11 +1,12 @@
 <p align="center"><img src="resources/logo.svg" alt="Resonance" width="640"></p>
 
-Resonance is a Rust reimplementation of the GameCube version of Tales of
-Symphonia, built with Bevy. Its goals are:
+Resonance is a Rust reimplementation of Tales of Symphonia, built with Bevy.
+Its goals are:
 
 - Faithful gameplay, visuals and audio on modern platforms.
 - Human-readable, editable assets for modding.
 - Support for creating new fields, events, skits and other content.
+- Support for the Steam version.
 
 ## Download and install
 
@@ -18,6 +19,19 @@ the game, the asset importer and a README with these instructions.
 Maintainers can [publish a release](docs/releasing.md) by consolidating the
 changelog locally and pushing a `release/vX.X.X` branch; CI builds all platforms,
 creates tag `vX.X.X` and publishes the tested archives automatically.
+
+## Community website
+
+[apps/website](apps/website/README.md) is a Rust server with HTML/CSS pages,
+SQLite accounts, mod uploads, and a catalogue for a future in-game mod browser.
+To run it locally:
+
+```sh
+nix develop --command cargo run --locked --manifest-path apps/website/Cargo.toml
+```
+
+Open <http://127.0.0.1:3000>. See the sub-project README for server settings,
+deployment and administration.
 
 ## Clone and build
 

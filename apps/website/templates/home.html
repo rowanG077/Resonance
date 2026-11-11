@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="wrap home-shell">
+  <section class="home-intro" id="about" aria-labelledby="about-title">
+    <div class="project-emblem">
+      <img src="/static/resonance.svg" alt="Resonance" width="1672" height="941">
+    </div>
+    <div class="intro-copy">
+      <a class="project-label" href="{{ repo }}/blob/main/LICENSE">Open source · MIT license <span aria-hidden="true">↗</span></a>
+      <h1 id="about-title">About Resonance</h1>
+      <p>Resonance is a reimplementation of <em>Tales of Symphonia</em>, written in Rust with Bevy.</p>
+      <p>The aim is to preserve the original gameplay, visuals and audio on modern computers, with editable game assets and support for mods.</p>
+    </div>
+  </section>
+
+  <section class="window game-downloads" id="download" aria-labelledby="download-title">
+    <div class="download-heading">
+      <h2 id="download-title">Download Resonance</h2>
+      <a class="version-link" href="{{ repo }}/releases/latest" aria-label="Release notes{% if data.release %} for {{ data.release.version }}{% endif %}">{% if data.release %}{{ data.release.version }}{% else %}GitHub Releases{% endif %} <span aria-hidden="true">↗</span></a>
+    </div>
+    <p class="download-intro">Each download includes Resonance and the asset importer.</p>
+    {% for key, name, requirements, format, icon in [
+      ("windows-x64", "Windows", "Windows 10 / 11 · x64", "ZIP", "windows"),
+      ("macos-arm64", "macOS", "macOS 14+ · Apple Silicon", "TAR.GZ", "apple"),
+      ("linux-x64", "Linux", "Ubuntu 24.04 or compatible · x64", "TAR.GZ", "linux")
+    ] %}
+    <div class="platform-row">
+      <span class="platform-icon" aria-hidden="true">
+        {% if icon == "windows" %}
+        <svg viewBox="0 0 32 32"><path d="M3 6l11-1.5V15H3zm13-1.8L29 2v13H16zM3 17h11v10.5L3 26zm13 0h13v13l-13-2.2z"/></svg>
+        {% elif icon == "apple" %}
+        <svg viewBox="0 0 32 32"><path d="M21 2c.5 3-1.6 6-4.4 6C16 5.4 18.4 2.4 21 2ZM25 21c-1 3.2-3.4 8-6 8-1.6 0-2.2-1-4-1s-2.5 1-4 1C7.4 29 3 22.3 3 16.2 3 11.6 6 9 9.2 9c2 0 3.8 1.3 5.2 1.3C16 10.3 18 9 20 9c2 0 4 1 5.2 2.5C21 14 21.5 19 25 21Z"/></svg>
+        {% else %}
+        <svg viewBox="0 0 32 32"><path d="M10 5c0-5 12-5 12 0v5l5 12-5 2H10l-5-2 5-12Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 21c0-5 2-10 5-10s5 5 5 10-10 5-10 0Z"/><path d="m7 24-4 5 10-1-2-4m14 0 4 5-10-1 2-4M13 8h1m4 0h1m-5 3 2 1 2-1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        {% endif %}
+      </span>
+      <div class="platform-description">
+        <h3>{{ name }}</h3>
+        <p>{{ requirements }}</p>
+        {% if icon == "linux" %}<a class="alternate-download" href="/download/linux-arm64">Download for ARM64</a>{% endif %}
+      </div>
+      <div class="platform-action">
+        {% if data.release and not data.release.downloads[key] %}
+        <a class="download-choice unavailable" href="{{ repo }}/releases/latest" aria-label="Check {{ name }} availability on GitHub">View releases</a>
+        <span>Unavailable in this release</span>
+        {% else %}
+        <a class="download-choice" href="/download/{{ key }}" aria-label="Download Resonance for {{ name }}">Download <span aria-hidden="true">↓</span></a>
+        <span>{{ format }}{% if data.release %} · {{ (data.release.downloads[key].size / 1048576)|round(0)|int }} MiB{% endif %}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if not data.release %}<p class="release-unavailable">Release details are unavailable. Download links will check GitHub when opened.</p>{% endif %}
+  </section>
+
+  <aside class="window play-notes" aria-labelledby="play-title">
+    <h2 id="play-title">Before you play</h2>
+    <p>Current releases require your own images of both North American GameCube discs, GQSEAF revision 0.</p>
+    <p>Use the importer to prepare the game assets, then start Resonance.</p>
+    <a class="inline-link" href="{{ repo }}/blob/main/docs/installation.md">Installation guide <span aria-hidden="true">↗</span></a>
+    <p class="planned-support">Support for the Steam version is planned.</p>
+  </aside>
+
+  <section class="community-section" aria-labelledby="mods-title">
+    <div class="section-heading">
+      <div><h2 id="mods-title">Mods</h2><p>Change textures, music, combat and other game content.</p></div>
+      <a class="button" href="/mods">Browse mods</a>
+    </div>
+    {% include "cards.html" %}
+  </section>
+</div>
+{% endblock %}

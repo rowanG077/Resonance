@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{% if data.mod %}Add a release{% else %}Upload a mod{% endif %} · Resonance{% endblock %}
+{% block content %}
+<section class="wrap page-intro">
+  <h1>{% if data.mod %}Add a release{% else %}Upload a mod{% endif %}</h1>
+  <p>{% if data.mod %}Submit a new version of {{ data.mod.title }} for review. Approved releases remain available.{% else %}Submit your mod for review.{% endif %}</p>
+</section>
+<section class="wrap upload-layout">
+  <form id="mod-upload-form" class="window form-panel upload-form">
+    {% if author_policy.used > author_policy.quota_mib * 1048576 %}
+    <p class="notice">Your storage allowance prevents uploads. You can still cancel an unfinished upload to release its reserved space.</p>
+    {% endif %}
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="mod_id" value="{{ data.mod.id|default('') }}">
+    <p class="notice" id="resume-notice" hidden></p>
+    <h2>Mod details</h2>
+    <label for="title">Mod name</label>
+    <input id="title" name="title" required minlength="3" maxlength="80" value="{{ data.mod.title|default('') }}">
+    <label for="summary">Short description</label>
+    <input id="summary" name="summary" required minlength="10" maxlength="180" placeholder="What does the mod change?" value="{{ data.mod.summary|default('') }}">
+    <label for="category">Category</label>
+    <select id="category" name="category">
+      {% for category in categories %}<option {% if data.mod.category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}
+    </select>
+    <label for="description">Description and instructions</label>
+    <textarea id="description" name="description" required minlength="20" maxlength="12000" rows="7" placeholder="Describe the changes, installation steps, and known conflicts. Plain text.">{{ data.mod.description|default('') }}</textarea>
+    <h2 class="form-section-title">Release details</h2>
+    <div class="field-row">
+      <div><label for="version">Mod version</label><input id="version" name="version" required maxlength="40" placeholder="1.0.0"></div>
+      <div><label for="resonance_version">Tested Resonance version</label><input id="resonance_version" name="resonance_version" required maxlength="40" placeholder="0.4.0"></div>
+      <div><label for="content_version">Content format</label><input id="content_version" name="content_version" type="number" min="1" max="99999999" required aria-describedby="version-help"></div>
+    </div>
+    <small id="version-help">Versions use major.minor.patch. The content format is the version number in your imported library’s content.json.</small>
+    <label for="archive">ZIP archive</label>
+    <div class="file-field">
+      <input id="archive" type="file" name="archive" accept=".zip,application/zip" required aria-describedby="archive-help">
+      <small id="archive-help">Maximum {{ upload_limits.zip_mib }} MiB per ZIP and {{ upload_limits.expanded_mib }} MiB expanded.</small>
+    </div>
+    <label class="checkbox-label"><input type="checkbox" name="rights" value="yes" required><span>I have the right to share these files. The archive contains my mod’s changes and excludes disc images and original game assets.</span></label>
+    <button id="upload-submit" class="button full-width" disabled>Submit for review</button>
+    <button id="upload-cancel" type="button" class="text-button" hidden>Cancel upload</button>
+    <p id="upload-status" role="status" aria-live="polite"></p>
+    <progress id="upload-progress" aria-label="Upload progress" hidden></progress>
+    <noscript><p>Enable JavaScript to upload mods.</p></noscript>
+    <small>An administrator must approve this release before anyone can download it. Your daily upload allowance is {{ author_policy.daily_mib }} MiB, charged in 8 MiB blocks per part request, including retries.</small>
+  </form>
+  <aside class="window upload-guide">
+    <h2>Preparing a ZIP</h2>
+    <p>Upload your mod as a ZIP archive and include installation instructions in its description.</p>
+    <pre>my-mod.zip
+├── battle/
+│   └── …
+├── audio/
+│   └── …
+└── README.md</pre>
+    <p>The website checks ZIP integrity and upload limits. An administrator reviews the contents before publication.</p>
+    <h3>Updating a mod</h3>
+    <p>Published archives cannot be replaced. To update a mod, add a release with a higher version number.</p>
+    <a class="inline-link" href="{{ repo }}/blob/main/docs/editable-content.md">Read the modding guide</a>
+  </aside>
+</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/upload.js"></script>{% endblock %}

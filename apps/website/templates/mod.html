@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ data.mod.title }} · Resonance mods{% endblock %}
+{% block content %}
+{% set mod = data.mod %}
+{% set release = mod.releases[0] %}
+<section class="wrap page-intro">
+  <a class="back-link" href="/mods">← All mods</a>
+  <h1>{{ mod.title }}</h1>
+  <p class="detail-summary">{{ mod.summary }}</p>
+  <p class="mod-byline">{{ mod.category }} · by {{ mod.author }}</p>
+  {% if not mod.published %}<p class="notice">This mod is unpublished. Only you can see this page.</p>{% endif %}
+</section>
+<section class="wrap mod-detail">
+  <div class="window description-panel">
+    <h2>Description</h2>
+    <p class="preserve-lines">{{ mod.description }}</p>
+    <h2>Installation</h2>
+    <ol class="install-steps">
+      <li>Download the ZIP and extract it into its own folder, for example <code>mods/{{ mod.id }}</code>.</li>
+      <li>Start Resonance with <code>--mod mods/{{ mod.id }}</code>. Keep the imported base library separate.</li>
+      <li>Later <code>--mod</code> folders override earlier ones. Remove the argument to disable a mod.</li>
+    </ol>
+    <p class="muted">In-game mod browsing and automatic installation are planned.</p>
+    <h2>Releases</h2>
+    <div class="release-history">
+      {% for r in mod.releases %}
+      <div>
+        <div><strong>v{{ r.version }}</strong><span>Resonance {{ r.resonance_version }} · content format {{ r.content_version }}</span></div>
+        {% if mod.published and r.review_status == 'approved' %}<a href="{{ r.download_url }}">Download</a>{% else %}<span>{{ r.review_status|title }}</span>{% endif %}
+        {% if data.can_edit and r.review_note %}<p>{{ r.review_note }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <aside>
+    <div class="window download-panel">
+      <h2>Download</h2>
+      <p class="release-version">v{{ release.version }}</p>
+      <p>{{ (release.size / 1048576)|round(2) }} MiB · ZIP</p>
+      {% if mod.published and release.review_status == 'approved' %}<a class="button full-width" href="{{ release.download_url }}">Download mod</a>{% else %}<p>{{ release.review_status|title }}</p>{% endif %}
+      <dl>
+        <div><dt>Author</dt><dd>{{ mod.author }}</dd></div>
+        <div><dt>Tested with</dt><dd>Resonance {{ release.resonance_version }}</dd></div>
+        <div><dt>Content format</dt><dd>{{ release.content_version }}</dd></div>
+        <div><dt>Released</dt><dd>{{ release.created_at[:10] }}</dd></div>
+      </dl>
+      <p class="muted small-text">The author supplies compatibility information. Each release is reviewed before publication.</p>
+      <details><summary>SHA-256 checksum</summary><code class="checksum">{{ release.sha256 }}</code></details>
+      {% if data.can_edit %}
+      <a href="/mods/new?mod={{ mod.id }}" class="inline-link">Add a release</a>
+      <a href="/dashboard" class="inline-link">Manage this mod</a>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+{% endblock %}
