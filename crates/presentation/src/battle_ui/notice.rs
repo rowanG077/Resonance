@@ -10,7 +10,8 @@ const ICONS: usize = 4;
 const FACES: usize = ICONS + 4;
 const ENEMIES: usize = FACES + 9;
 const ENEMY_NOTICE: usize = ENEMIES;
-const ENEMY_ICONS: usize = ENEMY_NOTICE + FACES;
+const OUTCOME_NOTICE: usize = ENEMY_NOTICE + FACES;
+const ENEMY_ICONS: usize = OUTCOME_NOTICE + ENEMIES;
 const TILE_WIDTH: u32 = 24;
 const GLYPH_WIDTH: u32 = 22;
 
@@ -52,8 +53,9 @@ pub(super) fn layers(
             definition.offset_depth(1.)
         });
     }
-    // Each side has its own frame batches; enemy icons follow both frames.
+    // The outcome has its own complete group so it composites after both sides.
     definitions.extend_from_within(..FACES);
+    definitions.extend_from_within(..ENEMIES);
     for group in 0..enemy_group_count(enemies) {
         let definition = if let Some(texture) = enemies
             .iter()
@@ -85,6 +87,36 @@ fn draw_face(character: Character, destination: [f32; 4], alpha: u8, batches: &m
         [x, 104., x + width, 136.],
         hud_color([128, 128, 128, alpha]),
     );
+}
+
+fn draw_party_face(
+    actor: ActorId,
+    frame: &BattleFrame,
+    party: PartyHudInput<'_>,
+    [left, top]: [f32; 2],
+    alpha: u8,
+    batches: &mut [Batch],
+) -> Result<()> {
+    let slot = frame.actors[..actor.index()]
+        .iter()
+        .filter(|actor| actor.side == Side::Party)
+        .count();
+    let character = *party
+        .characters
+        .get(slot)
+        .context("notice party character missing")?;
+    let width = if character == Character::Presea {
+        40.
+    } else {
+        32.
+    };
+    draw_face(
+        character,
+        [left, top, left + width, top + 32.],
+        alpha,
+        batches,
+    );
+    Ok(())
 }
 
 fn draw_text(font: &BitmapFont, text: &str, [mut x, y]: [f32; 2], alpha: u8, batch: &mut Batch) {
@@ -166,20 +198,27 @@ impl Message {
 pub(super) struct Notices {
     messages: [Option<Message>; 2],
     newest: usize,
-    pub defeat_age: Option<u64>,
+    pub outcome: Option<(resonance_battle::BattleResult, u64)>,
 }
 
 fn layer_depth(index: usize, newest: usize, results: bool) -> f32 {
     if results && (FACES..ENEMIES).contains(&index) {
         return Depth::Results.value() + 1.;
     }
-    let side = usize::from(index >= ENEMIES);
-    let part = if index >= ENEMY_ICONS {
-        FACES
-    } else if index >= ENEMY_NOTICE {
-        index - ENEMY_NOTICE
+    let (group, part) = if (OUTCOME_NOTICE..ENEMY_ICONS).contains(&index) {
+        (2, index - OUTCOME_NOTICE)
     } else {
-        index
+        let side = usize::from(index >= ENEMY_NOTICE);
+        (
+            usize::from(side == newest),
+            if index >= ENEMY_ICONS {
+                FACES
+            } else if index >= ENEMY_NOTICE {
+                index - ENEMY_NOTICE
+            } else {
+                index
+            },
+        )
     };
     let order = match part {
         TEXT => 3.,
@@ -188,15 +227,19 @@ fn layer_depth(index: usize, newest: usize, results: bool) -> f32 {
         FACES..ENEMY_NOTICE => 1.,
         _ => 0.,
     };
-    Depth::Notice.value() + if side == newest { 5. } else { 0. } + order
+    // Three complete slots fit below the next HUD band (Recovery at 80).
+    Depth::Notice.value() + group as f32 * 3. + order * 0.5
 }
 
 impl Notices {
     pub fn advance(&mut self, frame: &BattleFrame, elapsed: u32) {
-        if let Some(age) = &mut self.defeat_age {
+        if let Some((_, age)) = &mut self.outcome {
             *age = age.saturating_add(u64::from(elapsed));
         }
-        if frame.recognized_result.is_some() {
+        if frame
+            .recognized_result
+            .is_some_and(|result| result != resonance_battle::BattleResult::Escaped)
+        {
             self.messages = Default::default();
             return;
         }
@@ -330,7 +373,11 @@ impl Artwork {
                 &mut batches,
             );
         }
-        if frame.recognized_result.is_none() && self.scan.is_none() {
+        if matches!(
+            frame.recognized_result,
+            None | Some(resonance_battle::BattleResult::Escaped)
+        ) && self.scan.is_none()
+        {
             for (side, message) in self.notices.messages.iter().enumerate() {
                 let Some(message) = message else { continue };
                 let newest = side == self.notices.newest;
@@ -365,30 +412,14 @@ impl Artwork {
                     &mut batches[start..start + FACES],
                 );
                 if side == Side::Party as usize {
-                    let slot = frame.actors[..message.actor.index()]
-                        .iter()
-                        .filter(|a| a.side == Side::Party)
-                        .count();
-                    let character = *party
-                        .characters
-                        .get(slot)
-                        .context("notice party character missing")?;
-                    draw_face(
-                        character,
-                        [
-                            left + 20.,
-                            top + 11.,
-                            left + 20.
-                                + if character == Character::Presea {
-                                    40.
-                                } else {
-                                    32.
-                                },
-                            top + 43.,
-                        ],
+                    draw_party_face(
+                        message.actor,
+                        frame,
+                        party,
+                        [left + 20., top + 11.],
                         alpha,
                         &mut batches,
-                    );
+                    )?;
                 } else if let Some(enemy) = self
                     .combat
                     .enemies
@@ -404,22 +435,46 @@ impl Artwork {
                 }
             }
         }
-        if let Some(age) = self.notices.defeat_age {
+        if let Some((result, age)) = self.notices.outcome {
+            let batches = &mut batches[OUTCOME_NOTICE..ENEMY_ICONS];
             let top = 27.;
             let alpha = (age.min(FADE_IN_TICKS) * 256 / FADE_IN_TICKS).min(255) as u8;
+            let text = if result == resonance_battle::BattleResult::Escaped {
+                &self.art.notices.escaped
+            } else {
+                &self.art.notices.defeated
+            };
             let left = self.draw_notice(
-                &self.art.notices.defeated,
+                text,
                 Icon::Outcome,
                 [0., top],
                 self.settings.colors.popup,
                 alpha,
-                &mut batches,
+                batches,
             );
-            batches[FRAME].quad(
-                [left + 20., top + 11., left + 52., top + 43.],
-                [384., 384., 416., 416.],
-                hud_color([128, 128, 128, alpha]),
-            );
+            let leader = if result == resonance_battle::BattleResult::Escaped {
+                resonance_battle::preferred_party_leader(
+                    frame.actors.iter().map(|actor| &actor.state),
+                )
+            } else {
+                None
+            };
+            if let Some(leader) = leader {
+                draw_party_face(
+                    leader,
+                    frame,
+                    party,
+                    [left + 20., top + 11.],
+                    alpha,
+                    batches,
+                )?;
+            } else {
+                batches[FRAME].quad(
+                    [left + 20., top + 11., left + 52., top + 43.],
+                    [384., 384., 416., 416.],
+                    hud_color([128, 128, 128, alpha]),
+                );
+            }
         }
         Ok(batches)
     }
@@ -453,6 +508,102 @@ impl Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outcome_layers_composite_after_both_action_notice_groups() {
+        for newest in 0..2 {
+            let depth = |index| layer_depth(index, newest, false);
+            let highest_action = (0..OUTCOME_NOTICE)
+                .chain(ENEMY_ICONS..ENEMY_ICONS + 3)
+                .map(depth)
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!((OUTCOME_NOTICE..ENEMY_ICONS).all(|index| {
+                highest_action < depth(index) && depth(index) < Depth::Recovery.value()
+            }));
+            for base in [0, ENEMY_NOTICE, OUTCOME_NOTICE] {
+                let parts = [FILL, FRAME, TEXT, ICONS].map(|part| depth(base + part));
+                assert!(parts.windows(2).all(|pair| pair[0] < pair[1]));
+            }
+            assert!(depth(OUTCOME_NOTICE + FILL) < depth(OUTCOME_NOTICE + FACES));
+            assert!(depth(OUTCOME_NOTICE + FACES) < depth(OUTCOME_NOTICE + FRAME));
+            assert_eq!(
+                layer_depth(FACES, newest, true),
+                Depth::Results.value() + 1.
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires cooked HUD artwork; CPU composition only"]
+    fn escape_outcome_keeps_its_label_and_leader_face_until_the_scene_closes() -> Result<()> {
+        use resonance_battle::{BattleResult, Control};
+        use resonance_game::battle::lifecycle::Request;
+
+        let (mut hud, _, _app) = test_artwork()?;
+        let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        frame.actors[0].control = Control::Auto;
+        let mut leader = frame.actors[0].clone();
+        leader.control = Control::Manual;
+        frame.actors.push(leader);
+        let mut enemy = frame.actors[0].clone();
+        enemy.side = Side::Enemy;
+        frame.actors.push(enemy);
+        let party = PartyHudInput {
+            characters: &[Character::Colette, Character::Lloyd],
+            queued_techniques: &[false, false],
+            names: &[None, None],
+        };
+        frame.recognized_result = Some(BattleResult::Escaped);
+        assert_eq!(hud.art.notices.escaped, "Escaped");
+        for (actor, text) in [(0, "Fire Ball"), (2, "Crush Tortoise")] {
+            hud.notice_request(ActorId::from_index(actor)?, text, 90, &frame)?;
+        }
+        // An escaped result alone does not request a banner.
+        assert!(
+            hud.draw_notices(&frame, party)?[OUTCOME_NOTICE + TEXT]
+                .indices
+                .is_empty()
+        );
+        hud.overlay_request(Request::EscapeNotice)?;
+        hud.notices.advance(&frame, 8);
+        let shown = hud.draw_notices(&frame, party)?;
+        assert_eq!(shown[TEXT].positions.len(), 8 * 4);
+        assert_eq!(shown[ENEMY_NOTICE + TEXT].positions.len(), 13 * 4);
+        assert_eq!(
+            shown[OUTCOME_NOTICE + TEXT].positions.len(),
+            "Escaped".len() * 4
+        );
+        for face in [
+            FACES + Character::Colette.index(),
+            OUTCOME_NOTICE + FACES + Character::Lloyd.index(),
+        ] {
+            assert_eq!(shown[face].positions.len(), 4);
+        }
+        hud.notices.advance(&frame, 200);
+        let expired = hud.draw_notices(&frame, party)?;
+        assert!(
+            expired[..OUTCOME_NOTICE]
+                .iter()
+                .all(|batch| batch.indices.is_empty())
+        );
+        assert!(
+            expired[OUTCOME_NOTICE..ENEMY_ICONS] == shown[OUTCOME_NOTICE..ENEMY_ICONS],
+            "the outcome persists after action notices expire"
+        );
+        hud.overlay_request(Request::DefeatNotice)?;
+        hud.notices.advance(&frame, 8);
+        let defeated = hud.draw_notices(&frame, party)?;
+        assert!(
+            defeated[OUTCOME_NOTICE + FACES + Character::Lloyd.index()]
+                .positions
+                .is_empty()
+        );
+        assert_eq!(
+            defeated[OUTCOME_NOTICE + TEXT].positions.len(),
+            "Defeated".len() * 4
+        );
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires cooked HUD artwork; checks actual atlas coverage without a GPU"]

@@ -692,6 +692,22 @@ impl PartialEq for BattleOutcome {
     }
 }
 
+/// Select from stable roster order, preferring nonautomatic party members, then formation slot.
+/// Availability does not affect selection, and ties retain roster order.
+pub fn preferred_party_leader<'a>(actors: impl IntoIterator<Item = &'a Actor>) -> Option<ActorId> {
+    actors
+        .into_iter()
+        .enumerate()
+        .filter(|(_, actor)| actor.side == Side::Party)
+        .min_by_key(|(_, actor)| {
+            (
+                actor.control == crate::Control::Auto,
+                actor.control_slot.index(),
+            )
+        })
+        .map(|(index, _)| ActorId(index as u8))
+}
+
 /// An actor observation, derived when the battle publishes its frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorFrame {
@@ -1291,17 +1307,7 @@ impl Battle {
 
     /// Prefer a nonautomatic party member, then the first formation slot, regardless of availability.
     pub(crate) fn preferred_party_leader(&self) -> Option<ActorId> {
-        self.actors
-            .iter()
-            .enumerate()
-            .filter(|(_, actor)| actor.side == Side::Party)
-            .min_by_key(|(_, actor)| {
-                (
-                    actor.control == crate::Control::Auto,
-                    actor.control_slot.index(),
-                )
-            })
-            .map(|(index, _)| ActorId(index as u8))
+        preferred_party_leader(&self.actors)
     }
 
     /// Resolve prepared item identities, then publish all actor changes together.
