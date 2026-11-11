@@ -29,8 +29,10 @@ class State:
         if len(data) < 48 or data[:6] != b'GQSEAF':
             raise ValueError('expected a GQSEAF Dolphin state')
         cookie, length = struct.unpack_from('<II', data, 24)
-        if cookie != 0xBAADBABE + 191 or not 1 <= length <= 256:
-            raise ValueError('only the pinned Dolphin 2606 state version is supported')
+        # 191 is Dolphin 2606; 192 is the 2609a observer build. Both keep the
+        # block header, movie record and MEM1 image that this reader checks.
+        if cookie not in (0xBAADBABE + 191, 0xBAADBABE + 192) or not 1 <= length <= 256:
+            raise ValueError('only Dolphin 2606/2609a state versions (191, 192) are supported')
         self.header = 32 + length
         self.version = data[32:self.header].rstrip(b'\0').decode('utf-8')
         header, compression, extra, size, packed = struct.unpack_from('<HHIQI', data, self.header)

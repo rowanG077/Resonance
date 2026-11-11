@@ -262,18 +262,20 @@ fn missing_required_actor_resources_abort_preparation() -> Result<()> {
                         }
                         return Ok(());
                     };
-                    let mut mappings: std::collections::BTreeMap<String, Option<String>> =
-                        snapshot.json(models::EQUIPMENT, 16 * 1024 * 1024)?;
+                    // A mod rebinds an item by replacing that ID's mapping owner.
+                    let rebind = |item: u32, target: String| {
+                        write(
+                            &format!("meshes/equipment/mappings/{item}.json"),
+                            &target.into(),
+                        )
+                    };
                     // Unusable reserve equipment does not request artwork for this roster.
                     let irrelevant = party.members[2].equipment[0];
                     assert_eq!(
                         session.items[usize::from(irrelevant)].allowed_characters & 0x101,
                         0
                     );
-                    mappings.insert(
-                        irrelevant.to_string(),
-                        Some("missing-irrelevant-equipment".into()),
-                    );
+                    rebind(irrelevant.into(), "missing-irrelevant-equipment".into())?;
                     if broken == 136 {
                         let path = models::equipment_path(snapshot, broken)?
                             .context("missing equipment")?;
@@ -285,12 +287,8 @@ fn missing_required_actor_resources_abort_preparation() -> Result<()> {
                         }
                         write(&path, &serde_json::to_value(equipment)?)?;
                     } else {
-                        mappings.insert(
-                            broken.to_string(),
-                            Some(format!("missing-required-equipment-{broken}")),
-                        );
+                        rebind(broken, format!("missing-required-equipment-{broken}"))?;
                     }
-                    write(models::EQUIPMENT, &serde_json::to_value(mappings)?)?;
                     Ok(())
                 },
             )

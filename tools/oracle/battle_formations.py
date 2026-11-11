@@ -20,6 +20,7 @@ from battle_fixture import BattleFixture, neutral_movie, prepare_entry
 from battle_state import watch_locations
 from state import State, digest, inspect
 from named_content import Snapshot
+import resolved_content
 
 REPO = Path(__file__).resolve().parents[2]
 BATTLE_MODE = 9
@@ -87,7 +88,7 @@ def selection(args, profile):
         cases.append(dict(formation=identity, arena=arena, arena_basis=basis,
                           expected_actors=actors, entry_evidence=prior))
     return dict(catalogue_size=len(records), selected_ids=ids, cases=cases,
-                reused_entries=reused, formations_sha256=digest(args.assets / 'battle/formations.json'),
+                reused_entries=reused, formations_sha256=resolved_content.digest(args.assets / 'battle/formations.json'),
                 scope='Entry and initialized enemy identities only; no visual, arte or result acceptance')
 
 

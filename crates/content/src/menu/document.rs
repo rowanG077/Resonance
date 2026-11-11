@@ -239,7 +239,38 @@ impl MenuArt {
     /// Validate selected images without changing authored sizes. Invalid
     /// optional images stay unavailable only to the pages which draw them.
     pub fn prepare_resources<B: AsRef<[u8]>>(&mut self, mut read: impl FnMut(&str) -> Result<B>) {
-        self.sprites.prepare_catalogues(&mut read);
+        let images = self.sprites.prepare_catalogues(&mut read);
+        let mut next = self.textures.keys().next_back().copied().unwrap_or(0) + 1;
+        for (slot, image) in images {
+            // Reuse a prepared binding when several sprites share one image.
+            let index = self
+                .textures
+                .iter()
+                .find(|(_, texture)| {
+                    texture.path == image.path
+                        && texture.width == image.width
+                        && texture.height == image.height
+                        && !texture.repeat
+                        && !texture.opaque
+                })
+                .map(|(&index, _)| index);
+            let index = index.unwrap_or_else(|| {
+                let index = next;
+                next += 1;
+                self.textures.insert(
+                    index,
+                    MenuTexture {
+                        path: image.path.clone(),
+                        width: image.width,
+                        height: image.height,
+                        repeat: false,
+                        opaque: false,
+                    },
+                );
+                index
+            });
+            self.sprites.texture_slots.insert(slot, index);
+        }
         for texture in self.textures.values_mut() {
             let result = (|| {
                 crate::validate_asset_path(&texture.path)?;

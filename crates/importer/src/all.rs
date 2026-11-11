@@ -3,7 +3,9 @@ use anyhow::{Context, Result, ensure};
 use std::{path::Path, time::Instant};
 use symphonia_constants::{ArenaId, BattleSceneId, BattleSkillId, MonsterId};
 
-const PASS_COUNT: usize = 64;
+const PASS_COUNT: usize = 65;
+/// The carried shield prop borrows the completed blue shield's document.
+const CARRIED_PROP: u16 = 528;
 
 struct PassTiming {
     number: usize,
@@ -31,6 +33,7 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
         executable.display(),
         root.join("disc1").display()
     );
+    crate::authoring::clear_previous(library).context("replace previous granular publication")?;
     let started = std::time::Instant::now();
     eprintln!("Writing asset library to {}", library.display());
     let mut pass = 0;
@@ -113,15 +116,13 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
         }
         Ok(())
     })?;
-    crate::modding_examples::cook_assets(library).context("modding example assets")?;
     heading("Battle equipment");
     let equipment = crate::cook_battle_equipment_mappings(root, library)
         .context("battle equipment mappings")?;
-    // The carried-prop declaration borrows the completed shield owner's document.
     let models = equipment
         .iter()
         .copied()
-        .filter(|&id| id != 528)
+        .filter(|&id| id != CARRIED_PROP)
         .collect::<Vec<_>>();
     crate::parallel::for_each(&models, |index, &id| {
         eprintln!(
@@ -132,8 +133,9 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
         crate::cook_battle_equipment(root, library, id)
             .with_context(|| format!("battle equipment {id}"))
     })?;
-    if equipment.contains(&528) {
-        crate::cook_battle_equipment(root, library, 528)?;
+    if equipment.contains(&CARRIED_PROP) {
+        crate::cook_battle_equipment(root, library, CARRIED_PROP)
+            .with_context(|| format!("battle equipment {CARRIED_PROP}"))?;
     }
     heading("Battle arenas");
     crate::cook_battle_stage_mappings(root, library).context("battle arena mappings")?;
@@ -277,6 +279,8 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     crate::cook_world_script(root, library).context("world script")?;
     heading("World definition");
     crate::cook_world_definition(root, library).context("world definition")?;
+    heading("Granular mod owners");
+    crate::authoring::publish(library).context("granular asset publication")?;
     drop(heading);
     drop(timing);
     eprintln!(

@@ -31,8 +31,6 @@ use resonance_content::{diagnostics::Diagnostics, field_audio::MusicReverbs};
 use resonance_events::{AudioCommand, MusicCommand};
 use resonance_game::clock::{UPDATE_RATE_DENOMINATOR, UPDATE_RATE_NUMERATOR};
 #[cfg(test)]
-use sha2::{Digest, Sha256};
-#[cfg(test)]
 use std::fs;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -1393,10 +1391,10 @@ mod tests {
     use resonance_events::input::{Button, Buttons};
 
     #[test]
-    #[ignore = "requires RESONANCE_WORLD_ASSETS; original Meltokio sewer script and PCM synthesis without a device"]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; original Meltokio sewer script and PCM synthesis without a device"]
     fn meltokio_sewer_background_audio_survives_idle_updates() -> Result<()> {
         let root = std::path::PathBuf::from(
-            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
         let mut scene = crate::field_test::Scene::story(&root, 466, 1_304_000, |entry| {
             entry.position = [472.98508, 3736.6846, 1170.];
@@ -1417,10 +1415,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires named RESONANCE_WORLD_ASSETS; plays recorded world music and native vehicle cues without a device"]
+    #[ignore = "requires named RESONANCE_TEST_ASSETS; plays recorded world music and native vehicle cues without a device"]
     fn original_world_music_and_vehicle_sounds_render_from_verified_assets() -> Result<()> {
         let root = std::path::PathBuf::from(
-            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
         let package = crate::overworld::Package::prepare(
             &root,
@@ -2152,6 +2150,7 @@ mod tests {
                 .insert_resource(session)
                 .insert_resource(control)
                 .add_systems(Update, update);
+            crate::field_weapons::without_models_for_test(app.world_mut());
             let handle = app
                 .world_mut()
                 .resource_mut::<bevy::asset::Assets<FieldSource>>()

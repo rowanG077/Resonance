@@ -159,7 +159,7 @@ pub(crate) fn global_rigs(
         ("meshes/mappings.json", false),
         ("meshes/standalone/mappings.json", true),
     ] {
-        let mappings: ModelMappings = serde_json::from_slice(&fs::read(library.join(path))?)?;
+        let mappings: ModelMappings = crate::authoring::read_json(library, path)?;
         sources.extend(
             mappings
                 .0
@@ -254,9 +254,11 @@ pub(crate) fn global_rigs(
 pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()> {
     use resonance_content::field::document::{Actors, SharedBankBindings};
     let path = library.join("animations/bindings.json");
-    let mut bindings: SharedBankBindings = serde_json::from_slice(&fs::read(&path)?)?;
+    let mut bindings: SharedBankBindings = serde_json::from_slice(
+        &crate::authoring::read_document(library, "animations/bindings.json")?,
+    )?;
     let fields: BTreeMap<u32, String> =
-        serde_json::from_slice(&fs::read(library.join("fields/mappings.json"))?)?;
+        crate::authoring::read_json(library, "fields/mappings.json")?;
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let fields = fields.into_iter().collect::<Vec<_>>();
     let workers = crate::parallel::workers();
@@ -270,7 +272,7 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
             );
             let mut field_rigs = Vec::new();
             let actors: Actors = serde_json::from_slice(
-                &fs::read(library.join(format!("fields/{name}/actors.json")))
+                &crate::authoring::read_document(library, &format!("fields/{name}/actors.json"))
                     .with_context(|| format!("read field {id} ({name}) actors"))?,
             )?;
             let locals = actors
@@ -343,8 +345,7 @@ pub fn cook_local_animation_rigs(extracted: &Path, library: &Path) -> Result<()>
             bindings.rigs.insert(mesh, joints);
         }
     }
-    fs::write(path, resonance_asset_writer::json::encode(&bindings)?)?;
-    Ok(())
+    crate::output::json(&path, &bindings)
 }
 
 pub(crate) struct Track {

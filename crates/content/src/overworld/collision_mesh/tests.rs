@@ -1,5 +1,4 @@
 use super::*;
-use anyhow::ensure;
 use resonance_asset_writer::gltf::pack_glb;
 use serde_json::Value;
 
@@ -38,36 +37,5 @@ fn editor_object_order_names_and_transforms_keep_explicit_collision_properties()
     document["nodes"][0]["extras"]["surface"] = 16.into();
     assert!(decode(&pack_glb(&document, binary)?).is_err());
     assert!(decode(&serde_json::to_vec(&groups)?).is_err());
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires the saved Blender collision exports; no editor or conversion is launched"]
-fn blender_roundtrip_and_geometry_edit_preserve_surface_queries() -> Result<()> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../local/structure-review-20261027/world-collision-semantics");
-    let original = decode(&std::fs::read(root.join("editor-original.glb"))?)?;
-    let roundtrip = decode(&std::fs::read(root.join("editor-roundtrip.glb"))?)?;
-    let edited = decode(&std::fs::read(root.join("editor-edited.glb"))?)?;
-    for (actual, lift) in [(&roundtrip, 0.), (&edited, 10.)] {
-        assert_eq!(actual.len(), original.len());
-        for (old, new) in original.iter().zip(actual) {
-            assert_eq!(old.surface, new.surface);
-            assert_eq!(old.triangles.len(), new.triangles.len());
-            for (a, b) in old.triangles.iter().zip(&new.triangles) {
-                for (&a, &b) in a.iter().zip(b) {
-                    let a = old.vertices[usize::from(a)];
-                    let b = new.vertices[usize::from(b)];
-                    for axis in 0..3 {
-                        let expected = a[axis] + if axis == 2 { lift } else { 0. };
-                        ensure!(
-                            (expected - b[axis]).abs() < 0.003,
-                            "editor changed collision face ordering or geometry"
-                        );
-                    }
-                }
-            }
-        }
-    }
     Ok(())
 }

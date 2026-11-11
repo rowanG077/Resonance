@@ -448,7 +448,7 @@ mod tests {
     #[ignore = "requires locally cooked Thoda scenery; no devices"]
     fn thoda_platform_and_teleporter_bones_rise_by_the_same_amount() -> anyhow::Result<()> {
         use resonance_content::{animation::Skeleton, field::document, library::Library};
-        let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+        let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_TEST_ASSETS").unwrap());
         let library = Library::open(&root, &[])?;
         let (_, field) = document::capture_scene(&mut library.snapshot(), 9, || false)?;
         let skeleton = Skeleton::from_glb(&std::fs::read(root.join(&field.parts[0].mesh))?)?;

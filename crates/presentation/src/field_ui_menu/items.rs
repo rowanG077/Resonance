@@ -414,11 +414,12 @@ impl Drawing<'_> {
             .get(usize::from(id))
             .context("item description was not prepared")?;
         let item_text = data.item_text(id)?;
-        self.sprite_rect(
-            self.spec.sprite(Sprite::ItemImages, usize::from(id))?,
+        self.catalogue_sprite(
+            Sprite::ItemImages,
+            usize::from(id),
             [36., 348., 100., 412.],
             [1.; 4],
-        );
+        )?;
         self.text(&item_text.description, [120., 344.], 20., WHITE)?;
         self.text(&item_text.details, [120., 370.], 20., WHITE)?;
         let category = data

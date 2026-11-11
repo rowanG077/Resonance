@@ -66,7 +66,7 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
         library::Library,
     };
     use std::{path::PathBuf, sync::Arc};
-    let assets = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+    let assets = PathBuf::from(std::env::var_os("RESONANCE_TEST_ASSETS").unwrap());
     let library = Library::open(&assets, &[])?;
     let (_, manifest) = document::capture_scene(&mut library.snapshot(), 362, || false)?;
     let part = manifest.parts.iter().find(|p| p.resource == 2).unwrap();

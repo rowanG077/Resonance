@@ -285,7 +285,7 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
 
 fn assets_root() -> Result<PathBuf> {
     Ok(PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     ))
 }
 fn configured(
@@ -724,7 +724,7 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
     persistent
         .memory
         .write(0xcc, symphonia_script::Width::S32, 13_500)?;
-    let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+    let root = PathBuf::from(std::env::var_os("RESONANCE_TEST_ASSETS").unwrap());
     let package = new_game::FieldPackage::prepare(&root, 366, &mut Default::default(), || false)?;
     let mut field = Scene::enter(
         &package,
@@ -1019,7 +1019,8 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
     field.advance_until(FieldSession::player_has_control)?;
     // This chest is a scripted model actor, so its animation drives the lid.
     let chest = field.actor(8300).clone();
-    assert_eq!(chest.position, [-4126., 1764., 15.]);
+    // The script places it at height 15; it then settles on the floor below it.
+    assert_eq!(chest.position[..2], [-4126., 1764.]);
     assert!(chest.collidable);
     let player = field.events.world.controlled_actor;
     let radius = chest.radius + field.actor(player).radius;

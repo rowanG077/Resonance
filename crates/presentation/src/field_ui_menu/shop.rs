@@ -521,11 +521,12 @@ impl Drawing<'_> {
         let stats = self.stats.equipment(item, character);
         let lloyd_swords = resources.session.items[usize::from(id)].equipment_kind == Some(0)
             && resources.session.items[usize::from(id)].allowed_characters & 1 != 0;
-        self.sprite_rect(
-            self.spec.sprite(Sprite::ItemImages, usize::from(id))?,
+        self.catalogue_sprite(
+            Sprite::ItemImages,
+            usize::from(id),
             [36., 348., 100., 412.],
             [1.; 4],
-        );
+        )?;
         for (key, x, y, value) in [
             (
                 if lloyd_swords {

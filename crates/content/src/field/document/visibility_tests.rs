@@ -1,7 +1,7 @@
 use super::*;
 use crate::library::{Library, Mod, Snapshot};
-use serde_json::{Value, json};
-use std::{fs, path::Path};
+use serde_json::json;
+use std::fs;
 
 fn mesh(names: [&str; 3]) -> Result<Vec<u8>> {
     // Reversed GLB node order demonstrates that these are gameplay joint IDs,
@@ -134,74 +134,6 @@ fn visibility_rejects_unknown_and_ambiguous_names_without_retaining_numeric_form
             json!({"resource":1,"model":"model.json","hidden_nodes":[]})
         )
         .is_err()
-    );
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires installed library and layout 42 visibility migration evidence"]
-fn installed_named_visibility_preserves_every_original_joint() -> Result<()> {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
-    let root = Path::new(&root);
-    let evidence = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../local/structure-review-20261027/model-visibility");
-    let migration: Value = serde_json::from_slice(&fs::read(evidence.join("migration.json"))?)?;
-    let mappings: ModelMappings = serde_json::from_slice(&fs::read(root.join(MODELS))?)?;
-    let mut models = 0;
-    let mut joints = 0;
-    for row in migration["models"].as_array().unwrap() {
-        let file = row["file"].as_str().unwrap();
-        let original: Value =
-            serde_json::from_slice(&fs::read(evidence.join("backup").join(file))?)?;
-        // Historical expectations identify unnamed owners by their machine ID.
-        // Resolve those IDs through the current library, not migration aliases.
-        let path = if let Some((owner, id)) = file
-            .strip_suffix("/model.json")
-            .unwrap()
-            .rsplit_once("/model-")
-        {
-            if let Some(field) = owner.strip_suffix("/models") {
-                let resource = u32::from_str_radix(id, 16)?;
-                let actors: Actors =
-                    serde_json::from_slice(&fs::read(root.join(format!("{field}/actors.json")))?)?;
-                actors
-                    .models
-                    .into_iter()
-                    .find_map(|binding| match binding {
-                        ModelBinding::Local(actor) if actor.resource == resource => {
-                            Some(actor.model)
-                        }
-                        _ => None,
-                    })
-                    .context("missing local visibility owner")?
-            } else {
-                mappings.model_path(id.parse()?)?
-            }
-        } else {
-            file.to_owned()
-        };
-        let current: Value =
-            serde_json::from_slice(&fs::read(root.join(&path)).with_context(|| path.clone())?)?;
-        let mut model: Model = serde_json::from_value(current.clone())?;
-        for part in &mut model.parts {
-            part.prepare_bones(&fs::read(root.join(&part.mesh))?)?;
-        }
-        model.validate().with_context(|| file.to_owned())?;
-        let expected: Vec<u16> = serde_json::from_value(original["hidden_nodes"].clone())?;
-        let actual = model
-            .hidden_nodes(&model.hidden_geometry)
-            .with_context(|| file.to_owned())?;
-        ensure!(actual == expected, "visibility changed in {file}");
-        ensure!(
-            serde_json::from_slice::<Value>(&serde_json::to_vec(&model)?)? == current,
-            "noncanonical model publication in {file}"
-        );
-        models += 1;
-        joints += actual.len();
-    }
-    assert_eq!((models, joints), (189, 611));
-    println!(
-        "All {models} named model visibility lists preserve {joints} original joint selections and publish canonically"
     );
     Ok(())
 }

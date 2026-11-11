@@ -621,9 +621,10 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
     use resonance_content::options::{self, Document};
     let fixture = Fixture::load()?;
     let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
-    let mut doc: Document = serde_json::from_slice(&std::fs::read(
-        std::path::Path::new(&root).join(options::PATH),
-    )?)?;
+    let mut doc: Document =
+        resonance_content::library::Library::open_paths(std::path::Path::new(&root), &[])?
+            .snapshot()
+            .json(options::PATH, resonance_content::preparation::JSON_LIMIT)?;
     doc.options.get_mut("combined_battles").unwrap().name = "Nearby Battles".into();
     doc.confirmations
         .insert("forget_artes".into(), "Forget both kinds?".into());

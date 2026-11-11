@@ -16,7 +16,8 @@ pub fn cook_rename(extracted: &Path, library: &Path) -> Result<()> {
         commands: [confirm, restore, cancel],
     };
     document.validate()?;
-    let path = library.join(resonance_content::menu_data::RENAME_PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(
+        &library.join(resonance_content::menu_data::RENAME_PATH),
+        &document,
+    )
 }

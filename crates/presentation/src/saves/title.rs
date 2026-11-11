@@ -229,12 +229,16 @@ mod tests {
             || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             PathBuf::from,
         );
+        let view = std::cell::RefCell::new(
+            resonance_content::library::Library::open_paths(&root, &[])?.snapshot(),
+        );
         for paranoid in [false, true] {
             let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
             let (source, control) =
                 audio::PlaybackAssets::load(&root, diagnostics.clone())?.session(false);
             drop(source);
             let mut app = App::new();
+            crate::texture::decoded_files(&mut app, &root);
             app.add_plugins((
                 MinimalPlugins,
                 AssetPlugin {
@@ -265,7 +269,10 @@ mod tests {
                         !path.starts_with("game/"),
                         "Load must not admit gameplay definitions"
                     );
-                    let bytes = std::fs::read(root.join(path))?;
+                    let bytes = view
+                        .borrow_mut()
+                        .read(path, resonance_content::preparation::ASSET_LIMIT)?
+                        .to_vec();
                     if path == "ui/menu.json" {
                         let mut document: serde_json::Value = serde_json::from_slice(&bytes)?;
                         document["sprites"]["rects"]
@@ -367,8 +374,17 @@ mod tests {
             || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             PathBuf::from,
         );
+        let view = std::cell::RefCell::new(
+            resonance_content::library::Library::open_paths(&root, &[])?.snapshot(),
+        );
+        let read = |path: &str| -> Result<Vec<u8>> {
+            Ok(view
+                .borrow_mut()
+                .read(path, resonance_content::preparation::ASSET_LIMIT)?
+                .to_vec())
+        };
         let dialogue: resonance_content::font::DialogueArt =
-            serde_json::from_slice(&fs::read(root.join("ui/dialogue.json"))?)?;
+            serde_json::from_slice(&read("ui/dialogue.json")?)?;
         let directory = std::env::temp_dir().join(format!(
             "resonance-menu-images-{}-{}",
             std::process::id(),
@@ -394,6 +410,7 @@ mod tests {
             for image_path in ["missing.ktx2", "broken.ktx2"] {
                 let mut app = App::new();
                 let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+                crate::texture::decoded_files(&mut app, &directory);
                 app.add_plugins((
                     MinimalPlugins,
                     AssetPlugin {
@@ -424,23 +441,22 @@ mod tests {
                             return Ok(fs::read(directory.join(path))?);
                         }
                         if path.ends_with(".ktx2") {
-                            return Ok(fs::read(root.join(path))?);
+                            return read(path);
                         }
                         if path == "ui/menu.json" {
                             let mut menu = resonance_content::menu::MenuArt::decode(
-                                &fs::read(root.join(path))?,
+                                &read(path)?,
                                 &diagnostics,
                             )?;
-                            menu.prepare_resources(|path| Ok(fs::read(root.join(path))?));
+                            menu.prepare_resources(&read);
                             for texture in menu.textures.values_mut() {
                                 texture.path = image_path.into();
                             }
                             return Ok(serde_json::to_vec(&menu)?);
                         }
-                        let mut metadata: serde_json::Value =
-                            serde_json::from_slice(&fs::read(root.join(path))?)?;
+                        let mut metadata: serde_json::Value = serde_json::from_slice(&read(path)?)?;
                         if path == "ui/dialogue.json" {
-                            metadata["cursor"] = ready.clone().into();
+                            metadata["cursor"]["image"] = ready.clone().into();
                         } else if path == dialogue.font {
                             metadata["texture"] = ready.clone().into();
                         }
@@ -454,6 +470,7 @@ mod tests {
                 let healthy = server.load::<Image>(ready.clone());
                 app.insert_resource(overlay);
                 let began = Instant::now();
+                let mut exit_requested = false;
                 while !diagnostics.has_errors()
                     || !app
                         .world()
@@ -465,6 +482,9 @@ mod tests {
                         "menu image failure was not observed"
                     );
                     app.update();
+                    // The request is a message, which later updates discard
+                    // while the healthy image is still loading.
+                    exit_requested |= !app.world().resource::<Messages<AppExit>>().is_empty();
                     std::thread::sleep(Duration::from_millis(1));
                 }
                 let entries = diagnostics.entries();
@@ -476,10 +496,7 @@ mod tests {
                 assert!(!app.world().contains_resource::<TitleMenu>());
                 assert!(!app.world().contains_resource::<MenuOverlay>());
                 assert!(app.world().contains_resource::<crate::TitleActive>());
-                assert_eq!(
-                    app.world().resource::<Messages<AppExit>>().is_empty(),
-                    !paranoid
-                );
+                assert_eq!(exit_requested, paranoid);
             }
         }
         fs::remove_dir_all(directory)?;
@@ -523,14 +540,19 @@ mod options_tests {
         let root =
             std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
         let root = std::path::Path::new(&root);
-        let mut doc: Document = serde_json::from_slice(&fs::read(root.join(options::PATH))?)?;
+        let mut doc: Document = Library::open_paths(root, &[])?
+            .snapshot()
+            .json(options::PATH, resonance_content::preparation::JSON_LIMIT)?;
         doc.options.get_mut("combined_battles").unwrap().name = "Nearby Battles".into();
         doc.defaults.window = "gold".into();
         doc.confirmations
             .insert("forget_arte_paths".into(), "Forget the other path?".into());
         let output = tempfile::tempdir()?;
-        fs::create_dir(output.path().join("game"))?;
-        fs::write(output.path().join(options::PATH), serde_json::to_vec(&doc)?)?;
+        resonance_content::authoring::publish(
+            output.path(),
+            options::PATH,
+            &serde_json::to_value(&doc)?,
+        )?;
         let library = Library::open_paths(root, &[output.path().to_owned()])?;
         let mut snapshot = library.snapshot();
         snapshot.read(options::PATH, resonance_content::preparation::JSON_LIMIT)?;

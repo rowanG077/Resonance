@@ -13,9 +13,101 @@ layout and save schema. An obsolete library needs a fresh cook; an unsupported s
 fallbacks, path aliases, save migration tools or test-only old cooked-format
 readers in the target design. Tests use the same named layout as the application.
 
+## Granular asset owners
+
+Layout 107 publishes independently editable source files. The engine resolves
+all source owners, mod priorities and ordered registrations when it opens the
+library at startup. It caches immutable document bytes shared by preparations;
+playback does not scan source directories, merge JSON or follow mod layers.
+Restart after editing sources or changing enabled mods. A fresh import is required.
+
+Paths such as `game/items.json` below name **resolved document views**, not large
+files that a mod must copy. Inspect a view using the same reader as the game:
+
+```sh
+resonance-import resolve --assets local/all-assets --document game/items.json
+resonance-import resolve --assets local/all-assets --mod mods/my-items --document game/items.json
+```
+
+The corresponding source directory drops `.json`. Object fields with independent
+owners have their own files or collections; remaining related settings live in
+`definition.json`. Documents are discovered from their owner files; no empty root
+definition is needed when all fields have separate owners. A partial mod can
+supply only those fields without replacing inherited root settings. A named
+collection has one file/directory per key. For example:
+
+```text
+game/items/
+  mappings/0.json
+  items/apple-gel/definition.json
+  items/apple-gel/text.json
+game/techniques/
+  mappings/260.json
+  techniques/ghost-wolf-lloyd/rules.json
+  techniques/ghost-wolf-lloyd/text.json
+  learning/lloyd/ghost-wolf-lloyd/entry.json
+  learning/lloyd/ghost-wolf-lloyd/order.json
+```
+
+An item rules mod replaces only its `definition.json`; a translation replaces
+only `text.json`. Another mod can add a different item without replacing either.
+Keep a new item's numeric registration and definition together. Original numeric
+IDs remain stable; existing range/contiguity requirements still apply. Modders
+must coordinate new IDs when they address the same original gameplay namespace.
+
+Collections combine distinct keys. The last enabled mod wins for the same source
+file. `collection.json` declares a collection (including an empty one); it does
+not clear inherited entries, unless it is `{"$remove":true}` inside a named entry,
+which removes that whole nested collection. To remove a named entry, replace its value file or
+its `definition.json` with `{"$remove":true}`. Removing a referenced definition
+also requires removing/remapping its references. Indexed collections cannot have
+holes: dialogue positions and other public numeric slots keep their identities.
+
+Ordered registrations contain `entry.json` and integer `order.json`. Native
+orders are spaced by 1024; a new contributor chooses an order before, between or
+after those entries. Equal orders sort by the canonical registration key. Learning
+registrations use the technique name as their key; an identity of several
+values joins them with `--`, so a title award is `colette--angelic-maiden` and
+a terrain tile is `3--7`. Collections without an intrinsic identifier, such as
+credits blocks, have stable native `entry-000000` keys; mods choose their own keys.
+Action events, weighted choices inside one encounter pool, ingredient order and
+other behaviorally indivisible sequences stay intact inside their owner.
+Each crafting vendor's `recipes.json` owns its complete ordered recipe list,
+including repeated entries from the original game.
+
+Keys use lowercase letters, digits, `-` and `_` directly; other UTF-8 bytes are
+percent encoded (uppercase hex). The empty key is `%`. The reserved key
+`collection` uses `%63ollection`; `mappings` is written directly. References inside
+JSON retain their original unencoded names. Owner definitions may not repeat fields delegated to separate files; a
+whole resolved document and its granular owners cannot coexist at the same path.
+
+This ownership format covers items, artes and learning, characters, titles and
+awards, cooking, EX skills, strategy/options, shops and crafting, menu catalogues,
+party combat settings, formations/pools, shared animation bindings, field actors
+and dialogue, skits/portraits, UI artwork, effect programs/templates, texture banks and world tiles/metadata. GLBs, WAVs, movies,
+textures and other independent media remain ordinary replaceable resources.
+
+To split a separately authored document into source owners, use:
+
+```sh
+resonance-import split-document --input my-item-catalogue.json --document game/items.json --output mod-sources
+```
+
+Keep only the contributions your mod owns; do not distribute unchanged entries
+from a resolved base view. The command verifies that splitting preserves values
+and ordering. Repeating it replaces that document's previous source owners,
+including removed entries, while preserving other documents and media in the
+output directory. Ordinary mods need no manifest, checksum or dependency inventory.
+
+Named item/recipe sprites may declare their own image instead of the shared atlas:
+`{"image":"ui/my-mod/berry.ktx2","size":[32,32],"rect":[0,0,32,32]}`.
+Put this in the corresponding entry under `ui/menu/sprites/rects/item_images/`
+or `recipes/`. A four-number rectangle still selects the common icon atlas.
+The JSON owns the coordinate dimensions. Texture bindings are prepared up front.
+
 ## Finding a resource
 
-A library starts with `content.json`: `{"version":105,"game":"tales-of-symphonia"}`.
+A library starts with `content.json`: `{"version":107,"game":"tales-of-symphonia"}`.
 It identifies the cooked format and semantic game, with no source platform,
 product code, revision, file inventory or checksums. A future Steam importer
 targets the same layout and resource contracts; actual gameplay determines save
@@ -26,23 +118,30 @@ content.json
 fields/
   mappings.json
   iselia-1/
-    field.json
-    scene.json
+    field/script.json
+    field/scene.json
+    field/actors.json
+    field/audio.json
+    scene/parts/0.json
+    actors/definition.json
+    actors/models/...
+    messages/collection.json
+    messages/0.json
     collision.glb
-    actors.json
-    audio.json
-    messages.json
     scripts/scenario.ssb
+game/
+  items/mappings/0.json
+  items/items/apple-gel/definition.json
+  items/items/apple-gel/text.json
 audio/
   mappings.json
-  music/
-    mappings.json
-    old-familiar-scent.wav
+  mix/reverbs/field.json
+  synthesis/mix/volume.json
+  music/mappings.json
+  music/old-familiar-scent.wav
   effects/
-  speech/
-    mappings.json
-movies/
-  mappings.json
+  speech/mappings.json
+movies/mappings.json
 meshes/
   mappings.json
   characters/
@@ -50,11 +149,10 @@ meshes/
   equipment/
 animations/
   mappings.json
-  lloyd-e221/
-    bindings.json
-    lloyd.glb
+  bindings/banks/1.json
+  lloyd-e221/lloyd.glb
 battle/
-  formations.json
+  formations/formations/...
   arenas/
   party/
   enemies/
@@ -326,7 +424,7 @@ normalized UVs and need no coordinate size.
 Texture replacement reads only the selected file. It never opens a lower layer
 for dimensions or adds layout metadata to the image bytes. Mod authors can
 replace a KTX2 without adding metadata or editing JSON to increase resolution.
-Cooked layout version 105 requires a fresh import to populate these declarations.
+Cooked layout version 106 requires a fresh import to populate these declarations.
 
 Authored SymphoniaScript modules live under `scripts/`. Original scenarios use
 `.ssb` VM bytecode with a lossless assembly editing workflow:
@@ -349,7 +447,7 @@ needs changing. Restart to load the result; gameplay edits can invalidate saves.
 This is instruction-level editing. Labels handle branch targets, but the original
 header, registry overlay and auxiliary tables retain explicit layout values;
 changing instruction sizes can require adjusting those values. For dialogue,
-edit the field's `messages.json`. See the [scenario editing reference](symphonia-script.md#editing-original-scenarios)
+edit the field's `messages/<id>.json`. See the [scenario editing reference](symphonia-script.md#editing-original-scenarios)
 for the assembly contract and the authored high-level language.
 
 An optional `--scripts ROOT` project has its own modules and `fields.json` bindings.
@@ -367,19 +465,34 @@ retain the files they selected, and a playing recording keeps its open file
 handle; finish exports before starting a new run. An atomic file replacement is
 preferable to rewriting an open WAV in place.
 
-Enable separate mod directories in the order you want them applied:
+The game automatically loads directories in `local/mods`. Names must begin with
+exactly six digits, a hyphen and a nonempty mod name:
 
-```sh
-cargo run -p resonance -- --assets local/named-assets --mod mods/translation --mod mods/music
+```text
+local/mods/
+  000000-artwork/
+  000100-translation/
+  000200-music/
 ```
 
-Each mod contains only its changed files, using the same paths as the base
-library. A later directory overrides an earlier file at the same path, and
-`mappings.json` overrides merge by ID. Mods need no registration manifest and
-must not contain `content.json`. Remove a `--mod` argument to disable that mod.
+Higher numbers overwrite earlier assets; equal numbers sort by directory name.
+Hidden build directories and files in the mods directory are ignored.
+Use `--mods-directory PATH` to select another directory, or `--no-default-mods`
+to disable automatic mods.
+Explicit `--mod` directories apply afterwards, in command-line order:
+
+```sh
+cargo run -p resonance -- --mod mods/translation --mod mods/music
+```
+
+Each mod contains only its changed source files, using the same paths as the base
+library. Granular collections combine independent entries. An ID namespace such as `fields/mappings.json` is one of them: each ID is its own owner (`fields/mappings/332.json`), so a mod adds or rebinds single IDs. Mods need no registration manifest
+and must not contain `content.json`. Restart Resonance after changing mods.
 The selected directories also apply to save loading, captures, title-audio
-recording and the world playground. Keep your original cook and mods separate
-so a future recook can replace the base without overwriting your edits.
+recording and the world playground.
+
+Keep your original cook and mods separate so a future recook can replace the
+base without overwriting edits.
 
 Saves contain a format version and gameplay state. Current save version: 10.
 Changes to dialogue, images, models, scripts, collision or combat rules do not
@@ -460,17 +573,17 @@ admission, TP spending, interruption, damage and recovery rules.
 
 See [Ghost Wolf](../mods/ghost-wolf/README.md) for a complete playable example
 with two hits, an editable Blender source, and a new animation/effect bank.
-Ordinary importing includes it automatically: the importer adds the single
-technique and its learning/defaults from `mods/ghost-wolf/example.json` into the
-newly generated game documents and publishes its runtime assets. This example
-file is an importer input, not a runtime mod manifest. Other mods still use the
-ordinary file overrides described above.
+After importing the base game, run `resonance-import prepare-arte-mod` as described
+in the example's guide. It reads `mods/ghost-wolf/example.json` and publishes the
+technique, learning/defaults and runtime assets as a separate additive mod. The
+example file is an offline build recipe; the generated mod uses the ordinary
+granular source owners described above.
 
 Edit the `.blend` as the animation source and use the example's export helper.
 Its GLB contains authored changes relative to locally cooked poses; the importer
 resolves those references into the ordinary runtime animation. Native models,
 textures, rigs and reference poses remain local. The example's guide documents
-the Blender setup, export and ordinary import steps.
+the Blender setup, export and mod preparation steps.
 Encounter preparation captures the action's dependencies and audio before
 combat, including capacity for artes learned mid-battle; executing it does not
 read loose assets.

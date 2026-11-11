@@ -443,7 +443,8 @@ mod tests {
         );
         assert!(batches[COMBO_TEXT].indices.is_empty());
         let smash_depth = hud.combat.layers[TECHNICAL_SMASH].definition.depth;
-        assert!(smash_depth < hud.ui.unison[0].definition.depth);
+        // Technical Smash is drawn above everything up to the victory results.
+        assert!(smash_depth > Depth::Results.value());
 
         let mut world = World::new();
         let mut meshes = Assets::<Mesh>::default();

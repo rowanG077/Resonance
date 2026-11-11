@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [dependencies]
+resonance-content.workspace = true
 resonance-presentation.workspace = true
 resonance-persistence.workspace = true
 clap.workspace = true

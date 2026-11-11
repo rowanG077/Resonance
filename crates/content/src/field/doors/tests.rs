@@ -72,26 +72,3 @@ fn incomplete_settings_and_cyclic_or_duplicate_hinges_are_rejected() {
     doc["nodes"][1]["extras"]["door_action"] = json!("swing");
     assert!(from_gltf(&doc, [0.; 3]).is_err());
 }
-
-#[test]
-#[ignore = "requires saved Blender door exports; does not run the editor"]
-fn blender_keeps_door_properties_and_moves_interactions_with_hinges() -> Result<()> {
-    use std::{fs, path::Path};
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../local/structure-review-20261027/field-doors");
-    let original = decode(&fs::read(root.join("editor-original.glb"))?, [0.; 3])?;
-    for (file, lift) in [("editor-roundtrip.glb", 0.), ("editor-edited.glb", 10.)] {
-        let current = decode(&fs::read(root.join(file))?, [0.; 3])?;
-        assert_eq!(current.len(), original.len());
-        for (a, b) in original.iter().zip(&current) {
-            assert_eq!((a.bone, a.pull, a.angle), (b.bone, b.pull, b.angle));
-            assert_eq!(a.heading, b.heading);
-            for axis in 0..3 {
-                let delta = if axis == 2 { lift } else { 0. };
-                assert!((b.position[axis] - a.position[axis] - delta).abs() < 0.003);
-                assert!((b.approach[axis] - a.approach[axis] - delta).abs() < 0.003);
-            }
-        }
-    }
-    Ok(())
-}

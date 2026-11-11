@@ -10,6 +10,12 @@ mod logging;
 struct Args {
     #[arg(long, default_value = "local/all-assets")]
     assets: PathBuf,
+    /// Automatic numbered mods, loaded before explicit --mod directories.
+    #[arg(long, default_value = "local/mods")]
+    mods_directory: PathBuf,
+    /// Skip automatic mods (explicit --mod directories still apply).
+    #[arg(long)]
+    no_default_mods: bool,
     /// Enable a mod directory. Repeat in priority order; the last mod wins.
     #[arg(long = "mod", value_name = "DIRECTORY")]
     mods: Vec<PathBuf>,
@@ -132,6 +138,19 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run(mut args: Args) -> anyhow::Result<()> {
+    if !args.no_default_mods {
+        let mut mods = resonance_content::library::discover_mods(&args.mods_directory)?;
+        // An explicit --mod keeps its own priority, even for an automatic mod.
+        let explicit: Vec<_> = args.mods.iter().map(std::fs::canonicalize).collect();
+        mods.retain(|path| {
+            let path = std::fs::canonicalize(path).ok();
+            !explicit
+                .iter()
+                .any(|other| other.as_ref().ok() == path.as_ref())
+        });
+        mods.append(&mut args.mods);
+        args.mods = mods;
+    }
     bevy::log::info!(
         assets = ?args.assets, mods = ?args.mods, scripts = ?args.scripts,
         load = ?args.load, saves = ?args.save_directory, resolution = ?args.resolution,

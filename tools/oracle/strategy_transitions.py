@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Observe committed combo transitions without replacing actions or timers."""
+from resolved_content import read_json
 import argparse
 from hashlib import sha256
 import json
@@ -29,7 +30,7 @@ def run(args):
     if set(actors) != {0, 1, 4} or actors[0]["kind"] != character or any(a["action"][0] != 3 for a in actors.values()):
         raise ValueError("expected a settled manual party with the requested character")
     catalogue = args.assets / "game/techniques.json"
-    learning = native_learning(json.loads(catalogue.read_text()))[character - 1]
+    learning = native_learning(read_json(catalogue))[character - 1]
     case = dict(name=args.phase, character=character, technique=technique,
                 position=1, skill=5 if secondary else 1,
                 random_state=2, level=30)

@@ -185,19 +185,37 @@ mappings, alongside scenario voice IDs. Several IDs may point to the same file;
 editing that file changes their shared recording, while remapping one ID changes
 only that request. No archive numbers or ID reconstruction rules are needed.
 
+## Resolved views and source owners
+
+In layout 107, catalogue paths in this guide (for example `game/items.json`)
+are resolved document views. The importer publishes independently editable owners
+under the corresponding directory, and the game assembles/caches them at startup.
+Use `resonance-import resolve --assets PATH --document game/items.json` to inspect
+a view. Do not copy a resolved catalogue to make an ordinary mod. Rules, text,
+registrations, image roles and other independent entries have their own sources;
+a mod supplies only the owners it changes. Restart to see source edits.
+See the [granular ownership guide](https://github.com/rowanG077/Resonance/blob/main/docs/editable-content.md#granular-asset-owners)
+for the file format, additive registrations, ordering and removals.
+
 ## Keep a mod separate
 
 Copy only the files you want to change into another directory, preserving their
 paths relative to this library. For example, a dialogue mod needs only
-`mods/my-dialogue/fields/<actual-field-name>/messages.json`.
+`mods/my-dialogue/fields/<actual-field-name>/messages/42.json` to change message ID 42.
 
 ```sh
 resonance --assets /path/to/this-library --mod /path/to/mods/my-dialogue
 ```
 
-Repeat `--mod` to enable more mods. Later mods win for the same file. Mapping
-overrides merge by numeric ID, so a mod's `mappings.json` needs only its changed
-entries. Remove the corresponding `--mod` argument to disable a mod. Mods require
+A library or mod contains only regular files and directories. Symbolic links are
+an error anywhere inside one, because not every supported platform has them; copy
+the file or directory instead. Entries whose name starts with a dot, such as a
+mod's `.git`, are ignored. A JSON file inside a document's source directory that
+is not one of its owners (for example a misspelled name) is an error.
+
+Repeat `--mod` to enable more mods. Later mods win for the same file. An ID
+mapping such as `fields/mappings.json` has one owner per ID, so a mod rebinds
+ID 332 with `fields/mappings/332.json` and inherits the rest. Remove the corresponding `--mod` argument to disable a mod. Mods require
 no registration manifest and must not contain `content.json`.
 
 The cooked library has no hash-based names, checksums or fingerprint files.
@@ -212,8 +230,8 @@ mod sources so a future fresh cook does not replace your work.
 ## Example: change Iselia dialogue
 
 The original village field is `fields/iselia-0332/`; its machine ID is `332`.
-Other Iselia rooms have their own named directories. Open that field's
-`field.json` to find the file for your change:
+Other Iselia rooms have their own named directories. Inspect that field's resolved
+`field.json` to find the resource for your change:
 
 | Property | Follow it to edit |
 | --- | --- |
@@ -226,13 +244,10 @@ Other Iselia rooms have their own named directories. Open that field's
 
 To make a dialogue mod:
 
-1. Copy `fields/iselia-0332/messages.json` from this library to
-   `my-dialogue/fields/iselia-0332/messages.json`.
-2. Find the line you want in the copied file. Ordinary messages are strings,
-   for example `"Welcome to Iselia!"`. A message with substitutions or playback
-   controls is an array of strings and named controls. Edit its strings while
-   keeping the controls you want. Keep the outer message array in the same order;
-   its positions are the IDs used by the scenario.
+1. Copy only the message you want, for example
+   `fields/iselia-0332/messages/42.json`, to the same path inside your mod.
+2. Edit its text while retaining any substitutions and playback controls you
+   want. The filename is the scenario's message ID; other messages are inherited.
 3. Start Resonance with `--assets /path/to/this-library --mod /path/to/my-dialogue`
    and visit the corresponding conversation. After another edit, quit and restart
    the application. Remove `--mod` and restart to restore the original dialogue.
@@ -816,6 +831,17 @@ gives one priority per listed mesh; lower numbers draw first. When omitted, each
 mesh index is its priority. Preserve an existing priority array when repainting.
 The less common `multiply` and `image:"capture"` settings select a second texture
 and the captured scene respectively.
+
+Every texture is BC7, whose blocks cover four by four pixels. The importer never
+resamples: an interface image of another size gains transparent padding and
+declares the padded `size`.
+
+The console wraps a repeating texture with `coordinate & (size - 1)`, which only
+tiles when the size is a power of two; at any other size it skips texels and
+shows a different, larger image. The importer stores that image for the few
+model textures affected, so they repeat as they do on the console. Their binding
+carries `"scale":[[15,16],[129,256]]`: the fraction per axis already applied to
+the mesh coordinates, which animated offsets follow.
 
 Body and outline layers share identical palette images within their model's
 texture directory. Editing one file changes every layer referring to it. To
@@ -1874,6 +1900,9 @@ Each image entry declares `{"image":"path.ktx2","size":[128,192]}`.
 The size defines tile coordinates and the canvas layout; KTX2 carries physical
 pixels. Replacing the artwork at higher resolution preserves the layout.
 Keep coordinate sizes and patch positions on the eight-pixel grid.
+Portrait tiles are combined on the GPU without decoding, so every image of one
+portrait must share one texture format (BC7 as cooked) and the same whole-number
+resolution scale: replace a portrait's base image and its patches together.
 
 The `animations` object contains named, shared drawing recipes. Each recipe's
 `ids` list states exactly which selectors use it. A recipe name is representative

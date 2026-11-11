@@ -216,13 +216,6 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
     Ok(app.world().resource::<Captures>().0.clone())
 }
 #[test]
-#[ignore = "requires native 2x MSAA; validates S2x color space, loaded scenes, UI, resize and cleanup"]
-fn native_s2x_preserves_loaded_scene_ui_resize_and_cleanup() -> anyhow::Result<()> {
-    // Test independent, fixed-format cameras, as used by the game. The native
-    // renderer does not change a camera's color format during its lifetime.
-    compare_scene_formats(AntiAliasing::SmaaS2x)
-}
-#[test]
 #[ignore = "requires a GPU; validates SMAA color space, loaded scenes, UI and resize"]
 fn regular_smaa_preserves_scene_colors() -> anyhow::Result<()> {
     for mode in [

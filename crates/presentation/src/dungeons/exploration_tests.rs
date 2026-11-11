@@ -84,7 +84,7 @@ fn walk_to(field: &mut Scene, target: [f32; 2], confirm: bool) -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; original Fooji summit event"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; original Fooji summit event"]
 fn yuan_keeps_his_wings_when_the_departure_script_reuses_their_id() -> Result<()> {
     let mut field = Scene::story(&root()?, 416, 10_502_000, |entry| {
         entry.position = [3044., -963., 379.];
@@ -112,7 +112,7 @@ fn yuan_keeps_his_wings_when_the_departure_script_reuses_their_id() -> Result<()
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked Salvation stair ramp and exits"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked Salvation stair ramp and exits"]
 fn salvation_stairs_and_world_exits_are_walkable() -> Result<()> {
     let root = root()?;
     let mut inside = enter(&root, 95, [-300., -200., 8.])?;
@@ -162,7 +162,7 @@ fn salvation_stairs_and_world_exits_are_walkable() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked Linkite information sequence"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked Linkite information sequence"]
 fn linkite_conversations_restore_walking_on_the_floor() -> Result<()> {
     let mut field = enter(&root()?, 243, [0.; 3])?;
     for id in [101, 102, 103, 104] {
@@ -195,7 +195,7 @@ fn linkite_conversations_restore_walking_on_the_floor() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked Triet hole reaction"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked Triet hole reaction"]
 fn triet_hole_examination_shows_lloyds_reaction() -> Result<()> {
     let mut field = enter(&root()?, 485, [-2701., 914., -86.])?;
     let id = field.events.world.controlled_actor;
@@ -229,7 +229,7 @@ fn triet_hole_examination_shows_lloyds_reaction() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked denied Iselia entry"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked denied Iselia entry"]
 fn iselia_denial_preserves_the_return_to_world() -> Result<()> {
     let field = enter(&root()?, 346, [0.; 3])?;
     ensure!(
@@ -249,7 +249,7 @@ fn iselia_denial_preserves_the_return_to_world() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked inn rest and optional skit"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked inn rest and optional skit"]
 fn palmacosta_inn_rest_preserves_field_control() -> Result<()> {
     let mut field = enter(&root()?, 59, [0.; 3])?;
     ensure!(
@@ -283,7 +283,7 @@ fn palmacosta_inn_rest_preserves_field_control() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked upstairs bed prompt and rest"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked upstairs bed prompt and rest"]
 fn salvation_beds_preserve_npcs_camera_and_downstairs_exit() -> Result<()> {
     let mut field = enter_flags(&root()?, 96, [137., -37., 0.], &[192])?;
     field.ticks(40, Default::default())?;
@@ -356,7 +356,7 @@ fn salvation_beds_preserve_npcs_camera_and_downstairs_exit() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; early-story repeated rest"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; early-story repeated rest"]
 fn early_salvation_repeated_rest_preserves_field_control() -> Result<()> {
     let mut field = enter_story(&root()?, 96, [137., -37., 0.], &[192], 1_101_000)?;
     let camera = field.events.world.field_camera.as_ref().unwrap();
@@ -401,7 +401,7 @@ fn early_salvation_repeated_rest_preserves_field_control() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked Fire Seal enemy contact"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked Fire Seal enemy contact"]
 fn fire_seal_skipped_battles_preserve_field_control() -> Result<()> {
     let mut contacts = 0;
     let map = 219;
@@ -461,13 +461,15 @@ fn fire_seal_skipped_battles_preserve_field_control() -> Result<()> {
             field.player_has_control()
         );
         contacts += 1;
+        // A finished battle leaves a one-second grace period before the next.
+        field.ticks(60, FieldInput::default())?;
     }
     assert_eq!(contacts, 3, "Fire Seal test missed an enemy");
     Ok(())
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; cooked Thoda props and ambient audio"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; cooked Thoda props and ambient audio"]
 fn thoda_rocks_stay_paused_and_entrance_ambience_is_prepared() -> Result<()> {
     let root = root()?;
     let mut field = enter(&root, 6, [395., -213., 0.])?;

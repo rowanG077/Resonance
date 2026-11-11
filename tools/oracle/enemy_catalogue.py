@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build enemy arte cases from authored packages and cooked metadata; no runtime."""
+from resolved_content import pin as pinned, read_json as read
 import argparse
 from collections import Counter, defaultdict
 from hashlib import sha256
@@ -13,15 +14,6 @@ PACKAGE_HEADER_BYTES = 488
 COMMON_SPELL_START = 200
 DEFAULT_PROFILE = Path(__file__).with_name("cases") / "battle-formations.json"
 DEFAULT_OUTPUT = Path(__file__).with_name("cases") / "enemy-artes.json"
-
-
-def read(path):
-    return json.loads(Path(path).read_text())
-
-
-def pinned(path):
-    path = Path(path)
-    return {"path": str(path), "sha256": sha256(path.read_bytes()).hexdigest()}
 
 
 def section(raw, field):

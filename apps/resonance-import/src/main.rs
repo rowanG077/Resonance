@@ -33,6 +33,35 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Build an additive arte mod from authored sources and a cooked reference pose.
+    PrepareArteMod {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        assets: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Inspect startup-resolved documents from granular assets and ordered mods.
+    Resolve {
+        #[arg(long)]
+        assets: PathBuf,
+        #[arg(long = "mod")]
+        mods: Vec<PathBuf>,
+        /// One logical document; omit to print all assembled documents.
+        #[arg(long)]
+        document: Option<String>,
+    },
+    /// Split a logical document into independently owned mod source files.
+    SplitDocument {
+        #[arg(long)]
+        input: PathBuf,
+        /// Logical runtime path, such as game/items.json.
+        #[arg(long)]
+        document: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Decode native effect declarations for an external observation.
     InspectEffectTemplates,
     /// Bind one observed package motion to its receiving party body.
@@ -82,6 +111,45 @@ fn main() -> Result<()> {
         return Ok(());
     };
     match command {
+        Action::PrepareArteMod {
+            source,
+            assets,
+            output,
+        } => {
+            resonance_importer::prepare_arte_mod(&source, &assets, &output)?;
+        }
+        Action::Resolve {
+            assets,
+            mods,
+            document,
+        } => {
+            let library = resonance_content::library::Library::open_paths(&assets, &mods)?;
+            let value = if let Some(path) = document {
+                library
+                    .snapshot()
+                    .json::<serde_json::Value>(&path, resonance_content::preparation::JSON_LIMIT)?
+            } else {
+                let documents = library
+                    .resolved_documents()
+                    .map(|(path, bytes)| {
+                        Ok((
+                            path.to_owned(),
+                            serde_json::from_slice::<serde_json::Value>(&bytes)?,
+                        ))
+                    })
+                    .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+                serde_json::json!({"documents":documents})
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        Action::SplitDocument {
+            input,
+            document,
+            output,
+        } => {
+            let value = serde_json::from_slice(&fs::read(input)?)?;
+            resonance_importer::publish_document(&output, &document, &value)?;
+        }
         Action::InspectEffectTemplates => {
             let mut bytes = Vec::new();
             std::io::stdin().read_to_end(&mut bytes)?;

@@ -104,6 +104,7 @@ pub enum Sprite {
     Leader,
     WorldHud,
 }
+pub use sprites::NamedSprite;
 #[derive(Debug, Clone, Default)]
 pub struct MenuSprites {
     pub rects: BTreeMap<Sprite, Vec<[u32; 4]>>,
@@ -111,8 +112,9 @@ pub struct MenuSprites {
     pub bar_colors: Vec<[[u8; 4]; 4]>,
     pub names: Vec<String>,
     /// Named item/recipe artwork resolves through their existing catalogues.
-    pub named_rects: BTreeMap<Sprite, BTreeMap<String, [u32; 4]>>,
+    pub named: BTreeMap<Sprite, BTreeMap<String, NamedSprite>>,
     pub name_overrides: BTreeMap<String, String>,
+    pub(crate) texture_slots: BTreeMap<(Sprite, usize), usize>,
 }
 impl MenuSprites {
     pub fn group(&self, group: Sprite) -> Result<&[[u32; 4]]> {
@@ -228,7 +230,7 @@ impl MenuArt {
             .copied()
             .with_context(|| format!("menu sprite {group:?}[{index}] was not prepared"))?;
         let [x, y, width, height] = rect;
-        let atlas = self.texture(Self::ATLAS_TEXTURE)?;
+        let atlas = self.texture(self.sprite_texture(group, index))?;
         ensure!(
             width > 0
                 && height > 0
@@ -239,6 +241,14 @@ impl MenuArt {
             "invalid menu sprite {group:?}[{index}]"
         );
         Ok(rect)
+    }
+
+    pub fn sprite_texture(&self, group: Sprite, index: usize) -> usize {
+        self.sprites
+            .texture_slots
+            .get(&(group, index))
+            .copied()
+            .unwrap_or(Self::ATLAS_TEXTURE)
     }
 
     pub fn validate_layout(&self, item_count: usize) -> Result<()> {

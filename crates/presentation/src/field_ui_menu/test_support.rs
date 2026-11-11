@@ -1,7 +1,6 @@
 use super::*;
 
 pub(super) struct Fixture {
-    root: std::path::PathBuf,
     pub(super) art: MenuArt,
     pub(super) font: BitmapFont,
     pub(super) dialogue: DialogueArt,
@@ -16,14 +15,23 @@ impl Fixture {
             || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             Into::into,
         );
-        let read = |path: &str| -> Result<Vec<u8>> { Ok(std::fs::read(root.join(path))?) };
+        let view = std::cell::RefCell::new(
+            resonance_content::library::Library::open(&root, &[])?.snapshot(),
+        );
+        let read = |path: &str| -> Result<Vec<u8>> {
+            Ok(view
+                .borrow_mut()
+                .read(path, resonance_content::preparation::ASSET_LIMIT)?
+                .to_vec())
+        };
         let mut art: MenuArt = serde_json::from_slice(&read("ui/menu.json")?)?;
         art.prepare_resources(&read);
-        let mut dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.prepare_images(&read)?;
         let font = serde_json::from_slice(&read(&dialogue.font)?)?;
-        let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+        let mut snapshot = view.into_inner();
         let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        resonance_content::preparation::ui(&mut snapshot, &diagnostics, &|| false)?;
         resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
         let files =
             resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics)?;
@@ -52,7 +60,6 @@ impl Fixture {
             }
         }
         Ok(Self {
-            root,
             art,
             font,
             dialogue,
@@ -83,7 +90,7 @@ impl Fixture {
                 if path == "ui/menu.json" {
                     Ok(serde_json::to_vec(&self.art)?)
                 } else {
-                    Ok(std::fs::read(self.root.join(path))?)
+                    Ok(self.files.read(path)?.to_vec())
                 }
             },
             self.session.experience.clone().into(),
@@ -93,7 +100,7 @@ impl Fixture {
             &self.dialogue.cursor,
             &resonance_content::diagnostics::Diagnostics::new(true),
             crate::input_icons::prepare(
-                &|path| Ok(std::fs::read(self.root.join(path))?),
+                &|path| Ok(self.files.read(path)?.to_vec()),
                 app.world().resource::<AssetServer>(),
             )?,
         )?;

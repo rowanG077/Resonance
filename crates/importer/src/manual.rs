@@ -9,9 +9,10 @@ pub fn cook_manual(extracted: &Path, library: &Path) -> Result<()> {
     let executable = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&executable)?;
     document.validate()?;
-    let path = library.join(resonance_content::menu_data::MANUAL_PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(
+        &library.join(resonance_content::menu_data::MANUAL_PATH),
+        &document,
+    )
 }
 
 fn convert(exe: &[u8]) -> Result<TrainingManual> {

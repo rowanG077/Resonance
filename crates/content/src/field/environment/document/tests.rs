@@ -70,7 +70,7 @@ fn atmosphere_rejects_unknown_properties_and_replaces_whole_nested_values() {
 }
 
 #[test]
-fn atmosphere_snapshot_uses_shared_mod_values_without_changing_captured_values() -> Result<()> {
+fn atmosphere_uses_shared_mod_values_resolved_when_the_library_opens() -> Result<()> {
     use crate::library::{Descriptor, GAME, Library, VERSION};
     use std::fs;
     let base = tempfile::tempdir()?;
@@ -92,9 +92,9 @@ fn atmosphere_snapshot_uses_shared_mod_values_without_changing_captured_values()
         base.path().join("fields/settings.json"),
         modification.path().join("fields/settings.json"),
     )?;
-    let library = Library::open_paths(base.path(), &[modification.path().to_owned()])?;
-    let mut retained = library.snapshot();
-    let before: EnvironmentDefaults = retained.json("fields/settings.json", 10000)?;
+    // Documents resolve at startup, so the edit opens the library again.
+    let open = || Library::open_paths(base.path(), &[modification.path().to_owned()]);
+    let before: EnvironmentDefaults = open()?.snapshot().json("fields/settings.json", 10000)?;
     let mut changed = defaults();
     changed
         .0
@@ -105,9 +105,8 @@ fn atmosphere_snapshot_uses_shared_mod_values_without_changing_captured_values()
         modification.path().join("fields/settings.json"),
         serde_json::to_vec(&changed)?,
     )?;
-    let current: EnvironmentDefaults = library.snapshot().json("fields/settings.json", 10000)?;
-    let captured: EnvironmentDefaults = retained.json("fields/settings.json", 10000)?;
-    for (shared, size) in [(&before, 12.), (&captured, 12.), (&current, 18.)] {
+    let current: EnvironmentDefaults = open()?.snapshot().json("fields/settings.json", 10000)?;
+    for (shared, size) in [(&before, 12.), (&current, 18.)] {
         let document: EnvironmentDocument =
             serde_json::from_value(json!({"particles":[{"kind":"snow"}]}))?;
         assert!(

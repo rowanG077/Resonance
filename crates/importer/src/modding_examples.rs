@@ -1,9 +1,8 @@
-//! Add repository-authored examples while generating native game documents.
+//! Prepare an ordinary additive arte mod against the current cooked library.
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     animation::{Channel, Interpolation, Motion, NodeTrack, Skeleton, Track, Transform},
     arte, characters,
-    library::Mappings,
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path};
@@ -27,80 +26,193 @@ struct MotionReference {
     frame: f32,
 }
 
-fn example() -> Result<Example> {
-    serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))
-        .context("Ghost Wolf modding example")
-}
-
-pub(crate) fn add_techniques(document: &mut arte::document::Document) -> Result<()> {
-    let example = example()?;
+/// Admit only a new ID and name; a mod would otherwise silently replace an arte.
+fn check_addition(document: &arte::document::Document, example: &Example) -> Result<()> {
     document.characters.id(&example.character)?;
-    let mut mappings: BTreeMap<_, _> = document
-        .mappings
-        .iter()
-        .map(|(id, name)| (id, name.to_owned()))
-        .collect();
     ensure!(
-        !mappings.contains_key(&u32::from(example.id)),
+        document
+            .mappings
+            .iter()
+            .all(|(id, _)| id != u32::from(example.id)),
         "modding example catalogue ID {} is already used",
         example.id
     );
     ensure!(
-        !mappings.values().any(|name| name == &example.name)
+        document
+            .mappings
+            .iter()
+            .all(|(_, name)| name != example.name)
             && !document.techniques.contains_key(&example.name),
         "modding example {} already exists in the imported catalogue",
         example.name
     );
-    let learning = document
+    Ok(())
+}
+
+/// Resolve reference-relative authored motion and publish only this mod's entries.
+/// This needs the cooked library, never original discs or a fresh game import.
+pub fn prepare_arte_mod(source: &Path, library: &Path, output: &Path) -> Result<()> {
+    let source = std::fs::canonicalize(source)?;
+    let base_root = std::fs::canonicalize(library)?;
+    let example: Example = serde_json::from_slice(&std::fs::read(source.join("example.json"))?)?;
+    let library = resonance_content::library::Library::open_paths(library, &[])?;
+    let mut snapshot = library.snapshot();
+    let techniques: arte::document::Document =
+        snapshot.json(arte::PATH, resonance_content::preparation::JSON_LIMIT)?;
+    check_addition(&techniques, &example)?;
+    let original_learning = techniques
         .learning
-        .get_mut(&example.character)
-        .context("modding example character has no learning list")?;
-    mappings.insert(u32::from(example.id), example.name.clone());
-    let mappings = Mappings::new(mappings)?;
-    learning.push(example.name.clone());
-    document.mappings = mappings;
-    document.techniques.insert(example.name, example.technique);
-    Ok(())
-}
-
-pub(crate) fn add_characters(document: &mut characters::Document) -> Result<()> {
-    let example = example()?;
-    if !example.initially_known {
-        return Ok(());
+        .get(&example.character)
+        .context("modding example character has no learning list")?
+        .len();
+    let contribution = serde_json::json!({
+        "mappings": {(example.id.to_string()): example.name},
+        "techniques": {(example.name.clone()): example.technique},
+        "learning": {(example.character.clone()): [example.name]}
+    });
+    let mut files = contribution_files(
+        arte::PATH,
+        &contribution,
+        original_learning as i64 * 1024 + 1024,
+    )?;
+    if example.initially_known {
+        let characters: characters::Document =
+            snapshot.json(characters::PATH, resonance_content::preparation::JSON_LIMIT)?;
+        let known = characters
+            .characters
+            .get(&example.character)
+            .and_then(|entry| entry.initial.as_ref())
+            .context("modding example character has no initial state")?
+            .techniques
+            .len();
+        let contribution = serde_json::json!({"characters":{(example.character.clone()):{"initial":{"techniques":[example.name]}}}});
+        files.extend(contribution_files(
+            characters::PATH,
+            &contribution,
+            known as i64 * 1024 + 1024,
+        )?);
     }
-    let initial = document
-        .characters
-        .get_mut(&example.character)
-        .context("modding example character is missing")?
-        .initial
-        .as_mut()
-        .context("modding example character has no initial state")?;
-    initial.techniques.push(example.name);
-    Ok(())
-}
-
-pub(crate) fn cook_assets(library: &Path) -> Result<()> {
-    let reference = example()?.motion_reference;
-    let read = |path: &str| {
-        std::fs::read(library.join(path))
-            .with_context(|| format!("read modding example reference {path}"))
-    };
-    let skeleton = Skeleton::from_glb(&read(&reference.skeleton)?)?;
-    let pose = Motion::decode_for_skeleton(&read(&reference.motion)?, &skeleton)?;
-    let motion = resolve_motion(
-        include_bytes!("../../../mods/ghost-wolf/battle/artes/ghost-wolf/ghost-wolf.glb"),
+    let action = example
+        .technique
+        .rules
+        .action
+        .as_deref()
+        .context("arte mod needs an authored action")?;
+    resonance_content::library::validate_path(action)?;
+    let (scope, _) = action
+        .rsplit_once('/')
+        .context("arte assets need their own directory")?;
+    // A directory alias is not a file and fails to read; a file alias must stay inside.
+    for path in crate::authoring::file_paths(&source.join(scope))? {
+        let logical = format!("{scope}/{path}");
+        let physical = std::fs::canonicalize(source.join(&logical))?;
+        ensure!(
+            physical.starts_with(&source),
+            "arte source escapes its project"
+        );
+        files.insert(logical, std::fs::read(physical)?);
+    }
+    let reference = &example.motion_reference;
+    let skeleton = Skeleton::from_glb(&snapshot.read(
+        &reference.skeleton,
+        resonance_content::preparation::ASSET_LIMIT,
+    )?)?;
+    let pose = Motion::decode_for_skeleton(
+        &snapshot.read(
+            &reference.motion,
+            resonance_content::preparation::ASSET_LIMIT,
+        )?,
         &skeleton,
-        &pose,
-        reference.frame,
     )?;
-    for (path, bytes) in ASSETS {
-        crate::output::write(&library.join(path), bytes)?;
+    let action: serde_json::Value = serde_json::from_slice(&std::fs::read(source.join(action))?)?;
+    for path in action["motions"]
+        .as_object()
+        .context("arte action needs motions")?
+        .values()
+    {
+        let path = path.as_str().context("motion must be a GLB path")?;
+        resonance_content::library::validate_path(path)?;
+        let physical = std::fs::canonicalize(source.join(path))?;
+        ensure!(
+            physical.starts_with(&source),
+            "arte motion escapes its project"
+        );
+        let motion = resolve_motion(&std::fs::read(physical)?, &skeleton, &pose, reference.frame)?;
+        files.insert(path.to_owned(), motion);
     }
-    crate::output::write(
-        &library.join("battle/artes/ghost-wolf/ghost-wolf.glb"),
-        &motion,
-    )?;
+    let output = std::path::absolute(output)?;
+    let parent = output
+        .parent()
+        .context("generated mod needs a parent directory")?;
+    std::fs::create_dir_all(parent)?;
+    let output = if output.exists() {
+        std::fs::canonicalize(output)?
+    } else {
+        std::fs::canonicalize(parent)?.join(
+            output
+                .file_name()
+                .context("generated mod needs a directory name")?,
+        )
+    };
+    ensure!(
+        !output.starts_with(&source)
+            && !source.starts_with(&output)
+            && !output.starts_with(&base_root)
+            && !base_root.starts_with(&output),
+        "generated mod output must be separate from sources and the base library"
+    );
+    const MARKER: &str = ".resonance-arte-mod";
+    const GENERATED: &[u8] = b"resonance generated arte mod v1\n";
+    if output.exists() {
+        ensure!(output.is_dir(), "generated mod output must be a directory");
+        ensure!(
+            std::fs::read_dir(&output)?.next().is_none()
+                || std::fs::read(output.join(MARKER)).is_ok_and(|bytes| bytes == GENERATED),
+            "output is not a generated arte mod; choose a new output directory"
+        );
+    }
+    let staged = tempfile::Builder::new()
+        .prefix(".resonance-arte-")
+        .tempdir_in(output.parent().unwrap())?;
+    for (path, bytes) in files {
+        crate::output::write(&staged.path().join(path), &bytes)?;
+    }
+    crate::authoring::publish(staged.path())?;
+    let validated =
+        resonance_content::library::Library::open_paths(&base_root, &[staged.path().to_owned()])?;
+    validated
+        .snapshot()
+        .json::<arte::document::Document>(arte::PATH, resonance_content::preparation::JSON_LIMIT)?
+        .prepare()?;
+    crate::output::write(&staged.path().join(MARKER), GENERATED)?;
+    // Only a previously generated directory is replaceable. All compilation and
+    // admission has succeeded before retiring that reproducible output.
+    if output.exists() {
+        std::fs::remove_dir_all(&output)?;
+    }
+    std::fs::rename(staged.path(), output)?;
     Ok(())
+}
+
+fn contribution_files(
+    document: &str,
+    value: &serde_json::Value,
+    order: i64,
+) -> Result<BTreeMap<String, Vec<u8>>> {
+    let mut files = BTreeMap::new();
+    for (path, mut value) in resonance_content::authoring::split(document, value)?
+        .context("missing arte ownership schema")?
+    {
+        // The base owns its collections' markers; two additive mods must not collide on them.
+        if path.ends_with("/collection.json") {
+            continue;
+        }
+        if path.ends_with("/order.json") {
+            value = order.into();
+        }
+        files.insert(path, resonance_asset_writer::json::to_vec(&value)?);
+    }
+    Ok(files)
 }
 
 /// The distributable clip contains component deltas on flat, identity nodes.
@@ -175,17 +287,6 @@ fn reference_channel<const N: usize>(
     }
     channel
 }
-
-const ASSETS: &[(&str, &[u8])] = &[
-    (
-        "battle/artes/ghost-wolf/action.json",
-        include_bytes!("../../../mods/ghost-wolf/battle/artes/ghost-wolf/action.json"),
-    ),
-    (
-        "battle/artes/ghost-wolf/effects.json",
-        include_bytes!("../../../mods/ghost-wolf/battle/artes/ghost-wolf/effects.json"),
-    ),
-];
 
 #[cfg(test)]
 mod tests {
@@ -280,70 +381,81 @@ mod tests {
     }
 
     fn native_techniques() -> arte::document::Document {
+        let names = [
+            "lloyd", "colette", "genis", "raine", "sheena", "zelos", "presea", "regal", "kratos",
+        ];
+        let characters = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| ((index + 1).to_string(), *name))
+            .collect::<BTreeMap<_, _>>();
+        let learning = names
+            .iter()
+            .map(|name| (*name, vec!["native-arte"]))
+            .collect::<BTreeMap<_, _>>();
         serde_json::from_value(json!({
-            "mappings": {"1": "native-arte"},
-            "characters": {"1": "lloyd", "2": "colette"},
-            "techniques": {
-                "native-arte": {"rules": {"tp_cost": 7}}
-            },
-            "learning": {"lloyd": ["native-arte"], "colette": ["native-arte"]}
-        }))
-        .unwrap()
-    }
-
-    fn native_characters() -> characters::Document {
-        serde_json::from_value(json!({
-            "mappings": {"1": "lloyd", "2": "colette"},
-            "characters": {
-                "lloyd": {"name": "Lloyd", "initial": {
-                    "stats": {"hp": 200}, "techniques": ["native-arte"]}},
-                "colette": {"name": "Colette", "initial": {
-                    "stats": {"hp": 172}, "techniques": ["native-arte"]}}
-            },
-            "experience": {"1": 0, "2": 25}
+            "mappings": {"1": "native-arte"}, "characters": characters,
+            "techniques": {"native-arte": {"rules": {"tp_cost": 7}}},
+            "learning": learning
         }))
         .unwrap()
     }
 
     #[test]
-    fn adds_example_to_generated_native_documents() -> Result<()> {
-        let mut techniques = native_techniques();
-        let mut characters = native_characters();
-        let before_techniques = serde_json::to_value(&techniques)?;
-        let before_characters = serde_json::to_value(&characters)?;
-        add_techniques(&mut techniques)?;
-        add_characters(&mut characters)?;
-        let mut techniques = serde_json::to_value(techniques)?;
-        assert_eq!(techniques["mappings"]["260"], "ghost-wolf-lloyd");
-        assert_eq!(
-            techniques["techniques"]["ghost-wolf-lloyd"]["rules"]["action"],
-            "battle/artes/ghost-wolf/action.json"
-        );
-        assert_eq!(
-            techniques["techniques"]["ghost-wolf-lloyd"]["rules"]["required_level"],
-            6
-        );
-        assert_eq!(
-            techniques["techniques"]["ghost-wolf-lloyd"]["rules"]["learn_on_level_up"],
-            true
-        );
-        techniques["mappings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("260");
-        techniques["techniques"]
-            .as_object_mut()
-            .unwrap()
-            .remove("ghost-wolf-lloyd");
-        assert_eq!(
-            techniques["learning"]["lloyd"]
-                .as_array_mut()
-                .unwrap()
-                .pop(),
-            Some(json!("ghost-wolf-lloyd"))
-        );
-        assert_eq!(techniques, before_techniques);
-        assert_eq!(serde_json::to_value(characters)?, before_characters);
+    fn prepared_mods_ship_no_shared_markers_and_guard_their_output_directory() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let [source, base, output] =
+            ["source", "base", "mods/wolf"].map(|name| directory.path().join(name));
+        crate::output::json(
+            &base.join("content.json"),
+            &resonance_content::library::Descriptor {
+                version: resonance_content::library::VERSION,
+                game: resonance_content::library::GAME.into(),
+            },
+        )?;
+        let techniques = serde_json::to_value(native_techniques())?;
+        resonance_content::authoring::publish(&base, arte::PATH, &techniques)?;
+        let skeleton = Skeleton::single("root");
+        let still = Motion {
+            duration_frames: 1.,
+            tracks: Vec::new(),
+        };
+        let rig = json!({"asset": {"version": "2.0"}, "nodes": [{"name": "root", "extras": {"resonance_bone": 0}}]});
+        crate::output::write(
+            &base.join("rig.glb"),
+            &resonance_asset_writer::gltf::pack_glb(&rig, &[])?,
+        )?;
+        crate::output::write(&base.join("idle.glb"), &still.encode(&skeleton)?)?;
+        let mut recipe: serde_json::Value =
+            serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))?;
+        recipe["motion_reference"] =
+            json!({"skeleton": "rig.glb", "motion": "idle.glb", "frame": 0.});
+        crate::output::json(&source.join("example.json"), &recipe)?;
+        let scope = source.join("battle/artes/ghost-wolf");
+        crate::output::json(
+            &scope.join("action.json"),
+            &json!({"motions": {"110": "battle/artes/ghost-wolf/ghost-wolf.glb"}}),
+        )?;
+        crate::output::write(
+            &scope.join("ghost-wolf.glb"),
+            &still.encode_nodes(&skeleton)?,
+        )?;
+
+        prepare_arte_mod(&source, &base, &output)?;
+        let files = crate::authoring::file_paths(&output)?;
+        assert!(files.contains("game/techniques/mappings/260.json"));
+        assert!(!files.iter().any(|path| path.ends_with("collection.json")));
+
+        // Only a previously generated directory is replaced.
+        crate::output::write(&output.join("stale"), b"")?;
+        prepare_arte_mod(&source, &base, &output)?;
+        assert!(!output.join("stale").exists());
+        let foreign = directory.path().join("foreign");
+        crate::output::write(&foreign.join("notes.txt"), b"")?;
+        for refused in [foreign, source.join("output"), base.join("output")] {
+            assert!(prepare_arte_mod(&source, &base, &refused).is_err());
+        }
+        assert!(base.join("content.json").is_file() && scope.join("action.json").is_file());
         Ok(())
     }
 
@@ -356,10 +468,10 @@ mod tests {
         ] {
             let mut techniques = serde_json::to_value(native_techniques())?;
             techniques["mappings"] = mappings;
-            let mut techniques: arte::document::Document = serde_json::from_value(techniques)?;
-            let before = serde_json::to_value(&techniques)?;
-            assert!(add_techniques(&mut techniques).is_err());
-            assert_eq!(serde_json::to_value(&techniques)?, before);
+            let techniques: arte::document::Document = serde_json::from_value(techniques)?;
+            let example =
+                serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))?;
+            assert!(check_addition(&techniques, &example).is_err());
         }
         Ok(())
     }

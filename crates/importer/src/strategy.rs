@@ -25,9 +25,7 @@ struct Names {
 pub fn cook_strategy(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&exe)?;
-    let path = library.join(strategy::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(&library.join(strategy::PATH), &document)
 }
 
 fn convert(exe: &[u8]) -> Result<Document> {

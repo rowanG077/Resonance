@@ -96,12 +96,25 @@ fn installed_banks_and_scenes_roundtrip_current_metadata() -> Result<()> {
     let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
     let library = Library::open(Path::new(&root), &[])?;
     let mut snapshot = library.snapshot();
-    let paths = snapshot
+    // Resolved documents only: a granular owner may also be named effects.json
+    // or scene.json.
+    let banks = library
+        .resolved_documents()
+        .map(|(path, _)| path.to_owned())
+        .filter(|path| path.starts_with("battle/") && path.ends_with("/effects.json"))
+        .collect::<Vec<_>>();
+    let owned = |path: &str| {
+        banks
+            .iter()
+            .any(|bank| path.starts_with(&format!("{}/", bank.trim_end_matches(".json"))))
+    };
+    let mut paths = snapshot
         .files_under("battle")?
         .iter()
-        .filter(|path| path.ends_with("/effects.json") || path.ends_with("/scene.json"))
+        .filter(|path| path.ends_with("/scene.json") && !owned(path))
         .cloned()
         .collect::<Vec<_>>();
+    paths.extend(banks.iter().cloned());
     for required in [document::COMMON, document::TECHNIQUES] {
         ensure!(
             paths.iter().any(|path| path == required),

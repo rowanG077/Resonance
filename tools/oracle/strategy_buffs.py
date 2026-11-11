@@ -4,6 +4,8 @@
 Uses copied field data, ordinary scenario commands and read-only observations.
 The cases establish admission only, not spell release, outcomes or timing parity.
 """
+import resolved_content
+from resolved_content import read_json
 import argparse
 import json
 from pathlib import Path
@@ -43,7 +45,7 @@ def run(args):
     source = State(args.state)
     observed = inspect(source)
     catalogue_path = args.assets / "game/techniques.json"
-    catalogue = json.loads(catalogue_path.read_text())
+    catalogue = read_json(catalogue_path)
     bit = 1 << native_learning(catalogue)[3].index(107)
     entry = out / "entry.s01"
     # Lloyd and Raine, with Sharpness learned through the ordinary scenario API.
@@ -79,7 +81,7 @@ def run(args):
             locations[f"{pointer} {base + offset:x}"] = f"actor_{slot}_{name}"
     report = dict(complete=False, cases=[], fixture=fixture,
                   source_sha256=source.sha256, source_movie_sha256=digest(str(source.path) + ".dtm"),
-                  techniques_sha256=digest(catalogue_path),
+                  techniques_sha256=resolved_content.digest(catalogue_path),
                   scope="Original-game AI buff admission only; no release, outcome or timing parity claim.")
     worker = None
     try:

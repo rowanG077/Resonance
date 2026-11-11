@@ -20,6 +20,7 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
     }
 
     let mut app = App::new();
+    crate::texture::decoded_files(&mut app, &root);
     app.add_plugins((
         MinimalPlugins,
         AssetPlugin {

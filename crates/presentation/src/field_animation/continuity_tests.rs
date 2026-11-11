@@ -5,7 +5,7 @@ use resonance_content::{animation::Skeleton, field::document, library::Library};
 #[test]
 #[ignore = "requires locally cooked Triet seal; no devices"]
 fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow::Result<()> {
-    let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+    let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_TEST_ASSETS").unwrap());
     let library = Library::open(&root, &[])?;
     let (_, assets) = document::capture_scene(&mut library.snapshot(), 221, || false)?;
     let model = &assets

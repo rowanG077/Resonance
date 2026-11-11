@@ -4,10 +4,10 @@ mod reference;
 
 fn sequence() -> BootAssets {
     serde_json::from_value(serde_json::json!([
-        {"image":"nintendo.ktx2","fade_out_at":180},
-        {"image":"namco.ktx2","fade_out_at":240,"skip_after":120},
-        {"image":"tales-studio.ktx2","fade_out_at":180},
-        {"image":"adx.ktx2","fade_out_at":120}
+        {"image":"nintendo.ktx2","size":[379,70],"fade_out_at":180},
+        {"image":"namco.ktx2","size":[256,64],"fade_out_at":240,"skip_after":120},
+        {"image":"tales-studio.ktx2","size":[256,128],"fade_out_at":180},
+        {"image":"adx.ktx2","size":[256,128],"fade_out_at":120}
     ]))
     .unwrap()
 }
@@ -57,8 +57,8 @@ fn every_presented_frame_matches_before_migration_including_skip_boundaries() ->
 #[test]
 fn edited_sequence_controls_order_fades_skips_and_duration() -> anyhow::Result<()> {
     let sequence: BootAssets = serde_json::from_value(serde_json::json!([
-        {"image":"custom-first.ktx2","fade_out_at":10,"fade_ticks":2,"skip_after":5},
-        {"image":"custom-second.ktx2","fade_out_at":15,"fade_ticks":3}
+        {"image":"custom-first.ktx2","size":[32,16],"fade_out_at":10,"fade_ticks":2,"skip_after":5},
+        {"image":"custom-second.ktx2","size":[16,32],"fade_out_at":15,"fade_ticks":3}
     ]))?;
     let mut natural = Logos::new(sequence.clone())?;
     let mut skipped = Logos::new(sequence)?;

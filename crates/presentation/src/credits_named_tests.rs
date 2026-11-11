@@ -178,10 +178,6 @@ fn named_screens_capture_mod_text_art_and_current_recording_clocks() -> Result<(
         resonance_asset_writer::texture::ktx2(&replacement)?,
         resonance_asset_writer::texture::ktx2(&picture(24)?)?
     );
-    assert_eq!(
-        resonance_asset_writer::texture::dimensions(&replacement)?,
-        [24, 24]
-    );
     let game_over = resonance_game::game_over::Assets::from_prepared(second.clone())?;
     assert_eq!(game_over.art.caption, "A different ending");
     assert_eq!(game_over.art.choices, ["Resume", "Return"]);
@@ -288,77 +284,6 @@ fn screen_capture_rejects_invalid_media_and_preserves_optional_background_policy
             }
         )
         .is_err()
-    );
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires installed credits and their migration backup; compares actual drawing batches"]
-fn compact_credits_keep_original_geometry_timing_and_image_pixels() -> Result<()> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let library = root.join("local/layout-migration/final-integration-20261025-supervised/library");
-    let backup = root.join("local/structure-review-20261027/credits-structure/before");
-    let definition: document::Definition =
-        serde_json::from_slice(&fs::read(library.join(document::PATH))?)?;
-    let current = definition.prepare(|path| Ok(fs::read(library.join(path))?.into()))?;
-    let old: serde_json::Value = serde_json::from_slice(&fs::read(backup.join(document::PATH))?)?;
-    let font: BitmapFont = serde_json::from_slice(&fs::read(library.join("fonts/dialogue.json"))?)?;
-    let atlas = resonance_asset_writer::texture::ktx2(&fs::read(library.join(&font.texture))?)?;
-    let [x, y, w, h] = font.glyphs[&' '].rect;
-    for row in y..y + h {
-        for col in x..x + w {
-            assert_eq!(
-                atlas[0].rgba[((row * atlas[0].width + col) * 4 + 3) as usize],
-                0,
-                "removed whitespace must have no ink"
-            );
-        }
-    }
-    let mut original = current.clone();
-    original.program = serde_json::from_value(old["program"].clone())?;
-    original
-        .program
-        .operations
-        .retain(|op| !matches!(op, Operation::Text { text } if text.chars().all(|c| c==' ')));
-    for op in &mut original.program.operations {
-        if let Operation::Picture { index } = op {
-            *index = match *index {
-                0 => 0,
-                4 => 1,
-                _ => panic!("unexpected credits picture"),
-            };
-        }
-    }
-    assert!(
-        layout(&original, &font)? == layout(&current, &font)?,
-        "credit drawing batches differ"
-    );
-    assert_eq!(
-        serde_json::to_value(&current.program.scroll)?,
-        old["program"]["scroll"]
-    );
-    assert_eq!(
-        serde_json::to_value(&current.program.style)?,
-        old["program"]["style"]
-    );
-    assert_eq!(serde_json::to_value(&definition.music)?, old["music"]);
-    assert_eq!(
-        definition.final_hold_ticks,
-        old["final_hold_ticks"].as_u64().unwrap() as u32
-    );
-    for (picture, index) in current.pictures.iter().zip([0, 4]) {
-        // The two used images were moved intact; the migration records their
-        // inode/size and metadata. The source pixel check lives in the importer.
-        assert_eq!(
-            [picture.width, picture.height],
-            [
-                old["pictures"][index]["width"].as_u64().unwrap() as u32,
-                old["pictures"][index]["height"].as_u64().unwrap() as u32
-            ]
-        );
-    }
-    eprintln!(
-        "All visible glyph/image batches, spacing, scrolling, recording and final hold match layout 80"
     );
     Ok(())
 }

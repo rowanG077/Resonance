@@ -465,9 +465,7 @@ pub(crate) fn cook_from_source(
         }
         if resource_id < 53 && !actors.local_resources.contains(&resource_id) {
             let standalone: resonance_content::field::document::ModelMappings =
-                serde_json::from_slice(&fs::read(
-                    library.join("meshes/standalone/mappings.json"),
-                )?)?;
+                crate::authoring::read_json(library, "meshes/standalone/mappings.json")?;
             if standalone.0.contains_key(&resource_id) {
                 actors.models.push(ModelBinding::Local(Actor {
                     resource: resonance_content::field::STANDALONE_MODEL_RESOURCE_BASE
@@ -563,7 +561,7 @@ pub(crate) fn cook_from_source(
         "meshes/joint-mappings.json",
     ] {
         ensure!(
-            library.join(path).is_file(),
+            crate::authoring::document_exists(library, path),
             "field {id} actors require {path}"
         );
     }
@@ -599,7 +597,7 @@ pub(crate) fn cook_from_source(
     if !selected_banks.is_empty() {
         for path in ["animations/mappings.json", "animations/bindings.json"] {
             ensure!(
-                library.join(path).is_file(),
+                crate::authoring::document_exists(library, path),
                 "field {id} actors require {path}"
             );
         }

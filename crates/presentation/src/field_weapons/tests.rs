@@ -220,6 +220,7 @@ fn fixture(map: u32, id: i32) -> Result<(App, Entity, Entity, Entity)> {
     });
     field.events.world.insert_actor(id, actor);
     let mut app = App::new();
+    crate::texture::decoded_files(&mut app, &path);
     app.add_plugins((
         MinimalPlugins,
         AssetPlugin {

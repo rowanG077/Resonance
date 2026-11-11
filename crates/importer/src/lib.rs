@@ -1,5 +1,7 @@
 //! Direct conversion from original files to editable library assets.
 mod all;
+mod authoring;
+pub use authoring::{cook_incremental, publish_document};
 mod diagnostics;
 pub use diagnostics::{bind_fixture_motion, inspect_effect_templates};
 mod scripts;
@@ -89,6 +91,7 @@ mod menu_ui_labels;
 mod menu_world_map;
 mod mesh_mappings;
 mod modding_examples;
+pub use modding_examples::prepare_arte_mod;
 mod movies;
 mod native_archive;
 mod options;

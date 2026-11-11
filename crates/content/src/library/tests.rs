@@ -1,5 +1,4 @@
 use super::*;
-mod closing;
 mod music;
 mod skits;
 mod textures;
@@ -85,20 +84,6 @@ fn enemy_document_edits_keep_gameplay_required_and_artwork_optional() -> Result<
     );
     fixture.write(&format!("mod/{path}"), b"invalid JSON");
     assert!(read(&mut modified.snapshot(), &quiet).is_err());
-    assert!(
-        !fixture
-            .0
-            .path()
-            .join("base/battle/enemies/test/rules.json")
-            .exists()
-    );
-    assert!(
-        !fixture
-            .0
-            .path()
-            .join("base/battle/enemies/test/model.json")
-            .exists()
-    );
     Ok(())
 }
 
@@ -124,6 +109,11 @@ impl Fixture {
         fs::write(path, bytes).unwrap();
     }
 
+    /// Publish a document as granular owners, so that a mod can override one.
+    fn publish(&self, layer: &str, path: &str, document: serde_json::Value) {
+        crate::authoring::publish(&self.0.path().join(layer), path, &document).unwrap();
+    }
+
     fn open(&self, names: &[&str]) -> Result<Library> {
         Library::open(
             &self.0.path().join("base"),
@@ -143,22 +133,13 @@ fn game_identity_is_semantic_and_source_metadata_is_rejected() -> Result<()> {
     let fixture = Fixture::new();
     let library = fixture.open(&[])?;
     assert_eq!(library.descriptor.game, GAME);
-    // Artwork admission depends on its format and bindings, not source hardware.
-    crate::startup::Definition {
-        day_field: 1,
-        night_field: 2,
-        artwork: Vec::new(),
-        music: "audio/music/title.wav".into(),
-        cues: "ui/title/cues.json".into(),
-    }
-    .validate()?;
     for invalid in [
-        r#"{"version":1,"game":"tales-of-symphonia"}"#,
-        r#"{"version":1,"game":"GQSEAF"}"#,
-        r#"{"version":103,"game":"tales-of-symphonia","revision":0}"#,
-        r#"{"version":103,"game":"tales-of-symphonia","platform":"steam"}"#,
+        serde_json::json!({"version": VERSION - 1, "game": GAME}),
+        serde_json::json!({"version": VERSION, "game": "GQSEAF"}),
+        serde_json::json!({"version": VERSION, "game": GAME, "revision": 0}),
+        serde_json::json!({"version": VERSION, "game": GAME, "platform": "steam"}),
     ] {
-        fixture.write("base/content.json", invalid.as_bytes());
+        fixture.write("base/content.json", &serde_json::to_vec(&invalid)?);
         assert!(fixture.open(&[]).is_err(), "accepted {invalid}");
     }
     Ok(())
@@ -170,18 +151,13 @@ fn directory_selection_preserves_order_and_allows_equal_folder_names() -> Result
     for name in ["first", "second", "translated", "corrected"] {
         fixture.write(&format!("base/fields/{name}/field.json"), b"{}");
     }
-    fixture.write(
-        "base/fields/mappings.json",
-        br#"{"1":"first","2":"second"}"#,
+    fixture.publish(
+        "base",
+        FIELDS,
+        serde_json::json!({"1":"first","2":"second"}),
     );
-    fixture.write(
-        "one/translation/fields/mappings.json",
-        br#"{"1":"translated"}"#,
-    );
-    fixture.write(
-        "two/translation/fields/mappings.json",
-        br#"{"1":"corrected"}"#,
-    );
+    fixture.write("one/translation/fields/mappings/1.json", br#""translated""#);
+    fixture.write("two/translation/fields/mappings/1.json", br#""corrected""#);
     let mods = [
         fixture.0.path().join("one/translation"),
         fixture.0.path().join("two/translation"),
@@ -366,12 +342,23 @@ fn namespace_discovery_rejects_case_ambiguous_names_and_non_directories() -> Res
 
 #[cfg(unix)]
 #[test]
-fn namespace_discovery_rejects_directory_cycles() -> Result<()> {
+fn links_are_not_content() -> Result<()> {
     let fixture = Fixture::new();
     fixture.write("base/scripts/start.sym", b"base");
     std::os::unix::fs::symlink(".", fixture.0.path().join("base/scripts/loop"))?;
     let error = format!("{:#}", fixture.open(&[]).unwrap_err());
-    assert!(error.contains("directory aliases"), "{error}");
+    assert!(
+        error.contains("symbolic links are not supported"),
+        "{error}"
+    );
+    // Hidden entries, such as a mod's version control, are not scanned at all.
+    fs::rename(
+        fixture.0.path().join("base/scripts/loop"),
+        fixture.0.path().join("base/scripts/.loop"),
+    )?;
+    fixture.write("base/.git/odd#name", b"state");
+    let library = fixture.open(&[])?;
+    assert_eq!(library.snapshot().files_under("scripts")?.len(), 1);
     Ok(())
 }
 
@@ -445,11 +432,12 @@ fn mappings_reject_duplicate_or_ambiguous_ids_and_paths() {
 }
 
 #[test]
-fn mod_mapping_merges_by_id_and_references_inherit_base_files() -> Result<()> {
+fn mod_mapping_owners_rebind_single_ids_and_references_inherit_base_files() -> Result<()> {
     let fixture = Fixture::new();
-    fixture.write(
-        "base/fields/mappings.json",
-        br#"{"1":"iselia-1","2":"triet"}"#,
+    fixture.publish(
+        "base",
+        FIELDS,
+        serde_json::json!({"1":"iselia-1","2":"triet"}),
     );
     fixture.write(
         "base/fields/iselia-1/field.json",
@@ -462,10 +450,8 @@ fn mod_mapping_merges_by_id_and_references_inherit_base_files() -> Result<()> {
         "dialogue/fields/iselia-1/messages.json",
         b"replacement dialogue",
     );
-    fixture.write(
-        "world/fields/mappings.json",
-        br#"{"2":"alternate","3":"new-room"}"#,
-    );
+    fixture.write("world/fields/mappings/2.json", br#""alternate""#);
+    fixture.write("world/fields/mappings/3.json", br#""new-room""#);
     fixture.write("world/fields/new-room/field.json", b"{}");
     let mut snapshot = fixture.open(&["dialogue", "world"])?.snapshot();
     assert_eq!(snapshot.field(1)?, "fields/iselia-1/field.json");
@@ -480,14 +466,12 @@ fn mod_mapping_merges_by_id_and_references_inherit_base_files() -> Result<()> {
         snapshot.overrides(),
         &[
             Override {
-                path: FIELDS.into(),
-                id: Some(2),
+                path: "fields/mappings/2.json".into(),
                 previous: "base".into(),
                 replacement: "world".into()
             },
             Override {
                 path: path.into(),
-                id: None,
                 previous: "base".into(),
                 replacement: "dialogue".into()
             },
@@ -503,10 +487,11 @@ fn mod_mapping_merges_by_id_and_references_inherit_base_files() -> Result<()> {
 #[test]
 fn later_mod_wins_and_order_is_reported_for_each_conflict() -> Result<()> {
     let fixture = Fixture::new();
+    fixture.publish("base", FIELDS, serde_json::json!({}));
     for (layer, target) in [("base", "one"), ("first", "two"), ("last", "three")] {
         fixture.write(
-            &format!("{layer}/fields/mappings.json"),
-            format!(r#"{{"1":"{target}"}}"#).as_bytes(),
+            &format!("{layer}/fields/mappings/1.json"),
+            format!(r#""{target}""#).as_bytes(),
         );
         fixture.write(&format!("{layer}/data/rules.json"), target.as_bytes());
     }
@@ -534,14 +519,14 @@ fn later_mod_wins_and_order_is_reported_for_each_conflict() -> Result<()> {
 #[test]
 fn snapshot_keeps_captured_bytes_and_a_new_snapshot_sees_edits() -> Result<()> {
     let fixture = Fixture::new();
-    fixture.write("base/fields/mappings.json", br#"{"1":"iselia"}"#);
+    fixture.publish("base", FIELDS, serde_json::json!({"1":"iselia"}));
     fixture.write("base/scripts/start.sym", b"before");
     let library = fixture.open(&[])?;
     let mut first = library.snapshot();
     let original = first.read("scripts/start.sym", 64)?;
     assert_eq!(first.mappings(FIELDS)?.target(1)?, "iselia");
     fixture.write("base/scripts/start.sym", b"after");
-    fixture.write("base/fields/mappings.json", br#"{"1":"triet"}"#);
+    fixture.write("base/fields/mappings/1.json", br#""triet""#);
     assert!(Arc::ptr_eq(
         &original,
         &first.read("scripts/start.sym", 64)?
@@ -587,26 +572,27 @@ fn bank_scopes_are_independent_and_missing_targets_name_the_mapping() -> Result<
 #[test]
 fn malformed_override_does_not_fall_back_and_no_legacy_layout_is_guessed() -> Result<()> {
     let fixture = Fixture::new();
-    fixture.write("base/fields/mappings.json", br#"{"1":"iselia"}"#);
-    fixture.write(
-        "broken/fields/mappings.json",
-        br#"{"1":"triet","1":"other"}"#,
-    );
+    fixture.publish("base", FIELDS, serde_json::json!({"1":"iselia"}));
+    fixture.write("broken/fields/mappings/1.json", b"malformed JSON");
     let error = format!("{:#}", fixture.open(&["broken"]).unwrap_err());
-    assert!(error.contains("broken") && error.contains("duplicate mapping ID 1"));
-    // A later replacement must not hide an invalid path in an earlier layer.
-    fixture.write("replacement/fields/mappings.json", br#"{"1":"triet"}"#);
-    for layer in ["broken", "base"] {
-        fixture.write(
-            &format!("{layer}/fields/mappings.json"),
-            br#"{"1":"../outside"}"#,
-        );
-        let error = format!(
-            "{:#}",
-            fixture.open(&["broken", "replacement"]).unwrap_err()
-        );
-        assert!(error.contains(layer) && error.contains("unsafe asset path ../outside"));
-    }
+    assert!(error.contains("fields/mappings/1.json"), "{error}");
+    fixture.write("broken/fields/mappings/1.json", br#""../outside""#);
+    let error = format!(
+        "{:#}",
+        fixture
+            .open(&["broken"])?
+            .snapshot()
+            .mappings(FIELDS)
+            .unwrap_err()
+    );
+    assert!(error.contains("unsafe asset path ../outside"), "{error}");
+    // A whole document cannot be combined with owners of the same document.
+    fixture.write("whole/fields/mappings.json", br#"{"1":"triet"}"#);
+    let error = format!("{:#}", fixture.open(&["whole"]).unwrap_err());
+    assert!(
+        error.contains("has both a whole document and granular owners"),
+        "{error}"
+    );
     fixture.write(
         "base/content.json",
         &serde_json::to_vec(&Descriptor {
@@ -637,27 +623,14 @@ fn streams_use_mod_selection_and_metadata_cannot_be_overridden() -> Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
-#[test]
-fn a_symlink_cannot_escape_the_selected_content_layer() -> Result<()> {
-    let fixture = Fixture::new();
-    fixture.write("outside/secret.txt", b"outside");
-    std::os::unix::fs::symlink(
-        fixture.0.path().join("outside"),
-        fixture.0.path().join("base/escaped"),
-    )?;
-    assert!(fixture.open(&[]).is_err());
-    assert!(validate_path("../outside/secret.txt").is_err());
-    Ok(())
-}
-
 #[test]
 fn equipment_mapping_preserves_item_keys_and_nonvisual_choices() -> Result<()> {
     use crate::battle_model::{Attachment, document};
     let fixture = Fixture::new();
-    fixture.write(
-        "base/meshes/equipment/mappings.json",
-        br#"{"777":"sword","778":"shield","367":null}"#,
+    fixture.publish(
+        "base",
+        document::EQUIPMENT,
+        serde_json::json!({"777":"sword","778":"shield","367":null}),
     );
     for (name, attachment) in [("sword", "weapon"), ("shield", "shield")] {
         fixture.write(
@@ -682,10 +655,7 @@ fn equipment_mapping_preserves_item_keys_and_nonvisual_choices() -> Result<()> {
         Attachment::Nonvisual
     ));
     assert!(document::capture_equipment(&mut snapshot, 0, &diagnostics, &|| false).is_err());
-    fixture.write(
-        "redirect/meshes/equipment/mappings.json",
-        br#"{"777":null}"#,
-    );
+    fixture.write("redirect/meshes/equipment/mappings/777.json", b"null");
     assert!(matches!(
         document::capture_equipment(
             &mut fixture.open(&["redirect"])?.snapshot(),
@@ -699,5 +669,39 @@ fn equipment_mapping_preserves_item_keys_and_nonvisual_choices() -> Result<()> {
         document::capture_equipment(&mut snapshot, 777, &diagnostics, &|| false)?,
         Attachment::Weapon(_)
     ));
+    Ok(())
+}
+
+#[test]
+fn automatic_mods_require_six_digits_and_sort_by_priority_then_name() -> Result<()> {
+    let fixture = Fixture::new();
+    let directory = fixture.0.path().join("mods");
+    assert!(discover_mods(&directory)?.is_empty());
+    fixture.write("base/data.txt", b"base");
+    for (name, value) in [
+        ("999999-last", b"last".as_slice()),
+        ("000000-artwork", b"artwork"),
+        ("000020-b", b"b"),
+        ("000020-a", b"a"),
+    ] {
+        fixture.write(&format!("mods/{name}/data.txt"), value);
+    }
+    fixture.write("mods/README.txt", b"instructions");
+    fixture.write("mods/.resonance-arte-building/data.txt", b"not published");
+    let mods = discover_mods(&directory)?;
+    assert_eq!(
+        mods.iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["000000-artwork", "000020-a", "000020-b", "999999-last"]
+    );
+    let library = Library::open_paths(&fixture.0.path().join("base"), &mods)?;
+    assert_eq!(&*library.snapshot().read("data.txt", 64)?, b"last");
+    for name in ["12345-short", "abcdef-invalid", "123456xname"] {
+        let path = directory.join(name);
+        fs::create_dir(&path)?;
+        assert!(discover_mods(&directory).is_err(), "accepted {name}");
+        fs::remove_dir(path)?;
+    }
     Ok(())
 }

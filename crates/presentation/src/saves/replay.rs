@@ -2240,6 +2240,7 @@ mod tests {
             app.world().resource::<AssetServer>(),
         );
         app.insert_resource(art).insert_resource(session);
+        crate::field_weapons::without_models_for_test(app.world_mut());
         app.world()
             .resource::<loading::Resident>()
             .active

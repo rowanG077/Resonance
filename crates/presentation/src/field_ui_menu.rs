@@ -1960,6 +1960,18 @@ impl Drawing<'_> {
     fn sprite(&mut self, rect: [u32; 4], [x, y]: [f32; 2]) {
         self.sprite_color(rect, [x, y], [1.; 4]);
     }
+    fn catalogue_sprite(
+        &mut self,
+        group: Sprite,
+        index: usize,
+        rect: [f32; 4],
+        color: [f32; 4],
+    ) -> Result<()> {
+        let sprite = self.spec.sprite(group, index)?;
+        let texture = MaterialKey::Texture(self.spec.sprite_texture(group, index));
+        self.quad_role(DrawRole::Content, texture, rect, glyph_uv(sprite), color);
+        Ok(())
+    }
     fn sprite_rect(&mut self, sprite: [u32; 4], rect: [f32; 4], color: [f32; 4]) {
         self.quad_role(DrawRole::Content, ATLAS, rect, glyph_uv(sprite), color);
     }

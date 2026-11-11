@@ -185,7 +185,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
             &mut fixture,
             command::Input {
                 controller: ControllerPort::One,
-                shared_menu: (visit >= 20).then_some(MenuAction::Confirm),
+                shared_menu: (visit >= 20).then_some(MenuAction::Menu),
                 ..Default::default()
             },
         )?;
@@ -286,7 +286,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
             &mut fixture,
             command::Input {
                 controller: ControllerPort::One,
-                shared_menu: (visit >= 20).then_some(MenuAction::Confirm),
+                shared_menu: (visit >= 20).then_some(MenuAction::Menu),
                 ..Default::default()
             },
         )?;
@@ -381,7 +381,14 @@ fn learned_technique_appears_on_menu_entry_and_preserves_later_user_edits() -> R
     let view = f
         .candidate
         .battle_tech_view(&page.state, &page.connected, &f.battle);
-    assert_eq!(view.selected_technique().unwrap().technique, 201);
+    // The page opens on the arte list, so the learned arte is checked as a
+    // listed row and through the menu party's automatic first shortcut.
+    assert!(view.technique_list().contains(&201));
+    assert!(view.party.members[7].techniques.contains(&201));
+    assert_eq!(
+        crate::menu::techniques::shortcut_selection(view.party, 7, 0).map(|s| s.technique),
+        Some(201)
+    );
     assert!(view.available(7, 201));
     for edit in [
         Edit::Shortcut {

@@ -4851,6 +4851,7 @@ dependencies = [
  "minidumper",
  "object",
  "procfs-core",
+ "resonance-content",
  "resonance-persistence",
  "resonance-presentation",
  "scroll",
@@ -4982,7 +4983,9 @@ dependencies = [
  "anyhow",
  "clap",
  "nod",
+ "resonance-content",
  "resonance-importer",
+ "serde_json",
  "tempfile",
 ]
 

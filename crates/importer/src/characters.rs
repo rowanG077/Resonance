@@ -17,11 +17,8 @@ const GROWTH: u32 = 0x80202d48;
 
 pub fn cook_characters(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
-    let mut document = convert(&exe)?;
-    crate::modding_examples::add_characters(&mut document)?;
-    let path = library.join(characters::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    let document = convert(&exe)?;
+    crate::output::json(&library.join(characters::PATH), &document)
 }
 
 fn signed(row: &[u8], at: usize) -> Result<i16> {

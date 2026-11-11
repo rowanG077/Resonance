@@ -322,7 +322,11 @@ mod tests {
         model.parts[0].translation = [10., 20., 30.];
         fs::create_dir_all(modifications.path().join(path).parent().unwrap())?;
         fs::write(modifications.path().join(path), serde_json::to_vec(&model)?)?;
-        let shared = capture_markers(&mut library.snapshot(), MARKERS, &|| false)?;
+        let shared = capture_markers(
+            &mut Library::open_paths(root, &[modifications.path().to_owned()])?.snapshot(),
+            MARKERS,
+            &|| false,
+        )?;
         assert_eq!(shared[0][&16][0].translation, [10., 20., 30.]);
         assert_eq!(shared[1][&16][0].translation, [10., 20., 30.]);
         model.parts[0].translation = [40., 50., 60.];
@@ -331,11 +335,15 @@ mod tests {
             .join("world/markers/my-guidepost/model.json");
         fs::create_dir_all(separate.parent().unwrap())?;
         fs::write(separate, serde_json::to_vec(&model)?)?;
-        fs::write(
-            modifications.path().join(MARKERS),
-            br#"{"272":"my-guidepost"}"#,
+        // One owner rebinds one machine ID; the other markers are inherited.
+        let owner = modifications.path().join("world/markers/mappings/272.json");
+        fs::create_dir_all(owner.parent().unwrap())?;
+        fs::write(owner, br#""my-guidepost""#)?;
+        let changed = capture_markers(
+            &mut Library::open_paths(root, &[modifications.path().to_owned()])?.snapshot(),
+            MARKERS,
+            &|| false,
         )?;
-        let changed = capture_markers(&mut library.snapshot(), MARKERS, &|| false)?;
         assert_eq!(changed[0][&16][0].translation, [10., 20., 30.]);
         assert_eq!(changed[1][&16][0].translation, [40., 50., 60.]);
         for world in 0..2 {

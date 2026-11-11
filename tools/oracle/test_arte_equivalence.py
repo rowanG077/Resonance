@@ -1,5 +1,6 @@
 """Focused offline assertions for the source bridge; never launches Dolphin."""
 import copy
+import json
 import struct
 from pathlib import Path
 import tempfile
@@ -7,11 +8,38 @@ import unittest
 from unittest.mock import patch
 
 import arte_equivalence as bridge
+from named_content import CONTENT_VERSION
 import enemy_artes
 import single_action_fixture
 
 
 class ArteTraceTests(unittest.TestCase):
+    def test_effect_banks_discovers_virtual_documents_and_skips_missing_banks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "library"
+            root.mkdir()
+            bridge.write(root / "content.json", dict(version=CONTENT_VERSION, game="tales-of-symphonia"))
+            entry = "battle/effects/common/effects.json"
+            raw = bytearray(b"ef1\0" + bytes(24))
+            raw[4] = 1
+            struct.pack_into(">6H", raw, 8, 20, 22, 20, 20, 20, 20)
+            raw[22:28] = bytes([0, 0, 254, 0, 0, 0])
+            missing = bytearray(raw)
+            missing[5] = 1
+            usual = Path(directory) / "usual.dat"
+            usual.write_bytes(struct.pack(">5I", 4, 0, 0, 20, 20 + len(raw)) + raw + missing)
+            # Only the Rust assembler process is replaced.
+            with patch("resolved_content.subprocess.run") as run:
+                run.return_value.stdout = json.dumps(dict(documents={entry: dict(programs=[[]])}))
+                banks = bridge.effect_banks(bridge.SimpleNamespace(ram=raw), root, root,
+                                            [], usual, Path(directory) / "proof")
+                run.assert_called_once()
+            self.assertEqual(set(banks), {0x80000000})
+            bank = banks[0x80000000]
+            self.assertEqual(bank["metadata"]["programs"], [[]])
+            self.assertEqual(json.loads(Path(bank["evidence"]["files"][entry]["path"]).read_bytes()),
+                             dict(programs=[[]]))
+
     def test_enemy_item_recovery_uses_named_items_and_omitted_defaults(self):
         rows = [dict(execution=dict(attack=dict(events=[
             [1, dict(use_item=dict(item=id))]]))) for id in (1, 3, 4)]

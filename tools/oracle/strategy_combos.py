@@ -4,6 +4,8 @@
 Component fixtures declare controls, placement, vitals and learned/enable masks.
 No instructions, action states, poses or timers are replaced.
 """
+import resolved_content
+from resolved_content import read_json
 import argparse
 from hashlib import sha256
 import json
@@ -143,7 +145,7 @@ def run(args):
     if set(actors) != {0, 1, 4} or actors[0]["kind"] != 1 or actors[1]["kind"] != 4 or battle["phase"] != 3:
         raise ValueError("expected the initialized Lloyd/Raine combat checkpoint")
     catalogue = args.assets / "game/techniques.json"
-    learning = native_learning(json.loads(catalogue.read_text()))[0]
+    learning = native_learning(read_json(catalogue))[0]
     marker_address = source.read(0x8035a578) + 0x581c + 31 * 0x360 + 0x300
     movie = out / "neutral.dtm"
     neutral_movie(source.path, movie, struct.unpack_from("<Q", source.raw, 33)[0], polls=24000)
@@ -171,7 +173,7 @@ def run(args):
         for word in (0, 4):
             locations[f"{pointer} {at:x} {offset + word:x}"] = f"owner_{name}_{word}"
     report = dict(complete=False, cases=[], source_sha256=source.sha256,
-                  techniques_sha256=digest(catalogue),
+                  techniques_sha256=resolved_content.digest(catalogue),
                   scope="Declared repertoire and neutral opponent; first effective normal-to-arte admission, not timing or audiovisual parity.")
     worker = None
     try:

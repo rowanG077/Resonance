@@ -1,17 +1,25 @@
 # Ghost Wolf modding example
 
-Ghost Wolf is a complete new arte for Lloyd, included automatically when assets
-are imported. Its animation source is `source/ghost-wolf.blend`; the exported
-GLB stores authored motion relative to locally imported poses. The importer
-resolves those references into the animation used by the game. Blender is needed
-to edit and export the animation, but importing assets and playing do not require
-Blender.
+Ghost Wolf is an ordinary additive arte mod for Lloyd. Its animation source is
+`source/ghost-wolf.blend`; the exported GLB stores authored motion relative to
+locally imported poses. Blender is needed to edit/export the animation. Building
+the mod resolves that reference pose against your existing cooked library; it
+does not need the discs or a fresh base-game import.
 
-After an ordinary import, run:
+After an ordinary base import, build the mod into a separate generated directory:
 
 ```sh
+cargo run --release -p resonance-import-cli -- prepare-arte-mod \
+  --source mods/ghost-wolf --assets local/all-assets \
+  --output local/mods/000100-ghost-wolf
 cargo run --release -p resonance -- --assets local/all-assets
 ```
+
+The numbered directory is discovered automatically. To use another output path,
+pass it with `--mod PATH`. Disabling the mod leaves the base library unchanged.
+After another Blender export or a recipe edit, rerun `prepare-arte-mod` and restart.
+The output directory is generated; keep custom source edits in this project or a
+separate higher-priority mod.
 
 Lloyd learns Ghost Wolf at **level 6**. It is not part of his starting techniques.
 An existing save with Lloyd already at level 6 or higher acquires it on his next
@@ -20,16 +28,12 @@ attack. The combat learning check also requires level 6 and works at maximum
 level. Open **Artes** to assign its combo; it is also available through the
 battle Artes command and Unison loadout.
 
-Normal importing generates `game/techniques.json` and `game/characters.json`
-from the original game data, adds the definition and learning/defaults from
-`example.json`, and writes the example's runtime files. After editing and
-exporting, run the [ordinary asset import](../../docs/cooking.md) and restart
-Resonance. The importer embeds the repository's example files at compile time;
-the documented `cargo run` command rebuilds it when those files change.
-
-No `--mod` argument is needed for this example. Its `example.json` is an
-importer input; ordinary mods use the file overrides described in the
-[editable content guide](../../docs/editable-content.md).
+`example.json` is the offline arte build recipe. The build writes only the ID
+registration, this arte's rules/text, and its learning registration as granular
+source files. It writes no `collection.json` markers for those shared
+catalogues; the base library owns them. Another mod can add a different arte or
+translate this one's `text.json` without copying any global catalogue. The base importer has no Ghost
+Wolf registration or embedded runtime payloads.
 
 ## Files to edit
 
@@ -46,7 +50,7 @@ The effect document references the existing cooked texture
 importing creates it from the user's game discs. The example does not
 bundle this game texture or copy it into its own asset directory.
 
-The importer adds catalogue ID **260**, named `ghost-wolf-lloyd`, to the native
+The mod adds catalogue ID **260**, named `ghost-wolf-lloyd`, to the native
 catalogue and Lloyd's learning list. `initially_known` controls whether new
 parties start with it. The example supplies no full catalogue or character
 replacement. All costumes bind the same animation through native joint names.
@@ -110,7 +114,7 @@ translation and scale differences, and rotations relative to that pose.
    and pose, and writes `battle/artes/ghost-wolf/ghost-wolf.glb`. The intermediate
    absolute animation stays under ignored `local/`; exporting the native rig
    directly into the repository would reintroduce game data.
-5. Run the ordinary asset import and restart the game to review the result.
+5. Rebuild the generated mod with `prepare-arte-mod` and restart the game.
 
 The detailed accepted performance remains on the NLA track
 **BASE · authored performance (Tab to edit)**, above the linked
@@ -162,7 +166,8 @@ Lloyd's twin blades; it does not need Vesperia assets at runtime.
 
 ## Verification
 
-After importing assets:
+After importing the base assets and building the mod above (or setting
+`RESONANCE_TEST_MOD_ASSETS` to your generated mod directory):
 
 ```sh
 cargo test --offline -p resonance-content ghost_wolf_assets
@@ -172,8 +177,9 @@ cargo test --offline -p resonance-game --features test-support \
 ```
 
 The content check validates the action's animation/effect dependencies and checks
-that playback finishes with its gameplay timeline. Importer checks cover the
-example's generated definitions and catalogue collisions. The gameplay checks use
+that playback finishes with its gameplay timeline. Importer checks cover reference-pose resolution, catalogue collisions, and a
+build against a small synthetic library: the generated files, composition with
+the base, and the output-directory guards. The gameplay checks use
 `local/all-assets` by default, or the absolute path in `RESONANCE_TEST_ASSETS`.
 They exercise hits, misses, interruption, TP, voice, facing through recovery,
 both arena edges, and the 17-hit Ability Plus chain at several close distances.

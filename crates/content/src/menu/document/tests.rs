@@ -86,39 +86,45 @@ fn style_overrides_and_frames_round_trip_with_coordinate_sizes() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires current library and recorded menu metadata; header reads only"]
-fn installed_menu_preserves_every_image_window_sprite_and_caption() -> Result<()> {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
-    );
-    let before = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../local/structure-review-20261027/menu-artwork/menu-before.json");
-    let original: serde_json::Value = serde_json::from_slice(&std::fs::read(before)?)?;
-    let current = std::fs::read(root.join("ui/menu.json"))?;
-    let mut art: MenuArt = serde_json::from_slice(&current)?;
-    art.prepare_resources(|path| Ok(std::fs::read(root.join(path))?));
-    assert_eq!(json(&art.textures)?, original["textures"]);
-    assert_eq!(json(&art.windows)?, original["windows"]);
-    // Compare prepared drawing values, independently of today's named JSON.
-    for (value, pointer) in [
-        (json(&art.fill)?, "/fill"),
-        (json(&art.popup_fill)?, "/popup_fill"),
-        (json(&art.shade)?, "/shade"),
-        (json(&art.palette)?, "/palette"),
-        (json(&art.labels)?, "/labels"),
-        (json(&art.sprites.rects)?, "/sprites/rects"),
-        (json(&art.sprites.names)?, "/sprites/names"),
-        (json(&art.sprites.number_colors)?, "/sprites/number_colors"),
-        (json(&art.sprites.bar_colors)?, "/sprites/bar_colors"),
-    ] {
-        assert_eq!(&value, original.pointer(pointer).unwrap(), "{pointer}");
-    }
+fn independent_item_images_prepare_once_and_do_not_replace_the_shared_atlas() -> Result<()> {
+    let mut source = document();
+    source["sprites"]["rects"]["item_images"] = serde_json::json!({
+        "gel":{"image":"mod/gel.ktx2","size":[64,32],"rect":[0,0,64,32]},
+        "berry":{"image":"ui/icons.ktx2","size":[32,16],"rect":[0,0,8,8]}
+    });
+    let mut art = MenuArt::decode(&serde_json::to_vec(&source)?, &Diagnostics::new(true))?;
+    let image = resonance_asset_writer::ktx2::encode_levels(32, 16, &[&vec![255; 32 * 16 * 4]])?;
+    let catalogue = serde_json::to_vec(&serde_json::json!({"mappings":{"0":"gel","1":"berry"}}))?;
+    let read = |path: &str| -> Result<&[u8]> {
+        Ok(if path == crate::items::PATH {
+            &catalogue
+        } else {
+            &image
+        })
+    };
+    art.prepare_resources(read);
+    assert_eq!(art.sprite(Sprite::ItemImages, 0)?, [0, 0, 64, 32]);
+    let texture = art.sprite_texture(Sprite::ItemImages, 0);
+    assert_ne!(texture, MenuArt::ATLAS_TEXTURE);
+    assert_eq!(art.texture(texture)?.path, "mod/gel.ktx2");
     assert_eq!(
-        json(&art)?,
-        serde_json::from_slice::<serde_json::Value>(&current)?
+        art.sprite_texture(Sprite::ItemImages, 1),
+        MenuArt::ATLAS_TEXTURE
     );
-    eprintln!(
-        "All 51 image bindings and actual sizes, three windows, sprites, palettes and captions preserved"
-    );
+    let count = art.textures.len();
+    art.prepare_resources(read);
+    assert_eq!(art.textures.len(), count);
+    assert_eq!(art.texture(MenuArt::ATLAS_TEXTURE)?.path, "ui/icons.ktx2");
+    assert_eq!(art.sprite(Sprite::ItemImages, 1)?, [0, 0, 8, 8]);
+    source["sprites"]["rects"]["item_images"]["gel"]["unknown"] = true.into();
+    assert!(MenuArt::decode(&serde_json::to_vec(&source)?, &Diagnostics::new(true)).is_err());
+    source["sprites"]["rects"]["item_images"]["bad-size"] = serde_json::json!({
+        "image":"mod/bad.ktx2","size":[0,32],"rect":[0,0,8,8]
+    });
+    let diagnostics = Diagnostics::default();
+    let mut tolerant = MenuArt::decode(&serde_json::to_vec(&source)?, &diagnostics)?;
+    tolerant.prepare_resources(read);
+    assert!(tolerant.sprite(Sprite::ItemImages, 0).is_err());
+    assert_eq!(tolerant.sprite(Sprite::ItemImages, 1)?, [0, 0, 8, 8]);
     Ok(())
 }

@@ -749,8 +749,8 @@ mod tests {
     #[test]
     #[ignore = "requires locally cooked fields; no devices"]
     fn martel_block_stays_on_a_filled_pit_after_pushing() -> anyhow::Result<()> {
-        let root = std::env::var_os("RESONANCE_WORLD_ASSETS")
-            .ok_or_else(|| anyhow::anyhow!("set RESONANCE_WORLD_ASSETS"))?;
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .ok_or_else(|| anyhow::anyhow!("set RESONANCE_TEST_ASSETS"))?;
         let library = resonance_content::library::Library::open(std::path::Path::new(&root), &[])?;
         let (_, field) = resonance_content::field::document::capture_scene(
             &mut library.snapshot(),

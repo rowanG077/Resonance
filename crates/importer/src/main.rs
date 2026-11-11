@@ -69,8 +69,10 @@ fn main() -> Result<()> {
     );
     let extracted = PathBuf::from(&args[1]);
     let library = PathBuf::from(&args[2]);
-    match args[0].to_str() {
-        Some("all") => cooker::cook_all(&extracted, &library),
+    if args[0] == "all" {
+        return cooker::cook_all(&extracted, &library);
+    }
+    cooker::cook_incremental(&library, || match args[0].to_str() {
         Some("descriptor") => cooker::cook_descriptor(&library),
         Some("extra-artwork") => cooker::cook_extra_artwork(&extracted, &library),
         Some("music-extras") => cooker::cook_extra_music(&extracted, &library),
@@ -318,6 +320,6 @@ fn main() -> Result<()> {
         ),
         Some("movies") => cooker::cook_movies(&extracted, &library, selection(&args)?),
         _ => anyhow::bail!("unknown asset owner: {:?}", args[0]),
-    }
+    })
     .with_context(|| format!("cook asset owner {:?}", args[0]))
 }

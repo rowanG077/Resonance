@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub mod animation;
 pub mod appearance;
 pub mod arte;
+pub mod authoring;
 pub mod battle_action;
 pub mod battle_audio;
 pub mod battle_conditions;

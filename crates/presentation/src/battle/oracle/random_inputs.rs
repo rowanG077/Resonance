@@ -20,7 +20,7 @@ pub(super) struct Pin {
 
 impl Pin {
     pub(super) fn read_bytes(&self) -> Result<Vec<u8>> {
-        let bytes = std::fs::read(&self.path)?;
+        let bytes = std::fs::read(&self.path).with_context(|| self.path.clone())?;
         ensure!(
             Sha256::digest(&bytes)
                 .iter()

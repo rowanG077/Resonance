@@ -118,10 +118,13 @@ fn named_movie_replacements_mods_and_retained_handles_use_current_media() {
         }))
         .unwrap(),
     );
-    root.write(
-        "movies/mappings.json",
-        br#"{"0":"opening.mkv","7":"opening.mkv"}"#,
-    );
+    // Granular owners, so that the mod below can rebind one ID.
+    resonance_content::authoring::publish(
+        &root.0,
+        resonance_content::library::MOVIES,
+        &serde_json::json!({"0":"opening.mkv","7":"opening.mkv"}),
+    )
+    .unwrap();
     let video = root.0.join("movies/opening.mkv");
     let original = movie(&video, 16, 32028, 40, 23);
     let library = Library::open(&root.0, &[]).unwrap();
@@ -141,7 +144,7 @@ fn named_movie_replacements_mods_and_retained_handles_use_current_media() {
     check(decoder, 12, 71, &replacement);
 
     let modified = Root::new();
-    modified.write("movies/mappings.json", br#"{"0":"opening.mkv"}"#);
+    modified.write("movies/mappings/0.json", br#""opening.mkv""#);
     modified.write("movies/opening.mkv", b"");
     let changed = movie(&modified.0.join("movies/opening.mkv"), 16, 48000, 2, 199);
     let modded = Library::open(
@@ -154,7 +157,12 @@ fn named_movie_replacements_mods_and_retained_handles_use_current_media() {
     .unwrap();
     let mut snapshot = modded.snapshot();
     let selected = movie::capture(&mut snapshot, 0).unwrap();
-    assert!(snapshot.overrides().iter().any(|o| o.id == Some(0)));
+    assert!(
+        snapshot
+            .overrides()
+            .iter()
+            .any(|o| o.path == "movies/mappings/0.json")
+    );
     assert!(
         snapshot
             .overrides()
@@ -181,7 +189,7 @@ fn named_movie_replacements_mods_and_retained_handles_use_current_media() {
     );
     let error = MovieDecoder::open(&video, 2).err().unwrap();
     assert!(format!("{error:#}").contains("movie has no audio track 2"));
-    root.write("movies/mappings.json", br#"{"0":"missing.mkv"}"#);
+    root.write("movies/mappings/0.json", br#""missing.mkv""#);
     assert_eq!(
         MovieDecoder::load(&mut library.snapshot(), 0)
             .unwrap()

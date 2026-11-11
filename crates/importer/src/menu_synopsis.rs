@@ -179,8 +179,6 @@ fn convert(exe: &[u8]) -> Result<SynopsisData> {
 }
 
 pub fn cook_menu_synopsis(extracted: &Path, library: &Path) -> Result<()> {
-    let output = library.join(SYNOPSIS_PATH);
     let document = convert(&fs::read(extracted.join("disc1/sys/main.dol"))?)?;
-    crate::output::json(&output, &document)?;
-    Ok(())
+    crate::output::json(&library.join(SYNOPSIS_PATH), &document)
 }

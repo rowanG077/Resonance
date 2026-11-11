@@ -96,17 +96,10 @@ mod tests {
         let source = "script field; use game::story; pub task run() { story::set_flag(41, true); }";
         fs::write(project.join("entry.sym"), source)?;
         let modification = work.path().join("mod");
-        fs::create_dir_all(modification.join("fields/renamed-entrance"))?;
-        fs::write(
-            modification.join("fields/mappings.json"),
-            br#"{"330":"renamed-entrance"}"#,
-        )?;
-        let mut base = Library::open(root, &[])?.snapshot();
-        let field = base.field(330)?;
-        fs::write(
-            modification.join("fields/renamed-entrance/field.json"),
-            &*base.read(&field, 1024 * 1024)?,
-        )?;
+        // Other documents refer to fields by name, so the layer adds a file
+        // instead of renaming one.
+        fs::create_dir_all(&modification)?;
+        fs::write(modification.join("layer.txt"), b"mod layer")?;
         let mods = [modification];
         let library = Library::open_paths(root, &mods)?;
         let output = work.path().join("world.json");
@@ -132,8 +125,13 @@ mod tests {
         let restored = load(Some(project.clone()))?;
         assert!(restored.overworld().is_some());
         assert_eq!(
-            restored.files().library().unwrap().snapshot().field(330)?,
-            "fields/renamed-entrance/field.json"
+            &*restored
+                .files()
+                .library()
+                .unwrap()
+                .snapshot()
+                .read("layer.txt", 64)?,
+            b"mod layer"
         );
         fs::write(project.join("entry.sym"), source.replace("41", "42"))?;
         for scripts in [Some(project), None] {

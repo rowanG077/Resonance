@@ -16,7 +16,7 @@ use resonance_content::{
     library::Mappings,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     fs,
     path::Path,
     sync::Mutex,
@@ -230,9 +230,8 @@ pub(crate) fn motion_path(id: u32, name: &str) -> Result<String> {
 }
 
 pub(crate) fn mapped_motion_path(library: &Path, id: u32) -> Result<String> {
-    let mappings: AnimationMappings =
-        serde_json::from_slice(&fs::read(library.join("animations/mappings.json"))?)?;
-    mappings.motion(id)
+    crate::authoring::read_json::<AnimationMappings>(library, "animations/mappings.json")?
+        .motion(id)
 }
 
 fn reference(library: &Path, name: &str) -> Result<Option<Vec<u8>>> {
@@ -437,9 +436,12 @@ fn cook_selected(
     } else {
         BTreeMap::new()
     };
-    let path = library.join("animations/mappings.json");
-    let mut targets = if (selected.is_some() || selected_field.is_some()) && path.is_file() {
-        serde_json::from_slice::<AnimationMappings>(&fs::read(&path)?)?
+    const MAPPINGS: &str = "animations/mappings.json";
+    let path = library.join(MAPPINGS);
+    let mut targets = if (selected.is_some() || selected_field.is_some())
+        && crate::authoring::document_exists(library, MAPPINGS)
+    {
+        crate::authoring::read_json::<AnimationMappings>(library, MAPPINGS)?
     } else {
         AnimationMappings(BTreeMap::new())
     };
@@ -614,6 +616,10 @@ pub fn cook_shared_animation_bindings(
                     "field {field} selected unnamed animation {id}"
                 );
                 for row in rows {
+                    ensure!(
+                        !row.actors.is_empty() && !row.parts.is_empty(),
+                        "invalid native animation binding {id} in field {field}"
+                    );
                     for actor in &row.actors {
                         for &part in &row.parts {
                             let key = (id, actor.clone(), part, row.resource_slot);
@@ -622,11 +628,14 @@ pub fn cook_shared_animation_bindings(
                                 row.joints.clone(),
                                 row.pose_chains.clone(),
                             );
-                            if let Some(previous) = targets.insert(key, value.clone()) {
-                                ensure!(
-                                    previous == value,
+                            match targets.entry(key) {
+                                Entry::Vacant(entry) => {
+                                    entry.insert(value);
+                                }
+                                Entry::Occupied(entry) => ensure!(
+                                    entry.get() == &value,
                                     "conflicting animation {id} for actor {actor} part {part} in field {field}"
-                                );
+                                ),
                             }
                         }
                     }

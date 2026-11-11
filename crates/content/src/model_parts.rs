@@ -217,6 +217,3 @@ mod tests {
         assert!(serde_json::from_value::<Model>(source).is_err());
     }
 }
-
-#[cfg(test)]
-mod installed_tests;

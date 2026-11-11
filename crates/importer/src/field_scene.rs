@@ -371,7 +371,7 @@ fn prepare(
         let names: resonance_content::field::document::AnimationMappings = if ids.is_empty() {
             resonance_content::field::document::AnimationMappings(BTreeMap::new())
         } else {
-            serde_json::from_slice(&fs::read(library.join("animations/mappings.json"))?)?
+            crate::authoring::read_json(library, "animations/mappings.json")?
         };
         ids.iter()
             .map(|&bank| {
@@ -389,7 +389,7 @@ fn prepare(
     };
     let scene_banks = if !banks.is_empty() {
         ensure!(
-            library.join("animations/mappings.json").is_file(),
+            crate::authoring::document_exists(library, "animations/mappings.json"),
             "field {id} scene lacks animation mappings"
         );
         for &bank in banks.keys() {

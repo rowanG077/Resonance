@@ -78,38 +78,3 @@ fn model_roles_preserve_solid_volumes_and_floor_priority() -> Result<()> {
     assert!(decode(&bytes).is_err());
     Ok(())
 }
-
-#[test]
-#[ignore = "requires saved Blender exports; no editor process launched"]
-fn blender_field_collision_edit_preserves_roles_flags_and_order() -> Result<()> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../local/structure-review-20261026/field-collision");
-    let original = decode(&std::fs::read(root.join("editor-original.glb"))?)?;
-    for (filename, lift) in [("editor-roundtrip.glb", 0.), ("editor-edited.glb", 10.)] {
-        let edited = decode(&std::fs::read(root.join(filename))?)?;
-        assert_eq!(original.ground.len(), edited.ground.len());
-        assert_eq!(original.regions.len(), edited.regions.len());
-        for (a, b) in original
-            .ground
-            .iter()
-            .chain(&original.regions)
-            .zip(edited.ground.iter().chain(&edited.regions))
-        {
-            assert_eq!(a.surface, b.surface);
-            assert_eq!(a.triangles.len(), b.triangles.len());
-            for (a_face, b_face) in a.triangles.iter().zip(&b.triangles) {
-                for (&a_index, &b_index) in a_face.iter().zip(b_face) {
-                    let a = a.vertices[usize::from(a_index)];
-                    let b = b.vertices[usize::from(b_index)];
-                    for axis in 0..3 {
-                        ensure!(
-                            (a[axis] + if axis == 2 { lift } else { 0. } - b[axis]).abs() < 0.003,
-                            "editor altered face order or geometry"
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}

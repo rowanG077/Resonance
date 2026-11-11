@@ -4,6 +4,8 @@
 Starts a fresh recorded encounter with ordinary party/learning commands. Component
 cases edit repertoire, strategy, vitals, placement and lasting conditions only.
 """
+import resolved_content
+from resolved_content import read_json
 import argparse
 from hashlib import sha256
 import json
@@ -187,7 +189,7 @@ def run(args):
     source = State(args.state)
     observed = inspect(source)
     catalogue = args.assets / "game/techniques.json"
-    learning = native_learning(json.loads(catalogue.read_text()))[3]
+    learning = native_learning(read_json(catalogue))[3]
     techniques = sorted(set(learning) - {0})
     entry = out / "entry.s01"
     fixture = prepare(source, entry, observed, [], [(0x24, [1]), (0x24, [4])]
@@ -225,7 +227,7 @@ def run(args):
         for word in (0, 4):
             locations[f"{pointer} {at:x} {offset + word:x}"] = f"owner_{name}_{word}"
     report = dict(complete=False, cases=[], fixture=fixture, source_sha256=source.sha256,
-                  techniques_sha256=digest(catalogue), scope="First autonomous support decision, TP payment and declared attributable benefits; no timing or audiovisual equivalence.")
+                  techniques_sha256=resolved_content.digest(catalogue), scope="First autonomous support decision, TP payment and declared attributable benefits; no timing or audiovisual equivalence.")
     worker = None
     try:
         worker = BattleFixture(args.disc, movie, entry, out / "worker", fixture["marker_address"],

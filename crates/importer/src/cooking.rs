@@ -26,9 +26,7 @@ const LABELS: u32 = 0x80199e3c;
 pub fn cook_cooking(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&exe)?;
-    let path = library.join(cooking::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(&library.join(cooking::PATH), &document)
 }
 
 fn ingredients(bytes: &[u8]) -> Result<Vec<u16>> {

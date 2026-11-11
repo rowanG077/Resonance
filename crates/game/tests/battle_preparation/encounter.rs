@@ -224,11 +224,9 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
     }
     // A fresh capture still rejects a broken required document.
     let modification = tempfile::tempdir()?;
-    let path = modification
-        .path()
-        .join(resonance_content::battle_projectile::PATH);
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    std::fs::write(path, b"{")?;
+    let owner = modification.path().join("battle/projectiles");
+    std::fs::create_dir_all(&owner)?;
+    std::fs::write(owner.join("fire_ball.json"), b"false")?;
     let library = resonance_content::library::Library::open(
         &root,
         &[resonance_content::library::Mod {

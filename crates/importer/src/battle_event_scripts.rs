@@ -43,17 +43,13 @@ pub fn cook_battle_event_scripts(root: &Path, library: &Path, selected: Option<u
             names.insert(u32::from(id), format!("{owner}.ssb"));
         }
     }
-    let path = library.join("battle/scripts/mappings.json");
-    if selected.is_some() && path.is_file() {
-        let mut previous: BTreeMap<u32, String> = serde_json::from_slice(&fs::read(&path)?)?;
+    const MAPPINGS: &str = "battle/scripts/mappings.json";
+    if selected.is_some() && crate::authoring::document_exists(library, MAPPINGS) {
+        let mut previous: BTreeMap<u32, String> = crate::authoring::read_json(library, MAPPINGS)?;
         previous.extend(names);
-        fs::write(
-            &path,
-            resonance_asset_writer::json::encode(&Mappings::new(previous)?)?,
-        )?;
-    } else {
-        crate::output::json(&path, &Mappings::new(names)?)?;
+        names = previous;
     }
+    crate::output::json(&library.join(MAPPINGS), &Mappings::new(names)?)?;
     if selected.is_none() {
         program(
             library,

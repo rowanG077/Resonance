@@ -125,8 +125,7 @@ pub(crate) fn cook_motion_only_npc(
     let package = member(&bank, 131328)?;
     let mesh = fs::read(library.join("meshes/characters/colette/meshes/body.glb"))?;
     let joints = character_models::party_joint_bindings(extracted, 2, 0)?;
-    let mappings: ModelMappings =
-        serde_json::from_slice(&fs::read(library.join("meshes/mappings.json"))?)?;
+    let mappings: ModelMappings = crate::authoring::read_json(library, "meshes/mappings.json")?;
     let actors = mappings
         .0
         .values()

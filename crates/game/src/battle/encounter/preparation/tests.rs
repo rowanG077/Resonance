@@ -294,16 +294,22 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
                             u32::from(battle::enemy::GHOST),
                             Some("enemy.json"),
                         )?;
-                        let mut entry: serde_json::Value =
-                            snapshot.json(&path, resonance_content::preparation::JSON_LIMIT)?;
-                        if fault == "enemy descriptor" {
-                            entry["artwork"] = serde_json::json!({"model":"battle/enemies/ghost/missing-model.json"});
+                        // The mod replaces one owner of the enemy's document.
+                        let (owner, value) = if fault == "enemy descriptor" {
+                            (
+                                "artwork",
+                                serde_json::json!({"model":"battle/enemies/ghost/missing-model.json"}),
+                            )
                         } else {
-                            entry["rules"] = serde_json::json!({});
-                        }
-                        let target = modification.join(path);
-                        std::fs::create_dir_all(target.parent().context("missing enemy owner")?)?;
-                        std::fs::write(target, serde_json::to_vec(&entry)?)?;
+                            ("rules", serde_json::json!({}))
+                        };
+                        let target = modification
+                            .join(path.strip_suffix(".json").context("enemy document")?);
+                        std::fs::create_dir_all(&target)?;
+                        std::fs::write(
+                            target.join(format!("{owner}.json")),
+                            serde_json::to_vec(&value)?,
+                        )?;
                     }
                     Ok(())
                 },
@@ -471,11 +477,15 @@ impl GhostWolfFixture {
             "Ghost Wolf requires current imported assets at {}",
             root.display()
         );
-        let authored = serde_json::from_slice(
-            &std::fs::read(root.join("battle/artes/ghost-wolf/action.json"))
-                .with_context(|| imported.clone())?,
+        let mod_root = std::env::var_os("RESONANCE_TEST_MOD_ASSETS")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| repo.join("local/mods/000100-ghost-wolf"));
+        let library = Library::open_paths(&root, &[mod_root])
+            .with_context(|| "build Ghost Wolf with resonance-import prepare-arte-mod first")?;
+        let authored: resonance_content::battle_martial::AuthoredAction = library.snapshot().json(
+            "battle/artes/ghost-wolf/action.json",
+            resonance_content::preparation::JSON_LIMIT,
         )?;
-        let library = Library::open_paths(&root, &[])?;
         let diagnostics = Diagnostics::new(true);
         let files =
             resonance_content::preparation::capture(&library, &[], || false, diagnostics.clone())?;

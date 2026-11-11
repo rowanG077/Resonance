@@ -10,9 +10,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 pub fn cook_options(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&exe)?;
-    let path = library.join(options::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(&library.join(options::PATH), &document)
 }
 
 fn named<T>(names: &[&str], values: impl IntoIterator<Item = T>) -> BTreeMap<String, T> {

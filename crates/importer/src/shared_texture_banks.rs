@@ -101,11 +101,15 @@ fn extra_artwork(extracted: &Path, library: &Path) -> Result<BTreeMap<String, Te
 
 /// Publish only the additional artwork into an existing review library.
 pub fn cook_extra_artwork(extracted: &Path, library: &Path) -> Result<()> {
-    let path = library.join("textures/banks.json");
-    let mut banks: BTreeMap<String, TextureCatalogue> = serde_json::from_slice(&fs::read(&path)?)?;
+    let mut banks: BTreeMap<String, TextureCatalogue> = serde_json::from_slice(
+        &crate::authoring::read_document(library, "textures/banks.json")?,
+    )?;
     banks.extend(extra_artwork(extracted, library)?);
-    fs::write(path, resonance_asset_writer::json::encode(&banks)?)?;
-    Ok(())
+    crate::authoring::publish_document(
+        library,
+        "textures/banks.json",
+        &serde_json::to_value(&banks)?,
+    )
 }
 
 /// Run after the ordinary artwork owners, reusing their physical images.
@@ -115,7 +119,8 @@ pub fn cook_shared_texture_banks(extracted: &Path, library: &Path) -> Result<()>
     let available = fs::read_dir(&files)?
         .map(|entry| Ok(entry?.file_name().to_string_lossy().to_ascii_lowercase()))
         .collect::<std::io::Result<BTreeSet<_>>>()?;
-    let portraits: Portraits = serde_json::from_slice(&fs::read(library.join(portraits::PATH))?)?;
+    let portraits: Portraits =
+        serde_json::from_slice(&crate::authoring::read_document(library, portraits::PATH)?)?;
     let mut native = BTreeMap::new();
     let mut aliases = BTreeMap::new();
     for id in 0..53 {
