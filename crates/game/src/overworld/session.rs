@@ -84,6 +84,7 @@ pub struct Session {
     pub play_time: crate::clock::PlayTime,
     pub active_skit: Option<crate::skit::Playback>,
     pub menu: Option<crate::menu::Menu>,
+    item_statistics: bool,
     skits: crate::field::skit::Skits,
     pub(super) assets: Arc<Assets>,
     pub cinematic: Option<super::cinematic::Playback>,
@@ -167,6 +168,7 @@ impl Session {
             active_skit: None,
             cinematic: None,
             menu: None,
+            item_statistics: false,
             assets,
             play_time,
             prompt: None,
@@ -489,6 +491,16 @@ impl Session {
             played_ticks: self.play_time.total(),
         })
     }
+    pub fn set_item_statistics(&mut self, statistics: bool) {
+        self.item_statistics = statistics;
+    }
+
+    pub fn item_statistics(&self) -> bool {
+        self.menu
+            .as_ref()
+            .map_or(self.item_statistics, |menu| menu.item_statistics)
+    }
+
     fn open_menu(&mut self) -> Result<()> {
         let checkpoint = self.checkpoint()?;
         let resources = Arc::new(crate::menu::Resources {
@@ -513,6 +525,7 @@ impl Session {
             true,
         );
         menu.resources = Some(resources);
+        menu.item_statistics = self.item_statistics;
         menu.world_map.world = world.index() as u8;
         menu.set_play_time(self.play_time);
         menu.begin_opening();
@@ -617,6 +630,7 @@ impl Session {
         if let Some(menu) = &mut self.menu {
             menu.set_play_time(self.play_time);
             let cue = menu.step(input.menu);
+            self.item_statistics = menu.item_statistics;
             if let Some((party, random)) = menu.take_party_changes() {
                 self.events.world.party = Some(party);
                 self.events.world.gameplay_random = random;

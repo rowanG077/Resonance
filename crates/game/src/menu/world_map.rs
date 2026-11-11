@@ -139,6 +139,10 @@ impl Menu {
         {
             return None;
         }
+        if input == Some(Details) {
+            self.item_statistics = !self.item_statistics;
+            return Some(1);
+        }
         if input == Some(Cancel) {
             match self.world_map.focus {
                 Focus::Locations => self.world_map.page_closing = true,

@@ -321,6 +321,7 @@ fn advance(
     loading_save: Option<Res<super::saves::Quickload>>,
     mut controls: ResMut<Controls>,
     mut menu_controls: ResMut<super::field_view::Controls>,
+    mut menu_memory: Option<ResMut<super::battle::MenuMemory>>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
     mut exit: Failures,
 ) {
@@ -348,8 +349,13 @@ fn advance(
     if let Some(mut scenario) = scenario {
         scenario.acknowledge_input();
     }
+    if let Some(memory) = &menu_memory {
+        scene.session.set_item_statistics(memory.item_statistics);
+    }
     if let Err(error) = scene.step(input) {
         exit.fail("Overworld update failed", error);
+    } else if let Some(memory) = &mut menu_memory {
+        memory.item_statistics = scene.session.item_statistics();
     }
 }
 
