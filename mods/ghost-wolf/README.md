@@ -146,10 +146,18 @@ right blade follows through past his hip while the left prepares across his
 chest; his counterclockwise turn carries the second, horizontal cut.
 
 Traversal starts at gameplay update **16**, lasts **nine updates**, and aims
-**70 units** beyond the target's root. The pass is shorter from a close entry
-and remains limited by the arena boundary. Both cuts are checked at starting
-distances from 40 to 120 units. Lloyd retains the completed half-turn even when
-he cannot get behind the target; a follow-up arte may therefore face away from
+**70 units** beyond the target's root, with a **200-unit maximum total travel**.
+The destination is captured when the dash starts; target motion during the
+windup or pass cannot increase that limit. Within 130 units, Lloyd makes the
+full pass behind the target. Farther away, he performs a short lunge that can
+miss rather than crossing the arena. The distance changes continuously at the
+limit, without a range threshold that abruptly cancels the dash. The 200-unit
+budget preserves the verified 40–120-unit entries plus their 70-unit clearance,
+with ten units of margin; it is an authored mod choice. Older generated Ghost
+Wolf action documents also receive this bounded default when loaded. The pass
+is shorter from a close entry and remains limited by the arena boundary. Both
+cuts are checked at starting distances from 40 to 120 units. Lloyd retains the
+completed half-turn even when he cannot get behind the target; a follow-up arte may therefore face away from
 an enemy trapped at the boundary. This is intentional.
 
 The action lasts **83 updates**, including the three-update entry blend, with
@@ -182,4 +190,7 @@ build against a small synthetic library: the generated files, composition with
 the base, and the output-directory guards. The gameplay checks use
 `local/all-assets` by default, or the absolute path in `RESONANCE_TEST_ASSETS`.
 They exercise hits, misses, interruption, TP, voice, facing through recovery,
-both arena edges, and the 17-hit Ability Plus chain at several close distances.
+both arena edges, distant targets at 500 and 2000 units, and the 17-hit Ability
+Plus chain at several close distances. Core traversal tests also cover mirrored
+and diagonal headings, the distance limit, target motion during windup, and
+hit-stop.
