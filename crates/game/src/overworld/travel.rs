@@ -319,6 +319,7 @@ impl Travel {
             collision::Mode::Ground
         };
         self.surface = query.surface(mode).map(|s| s.kind);
+        let mut forced_dismount = false;
         if self.transition.is_none() {
             if input.toggle_perspective {
                 self.state.alternate_perspective = !self.state.alternate_perspective;
@@ -328,6 +329,15 @@ impl Travel {
             }
             let from = self.state.mount;
             self.actions(input, context, rules, &mut cues)?;
+            // Check before movement so crossing into a locked region starts
+            // dismounting on the following update.
+            forced_dismount = self.state.mount == Mount::Noishe
+                && self.transition.is_none()
+                && !rules.noishe_available(
+                    self.state.world,
+                    self.state.position,
+                    context.event_flags,
+                );
             if from.airborne() && !self.state.mount.airborne() {
                 // Descent ends on terrain, not the elevated flight floor.
                 let floor = query.motion(0., self.state.heading, mode)?;
@@ -337,7 +347,7 @@ impl Travel {
         // Mount visibility advances independently of camera perspective changes.
         self.enemy_radius = approach(
             self.enemy_radius,
-            ENEMY_RADII[usize::from(self.state.mount.long_range())],
+            ENEMY_RADII[usize::from(self.state.mount.long_range() && !forced_dismount)],
             (ENEMY_RADII[1] - ENEMY_RADII[0]) / self.parameters.zoom_transition_ticks,
         );
         for (alpha, goal) in self
@@ -361,11 +371,13 @@ impl Travel {
         let distances = p
             .camera_distances
             .for_view(self.state.alternate_perspective);
-        self.camera_distance = approach(
-            self.camera_distance,
-            distances[usize::from(self.state.mount.long_range())],
-            (distances[1] - distances[0]) / p.zoom_transition_ticks,
-        );
+        if !forced_dismount {
+            self.camera_distance = approach(
+                self.camera_distance,
+                distances[usize::from(self.state.mount.long_range())],
+                (distances[1] - distances[0]) / p.zoom_transition_ticks,
+            );
+        }
         let mut camera_input = input.rotate_camera * p.stick_maximum;
         if matches!(self.state.mount, Mount::Foot | Mount::Noishe) {
             let [x, y] = input.stick;
@@ -401,6 +413,12 @@ impl Travel {
         .rem_euclid(TAU);
         if !self.state.mount.airborne() {
             self.state.altitude = self.state.position.map()[2];
+        }
+        if forced_dismount {
+            // Apply this update's selected Noishe motion once, then stop and
+            // use the ordinary dismount animation and zoom.
+            self.begin(Mount::Foot, Phase::Noishe, &mut cues)?;
+            self.advance_transition(&mut cues);
         }
         Ok(cues)
     }

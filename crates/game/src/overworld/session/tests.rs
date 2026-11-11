@@ -114,6 +114,40 @@ fn visible_camps(session: &Session) -> Vec<u16> {
 }
 
 #[test]
+fn forced_noishe_dismount_rejects_carried_motion_into_a_blocked_landmark() -> Result<()> {
+    let initial = start(definitions(), vec![])?;
+    let mut assets = (*initial.assets).clone();
+    Arc::make_mut(&mut assets.landmarks).worlds[0][0].interaction = Interaction::Blocked;
+    let mut state = state(Mount::Noishe);
+    // The entrance extends to x=3330. Noishe could carry us more than one
+    // maximum Foot step inside it, leaving every attempt to escape rejected.
+    state.position = crate::overworld::Position::from_map([3331., 3200., 0.])?;
+    let previous = state.position;
+    let mut session = Session::enter(
+        Arc::new(assets),
+        state,
+        initial.events.persistent_state()?,
+        Default::default(),
+    )?;
+    session.step(Input {
+        travel: travel::Input {
+            stick: [-1., 0.],
+            ..Default::default()
+        },
+        ..Default::default()
+    })?;
+    assert_eq!(session.travel.state().mount, Mount::Foot);
+    assert_eq!(
+        session.travel.state().position,
+        previous,
+        "the dismount must retain ordinary landmark collision rejection"
+    );
+    assert!(!session.player_has_control());
+    assert!(session.prompt().is_none());
+    Ok(())
+}
+
+#[test]
 fn flying_clears_landmarks_on_entry_movement_and_restore() -> Result<()> {
     use crate::overworld::{Position, World};
     for (world, id, radius, margin, floor) in [
