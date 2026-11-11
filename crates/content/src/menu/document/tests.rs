@@ -4,18 +4,22 @@ fn json(value: &impl Serialize) -> Result<serde_json::Value> {
     Ok(serde_json::from_slice(&serde_json::to_vec(value)?)?)
 }
 
+fn image(path: &str) -> serde_json::Value {
+    serde_json::json!({"image":path,"size":[32,16]})
+}
+
 fn document() -> serde_json::Value {
     serde_json::json!({
         "fill": vec![0;4], "popup_fill": vec![0;4], "shade": vec![[0;4];2], "palette": super::super::sprites::COLORS.iter().map(|name| (*name,[0;4])).collect::<BTreeMap<_,_>>(),
-        "patterns": ["ui/pattern.ktx2", "ui/pattern.ktx2", "ui/pattern.ktx2", "ui/pattern.ktx2", "ui/pattern.ktx2"],
-        "images": {"icons": "ui/icons.ktx2"}, "labels": {},
-        "windows": {"ornate": {"fill": "ui/fill.ktx2", "cursor_motion": [4.,0.13], "outset":3}},
+        "patterns": [image("ui/pattern.ktx2"), image("ui/pattern.ktx2"), image("ui/pattern.ktx2"), image("ui/pattern.ktx2"), image("ui/pattern.ktx2")],
+        "images": {"icons": image("ui/icons.ktx2")}, "labels": {},
+        "windows": {"ornate": {"fill": image("ui/fill.ktx2"), "cursor_motion": [4.,0.13], "outset":3}},
         "sprites": {"rects": {"buttons": {"stick_neutral":[0,0,8,8]}}}
     })
 }
 
 #[test]
-fn named_roles_use_image_dimensions_and_isolate_broken_optional_art() -> Result<()> {
+fn named_roles_use_document_dimensions_and_isolate_broken_optional_art() -> Result<()> {
     let mut source = document();
     source["sprites"]["rects"]["recipes"] = "broken".into();
     source["windows"]["gold"] = serde_json::json!({"fill": false});
@@ -34,16 +38,16 @@ fn named_roles_use_image_dimensions_and_isolate_broken_optional_art() -> Result<
     assert!(art.validate_window(2, 0).is_err());
     assert!(art.sprite(Sprite::Recipes, 0).is_err());
     assert_eq!(art.texture(MenuArt::ATLAS_TEXTURE)?.height, 16);
-    // A replacement image changes dimensions without a companion JSON edit.
-    let small = resonance_asset_writer::ktx2::encode_levels(4, 4, &[&[255; 64]])?;
+    // Increasing physical resolution preserves the JSON coordinate system.
+    let hd = resonance_asset_writer::ktx2::encode_levels(128, 64, &[&vec![255; 128 * 64 * 4]])?;
     art.prepare_resources(|path| {
         Ok(if path == "ui/icons.ktx2" {
-            &small[..]
+            &hd[..]
         } else {
             &image[..]
         })
     });
-    assert!(art.sprite(Sprite::Buttons, 0).is_err());
+    assert_eq!(art.sprite(Sprite::Buttons, 0)?, [0, 0, 8, 8]);
     art.validate_window(1, 5)?;
     art.prepare_resources(|path| {
         if path == "ui/icons.ktx2" {
@@ -59,13 +63,13 @@ fn named_roles_use_image_dimensions_and_isolate_broken_optional_art() -> Result<
 }
 
 #[test]
-fn style_overrides_and_frames_round_trip_without_native_slots_or_sizes() -> Result<()> {
+fn style_overrides_and_frames_round_trip_with_coordinate_sizes() -> Result<()> {
     let mut source = document();
     source["windows"]["plain"] = serde_json::json!({
-        "fill": {"image":"ui/fill.ktx2", "repeat":true, "opaque":true},
-        "frame": EDGES.into_iter().map(|name| (name, "ui/edge.ktx2")).collect::<BTreeMap<_,_>>(),
-        "patterns": ["a.ktx2","b.ktx2","c.ktx2","d.ktx2","e.ktx2"],
-        "heading": "ui/heading.ktx2", "cursor": "ui/cursor.ktx2", "cursor_motion": [2.,0.2], "outset":4
+        "fill": {"image":"ui/fill.ktx2", "size":[32,16], "repeat":true, "opaque":true},
+        "frame": EDGES.into_iter().map(|name| (name, image("ui/edge.ktx2"))).collect::<BTreeMap<_,_>>(),
+        "patterns": [image("a.ktx2"),image("b.ktx2"),image("c.ktx2"),image("d.ktx2"),image("e.ktx2")],
+        "heading": image("ui/heading.ktx2"), "cursor": image("ui/cursor.ktx2"), "cursor_motion": [2.,0.2], "outset":4
     });
     let art = MenuArt::decode(&serde_json::to_vec(&source)?, &Diagnostics::new(true))?;
     let encoded = json(&art)?;

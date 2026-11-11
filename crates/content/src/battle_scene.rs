@@ -141,7 +141,6 @@ impl SceneProjectile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Texture {
     /// Palette pages retain their original order.
-    #[serde(with = "crate::texture::images")]
     pub images: Vec<crate::font::UiTexture>,
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub sampler: crate::texture::Sampler,

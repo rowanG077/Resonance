@@ -80,7 +80,12 @@ fn title_drawing_follows_named_choices_positions_and_actual_image_sizes() -> Res
         .id();
     app.insert_resource(Art {
         manifest: Vec::new(),
-        images: images.clone(),
+        images: images
+            .iter()
+            .cloned()
+            .zip([[152, 32], [180, 40], [512, 208]])
+            .map(|(handle, size)| TitleImage { handle, size })
+            .collect(),
     });
     app.world_mut().run_system_once(layout).unwrap();
     let transform = app.world().get::<Transform>(row).unwrap();
@@ -112,6 +117,18 @@ fn title_drawing_follows_named_choices_positions_and_actual_image_sizes() -> Res
             .unwrap()
             .source,
         images[0]
+    );
+    for image in &mut app.world_mut().resource_mut::<Art>().images {
+        image.size = image.size.map(|v| v / 4);
+    }
+    app.world_mut().run_system_once(layout).unwrap();
+    assert_eq!(
+        app.world().get::<Transform>(row).unwrap().scale,
+        Vec3::new(38., 8., 1.)
+    );
+    assert_eq!(
+        app.world().get::<Transform>(logo).unwrap().scale,
+        Vec3::new(128., 52., 1.)
     );
     Ok(())
 }

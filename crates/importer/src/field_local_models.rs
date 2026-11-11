@@ -4,6 +4,7 @@ use crate::{
     shared_animations, world_gpl, world_motion, world_texture,
 };
 use anyhow::{Context, Result, ensure};
+use resonance_asset_writer::gpu;
 use resonance_content::{
     AppearanceTextures, CullFace, SceneClip, SceneImage,
     field::{
@@ -715,6 +716,40 @@ fn shared_joint_map(
         .collect()
 }
 
+/// The path already holding these pixels within the model's media, or a new
+/// one. `(publish, encode)`: borrowed media must already exist; a texture that
+/// is published but not yet encodable is written later by its caller.
+fn local_texture(
+    library: &Path,
+    textures: &mut BTreeMap<[u8; 32], String>,
+    media: Option<&str>,
+    (publish, encode): (bool, bool),
+    pixels: &[resonance_asset_writer::texture::Pixels],
+    name: impl FnOnce() -> String,
+) -> Result<String> {
+    let key = world_texture::texture_key(pixels);
+    if let Some(path) = textures
+        .get(&key)
+        .filter(|path| media.is_none_or(|media| path.starts_with(media)))
+    {
+        return Ok(path.clone());
+    }
+    let path = name();
+    if !publish {
+        ensure!(
+            library.join(&path).is_file(),
+            "borrowed field media requires {path}"
+        );
+    } else if encode {
+        crate::output::write(
+            &library.join(&path),
+            &gpu::encode(pixels).with_context(|| path.clone())?,
+        )?;
+    }
+    textures.insert(key, path.clone());
+    Ok(path)
+}
+
 fn convert_source_document(
     library: &Path,
     archive: &[u8],
@@ -729,7 +764,6 @@ fn convert_source_document(
         BTreeMap<u16, String>,
     )],
     local_motions: &[usize],
-    replace: bool,
 ) -> Result<()> {
     let mut model: Model = serde_json::from_slice(
         &fs::read(library.join(source))
@@ -780,13 +814,7 @@ fn convert_source_document(
     }
     check_model_media(library, &model)?;
     let path = library.join(format!("{base}.json"));
-    let bytes = resonance_asset_writer::json::encode(&model)?;
-    if replace {
-        fs::write(path, bytes)?;
-        Ok(())
-    } else {
-        crate::output::write(&path, &bytes)
-    }
+    crate::output::json(&path, &model)
 }
 
 fn convert(
@@ -804,7 +832,7 @@ fn convert(
     owner: Option<&str>,
     borrow: Option<&PackageBorrow>,
     motions: &mut BTreeMap<Vec<u8>, String>,
-    textures: &mut BTreeMap<Vec<u8>, String>,
+    textures: &mut BTreeMap<[u8; 32], String>,
 ) -> Result<()> {
     let native = field_core::optional_section(archive, section)?.context("local actor missing")?;
     let package = native;
@@ -830,7 +858,6 @@ fn convert(
             source,
             shared,
             local_motions,
-            false,
         );
     }
     let media = borrow.and_then(|borrow| borrow.media.as_deref());
@@ -850,41 +877,58 @@ fn convert(
     let body = normalized.as_slice();
     let mut paths = Vec::new();
     let mut alpha = Vec::new();
+    // A texture whose size is not a power of two is stored once the model
+    // shows how it wraps.
+    let mut deferred = Vec::new();
+    let mut sizes = Vec::new();
     if start != 0 {
         let tpl = body.get(start..end).context("local palette exceeds body")?;
         ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "local body lacks TPL");
         for index in 0..dol::u32(tpl, 4)? as usize {
-            let (texture, transparent) = world_texture::tpl_texture(tpl, index)?;
-            let path = if let Some(path) = textures
-                .get(&texture)
-                .filter(|path| media.is_none_or(|media| path.starts_with(media)))
-            {
-                path.clone()
-            } else {
-                let path = if let Some(media) = media {
-                    format!("{media}/textures/body-texture-{index}.ktx2")
-                } else if owner.is_some() {
-                    format!("{base}/textures/body-texture-{index}.ktx2")
-                } else {
-                    format!("{base}-texture-{}.ktx2", index + 1)
-                };
-                if publish_media {
-                    crate::output::write(&library.join(&path), &texture)?;
-                } else {
-                    ensure!(
-                        library.join(&path).is_file(),
-                        "borrowed field media requires {path}"
-                    );
-                }
-                textures.insert(texture.clone(), path.clone());
-                path
-            };
+            let pixels = world_texture::tpl_pixels(tpl, index, 0, false, true)?;
+            let transparent = world_texture::has_alpha(&pixels[0].rgba);
+            let size = [pixels[0].width, pixels[0].height];
+            let direct = size.iter().all(|size| size.is_power_of_two());
+            sizes.push(size);
+            // A texture of another size is stored once the model shows how it repeats.
+            let path = local_texture(
+                library,
+                textures,
+                media,
+                (publish_media, direct),
+                &pixels,
+                || {
+                    if let Some(media) = media {
+                        format!("{media}/textures/body-texture-{index}.ktx2")
+                    } else if owner.is_some() {
+                        format!("{base}/textures/body-texture-{index}.ktx2")
+                    } else {
+                        format!("{base}-texture-{}.ktx2", index + 1)
+                    }
+                },
+            )?;
+            if !direct {
+                deferred.push((index, pixels, path.clone()));
+            }
             paths.push(path);
             alpha.push(transparent);
         }
     }
-    let (mesh, mut part) = world_gpl::static_model(body, paths.clone(), alpha)
+    let (mut mesh, mut part) = world_gpl::static_model(body, paths.clone(), alpha)
         .with_context(|| format!("local actor section {section}"))?;
+    let wrapped = world_gpl::console_wrap(&mut mesh, &mut part, &sizes)
+        .with_context(|| format!("local actor section {section} textures"))?;
+    for (index, mut pixels, path) in deferred {
+        if wrapped[index] != [false; 2] {
+            pixels = resonance_asset_writer::texture::console_wrapped(&pixels, wrapped[index]);
+        }
+        if publish_media {
+            crate::output::write(
+                &library.join(&path),
+                &gpu::encode(&pixels).with_context(|| path.clone())?,
+            )?;
+        }
+    }
     if start == 0 {
         for material in &mut part.materials {
             if material.color.is_none() && material.multiply.is_none() {
@@ -1153,37 +1197,24 @@ fn convert(
             world_gpl::with_primary_palette(body, outline)?
         };
         let outline_paths = if own_palette {
-            let start = dol::u32(&normalized, 0)? as usize;
-            let end = dol::u32(&normalized, 4)? as usize;
-            let tpl = normalized
-                .get(start..end)
-                .context("field outline palette exceeds body")?;
-            ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "field outline lacks TPL");
+            let tpl = world_texture::model_palette(&normalized)?;
             let mut outline_paths = Vec::new();
             for index in 0..dol::u32(tpl, 4)? as usize {
-                let (texture, _) = world_texture::tpl_texture(tpl, index)?;
-                if let Some(path) = textures
-                    .get(&texture)
-                    .filter(|path| media.is_none_or(|media| path.starts_with(media)))
-                {
-                    outline_paths.push(path.clone());
-                } else {
-                    let path = if let Some(media) = media {
-                        format!("{media}/textures/outline-texture-{index}.ktx2")
-                    } else {
-                        format!("{base}-part-1-texture-{}.ktx2", index + 1)
-                    };
-                    if publish_media {
-                        crate::output::write(&library.join(&path), &texture)?;
-                    } else {
-                        ensure!(
-                            library.join(&path).is_file(),
-                            "borrowed field outline texture requires {path}"
-                        );
-                    }
-                    textures.insert(texture, path.clone());
-                    outline_paths.push(path);
-                }
+                let pixels = world_texture::tpl_pixels(tpl, index, 0, false, true)?;
+                outline_paths.push(local_texture(
+                    library,
+                    textures,
+                    media,
+                    (publish_media, true),
+                    &pixels,
+                    || {
+                        if let Some(media) = media {
+                            format!("{media}/textures/outline-texture-{index}.ktx2")
+                        } else {
+                            format!("{base}-part-1-texture-{}.ktx2", index + 1)
+                        }
+                    },
+                )?);
             }
             outline_paths
         } else {
@@ -1267,10 +1298,7 @@ fn convert_volt(
     let body = field_core::optional_section(package, 0)?.context("Volt has no body")?;
     let base = format!("{root}/models/volt");
     let media = "meshes/props/volt";
-    let start = dol::u32(body, 0)? as usize;
-    let end = dol::u32(body, 4)? as usize;
-    let tpl = body.get(start..end).context("Volt palette exceeds body")?;
-    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "Volt lacks a TPL palette");
+    let tpl = world_texture::model_palette(body)?;
     let mut textures = Vec::new();
     let mut alpha = Vec::new();
     for index in 0..dol::u32(tpl, 4)? as usize {
@@ -1650,7 +1678,6 @@ pub(crate) fn cook_shared_owner(
                 model_path,
                 &shared_clips(extracted, library, id, banks)?,
                 &local_motions,
-                true,
             )?;
         }
         return Ok(());

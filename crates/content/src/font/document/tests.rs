@@ -26,6 +26,7 @@ fn font_groups_share_edits_without_alias_resolution_and_keep_explicit_coverage()
     fs::write(base.path().join("fonts/test.ktx2"), b"captured atlas")?;
     let path = "fonts/test.json";
     fs::write(base.path().join(path), serde_json::to_vec(&fixture())?)?;
+    fs::copy(base.path().join(path), modifications.path().join(path))?;
     let library = Library::open(
         base.path(),
         &[Mod {

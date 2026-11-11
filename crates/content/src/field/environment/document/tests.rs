@@ -88,6 +88,10 @@ fn atmosphere_snapshot_uses_shared_mod_values_without_changing_captured_values()
         base.path().join("fields/settings.json"),
         serde_json::to_vec(&defaults())?,
     )?;
+    fs::copy(
+        base.path().join("fields/settings.json"),
+        modification.path().join("fields/settings.json"),
+    )?;
     let library = Library::open_paths(base.path(), &[modification.path().to_owned()])?;
     let mut retained = library.snapshot();
     let before: EnvironmentDefaults = retained.json("fields/settings.json", 10000)?;

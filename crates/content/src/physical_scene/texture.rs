@@ -63,6 +63,8 @@ struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sampler: Option<Sampling>,
     images: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    size: Option<[u32; 2]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -73,12 +75,13 @@ enum Image {
 }
 impl Image {
     fn from_texture(texture: &TextureImage, inherited: &Sampler) -> Self {
-        if texture.images.len() == 1 && texture.sampler == *inherited {
+        if texture.size.is_none() && texture.images.len() == 1 && texture.sampler == *inherited {
             Self::Path(texture.images[0].clone())
         } else {
             Self::Settings(Settings {
                 sampler: (texture.sampler != *inherited).then(|| (&texture.sampler).into()),
                 images: texture.images.clone(),
+                size: texture.size,
             })
         }
     }
@@ -87,6 +90,7 @@ impl Image {
             Self::Path(path) => TextureImage {
                 sampler: inherited.clone(),
                 images: vec![path],
+                size: None,
             },
             Self::Settings(s) => TextureImage {
                 sampler: s
@@ -94,6 +98,7 @@ impl Image {
                     .map(Into::into)
                     .unwrap_or_else(|| inherited.clone()),
                 images: s.images,
+                size: s.size,
             },
         }
     }

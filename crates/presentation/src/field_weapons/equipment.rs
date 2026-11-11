@@ -73,7 +73,7 @@ impl EquipmentCache {
     }
 }
 
-fn equipped(world: &resonance_events::GameWorld) -> impl Iterator<Item = u16> + '_ {
+pub(super) fn equipped(world: &resonance_events::GameWorld) -> impl Iterator<Item = u16> + '_ {
     world.party.iter().flat_map(|party| {
         party
             .members

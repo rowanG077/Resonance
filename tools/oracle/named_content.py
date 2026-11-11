@@ -48,7 +48,7 @@ class Snapshot:
             raise ValueError("oracle evidence must be outside the editable library")
         self.files = {}
         descriptor = self.json("content.json")
-        if descriptor != {"version":102, "game": "tales-of-symphonia"}:
+        if descriptor != {"version":105, "game": "tales-of-symphonia"}:
             raise ValueError("oracle requires a current named Tales of Symphonia library")
 
     def read(self, path):
@@ -350,7 +350,7 @@ class Snapshot:
             for textures in art["textures"].values():
                 for texture in textures:
                     for image in texture["images"]:
-                        self.image(image)
+                        self.image(image["image"])
         return dict(programs=programs, actors=actors, art=art)
 
     def scene(self, path):
@@ -370,7 +370,7 @@ class Snapshot:
         cutin = definition.get("cutin")
         if cutin:
             for image in cutin["images"]:
-                self.image(image)
+                self.image(image["image"])
         return dict(rules, effects=definition["effects"], models=art["models"],
                     textures=art["textures"].get("6", []), weapon=weapon, cutin=cutin), effects
 

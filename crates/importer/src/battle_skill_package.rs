@@ -70,11 +70,7 @@ fn models(
                 "skill model {slot} has motion or outline artwork"
             );
         }
-        let start = dol::u32(source, 0)? as usize;
-        let end = dol::u32(source, 4)? as usize;
-        let tpl = source
-            .get(start..end)
-            .context("skill model palette exceeds model")?;
+        let tpl = world_texture::model_palette(source)?;
         let stem = format!("{owner}/models/model-{slot}-layer-0");
         let mut paths = Vec::new();
         let mut alpha = Vec::new();

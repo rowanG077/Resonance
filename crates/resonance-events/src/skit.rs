@@ -186,6 +186,7 @@ mod tests {
     fn fixture() -> (PortraitAsset, Portrait) {
         let asset = PortraitAsset {
             size: [16; 2],
+            scale: [1; 2],
             images: [[16; 2], [8; 2], [8; 2], [8; 2]]
                 .into_iter()
                 .map(|size| PortraitImage {

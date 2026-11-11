@@ -146,14 +146,14 @@ pub fn cook_world_terrain_directory(root: &Path, library: &Path) -> Result<()> {
 pub fn cook_world_terrain(root: &Path, library: &Path) -> Result<()> {
     let (continents, tiles) = declarations(root)?;
     let sources = root.join("disc1/files/FIELD");
-    for tile in tiles {
+    crate::parallel::for_each(&tiles, |_, tile| {
         world_terrain_tile::cook_world_terrain_tile(
-            &sources.join(tile.base),
+            &sources.join(&tile.base),
             library,
             &tile.owner,
             false,
         )?;
-        if let Some(alternate) = tile.alternate {
+        if let Some(alternate) = &tile.alternate {
             world_terrain_tile::cook_world_terrain_tile(
                 &sources.join(alternate),
                 library,
@@ -161,6 +161,7 @@ pub fn cook_world_terrain(root: &Path, library: &Path) -> Result<()> {
                 true,
             )?;
         }
-    }
+        Ok(())
+    })?;
     write_directory(library, continents)
 }

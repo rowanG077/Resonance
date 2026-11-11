@@ -119,7 +119,6 @@ pub(crate) struct Artwork {
 
 struct PendingImage {
     image: Handle<Image>,
-    size: [u32; 2],
     required: bool,
 }
 
@@ -172,7 +171,7 @@ impl Artwork {
         nearest.sampler = ImageSampler::nearest();
         let nearest = image_assets.add(nearest);
         let white = image_assets.add(white);
-        let mut dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.prepare_images(&read)?;
         dialogue.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
@@ -187,25 +186,18 @@ impl Artwork {
         let inputs = crate::input_icons::prepare(&read, server)?;
         let mut pending_images = vec![PendingImage {
             image: inputs.image.clone(),
-            size: inputs.atlas.size,
             required: true,
         }];
-        let mut load_image = |path: String, size, repeat, required| {
+        let mut load_image = |path: String, repeat, required| {
             let image = menu::menu_image(server, path, repeat);
             pending_images.push(PendingImage {
                 image: image.clone(),
-                size,
                 required,
             });
             image
         };
-        let atlas = load_image(
-            art.font.texture.clone(),
-            [art.font.width, art.font.height],
-            false,
-            true,
-        );
-        let main_font = load_image(font.texture.clone(), [font.width, font.height], false, true);
+        let atlas = load_image(art.font.texture.clone(), false, true);
+        let main_font = load_image(font.texture.clone(), false, true);
         let palette = Palette {
             solid: LayerDefinition::new(white, [1, 1], Depth::Background),
             font: LayerDefinition::new(atlas, [art.font.width, art.font.height], Depth::Background)
@@ -224,12 +216,7 @@ impl Artwork {
         let input_atlas = &inputs.atlas;
         let prompt_image = inputs.image.clone();
         let mut load = |texture: &resonance_content::font::UiTexture, repeat, required| {
-            load_image(
-                texture.path.clone(),
-                [texture.width, texture.height],
-                repeat,
-                required,
-            )
+            load_image(texture.path.clone(), repeat, required)
         };
         let mut portraits = Vec::new();
         for portrait in &art.portraits {
@@ -374,21 +361,7 @@ impl Artwork {
         let mut pending = Vec::new();
         let mut omitted = Vec::new();
         for image in self.pending_images.drain(..) {
-            let result = (|| -> Result<bool> {
-                if !crate::field_view::image_ready(server, images, &image.image)? {
-                    return Ok(false);
-                }
-                let loaded = images
-                    .get(&image.image)
-                    .context("battle HUD image unavailable")?;
-                ensure!(
-                    [loaded.width(), loaded.height()] == image.size,
-                    "battle HUD image dimensions differ from descriptor: {:?}",
-                    server.get_path(image.image.id())
-                );
-                Ok(true)
-            })();
-            match result {
+            match crate::field_view::image_ready(server, images, &image.image) {
                 Ok(true) => {}
                 Ok(false) => pending.push(image),
                 Err(error) if image.required => return Err(error),
@@ -548,8 +521,16 @@ impl Artwork {
         files: &resonance_content::prepared::Files,
         materials: &mut Assets<Surface>,
         images: &mut Assets<Image>,
+        formats: bevy::image::CompressedImageFormats,
     ) -> Result<DialogueOverlay> {
-        DialogueOverlay::load(&self.dialogue, &self.font, files, materials, images)
+        DialogueOverlay::load(
+            &self.dialogue,
+            &self.font,
+            files,
+            materials,
+            images,
+            formats,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -860,22 +841,27 @@ fn test_artwork_with(
     diagnostics: &resonance_content::diagnostics::Diagnostics,
 ) -> Result<(Artwork, Assets<Surface>, App)> {
     let root = fixtures::asset_root();
-    let mut document: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join(document_path))?)?;
-    edit(&mut document);
     let mut snapshot = resonance_content::library::Library::open(&root, &[])?.snapshot();
+    let mut document: serde_json::Value =
+        snapshot.json(document_path, resonance_content::preparation::JSON_LIMIT)?;
+    edit(&mut document);
     resonance_content::preparation::gameplay(&mut snapshot, diagnostics, &|| false)?;
-    let files =
-        resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics.clone())?;
+    resonance_content::preparation::ui(&mut snapshot, diagnostics, &|| false)?;
     let art = resonance_content::battle_ui::document::read(
         &mut |path| {
             if path == document_path {
                 return Ok(serde_json::to_vec(&document)?.into());
             }
-            Ok(std::fs::read(root.join(path))?.into())
+            snapshot.read(path, resonance_content::preparation::ASSET_LIMIT)
         },
         diagnostics,
     )?;
+    snapshot.read(
+        &art.font.texture,
+        resonance_content::preparation::ASSET_LIMIT,
+    )?;
+    let files =
+        resonance_content::prepared::Files::from_snapshot(snapshot, || false, diagnostics.clone())?;
     let session = std::sync::Arc::new(resonance_content::session::SessionData::load(&files)?);
     let menu_data = session
         .rules
@@ -883,6 +869,7 @@ fn test_artwork_with(
         .context("missing session rules")?
         .clone();
     let mut app = App::new();
+    crate::texture::decoded_files(&mut app, &root);
     app.add_plugins((
         MinimalPlugins,
         AssetPlugin {
@@ -915,7 +902,7 @@ fn test_artwork_with(
                 .contains(&path),
                 "HUD reread a prepared descriptor"
             );
-            Ok(std::fs::read(root.join(path))?)
+            Ok(files.read(path)?.to_vec())
         },
         &[],
         false,
@@ -950,24 +937,42 @@ fn required_fonts_decode_before_hud_activation() -> Result<()> {
     let root = fixtures::asset_root();
     let read = |path: &str| Ok(std::fs::read(root.join(path))?);
     for mut font in [fixtures::battle_font()?, fixtures::dialogue_font()?] {
-        ui_image(&font.texture, [font.width, font.height], false, &read)?;
+        ui_image(
+            &font.texture,
+            [font.width, font.height],
+            false,
+            bevy::image::CompressedImageFormats::NONE,
+            &read,
+        )?;
         assert!(
             ui_image(
                 &font.texture,
                 [font.width, font.height],
                 false,
+                bevy::image::CompressedImageFormats::NONE,
                 &|_| anyhow::bail!("missing font")
             )
             .is_err()
         );
         assert!(
-            ui_image(&font.texture, [font.width, font.height], false, &|_| Ok(
-                b"invalid image".to_vec()
-            ))
+            ui_image(
+                &font.texture,
+                [font.width, font.height],
+                false,
+                bevy::image::CompressedImageFormats::NONE,
+                &|_| Ok(b"invalid image".to_vec())
+            )
             .is_err()
         );
         font.width += 1;
-        assert!(ui_image(&font.texture, [font.width, font.height], false, &read).is_err());
+        // Authored coordinates may differ from the stored image resolution.
+        ui_image(
+            &font.texture,
+            [font.width, font.height],
+            false,
+            bevy::image::CompressedImageFormats::NONE,
+            &read,
+        )?;
     }
     let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
     assert!(
@@ -984,7 +989,7 @@ fn required_fonts_decode_before_hud_activation() -> Result<()> {
             |font| font["width"] = serde_json::json!(font["width"].as_u64().unwrap() + 1),
             &diagnostics
         )
-        .is_err()
+        .is_ok()
     );
     for character in ['X', 'V'] {
         let missing_glyph = test_artwork_with(

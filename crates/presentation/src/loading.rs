@@ -42,6 +42,8 @@ impl Drop for LoadTicket {
 
 #[derive(Resource, Clone)]
 pub(super) struct Resident {
+    /// Keep startup resolution alive independently of the current scene's bytes.
+    library: Option<resonance_content::library::Library>,
     pub diagnostics: resonance_content::diagnostics::Diagnostics,
     pub files: Arc<RwLock<Option<Arc<Files>>>>,
     cache: Arc<Mutex<Cache>>,
@@ -54,6 +56,7 @@ pub(super) struct Resident {
 impl Default for Resident {
     fn default() -> Self {
         Self {
+            library: None,
             diagnostics: resonance_content::diagnostics::Diagnostics::new(true),
             files: Default::default(),
             cache: Default::default(),
@@ -68,6 +71,9 @@ impl Resident {
     /// Preparations share the application's library and enabled mod layers.
     /// Restart opens a new library and drops all resident preparations.
     pub fn library(&self, root: &Path) -> Result<resonance_content::library::Library> {
+        if let Some(library) = &self.library {
+            return Ok(library.clone());
+        }
         match self
             .files
             .read()
@@ -201,9 +207,16 @@ fn asset_error(error: anyhow::Error) -> AssetReaderError {
     AssetReaderError::Io(std::io::Error::other(format!("{error:#}")).into())
 }
 
-pub(super) fn install(app: &mut App, root: &Path) {
-    super::model_preview::register(app);
+pub(super) fn install(
+    app: &mut App,
+    root: &Path,
+    library: Option<&resonance_content::library::Library>,
+) {
+    let supported = super::texture::Supported::default();
+    app.insert_resource(supported.clone());
+    super::model_preview::register(app, supported.clone());
     let resident = Resident {
+        library: library.cloned(),
         diagnostics: app
             .world()
             .get_resource::<super::diagnostics::Diagnostics>()
@@ -216,9 +229,12 @@ pub(super) fn install(app: &mut App, root: &Path) {
     app.register_asset_source(
         AssetSourceId::Default,
         AssetSourceBuilder::new(move || {
-            Box::new(ReaderAdapter {
-                resident: resident.clone(),
-                fallback: AssetSource::get_default_reader(root.clone())(),
+            Box::new(super::texture::Textures {
+                reader: Box::new(ReaderAdapter {
+                    resident: resident.clone(),
+                    fallback: AssetSource::get_default_reader(root.clone())(),
+                }),
+                supported: supported.clone(),
             })
         }),
     );

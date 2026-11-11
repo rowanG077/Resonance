@@ -15,7 +15,7 @@ readers in the target design. Tests use the same named layout as the application
 
 ## Finding a resource
 
-A library starts with `content.json`: `{"version":30,"game":"tales-of-symphonia"}`.
+A library starts with `content.json`: `{"version":105,"game":"tales-of-symphonia"}`.
 It identifies the cooked format and semantic game, with no source platform,
 product code, revision, file inventory or checksums. A future Steam importer
 targets the same layout and resource contracts; actual gameplay determines save
@@ -309,12 +309,24 @@ contain game IDs and paths, not animation curves. The
 [animation authoring guide](motion-format.md) gives the tested editor settings.
 It is also included as `motion-format.md` beside the cooked library's README.
 
-Textures use KTX2. Replace the referenced KTX2 to change its pixels, color space
+Textures use BC7 in KTX2. Replace the referenced KTX2 to change its pixels, color space
 or mip levels. Sampling, palette selection and material bindings remain with the
 owning scene or material. Authored mip pixels stay together in one file and are
-preserved exactly by cooking. Export replacement artwork to KTX2, preserving
-intentional mip artwork. No texture JSON, loose mip files or checksums need
-updating.
+retained by cooking. Export replacement artwork to KTX2, preserving
+intentional mip artwork. UI image references declare their coordinate size in
+the owning JSON, for example `{"image":"ui/menu/icons.ktx2","size":[128,128]}`.
+Sprite rectangles and draw sizes use those coordinates; the selected KTX2 header
+supplies only the physical pixel dimensions. A 512×512 replacement therefore
+keeps the same layout and samples four times as many pixels along each axis.
+Change `size` when you intend to change the coordinate system or draw size.
+Fonts retain their existing `width`/`height` and input atlases their existing
+`size`. Overlay banks declare `size` beside their `images` list. 3D textures use
+normalized UVs and need no coordinate size.
+
+Texture replacement reads only the selected file. It never opens a lower layer
+for dimensions or adds layout metadata to the image bytes. Mod authors can
+replace a KTX2 without adding metadata or editing JSON to increase resolution.
+Cooked layout version 105 requires a fresh import to populate these declarations.
 
 Authored SymphoniaScript modules live under `scripts/`. Original scenarios use
 `.ssb` VM bytecode with a lossless assembly editing workflow:

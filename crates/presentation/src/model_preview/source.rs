@@ -19,14 +19,19 @@ pub(super) struct Source {
     pub files: Arc<RwLock<Option<Arc<resonance_content::prepared::Files>>>>,
 }
 
-pub fn register(app: &mut App) {
+pub fn register(app: &mut App, supported: crate::texture::Supported) {
     let source = Source {
         files: Default::default(),
     };
     app.insert_resource(source.clone());
     app.register_asset_source(
         "preview",
-        AssetSourceBuilder::new(move || Box::new(source.clone())),
+        AssetSourceBuilder::new(move || {
+            Box::new(crate::texture::Textures {
+                reader: Box::new(source.clone()),
+                supported: supported.clone(),
+            })
+        }),
     );
 }
 impl Source {

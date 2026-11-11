@@ -14,3 +14,14 @@ structured-zstd = { version = "=0.2.6", default-features = false, features = ["k
 hound = "3.5"
 image.workspace = true
 ruzstd = "=0.9.1"
+bcdec_rs = "=0.2.1"
+intel_tex_2 = { version = "=0.5.0", optional = true }
+sha2.workspace = true
+
+[features]
+# BC7 cooking links native encoder kernels; the game only decodes.
+encode = ["dep:intel_tex_2"]
+
+[dev-dependencies]
+# Tests cover the encoder too.
+resonance-asset-writer = { path = ".", features = ["encode"] }

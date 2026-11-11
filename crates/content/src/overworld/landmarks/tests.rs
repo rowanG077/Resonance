@@ -81,6 +81,7 @@ fn location_mod_edits_remain_local_and_keep_retained_snapshots() -> Result<()> {
     let original = document();
     let path = "world/landmarks.json";
     std::fs::write(base.join(path), serde_json::to_vec(&original)?)?;
+    std::fs::copy(base.join(path), modified.join(path))?;
     let library = Library::open_paths(&base, &[modified.clone()])?;
     let mut retained = library.snapshot();
     let before: Landmarks = retained.json(path, 1024 * 1024)?;

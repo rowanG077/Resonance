@@ -45,6 +45,8 @@ struct PendingSurface {
     depth_write: bool,
     draw_order: u32,
     textures: [Option<usize>; 2],
+    /// How each stage's coordinates were scaled; animated offsets follow.
+    scales: [[[u32; 2]; 2]; 2],
     texture_actor: i32,
 }
 
@@ -56,6 +58,8 @@ struct SurfaceBinding {
     depth_write: bool,
     draw_order: u32,
     textures: [Option<usize>; 2],
+    /// How each stage's coordinates were scaled; animated offsets follow.
+    scales: [[[u32; 2]; 2]; 2],
     texture_actor: i32,
 }
 
@@ -166,6 +170,11 @@ impl FieldAssets {
                         + material.draw_order % MODEL_DRAW_SPAN,
                     textures: [&material.color, &material.multiply]
                         .map(|binding| binding.as_ref().map(|binding| binding.texture)),
+                    scales: [&material.color, &material.multiply].map(|binding| {
+                        binding
+                            .as_ref()
+                            .map_or(TextureBinding::unscaled(), |binding| binding.scale)
+                    }),
                     texture_actor,
                 });
             }
@@ -393,6 +402,7 @@ pub(super) fn prepare_field(
                 depth_write: p.depth_write,
                 draw_order: p.draw_order,
                 textures: p.textures,
+                scales: p.scales,
                 texture_actor: p.texture_actor,
             });
         }
@@ -464,6 +474,10 @@ pub(super) fn update_materials(
                     offset
                 })
         });
+        let [color, multiply] =
+            [(color, binding.scales[0]), (multiply, binding.scales[1])].map(|(offset, scale)| {
+                [0, 1].map(|axis| offset[axis] * scale[axis][0] as f32 / scale[axis][1] as f32)
+            });
         let uv_offsets = Vec4::new(color[0], color[1], multiply[0], multiply[1]);
         if surfaces
             .get(&binding.surface)

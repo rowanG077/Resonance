@@ -7,18 +7,18 @@ use std::fs;
 
 #[test]
 fn startup_defaults_and_invalid_intervals_are_explicit() -> Result<()> {
-    let value = serde_json::json!([{"image":"logo.ktx2","fade_out_at":180}]);
+    let value = serde_json::json!([{"image":"logo.ktx2","size":[7,5],"fade_out_at":180}]);
     let sequence: Sequence = serde_json::from_value(value.clone())?;
     assert_eq!(sequence.duration()?, 244);
     assert_eq!(serde_json::to_value(&sequence)?, value);
     assert_eq!(Sequence::default().duration()?, 0);
     for changed in [
-        serde_json::json!([{"image":"../escape.ktx2","fade_out_at":180}]),
-        serde_json::json!([{"image":"logo.ktx2","fade_out_at":180,"fade_ticks":0}]),
-        serde_json::json!([{"image":"logo.ktx2","fade_out_at":64}]),
-        serde_json::json!([{"image":"logo.ktx2","fade_out_at":180,"skip_after":64}]),
-        serde_json::json!([{"image":"logo.ktx2","fade_out_at":180,"skip_after":181}]),
-        serde_json::json!([{"image":"logo.ktx2","fade_out_at":4294967295u32}]),
+        serde_json::json!([{"image":"../escape.ktx2","size":[7,5],"fade_out_at":180}]),
+        serde_json::json!([{"image":"logo.ktx2","size":[7,5],"fade_out_at":180,"fade_ticks":0}]),
+        serde_json::json!([{"image":"logo.ktx2","size":[7,5],"fade_out_at":64}]),
+        serde_json::json!([{"image":"logo.ktx2","size":[7,5],"fade_out_at":180,"skip_after":64}]),
+        serde_json::json!([{"image":"logo.ktx2","size":[7,5],"fade_out_at":180,"skip_after":181}]),
+        serde_json::json!([{"image":"logo.ktx2","size":[7,5],"fade_out_at":4294967295u32}]),
     ] {
         assert!(
             serde_json::from_value::<Sequence>(changed)?
@@ -31,7 +31,7 @@ fn startup_defaults_and_invalid_intervals_are_explicit() -> Result<()> {
     );
     assert!(
         serde_json::from_value::<Sequence>(serde_json::json!([
-        {"image":"logo.ktx2","fade_out_at":180,"width":640}]))
+        {"image":"logo.ktx2","size":[7,5],"fade_out_at":180,"width":640}]))
         .is_err()
     );
     Ok(())
@@ -64,8 +64,8 @@ fn startup_capture_follows_mod_order_and_can_remove_all_logos() -> Result<()> {
         })?,
     )?;
     let original = serde_json::json!([
-        {"image":"first.ktx2","fade_out_at":180},
-        {"image":"second.ktx2","fade_out_at":120}]);
+        {"image":"first.ktx2","size":[7,5],"fade_out_at":180},
+        {"image":"second.ktx2","size":[7,5],"fade_out_at":120}]);
     fs::write(root.join(startup::BOOT), serde_json::to_vec(&original)?)?;
     fs::write(root.join("first.ktx2"), b"first")?;
     fs::write(root.join("second.ktx2"), b"second")?;
@@ -74,7 +74,7 @@ fn startup_capture_follows_mod_order_and_can_remove_all_logos() -> Result<()> {
     let (_, before) = startup::capture(&mut retained, true, &|| false)?;
     assert_eq!(before.unwrap().duration()?, 428);
     let edited = serde_json::json!([
-        {"image":"second.ktx2","fade_out_at":20,"fade_ticks":4,"skip_after":10,"background":[255,255,255]}]);
+        {"image":"second.ktx2","size":[7,5],"fade_out_at":20,"fade_ticks":4,"skip_after":10,"background":[255,255,255]}]);
     fs::write(
         modification.join(startup::BOOT),
         serde_json::to_vec(&edited)?,

@@ -14,7 +14,7 @@ use std::{
 mod stream;
 pub use stream::StreamReader;
 
-pub const VERSION: u32 = 102;
+pub const VERSION: u32 = 105;
 /// The game contract, independent of the release used to import its content.
 pub const GAME: &str = "tales-of-symphonia";
 pub const DESCRIPTOR: &str = "content.json";
@@ -216,12 +216,129 @@ impl Layer {
     }
 }
 
-/// Base plus enabled mods in ascending priority. Construction does no recursive
-/// library scan; resources and mapping scopes are opened only when requested.
+#[derive(Debug)]
+struct IndexedFile {
+    physical: PathBuf,
+    overrides: Vec<Override>,
+    /// Mapping IDs are merged once during startup, shared by all preparations.
+    mapping: Option<Arc<[u8]>>,
+}
+
+#[derive(Debug, Default)]
+struct Index {
+    files: BTreeMap<String, IndexedFile>,
+    directories: BTreeSet<String>,
+}
+
+impl Index {
+    fn build(layers: &[Layer]) -> Result<Self> {
+        let mut index = Self::default();
+        let mut spelling = BTreeMap::new();
+        let mut owners = BTreeMap::new();
+        let mut mappings: BTreeMap<
+            String,
+            (BTreeMap<u32, serde_json::Value>, BTreeMap<u32, String>),
+        > = BTreeMap::new();
+        for layer in layers {
+            let mut pending = vec![String::new()];
+            while let Some(parent) = pending.pop() {
+                for entry in fs::read_dir(layer.root.join(&parent))? {
+                    let entry = entry?;
+                    let name = entry
+                        .file_name()
+                        .into_string()
+                        .map_err(|_| anyhow::anyhow!("non-UTF-8 content name in {parent}"))?;
+                    let path = if parent.is_empty() {
+                        name
+                    } else {
+                        format!("{parent}/{name}")
+                    };
+                    validate_path(&path)?;
+                    if let Some(previous) = spelling.insert(path.to_lowercase(), path.clone()) {
+                        ensure!(
+                            previous == path,
+                            "case-conflicting content paths: {previous} and {path}"
+                        );
+                    }
+                    let physical = layer
+                        .entry(&path)?
+                        .with_context(|| format!("content disappeared during startup: {path}"))?;
+                    if physical.is_dir() {
+                        ensure!(
+                            !entry.file_type()?.is_symlink(),
+                            "directory aliases are unsupported in content namespaces: {path}"
+                        );
+                        ensure!(
+                            !index.files.contains_key(&path),
+                            "content path is both file and directory: {path}"
+                        );
+                        index.directories.insert(path.clone());
+                        pending.push(path);
+                        continue;
+                    }
+                    ensure!(physical.is_file(), "content resource is not a file: {path}");
+                    ensure!(
+                        !index.directories.contains(&path),
+                        "content path is both file and directory: {path}"
+                    );
+                    let selected = index
+                        .files
+                        .entry(path.clone())
+                        .or_insert_with(|| IndexedFile {
+                            physical: physical.clone(),
+                            overrides: Vec::new(),
+                            mapping: None,
+                        });
+                    if is_mapping(&path) {
+                        let bytes = read_limited(&physical, MAX_MAPPING_BYTES)?;
+                        let values: MappingValues = serde_json::from_slice(&bytes)
+                            .with_context(|| format!("decode {path} in {}", layer.name))?;
+                        let (merged, id_owners) = mappings.entry(path.clone()).or_default();
+                        for (id, target) in values.0 {
+                            if let serde_json::Value::String(target) = &target {
+                                validate_path(target)
+                                    .with_context(|| format!("decode {path} in {}", layer.name))?;
+                            }
+                            if let Some(previous) = id_owners.insert(id, layer.name.clone()) {
+                                selected.overrides.push(Override {
+                                    path: path.clone(),
+                                    id: Some(id),
+                                    previous,
+                                    replacement: layer.name.clone(),
+                                });
+                            }
+                            merged.insert(id, target);
+                        }
+                    } else if let Some(previous) = owners.insert(path.clone(), layer.name.clone()) {
+                        selected.overrides.push(Override {
+                            path: path.clone(),
+                            id: None,
+                            previous,
+                            replacement: layer.name.clone(),
+                        });
+                    }
+                    selected.physical = physical;
+                }
+            }
+        }
+        for (path, (values, _)) in mappings {
+            let bytes = serde_json::to_vec_pretty(&MappingValues(values))?;
+            ensure!(
+                bytes.len() <= MAX_MAPPING_BYTES,
+                "merged mapping exceeds size limit: {path}"
+            );
+            index.files.get_mut(&path).unwrap().mapping = Some(bytes.into());
+        }
+        Ok(index)
+    }
+}
+
+/// Immutable startup selection shared by every preparation. File bytes remain
+/// lazy and are pinned per preparation; additions/removals require a restart.
 #[derive(Debug, Clone)]
 pub struct Library {
     pub descriptor: Descriptor,
-    layers: Vec<Layer>,
+    index: Arc<Index>,
 }
 
 impl Library {
@@ -271,7 +388,8 @@ impl Library {
             );
             layers.push(layer);
         }
-        Ok(Self { descriptor, layers })
+        let index = Arc::new(Index::build(&layers)?);
+        Ok(Self { descriptor, index })
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -331,59 +449,23 @@ impl Snapshot {
         }
     }
 
-    /// Discover an authored namespace such as scripts/ from the effective view.
-    /// File additions in mods participate without another hand-maintained index.
-    /// The first enumeration is retained for this preparation, like file bytes.
+    /// Enumerate the startup index without accessing the filesystem.
     pub fn files_under(&mut self, directory: &str) -> Result<&BTreeSet<String>> {
         validate_path(directory)?;
+        ensure!(
+            !self.library.index.files.contains_key(directory),
+            "content namespace is not a directory: {directory}"
+        );
         if !self.directories.contains_key(directory) {
-            let mut files = BTreeSet::new();
-            let mut spelling = BTreeMap::new();
-            for layer in &self.library.layers {
-                let Some(root) = layer.entry(directory)? else {
-                    continue;
-                };
-                ensure!(
-                    root.is_dir(),
-                    "content namespace is not a directory: {directory} in {}",
-                    layer.name
-                );
-                ensure!(
-                    !fs::symlink_metadata(layer.root.join(directory))?.is_symlink(),
-                    "directory aliases are unsupported in content namespaces: {directory}"
-                );
-                let mut pending = vec![directory.to_owned()];
-                while let Some(parent) = pending.pop() {
-                    for entry in fs::read_dir(layer.root.join(&parent))? {
-                        let entry = entry?;
-                        let name = entry
-                            .file_name()
-                            .into_string()
-                            .map_err(|_| anyhow::anyhow!("non-UTF-8 content name in {parent}"))?;
-                        let path = format!("{parent}/{name}");
-                        validate_path(&path)?;
-                        if let Some(previous) = spelling.insert(path.to_lowercase(), path.clone()) {
-                            ensure!(
-                                previous == path,
-                                "case-conflicting content paths: {previous} and {path}"
-                            );
-                        }
-                        let physical = layer.entry(&path)?.with_context(|| {
-                            format!("content disappeared during discovery: {path}")
-                        })?;
-                        if physical.is_dir() {
-                            ensure!(
-                                !entry.file_type()?.is_symlink(),
-                                "directory aliases are unsupported in content namespaces: {path}"
-                            );
-                            pending.push(path);
-                        } else {
-                            ensure!(physical.is_file(), "content resource is not a file: {path}");
-                            files.insert(path);
-                        }
-                    }
-                }
-            }
+            let prefix = format!("{directory}/");
+            let files = self
+                .library
+                .index
+                .files
+                .range(prefix.clone()..)
+                .take_while(|(path, _)| path.starts_with(&prefix))
+                .map(|(path, _)| path.clone())
+                .collect();
             self.directories.insert(directory.into(), files);
         }
         Ok(&self.directories[directory])
@@ -414,23 +496,32 @@ impl Snapshot {
         );
         if !self.bytes.contains_key(path) {
             let (bytes, overrides) = if is_mapping(path) {
-                let (mappings, overrides) = self.merge_mappings(path)?;
-                let bytes = serde_json::to_vec_pretty(&mappings)?;
+                let selected = self
+                    .library
+                    .index
+                    .files
+                    .get(path)
+                    .with_context(|| format!("missing content mapping {path}"))?;
+                let bytes = selected.mapping.as_ref().unwrap().clone();
+                let overrides = selected.overrides.clone();
                 ensure!(
                     bytes.len() <= limit,
                     "content resource exceeds {limit} bytes: {path}"
                 );
                 (bytes, overrides)
             } else if path == DESCRIPTOR {
-                (serde_json::to_vec_pretty(&self.library.descriptor)?, vec![])
+                (
+                    serde_json::to_vec_pretty(&self.library.descriptor)?.into(),
+                    vec![],
+                )
             } else {
                 let (physical, overrides) = self.select(path)?;
                 let bytes = read_limited(&physical, limit)
                     .with_context(|| format!("read content {path}"))?;
                 self.disk_bytes += bytes.len() as u64;
-                (bytes, overrides)
+                (bytes.into(), overrides)
             };
-            self.bytes.insert(path.into(), bytes.into());
+            self.bytes.insert(path.into(), bytes);
             self.overrides.extend(overrides);
         }
         let captured = &self.bytes[path];
@@ -441,8 +532,8 @@ impl Snapshot {
         Ok(captured.clone())
     }
 
-    /// Capture an optional root without enumerating its entire resource tree.
-    /// Absence is retained too: later additions require a new preparation.
+    /// Capture an optional resource from the startup selection. A new
+    /// preparation refreshes selected bytes; additions require reopening the library.
     pub fn read_optional(&mut self, path: &str, limit: usize) -> Result<Option<Arc<[u8]>>> {
         validate_path(path)?;
         if self.missing.contains(path) {
@@ -451,20 +542,11 @@ impl Snapshot {
         if self.bytes.contains_key(path) || path == DESCRIPTOR {
             return self.read(path, limit).map(Some);
         }
-        let Some((physical, overrides)) = self.select_optional(path)? else {
+        if self.select_optional(path)?.is_none() {
             self.missing.insert(path.into());
             return Ok(None);
-        };
-        if is_mapping(path) {
-            return self.read(path, limit).map(Some);
         }
-        let bytes =
-            read_limited(&physical, limit).with_context(|| format!("read content {path}"))?;
-        self.disk_bytes += bytes.len() as u64;
-        let bytes: Arc<[u8]> = bytes.into();
-        self.bytes.insert(path.into(), bytes.clone());
-        self.overrides.extend(overrides);
-        Ok(Some(bytes))
+        self.read(path, limit).map(Some)
     }
 
     pub fn json<T: de::DeserializeOwned>(&mut self, path: &str, limit: usize) -> Result<T> {
@@ -533,56 +615,16 @@ impl Snapshot {
     }
 
     fn select_optional(&self, path: &str) -> Result<Option<(PathBuf, Vec<Override>)>> {
-        let mut selected: Option<(PathBuf, &str)> = None;
-        let mut overrides = Vec::new();
-        for layer in &self.library.layers {
-            if let Some(physical) = layer.path(path)? {
-                if let Some((_, previous)) = &selected {
-                    overrides.push(Override {
-                        path: path.into(),
-                        id: None,
-                        previous: (*previous).into(),
-                        replacement: layer.name.clone(),
-                    });
-                }
-                selected = Some((physical, &layer.name));
-            }
-        }
-        Ok(selected.map(|(path, _)| (path, overrides)))
-    }
-
-    fn merge_mappings(&mut self, path: &str) -> Result<(MappingValues, Vec<Override>)> {
-        let mut merged = BTreeMap::new();
-        let mut owners: BTreeMap<u32, &str> = BTreeMap::new();
-        let mut overrides = Vec::new();
-        let mut found = false;
-        for layer in &self.library.layers {
-            let Some(physical) = layer.path(path)? else {
-                continue;
-            };
-            let bytes = read_limited(&physical, MAX_MAPPING_BYTES)?;
-            self.disk_bytes += bytes.len() as u64;
-            let mappings: MappingValues = serde_json::from_slice(&bytes)
-                .with_context(|| format!("decode {path} in {}", layer.name))?;
-            found = true;
-            for (id, target) in mappings.0 {
-                if let serde_json::Value::String(target) = &target {
-                    validate_path(target)
-                        .with_context(|| format!("decode {path} in {}", layer.name))?;
-                }
-                if let Some(previous) = owners.insert(id, &layer.name) {
-                    overrides.push(Override {
-                        path: path.into(),
-                        id: Some(id),
-                        previous: previous.into(),
-                        replacement: layer.name.clone(),
-                    });
-                }
-                merged.insert(id, target);
-            }
-        }
-        ensure!(found, "missing content mapping {path}");
-        Ok((MappingValues(merged), overrides))
+        ensure!(
+            !self.library.index.directories.contains(path),
+            "content resource is not a file: {path}"
+        );
+        Ok(self
+            .library
+            .index
+            .files
+            .get(path)
+            .map(|selected| (selected.physical.clone(), selected.overrides.clone())))
     }
 }
 

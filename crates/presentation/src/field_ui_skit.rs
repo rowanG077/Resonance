@@ -1,20 +1,131 @@
-//! Persistent portrait canvases and bitmap text for the separate skit scene.
+//! GPU-composited portrait canvases and bitmap text for the separate skit scene.
 use super::*;
 use anyhow::ensure;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::{
+    Render, RenderApp, RenderSystems,
+    extract_component::{ExtractComponent, ExtractComponentPlugin},
+    render_asset::RenderAssets,
+    render_resource::{Extent3d, Origin3d, TextureDimension, TextureFormat},
+    renderer::{RenderDevice, RenderQueue},
+    texture::GpuImage,
+};
 use resonance_content::skit::{MAX_PORTRAITS, PortraitAsset, PortraitTile, SkitCatalog, TILE_SIZE};
+use std::sync::Arc;
+
+pub(super) fn install(app: &mut App) {
+    app.add_plugins(ExtractComponentPlugin::<Composition>::default());
+    if let Some(render) = app.get_sub_app_mut(RenderApp) {
+        render.add_systems(Render, composite.in_set(RenderSystems::PrepareResources));
+    }
+}
+
+/// The block map one portrait canvas shows. Tiles are copied between textures
+/// on the GPU, so compressed artwork is combined without decoding or filtering.
+#[derive(Component, Clone, ExtractComponent)]
+#[extract_app(RenderApp)]
+struct Composition {
+    target: AssetId<Image>,
+    /// Distinguishes this block map from the one last copied into the canvas.
+    generation: u64,
+    size: [u32; 2],
+    format: TextureFormat,
+    sources: Arc<[AssetId<Image>]>,
+    runs: Arc<[Run]>,
+}
+
+/// Adjacent tiles of one source row, in stored pixels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Run {
+    image: usize,
+    from: [u32; 2],
+    to: [u32; 2],
+    size: [u32; 2],
+}
+
+fn composite(
+    compositions: Query<&Composition>,
+    images: Res<RenderAssets<GpuImage>>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    // The block map last copied into each canvas, and the texture it went to:
+    // a canvas recreated by the renderer is painted again.
+    mut copied: Local<
+        bevy::platform::collections::HashMap<
+            AssetId<Image>,
+            (u64, bevy::render::render_resource::TextureId),
+        >,
+    >,
+) {
+    copied.retain(|target, _| compositions.iter().any(|c| c.target == *target));
+    let mut encoder = None;
+    for composition in &compositions {
+        let current = images
+            .get(composition.target)
+            .map(|image| (composition.generation, image.texture.id()));
+        if current.is_some() && copied.get(&composition.target) == current.as_ref() {
+            continue;
+        }
+        // Wait until the canvas and every source are the textures this block
+        // map was planned for; an image may be uploaded a frame later.
+        let matches = |image: &GpuImage, size: Option<[u32; 2]>| {
+            let descriptor = &image.texture_descriptor;
+            descriptor.format == composition.format
+                && size.is_none_or(|size| [descriptor.size.width, descriptor.size.height] == size)
+        };
+        let Some(target) = images
+            .get(composition.target)
+            .filter(|image| matches(image, Some(composition.size)))
+        else {
+            continue;
+        };
+        let Some(sources) = composition
+            .sources
+            .iter()
+            .map(|source| images.get(*source).filter(|image| matches(image, None)))
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let encoder =
+            encoder.get_or_insert_with(|| device.create_command_encoder(&Default::default()));
+        let origin = |[x, y]: [u32; 2]| Origin3d { x, y, z: 0 };
+        for run in composition.runs.iter() {
+            let mut from = sources[run.image].texture.as_image_copy();
+            from.origin = origin(run.from);
+            let mut to = target.texture.as_image_copy();
+            to.origin = origin(run.to);
+            encoder.copy_texture_to_texture(
+                from,
+                to,
+                Extent3d {
+                    width: run.size[0],
+                    height: run.size[1],
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        copied.insert(
+            composition.target,
+            (composition.generation, target.texture.id()),
+        );
+    }
+    if let Some(encoder) = encoder {
+        queue.submit([encoder.finish()]);
+    }
+}
 
 struct Canvas {
     image: Handle<Image>,
     surface: Handle<Surface>,
+    layout: Option<([u32; 2], TextureFormat)>,
     painted: Option<(u32, Vec<PortraitTile>)>,
 }
 
 pub(super) struct Artwork {
-    catalog: std::sync::Arc<SkitCatalog>,
+    catalog: Arc<SkitCatalog>,
     images: BTreeMap<u32, Vec<Handle<Image>>>,
     canvases: Vec<Canvas>,
-    canvas_size: [u32; 2],
+    generation: u64,
     background: Handle<Surface>,
     font: Handle<Surface>,
     pub layers: Vec<Layer>,
@@ -22,7 +133,7 @@ pub(super) struct Artwork {
 }
 impl Artwork {
     pub fn load(
-        catalog: std::sync::Arc<SkitCatalog>,
+        catalog: Arc<SkitCatalog>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         font: &Handle<Surface>,
@@ -41,39 +152,19 @@ impl Artwork {
                             .load_builder()
                             .with_settings(|settings: &mut ImageLoaderSettings| {
                                 settings.is_srgb = false;
-                                settings.asset_usage = RenderAssetUsages::MAIN_WORLD;
+                                settings.asset_usage = RenderAssetUsages::RENDER_WORLD;
                             })
                             .load(source.texture.clone())
                     })
                     .collect(),
             );
         }
-        // Allocate all slot textures during field loading. Portrait changes never
-        // resize an image or introduce another material pipeline during playback.
-        let canvas_size = std::array::from_fn(|axis| {
-            catalog
-                .portraits
-                .values()
-                .map(|asset| asset.size[axis])
-                .max()
-                .unwrap_or(1)
-                + 2
-        });
+        // Each slot keeps one canvas and material. A canvas takes the size and
+        // format of the portrait it shows, so its sampler clamps at the portrait's
+        // own edges and no other material pipeline appears during playback.
         let mut canvases = Vec::new();
         for _ in 0..MAX_PORTRAITS {
-            let mut image = Image::new(
-                Extent3d {
-                    width: canvas_size[0],
-                    height: canvas_size[1],
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                vec![0; (canvas_size[0] * canvas_size[1] * 4) as usize],
-                TextureFormat::Rgba8Unorm,
-                RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-            );
-            image.sampler = ImageSampler::linear();
-            let image = image_assets.add(image);
+            let image = image_assets.add(canvas_image([4; 2], TextureFormat::Rgba8Unorm));
             let surface = materials.add(Surface {
                 source: image.clone(),
                 sampling: image.clone(),
@@ -88,6 +179,7 @@ impl Artwork {
             canvases.push(Canvas {
                 image,
                 surface,
+                layout: None,
                 painted: None,
             });
         }
@@ -95,7 +187,7 @@ impl Artwork {
             catalog,
             images,
             canvases,
-            canvas_size,
+            generation: 0,
             background: font.clone(),
             font: font.clone(),
             layers: Vec::new(),
@@ -127,6 +219,10 @@ impl Artwork {
         if !self.layers.is_empty() {
             return;
         }
+        // New layers carry no block map yet.
+        for canvas in &mut self.canvases {
+            canvas.painted = None;
+        }
         let mut allocate = |material: Handle<Surface>, depth| {
             let mut batch = Batch::default();
             batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
@@ -155,6 +251,7 @@ impl Artwork {
             self.warm.push(allocate(canvas.surface.clone(), 4.));
         }
     }
+    #[allow(clippy::too_many_arguments)] // Scene, layout and the drawing resources it updates.
     pub fn render(
         &mut self,
         playback: Option<&resonance_game::field::SkitPlayback>,
@@ -163,6 +260,7 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
+        materials: &mut Assets<Surface>,
     ) -> Result<()> {
         let Some(playback) = playback else {
             for layer in &mut self.layers {
@@ -242,15 +340,36 @@ impl Artwork {
             if canvas.painted.as_ref().is_none_or(|(resource, tiles)| {
                 *resource != portrait.resource || *tiles != portrait.tiles
             }) {
-                let sources = self.images[&portrait.resource]
-                    .iter()
-                    .map(|source| images.get(source).context("portrait image not loaded"))
-                    .collect::<Result<Vec<_>>>()?;
-                let pixels = compose(asset, &portrait.tiles, &sources, self.canvas_size)?;
-                images
-                    .get_mut(&canvas.image)
-                    .context("portrait canvas missing")?
-                    .data = Some(pixels);
+                let sources = &self.images[&portrait.resource];
+                let format = source_format(asset, sources, images)?;
+                let size = std::array::from_fn(|axis| asset.size[axis] * asset.scale[axis]);
+                let runs = tile_runs(asset, &portrait.tiles, format)?;
+                if canvas.layout != Some((size, format)) {
+                    // A new image, not a resized one: the material can then
+                    // never keep the previous texture bound.
+                    canvas.image = images.add(canvas_image(size, format));
+                    let surface = &mut *materials
+                        .get_mut(&canvas.surface)
+                        .context("portrait material missing")?;
+                    for image in [
+                        &mut surface.source,
+                        &mut surface.sampling,
+                        &mut surface.frame_mask,
+                        &mut surface.color_mask,
+                    ] {
+                        *image = canvas.image.clone();
+                    }
+                    canvas.layout = Some((size, format));
+                }
+                self.generation += 1;
+                commands.entity(layer.entity).insert(Composition {
+                    target: canvas.image.id(),
+                    generation: self.generation,
+                    size,
+                    format,
+                    sources: sources.iter().map(Handle::id).collect(),
+                    runs: runs.into(),
+                });
                 canvas.painted = Some((portrait.resource, portrait.tiles.clone()));
             }
             let [x, y] = portrait.position;
@@ -260,7 +379,7 @@ impl Artwork {
             color[3] = portrait.opacity;
             batch.quad(
                 [x - w / 2., y - h / 2., x + w / 2., y + h / 2.],
-                [1., 1., 1. + asset.size[0] as f32, 1. + asset.size[1] as f32],
+                [0., 0., 1., 1.],
                 color,
             );
             let (sin, cos) = portrait.angle.to_radians().sin_cos();
@@ -270,89 +389,116 @@ impl Artwork {
                 p[0] = x - 320. + dx * cos + dy * sin;
                 p[1] = 240. - y - dx * sin + dy * cos;
             }
-            layer.update_mesh(batch, self.canvas_size, meshes)?;
+            layer.update_mesh(batch, [1, 1], meshes)?;
             layer.show(true, commands);
         }
         Ok(())
     }
 }
-/// Reconstruct the persistent block map before filtering. Drawing patches as
-/// separate alpha-blended quads would change transparent pixels and their edges.
-fn compose(
+
+fn canvas_image(size: [u32; 2], format: TextureFormat) -> Image {
+    let mut image = Image::new_uninit(
+        Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        format,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::linear();
+    image
+}
+
+/// Tiles are copied as stored, so a portrait's images share one texture format
+/// and the resolution scale its document was prepared with.
+fn source_format(
+    asset: &PortraitAsset,
+    sources: &[Handle<Image>],
+    images: &Assets<Image>,
+) -> Result<TextureFormat> {
+    ensure!(
+        !sources.is_empty() && sources.len() == asset.images.len(),
+        "invalid portrait images"
+    );
+    let mut format = None;
+    for (handle, source) in sources.iter().zip(&asset.images) {
+        let descriptor = &images
+            .get(handle)
+            .context("portrait image not loaded")?
+            .texture_descriptor;
+        ensure!(
+            [descriptor.size.width, descriptor.size.height]
+                == std::array::from_fn(|axis| source.size[axis] * asset.scale[axis])
+                && *format.get_or_insert(descriptor.format) == descriptor.format,
+            "portrait image {} differs from its portrait's resolution or texture format",
+            source.texture
+        );
+    }
+    Ok(format.unwrap())
+}
+
+/// Plan the persistent block map as texture copies, in stored pixels. Drawing
+/// patches as separate alpha-blended quads would change transparent pixels and
+/// filter across unrelated neighbours in their source images.
+fn tile_runs(
     asset: &PortraitAsset,
     tiles: &[PortraitTile],
-    images: &[&Image],
-    canvas_size: [u32; 2],
-) -> Result<Vec<u8>> {
-    let [width, height] = asset.size;
+    format: TextureFormat,
+) -> Result<Vec<Run>> {
+    let columns = asset.size[0].div_ceil(TILE_SIZE);
     ensure!(
-        width > 0
-            && height > 0
-            && width <= canvas_size[0].saturating_sub(2)
-            && height <= canvas_size[1].saturating_sub(2)
-            && images.len() == asset.images.len(),
-        "invalid portrait canvas"
-    );
-    let sources = images
-        .iter()
-        .zip(&asset.images)
-        .map(|(image, source)| {
-            ensure!(
-                image.texture_descriptor.format == TextureFormat::Rgba8Unorm
-                    && [image.width(), image.height()] == source.size,
-                "portrait source must retain its lossless RGBA pixels"
-            );
-            image
-                .data
-                .as_deref()
-                .and_then(|bytes| bytes.get(..(source.size[0] * source.size[1] * 4) as usize))
-                .context("portrait source pixels are unavailable")
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let columns = width.div_ceil(TILE_SIZE);
-    ensure!(
-        tiles.len() == (columns * height.div_ceil(TILE_SIZE)) as usize,
+        columns > 0 && tiles.len() == (columns * asset.size[1].div_ceil(TILE_SIZE)) as usize,
         "incomplete portrait block map"
     );
-    let stride = canvas_size[0] as usize * 4;
-    let mut pixels = vec![0; stride * canvas_size[1] as usize];
+    let scale = asset.scale;
+    let block = format.block_dimensions();
+    let mut runs = Vec::<Run>::new();
     for (index, tile) in tiles.iter().enumerate() {
-        let source = asset
+        let image = usize::from(tile.image);
+        let [source_width, source_height] = asset
             .images
-            .get(usize::from(tile.image))
-            .context("portrait block image is absent")?;
-        let [source_width, source_height] = source.size;
+            .get(image)
+            .context("portrait block image is absent")?
+            .size;
         let source_columns = source_width.div_ceil(TILE_SIZE);
         let sx = tile.block % source_columns * TILE_SIZE;
         let sy = tile.block / source_columns * TILE_SIZE;
         let dx = index as u32 % columns * TILE_SIZE;
         let dy = index as u32 / columns * TILE_SIZE;
-        let w = TILE_SIZE.min(width - dx);
-        let h = TILE_SIZE.min(height - dy);
+        let w = TILE_SIZE.min(asset.size[0] - dx);
+        let h = TILE_SIZE.min(asset.size[1] - dy);
         ensure!(
             sx + w <= source_width && sy + h <= source_height,
             "portrait block requests uncooked source padding"
         );
-        for row in 0..h {
-            let from = ((sy + row) * source_width + sx) as usize * 4;
-            let to = (dy + row + 1) as usize * stride + (dx + 1) as usize * 4;
-            pixels[to..to + w as usize * 4]
-                .copy_from_slice(&sources[usize::from(tile.image)][from..from + w as usize * 4]);
+        let run = Run {
+            image,
+            from: [sx * scale[0], sy * scale[1]],
+            to: [dx * scale[0], dy * scale[1]],
+            size: [w * scale[0], h * scale[1]],
+        };
+        ensure!(
+            [run.from, run.to, run.size]
+                .iter()
+                .all(|v| v[0] % block.0 == 0 && v[1] % block.1 == 0),
+            "portrait tiles must cover whole texture blocks"
+        );
+        match runs.last_mut() {
+            Some(last)
+                if last.image == image
+                    && last.from[1] == run.from[1]
+                    && last.to[1] == run.to[1]
+                    && last.from[0] + last.size[0] == run.from[0]
+                    && last.to[0] + last.size[0] == run.to[0] =>
+            {
+                last.size[0] += run.size[0];
+            }
+            _ => runs.push(run),
         }
     }
-    // One duplicated edge texel gives each portrait independent linear clamping
-    // even when its preallocated canvas is larger than the portrait.
-    for row in 1..=height as usize {
-        let start = row * stride;
-        pixels.copy_within(start + 4..start + 8, start);
-        let end = start + width as usize * 4;
-        pixels.copy_within(end..end + 4, end + 4);
-    }
-    let row_bytes = (width as usize + 2) * 4;
-    pixels.copy_within(stride..stride + row_bytes, 0);
-    let last = height as usize * stride;
-    pixels.copy_within(last..last + row_bytes, last + stride);
-    Ok(pixels)
+    Ok(runs)
 }
 
 pub(super) fn centered(
@@ -419,112 +565,142 @@ mod tests {
     use resonance_content::skit::PortraitImage;
 
     #[test]
-    #[ignore = "requires cook-all and prepared skits; no graphics or audio device"]
-    fn original_shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
-        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
-            .map(std::path::PathBuf::from)
-            .context("set RESONANCE_TEST_ASSETS to a completed current cook")?;
-        let library = resonance_content::library::Library::open(&root, &[])?;
-        let mut snapshot = library.snapshot();
-        let catalog = resonance_content::skit::document::capture(&mut snapshot, &|| false)?;
-        let files = resonance_content::prepared::Files::from_snapshot(
-            snapshot,
-            || false,
-            resonance_content::diagnostics::Diagnostics::new(true),
-        )?;
-        ensure!(!catalog.portraits.is_empty(), "empty portrait corpus");
-        for asset in catalog.portraits.values() {
-            let images = asset
-                .images
-                .iter()
-                .map(|source| {
-                    crate::texture::decode(
-                        &source.texture,
-                        &bevy::image::ImageLoaderSettings {
-                            is_srgb: false,
-                            sampler: ImageSampler::linear(),
-                            asset_usage: RenderAssetUsages::MAIN_WORLD,
-                            ..default()
-                        },
-                        &|path| Ok(files.read(path)?.to_vec()),
-                    )
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let [width, height] = asset.size;
-            let tiles = (0..width.div_ceil(TILE_SIZE) * height.div_ceil(TILE_SIZE))
-                .map(|block| PortraitTile { image: 0, block })
-                .collect::<Vec<_>>();
-            let canvas = compose(
-                asset,
-                &tiles,
-                &images.iter().collect::<Vec<_>>(),
-                [width + 2, height + 2],
-            )?;
-            let rows = canvas.chunks_exact((width as usize + 2) * 4).skip(1);
-            for (source, row) in images[0]
-                .data
-                .as_ref()
-                .unwrap()
-                .chunks_exact(width as usize * 4)
-                .zip(rows)
-            {
-                assert_eq!(source, &row[4..4 + width as usize * 4]);
-            }
-        }
+    fn block_maps_become_block_aligned_copies_of_adjacent_tiles() -> Result<()> {
+        let image = |size| PortraitImage {
+            texture: String::new(),
+            size,
+        };
+        let asset = PortraitAsset {
+            size: [24, 16],
+            scale: [2; 2],
+            images: vec![image([24, 16]), image([8, 8])],
+        };
+        let tile = |image, block| PortraitTile { image, block };
+        let mut tiles = vec![
+            tile(0, 0),
+            tile(1, 0),
+            tile(0, 2),
+            tile(0, 3),
+            tile(0, 4),
+            tile(0, 5),
+        ];
+        let run = |image, from, to, size| Run {
+            image,
+            from,
+            to,
+            size,
+        };
+        assert_eq!(
+            tile_runs(&asset, &tiles, TextureFormat::Bc7RgbaUnorm)?,
+            [
+                run(0, [0, 0], [0, 0], [16, 16]),
+                run(1, [0, 0], [16, 0], [16, 16]),
+                run(0, [32, 0], [32, 0], [16, 16]),
+                run(0, [0, 16], [0, 16], [48, 16]),
+            ]
+        );
+        // A patch has no second block, and an incomplete map is not drawn.
+        tiles[1].block = 1;
+        assert!(tile_runs(&asset, &tiles, TextureFormat::Bc7RgbaUnorm).is_err());
+        assert!(tile_runs(&asset, &tiles[1..], TextureFormat::Bc7RgbaUnorm).is_err());
+        // Compressed blocks cannot be split.
+        let odd = PortraitAsset {
+            size: [6, 6],
+            scale: [1; 2],
+            images: vec![image([6, 6])],
+        };
+        assert!(tile_runs(&odd, &[tile(0, 0)], TextureFormat::Rgba8Unorm).is_ok());
+        assert!(tile_runs(&odd, &[tile(0, 0)], TextureFormat::Bc7RgbaUnorm).is_err());
         Ok(())
     }
 
     #[test]
-    fn portrait_canvas_replaces_alpha_preserves_blocks_and_clamps_its_edges() -> Result<()> {
-        let image = |width, color: [u8; 4]| {
-            Image::new(
-                Extent3d {
-                    width,
-                    height: TILE_SIZE,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                color.repeat((width * TILE_SIZE) as usize),
-                TextureFormat::Rgba8Unorm,
-                RenderAssetUsages::MAIN_WORLD,
-            )
+    #[ignore = "requires a GPU with BC texture support"]
+    fn compressed_tiles_are_copied_into_the_canvas_on_the_gpu() -> Result<()> {
+        use bevy::render::render_resource::{
+            BufferDescriptor, BufferUsages, MapMode, TexelCopyBufferInfo, TexelCopyBufferLayout,
         };
-        let base = image(16, [10, 20, 30, 255]);
-        let patch = image(8, [80, 70, 60, 0]);
-        let asset = PortraitAsset {
-            size: [16, 8],
-            images: vec![
-                PortraitImage {
-                    texture: "base.ktx2".into(),
-                    size: [16, 8],
-                },
-                PortraitImage {
-                    texture: "patch.ktx2".into(),
-                    size: [8, 8],
-                },
-            ],
-        };
-        let mut tiles = vec![
-            PortraitTile { image: 1, block: 0 },
-            PortraitTile { image: 0, block: 1 },
-        ];
-        let canvas = compose(&asset, &tiles, &[&base, &patch], [24, 12])?;
-        let pixel = |x: usize, y: usize| &canvas[(y * 24 + x) * 4..(y * 24 + x + 1) * 4];
-        for y in 0..10 {
-            for x in 0..18 {
-                assert_eq!(
-                    pixel(x, y),
-                    if x <= 8 {
-                        &[80, 70, 60, 0]
-                    } else {
-                        &[10, 20, 30, 255]
-                    }
-                );
-            }
-            assert_eq!(pixel(18, y), [0; 4]);
+        let mut app = App::new();
+        app.add_plugins(crate::test_support::render_plugins_with_features(
+            wgpu::Features::TEXTURE_COMPRESSION_BC,
+        ));
+        install(&mut app);
+        let began = std::time::Instant::now();
+        while app.plugins_state() == bevy::app::PluginsState::Adding {
+            ensure!(
+                began.elapsed().as_secs() < 60,
+                "GPU initialization timed out"
+            );
+            bevy::tasks::tick_global_task_pools_on_main_thread();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        tiles[0].block = 1;
-        assert!(compose(&asset, &tiles, &[&base, &patch], [24, 12]).is_err());
+        app.finish();
+        app.cleanup();
+        let format = TextureFormat::Bc7RgbaUnorm;
+        let blocks = |size, values: &[u8]| {
+            let mut image = canvas_image(size, format);
+            image.data = Some(values.iter().flat_map(|value| [*value; 16]).collect());
+            image
+        };
+        let mut images = app.world_mut().resource_mut::<Assets<Image>>();
+        let base = images.add(blocks([8, 4], &[1, 2]));
+        let patch = images.add(blocks([4, 4], &[9]));
+        let canvas = images.add(canvas_image([8, 4], format));
+        let run = |image, to| Run {
+            image,
+            from: [0, 0],
+            to,
+            size: [8 - image as u32 * 4, 4],
+        };
+        app.world_mut().spawn(Composition {
+            target: canvas.id(),
+            generation: 1,
+            size: [8, 4],
+            format,
+            sources: [base.id(), patch.id()].into(),
+            runs: [run(0, [0, 0]), run(1, [4, 0])].into(),
+        });
+        app.update();
+        app.update();
+        let render = app.sub_app(RenderApp).world();
+        let device = render.resource::<RenderDevice>();
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: None,
+            size: 256,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            render
+                .resource::<RenderAssets<GpuImage>>()
+                .get(canvas.id())
+                .context("canvas was not uploaded")?
+                .texture
+                .as_image_copy(),
+            TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(1),
+                },
+            },
+            Extent3d {
+                width: 8,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+        );
+        render.resource::<RenderQueue>().submit([encoder.finish()]);
+        buffer
+            .slice(..)
+            .map_async(MapMode::Read, |result| result.unwrap());
+        device.poll(wgpu::PollType::wait_indefinitely())?;
+        assert_eq!(
+            buffer.slice(..).get_mapped_range()?[..32],
+            [[1; 16], [9; 16]].concat()
+        );
         Ok(())
     }
 }

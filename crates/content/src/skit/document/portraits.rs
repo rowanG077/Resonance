@@ -1,4 +1,4 @@
-//! Image owners and shared, named portrait tracks. KTX2 owns image dimensions.
+//! Image owners, tile coordinate sizes and shared, named portrait tracks.
 use super::*;
 
 pub const PATH: &str = "skits/portraits.json";
@@ -6,7 +6,7 @@ pub const PATH: &str = "skits/portraits.json";
 #[serde(deny_unknown_fields)]
 pub struct Portraits {
     pub mappings: BTreeMap<u32, String>,
-    pub images: BTreeMap<String, Vec<String>>,
+    pub images: BTreeMap<String, Vec<crate::font::UiTexture>>,
     pub animations: BTreeMap<String, Animation>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,11 +111,26 @@ impl Portraits {
         for (name, paths) in &self.images {
             validate_path(name)?;
             let mut images = Vec::new();
-            for path in paths {
-                validate_path(path)?;
+            let mut scale = None;
+            let mut compressed = None;
+            for source in paths {
+                source.validate()?;
+                let path = &source.path;
                 let bytes = required(&mut read, path, 64 * 1024 * 1024)?;
-                let size = resonance_asset_writer::texture::dimensions(&bytes)
-                    .with_context(|| format!("portrait image {path}"))?;
+                let size = [source.width, source.height];
+                let physical = resonance_asset_writer::texture::dimensions(&bytes)?;
+                let image_scale = [physical[0] / size[0], physical[1] / size[1]];
+                ensure!(
+                    physical == [size[0] * image_scale[0], size[1] * image_scale[1]]
+                        && *scale.get_or_insert(image_scale) == image_scale,
+                    "portrait {name}: every image needs the same whole-number resolution scale ({path})"
+                );
+                // Tiles are copied between textures as stored.
+                let blocks = resonance_asset_writer::gpu::is_native_compressed(&bytes)?;
+                ensure!(
+                    *compressed.get_or_insert(blocks) == blocks,
+                    "portrait {name}: every image needs the same texture format ({path})"
+                );
                 images.push(PortraitImage {
                     texture: path.clone(),
                     size,
@@ -125,7 +140,14 @@ impl Portraits {
                 .first()
                 .with_context(|| format!("portrait {name} has no base image"))?
                 .size;
-            owners.insert(name.clone(), PortraitAsset { size, images });
+            owners.insert(
+                name.clone(),
+                PortraitAsset {
+                    size,
+                    scale: scale.unwrap_or([1; 2]),
+                    images,
+                },
+            );
         }
         let portraits = self
             .mappings

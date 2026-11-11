@@ -85,6 +85,21 @@ pub(super) fn ready(world: &mut World) -> bool {
     readiness.ready(&field.get().events.world)
 }
 
+/// For tests that inject renderer readiness: the live field's equipment has
+/// no models to wait for.
+#[cfg(test)]
+pub(crate) fn without_models_for_test(world: &mut World) {
+    let mut cache = EquipmentCache::default();
+    cache.failed.extend(equipment::equipped(
+        &world
+            .resource::<crate::new_game::Session>()
+            .field()
+            .events
+            .world,
+    ));
+    world.insert_resource(cache);
+}
+
 pub(super) fn retire(world: &mut World) {
     let roots: Vec<_> = world
         .query_filtered::<Entity, With<Instance>>()

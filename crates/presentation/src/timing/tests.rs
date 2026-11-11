@@ -88,7 +88,7 @@ fn loading_duration_does_not_change_replay_or_presentation_clock() {
         app.world_mut()
             .resource_mut::<Art>()
             .images
-            .push(Handle::default());
+            .push(TitleImage::default());
         app.world()
             .resource::<RenderReady>()
             .0

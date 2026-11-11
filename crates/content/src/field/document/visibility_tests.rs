@@ -66,6 +66,10 @@ fn field_visibility_uses_named_defaults_overrides_and_current_glb_joints() -> Re
         modifications.path().join("body.glb"),
         mesh(["root", "coat", "hat"])?,
     )?;
+    fs::copy(
+        base.path().join("actors.json"),
+        modifications.path().join("actors.json"),
+    )?;
     let modified = Library::open(
         base.path(),
         &[Mod {

@@ -1036,6 +1036,7 @@ fn binding(word: u32) -> Result<TextureBinding> {
         nearest_min: min == 0,
         nearest_mag: mag == 0,
         mipmapped: min == 5,
+        scale: TextureBinding::unscaled(),
     })
 }
 
@@ -1207,6 +1208,110 @@ pub(crate) fn static_model(
     project(resource, 0, true, paths, alpha, Vec::new())
 }
 
+/// The console wraps a repeating texture with a bit mask, which shows a larger
+/// image unless its size is a power of two (`texture::console_wrapped`). Keep
+/// every mesh of the part on the same texels of that image, and report per
+/// texture the axes along which the caller must store it that way.
+pub(crate) fn console_wrap(
+    glb: &mut [u8],
+    part: &mut ScenePart,
+    sizes: &[[u32; 2]],
+) -> Result<Vec<[bool; 2]>> {
+    use resonance_content::TextureWrap::{Mirror, Repeat};
+    let mut wraps = vec![[None; 2]; sizes.len()];
+    for binding in part
+        .materials
+        .iter()
+        .flat_map(|m| [&m.color, &m.multiply])
+        .flatten()
+    {
+        for (axis, wrap) in [binding.wrap_u, binding.wrap_v].into_iter().enumerate() {
+            if sizes[binding.texture][axis].is_power_of_two() {
+                continue;
+            }
+            ensure!(
+                wrap != Mirror,
+                "mirrored texture size is not a power of two"
+            );
+            let wrapped = wraps[binding.texture][axis].get_or_insert(wrap == Repeat);
+            ensure!(
+                *wrapped == (wrap == Repeat),
+                "texture {} both clamps and repeats",
+                binding.texture
+            );
+        }
+    }
+    let axes: Vec<[bool; 2]> = wraps
+        .iter()
+        .map(|wrap| wrap.map(|axis| axis == Some(true)))
+        .collect();
+    if axes.iter().all(|axes| *axes == [false; 2]) {
+        return Ok(axes);
+    }
+    let json_length = u32::from_le_bytes(glb[12..16].try_into()?) as usize;
+    let document: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_length])?;
+    // Instances of one object share their coordinates, which are scaled once.
+    let mut accessors = BTreeMap::new();
+    for (mesh, material) in part.materials.iter_mut().enumerate() {
+        for (set, binding) in [&mut material.color, &mut material.multiply]
+            .into_iter()
+            .enumerate()
+        {
+            let Some(binding) = binding.as_mut().filter(|b| axes[b.texture] != [false; 2]) else {
+                continue;
+            };
+            let size = sizes[binding.texture];
+            binding.scale = [0, 1].map(|axis| {
+                let stored = if axes[binding.texture][axis] {
+                    size[axis].next_power_of_two()
+                } else {
+                    size[axis]
+                };
+                // Powers of two share only factors of two with the size.
+                let common = 1 << size[axis].trailing_zeros().min(stored.trailing_zeros());
+                [size[axis] / common, stored / common]
+            });
+            for primitive in document["meshes"][mesh]["primitives"]
+                .as_array()
+                .context("wrapped texture has no mesh")?
+            {
+                let accessor = primitive["attributes"][format!("TEXCOORD_{set}")]
+                    .as_u64()
+                    .context("wrapped texture has no coordinates")?;
+                let previous = accessors.insert(accessor, binding.scale);
+                ensure!(
+                    previous.is_none_or(|scale| scale == binding.scale),
+                    "coordinates are shared by textures of different sizes"
+                );
+            }
+        }
+    }
+    for (accessor, scale) in accessors {
+        let accessor = &document["accessors"][accessor as usize];
+        let view = &document["bufferViews"][accessor["bufferView"].as_u64().unwrap_or(0) as usize];
+        ensure!(
+            accessor["componentType"] == 5126 && accessor["type"] == "VEC2",
+            "unsupported texture coordinate format"
+        );
+        let start = 20
+            + json_length
+            + 8
+            + (view["byteOffset"].as_u64().unwrap_or(0)
+                + accessor["byteOffset"].as_u64().unwrap_or(0)) as usize;
+        let stride = view["byteStride"].as_u64().unwrap_or(8) as usize;
+        for vertex in 0..accessor["count"].as_u64().unwrap_or(0) as usize {
+            for (axis, [numerator, denominator]) in scale.into_iter().enumerate() {
+                let at = start + vertex * stride + axis * 4;
+                let bytes = glb.get_mut(at..at + 4).context("truncated mesh")?;
+                let value = f32::from_le_bytes((&*bytes).try_into().unwrap());
+                let scaled = value * numerator as f32 / denominator as f32;
+                bytes.copy_from_slice(&scaled.to_le_bytes());
+            }
+        }
+    }
+    Ok(axes)
+}
+
 /// Palette-free GPL geometry keeps its texture table names in draw descriptors.
 /// The caller supplies those tables when the model is rendered.
 pub(crate) fn unbound_model(resource: &[u8], mesh_path: &str) -> Result<(Vec<u8>, Value)> {
@@ -1275,4 +1380,60 @@ pub fn cook_world_terrain_visual(source: &Path, output: &Path, layer: usize) -> 
     let glb = decode(&fs::read(source)?, layer)?.0;
     crate::output::write(&output, &glb)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mask_wrapped_texture_scales_shared_coordinates_once() -> Result<()> {
+        // Two instances of one object share their coordinate accessor.
+        let binary: Vec<u8> = [[0.5f32, 1.], [2., 4.]]
+            .iter()
+            .flatten()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
+        let primitive = json!({"attributes": {"TEXCOORD_0": 0}});
+        let glb = resonance_asset_writer::gltf::pack_glb(
+            &json!({
+                "meshes": [{"primitives": [primitive]}, {"primitives": [primitive]}],
+                "accessors": [{"bufferView": 0, "componentType": 5126, "count": 2, "type": "VEC2"}],
+                "bufferViews": [{"buffer": 0, "byteLength": 16}],
+            }),
+            &binary,
+        )?;
+        let part = |wrap_v: &str| -> Result<ScenePart> {
+            Ok(serde_json::from_value(json!({
+                "mesh": "body.glb",
+                "textures": ["body.ktx2"],
+                "materials": [{"color": {"texture": 0, "wrap_v": wrap_v}, "meshes": [0, 1]}],
+            }))?)
+        };
+        // 120 texels repeat as 128 and 129 as 256; a power of two is left alone.
+        let (mut wrapped, mut repeating) = (glb.clone(), part("repeat")?);
+        assert_eq!(
+            console_wrap(&mut wrapped, &mut repeating, &[[120, 129]])?,
+            [[true, true]]
+        );
+        for material in &repeating.materials {
+            assert_eq!(
+                material.color.as_ref().unwrap().scale,
+                [[15, 16], [129, 256]]
+            );
+        }
+        let stored: Vec<f32> = wrapped[wrapped.len() - 16..]
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(stored, [0.46875, 129. / 256., 1.875, 4. * 129. / 256.]);
+        // An axis that clamps keeps its size, and an untouched model its bytes.
+        let (mut clamped, mut clamping) = (glb.clone(), part("clamp")?);
+        assert_eq!(
+            console_wrap(&mut clamped, &mut clamping, &[[128, 129]])?,
+            [[false, false]]
+        );
+        assert_eq!(clamped, glb);
+        Ok(())
+    }
 }

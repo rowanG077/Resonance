@@ -72,6 +72,7 @@ fn menu_prose_mods_and_synopsis_updates_preserve_snapshot_and_fallback_behavior(
             "updates":{"3":["Back again."]}
         }))?,
     )?;
+    fs::copy(base.path().join(name), overlay.path().join(name))?;
     let library = Library::open(
         base.path(),
         &[Mod {

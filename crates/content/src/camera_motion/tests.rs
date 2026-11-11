@@ -122,6 +122,7 @@ fn camera_mods_keep_captured_motion_and_follow_reordered_named_nodes() -> Result
     )?;
     let original = CameraMotion::from_keys(&keys())?.encode()?;
     std::fs::write(base.join("camera.glb"), &original)?;
+    std::fs::copy(base.join("camera.glb"), modified.join("camera.glb"))?;
     let library = Library::open_paths(&base, &[modified.clone()])?;
     let mut retained = library.snapshot();
     let read = |snapshot: &mut crate::library::Snapshot| {

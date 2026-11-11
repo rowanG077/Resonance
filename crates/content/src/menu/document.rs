@@ -40,46 +40,33 @@ const EDGES: [&str; 11] = [
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
-enum Image {
-    Path(String),
-    Settings {
-        image: String,
-        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
-        repeat: bool,
-        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
-        opaque: bool,
-    },
+#[serde(deny_unknown_fields)]
+struct Image {
+    image: String,
+    size: [u32; 2],
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+    repeat: bool,
+    #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+    opaque: bool,
 }
 impl From<&MenuTexture> for Image {
     fn from(value: &MenuTexture) -> Self {
-        if !value.repeat && !value.opaque {
-            Self::Path(value.path.clone())
-        } else {
-            Self::Settings {
-                image: value.path.clone(),
-                repeat: value.repeat,
-                opaque: value.opaque,
-            }
+        Self {
+            image: value.path.clone(),
+            size: [value.width, value.height],
+            repeat: value.repeat,
+            opaque: value.opaque,
         }
     }
 }
 impl From<Image> for MenuTexture {
     fn from(value: Image) -> Self {
-        let (path, repeat, opaque) = match value {
-            Image::Path(path) => (path, false, false),
-            Image::Settings {
-                image,
-                repeat,
-                opaque,
-            } => (image, repeat, opaque),
-        };
         Self {
-            path,
-            width: 0,
-            height: 0,
-            repeat,
-            opaque,
+            path: value.image,
+            width: value.size[0],
+            height: value.size[1],
+            repeat: value.repeat,
+            opaque: value.opaque,
         }
     }
 }
@@ -249,20 +236,25 @@ impl MenuArt {
         })
     }
 
-    /// Resolve sizes from captured image headers, without decoding pixels. Invalid
+    /// Validate selected images without changing authored sizes. Invalid
     /// optional images stay unavailable only to the pages which draw them.
     pub fn prepare_resources<B: AsRef<[u8]>>(&mut self, mut read: impl FnMut(&str) -> Result<B>) {
         self.sprites.prepare_catalogues(&mut read);
         for texture in self.textures.values_mut() {
             let result = (|| {
                 crate::validate_asset_path(&texture.path)?;
+                anyhow::ensure!(
+                    texture.width > 0 && texture.height > 0,
+                    "empty menu image coordinates"
+                );
                 resonance_asset_writer::texture::dimensions(read(&texture.path)?.as_ref())
             })();
             // Selection validates the image. An unused broken portrait must not
             // prevent another page from opening, even in strict diagnostic mode.
-            let [width, height] = result.unwrap_or([0, 0]);
-            texture.width = width;
-            texture.height = height;
+            if result.is_err() {
+                texture.width = 0;
+                texture.height = 0;
+            }
         }
     }
 }

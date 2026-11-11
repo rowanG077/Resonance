@@ -13,7 +13,7 @@ impl Art {
         if diagnostics
             .attempt(
                 "game-over background",
-                crate::ui_art::prepare_image(&mut self.background, read),
+                crate::ui_art::prepare_image(&self.background, read),
             )?
             .is_none()
         {

@@ -124,6 +124,8 @@ pub struct Texture {
 pub struct TextureImage {
     pub sampler: crate::texture::Sampler,
     pub images: Vec<String>,
+    /// Pixel coordinate space for UI consumers; 3D materials use normalized UVs.
+    pub size: Option<[u32; 2]>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -216,6 +218,7 @@ impl TextureCatalogue {
                 textures: vec![Some(TextureImage {
                     sampler: Self::default_sampler(),
                     images: vec![path.into()],
+                    size: None,
                 })],
             }
         } else {
@@ -240,6 +243,12 @@ impl TextureCatalogue {
         for texture in self.textures.iter().flatten() {
             ensure!(!texture.images.is_empty(), "empty physical texture");
             texture.sampler.validate()?;
+            if let Some(size) = texture.size {
+                ensure!(
+                    size.iter().all(|v| (1..=4096).contains(v)),
+                    "invalid image bank coordinates"
+                );
+            }
             for path in &texture.images {
                 crate::library::validate_path(path)?;
             }

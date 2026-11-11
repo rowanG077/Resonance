@@ -95,10 +95,35 @@ pub struct DialogueArt {
     pub selection: SelectionArt,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "ImageDefinition", into = "ImageDefinition")]
 pub struct UiTexture {
     pub path: String,
     pub width: u32,
     pub height: u32,
+}
+/// Authored coordinate space, independent of the image's stored resolution.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImageDefinition {
+    image: String,
+    size: [u32; 2],
+}
+impl From<UiTexture> for ImageDefinition {
+    fn from(image: UiTexture) -> Self {
+        Self {
+            image: image.path,
+            size: [image.width, image.height],
+        }
+    }
+}
+impl From<ImageDefinition> for UiTexture {
+    fn from(image: ImageDefinition) -> Self {
+        Self {
+            path: image.image,
+            width: image.size[0],
+            height: image.size[1],
+        }
+    }
 }
 impl UiTexture {
     pub fn validate(&self) -> Result<()> {
@@ -140,7 +165,7 @@ impl DialogueArt {
             "invalid selection artwork"
         );
         for texture in self.textures.iter().chain([&self.cursor]) {
-            crate::validate_asset_path(&texture.path)?;
+            texture.validate()?;
         }
         Ok(())
     }

@@ -149,17 +149,12 @@ fn image_path(owner: &str, index: usize, recipe: &PortraitRecipe) -> String {
     format!("{base}-patch-{index}.ktx2")
 }
 
-fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
-    crate::output::write(&path, bytes)?;
-    Ok(())
-}
-
 fn portrait_images(
     exe: &[u8],
     archive: &[u8],
     index: u16,
     owner: &str,
-) -> Result<Vec<(String, Vec<u8>)>> {
+) -> Result<Vec<(resonance_content::font::UiTexture, Vec<u8>)>> {
     let native = member(archive, index)?.context("named portrait has no archive member")?;
     ensure!(dol::u32(native, 0)? == 0x0020af30, "invalid portrait TPL");
     let count = dol::u32(native, 4)? as usize;
@@ -167,9 +162,14 @@ fn portrait_images(
     let recipe = recipe(exe, index)?;
     (0..count)
         .map(|image| {
+            let pixels = world_texture::tpl_pixels(native, image, 0, false, true)?;
             Ok((
-                image_path(owner, image, &recipe),
-                world_texture::tpl_texture(native, image)?.0,
+                resonance_content::font::UiTexture {
+                    path: image_path(owner, image, &recipe),
+                    width: pixels[0].width,
+                    height: pixels[0].height,
+                },
+                resonance_asset_writer::gpu::encode(&pixels)?,
             ))
         })
         .collect()
@@ -184,7 +184,7 @@ pub fn cook_skit_portrait(root: &Path, library: &Path, id: u32) -> Result<()> {
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let archive = archive(root, &exe)?;
     for (path, bytes) in portrait_images(&exe, &archive, index, owner)? {
-        write_new(&library.join(path), &bytes)?;
+        crate::output::write(&library.join(path.path), &bytes)?;
     }
     Ok(())
 }
@@ -213,6 +213,8 @@ pub fn cook_skit_portraits(root: &Path, library: &Path) -> Result<()> {
             .with_context(|| format!("unnamed portrait {id}"))?;
         let mut images = Vec::new();
         for (path, bytes) in portrait_images(&exe, &archive, index as u16, owner)? {
+            let (width, height) = (path.width, path.height);
+            let path = path.path;
             let canonical = if let Some(existing) = unique.get(&bytes) {
                 existing.clone()
             } else {
@@ -220,7 +222,11 @@ pub fn cook_skit_portraits(root: &Path, library: &Path) -> Result<()> {
                 files.push((library.join(&path), bytes));
                 path
             };
-            images.push(canonical);
+            images.push(resonance_content::font::UiTexture {
+                path: canonical,
+                width,
+                height,
+            });
         }
         ensure!(
             document.images.insert(owner.clone(), images).is_none(),
@@ -233,9 +239,9 @@ pub fn cook_skit_portraits(root: &Path, library: &Path) -> Result<()> {
         "portrait name inventory differs from archive"
     );
     for (path, bytes) in files {
-        write_new(&path, &bytes)?;
+        crate::output::write(&path, &bytes)?;
     }
-    write_new(
+    crate::output::write(
         &library.join(resonance_content::skit::document::portraits::PATH),
         &resonance_asset_writer::json::encode(&document)?,
     )?;

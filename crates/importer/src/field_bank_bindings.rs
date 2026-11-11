@@ -1,7 +1,7 @@
 //! Native actor-to-motion bindings contributed by a field's selected banks.
 use crate::{
     character_attachments, character_models, dol, field_actors, field_core, field_npc_models,
-    mesh_mappings, shared_animations, text, world_gpl,
+    mesh_mappings, shared_animations, world_gpl,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
@@ -47,13 +47,13 @@ fn source_labels(
 
 fn selected_rigs(
     extracted: &Path,
-    field_id: u32,
     library: &Path,
     banks: &BTreeMap<u32, String>,
+    script: &[u8],
     cache: &mut Bindings,
 ) -> Result<Vec<Rig>> {
     let models = mesh_mappings::mesh_mappings()?.0;
-    let mut selected = field_actors::declared_static_resources(extracted, field_id)?
+    let mut selected = field_actors::declared_static_resources(script)?
         .into_iter()
         .filter(|id| models.contains_key(id) && !banks.contains_key(id))
         .collect::<BTreeSet<_>>();
@@ -66,7 +66,6 @@ fn selected_rigs(
             .filter(|id| (1..=9).contains(id) || id >> 24 == 0x23),
     );
     selected.insert(0x2200_0000);
-    let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let mut rigs = Vec::new();
     for id in selected {
         if let Some(rig) = cache.rigs.get(&id) {
@@ -78,6 +77,7 @@ fn selected_rigs(
             .with_context(|| format!("unmapped model {id}"))?;
         let mut outline_joints = None;
         let (joints, parts) = if id == 0x2200_0000 {
+            let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
             let joints = character_attachments::wing_animation_bindings(extracted, &exe)?;
             let names = world_gpl::animation_target_bindings(joints.clone());
             let named = joints
@@ -97,10 +97,10 @@ fn selected_rigs(
                 (&package[..], vec![0])
             } else {
                 let body = field_core::optional_section(&package, 0)
-                    .with_context(|| format!("field {field_id} model {id} body section"))?
+                    .with_context(|| format!("model {id} body section"))?
                     .with_context(|| format!("model {id} has no native body"))?;
                 let parts = if let Some(outline) = field_core::optional_section(&package, 1)
-                    .with_context(|| format!("field {field_id} model {id} outline section"))?
+                    .with_context(|| format!("model {id} outline section"))?
                 {
                     outline_joints = Some(world_gpl::named_animation_bindings(outline)?);
                     vec![0, 1]
@@ -167,27 +167,29 @@ pub(crate) fn global_rigs(
                 .map(|(id, target)| (id, target, standalone)),
         );
     }
+    let mut seen = BTreeSet::new();
+    let mut selected = Vec::new();
+    for (id, target, standalone) in sources {
+        let mut model: Model = serde_json::from_slice(&fs::read(
+            library.join(format!("meshes/{}/model.json", target.model())),
+        )?)?;
+        model.parts.retain(|part| seen.insert(part.mesh.clone()));
+        if !model.parts.is_empty() {
+            selected.push((id, standalone, model.parts));
+        }
+    }
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let effects = field_npc_models::grouped_bank(extracted, &exe, 1)?;
     let npcs = field_npc_models::native_bank(extracted, &exe)?;
-    let wanted = sources
+    let wanted = selected
         .iter()
-        .filter(|(id, _, standalone)| !standalone && *id > 9 && *id < 65536)
+        .filter(|(id, standalone, _)| !standalone && *id > 9 && *id < 65536)
         .map(|(id, _, _)| *id)
         .collect();
-    let mut embedded = field_npc_models::field_sources(extracted, &exe, &wanted)?;
-    let mut output = BTreeMap::new();
-    for (id, target, standalone) in sources {
-        let model: Model = serde_json::from_slice(&fs::read(
-            library.join(format!("meshes/{}/model.json", target.model())),
-        )?)?;
-        if model
-            .parts
-            .iter()
-            .all(|part| output.contains_key(&part.mesh))
-        {
-            continue;
-        }
+    let embedded = field_npc_models::field_sources(extracted, &exe, &wanted)?;
+    let output = crate::parallel::map(&selected, |_, (id, standalone, parts)| {
+        let (id, standalone) = (*id, *standalone);
+        let mut output = BTreeMap::new();
         let package = if !standalone && ((1..=9).contains(&id) || id >> 24 == 0x23) {
             character_models::party_package(
                 extracted,
@@ -196,13 +198,13 @@ pub(crate) fn global_rigs(
             )?
         } else if !standalone && field_npc_models::service_source(id).is_some() {
             field_npc_models::service_package(extracted, &exe, id)?
-        } else if let Some(package) = embedded.remove(&id).filter(|_| !standalone) {
-            package
+        } else if let Some(package) = embedded.get(&id).filter(|_| !standalone) {
+            package.clone()
         } else if id == 0x2200_0000 {
             let joints = character_attachments::wing_animation_bindings(extracted, &exe)?;
             let names = world_gpl::animation_target_bindings(joints.clone());
             output.insert(
-                model.parts[0].mesh.clone(),
+                parts[0].mesh.clone(),
                 joints
                     .into_iter()
                     .zip(names)
@@ -214,7 +216,7 @@ pub(crate) fn global_rigs(
                     })
                     .collect(),
             );
-            continue;
+            return Ok(output);
         } else if id >> 16 == 1 {
             field_npc_models::expanded_member(field_npc_models::grouped_member(&effects, id)?)?
         } else if id >> 16 == 2 {
@@ -222,10 +224,7 @@ pub(crate) fn global_rigs(
         } else {
             field_actors::read_shared_resource(extracted, id)?
         };
-        for part in model.parts {
-            if output.contains_key(&part.mesh) {
-                continue;
-            }
+        for part in parts {
             let body = if world_gpl::is_model(&package) {
                 &package[..]
             } else {
@@ -233,7 +232,7 @@ pub(crate) fn global_rigs(
                     .context("animation rig has no native part")?
             };
             output.insert(
-                part.mesh,
+                part.mesh.clone(),
                 world_gpl::named_animation_bindings(body)?
                     .into_iter()
                     .map(|(id, name, source)| AnimationJoint {
@@ -245,8 +244,9 @@ pub(crate) fn global_rigs(
                     .collect(),
             );
         }
-    }
-    Ok(output)
+        Ok(output)
+    })?;
+    Ok(output.into_iter().flatten().collect())
 }
 
 /// Field-owned models exist after the scene pass; merge their native joint
@@ -422,6 +422,8 @@ pub(crate) fn native_bank_bindings(
     extracted: &Path,
     library: &Path,
     field_id: u32,
+    motions: &BTreeMap<u32, Vec<u8>>,
+    known_labels: &BTreeMap<u32, BTreeMap<u16, String>>,
     cache: &mut Bindings,
 ) -> Result<BTreeMap<u32, Vec<AnimationBinding>>> {
     ensure!(
@@ -429,34 +431,31 @@ pub(crate) fn native_bank_bindings(
         "field ID {field_id} is outside native catalogue"
     );
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
-    let rows = dol::slice(&exe, field_core::PHASES, field_core::FIELD_COUNT * 24)?;
-    let row = &rows[field_id as usize * 24..][..24];
-    let pointer = dol::u32(row, 0)?;
-    if pointer == 0 {
+    let row = dol::slice(&exe, field_core::PHASES + field_id * 24, 24)?;
+    let Some(archive) = field_core::native_archive(extracted, &exe, row, field_id as usize)? else {
         return Ok(BTreeMap::new());
-    }
-    let source = text::string(&exe, pointer)?;
-    ensure!(
-        !source.is_empty() && !source.contains(['/', '\\']) && source != "." && source != "..",
-        "invalid native field source {source:?}"
-    );
-    if !extracted
-        .join("disc1/files/MAP")
-        .join(source.to_ascii_lowercase())
-        .is_file()
-    {
-        return Ok(BTreeMap::new());
-    }
-    let banks = field_actors::declared_animation_banks(extracted, field_id)?;
+    };
+    let banks = field_actors::animation_banks(extracted, &exe, &archive)?;
     if banks.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let rigs = selected_rigs(extracted, field_id, library, &banks, cache)?;
+    let script = field_core::optional_section(&archive, 6)?.context("field has no script")?;
+    let rigs = selected_rigs(extracted, library, &banks, script, cache)?;
     let mut result = BTreeMap::new();
     for (id, name) in banks {
-        let native = shared_animations::read_bank(extracted, Some(field_id), id)?;
-        let tracks = source_tracks(&native)?;
-        let labels = source_labels(extracted, library, id, &name, &native, cache)?;
+        let loaded;
+        let native = if let Some(bytes) = motions.get(&id) {
+            bytes.as_slice()
+        } else {
+            loaded = shared_animations::read_bank(extracted, Some(field_id), id)?;
+            &loaded
+        };
+        let tracks = source_tracks(native)?;
+        let labels = if let Some(labels) = known_labels.get(&id) {
+            labels.clone()
+        } else {
+            source_labels(extracted, library, id, &name, native, cache)?
+        };
         let target = tracks
             .iter()
             .map(|track| labels.get(&track.id).cloned())
@@ -484,7 +483,7 @@ pub(crate) fn native_bank_bindings(
                 })
                 .collect();
             let pose = character_models::pose_chains(
-                &native,
+                native,
                 &rig.joints
                     .iter()
                     .map(|(id, _, source)| (*id, source.clone()))

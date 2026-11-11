@@ -70,12 +70,12 @@ fn fixture() -> Result<tempfile::TempDir> {
         "glyphs":[{"characters":characters,"position":[0,0]}]}),
     )?;
     write(p, "fonts/dialogue.ktx2", b"opaque atlas bytes")?;
-    let texture = "ui/unused.ktx2";
+    let texture = serde_json::json!({"image":"ui/unused.ktx2","size":[16,16]});
     json(
         p,
         "ui/dialogue.json",
         serde_json::json!({"font":"fonts/dialogue.json",
-        "symbols":texture,"shading":texture,"patterns":vec![texture;5],
+        "symbols":texture,"shading":texture,"patterns":vec![texture.clone();5],
         "lined_fill":texture,"plain_fill":texture,"cursor":texture,"default_style":"plain",
         "selection":{"color":[255,255,255,255],"row_offsets":vec![0;9],"bob_amplitude":0,"bob_radians_per_tick":0}}),
     )?;
@@ -83,7 +83,7 @@ fn fixture() -> Result<tempfile::TempDir> {
         p,
         game_over::document::PATH,
         serde_json::json!({
-        "background":"ui/game-over/background.ktx2",
+        "background":{"image":"ui/game-over/background.ktx2","size":[640,480]},
         "font":"fonts/dialogue.json","caption":"Try again", "choices":{"load":"Load","title":"Quit"}}),
     )?;
     write(
@@ -97,7 +97,7 @@ fn fixture() -> Result<tempfile::TempDir> {
         serde_json::json!({
         "style":{"glyph_size":[16,16],"color":[255,255,255,255],"line_height":20,"tab_width":32},
         "scroll":{"height_pixels":1000,"speed_divisor_ticks":100,"stop_margin_pixels":100},
-        "blocks":[{"lines":["Credits"],"align":"left"},{"image":"ui/credits/team.ktx2"}],
+        "blocks":[{"lines":["Credits"],"align":"left"},{"image":"ui/credits/team.ktx2","size":[16,16]}],
         "music":{"path":"audio/music/credits.wav"},"final_hold_ticks":180}),
     )?;
     write(p, "ui/credits/team.ktx2", &picture(16)?)?;
@@ -173,7 +173,15 @@ fn named_screens_capture_mod_text_art_and_current_recording_clocks() -> Result<(
         (changed.music.frames, changed.music.sample_rate),
         (1600, 16000)
     );
-    assert_eq!(&*second.read("ui/credits/team.ktx2")?, picture(24)?);
+    let replacement = second.read("ui/credits/team.ktx2")?;
+    assert_eq!(
+        resonance_asset_writer::texture::ktx2(&replacement)?,
+        resonance_asset_writer::texture::ktx2(&picture(24)?)?
+    );
+    assert_eq!(
+        resonance_asset_writer::texture::dimensions(&replacement)?,
+        [24, 24]
+    );
     let game_over = resonance_game::game_over::Assets::from_prepared(second.clone())?;
     assert_eq!(game_over.art.caption, "A different ending");
     assert_eq!(game_over.art.choices, ["Resume", "Return"]);
@@ -184,7 +192,7 @@ fn named_screens_capture_mod_text_art_and_current_recording_clocks() -> Result<(
     );
     assert_eq!(
         [changed.pictures[0].width, changed.pictures[0].height],
-        [24, 24]
+        [16, 16]
     );
     assert!(
         changed

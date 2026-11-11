@@ -164,7 +164,12 @@ struct Events(resonance_events::EventRuntime);
 #[derive(Resource)]
 struct Art {
     manifest: TitleAssets,
-    images: Vec<Handle<Image>>,
+    images: Vec<TitleImage>,
+}
+#[derive(Clone, Default)]
+struct TitleImage {
+    handle: Handle<Image>,
+    size: [u32; 2],
 }
 #[derive(Component)]
 struct TitleQuad {
@@ -375,7 +380,7 @@ fn build_app(
             size
         }
     };
-    loading::install(&mut app, &assets);
+    loading::install(&mut app, &assets, Some(&library));
     *app.world()
         .resource::<loading::Resident>()
         .files
@@ -713,12 +718,13 @@ fn setup(
     art.images = art
         .manifest
         .iter()
-        .flat_map(resonance_content::startup::Artwork::images)
-        .map(|path| {
-            server
+        .flat_map(|art| std::iter::once(&art.image).chain(art.selected_image.iter()))
+        .map(|image| TitleImage {
+            handle: server
                 .load_builder()
                 .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
-                .load(path.to_owned())
+                .load(image.path.clone()),
+            size: [image.width, image.height],
         })
         .collect();
     commands.spawn((
@@ -746,7 +752,7 @@ fn setup(
         commands.spawn((
             Mesh2d(quad.clone()),
             MeshMaterial2d(text.add(TitleText {
-                source: art.images[index].clone(),
+                source: art.images[index].handle.clone(),
                 opacity_pulse: Vec4::ZERO,
             })),
             Transform::from_xyz(0., 0., 1.),
@@ -999,10 +1005,11 @@ fn layout(
         } else {
             quad.index
         };
-        let source = &art.images[index];
-        let Some(image) = images.get(source) else {
+        let image = &art.images[index];
+        let source = &image.handle;
+        if !images.contains(source) {
             continue;
-        };
+        }
         let opacity_pulse = Vec4::new(
             state.opacity as f32 / 255.,
             if selected {
@@ -1017,7 +1024,8 @@ fn layout(
             material.source = source.clone();
             material.opacity_pulse = opacity_pulse;
         }
-        let size = image.size_f32();
+        let [width, height] = image.size;
+        let size = Vec2::new(width as f32, height as f32);
         transform.translation.y = HEIGHT as f32 / 2. - quad.top - size.y / 2.;
         let expand = quad.row.map_or(0., |r| state.expansion[r].trunc());
         transform.scale = Vec3::new(size.x + expand * 2., size.y + expand * 2., 1.);

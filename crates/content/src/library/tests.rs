@@ -109,7 +109,11 @@ impl Fixture {
         let fixture = Self(tempfile::tempdir().unwrap());
         fixture.write(
             "base/content.json",
-            br#"{"version":102,"game":"tales-of-symphonia"}"#,
+            &serde_json::to_vec(&Descriptor {
+                version: VERSION,
+                game: GAME.into(),
+            })
+            .unwrap(),
         );
         fixture
     }
@@ -151,8 +155,8 @@ fn game_identity_is_semantic_and_source_metadata_is_rejected() -> Result<()> {
     for invalid in [
         r#"{"version":1,"game":"tales-of-symphonia"}"#,
         r#"{"version":1,"game":"GQSEAF"}"#,
-        r#"{"version":102,"game":"tales-of-symphonia","revision":0}"#,
-        r#"{"version":102,"game":"tales-of-symphonia","platform":"steam"}"#,
+        r#"{"version":103,"game":"tales-of-symphonia","revision":0}"#,
+        r#"{"version":103,"game":"tales-of-symphonia","platform":"steam"}"#,
     ] {
         fixture.write("base/content.json", invalid.as_bytes());
         assert!(fixture.open(&[]).is_err(), "accepted {invalid}");
@@ -267,7 +271,7 @@ fn battle_pool_selection_and_worker_keep_one_effective_formation_table() -> Resu
 }
 
 #[test]
-fn optional_roots_pin_absence_and_mod_bytes_without_scanning_assets() -> Result<()> {
+fn optional_roots_and_layer_selection_remain_pinned_until_restart() -> Result<()> {
     let fixture = Fixture::new();
     let library = fixture.open(&[])?;
     let mut absent = library.snapshot();
@@ -275,8 +279,11 @@ fn optional_roots_pin_absence_and_mod_bytes_without_scanning_assets() -> Result<
     fixture.write("base/world/world.json", b"base root");
     assert!(!crate::overworld::document::present(&mut absent)?);
     assert!(absent.read("world/world.json", 1024).is_err());
-    assert!(crate::overworld::document::present(
+    assert!(!crate::overworld::document::present(
         &mut library.snapshot()
+    )?);
+    assert!(crate::overworld::document::present(
+        &mut fixture.open(&[])?.snapshot()
     )?);
     fixture.write("mod/world/world.json", b"mod root");
     let modified = fixture.open(&["mod"])?;
@@ -287,11 +294,18 @@ fn optional_roots_pin_absence_and_mod_bytes_without_scanning_assets() -> Result<
     );
     fs::remove_file(fixture.0.path().join("mod/world/world.json"))?;
     assert_eq!(&*snapshot.read("world/world.json", 1024)?, b"mod root");
-    assert_eq!(
-        &*modified
+    // A removed selected override fails until restart; it never falls through.
+    assert!(
+        modified
             .snapshot()
-            .read_optional("world/world.json", 1024)?
-            .unwrap(),
+            .read_optional("world/world.json", 1024)
+            .is_err()
+    );
+    assert_eq!(
+        &*fixture
+            .open(&["mod"])?
+            .snapshot()
+            .read("world/world.json", 1024)?,
         b"base root"
     );
     assert!(snapshot.read_optional("world/world.json", 1).is_err());
@@ -325,7 +339,15 @@ fn namespace_discovery_includes_mod_modules_and_pins_each_preparation() -> Resul
     assert_eq!(sources["field::custom"], "new module");
     fixture.write("mod/scripts/later.sym", b"later");
     assert_eq!(*snapshot.files_under("scripts")?, paths);
-    assert_eq!(library.snapshot().files_under("scripts")?.len(), 3);
+    assert_eq!(library.snapshot().files_under("scripts")?.len(), 2);
+    assert_eq!(
+        fixture
+            .open(&["mod"])?
+            .snapshot()
+            .files_under("scripts")?
+            .len(),
+        3
+    );
     assert!(crate::preparation::scripts(&mut library.snapshot(), &|| true).is_err());
     Ok(())
 }
@@ -335,23 +357,10 @@ fn namespace_discovery_rejects_case_ambiguous_names_and_non_directories() -> Res
     let fixture = Fixture::new();
     fixture.write("base/scripts/field/start.sym", b"base");
     fixture.write("mod/scripts/Field/start.sym", b"mod");
-    let error = format!(
-        "{:#}",
-        fixture
-            .open(&["mod"])?
-            .snapshot()
-            .files_under("scripts")
-            .unwrap_err()
-    );
+    let error = format!("{:#}", fixture.open(&["mod"]).unwrap_err());
     assert!(error.contains("case-conflicting content paths"), "{error}");
     fixture.write("invalid/scripts", b"not a directory");
-    assert!(
-        fixture
-            .open(&["invalid"])?
-            .snapshot()
-            .files_under("scripts")
-            .is_err()
-    );
+    assert!(fixture.open(&["invalid"]).is_err());
     Ok(())
 }
 
@@ -361,14 +370,7 @@ fn namespace_discovery_rejects_directory_cycles() -> Result<()> {
     let fixture = Fixture::new();
     fixture.write("base/scripts/start.sym", b"base");
     std::os::unix::fs::symlink(".", fixture.0.path().join("base/scripts/loop"))?;
-    let error = format!(
-        "{:#}",
-        fixture
-            .open(&[])?
-            .snapshot()
-            .files_under("scripts")
-            .unwrap_err()
-    );
+    let error = format!("{:#}", fixture.open(&[]).unwrap_err());
     assert!(error.contains("directory aliases"), "{error}");
     Ok(())
 }
@@ -548,7 +550,11 @@ fn snapshot_keeps_captured_bytes_and_a_new_snapshot_sees_edits() -> Result<()> {
     assert!(first.read("scripts/start.sym", 2).is_err());
     let mut next = library.snapshot();
     assert_eq!(&*next.read("scripts/start.sym", 64)?, b"after");
-    assert_eq!(next.mappings(FIELDS)?.target(1)?, "triet");
+    assert_eq!(next.mappings(FIELDS)?.target(1)?, "iselia");
+    assert_eq!(
+        fixture.open(&[])?.snapshot().mappings(FIELDS)?.target(1)?,
+        "triet"
+    );
     Ok(())
 }
 
@@ -586,8 +592,7 @@ fn malformed_override_does_not_fall_back_and_no_legacy_layout_is_guessed() -> Re
         "broken/fields/mappings.json",
         br#"{"1":"triet","1":"other"}"#,
     );
-    let mut snapshot = fixture.open(&["broken"])?.snapshot();
-    let error = format!("{:#}", snapshot.mappings(FIELDS).unwrap_err());
+    let error = format!("{:#}", fixture.open(&["broken"]).unwrap_err());
     assert!(error.contains("broken") && error.contains("duplicate mapping ID 1"));
     // A later replacement must not hide an invalid path in an earlier layer.
     fixture.write("replacement/fields/mappings.json", br#"{"1":"triet"}"#);
@@ -596,8 +601,10 @@ fn malformed_override_does_not_fall_back_and_no_legacy_layout_is_guessed() -> Re
             &format!("{layer}/fields/mappings.json"),
             br#"{"1":"../outside"}"#,
         );
-        let mut snapshot = fixture.open(&["broken", "replacement"])?.snapshot();
-        let error = format!("{:#}", snapshot.mappings(FIELDS).unwrap_err());
+        let error = format!(
+            "{:#}",
+            fixture.open(&["broken", "replacement"]).unwrap_err()
+        );
         assert!(error.contains(layer) && error.contains("unsafe asset path ../outside"));
     }
     fixture.write(
@@ -639,9 +646,8 @@ fn a_symlink_cannot_escape_the_selected_content_layer() -> Result<()> {
         fixture.0.path().join("outside"),
         fixture.0.path().join("base/escaped"),
     )?;
-    let mut snapshot = fixture.open(&[])?.snapshot();
-    assert!(snapshot.read("escaped/secret.txt", 4096).is_err());
-    assert!(snapshot.read("../outside/secret.txt", 4096).is_err());
+    assert!(fixture.open(&[]).is_err());
+    assert!(validate_path("../outside/secret.txt").is_err());
     Ok(())
 }
 

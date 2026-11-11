@@ -67,12 +67,7 @@ pub fn cook_world_actors_common(root: &Path, library: &Path) -> Result<()> {
             dol::u32(resource, 0x20)? == 0x005b_bc61,
             "{name} is not a direct GPL model"
         );
-        let start = dol::u32(resource, 0)? as usize;
-        let end = dol::u32(resource, 4)? as usize;
-        let tpl = resource
-            .get(start..end)
-            .context("actor TPL exceeds model")?;
-        ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "missing actor TPL");
+        let tpl = world_texture::model_palette(resource)?;
         let count = dol::u32(tpl, 4)? as usize;
         let base = format!("world/actors/{name}");
         let mut paths = Vec::new();

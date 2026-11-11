@@ -1630,7 +1630,7 @@ pub fn cook_common_effects(root: &Path, library: &Path) -> Result<()> {
         templates,
         artwork: Some(Artwork {
             textures,
-            models: battle_effect_media::model_artwork(&usual)?,
+            models: battle_effect_media::model_artwork(&usual, None)?,
         }),
     };
     let target = library.join("battle/effects/common/effects.json");
@@ -1660,7 +1660,7 @@ fn resident_atlas(
     // Stored scene effects also select this resident window (for example,
     // Dreaded Wave). It must exist in the common artwork before scene lookup.
     bindings.push((0, 32));
-    battle_effect_media::atlas_artwork(usual, &bindings)
+    battle_effect_media::atlas_artwork(usual, &bindings, None)
 }
 
 /// Resolve local effect actor strides against the resident atlas definition.
@@ -1699,7 +1699,7 @@ pub fn cook_technique_effects(root: &Path, library: &Path) -> Result<()> {
         templates,
         artwork: Some(Artwork {
             textures,
-            models: battle_effect_media::model_artwork(&usual)?,
+            models: battle_effect_media::model_artwork(&usual, None)?,
         }),
     };
     let target = library.join("battle/effects/techniques/effects.json");
@@ -1710,8 +1710,12 @@ pub fn cook_technique_effects(root: &Path, library: &Path) -> Result<()> {
 /// Convert the shared resident effect library once, with one owner for each file.
 pub fn cook_battle_effects(root: &Path, library: &Path) -> Result<()> {
     battle_effect_tints::cook_battle_effect_tints(root, library)?;
+    eprintln!("  Cooking shared battle effect atlas pages");
     battle_effect_media::cook_battle_effect_atlases(root, library)?;
+    eprintln!("  Cooking shared battle effect models");
     battle_effect_media::cook_battle_effect_models(root, library)?;
+    eprintln!("  Building common battle effect bindings");
     cook_common_effects(root, library)?;
+    eprintln!("  Building technique battle effect bindings");
     cook_technique_effects(root, library)
 }

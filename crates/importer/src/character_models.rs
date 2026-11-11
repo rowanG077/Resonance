@@ -135,37 +135,26 @@ fn inline_name(exe: &[u8], address: u32, width: usize) -> Result<String> {
     Ok(std::str::from_utf8(&row[..end])?.to_owned())
 }
 
-pub(crate) fn palette(model: &[u8]) -> Result<&[u8]> {
-    let start = dol::u32(model, 0)? as usize;
-    let end = dol::u32(model, 4)? as usize;
-    let tpl = model
-        .get(start..end)
-        .context("character palette exceeds model")?;
-    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "missing character TPL");
-    Ok(tpl)
-}
-
 pub(crate) fn texture_paths(
     tpl: &[u8],
     base: &str,
     layer: &str,
-    mut emit: impl FnMut(String, Vec<u8>),
+    mut emit: Option<&mut dyn FnMut(String, Vec<u8>) -> Result<()>>,
 ) -> Result<(Vec<String>, Vec<bool>, Vec<(u32, u32)>)> {
     let count = dol::u32(tpl, 4)? as usize;
     let mut paths = Vec::new();
     let mut alpha = Vec::new();
     let mut sizes = Vec::new();
     for index in 0..count {
-        let (texture, transparent) = world_texture::tpl_texture(tpl, index)?;
+        let levels = world_texture::tpl_pixels(tpl, index, 0, false, emit.is_some())?;
+        let image = &levels[0];
         let path = format!("{base}/textures/{layer}-texture-{index}.ktx2");
-        paths.push(path.clone());
-        alpha.push(transparent);
-        // KTX2 stores pixelWidth and pixelHeight in its fixed header.
-        sizes.push((
-            u32::from_le_bytes(texture[20..24].try_into()?),
-            u32::from_le_bytes(texture[24..28].try_into()?),
-        ));
-        emit(path, texture);
+        alpha.push(world_texture::has_alpha(&image.rgba));
+        sizes.push((image.width, image.height));
+        if let Some(emit) = emit.as_mut() {
+            emit(path.clone(), resonance_asset_writer::gpu::encode(&levels)?)?;
+        }
+        paths.push(path);
     }
     Ok((paths, alpha, sizes))
 }
@@ -356,14 +345,19 @@ pub fn cook_character_models(root: &Path, library: &Path, selected: Option<u8>) 
     if let Some(id) = selected {
         ensure!((1..=9).contains(&id), "invalid party character {id}");
     }
-    for id in 1_u8..=9 {
-        if selected.is_some_and(|wanted| wanted != id) {
-            continue;
-        }
+    let ids = (1_u8..=9)
+        .filter(|id| selected.is_none_or(|wanted| wanted == *id))
+        .collect::<Vec<_>>();
+    crate::parallel::for_each(&ids, |index, &id| {
         let mut files = BTreeMap::new();
         let name = PartyCharacterId::try_from(id)?
             .resource_name()
             .context("unnamed party character")?;
+        eprintln!(
+            "  [{}/{} jobs] Character models: {name}",
+            index + 1,
+            ids.len()
+        );
         let motions_name = inline_name(&exe, 0x8017_e4c0 + u32::from(id - 1) * 12, 12)?;
         let service_name = inline_name(&exe, 0x8017_a33c + u32::from(id - 1) * 16, 16)?;
         let motions = read_named(&root.join("disc1/files"), &motions_name)?;
@@ -398,10 +392,15 @@ pub fn cook_character_models(root: &Path, library: &Path, selected: Option<u8>) 
             } else {
                 format!("meshes/characters/{name}/{}", costume.name)
             };
-            let (body_paths, body_alpha, sizes) =
-                texture_paths(palette(body)?, &base, "body", |path, bytes| {
+            let (body_paths, body_alpha, sizes) = texture_paths(
+                world_texture::model_palette(body)?,
+                &base,
+                "body",
+                Some(&mut |path, bytes| {
                     files.insert(path, bytes);
-                })?;
+                    Ok(())
+                }),
+            )?;
             let (body_glb, mut body_part) =
                 world_gpl::static_model(body, body_paths.clone(), body_alpha.clone())?;
             body_part.mesh = format!("{base}/meshes/body.glb");
@@ -437,12 +436,13 @@ pub fn cook_character_models(root: &Path, library: &Path, selected: Option<u8>) 
             let own_outline = dol::u32(outline, 0)? != 0;
             let (outline_paths, outline_alpha, _) = if own_outline {
                 texture_paths(
-                    palette(&normalized_outline)?,
+                    world_texture::model_palette(&normalized_outline)?,
                     &base,
                     "outline",
-                    |path, bytes| {
+                    Some(&mut |path, bytes| {
                         files.insert(path, bytes);
-                    },
+                        Ok(())
+                    }),
                 )?
             } else {
                 (body_paths, body_alpha, sizes)
@@ -537,7 +537,6 @@ pub fn cook_character_models(root: &Path, library: &Path, selected: Option<u8>) 
                 resonance_asset_writer::json::encode(&document)?,
             );
         }
-        write(files, library)?;
-    }
-    Ok(())
+        write(files, library)
+    })
 }

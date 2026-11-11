@@ -193,11 +193,7 @@ fn palette(model: &[u8]) -> Result<Option<&[u8]>> {
     if dol::u32(model, 0)? == 0 {
         return Ok(None);
     }
-    let palette = model
-        .get(dol::u32(model, 0)? as usize..dol::u32(model, 4)? as usize)
-        .context("NPC palette exceeds model")?;
-    ensure!(dol::u32(palette, 0)? == 0x0020_af30, "NPC model lacks TPL");
-    Ok(Some(palette))
+    Ok(Some(world_texture::model_palette(model)?))
 }
 
 fn atlas_variant(model: &[u8]) -> Result<Option<AtlasChannel>> {
@@ -225,43 +221,62 @@ fn atlas_variant(model: &[u8]) -> Result<Option<AtlasChannel>> {
     }))
 }
 
-fn textures(
+/// Convert a model and store its textures, as the console wraps them.
+/// Returns the mesh, its part and the source size of each texture.
+fn textured_model(
     library: &Path,
     base: &str,
     layer: &str,
     model: &[u8],
-    shared: &mut BTreeMap<Vec<u8>, String>,
-) -> Result<(Vec<String>, Vec<bool>)> {
-    let Some(tpl) = palette(model)? else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-    let mut paths = Vec::new();
-    let mut alpha = Vec::new();
-    for index in 0..dol::u32(tpl, 4)? as usize {
-        let (bytes, transparent) = world_texture::tpl_texture(tpl, index)?;
-        let path = write_shared(
-            library,
-            format!("{base}/textures/{layer}-texture-{index}.ktx2"),
-            bytes,
-            shared,
-        )?;
-        paths.push(path);
-        alpha.push(transparent);
+    shared: &mut BTreeMap<[u8; 32], String>,
+) -> Result<(Vec<u8>, resonance_content::ScenePart)> {
+    let mut pixels = Vec::new();
+    if let Some(tpl) = palette(model)? {
+        for index in 0..dol::u32(tpl, 4)? as usize {
+            pixels.push(world_texture::tpl_pixels(tpl, index, 0, false, true)?);
+        }
     }
-    Ok((paths, alpha))
+    let alpha = pixels
+        .iter()
+        .map(|levels| world_texture::has_alpha(&levels[0].rgba))
+        .collect();
+    let sizes: Vec<_> = pixels
+        .iter()
+        .map(|levels| [levels[0].width, levels[0].height])
+        .collect();
+    let (mut mesh, mut part) =
+        world_gpl::static_model(model, vec![String::new(); pixels.len()], alpha)?;
+    let wrapped = world_gpl::console_wrap(&mut mesh, &mut part, &sizes)?;
+    for (index, mut levels) in pixels.into_iter().enumerate() {
+        if wrapped[index] != [false; 2] {
+            levels = resonance_asset_writer::texture::console_wrapped(&levels, wrapped[index]);
+        }
+        part.textures[index] =
+            world_texture::shared_path(shared, world_texture::texture_key(&levels), || {
+                let path = format!("{base}/textures/{layer}-texture-{index}.ktx2");
+                crate::output::write(
+                    &library.join(&path),
+                    &resonance_asset_writer::gpu::encode(&levels)?,
+                )?;
+                Ok(path)
+            })?;
+    }
+    Ok((mesh, part))
 }
 
 fn write_shared(
     library: &Path,
     path: String,
     bytes: Vec<u8>,
-    shared: &mut BTreeMap<Vec<u8>, String>,
+    shared: &mut BTreeMap<[u8; 32], String>,
 ) -> Result<String> {
-    if let Some(owner) = shared.get(&bytes) {
+    use sha2::{Digest, Sha256};
+    let key: [u8; 32] = Sha256::digest(&bytes).into();
+    if let Some(owner) = shared.get(&key) {
         return Ok(owner.clone());
     }
     crate::output::write(&library.join(&path), &bytes)?;
-    shared.insert(bytes, path.clone());
+    shared.insert(key, path.clone());
     Ok(path)
 }
 
@@ -291,14 +306,14 @@ pub(crate) fn convert_with_owner(
     convert_shared(library, id, name, package, owner, &mut BTreeMap::new())
 }
 
-/// Share only identical final media bytes; model bindings remain independently editable.
+/// Share identical textures, geometry and motions; keep model bindings editable.
 pub(crate) fn convert_shared(
     library: &Path,
     id: u32,
     name: &str,
     package: &[u8],
     owner: Option<&str>,
-    shared: &mut BTreeMap<Vec<u8>, String>,
+    shared: &mut BTreeMap<[u8; 32], String>,
 ) -> Result<()> {
     convert_package(library, name, package, owner, shared, false)
         .with_context(|| format!("resource {id} ({name})"))
@@ -309,7 +324,7 @@ pub(crate) fn convert_package(
     name: &str,
     package: &[u8],
     owner: Option<&str>,
-    shared: &mut BTreeMap<Vec<u8>, String>,
+    shared: &mut BTreeMap<[u8; 32], String>,
     battle: bool,
 ) -> Result<()> {
     let body = field_core::optional_section(package, 0)?.context("NPC has no body")?;
@@ -330,8 +345,7 @@ pub(crate) fn convert_package(
             .clone();
         (fs::read(library.join(&part.mesh))?, part)
     } else {
-        let (paths, alpha) = textures(library, &base, "body", body, shared)?;
-        let (mesh, mut part) = world_gpl::static_model(body, paths, alpha)
+        let (mesh, mut part) = textured_model(library, &base, "body", body, shared)
             .with_context(|| format!("model {name} body"))?;
         part.mesh = write_shared(
             library,
@@ -459,16 +473,30 @@ pub(crate) fn convert_package(
         } else {
             world_gpl::with_primary_palette(body, outline)?
         };
-        let (paths, alpha) = if own_palette {
-            textures(library, &base, "outline", &normalized, shared)?
+        let (outline_mesh, part) = if own_palette {
+            textured_model(library, &base, "outline", &normalized, shared)
         } else {
-            (
+            // An outline drawing the body's textures would need the same wrap.
+            let scaled = |binding: &Option<resonance_content::TextureBinding>| {
+                binding
+                    .as_ref()
+                    .is_some_and(|b| b.scale != resonance_content::TextureBinding::unscaled())
+            };
+            ensure!(
+                !parts[0]
+                    .materials
+                    .iter()
+                    .any(|m| scaled(&m.color) || scaled(&m.multiply)),
+                "model {name} outline shares console-wrapped textures"
+            );
+            world_gpl::static_model(
+                &normalized,
                 parts[0].textures.clone(),
                 vec![false; parts[0].textures.len()],
             )
-        };
-        let (outline_mesh, mut part) = world_gpl::static_model(&normalized, paths, alpha)
-            .with_context(|| format!("model {name} outline"))?;
+        }
+        .with_context(|| format!("model {name} outline"))?;
+        let mut part = part;
         part.mesh = write_shared(
             library,
             format!("{base}/meshes/outline.glb"),

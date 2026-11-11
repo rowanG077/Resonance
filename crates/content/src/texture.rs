@@ -1,5 +1,4 @@
 //! Sampling metadata shared by physical textures and prepared artwork.
-pub(crate) mod images;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 

@@ -153,6 +153,7 @@ impl Fixture {
         let title_scene = title.scene;
         let title_events = title.events;
         let mut app = App::new();
+        crate::texture::decoded_files(&mut app, &root);
         app.add_plugins((
             MinimalPlugins,
             AssetPlugin {

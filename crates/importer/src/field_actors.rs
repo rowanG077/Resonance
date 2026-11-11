@@ -222,9 +222,7 @@ pub(crate) fn declared_resources(extracted: &Path, id: u32) -> Result<BTreeSet<u
 
 /// Static and finite resource selections for a precomputed bank table. Runtime
 /// actor publication uses `declared_resources` and rejects unresolved selectors.
-pub(crate) fn declared_static_resources(extracted: &Path, id: u32) -> Result<BTreeSet<u32>> {
-    let (_, archive) = field_core::read(extracted, id)?;
-    let script = field_core::optional_section(&archive, 6)?.context("field has no script")?;
+pub(crate) fn declared_static_resources(script: &[u8]) -> Result<BTreeSet<u32>> {
     declarations_with_unresolved(script, true)
 }
 

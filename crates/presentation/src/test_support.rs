@@ -138,10 +138,10 @@ pub(crate) fn prepare_battle(
 /// Representative authored startup used by timing and replay tests.
 pub(crate) fn boot_logos() -> resonance_game::boot::Logos {
     let sequence = serde_json::from_value(serde_json::json!([
-        {"image":"nintendo.ktx2","fade_out_at":180},
-        {"image":"namco.ktx2","fade_out_at":240,"skip_after":120},
-        {"image":"tales-studio.ktx2","fade_out_at":180},
-        {"image":"adx.ktx2","fade_out_at":120}
+        {"image":"nintendo.ktx2","size":[7,5],"fade_out_at":180},
+        {"image":"namco.ktx2","size":[7,5],"fade_out_at":240,"skip_after":120},
+        {"image":"tales-studio.ktx2","size":[7,5],"fade_out_at":180},
+        {"image":"adx.ktx2","size":[7,5],"fade_out_at":120}
     ]))
     .unwrap();
     resonance_game::boot::Logos::new(sequence).unwrap()
@@ -169,6 +169,12 @@ pub(crate) fn validate_shader(
 
 /// Headless native renderer shared by GPU tests; WGPU_BACKEND may select OpenGL.
 pub(crate) fn render_plugins() -> bevy::app::PluginGroupBuilder {
+    render_plugins_with_features(wgpu::Features::empty())
+}
+
+pub(crate) fn render_plugins_with_features(
+    features: wgpu::Features,
+) -> bevy::app::PluginGroupBuilder {
     use bevy::{
         prelude::*,
         render::{
@@ -187,6 +193,7 @@ pub(crate) fn render_plugins() -> bevy::app::PluginGroupBuilder {
     crate::renderer::native_render_plugins(RenderPlugin {
         render_creation: WgpuSettings {
             backends: Some(backends),
+            features,
             priority: if backends.contains(Backends::GL) {
                 WgpuSettingsPriority::Functionality
             } else {

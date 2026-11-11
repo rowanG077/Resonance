@@ -52,13 +52,13 @@ fn prepare(
         .take()
         .map(|weapon| models::read_weapon(weapon, diagnostics, &mut *read))
         .transpose()?;
-    let mut scene = definition.with_weapon(weapon);
+    let scene = definition.with_weapon(weapon);
     scene.validate().with_context(|| path.to_owned())?;
-    if let Some(cutin) = &mut scene.cutin {
+    if let Some(cutin) = &scene.cutin {
         cutin.sampler.validate()?;
         ensure!(!cutin.images.is_empty(), "empty scene cut-in in {path}");
-        for image in &mut cutin.images {
-            diagnostics.attempt(path, crate::texture::images::prepare(image, &mut *read))?;
+        for image in &cutin.images {
+            diagnostics.attempt(path, crate::ui_art::prepare_image(image, &mut *read))?;
         }
     }
     Ok(scene)

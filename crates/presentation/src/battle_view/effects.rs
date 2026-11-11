@@ -393,6 +393,7 @@ impl Effects {
                             nearest_min: false,
                             nearest_mag: false,
                             mipmapped: false,
+                            scale: TextureBinding::unscaled(),
                         },
                     )),
                     images,

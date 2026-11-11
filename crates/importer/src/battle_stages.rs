@@ -248,8 +248,10 @@ fn convert(root: &Path, id: u16, name: &str) -> Result<Vec<(String, Vec<u8>)>> {
         files.extend(stage_effect_bank(bank, effect_atlas, &base)?);
     }
     let mut layers = Vec::new();
-    let mut palettes: Vec<(Vec<u8>, Vec<String>, Vec<bool>)> = Vec::new();
-    let mut palette_owner: Option<(&[u8], Vec<String>, Vec<bool>)> = None;
+    // Texture paths, transparency, source sizes and console wrapping per palette.
+    type Palette = (Vec<String>, Vec<bool>, Vec<[u32; 2]>, Vec<[bool; 2]>);
+    let mut palettes: Vec<(Vec<u8>, Palette)> = Vec::new();
+    let mut palette_owner: Option<(&[u8], Palette)> = None;
     let mut primary_joints = Vec::new();
     let mut foreground = 0;
     // Native section order is background, foregrounds, then scenery. The
@@ -269,24 +271,36 @@ fn convert(root: &Path, id: u16, name: &str) -> Result<Vec<(String, Vec<u8>)>> {
         };
         let owned_palette = dol::u32(model, 0)? != 0;
         if owned_palette {
-            let start = dol::u32(model, 0)? as usize;
-            let end = dol::u32(model, 4)? as usize;
-            let tpl = model
-                .get(start..end)
-                .context("stage palette exceeds model")?;
-            ensure!(
-                dol::u32(tpl, 0)? == 0x0020_af30,
-                "stage palette is not a TPL"
-            );
-            let (paths, alpha) = if let Some((_, paths, alpha)) =
-                palettes.iter().find(|(seen, _, _)| seen == tpl)
+            let tpl = world_texture::model_palette(model)?;
+            let palette = if let Some((_, palette)) = palettes.iter().find(|(seen, _)| seen == tpl)
             {
-                (paths.clone(), alpha.clone())
+                palette.clone()
             } else {
+                let count = dol::u32(tpl, 4)? as usize;
+                let pixels = (0..count)
+                    .map(|index| world_texture::tpl_pixels(tpl, index, 0, false, true))
+                    .collect::<Result<Vec<_>>>()?;
+                let alpha: Vec<_> = pixels
+                    .iter()
+                    .map(|levels| world_texture::has_alpha(&levels[0].rgba))
+                    .collect();
+                let sizes: Vec<_> = pixels
+                    .iter()
+                    .map(|levels| [levels[0].width, levels[0].height])
+                    .collect();
+                // The layer that owns a palette decides how its textures wrap.
+                let (mut mesh, mut scene) =
+                    world_gpl::static_model(model, vec![String::new(); count], alpha.clone())?;
+                let wrapped = world_gpl::console_wrap(&mut mesh, &mut scene, &sizes)?;
                 let mut paths = Vec::new();
-                let mut alpha = Vec::new();
-                for texture_index in 0..dol::u32(tpl, 4)? as usize {
-                    let (texture, transparent) = world_texture::tpl_texture(tpl, texture_index)?;
+                for (texture_index, mut levels) in pixels.into_iter().enumerate() {
+                    if wrapped[texture_index] != [false; 2] {
+                        levels = resonance_asset_writer::texture::console_wrapped(
+                            &levels,
+                            wrapped[texture_index],
+                        );
+                    }
+                    let texture = resonance_asset_writer::gpu::encode(&levels)?;
                     let path = if let Some((path, _)) = files
                         .iter()
                         .find(|(path, old)| path.contains("-texture-") && *old == texture)
@@ -298,14 +312,14 @@ fn convert(root: &Path, id: u16, name: &str) -> Result<Vec<(String, Vec<u8>)>> {
                         path
                     };
                     paths.push(path);
-                    alpha.push(transparent);
                 }
-                palettes.push((tpl.to_vec(), paths.clone(), alpha.clone()));
-                (paths, alpha)
+                let palette = (paths, alpha, sizes, wrapped);
+                palettes.push((tpl.to_vec(), palette.clone()));
+                palette
             };
-            palette_owner = Some((model, paths, alpha));
+            palette_owner = Some((model, palette));
         }
-        let (owner, paths, alpha) = palette_owner
+        let (owner, (paths, alpha, sizes, wrapped)) = palette_owner
             .as_ref()
             .context("stage layer has no palette")?;
         let source = if owned_palette {
@@ -313,7 +327,21 @@ fn convert(root: &Path, id: u16, name: &str) -> Result<Vec<(String, Vec<u8>)>> {
         } else {
             world_gpl::with_primary_palette(owner, model)?
         };
-        let (mesh, mut scene) = world_gpl::static_model(&source, paths.clone(), alpha.clone())?;
+        let (mut mesh, mut scene) = world_gpl::static_model(&source, paths.clone(), alpha.clone())?;
+        let layer = world_gpl::console_wrap(&mut mesh, &mut scene, sizes)?;
+        let bound = |texture| {
+            let binds = |b: &Option<resonance_content::TextureBinding>| {
+                b.as_ref().is_some_and(|b| b.texture == texture)
+            };
+            scene
+                .materials
+                .iter()
+                .any(|m| binds(&m.color) || binds(&m.multiply))
+        };
+        ensure!(
+            (0..sizes.len()).all(|texture| !bound(texture) || layer[texture] == wrapped[texture]),
+            "stage {id} layers wrap one shared texture differently"
+        );
         let existing_mesh = files
             .iter()
             .find(|(path, bytes)| {

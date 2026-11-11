@@ -60,6 +60,7 @@ fn named_mix_mods_share_presets_keep_local_overrides_and_retained_snapshots() ->
     fs::create_dir(base.path().join("audio"))?;
     fs::create_dir(modification.path().join("audio"))?;
     fs::write(base.path().join(PATH), serde_json::to_vec(&document()?)?)?;
+    fs::copy(base.path().join(PATH), modification.path().join(PATH))?;
     let library = Library::open(
         base.path(),
         &[Mod {

@@ -182,7 +182,15 @@ fn named_movie_replacements_mods_and_retained_handles_use_current_media() {
     let error = MovieDecoder::open(&video, 2).err().unwrap();
     assert!(format!("{error:#}").contains("movie has no audio track 2"));
     root.write("movies/mappings.json", br#"{"0":"missing.mkv"}"#);
-    assert!(MovieDecoder::load(&mut library.snapshot(), 0).is_err());
+    assert_eq!(
+        MovieDecoder::load(&mut library.snapshot(), 0)
+            .unwrap()
+            .format()
+            .width,
+        32
+    );
+    let reopened = Library::open(&root.0, &[]).unwrap();
+    assert!(MovieDecoder::load(&mut reopened.snapshot(), 0).is_err());
 }
 
 #[test]

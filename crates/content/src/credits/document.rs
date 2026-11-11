@@ -43,6 +43,7 @@ pub enum Block {
     },
     Image {
         image: String,
+        size: [u32; 2],
         #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
         offset_x: f32,
     },
@@ -68,17 +69,24 @@ impl Definition {
         for block in &self.blocks {
             match block {
                 Block::Gap { gap } => operations.push(Operation::VerticalSpace { pixels: *gap }),
-                Block::Image { image, offset_x } => {
+                Block::Image {
+                    image,
+                    size,
+                    offset_x,
+                } => {
                     ensure!(offset_x.is_finite(), "invalid credits image offset");
                     crate::library::validate_path(image)?;
-                    let index = match pictures.iter().position(|p| p.path == *image) {
+                    let index = match pictures
+                        .iter()
+                        .position(|p| p.path == *image && [p.width, p.height] == *size)
+                    {
                         Some(index) => index,
                         None => {
                             let bytes =
                                 read(image).with_context(|| format!("{PATH} image {image}"))?;
-                            let [width, height] =
-                                resonance_asset_writer::texture::dimensions(&bytes)
-                                    .with_context(|| format!("{PATH} image {image}"))?;
+                            resonance_asset_writer::texture::dimensions(&bytes)
+                                .with_context(|| format!("{PATH} image {image}"))?;
+                            let [width, height] = *size;
                             pictures.push(UiTexture {
                                 path: image.clone(),
                                 width,

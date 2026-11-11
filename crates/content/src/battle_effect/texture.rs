@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Definition {
-    #[serde(with = "crate::texture::images")]
     images: Vec<UiTexture>,
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     sampler: Sampler,
@@ -116,7 +115,8 @@ mod tests {
 
     #[test]
     fn editable_choices_keep_holes_constants_and_image_order_distinct() -> Result<()> {
-        let images = json!(["red.ktx2", "blue.ktx2"]);
+        let images =
+            json!([{"image":"red.ktx2","size":[32,32]}, {"image":"blue.ktx2","size":[32,32]}]);
         let default = json!({"images":images});
         let texture: EffectTexture = serde_json::from_value(default.clone())?;
         assert_eq!(texture.palette_image(0, 1)?, 1);

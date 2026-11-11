@@ -40,7 +40,7 @@ fn image_owner(id: u32, image: usize, portraits: &Portraits) -> Option<String> {
             .get(&id)
             .and_then(|name| portraits.images.get(name))
             .and_then(|images| images.get(image))
-            .cloned(),
+            .map(|image| image.path.clone()),
     }
 }
 
@@ -73,6 +73,9 @@ fn extra_artwork(extracted: &Path, library: &Path) -> Result<BTreeMap<String, Te
         let tpl = native_archive::read_named(&extracted.join("disc1/files"), source)?;
         let mut catalogue = TextureCatalogue::default();
         for index in 0..dol::u32(&tpl, 4)? as usize {
+            let descriptor = dol::u32(&tpl, dol::u32(&tpl, 8)? as usize + index * 8)? as usize;
+            let sampler = world_texture::sampler(&tpl, descriptor)?;
+            let (ktx, size) = world_texture::tpl_interface_texture(&tpl, index, sampler.wrap)?;
             let path = if source == "change_disc.tpl" && index == 3 {
                 let path = "ui/title/lloyd-in-a-field.ktx2".to_owned();
                 ensure!(
@@ -82,18 +85,13 @@ fn extra_artwork(extracted: &Path, library: &Path) -> Result<BTreeMap<String, Te
                 path
             } else {
                 let path = format!("{directory}/background-{}.ktx2", index + 1);
-                crate::output::write(
-                    &library.join(&path),
-                    &world_texture::tpl_texture(&tpl, index)?.0,
-                )?;
+                crate::output::write(&library.join(&path), &ktx)?;
                 path
             };
             catalogue.textures.push(Some(TextureImage {
-                sampler: world_texture::sampler(
-                    &tpl,
-                    dol::u32(&tpl, dol::u32(&tpl, 8)? as usize + index * 8)? as usize,
-                )?,
+                sampler,
                 images: vec![path],
+                size: Some(size),
             }));
         }
         banks.insert(name.to_owned(), catalogue);
@@ -187,21 +185,23 @@ pub fn cook_shared_texture_banks(extracted: &Path, library: &Path) -> Result<()>
                         ),
                         _ => format!("textures/{name}-image-{index}.ktx2"),
                     });
-                if !library.join(&path).is_file() {
-                    crate::output::write(
-                        &library.join(&path),
-                        &world_texture::tpl_texture(&tpl, index)?.0,
-                    )?;
-                }
                 unique.insert(key, path.clone());
                 path
             };
+            let sampler = world_texture::sampler(
+                &tpl,
+                dol::u32(&tpl, dol::u32(&tpl, 8)? as usize + index * 8)? as usize,
+            )?;
+            // Another owner may already have stored this image, padded alike.
+            let (ktx, size) = world_texture::tpl_interface_texture(&tpl, index, sampler.wrap)
+                .with_context(|| path.clone())?;
+            if !library.join(&path).is_file() {
+                crate::output::write(&library.join(&path), &ktx)?;
+            }
             catalogue.textures.push(Some(TextureImage {
-                sampler: world_texture::sampler(
-                    &tpl,
-                    dol::u32(&tpl, dol::u32(&tpl, 8)? as usize + index * 8)? as usize,
-                )?,
+                sampler,
                 images: vec![path],
+                size: Some(size),
             }));
         }
         mappings.insert(id, name.clone());

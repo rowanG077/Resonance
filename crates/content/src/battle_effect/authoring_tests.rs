@@ -31,7 +31,7 @@ fn visual_authoring_named_blends_atlases_and_image_mods_preserve_prepared_choice
             &json!({"version":crate::library::VERSION,"game":crate::library::GAME}),
         )?,
     )?;
-    let bank = json!({"templates":{"stun-bird":declaration},"artwork":{"textures":{"scene":[{"images":["atlas.ktx2"],"palette_sets":[[0,null],0]}]}}});
+    let bank = json!({"templates":{"stun-bird":declaration},"artwork":{"textures":{"scene":[{"images":[{"image":"atlas.ktx2","size":[2,1]}],"palette_sets":[[0,null],0]}]}}});
     fs::write(root.path().join("effects.json"), serde_json::to_vec(&bank)?)?;
     fs::write(
         root.path().join("atlas.ktx2"),
@@ -62,7 +62,11 @@ fn visual_authoring_named_blends_atlases_and_image_mods_preserve_prepared_choice
     let a = texture(&before);
     let b = texture(&after);
     assert_eq!((a.images[0].width, a.images[0].height), (2, 1));
-    assert_eq!((b.images[0].width, b.images[0].height), (4, 2));
+    assert_eq!((b.images[0].width, b.images[0].height), (2, 1));
+    assert_eq!(
+        resonance_asset_writer::texture::dimensions(&changed.snapshot().read("atlas.ktx2", 4096)?)?,
+        [4, 2]
+    );
     assert!(b.palette_image(0, 1).is_err());
     assert_eq!(b.palette_image(1, 255)?, 0);
     assert_eq!(serde_json::to_value(&a)?, serde_json::to_value(&b)?);

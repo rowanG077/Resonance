@@ -67,12 +67,7 @@ pub fn cook_world_markers(root: &Path, library: &Path) -> Result<()> {
                 );
                 continue;
             }
-            let start = dol::u32(resource, 0)? as usize;
-            let end = dol::u32(resource, 4)? as usize;
-            let tpl = resource
-                .get(start..end)
-                .context("marker TPL exceeds model")?;
-            ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "missing marker TPL");
+            let tpl = world_texture::model_palette(resource)?;
             let count = dol::u32(tpl, 4)? as usize;
             let mut paths = Vec::new();
             let mut alpha = Vec::new();

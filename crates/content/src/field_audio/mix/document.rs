@@ -1,4 +1,4 @@
-//! One file owns its named presets; references never cross files or inherit.
+//! One resolved mix owns its named presets; playback consumes the assembled values.
 use super::*;
 use crate::field_audio::reverb::{Buses, Parameters};
 use anyhow::{Context, ensure};

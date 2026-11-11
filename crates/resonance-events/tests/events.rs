@@ -4436,13 +4436,17 @@ fn duplicate_spawns_keep_the_first_script_binding_until_despawn() {
         assert_eq!(first.resource, 1);
         assert_eq!(first.position, [100., 200., 300.]);
         let instance = first.instance;
-        let duplicate = events
+        let (&key, duplicate) = events
             .world
             .actors
             .iter()
             .find(|(key, _)| **key != id)
-            .unwrap()
-            .1;
+            .unwrap();
+        // Presentation (mouth animation) addresses every instance of the script actor.
+        assert_eq!(
+            events.world.scene_actor_ids(id).collect::<Vec<_>>(),
+            [id, key]
+        );
         assert_eq!(duplicate.resource, 2);
         assert_eq!(duplicate.position, [40., 50., 60.]);
         assert_ne!(instance, duplicate.instance);
@@ -4450,6 +4454,7 @@ fn duplicate_spawns_keep_the_first_script_binding_until_despawn() {
         assert!(events.trigger(42, true).unwrap());
         steps(&mut events, 2);
         assert_eq!(events.world.actors.len(), 1);
+        assert_eq!(events.world.scene_actor_ids(id).collect::<Vec<_>>(), [id]);
         let replacement = &events.world.actors[&id];
         assert_eq!(replacement.resource, 2);
         assert_eq!(replacement.position, [400., 500., 600.]);

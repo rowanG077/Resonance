@@ -102,6 +102,7 @@ fn named_rosters_aliases_and_banks_preserve_order_targets_and_mod_capture() -> R
         MODEL_GROUPS,
         json!({"party":["hero/story","hero"]}),
     )?;
+    write(edits.path(), "actors.json", selection.clone())?;
     let modified = Library::open(
         base.path(),
         &[Mod {

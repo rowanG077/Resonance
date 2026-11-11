@@ -28,6 +28,7 @@ pub(super) fn install(app: &mut App) {
     app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
     bevy::asset::embedded_asset!(app, "field_ui.wesl");
     crate::input_icons::install(app);
+    skit::install(app);
     app.add_systems(
         PreUpdate,
         crate::input_icons::track_device.after(bevy::input::InputSystems),
@@ -71,6 +72,7 @@ fn ui_image(
     path: &str,
     size: [u32; 2],
     repeat: bool,
+    formats: bevy::image::CompressedImageFormats,
     read: &impl Fn(&str) -> Result<Vec<u8>>,
 ) -> Result<Image> {
     let address = if repeat {
@@ -78,6 +80,11 @@ fn ui_image(
     } else {
         ImageAddressMode::ClampToEdge
     };
+    anyhow::ensure!(
+        size.iter().all(|v| (1..=4096).contains(v)),
+        "invalid UI image coordinates: {path}"
+    );
+    let bytes = read(path)?;
     let image = crate::texture::decode(
         path,
         &ImageLoaderSettings {
@@ -90,13 +97,10 @@ fn ui_image(
             asset_usage: RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
             ..default()
         },
-        read,
+        formats,
+        bytes,
     )
     .with_context(|| format!("UI image {path}"))?;
-    anyhow::ensure!(
-        [image.width(), image.height()] == size,
-        "UI image dimensions differ from its descriptor: {path}"
-    );
     Ok(image)
 }
 
@@ -313,7 +317,7 @@ impl MenuOverlay {
         materials: &mut Assets<Surface>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
-        let mut dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.prepare_images(&read)?;
         dialogue.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
@@ -537,7 +541,7 @@ impl Artwork {
         image_assets: &mut Assets<Image>,
     ) -> Result<Self> {
         let read = |path: &str| -> Result<Vec<u8>> { Ok(files.read(path)?.to_vec()) };
-        let mut spec: DialogueArt = serde_json::from_slice(
+        let spec: DialogueArt = serde_json::from_slice(
             &read("ui/dialogue.json").context("classroom dialogue art is missing; run cook-all")?,
         )?;
         spec.prepare_images(&read)?;
@@ -692,6 +696,7 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
+        materials: &mut Assets<Surface>,
         server: &AssetServer,
     ) -> Result<bool> {
         self.skit_ready(session, images, server).and_then(|ready| {
@@ -705,6 +710,7 @@ impl Artwork {
                 commands,
                 meshes,
                 images,
+                materials,
             )?;
             Ok(true)
         })
@@ -902,6 +908,7 @@ impl DialogueOverlay {
         files: &resonance_content::prepared::Files,
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
+        formats: bevy::image::CompressedImageFormats,
     ) -> Result<Self> {
         let read = |path: &str| Ok(files.read(path)?.to_vec());
         let images = spec
@@ -917,7 +924,7 @@ impl DialogueOverlay {
             ])
             .enumerate()
             .map(|(index, (path, size))| {
-                let mut image = ui_image(path, size, true, &read)?;
+                let mut image = ui_image(path, size, true, formats, &read)?;
                 if index < 9 {
                     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                         address_mode_u: ImageAddressMode::Repeat,
@@ -2143,6 +2150,7 @@ mod tests {
                 serde_json::to_vec(&dialogue_spec)?.into(),
             );
             let mut app = App::new();
+            crate::texture::decoded_files(&mut app, &root);
             app.add_plugins((
                 MinimalPlugins,
                 AssetPlugin {
@@ -2229,6 +2237,7 @@ mod tests {
                 .insert_resource(art)
                 .insert_resource(field_art)
                 .insert_resource(session);
+            crate::field_weapons::without_models_for_test(app.world_mut());
             let start = std::time::Instant::now();
             while [&unused_image, &skit_image, &essential_image]
                 .iter()

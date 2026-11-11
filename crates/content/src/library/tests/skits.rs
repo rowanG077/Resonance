@@ -94,7 +94,7 @@ fn skit_media_uses_current_pcm_and_merged_mappings_with_shared_silent_clocks() -
     fixture.write("mod/audio/speech/skits/replacement.wav", &wave(48000, 64)?);
     let held = document::capture(&mut snapshot, &|| false)?;
     assert_eq!(held.media[&100].frames, 32);
-    let fresh = document::capture(&mut library.snapshot(), &|| false)?;
+    let fresh = document::capture(&mut fixture.open(&["mod"])?.snapshot(), &|| false)?;
     assert_eq!(
         (fresh.media[&100].frames, fresh.media[&100].sample_rate),
         (64, 48042)
@@ -134,7 +134,7 @@ fn silent_skit_can_be_voiced_by_changing_only_the_shared_mapping() -> Result<()>
         "mod/audio/speech/skits/arrival/colette-001.wav",
         &wave(44100, 4410)?,
     );
-    let fresh = document::capture(&mut library.snapshot(), &|| false)?;
+    let fresh = document::capture(&mut fixture.open(&["mod"])?.snapshot(), &|| false)?;
     let line = &fresh.media[&102];
     assert_eq!((line.frames, line.sample_rate), (4410, 44138));
     assert_eq!(
@@ -171,8 +171,7 @@ fn invalid_skit_replacements_and_cancellation_do_not_reuse_old_media() -> Result
 fn skit_dialogue_can_be_added_by_a_mod_without_changing_the_catalogue() -> Result<()> {
     let fixture = fixture()?;
     fs::create_dir(fixture.0.path().join("mod"))?;
-    let library = fixture.open(&["mod"])?;
-    let mut snapshot = library.snapshot();
+    let mut snapshot = fixture.open(&["mod"])?.snapshot();
     let absent = document::capture(&mut snapshot, &|| false)?;
     assert!(absent.resources[&1].messages.is_none());
     let path = "skits/arrival/messages.json";
@@ -183,7 +182,7 @@ fn skit_dialogue_can_be_added_by_a_mod_without_changing_the_catalogue() -> Resul
             .messages
             .is_none()
     );
-    let mut fresh = library.snapshot();
+    let mut fresh = fixture.open(&["mod"])?.snapshot();
     let added = document::capture(&mut fresh, &|| false)?;
     assert_eq!(added.resources[&1].messages.as_deref(), Some(path));
     let files = crate::prepared::Files::from_snapshot(
@@ -214,7 +213,7 @@ fn skit_dialogue_can_be_added_by_a_mod_without_changing_the_catalogue() -> Resul
     );
 
     fixture.write(&format!("mod/{path}"), b"malformed JSON");
-    let mut snapshot = library.snapshot();
+    let mut snapshot = fixture.open(&["mod"])?.snapshot();
     let malformed = document::capture(&mut snapshot, &|| false)?;
     let files = crate::prepared::Files::from_snapshot(
         snapshot,
@@ -261,7 +260,7 @@ fn shared_skit_owners_keep_ids_and_allow_independent_mod_overrides() -> Result<(
     fixture.write("mod/skits/mappings.json", br#"{"2":"new-conversation"}"#);
     fixture.write("mod/skits/new-conversation/scenario.ssb", b"replacement");
     fixture.write("mod/skits/new-conversation/messages.json", br#"["Hello"]"#);
-    let fresh = document::capture(&mut library.snapshot(), &|| false)?;
+    let fresh = document::capture(&mut fixture.open(&["mod"])?.snapshot(), &|| false)?;
     assert_eq!(fresh.resources[&1].script, "skits/arrival/scenario.ssb");
     assert_eq!(
         fresh.resources[&2].script,

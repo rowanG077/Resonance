@@ -96,9 +96,7 @@ pub(crate) fn hud_page(disc: &Path, palette_page: usize) -> Result<Vec<u8>> {
     for row in 64..128 {
         pixels[(row * 512 + 384) * 4..(row * 512 + 512) * 4].fill(0);
     }
-    Ok(resonance_asset_writer::ktx2::encode_rgba8(
-        512, 512, &pixels,
-    )?)
+    resonance_asset_writer::gpu::encode_rgba8(512, 512, &pixels)
 }
 
 fn array<T, const N: usize>(mut read: impl FnMut(usize) -> Result<T>) -> Result<[T; N]> {
@@ -135,7 +133,7 @@ fn image(
     let rgba = page(tpl, palette)?;
     files.push((
         path.clone(),
-        resonance_asset_writer::ktx2::encode_rgba8(512, 512, &rgba)?,
+        resonance_asset_writer::gpu::encode_rgba8(512, 512, &rgba)?,
     ));
     Ok(UiTexture {
         path,
@@ -248,7 +246,7 @@ fn command_atlas(tpl: &[u8], art: &mut CommandArt) -> Result<Vec<u8>> {
     for (i, rect) in art.faces.iter_mut().enumerate() {
         copy(32 + i, rect)?;
     }
-    Ok(resonance_asset_writer::ktx2::encode_rgba8(
+    Ok(resonance_asset_writer::gpu::encode_rgba8(
         512, 1024, &pixels,
     )?)
 }

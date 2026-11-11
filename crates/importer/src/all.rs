@@ -117,14 +117,23 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     heading("Battle equipment");
     let equipment = crate::cook_battle_equipment_mappings(root, library)
         .context("battle equipment mappings")?;
-    for (index, &id) in equipment.iter().enumerate() {
+    // The carried-prop declaration borrows the completed shield owner's document.
+    let models = equipment
+        .iter()
+        .copied()
+        .filter(|&id| id != 528)
+        .collect::<Vec<_>>();
+    crate::parallel::for_each(&models, |index, &id| {
         eprintln!(
             "  [{}/{} jobs] Battle equipment: {id}",
             index + 1,
-            equipment.len()
+            models.len()
         );
         crate::cook_battle_equipment(root, library, id)
-            .with_context(|| format!("battle equipment {id}"))?;
+            .with_context(|| format!("battle equipment {id}"))
+    })?;
+    if equipment.contains(&528) {
+        crate::cook_battle_equipment(root, library, 528)?;
     }
     heading("Battle arenas");
     crate::cook_battle_stage_mappings(root, library).context("battle arena mappings")?;

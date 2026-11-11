@@ -91,7 +91,7 @@ fn gap(blocks: &mut Vec<Block>, pixels: i32) -> Result<()> {
     Ok(())
 }
 
-fn finish(line: &mut Line, advance: i32, blocks: &mut Vec<Block>) -> Result<()> {
+fn finish(line: &mut Line, advance: i32, pictures: &[u8], blocks: &mut Vec<Block>) -> Result<()> {
     let (decoded, _, invalid) = encoding_rs::SHIFT_JIS.decode(&line.bytes);
     ensure!(!invalid, "invalid credits Shift-JIS text");
     let nonempty = !decoded.chars().all(|c| c == ' ');
@@ -108,8 +108,10 @@ fn finish(line: &mut Line, advance: i32, blocks: &mut Vec<Block>) -> Result<()> 
             4 => "namco",
             _ => anyhow::bail!("unidentified credits image {index}"),
         };
+        let pixels = world_texture::tpl_base_image(pictures, usize::from(index))?;
         blocks.push(Block::Image {
             image: format!("ui/credits/{name}.ktx2"),
+            size: [pixels.width, pixels.height],
             offset_x: 0.,
         });
     } else if nonempty {
@@ -184,7 +186,7 @@ fn group_lines(blocks: Vec<Block>) -> Vec<Block> {
     output
 }
 
-fn blocks(source: &[u8]) -> Result<(Vec<Block>, i32)> {
+fn blocks(source: &[u8], pictures: &[u8]) -> Result<(Vec<Block>, i32)> {
     let end = source
         .iter()
         .position(|&byte| byte == 0)
@@ -211,7 +213,7 @@ fn blocks(source: &[u8]) -> Result<(Vec<Block>, i32)> {
         }
         at += 1;
         match byte {
-            b'\n' => finish(&mut line, LINE_HEIGHT, &mut blocks)?,
+            b'\n' => finish(&mut line, LINE_HEIGHT, pictures, &mut blocks)?,
             b'\t' => line.bytes.push(byte),
             b'@' => {
                 let code = *source.get(at).context("truncated credits control")?;
@@ -227,7 +229,7 @@ fn blocks(source: &[u8]) -> Result<(Vec<Block>, i32)> {
                     b'\\' => {
                         let (pixels, next) = spacing(source, at)?;
                         at = next;
-                        finish(&mut line, pixels, &mut blocks)?;
+                        finish(&mut line, pixels, pictures, &mut blocks)?;
                     }
                     b'p' | b'P' | b'w' | b'W' => {
                         let argument = *source
@@ -253,7 +255,7 @@ fn blocks(source: &[u8]) -> Result<(Vec<Block>, i32)> {
         }
     }
     if !line.bytes.is_empty() || line.picture.is_some() || line.centered {
-        finish(&mut line, 0, &mut blocks)?;
+        finish(&mut line, 0, pictures, &mut blocks)?;
     }
     Ok((group_lines(blocks), height))
 }
@@ -262,8 +264,8 @@ pub fn cook_credits_screen(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let files = extracted.join("disc1/files");
     let source = native_archive::read_named(&files, &text::string(&exe, 0x801d_facc)?)?;
-    let (blocks, height_pixels) = blocks(&source)?;
     let pictures = native_archive::read_named(&files, &text::string(&exe, 0x801d_fa80)?)?;
+    let (blocks, height_pixels) = blocks(&source, &pictures)?;
     let mut outputs = Vec::new();
     for (index, name) in [(0, "production-ig"), (4, "namco")] {
         let path = format!("ui/credits/{name}.ktx2");

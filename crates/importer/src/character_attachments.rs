@@ -80,12 +80,7 @@ fn write_mesh(
         dol::u32(body, 0x20)? == 0x005b_bc61,
         "invalid field body model"
     );
-    let start = dol::u32(body, 0)? as usize;
-    let end = dol::u32(body, 4)? as usize;
-    let tpl = body
-        .get(start..end)
-        .context("field model palette exceeds body")?;
-    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "missing field model TPL");
+    let tpl = world_texture::model_palette(body)?;
     let mut paths = Vec::new();
     let mut alpha = Vec::new();
     for index in 0..dol::u32(tpl, 4)? as usize {

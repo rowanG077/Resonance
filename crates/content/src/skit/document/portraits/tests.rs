@@ -12,7 +12,7 @@ fn image(size: u32) -> Result<Vec<u8>> {
 }
 fn document() -> serde_json::Value {
     json!({"mappings":{"851968":"lloyd/neutral","851969":"lloyd/neutral"},
-    "images":{"lloyd/neutral":["skits/portraits/lloyd/neutral.ktx2"]},
+    "images":{"lloyd/neutral":[{"image":"skits/portraits/lloyd/neutral.ktx2","size":[16,16]}]},
     "animations":{
         "still":{"ids":[12,13]},
         "blink":{"ids":[0,21],"eyes":{"repeat":true,"frames":[{"duration_ticks":181,"image":0}]}}
@@ -46,13 +46,14 @@ fn portrait_dimensions_shared_selectors_and_mod_edits_follow_current_files() -> 
     let mut edited = document();
     edited["animations"]["blink"]["eyes"]["frames"][0]["duration_ticks"] = json!(9);
     fs::create_dir_all(modification.path().join(path).parent().unwrap())?;
-    fs::write(modification.path().join(path), image(24)?)?;
+    fs::write(modification.path().join(path), image(32)?)?;
     fs::write(modification.path().join(PATH), serde_json::to_vec(&edited)?)?;
-    let mut fresh = library.snapshot();
+    let mut fresh = Library::open_paths(base.path(), &[modification.path().to_owned()])?.snapshot();
     let changed: Portraits = fresh.json(PATH, 10000)?;
     let (images, recipes) = changed.resolve(|p, l| fresh.read_optional(p, l))?;
-    assert_eq!(images[&851968].size, [24, 24]);
-    assert_eq!(images[&851968].images[0].size, [24, 24]);
+    assert_eq!(images[&851968].size, [16, 16]);
+    assert_eq!(images[&851968].scale, [2, 2]);
+    assert_eq!(images[&851968].images[0].size, [16, 16]);
     assert_eq!(recipes[&0].tracks[0][0].ticks, 8);
     assert_eq!(recipes[&21].tracks[0][0].ticks, 8);
     let (images, recipes) = before.resolve(|p, l| retained.read_optional(p, l))?;
