@@ -20,6 +20,19 @@ Maintainers can [publish a release](docs/releasing.md) by consolidating the
 changelog locally and pushing a `release/vX.X.X` branch; CI builds all platforms,
 creates tag `vX.X.X` and publishes the tested archives automatically.
 
+## Community website
+
+[apps/website](apps/website/README.md) is a Rust server with HTML/CSS pages,
+SQLite accounts, mod uploads, and a catalogue for a future in-game mod browser.
+To run it locally:
+
+```sh
+nix develop --command cargo run --locked --manifest-path apps/website/Cargo.toml
+```
+
+Open <http://127.0.0.1:3000>. See the sub-project README for server settings,
+deployment and administration.
+
 ## Clone and build
 
 With Git and Nix installed:

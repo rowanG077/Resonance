@@ -125,6 +125,23 @@
         {
           default = shell [ ];
           art = shell [ pkgs.blender ];
+          website = pkgs.mkShell {
+            packages = with pkgs; [
+              rustc
+              cargo
+              rustfmt
+              clippy
+              sqlite
+            ];
+          };
+          website-cross = pkgs.mkShell {
+            packages = with pkgs; [
+              rustup
+              cargo-zigbuild
+              binutils
+              file
+            ];
+          };
         }
       );
       formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt);
