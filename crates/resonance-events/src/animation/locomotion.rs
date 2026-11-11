@@ -1,5 +1,6 @@
 //! Shared automatic poses for ordinary updates and immediate script releases.
 use super::{Animation, slot};
+use crate::stride::Gait;
 use crate::{Actor, ModelResource};
 
 pub(crate) struct Locomotion {
@@ -9,6 +10,7 @@ pub(crate) struct Locomotion {
     pub dialogue: bool,
     pub event_controlled: bool,
     pub player_controlled: bool,
+    pub stride_scale: f32,
     /// Releasing a scripted animation forces a rebind; positive values override blending.
     pub release: Option<i32>,
 }
@@ -27,10 +29,15 @@ impl Actor {
             dialogue,
             event_controlled,
             player_controlled,
+            stride_scale,
             release,
         } = state;
         let requested = if let Some(speed) = movement_speed {
-            let running = (!walking || self.enemy.is_some()) && speed > 7.;
+            let running = if player_controlled {
+                Gait::at(speed, stride_scale) == Gait::Run
+            } else {
+                (!walking || self.enemy.is_some()) && speed > 7.
+            };
             let event_gait = if running {
                 slot::EVENT_RUN
             } else {
@@ -97,13 +104,18 @@ impl Actor {
             });
         }
         if player_controlled
-            && let Some(motion) = &self.motion
+            && let Some(speed) = movement_speed
             && let Some(animation) = &mut self.animation
             && matches!(slot, slot::WALK | slot::RUN)
         {
             // Scale player gait with movement speed. Script-directed movement
             // keeps its independent authored rate and blend duration.
-            let rate = motion.speed / if slot == slot::WALK { 2. } else { 10. };
+            let gait = if slot == slot::WALK {
+                Gait::Walk
+            } else {
+                Gait::Run
+            };
+            let rate = gait.rate(speed, stride_scale);
             if animation.rate != rate {
                 animation.seek(
                     animation.sample(tick, 0, animation.duration_ticks as f32),

@@ -60,6 +60,7 @@ pub use resonance_content::random::Random as GameplayRandom;
 pub mod menu;
 pub mod session_screen;
 pub mod skit;
+pub mod stride;
 pub use persistent::{PersistentState, SavedProgress, script_global};
 
 /// Script operand meaning “the currently controlled party member”.

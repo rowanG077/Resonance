@@ -39,7 +39,7 @@ struct Particle {
 struct Gait {
     actor: u16,
     slot: u16,
-    start: u32,
+    elapsed: f32,
     phase: Option<bool>,
 }
 #[derive(Default)]
@@ -50,11 +50,11 @@ pub(super) struct Particles {
 }
 impl Particles {
     /// Rendering samples the same gait clock as sounds and footprints.
-    pub(super) fn gait_start(&self, actor: u16, slot: u16) -> Option<u32> {
+    pub(super) fn gait_elapsed(&self, actor: u16, slot: u16) -> Option<f32> {
         self.gait
             .as_ref()
             .filter(|gait| gait.actor == actor && gait.slot == slot)
-            .map(|gait| gait.start)
+            .map(|gait| gait.elapsed)
     }
 
     fn random(&mut self, range: u32) -> u32 {
@@ -103,32 +103,30 @@ impl Particles {
                 } else {
                     u16::from(party.field_leader)
                 };
-                let slot = locomotion_slot(
-                    session.travel.displayed_mount(),
-                    session.travel.speed(),
-                    session.travel.speed_fraction(),
-                );
+                let slot =
+                    locomotion_slot(session.travel.displayed_mount(), session.travel.speed());
                 let clip = models[&Model::Actor(actor)]
                     .iter()
                     .flat_map(|p| &p.clips)
                     .find(|c| c.resource_slot == slot)
                     .context("world stride animation missing")?;
-                let tick = session.events.tick();
-                if self
-                    .gait
-                    .as_ref()
-                    .is_none_or(|gait| gait.actor != actor || gait.slot != slot)
-                {
-                    self.gait = Some(Gait {
-                        actor,
-                        slot,
-                        start: tick,
-                        phase: None,
-                    });
+                let duration = clip.duration_ticks() as f32;
+                match &mut self.gait {
+                    Some(gait) if gait.actor == actor && gait.slot == slot => {
+                        gait.elapsed = (gait.elapsed + gait_rate(slot, session.travel.speed()))
+                            .rem_euclid(duration.max(1.));
+                    }
+                    gait => {
+                        *gait = Some(Gait {
+                            actor,
+                            slot,
+                            elapsed: 0.,
+                            phase: None,
+                        })
+                    }
                 }
                 let gait = self.gait.as_mut().unwrap();
-                let clip = resonance_events::AnimationClip::from(clip);
-                let phase = clip.sample_tick(tick - gait.start, true) >= clip.duration_ticks / 2;
+                let phase = gait.elapsed >= duration / 2.;
                 let contact = gait.phase != Some(phase);
                 gait.phase = Some(phase);
                 if contact {
@@ -549,7 +547,21 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
             scene.leader()
         };
         scene.session.events.world.audio_commands.clear();
-        for (pressure, slot) in [(0.5, 1), (0.5001, 2)] {
+        let movement = &scene.package.definition.movement;
+        let maximum = movement.stick_maximum
+            / if mount.long_range() {
+                movement.mounted_stick_divisor
+            } else {
+                movement.foot_stick_divisor
+            };
+        let limit = resonance_events::stride::MAXIMUM_WALK_SPEED / maximum;
+        for (pressure, slot) in [
+            (0.1, 1),
+            (0.25, 1),
+            (0.999 * limit, 1),
+            (limit + 0.001, 2),
+            (1., 2),
+        ] {
             scene.step(game::Input::default())?;
             scene.session.events.world.audio_commands.clear();
             let duration = scene.models[&Model::Actor(actor)]
@@ -557,10 +569,11 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
                 .flat_map(|part| &part.clips)
                 .find(|clip| clip.resource_slot == slot)
                 .unwrap()
-                .duration_ticks();
-            let expected = [0, duration / 2, duration + 1];
+                .duration_ticks() as f32;
+            let rate = gait_rate(slot, pressure * maximum);
+            let steps = (2.25 * duration / rate).ceil() as u32;
             let mut contacts = Vec::new();
-            for elapsed in 0..=*expected.last().unwrap() {
+            for elapsed in 0..steps {
                 scene.step(game::Input {
                     travel: game::travel::Input {
                         stick: [pressure, 0.],
@@ -568,12 +581,13 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
                     },
                     ..Default::default()
                 })?;
-                if elapsed == 0 {
-                    assert_eq!(
-                        scene.effects.particles.gait_start(actor, slot),
-                        Some(scene.session.events.tick())
-                    );
-                }
+                let clock = scene.effects.particles.gait_elapsed(actor, slot).unwrap();
+                let expected = (elapsed as f32 * rate).rem_euclid(duration);
+                let error = (clock - expected).abs();
+                assert!(
+                    error.min(duration - error) < 0.01,
+                    "mount={mount:?}, pressure={pressure}, elapsed={elapsed}"
+                );
                 for command in std::mem::take(&mut scene.session.events.world.audio_commands) {
                     if let resonance_events::AudioCommand::Sound { id, slot: None, .. } = command
                         && resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(id as u32))
@@ -582,13 +596,20 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
                     }
                 }
             }
-            assert_eq!(contacts, expected, "mount={mount:?}, pressure={pressure}");
+            assert_eq!(contacts.len(), 5, "mount={mount:?}, pressure={pressure}");
+            for (step, contact) in contacts.into_iter().enumerate() {
+                let expected = step as f32 * duration / 2. / rate;
+                assert!(
+                    (contact as f32 - expected.ceil()).abs() <= 1.,
+                    "mount={mount:?}, pressure={pressure}, step={step}, contact={contact}"
+                );
+            }
         }
         // Changing pressure within either gait must preserve the shared clock.
-        for pressures in [[0.25, 0.5, 0.1], [0.625, 1., 0.75]] {
+        for (pressures, slot) in [([0.5 * limit, 0.9 * limit, 0.1], 1), ([0.625, 1., 0.75], 2)] {
             scene.step(game::Input::default())?;
-            let start = scene.session.events.tick() + 1;
-            for pressure in pressures {
+            let mut expected = 0.;
+            for (index, pressure) in pressures.into_iter().enumerate() {
                 scene.step(game::Input {
                     travel: game::travel::Input {
                         stick: [pressure, 0.],
@@ -596,14 +617,17 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
                     },
                     ..Default::default()
                 })?;
-                let slot = if pressure > 0.5 { 2 } else { 1 };
-                assert_eq!(scene.effects.particles.gait_start(actor, slot), Some(start));
+                if index > 0 {
+                    expected += gait_rate(slot, pressure * maximum);
+                }
+                let clock = scene.effects.particles.gait_elapsed(actor, slot).unwrap();
+                assert!((clock - expected).abs() < 0.001, "pressure={pressure}");
             }
         }
         scene.session.events.world.audio_commands.clear();
         for _ in 0..60 {
             scene.step(game::Input::default())?;
-            assert_eq!(scene.effects.particles.gait_start(actor, 2), None);
+            assert_eq!(scene.effects.particles.gait_elapsed(actor, 2), None);
             assert!(!std::mem::take(&mut scene.session.events.world.audio_commands).iter().any(|command|
                 matches!(command, resonance_events::AudioCommand::Sound { id, slot: None, .. }
                     if resonance_content::field_audio::FOOTSTEP_EFFECTS.contains(&(*id as u32)))));

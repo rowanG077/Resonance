@@ -1198,6 +1198,7 @@ impl NativeHost<'_> {
                                     && a[0] == self.world.controlled_actor,
                                 player_controlled: self.world.input_enabled
                                     && a[0] == self.world.controlled_actor,
+                                stride_scale: self.world.player_size.model_scale(),
                                 release: Some(a[3]),
                             },
                         );

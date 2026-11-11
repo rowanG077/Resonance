@@ -56,7 +56,7 @@ fn rules() -> Rules {
 }
 
 #[test]
-fn foot_travel_runs_by_default_and_walk_modifier_limits_speed() -> Result<()> {
+fn foot_travel_runs_by_default_and_walk_modifier_limits_speed_to_a_walk() -> Result<()> {
     let terrain = terrain(TerrainSurface::Grassland);
     let rules = rules();
     let context = Context {
@@ -66,11 +66,16 @@ fn foot_travel_runs_by_default_and_walk_modifier_limits_speed() -> Result<()> {
     };
     let p = parameters();
     let maximum = p.stick_maximum / p.foot_stick_divisor;
+    let limit = resonance_events::stride::MAXIMUM_WALK_SPEED;
+    let walking = limit / maximum;
+    assert!(walking < 0.5);
     for (magnitude, walk, fraction) in [
         (1., false, 1.),
-        (1., true, 0.5),
+        (1., true, walking),
+        (0.5, true, walking),
         (0.5, false, 0.5),
         (0.25, false, 0.25),
+        (0.25, true, 0.25),
     ] {
         let mut travel = Travel::new(state(Mount::Foot), p.clone())?;
         travel.step(
@@ -84,6 +89,7 @@ fn foot_travel_runs_by_default_and_walk_modifier_limits_speed() -> Result<()> {
             &rules,
         )?;
         assert!((travel.speed() - maximum * fraction).abs() < 0.001);
+        assert!(!walk || travel.speed() <= limit);
     }
     Ok(())
 }

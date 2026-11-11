@@ -717,11 +717,21 @@ impl FieldSession {
                             .party
                             .as_ref()
                             .map_or(1., |party| party.field_movement_multiplier());
+                        let tilt = length.min(1.);
+                        let mut pace = 12. * size.movement_scale() * mobility * tilt;
+                        if !input.run {
+                            pace = pace.min(
+                                resonance_events::stride::MAXIMUM_WALK_SPEED
+                                    * size.movement_scale(),
+                            );
+                        }
                         let speed = if sliding {
                             stick = stick.map(|v| if v == 0. { 0. } else { v.signum() });
                             movement::SLIDING_SPEED
+                        } else if tilt > 0. {
+                            pace / tilt
                         } else {
-                            (if input.run { 12. } else { 4. }) * size.movement_scale() * mobility
+                            0.
                         };
                         let requested = [
                             (forward[1] * stick[0] + forward[0] * stick[1]) * speed,
@@ -767,14 +777,14 @@ impl FieldSession {
                         let heading = (delta != [0.; 2]).then(|| movement_heading(delta));
                         player_destination = Some((id, target, heading));
                         let actor = events.world.actors.get_mut(&id).unwrap();
-                        actor.set_movement_speed(if sliding { 0. } else { speed * length.min(1.) });
+                        actor.set_movement_speed(if sliding { 0. } else { pace });
                         // Facing and locomotion follow input, even when a wall blocks
                         // part of the step. Apply collision after advancing that intent;
                         // a short wall slide is not a completed scripted move.
                         actor.motion = if !sliding && delta != [0.; 2] {
                             Some(resonance_events::ActorMotion {
                                 target: [start[0] + delta[0], start[1] + delta[1], start[2]],
-                                speed: speed * length.min(1.),
+                                speed: pace,
                             })
                         } else {
                             None

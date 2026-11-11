@@ -5,6 +5,7 @@ use super::{
     sparse_animation,
 };
 use resonance_events::effect::Blend;
+use resonance_events::stride::Gait;
 mod capture;
 mod cinematic;
 mod effects;
@@ -1073,11 +1074,7 @@ fn pose(
                         } else if mount == Mount::Noishe && id == scene.leader() {
                             4
                         } else {
-                            locomotion_slot(
-                                mount,
-                                session.travel.speed(),
-                                session.travel.speed_fraction(),
-                            )
+                            locomotion_slot(mount, session.travel.speed())
                         },
                     );
                     if id == 201 {
@@ -1323,10 +1320,10 @@ fn flight_position(session: &game::Session, member: usize) -> (Position, f32) {
         lift,
     )
 }
-fn locomotion_slot(mount: Mount, speed: f32, speed_fraction: f32) -> u16 {
+fn locomotion_slot(mount: Mount, speed: f32) -> u16 {
     let speed = speed.abs();
     let running = match mount {
-        Mount::Foot | Mount::Noishe => speed_fraction > 0.5,
+        Mount::Foot | Mount::Noishe => Gait::at(speed, 1.) == Gait::Run,
         _ => speed > 8.,
     };
     if speed <= 0.01 {
@@ -1336,6 +1333,10 @@ fn locomotion_slot(mount: Mount, speed: f32, speed_fraction: f32) -> u16 {
     } else {
         1
     }
+}
+
+fn gait_rate(slot: u16, speed: f32) -> f32 {
+    if slot == 2 { Gait::Run } else { Gait::Walk }.rate(speed, 1.)
 }
 
 fn animate(
@@ -1359,14 +1360,10 @@ fn animate(
         let Some((slot, start)) = instance.clip else {
             continue;
         };
-        let start = if let Model::Actor(actor) = instance.model {
-            scene
-                .effects
-                .particles
-                .gait_start(actor, slot)
-                .unwrap_or(start)
+        let gait = if let Model::Actor(actor) = instance.model {
+            scene.effects.particles.gait_elapsed(actor, slot)
         } else {
-            start
+            None
         };
         let part = &art.models[&instance.model][instance.part];
         let Some(index) = part.spec.clips.iter().position(|c| c.resource_slot == slot) else {
@@ -1412,6 +1409,8 @@ fn animate(
             } else {
                 elapsed.min(duration)
             }
+        } else if let Some(gait) = gait {
+            gait / resonance_content::ANIMATION_HZ
         } else {
             resonance_events::AnimationClip::from(&part.spec.clips[index])
                 .sample_tick(elapsed_ticks, true) as f32
@@ -1584,22 +1583,26 @@ pub(crate) fn residency_roots(world: &mut World) -> std::collections::BTreeSet<E
 mod tests {
     use super::*;
     #[test]
-    fn locomotion_uses_half_maximum_speed_for_foot_and_noishe_only() {
+    fn locomotion_runs_above_the_walking_limit_for_foot_and_noishe_only() {
+        let limit = resonance_events::stride::MAXIMUM_WALK_SPEED;
         for mount in [Mount::Foot, Mount::Noishe] {
-            for (speed, fraction, expected) in [
-                (0., 0., 0),
-                (0.01, 0.001, 0),
-                (5., 0.5, 1),
-                (5.001, 0.5001, 2),
-                (10., 1., 2),
+            for (speed, expected) in [
+                (0., 0),
+                (0.01, 0),
+                (0.02, 1),
+                (limit, 1),
+                (limit + 0.001, 2),
+                (10., 2),
             ] {
-                assert_eq!(locomotion_slot(mount, speed, fraction), expected);
+                assert_eq!(locomotion_slot(mount, speed), expected);
             }
         }
         for mount in [Mount::Ship, Mount::Rheairds] {
-            assert_eq!(locomotion_slot(mount, 8., 0.75), 1);
-            assert_eq!(locomotion_slot(mount, 8.001, 0.25), 2);
+            assert_eq!(locomotion_slot(mount, 8.), 1);
+            assert_eq!(locomotion_slot(mount, 8.001), 2);
         }
+        assert!((gait_rate(1, limit) - Gait::Walk.rate(limit, 1.)).abs() < 1e-6);
+        assert!((gait_rate(2, 10.) - Gait::Run.rate(10., 1.)).abs() < 1e-6);
     }
 
     #[test]

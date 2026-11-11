@@ -3,6 +3,16 @@ use bevy::prelude::*;
 use resonance_content::input::{AxisDirection, Keymap, PhysicalInput, StandardAction};
 use std::collections::{BTreeMap, BTreeSet};
 
+const STICK_DEAD_ZONE: f32 = 0.2;
+
+fn radial_dead_zone(stick: Vec2) -> Vec2 {
+    let length = stick.length();
+    if length <= STICK_DEAD_ZONE {
+        return Vec2::ZERO;
+    }
+    stick * (((length - STICK_DEAD_ZONE) / (1. - STICK_DEAD_ZONE)).min(1.) / length)
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct PhysicalState {
     values: BTreeMap<PhysicalInput, f32>,
@@ -34,20 +44,23 @@ impl PhysicalState {
                 .insert(PhysicalInput::Button(format!("{button:?}")));
         }
         use AxisDirection::*;
-        let left = pad.left_stick();
-        let right = pad.right_stick();
-        for (axis, value) in [
-            (LeftLeft, -left.x),
-            (LeftRight, left.x),
-            (LeftDown, -left.y),
-            (LeftUp, left.y),
-            (RightLeft, -right.x),
-            (RightRight, right.x),
-            (RightDown, -right.y),
-            (RightUp, right.y),
+        for (stick, [negative_x, positive_x, negative_y, positive_y]) in [
+            (pad.left_stick(), [LeftLeft, LeftRight, LeftDown, LeftUp]),
+            (
+                pad.right_stick(),
+                [RightLeft, RightRight, RightDown, RightUp],
+            ),
         ] {
-            if value > 0.2 {
-                state.values.insert(PhysicalInput::Axis(axis), value);
+            let stick = radial_dead_zone(stick);
+            for (axis, value) in [
+                (negative_x, -stick.x),
+                (positive_x, stick.x),
+                (negative_y, -stick.y),
+                (positive_y, stick.y),
+            ] {
+                if value > 0. {
+                    state.values.insert(PhysicalInput::Axis(axis), value);
+                }
             }
         }
         state
@@ -72,14 +85,7 @@ impl PhysicalState {
         let mut inputs: BTreeSet<_> = self
             .values
             .iter()
-            .filter(|(input, value)| {
-                **value
-                    > if matches!(input, PhysicalInput::Axis(_)) {
-                        0.2
-                    } else {
-                        0.65
-                    }
-            })
+            .filter(|(input, value)| matches!(input, PhysicalInput::Axis(_)) || **value > 0.65)
             .map(|(input, _)| input.clone())
             .chain(self.pressed.iter().cloned())
             .collect();
@@ -160,9 +166,6 @@ impl PhysicalState {
             self.value(map, MoveRight) - self.value(map, MoveLeft),
             self.value(map, MoveUp) - self.value(map, MoveDown),
         )
-    }
-    pub fn running(&self, map: &Keymap, direction: Vec2) -> bool {
-        !self.down(map, StandardAction::Walk) && direction.length() > 0.5
     }
     pub fn camera(&self, map: &Keymap) -> Vec2 {
         use StandardAction::*;
@@ -372,7 +375,7 @@ mod tests {
                 } else {
                     state.camera(&map)
                 };
-                assert_eq!(movement, Vec2::new(x, y));
+                assert!(movement.distance(radial_dead_zone(Vec2::new(x, y))) < 1e-6);
             }
         }
     }
