@@ -50,11 +50,15 @@ fn is_allowed(value: &bool) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortraitAsset {
     pub size: [u32; 2],
+    /// Stored pixels per tile coordinate, shared by every image of the portrait
+    /// so that its tiles can be combined without resampling.
+    pub scale: [u32; 2],
     pub images: Vec<PortraitImage>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortraitImage {
     pub texture: String,
+    /// Original tile coordinates, independent of replacement resolution.
     pub size: [u32; 2],
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

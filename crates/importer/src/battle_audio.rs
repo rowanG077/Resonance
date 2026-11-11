@@ -38,7 +38,5 @@ pub fn cook_battle_audio(root: &Path, library: &Path) -> Result<()> {
         effect_spatial: spatial(0x4d8)?,
         voice_spatial: spatial(0x4668)?,
     };
-    let target = library.join(PATH);
-    crate::output::json(&target, &definition)?;
-    Ok(())
+    crate::output::json(&library.join(PATH), &definition)
 }

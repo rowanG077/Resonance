@@ -1410,6 +1410,14 @@ impl Oracle {
                 Ok((entry.as_str(), evidence))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
+        let common = prepared
+            .effects
+            .iter()
+            .find(|effect| {
+                effect.source.document.as_deref()
+                    == Some(resonance_content::battle_effect::document::COMMON)
+            })
+            .and_then(|effect| effect.source.art.as_ref());
         let banks: BTreeMap<_, _> = prepared
             .effects
             .iter()
@@ -1420,10 +1428,20 @@ impl Oracle {
                     .as_deref()
                     .context("prepared effect has no current document owner")?;
                 let identity = if let Some(evidence) = effect_inputs.get(entry) {
-                    let expected = evidence.effects()?;
+                    // Encounter preparation lends every bank the common
+                    // bank's texture slots it does not define itself.
+                    let mut expected = evidence.effects()?;
+                    if let (Some(art), Some(common)) = (expected.art.as_mut(), common) {
+                        for (&slot, textures) in &common.textures {
+                            art.textures.entry(slot).or_insert_with(|| textures.clone());
+                        }
+                    }
+                    let expected = serde_json::to_value(expected)?;
+                    let prepared = serde_json::to_value(&*effect.source)?;
                     ensure!(
-                        serde_json::to_value(&*effect.source)? == serde_json::to_value(expected)?,
-                        "prepared effect differs from pinned current input {entry}"
+                        prepared == expected,
+                        "prepared effect differs from pinned current input {entry} at {}",
+                        first_difference(&prepared, &expected, String::new())
                     );
                     evidence.source_digest()?.to_owned()
                 } else {
@@ -3308,5 +3326,35 @@ impl resonance_game::battle::results::Presentation for Display {
         _: &resonance_battle::Battle,
     ) -> Result<()> {
         Ok(())
+    }
+}
+
+/// Where two documents first differ, as a JSON pointer with both values.
+fn first_difference(a: &serde_json::Value, b: &serde_json::Value, at: String) -> String {
+    use serde_json::Value::{Array, Object};
+    match (a, b) {
+        (Object(a), Object(b)) => {
+            for key in a.keys().chain(b.keys()) {
+                match (a.get(key), b.get(key)) {
+                    (Some(a), Some(b)) if a == b => {}
+                    (Some(a), Some(b)) => return first_difference(a, b, format!("{at}/{key}")),
+                    (a, b) => return format!("{at}/{key}: {a:?} != {b:?}"),
+                }
+            }
+            at
+        }
+        (Array(a), Array(b)) if a.len() == b.len() => a
+            .iter()
+            .zip(b)
+            .enumerate()
+            .find(|(_, (a, b))| a != b)
+            .map_or(at.clone(), |(index, (a, b))| {
+                first_difference(a, b, format!("{at}/{index}"))
+            }),
+        _ => {
+            let short =
+                |value: &serde_json::Value| value.to_string().chars().take(160).collect::<String>();
+            format!("{at}: {} != {}", short(a), short(b))
+        }
     }
 }

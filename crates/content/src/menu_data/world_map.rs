@@ -240,6 +240,7 @@ mod tests {
             {"id":2,"name":"Second","position":[800.,1000.],"radius":50.}
         ], "tethe_alla":[{"id":257,"name":"Other world","position":[1000.,1000.],"radius":50.}]});
         std::fs::write(base.join(path), serde_json::to_vec(&original)?)?;
+        std::fs::copy(base.join(path), modified.join(path))?;
         let library = Library::open_paths(&base, &[modified.clone()])?;
         let capture = || -> Result<Files> {
             let mut snapshot = library.snapshot();

@@ -92,14 +92,8 @@ fn original_named_title_prepares_both_backgrounds_without_inventories() -> Resul
     assert!(!root.join("audio/music/title/sound.json").exists());
 
     let modification = work.path().join("night-menu");
-    fs::create_dir_all(modification.join("ui/title"))?;
-    let mut definition: startup::Definition =
-        serde_json::from_slice(&fs::read(root.join(startup::PATH))?)?;
-    definition.day_field = 531;
-    fs::write(
-        modification.join(startup::PATH),
-        serde_json::to_vec(&definition)?,
-    )?;
+    fs::create_dir_all(modification.join("ui/title/title"))?;
+    fs::write(modification.join("ui/title/title/day_field.json"), b"531")?;
     let modified = Library::open(
         &root,
         &[Mod {
@@ -114,7 +108,8 @@ fn original_named_title_prepares_both_backgrounds_without_inventories() -> Resul
             .files
             .overrides()
             .iter()
-            .any(|change| change.path == startup::PATH && change.replacement == "night-menu")
+            .any(|change| change.path == "ui/title/title/day_field.json"
+                && change.replacement == "night-menu")
     );
     assert_eq!(
         day.scene.assets.map_id, 474,

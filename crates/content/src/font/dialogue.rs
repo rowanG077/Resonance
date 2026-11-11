@@ -1,6 +1,5 @@
-//! Editable dialogue drawing roles. Image dimensions belong to their KTX2 files.
+//! Editable dialogue drawing roles with authored image coordinate sizes.
 use super::*;
-use anyhow::Context;
 
 #[cfg(test)]
 mod tests;
@@ -26,12 +25,12 @@ struct Selection {
 #[serde(deny_unknown_fields)]
 struct Definition {
     font: String,
-    symbols: String,
-    shading: String,
-    patterns: [String; 5],
-    lined_fill: String,
-    plain_fill: String,
-    cursor: String,
+    symbols: UiTexture,
+    shading: UiTexture,
+    patterns: [UiTexture; 5],
+    lined_fill: UiTexture,
+    plain_fill: UiTexture,
+    cursor: UiTexture,
     default_style: Style,
     selection: Selection,
 }
@@ -44,12 +43,12 @@ impl Serialize for DialogueArt {
         self.validate().map_err(serde::ser::Error::custom)?;
         Definition {
             font: self.font.clone(),
-            symbols: self.textures[0].path.clone(),
-            shading: self.textures[1].path.clone(),
-            patterns: std::array::from_fn(|i| self.textures[i + 2].path.clone()),
-            lined_fill: self.textures[7].path.clone(),
-            plain_fill: self.textures[8].path.clone(),
-            cursor: self.cursor.path.clone(),
+            symbols: self.textures[0].clone(),
+            shading: self.textures[1].clone(),
+            patterns: std::array::from_fn(|i| self.textures[i + 2].clone()),
+            lined_fill: self.textures[7].clone(),
+            plain_fill: self.textures[8].clone(),
+            cursor: self.cursor.clone(),
             default_style: [Style::Plain, Style::Ornate, Style::Gold]
                 [usize::from(self.selection.mode)],
             selection: Selection {
@@ -68,20 +67,14 @@ impl<'de> Deserialize<'de> for DialogueArt {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         let definition = Definition::deserialize(deserializer)?;
-        let image = |path| UiTexture {
-            path,
-            width: 0,
-            height: 0,
-        };
         let art = Self {
             font: definition.font,
             textures: [definition.symbols, definition.shading]
                 .into_iter()
                 .chain(definition.patterns)
                 .chain([definition.lined_fill, definition.plain_fill])
-                .map(image)
                 .collect(),
-            cursor: image(definition.cursor),
+            cursor: definition.cursor,
             selection: SelectionArt {
                 mode: match definition.default_style {
                     Style::Plain => 0,
@@ -100,22 +93,14 @@ impl<'de> Deserialize<'de> for DialogueArt {
 }
 
 impl DialogueArt {
-    /// Resolve required image sizes from captured headers. Font-only consumers
-    /// can read this document without preparing any dialogue image.
+    /// Capture required pixels while preserving this document's coordinates.
     pub fn prepare_images<B: AsRef<[u8]>>(
-        &mut self,
+        &self,
         mut read: impl FnMut(&str) -> Result<B>,
     ) -> Result<()> {
         self.validate()?;
-        for image in self.textures.iter_mut().chain([&mut self.cursor]) {
-            let [width, height] = read(&image.path)
-                .and_then(|bytes| resonance_asset_writer::texture::dimensions(bytes.as_ref()))
-                .with_context(|| format!("dialogue image {}", image.path))?;
-            image.width = width;
-            image.height = height;
-            image
-                .validate()
-                .with_context(|| format!("dialogue image {}", image.path))?;
+        for image in self.textures.iter().chain([&self.cursor]) {
+            crate::ui_art::prepare_image(image, &mut read)?;
         }
         Ok(())
     }

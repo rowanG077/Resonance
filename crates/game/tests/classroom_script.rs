@@ -406,9 +406,14 @@ fn customization_drafts_commit_and_confirm_destructive_changes() {
         menu.customize.draft.display_mode,
         resonance_content::menu_data::DisplayMode::Borderless
     );
-    for key in [Left, Right, Down, Down] {
+    // Resolution, anti-aliasing, graphics backend and VSync follow the display mode.
+    for key in [Left, Right, Down, Down, Down, Down] {
         press(&mut session, key);
     }
+    assert_eq!(
+        session.menu.as_ref().unwrap().customize.row,
+        resonance_content::menu_data::VSYNC_OPTION
+    );
     for key in [Down, Left] {
         press(&mut session, key);
     }
@@ -1196,6 +1201,7 @@ fn strategy_edit_pauses_the_field_and_survives_reload() {
 #[test]
 #[ignore = "requires locally cooked GQSEAF techniques/classroom; no devices"]
 fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
+    use resonance_content::input::{ArteBinding, InputChord, PhysicalInput};
     use resonance_events::party::TechniqueShortcut;
     use resonance_game::menu::{Menu, Page, Resources, techniques::Focus};
     let data = session_data();
@@ -1235,29 +1241,67 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     press(&mut session, accept);
     press(&mut session, accept);
     assert_eq!(session.menu.as_ref().unwrap().page, Page::Tech);
-    press(&mut session, accept);
-    press(&mut session, accept);
     assert_eq!(
         session.menu.as_ref().unwrap().tech.focus,
-        Focus::Shortcuts,
-        "unchanged valid assignment stayed in the list"
+        Focus::List,
+        "the Artes page opens on the arte list"
     );
-    press(&mut session, Down.input());
+    // The cursor starts on the first row after opening or changing character.
+    let select = |session: &mut FieldSession, character: usize, technique: u16| {
+        let row = session
+            .menu
+            .as_ref()
+            .unwrap()
+            .technique_list()
+            .iter()
+            .position(|&id| id == technique)
+            .unwrap();
+        for _ in 0..row {
+            press(session, Down.input());
+        }
+        assert_eq!(
+            session.menu.as_ref().unwrap().selected_technique(),
+            shortcut(character, technique)
+        );
+    };
+    // Confirm records one combo for the highlighted arte.
+    select(&mut session, 0, 1);
     press(&mut session, accept);
-    press(&mut session, accept);
+    let combo = PhysicalInput::Key("F11".into());
+    let menu = session.menu.as_mut().unwrap();
+    assert!(menu.tech.capture.is_some());
+    assert_eq!(menu.tech.binding_technique, 1);
+    assert!(menu.capture_physical(&Default::default()));
+    assert!(menu.capture_physical(&[combo.clone()].into()));
+    assert!(menu.capture_physical(&Default::default()));
+    assert!(menu.tech.capture.is_none());
     assert_eq!(
-        session.events.world.party.as_ref().unwrap().members[0].shortcuts[1],
-        1
+        menu.tech.binding_message.as_deref(),
+        Some("Combo assigned.")
+    );
+    assert_eq!(menu.tech.focus, Focus::List);
+    press(&mut session, Idle.input());
+    let binding = ArteBinding {
+        technique: 1,
+        chord: InputChord(vec![combo]),
+    };
+    assert_eq!(
+        session.events.world.party.as_ref().unwrap().members[0].arte_bindings,
+        [binding.clone()]
     );
     press(&mut session, Next.input());
-    assert_eq!(session.menu.as_ref().unwrap().tech.focus, Focus::List);
-    press(&mut session, menu_key);
+    let menu = session.menu.as_ref().unwrap();
+    assert_eq!((menu.character, menu.tech.focus), (1, Focus::List));
+    // Guard toggles AI use of the highlighted arte.
+    select(&mut session, 1, 35);
+    press(&mut session, Alternate.input());
     assert!(
         session.events.world.party.as_ref().unwrap().members[1]
             .disabled_techniques
             .contains(&35)
     );
     press(&mut session, cancel);
+    assert_eq!(session.menu.as_ref().unwrap().tech.focus, Focus::Character);
     press(&mut session, Up.input());
     press(&mut session, Left.input());
     assert_eq!(
@@ -1275,7 +1319,11 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
         session.events.world.tick, tick,
         "Tech menu advanced the field"
     );
+    // The control row returns to the header, which returns to the main menu.
     press(&mut session, cancel);
+    assert_eq!(session.menu.as_ref().unwrap().tech.focus, Focus::Character);
+    press(&mut session, cancel);
+    assert_eq!(session.menu.as_ref().unwrap().page, Page::Main);
     press(&mut session, cancel);
     settle_menu_motion(&mut session);
     assert!(session.player_has_control());
@@ -1285,7 +1333,8 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
-    assert_eq!(party.members[0].shortcuts[1], 1);
+    assert_eq!(party.members[0].shortcuts[0], 1);
+    assert_eq!(party.members[0].arte_bindings, [binding.clone()]);
     assert!(party.members[1].disabled_techniques.contains(&35));
     assert_eq!(party.settings.battle_controls[1], 1);
     assert_eq!(party.members[0].technique_uses[&2], 500);
@@ -1324,8 +1373,9 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
         assert!(!menu_in_motion(menu), "menu transition did not finish");
         cue
     };
+    // Menu executes the highlighted arte.
     let healing = menu.selected_technique().unwrap();
-    assert_eq!(menu.step(accept), Some(2));
+    assert_eq!(menu.step(menu_key), Some(2));
     assert_eq!(menu.tech_description(), None);
     assert_eq!(menu.selected_technique(), Some(healing));
     assert_eq!((menu.tech.focus, menu.tech.target), (Focus::Target, 0));
@@ -1340,7 +1390,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
         .iter()
         .position(|&id| id == 121)
         .unwrap();
-    press_menu(&mut menu, accept);
+    press_menu(&mut menu, menu_key);
     assert_eq!((menu.tech.focus, menu.tech.target), (Focus::Target, 1));
     assert_eq!(press_menu(&mut menu, accept), Some(132));
     assert_eq!(menu.tech.focus, Focus::List);
@@ -1348,7 +1398,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert!(party.members[1].hp > 0);
     assert!(party.members[1].ailments.is_empty());
     assert_eq!(party.members[3].tp, 0);
-    assert_eq!(press_menu(&mut menu, accept), Some(4));
+    assert_eq!(press_menu(&mut menu, menu_key), Some(4));
     assert_eq!(menu.tech.focus, Focus::List);
     let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.formation.push(5);
@@ -1376,41 +1426,56 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     press_menu(&mut menu, previous);
     assert_eq!((menu.character, menu.tech.focus), (0, Focus::Character));
     press_menu(&mut menu, accept);
-    menu.tech.slot = 3;
+    assert_eq!(menu.tech.focus, Focus::List);
+    menu.tech.row = 1;
     press_menu(&mut menu, next);
     press_menu(&mut menu, previous);
-    assert_eq!(menu.tech.slot, 0);
+    assert_eq!(
+        (menu.character, menu.tech.focus, menu.tech.row),
+        (0, Focus::List, 0),
+        "changing character retained the old list row"
+    );
+    // Every control mode shares the single-column list, and Unison artes are
+    // chosen on their own page: Menu does nothing on the header.
     menu.tech.character = 4;
     menu.tech.focus = Focus::Character;
     assert!(menu.tech_auto());
-    assert_eq!(menu.tech_columns(), 2);
+    assert_eq!(menu.tech_columns(), 1);
     assert_eq!(press_menu(&mut menu, menu_key), None);
     assert_eq!(menu.tech.focus, Focus::Character);
     menu.tech.character = 2;
-    assert!(menu.tech_unison_available());
-    press_menu(&mut menu, menu_key);
-    assert!(menu.tech.unison);
-    assert_eq!(menu.tech.focus, Focus::Shortcuts);
-    press_menu(&mut menu, previous);
-    assert_eq!(menu.character, 2, "shortcut editor changed owner");
-    press_menu(&mut menu, Up.input());
-    assert_eq!(menu.tech.slot, 3);
-    press_menu(&mut menu, Down.input());
-    assert_eq!(menu.tech.slot, 0);
-    press_menu(&mut menu, accept);
-    let choice = menu.selected_technique().unwrap().technique;
-    let before = menu.checkpoint.as_ref().unwrap().progress().party.members[2].clone();
-    press_menu(&mut menu, accept);
-    let after = &menu.checkpoint.as_ref().unwrap().progress().party.members[2];
-    assert_eq!(after.shortcuts[0], choice);
+    assert_eq!(press_menu(&mut menu, menu_key), None);
+    assert!(!menu.tech.unison);
+    assert_eq!(menu.tech.focus, Focus::Character);
+    // Toggling AI use and clearing a combo spend nothing.
+    menu.tech.character = 0;
+    menu.tech.focus = Focus::List;
+    menu.tech.row = menu
+        .technique_list()
+        .iter()
+        .position(|&id| id == 1)
+        .unwrap();
+    let before = menu.checkpoint.as_ref().unwrap().progress().party.members[0].clone();
+    assert_eq!(before.arte_bindings, [binding]);
+    let toggle = Alternate.input();
+    assert_eq!(press_menu(&mut menu, toggle), Some(1));
+    let after = &menu.checkpoint.as_ref().unwrap().progress().party.members[0];
+    assert!(after.disabled_techniques.contains(&1));
     assert_eq!((after.hp, after.tp), (before.hp, before.tp));
+    assert_eq!(after.arte_bindings, before.arte_bindings);
+    assert_eq!(press_menu(&mut menu, toggle), Some(1));
+    let after = &menu.checkpoint.as_ref().unwrap().progress().party.members[0];
     assert_eq!(after.disabled_techniques, before.disabled_techniques);
-    let remove = Alternate.input();
-    assert_eq!(press_menu(&mut menu, remove), Some(1));
-    assert_eq!(press_menu(&mut menu, remove), None);
+    let clear = Start.input();
+    assert_eq!(press_menu(&mut menu, clear), Some(1));
+    assert_eq!(menu.tech.binding_message.as_deref(), Some("Combo cleared."));
+    let after = &menu.checkpoint.as_ref().unwrap().progress().party.members[0];
+    assert!(after.arte_bindings.is_empty());
+    assert_eq!((after.hp, after.tp), (before.hp, before.tp));
+    assert_eq!(press_menu(&mut menu, clear), Some(4));
     press_menu(&mut menu, cancel);
     assert_eq!(menu.tech.focus, Focus::Character);
-    assert!(!menu.tech.unison);
+    menu.tech.character = 2;
     for control in [0, 1, 2] {
         press_menu(&mut menu, Start.input());
         assert_eq!(
@@ -1432,23 +1497,22 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
         &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     );
     press_menu(&mut menu, accept);
-    menu.tech.slot = 5;
+    assert!(menu.technique_list().len() > 9);
     menu.tech.row = 9;
     menu.tech.first = 2;
     press_menu(&mut menu, cancel);
+    assert_eq!(menu.tech.focus, Focus::Character);
     press_menu(&mut menu, accept);
     assert_eq!(
-        menu.tech.slot, 0,
-        "header entry retained the old shortcut slot"
-    );
-    assert_eq!(
-        (menu.tech.row, menu.tech.first),
-        (9, 2),
+        (menu.tech.focus, menu.tech.row, menu.tech.first),
+        (Focus::List, 9, 2),
         "manual header entry reset the list scroll"
     );
-    for _ in 0..6 {
-        press_menu(&mut menu, Down.input());
+    for _ in 0..9 {
+        press_menu(&mut menu, Up.input());
     }
+    assert_eq!((menu.tech.focus, menu.tech.row), (Focus::List, 0));
+    press_menu(&mut menu, Up.input());
     assert_eq!(menu.tech.focus, Focus::Character);
 }
 
@@ -3147,6 +3211,8 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
 fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
     use resonance_events::{EventRuntime, GameWorld, ResourceLibrary};
     let root = asset_root();
+    let library = resonance_content::library::Library::open(&root, &[]).unwrap();
+    let mut snapshot = library.snapshot();
     let catalog = Arc::new(common::skits());
     let text: Arc<resonance_content::session::GameText> = Arc::new(common::game_text());
     let mut failures = Vec::new();
@@ -3169,7 +3235,12 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
             std::iter::once(paths.script.as_str()).chain(paths.messages.as_deref())
         }))
     {
-        files.insert(path.to_owned(), fs::read(root.join(path)).unwrap().into());
+        files.insert(
+            path.to_owned(),
+            snapshot
+                .read(path, resonance_content::preparation::ASSET_LIMIT)
+                .unwrap(),
+        );
     }
     let prepared = resonance_game::skit::Prepared::load(
         catalog.clone(),
@@ -4108,8 +4179,8 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
         "the script-selected Raine must remain playable"
     );
     assert!(
-        field.checkpoint().is_err(),
-        "this fixed camera is not a quicksave camera"
+        field.checkpoint().unwrap().camera.is_none(),
+        "a quicksave leaves this fixed camera for field setup to rebuild"
     );
     press(&mut field, OpenMenu);
     assert!(field.menu.is_some());

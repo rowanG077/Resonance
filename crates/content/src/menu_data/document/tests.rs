@@ -3,7 +3,7 @@ use crate::{diagnostics::Diagnostics, library::Library};
 use serde_json::json;
 use std::path::PathBuf;
 
-fn fixture() -> Result<(PathBuf, Files)> {
+fn fixture(strict: bool) -> Result<Files> {
     let root = PathBuf::from(
         std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
@@ -11,16 +11,16 @@ fn fixture() -> Result<(PathBuf, Files)> {
         .map(PathBuf::from)
         .into_iter()
         .collect::<Vec<_>>();
-    let diagnostics = Diagnostics::new(true);
+    let diagnostics = Diagnostics::new(strict);
     let mut snapshot = Library::open_paths(&root, &mods)?.snapshot();
     crate::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
-    Ok((root, Files::from_snapshot(snapshot, || false, diagnostics)?))
+    Files::from_snapshot(snapshot, || false, diagnostics)
 }
 
 #[test]
 #[ignore = "requires named menu library; checks catalogue bounds without media conversion"]
 fn current_menu_references_follow_supplied_catalogue_sizes() -> Result<()> {
-    let (root, files) = fixture()?;
+    let files = fixture(true)?;
     let mut menu = MenuData::load(&files)?;
     let outside = u16::try_from(menu.techniques.len())?;
     menu.validate_gameplay()?;
@@ -50,11 +50,15 @@ fn current_menu_references_follow_supplied_catalogue_sizes() -> Result<()> {
     menu.validate_gameplay()?;
     menu.monsters()?.validate(menu.items.len())?;
 
+    let mut view = files
+        .library()
+        .context("missing prepared library")?
+        .snapshot();
     let mut art = crate::menu::MenuArt::decode(
-        &std::fs::read(root.join("ui/menu.json"))?,
+        &view.read("ui/menu.json", crate::preparation::JSON_LIMIT)?,
         &Diagnostics::new(true),
     )?;
-    art.prepare_resources(|path| Ok(std::fs::read(root.join(path))?));
+    art.prepare_resources(|path| view.read(path, crate::preparation::ASSET_LIMIT));
     art.validate(item_count)?;
     assert!(art.validate(menu.items.len()).is_err());
     let sprites = art
@@ -77,7 +81,7 @@ fn current_menu_references_follow_supplied_catalogue_sizes() -> Result<()> {
 #[test]
 #[ignore = "requires named menu library; checks authored edits and isolated captions"]
 fn named_menu_edits_retain_ids_order_and_independent_presets() -> Result<()> {
-    let (root, files) = fixture()?;
+    let files = fixture(true)?;
     let items: crate::items::Document = files.json(crate::items::PATH)?;
     let original = serde_json::to_value(Document::load(&files)?)?;
     for section in [
@@ -146,15 +150,8 @@ fn named_menu_edits_retain_ids_order_and_independent_presets() -> Result<()> {
             .prepare(&files, &items.mappings)
             .is_err()
     );
-    let diagnostics = Diagnostics::new(false);
     // Keep normal content available; only the shop caption is malformed.
-    let mods = std::env::var_os("RESONANCE_TEST_MOD_ASSETS")
-        .map(PathBuf::from)
-        .into_iter()
-        .collect::<Vec<_>>();
-    let mut snapshot = Library::open_paths(&root, &mods)?.snapshot();
-    crate::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
-    let tolerant = Files::from_snapshot(snapshot, || false, diagnostics)?;
+    let tolerant = fixture(false)?;
     let data = serde_json::from_value::<Document>(edited)?.prepare(&tolerant, &items.mappings)?;
     assert!(data.presentation.shops.is_none());
     assert_eq!(data.world_map.shops[1].items, [3, 1]);

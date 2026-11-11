@@ -207,6 +207,7 @@ impl Artwork {
             commands,
             meshes,
             images,
+            materials,
         )?;
         self.common.resolution = resolution;
         let empty_dialogue = BTreeMap::new();

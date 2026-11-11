@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 
 use crate::test_support::field_checkpoint;
 
-mod ending_movie;
 mod replay_preferences;
 
 impl Session {
@@ -70,35 +69,16 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
     let mut cooking: serde_json::Value = healthy.json(resonance_content::cooking::PATH)?;
     cooking["recipes"]["sandwich"]["text"]["description"] = false.into();
     let overrides = tempfile::tempdir()?;
-    std::fs::create_dir_all(overrides.path().join("game/menu"))?;
-    std::fs::write(
-        overrides
-            .path()
-            .join(resonance_content::menu_data::PRESENTATION_PATH),
-        serde_json::to_vec(&document)?,
-    )?;
-    std::fs::write(
-        overrides
-            .path()
-            .join(resonance_content::menu_data::WORLD_MAP_PATH),
-        serde_json::to_vec(&world_map)?,
-    )?;
-    std::fs::write(
-        overrides.path().join(resonance_content::titles::PATH),
-        serde_json::to_vec(&titles)?,
-    )?;
-    std::fs::write(
-        overrides.path().join(resonance_content::cooking::PATH),
-        serde_json::to_vec(&cooking)?,
-    )?;
-    std::fs::write(
-        overrides.path().join(resonance_content::ex_skills::PATH),
-        serde_json::to_vec(&ex)?,
-    )?;
-    std::fs::write(
-        overrides.path().join(resonance_content::strategy::PATH),
-        serde_json::to_vec(&strategy)?,
-    )?;
+    for (path, value) in [
+        (resonance_content::menu_data::PRESENTATION_PATH, &document),
+        (resonance_content::menu_data::WORLD_MAP_PATH, &world_map),
+        (resonance_content::titles::PATH, &titles),
+        (resonance_content::cooking::PATH, &cooking),
+        (resonance_content::ex_skills::PATH, &ex),
+        (resonance_content::strategy::PATH, &strategy),
+    ] {
+        resonance_content::authoring::publish(overrides.path(), path, value)?;
+    }
     let library =
         resonance_content::library::Library::open_paths(&root, &[overrides.path().to_owned()])?;
     for paranoid in [false, true] {
@@ -357,7 +337,9 @@ fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
         source.replace("2000", "2001"),
     )
     .unwrap();
-    let rejected = finish(
+    // Saves carry no fingerprint of the project: an edited entry is loaded,
+    // and the session already running keeps the one it prepared.
+    finish(
         Pending::start(
             root.clone(),
             Some(source_root.path().to_path_buf()),
@@ -366,14 +348,8 @@ fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
             &resident,
         )
         .unwrap(),
-    );
-    assert!(
-        rejected
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("incompatible save")
-    );
+    )
+    .unwrap();
     assert!(session.field().events.world.event_flags.contains(&2000));
     assert!(!session.field().events.world.event_flags.contains(&2001));
     assert!(session.field().player_has_control());
@@ -393,13 +369,8 @@ fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
         )
         .unwrap(),
     );
-    assert!(
-        rejected
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("prepare authored entry")
-    );
+    let message = format!("{:#}", rejected.err().unwrap());
+    assert!(message.contains("prepare authored entry"), "{message}");
     assert!(
         session.field().player_has_control(),
         "failed preparation leaves the active field usable"
@@ -1226,11 +1197,11 @@ fn named_world_cinematics_prepare_chain_and_return_without_resuming_the_caller()
 }
 
 #[test]
-#[ignore = "requires the complete cooked field catalogue in RESONANCE_WORLD_ASSETS"]
+#[ignore = "requires the complete cooked field catalogue in RESONANCE_TEST_ASSETS"]
 fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
     use resonance_content::overworld::{Mount, Position, TravelState, World};
     let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
     let fields = available_fields(&root)?;
     ensure!(fields.len() > 490, "full field catalogue required");
@@ -1454,10 +1425,10 @@ fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires the complete cooked field catalogue in RESONANCE_WORLD_ASSETS"]
+#[ignore = "requires the complete cooked field catalogue in RESONANCE_TEST_ASSETS"]
 fn original_all_fields_have_complete_preparation_inventories() -> Result<()> {
     let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
     let fields = available_fields(&root)?;
     ensure!(fields.len() > 490, "full field catalogue required");
@@ -1525,6 +1496,15 @@ fn original_all_fields_have_complete_preparation_inventories() -> Result<()> {
                 field.events.world.actors[&field.events.world.controlled_actor].position,
                 field.player_has_control(),
             );
+            // On a sliding floor the player keeps moving until something stops
+            // them, and a save waits for that.
+            for _ in 0..600 {
+                if field.checkpoint().is_ok() {
+                    break;
+                }
+                field.step(Default::default())?;
+                field.events.world.audio_commands.clear();
+            }
             field.checkpoint()?;
             walking += 1;
             Ok(())
@@ -1543,10 +1523,10 @@ fn original_all_fields_have_complete_preparation_inventories() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; no devices"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; no devices"]
 fn salvation_doorways_return_to_the_requested_field() -> Result<()> {
     let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
     let mut field = crate::field_test::Scene::story(&root, 81, 14_000_000, |entry| {
         entry.allow_incomplete_scripts = true;
@@ -1577,10 +1557,10 @@ fn salvation_doorways_return_to_the_requested_field() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; original overworld discovery skit choices"]
+#[ignore = "requires RESONANCE_TEST_ASSETS; original overworld discovery skit choices"]
 fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result<()> {
     let root = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
     let prepared = crate::overworld::Package::prepare(
         &root,

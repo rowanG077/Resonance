@@ -37,7 +37,6 @@ impl Artwork {
             let image = menu::menu_image(server, texture.path.clone(), false);
             self.pending_images.push(PendingImage {
                 image: image.clone(),
-                size: [texture.width, texture.height],
                 required: true,
             });
             self.cutin.layers.insert(

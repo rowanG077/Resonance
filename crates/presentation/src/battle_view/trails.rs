@@ -141,6 +141,7 @@ impl Trails {
                         ),
                         nearest_mag: matches!(sampler.mag_filter, Filter::Nearest),
                         mipmapped: false,
+                        scale: resonance_content::TextureBinding::unscaled(),
                     };
                     crate::scene::sampled_image(
                         Some((image.clone(), binding)),

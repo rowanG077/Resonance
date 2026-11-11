@@ -548,7 +548,8 @@ mod tests {
             files.json(resonance_content::battle_rules::PARTY)?;
         let mappings: resonance_content::library::Mappings =
             files.json(resonance_content::battle_model::document::PARTY)?;
-        let lloyd = profiles.characters.get_mut(mappings.target(1)?).unwrap();
+        let name = mappings.target(1)?;
+        let lloyd = profiles.characters.get_mut(name).unwrap();
         lloyd.body_collider = battle_profile::StandingCollider {
             radius: 42.,
             height: 180.,
@@ -557,11 +558,19 @@ mod tests {
         lloyd.profile.intrinsic_conditions = ConditionSet::of(&[CastingSpeed, AilmentResistance]);
         lloyd.profile.immunities = ConditionSet::of(&[Paralysis, Curse]);
         let modification = tempfile::tempdir()?;
-        let rules_path = modification
+        // A mod replaces only the two owners it edits.
+        let owner = modification
             .path()
-            .join(resonance_content::battle_rules::PARTY);
-        std::fs::create_dir_all(rules_path.parent().unwrap())?;
-        std::fs::write(rules_path, serde_json::to_vec(&profiles)?)?;
+            .join(format!("battle/party/rules/characters/{name}"));
+        std::fs::create_dir_all(&owner)?;
+        std::fs::write(
+            owner.join("body_collider.json"),
+            serde_json::to_vec(&lloyd.body_collider)?,
+        )?;
+        std::fs::write(
+            owner.join("profile.json"),
+            serde_json::to_vec(&lloyd.profile)?,
+        )?;
         let library = resonance_content::library::Library::open(
             &root,
             &[resonance_content::library::Mod {

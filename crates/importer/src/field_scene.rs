@@ -282,8 +282,8 @@ fn local_overlay_path(id: u32, section: usize) -> Option<String> {
         (77, 16) => Some(resonance_content::input_prompts::FIELD_BANK_PATH.into()),
         (354, 20..=29) => ui_emotions::picture_path(section),
         (171, 23) => Some("effects/overlays/flames.json".into()),
-        (474 | 531, 19) => Some("ui/title/title-screen.ktx2".into()),
-        (511..=518, 17) => Some("effects/overlays/gold-glow.ktx2".into()),
+        (474 | 531, 19) => Some("ui/title/title-screen.json".into()),
+        (511..=518, 17) => Some("effects/overlays/gold-glow.json".into()),
         (511..=518, 22) => Some("effects/overlays/gold-light-strip.json".into()),
         _ => None,
     }
@@ -291,11 +291,11 @@ fn local_overlay_path(id: u32, section: usize) -> Option<String> {
 
 fn global_overlay_path(id: u32) -> Option<&'static str> {
     match id {
-        38 => Some("ui/location-titles/iselia-japanese.ktx2"),
-        49 => Some("ui/ending/party-with-kratos.ktx2"),
-        50 => Some("ui/ending/party-with-zelos.ktx2"),
+        38 => Some("ui/location-titles/iselia-japanese.json"),
+        49 => Some("ui/ending/party-with-kratos.json"),
+        50 => Some("ui/ending/party-with-zelos.json"),
         51 => Some("ui/ending/fin.json"),
-        68611 => Some("effects/overlays/radial-burst.ktx2"),
+        68611 => Some("effects/overlays/radial-burst.json"),
         68614 => Some("effects/overlays/ornate-ring.json"),
         _ => None,
     }
@@ -371,7 +371,7 @@ fn prepare(
         let names: resonance_content::field::document::AnimationMappings = if ids.is_empty() {
             resonance_content::field::document::AnimationMappings(BTreeMap::new())
         } else {
-            serde_json::from_slice(&fs::read(library.join("animations/mappings.json"))?)?
+            crate::authoring::read_json(library, "animations/mappings.json")?
         };
         ids.iter()
             .map(|&bank| {
@@ -389,7 +389,7 @@ fn prepare(
     };
     let scene_banks = if !banks.is_empty() {
         ensure!(
-            library.join("animations/mappings.json").is_file(),
+            crate::authoring::document_exists(library, "animations/mappings.json"),
             "field {id} scene lacks animation mappings"
         );
         for &bank in banks.keys() {
@@ -430,26 +430,41 @@ fn prepare(
             ensure!(dol::u32(palette, 0)? == 0x0020_af30, "missing field TPL");
             dol::u32(palette, 4)? as usize
         };
-        let mut paths = Vec::with_capacity(count);
+        let mut pixels = Vec::with_capacity(count);
         let mut alpha = Vec::with_capacity(count);
         for texture in 0..count {
-            let (bytes, blend) = world_texture::tpl_texture(palette, texture)
+            let levels = world_texture::tpl_pixels(palette, texture, 0, false, true)
                 .with_context(|| format!("field {id} section {section} texture {texture}"))?;
-            let path = if let Some((_, path)) = textures
+            alpha.push(world_texture::has_alpha(&levels[0].rgba));
+            pixels.push(levels);
+        }
+        let (mut mesh, mut part) =
+            world_gpl::static_model(model, vec![String::new(); count], alpha)
+                .with_context(|| format!("field {id} scenery section {section}"))?;
+        let sizes: Vec<_> = pixels
+            .iter()
+            .map(|levels| [levels[0].width, levels[0].height])
+            .collect();
+        let wrapped = world_gpl::console_wrap(&mut mesh, &mut part, &sizes)
+            .with_context(|| format!("field {id} section {section} textures"))?;
+        for (texture, mut levels) in pixels.into_iter().enumerate() {
+            if wrapped[texture] != [false; 2] {
+                levels =
+                    resonance_asset_writer::texture::console_wrapped(&levels, wrapped[texture]);
+            }
+            let bytes = resonance_asset_writer::gpu::encode(&levels)
+                .with_context(|| format!("field {id} section {section} texture {texture}"))?;
+            part.textures[texture] = if let Some((_, path)) = textures
                 .iter()
                 .find(|(prior, _)| prior.as_slice() == bytes.as_slice())
             {
                 path.clone()
             } else {
                 let path = format!("{root}/textures/part-{index}-texture-{texture}.ktx2");
-                textures.push((bytes.clone(), path.clone()));
+                textures.push((bytes, path.clone()));
                 path
             };
-            paths.push(path);
-            alpha.push(blend);
         }
-        let (mesh, mut part) = world_gpl::static_model(model, paths, alpha)
-            .with_context(|| format!("field {id} scenery section {section}"))?;
         let mesh = if section == 0 {
             annotate_doors(mesh)?
         } else {
@@ -544,12 +559,14 @@ fn prepare(
     if matches!(id, 184 | 475)
         && overlays
             .values()
-            .any(|path| path == "effects/overlays/radial-burst.ktx2")
+            .any(|path| path == "effects/overlays/radial-burst.json")
     {
         let native = field_actors::read_shared_resource(extracted, 68611)?;
-        let (texture, _) = world_texture::tpl_texture(&native, 0)?;
-        let path = "effects/overlays/radial-burst.ktx2";
-        files.push((path.into(), texture));
+        files.extend(crate::field_overlays::overlay_files(
+            "radial-burst",
+            &native,
+            false,
+        )?);
     }
     if !overlays.is_empty() {
         for path in overlays.values() {

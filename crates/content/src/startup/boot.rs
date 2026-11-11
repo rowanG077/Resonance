@@ -10,6 +10,7 @@ pub struct Sequence(pub Vec<Logo>);
 #[serde(deny_unknown_fields)]
 pub struct Logo {
     pub image: String,
+    pub size: [u32; 2],
     /// Start fading out at this update, measured from this logo's entry.
     pub fade_out_at: u32,
     #[serde(default = "fade_ticks", skip_serializing_if = "is_default_fade")]
@@ -33,6 +34,10 @@ impl Sequence {
         let mut total = 0u32;
         for logo in &self.0 {
             crate::library::validate_path(&logo.image)?;
+            ensure!(
+                logo.size.iter().all(|v| (1..=4096).contains(v)),
+                "invalid startup logo size"
+            );
             ensure!(
                 logo.fade_ticks > 0 && logo.fade_out_at > logo.fade_ticks,
                 "startup fade_out_at must follow a positive fade_ticks interval"

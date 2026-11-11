@@ -36,6 +36,15 @@ pub(super) fn write(root: &Path, path: &str, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Republish a whole document as granular owners, so a mod can override one.
+fn granular(root: &Path, path: &str) -> Result<()> {
+    let whole = root.join(path);
+    let document = serde_json::from_slice(&fs::read(&whole)?)?;
+    fs::remove_file(whole)?;
+    resonance_content::authoring::publish(root, path, &document)?;
+    Ok(())
+}
+
 pub(super) fn fixture() -> Result<tempfile::TempDir> {
     let root = tempfile::tempdir()?;
     let (resources, score, tables) =
@@ -253,6 +262,7 @@ fn silent_speech_keeps_timing_and_a_mod_can_replace_it_with_a_wav() -> Result<()
             "131079":"archive-b/line.wav"
         }))?,
     )?;
+    granular(root.path(), document::SPEECH)?;
     fs::remove_file(root.path().join("audio/speech/archive-a/line.wav"))?;
     let diagnostics = Diagnostics::default();
     let base = Library::open(root.path(), &[])?;
@@ -270,7 +280,11 @@ fn silent_speech_keeps_timing_and_a_mod_can_replace_it_with_a_wav() -> Result<()
     assert!(diagnostics.entries().is_empty());
 
     let dub = tempfile::tempdir()?;
-    write(dub.path(), document::SPEECH, br#"{"65543":"dub.wav"}"#)?;
+    write(
+        dub.path(),
+        "audio/speech/mappings/65543.json",
+        br#""dub.wav""#,
+    )?;
     write(
         dub.path(),
         "audio/speech/dub.wav",
@@ -402,6 +416,7 @@ fn named_skit_audio_joins_the_field_bank_and_uses_current_pcm() -> Result<()> {
 #[test]
 fn named_audio_edits_rates_lengths_and_scoped_mapping_mods_reach_playback() -> Result<()> {
     let root = fixture()?;
+    granular(root.path(), document::MUSIC)?;
     let library = Library::open(root.path(), &[])?;
     let mut cache = Cache::default();
     let prepare = |cache: &mut Cache, library: &Library| {
@@ -452,8 +467,8 @@ fn named_audio_edits_rates_lengths_and_scoped_mapping_mods_reach_playback() -> R
     let overlay = tempfile::tempdir()?;
     write(
         overlay.path(),
-        "audio/music/mappings.json",
-        br#"{"7":"replacement.wav"}"#,
+        "audio/music/mappings/7.json",
+        br#""replacement.wav""#,
     )?;
     write(
         overlay.path(),
@@ -480,7 +495,7 @@ fn named_audio_edits_rates_lengths_and_scoped_mapping_mods_reach_playback() -> R
         snapshot
             .overrides()
             .iter()
-            .any(|entry| entry.path == "audio/music/mappings.json" && entry.id == Some(7))
+            .any(|entry| entry.path == "audio/music/mappings/7.json")
     );
     assert_eq!(
         prepare(&mut cache, &library)?.recordings[&7]
@@ -534,11 +549,12 @@ fn named_audio_edits_rates_lengths_and_scoped_mapping_mods_reach_playback() -> R
 #[test]
 fn ordinary_wav_effect_mods_reach_field_cues_and_keep_prepared_snapshots() -> Result<()> {
     let root = fixture()?;
+    granular(root.path(), document::EFFECTS)?;
     let overlay = tempfile::tempdir()?;
     write(
         overlay.path(),
-        "audio/mappings.json",
-        br#"{"3":"effects/door-close.wav"}"#,
+        "audio/mappings/3.json",
+        br#""effects/door-close.wav""#,
     )?;
     write(
         overlay.path(),

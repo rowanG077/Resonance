@@ -1408,7 +1408,14 @@ fn ui(
             }
         }
     }
-    match art.render_skit(field, &mut commands, &mut meshes, &mut images, &server) {
+    match art.render_skit(
+        field,
+        &mut commands,
+        &mut meshes,
+        &mut images,
+        &mut materials,
+        &server,
+    ) {
         Ok(true) => {}
         Ok(false) => {
             applied.loading(Request::Skit);
@@ -2080,6 +2087,16 @@ fn pose(
                     }
                 }
             }
+            // Offsets follow the coordinates of a texture stored at another size.
+            for (stage, binding) in [&material.color, &material.multiply]
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(binding) = binding {
+                    let scaled = binding.scaled([offsets[stage * 2], offsets[stage * 2 + 1]]);
+                    (offsets[stage * 2], offsets[stage * 2 + 1]) = (scaled[0], scaled[1]);
+                }
+            }
             let scales = [&material.color, &material.multiply].map(|binding| {
                 if binding.as_ref().is_some_and(|b| b.texture == 1) {
                     save_point.filter(|_| !sealed).map_or(1., |p| p.glow_scale)
@@ -2612,7 +2629,7 @@ fn capture_field_cached(
         assets.water = None;
     }
     let mut app = App::new();
-    super::loading::install(&mut app, &root);
+    super::loading::install(&mut app, &root, files.library());
     *app.world()
         .resource::<super::loading::Resident>()
         .files

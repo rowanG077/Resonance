@@ -4,6 +4,8 @@
 Fixtures edit declared controls, repertoire, placement, vitals and command data.
 Instructions, action states, poses and timers are preserved.
 """
+import resolved_content
+from resolved_content import read_json
 import argparse
 from hashlib import sha256
 import json
@@ -134,7 +136,7 @@ def run(args):
             or actors[1]["kind"] != 4 or actors[1]["action"][0] != 3):
         raise ValueError("expected idle Lloyd/Raine checkpoint with one opponent")
     catalogue = args.assets / "game/techniques.json"
-    bit = 1 << native_learning(json.loads(catalogue.read_text()))[3].index(98)
+    bit = 1 << native_learning(read_json(catalogue))[3].index(98)
     marker = base.read(0x8035a578) + 0x581c + 31 * 0x360 + 0x300
     movie = out / "neutral.dtm"
     cursor = struct.unpack_from("<Q", base.raw, 33)[0]
@@ -155,7 +157,7 @@ def run(args):
     if not cases or args.cases and set(args.cases) != {case["name"] for case in cases}:
         raise ValueError("unknown or empty position case selection")
     report = dict(complete=False, cases=[], source_sha256=base.sha256,
-                  techniques_sha256=digest(catalogue),
+                  techniques_sha256=resolved_content.digest(catalogue),
                   scope="Position policy admission and idle movement; no timing or outcome parity claim.")
     worker = None
     try:

@@ -22,40 +22,32 @@ fn publish_named_title_fields_fixture() -> Result<()> {
     let output = directory("RESONANCE_NAMED_TITLE_FIELDS")?;
     fs::create_dir(&output).context("title fixture destination must be new")?;
     let mut snapshot = resonance_content::library::Library::open(&source, &[])?.snapshot();
-    let mut mappings = std::collections::BTreeMap::new();
     for id in [474, 531] {
         let field = snapshot.field(id)?;
         let folder = field
             .strip_suffix("/field.json")
             .context("field document path")?;
         let name = folder.strip_prefix("fields/").context("field category")?;
-        mappings.insert(id, name.to_owned());
+        // One mapping owner per field; other IDs come from the layer below.
+        let owner = output.join(format!("fields/mappings/{id}.json"));
+        fs::create_dir_all(owner.parent().context("fixture parent")?)?;
+        fs::write(owner, serde_json::to_vec(name)?)?;
         // This is a runtime fixture: reuse field-owned files and inherit shared
         // character/audio/UI resources from the base library, without recooking.
         for path in snapshot.files_under(folder)?.clone() {
+            // Assembled documents are views; their owners are copied instead.
+            if !source.join(&path).is_file() {
+                continue;
+            }
             let target = output.join(&path);
             fs::create_dir_all(target.parent().context("fixture parent")?)?;
             fs::write(target, snapshot.read(&path, 128 * 1024 * 1024)?)?;
         }
     }
-    let mappings = resonance_content::library::Mappings::new(mappings)?;
-    fs::write(
-        output.join("fields/mappings.json"),
-        serde_json::to_vec_pretty(&mappings)?,
-    )?;
     eprintln!(
         "Published title fields for layered runtime checks to {}",
         output.display()
     );
-    Ok(())
-}
-
-#[test]
-#[ignore = "publishes native data to a new RESONANCE_NAMED_BATTLE_ASSETS directory; requires extracted source assets"]
-fn publish_complete_named_battle_fixture() -> Result<()> {
-    let output = directory("RESONANCE_NAMED_BATTLE_ASSETS")?;
-    let extracted = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
-    resonance_importer::cook_all(&extracted, &output)?;
     Ok(())
 }
 
@@ -237,17 +229,15 @@ fn named_world_battle_worker_prepares_its_own_toon_ramp() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires complete RESONANCE_NAMED_BATTLE_ASSETS; exercises the production battle worker with a mod-owned recording"]
+#[ignore = "requires complete RESONANCE_TEST_ASSETS; exercises the production battle worker with a mod-owned recording"]
 fn named_battle_worker_retains_mod_selection_and_rechecks_edits() -> Result<()> {
     use crate::{battle::Entry, loading, new_game};
-    let root = directory("RESONANCE_NAMED_BATTLE_ASSETS")?;
+    let root = directory("RESONANCE_TEST_ASSETS")?;
     let modification = tempfile::tempdir()?;
     let owner = modification.path().join("audio/music");
     fs::create_dir_all(&owner)?;
-    fs::write(
-        modification.path().join("audio/music/mappings.json"),
-        br#"{"91":"replacement.wav"}"#,
-    )?;
+    fs::create_dir_all(owner.join("mappings"))?;
+    fs::write(owner.join("mappings/91.json"), br#""replacement.wav""#)?;
     let mut wave = hound::WavWriter::create(
         owner.join("replacement.wav"),
         hound::WavSpec {
@@ -317,9 +307,7 @@ fn named_battle_worker_retains_mod_selection_and_rechecks_edits() -> Result<()> 
             .files
             .overrides()
             .iter()
-            .any(
-                |choice| choice.path == resonance_content::music::MAPPINGS && choice.id == Some(91)
-            )
+            .any(|choice| choice.path == "audio/music/mappings/91.json")
     );
     assert!(!package.prepared.models.is_empty());
     assert_eq!(serde_json::to_value(&session.events().world.party)?, before);
@@ -342,16 +330,16 @@ fn named_battle_worker_retains_mod_selection_and_rechecks_edits() -> Result<()> 
 }
 
 #[test]
-#[ignore = "requires complete RESONANCE_NAMED_BATTLE_ASSETS; prepares native encounters and their WAV audio"]
+#[ignore = "requires complete RESONANCE_TEST_ASSETS; prepares native encounters and their WAV audio"]
 fn named_complete_encounters_prepare_from_current_library() -> Result<()> {
-    let root = directory("RESONANCE_NAMED_BATTLE_ASSETS")?;
+    let root = directory("RESONANCE_TEST_ASSETS")?;
     verify_encounters(Library::open(&root, &[])?, true)
 }
 
 #[test]
-#[ignore = "requires complete RESONANCE_NAMED_BATTLE_ASSETS; CPU preparation without PCM"]
+#[ignore = "requires complete RESONANCE_TEST_ASSETS; CPU preparation without PCM"]
 fn named_encounter_models_and_simulation_prepare_all_costumes() -> Result<()> {
-    let root = directory("RESONANCE_NAMED_BATTLE_ASSETS")?;
+    let root = directory("RESONANCE_TEST_ASSETS")?;
     verify_encounters(Library::open(&root, &[])?, false)
 }
 

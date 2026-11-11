@@ -17,24 +17,24 @@ The named palette also supplies matching number colors. A number-color override
 can be one RGBA color or a pair of top/bottom colors.
 
 Battle artwork in `ui/battle/battle.json` selects characters, commands, HP/TP
-colors and other roles by name. Image references are direct paths; KTX2 headers
-supply their dimensions. Missing optional portraits remain local to portrait
-drawing. Game-over artwork uses a direct background path and named `load`/`title`
+colors and other roles by name. Image references declare `{"image":"path.ktx2","size":[128,128]}`;
+the size defines layout and atlas coordinates independently of image resolution. Missing optional portraits remain local to portrait
+drawing. Game-over artwork uses a background image with an explicit size and named `load`/`title`
 captions. `ui/story-subtitles.json` is an ordered list of frame cues: a cue without
 `lines` clears the text. Nonempty lines retain explicit pixel positions.
-`ui/controls/gamecube.json` remains the ordered bank of 32 descriptive image paths;
+`ui/controls/gamecube.json` remains the ordered bank of 32 entries with image paths and coordinate sizes;
 its order maps the image selectors used by existing field overlays.
 
 Credits live in `ui/credits/credits.json`. Its `blocks` contain centered text
 (`{"lines":["Heading ","Contributor "]}`), pixel gaps (`{"gap":50}`) or a
-direct image path (`{"image":"ui/credits/namco.ktx2"}`). Text can use
+image with a draw size (`{"image":"ui/credits/namco.ktx2","size":[128,128]}`). Text can use
 `"align":"left"`; otherwise each line is centered independently. Optional
 `line_spacing` is the distance between lines within a block. After the last line,
 the cursor advances by `style.line_height`; an image does not advance it and can
 set an optional `offset_x` in pixels.
 Keep trailing spaces when preserving the imported centering. Reorder or add
 ordinary lines to edit the credits; there are no text-control opcodes or image
-indices. Image dimensions come from KTX2. `scroll` controls the authored height,
+indices. Image draw dimensions come from each block's `size`. `scroll` controls the authored height,
 speed divisor in update ticks and stopping margin; `final_hold_ticks` controls
 the pause after the music. The recording stays in shared `audio/music/`.
 
@@ -185,19 +185,37 @@ mappings, alongside scenario voice IDs. Several IDs may point to the same file;
 editing that file changes their shared recording, while remapping one ID changes
 only that request. No archive numbers or ID reconstruction rules are needed.
 
+## Resolved views and source owners
+
+In layout 107, catalogue paths in this guide (for example `game/items.json`)
+are resolved document views. The importer publishes independently editable owners
+under the corresponding directory, and the game assembles/caches them at startup.
+Use `resonance-import resolve --assets PATH --document game/items.json` to inspect
+a view. Do not copy a resolved catalogue to make an ordinary mod. Rules, text,
+registrations, image roles and other independent entries have their own sources;
+a mod supplies only the owners it changes. Restart to see source edits.
+See the [granular ownership guide](https://github.com/rowanG077/Resonance/blob/main/docs/editable-content.md#granular-asset-owners)
+for the file format, additive registrations, ordering and removals.
+
 ## Keep a mod separate
 
 Copy only the files you want to change into another directory, preserving their
 paths relative to this library. For example, a dialogue mod needs only
-`mods/my-dialogue/fields/<actual-field-name>/messages.json`.
+`mods/my-dialogue/fields/<actual-field-name>/messages/42.json` to change message ID 42.
 
 ```sh
 resonance --assets /path/to/this-library --mod /path/to/mods/my-dialogue
 ```
 
-Repeat `--mod` to enable more mods. Later mods win for the same file. Mapping
-overrides merge by numeric ID, so a mod's `mappings.json` needs only its changed
-entries. Remove the corresponding `--mod` argument to disable a mod. Mods require
+A library or mod contains only regular files and directories. Symbolic links are
+an error anywhere inside one, because not every supported platform has them; copy
+the file or directory instead. Entries whose name starts with a dot, such as a
+mod's `.git`, are ignored. A JSON file inside a document's source directory that
+is not one of its owners (for example a misspelled name) is an error.
+
+Repeat `--mod` to enable more mods. Later mods win for the same file. An ID
+mapping such as `fields/mappings.json` has one owner per ID, so a mod rebinds
+ID 332 with `fields/mappings/332.json` and inherits the rest. Remove the corresponding `--mod` argument to disable a mod. Mods require
 no registration manifest and must not contain `content.json`.
 
 The cooked library has no hash-based names, checksums or fingerprint files.
@@ -212,8 +230,8 @@ mod sources so a future fresh cook does not replace your work.
 ## Example: change Iselia dialogue
 
 The original village field is `fields/iselia-0332/`; its machine ID is `332`.
-Other Iselia rooms have their own named directories. Open that field's
-`field.json` to find the file for your change:
+Other Iselia rooms have their own named directories. Inspect that field's resolved
+`field.json` to find the resource for your change:
 
 | Property | Follow it to edit |
 | --- | --- |
@@ -226,13 +244,10 @@ Other Iselia rooms have their own named directories. Open that field's
 
 To make a dialogue mod:
 
-1. Copy `fields/iselia-0332/messages.json` from this library to
-   `my-dialogue/fields/iselia-0332/messages.json`.
-2. Find the line you want in the copied file. Ordinary messages are strings,
-   for example `"Welcome to Iselia!"`. A message with substitutions or playback
-   controls is an array of strings and named controls. Edit its strings while
-   keeping the controls you want. Keep the outer message array in the same order;
-   its positions are the IDs used by the scenario.
+1. Copy only the message you want, for example
+   `fields/iselia-0332/messages/42.json`, to the same path inside your mod.
+2. Edit its text while retaining any substitutions and playback controls you
+   want. The filename is the scenario's message ID; other messages are inherited.
 3. Start Resonance with `--assets /path/to/this-library --mod /path/to/my-dialogue`
    and visit the corresponding conversation. After another edit, quit and restart
    the application. Remove `--mod` and restart to restore the original dialogue.
@@ -392,8 +407,9 @@ editable in the existing metadata.
 `ui/dialogue.json` directly names `symbols`, `shading`, `lined_fill`,
 `plain_fill` and `cursor` images. Its five `patterns` entries are the background
 choices in preference order. `lined_fill` is the sixth choice for decorated
-windows; `plain_fill` is the sixth choice for plain windows. Image width and
-height come from KTX2 headers, so replacing an image needs no size edit in JSON.
+windows; `plain_fill` is the sixth choice for plain windows. Each image reference
+declares an `image` path and a `size` coordinate space in this JSON. Higher-resolution
+KTX2 replacements keep those coordinates without a JSON edit.
 
 `default_style` names the default dialogue window style: `plain`, `ornate` or
 `gold`. The player's window preferences take precedence. `selection.color`
@@ -407,12 +423,12 @@ font-only consumers can read this reference without loading the images.
 ### Menu drawing roles
 
 `ui/menu.json` binds images directly to drawing roles. For example,
-`images.lloyd_portrait` is `"ui/menu/lloyd-portrait.ktx2"`. `images` also names
+`images.lloyd_portrait` is `{"image":"ui/menu/lloyd-portrait.ktx2","size":[128,128]}`. `images` also names
 other portraits, the two maps, scroll arrows, panel pieces and the icon atlas.
-A normal image is a path string. An image with special sampling can instead be
-`{"image":"ui/windows/frame-fill.ktx2","repeat":true,"opaque":true}`.
+Every image declares its coordinate `size`. Special sampling adds flags, for example
+`{"image":"ui/windows/frame-fill.ktx2","size":[32,32],"repeat":true,"opaque":true}`.
 `repeat` tiles the image; `opaque` uses window-color opacity instead of image
-alpha. Both default to false. Width and height come from the KTX2 header.
+alpha. Both default to false. Draw sizes and atlas coordinates use the declared size.
 
 The five `patterns` entries are the background choices in preference order.
 `windows.plain`, `windows.ornate` and `windows.gold` each define their sixth,
@@ -435,13 +451,13 @@ root version is the menu contract's only version.
 
 ```json
 [
-  {"image":"ui/boot/licensed-by-nintendo.ktx2","fade_out_at":180},
-  {"image":"ui/boot/namco.ktx2","fade_out_at":240,"skip_after":120}
+  {"image":"ui/boot/licensed-by-nintendo.ktx2","size":[384,128],"fade_out_at":180},
+  {"image":"ui/boot/namco.ktx2","size":[384,128],"fade_out_at":240,"skip_after":120}
 ]
 ```
 
 Reorder, add or remove entries directly. `[]` skips the logo sequence. Each
-logo is centered using its image dimensions. `fade_out_at` is the update when
+logo is centered using its declared `size`, independently of texture resolution. `fade_out_at` is the update when
 fade-out starts, measured from that logo's entry. Timing uses presentation
 updates (60000/1001 per second, approximately 60). `fade_ticks` defaults to 64
 for each fade and must be positive; `fade_out_at` must follow fade-in. The
@@ -462,17 +478,18 @@ order, per-image metadata file or separate version number.
 ```json
 {
   "image": "ui/title/new-game.ktx2",
-  "selected_image": "ui/title/new-game-highlighted.ktx2",
+  "size": [152, 32],
+  "selected_image": {"image":"ui/title/new-game-highlighted.ktx2","size":[152,32]},
   "choice": "new_game",
   "top": 295.0
 }
 ```
 
 Images are centered horizontally. `top` is their top edge in the 640 × 480 UI
-canvas; dimensions come from the image itself. Optional `choice` values are
+canvas; draw dimensions come from the declared `size`. Optional `choice` values are
 `new_game`, `continue` and `customize`. The selected image is optional and
 requires a choice. Images without a choice, such as the logo and copyright,
-use only `image` and `top`. Reorder, add or remove artwork entries directly;
+use `image`, `size` and `top`. Reorder, add or remove artwork entries directly;
 menu behavior follows the choice name, independently of the entry's position.
 
 Artwork sits beside this document with readable filenames. Extra Game Record,
@@ -814,6 +831,17 @@ gives one priority per listed mesh; lower numbers draw first. When omitted, each
 mesh index is its priority. Preserve an existing priority array when repainting.
 The less common `multiply` and `image:"capture"` settings select a second texture
 and the captured scene respectively.
+
+Every texture is BC7, whose blocks cover four by four pixels. The importer never
+resamples: an interface image of another size gains transparent padding and
+declares the padded `size`.
+
+The console wraps a repeating texture with `coordinate & (size - 1)`, which only
+tiles when the size is a power of two; at any other size it skips texels and
+shows a different, larger image. The importer stores that image for the few
+model textures affected, so they repeat as they do on the console. Their binding
+carries `"scale":[[15,16],[129,256]]`: the fraction per axis already applied to
+the mesh coordinates, which animated offsets follow.
 
 Body and outline layers share identical palette images within their model's
 texture directory. Editing one file changes every layer referring to it. To
@@ -1166,7 +1194,7 @@ There is no per-model JSON file or per-model media directory. Shared monster
 geometry can still be referenced directly from its named monster owner.
 Atlas pages with identical contents share one image within their effect owner;
 the resident common and technique banks also share their atlas files. Each
-texture lists distinct image paths in `images`; dimensions come from the KTX2
+texture lists image references with authored `size` values in `images`; physical pixels come from KTX2
 headers, so replacing an atlas with a different size needs no JSON size edit.
 Without `palette_sets`, selectors follow image
 order: selector 0 uses the first image, selector 1 the second, and so on.
@@ -1187,8 +1215,7 @@ error. Invalid JSON in the containing document remains an error.
 A stored battle scene has one `scene.json` containing its duration, action tracks,
 projectiles, camera and optional spell settings, alongside its `effects` reference.
 Empty collections and absent options are omitted. There is no separate rules file
-or local version. Scene cut-in `images` also list KTX2 paths and take their sizes
-from those images. Scene and skill ID mappings remain independent.
+or local version. Scene cut-in `images` also declare KTX2 paths and coordinate sizes. Scene and skill ID mappings remain independent.
 
 ## Programmed effects
 
@@ -1869,8 +1896,13 @@ Portrait artwork is grouped by character, for example
 `plain-collar-*` variants distinguish their visible clothing without assigning
 a story state. Each named entry in `images` lists its base image first, then its
 patch images in order. `mappings` connects machine image IDs to those names.
-Image and canvas dimensions come from KTX2, so resizing a base image also resizes
-the portrait canvas. Keep dimensions and patch positions on the eight-pixel grid.
+Each image entry declares `{"image":"path.ktx2","size":[128,192]}`.
+The size defines tile coordinates and the canvas layout; KTX2 carries physical
+pixels. Replacing the artwork at higher resolution preserves the layout.
+Keep coordinate sizes and patch positions on the eight-pixel grid.
+Portrait tiles are combined on the GPU without decoding, so every image of one
+portrait must share one texture format (BC7 as cooked) and the same whole-number
+resolution scale: replace a portrait's base image and its patches together.
 
 The `animations` object contains named, shared drawing recipes. Each recipe's
 `ids` list states exactly which selectors use it. A recipe name is representative

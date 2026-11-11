@@ -1726,7 +1726,10 @@
       "bank-0": [
         {
           "images": [
-            "battle/effects/common/textures/atlas-0-0-palette-0.ktx2"
+            {
+              "image": "battle/effects/common/textures/atlas-0-0-palette-0.ktx2",
+              "size": [512, 512]
+            }
           ],
           "sampler": {
             "wrap": [

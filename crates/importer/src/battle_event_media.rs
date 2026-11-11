@@ -108,10 +108,10 @@ fn soldier(root: &Path, exe: &[u8]) -> Result<(Actor, Vec<(String, Vec<u8>)>)> {
     let package = resource(root, exe, 0x2005d)?;
     let body = field_core::optional_section(&package, 0)?.context("soldier body is absent")?;
     let (paths, alpha, _) = character_models::texture_paths(
-        character_models::palette(body)?,
+        crate::world_texture::model_palette(body)?,
         "meshes/characters/renegade",
         "body",
-        |_, _| {},
+        None,
     )?;
     let (glb, _) = world_gpl::static_model(body, paths, alpha)?;
     let bindings = world_gpl::animation_bindings(body)?;

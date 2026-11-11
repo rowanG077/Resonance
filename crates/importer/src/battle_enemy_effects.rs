@@ -1,4 +1,5 @@
 //! Enemy-local effect recipes and artwork, directly from one native package.
+use crate::world_texture::model_palette;
 use crate::{
     battle_effect_recipes::{self, NativeBank},
     battle_enemy_media, battle_scene_package, dol,
@@ -22,16 +23,6 @@ use std::{
     path::Path,
 };
 use symphonia_constants::MonsterId;
-
-fn model_palette(model: &[u8]) -> Result<&[u8]> {
-    let start = dol::u32(model, 0)? as usize;
-    let end = dol::u32(model, 4)? as usize;
-    let tpl = model
-        .get(start..end)
-        .context("effect model palette exceeds source")?;
-    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "effect model lacks TPL");
-    Ok(tpl)
-}
 
 fn add_file(files: &mut BTreeMap<String, Vec<u8>>, path: String, bytes: Vec<u8>) -> Result<String> {
     if let Some((old, _)) = files.iter().find(|(_, old)| *old == &bytes) {

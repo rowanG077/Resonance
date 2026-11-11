@@ -8,6 +8,8 @@ name = "resonance-import"
 path = "src/main.rs"
 [dependencies]
 resonance-importer.workspace = true
+resonance-content.workspace = true
+serde_json.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 nod = "=2.0.0-alpha.9"

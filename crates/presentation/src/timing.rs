@@ -24,7 +24,7 @@ pub(super) fn prepare(
         && art
             .images
             .iter()
-            .all(|h| server.is_loaded_with_dependencies(h.id()));
+            .all(|image| server.is_loaded_with_dependencies(image.handle.id()));
 }
 
 #[allow(clippy::too_many_arguments)] // Shared clock with title, movie and field readiness gates.

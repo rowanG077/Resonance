@@ -22,6 +22,7 @@ pub fn cook_ending(extracted: &Path, library: &Path) -> Result<()> {
     let files = disc.join("files");
     let exe = fs::read(disc.join("sys/main.dol"))?;
     let mut output = Vec::new();
+    let mut fin = Vec::new();
     for (id, name) in [
         (49, "ui/ending/party-with-kratos.ktx2"),
         (50, "ui/ending/party-with-zelos.ktx2"),
@@ -32,25 +33,23 @@ pub fn cook_ending(extracted: &Path, library: &Path) -> Result<()> {
             "ending portrait bank is not singular"
         );
         let (width, height, rgba) = menu_sprites::decode_image(&tpl, 0)?;
-        output.push((
-            name,
-            resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
-        ));
+        output.extend(crate::field_overlays::image_files(
+            crate::field_overlays::image(name, [width, height]),
+            resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
+        )?);
     }
     let tpl = source(&exe, &files, 51)?;
     ensure!(dol::u32(&tpl, 4)? == 4, "FIN bank must have four letters");
     for (index, name) in FIN.into_iter().enumerate() {
         let (width, height, rgba) = menu_sprites::decode_image(&tpl, index)?;
+        fin.push(crate::field_overlays::image(name, [width, height]));
         output.push((
-            name,
-            resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
+            name.to_owned(),
+            resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
         ));
     }
     for (relative, bytes) in output {
-        let path = library.join(relative);
-        crate::output::write(&path, &bytes)?;
+        crate::output::write(&library.join(relative), &bytes)?;
     }
-    let path = library.join("ui/ending/fin.json");
-    crate::output::json(&path, &FIN)?;
-    Ok(())
+    crate::output::json(&library.join("ui/ending/fin.json"), &fin)
 }

@@ -48,7 +48,7 @@ fn named_mix_preserves_parameters_gains_and_every_music_action() -> Result<()> {
 }
 
 #[test]
-fn named_mix_mods_share_presets_keep_local_overrides_and_retained_snapshots() -> Result<()> {
+fn named_mix_mods_share_presets_and_keep_local_overrides() -> Result<()> {
     let base = tempfile::tempdir()?;
     let modification = tempfile::tempdir()?;
     fs::write(
@@ -60,6 +60,11 @@ fn named_mix_mods_share_presets_keep_local_overrides_and_retained_snapshots() ->
     fs::create_dir(base.path().join("audio"))?;
     fs::create_dir(modification.path().join("audio"))?;
     fs::write(base.path().join(PATH), serde_json::to_vec(&document()?)?)?;
+    fs::copy(base.path().join(PATH), modification.path().join(PATH))?;
+    let mut edited = document()?;
+    edited["reverbs"]["effects"]["decay_seconds"] = 0.25.into();
+    edited["reverbs"]["field"]["predelay_seconds"] = 0.02.into();
+    fs::write(modification.path().join(PATH), serde_json::to_vec(&edited)?)?;
     let library = Library::open(
         base.path(),
         &[Mod {
@@ -67,17 +72,10 @@ fn named_mix_mods_share_presets_keep_local_overrides_and_retained_snapshots() ->
             root: modification.path().into(),
         }],
     )?;
-    let mut retained = library.snapshot();
-    let before = Mix::read(&mut retained)?;
-    let mut edited = document()?;
-    edited["reverbs"]["effects"]["decay_seconds"] = 0.25.into();
-    edited["reverbs"]["field"]["predelay_seconds"] = 0.02.into();
-    fs::write(modification.path().join(PATH), serde_json::to_vec(&edited)?)?;
     let after = Mix::read(&mut library.snapshot())?;
     assert_eq!(after.field_reverbs[1][2], 0.25);
     assert_eq!(after.battle_reverbs[1][2], 0.25);
     assert_eq!(after.music_reverbs.for_song(1)?.unwrap()[4], 0.02);
-    assert_eq!(Mix::read(&mut retained)?, before);
     let mut local: Definition = serde_json::from_value(json!({"reverbs":{
         "auxiliary_a":{"coloration":0.1,"mix":0.2,"decay_seconds":0.3,"damping":0.4,"predelay_seconds":0.01},
         "auxiliary_b":{"coloration":0.5,"mix":0.6,"decay_seconds":0.7,"damping":0.8,"predelay_seconds":0.02}

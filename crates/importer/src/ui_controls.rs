@@ -71,16 +71,16 @@ pub fn cook_ui_controls(extracted: &Path, library: &Path) -> Result<()> {
         dol::u32(&atlas, 4)? as usize == NAMES.len(),
         "controller image count differs"
     );
-    let mut paths: Vec<Option<String>> = vec![None; NAMES.len()];
+    let mut paths = vec![None; NAMES.len()];
     for index in resonance_content::input_prompts::PANEL_GLYPHS {
         let name = NAMES[index];
         let (width, height, rgba) = menu_sprites::decode_image(&atlas, index)?;
         let path = format!("ui/controls/{name}.ktx2");
         crate::output::write(
             &library.join(&path),
-            &resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
+            &resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
         )?;
-        paths[index] = Some(path);
+        paths[index] = Some(crate::field_overlays::image(path, [width, height]));
     }
     crate::output::json(
         &library.join(resonance_content::input_prompts::FIELD_BANK_PATH),

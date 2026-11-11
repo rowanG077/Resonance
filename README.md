@@ -51,8 +51,11 @@ target/release/resonance-import /path/to/Disc1.rvz /path/to/Disc2.rvz
 target/release/resonance
 ```
 
-The importer writes to `local/all-assets`, which must be empty before importing.
-The game loads that directory by default.
+The importer writes to `local/all-assets`, replacing the documents of a previous import.
+The game loads that directory by default. Put layered overrides in
+`local/mods/NNNNNN-modname`; higher six-digit numbers take priority. See the
+[modding guide](docs/editable-content.md#checking-an-edit)
+for explicit mod options.
 
 Move with WASD or the arrow keys, confirm with Enter, and open the field menu
 with Tab. Gamepads are also supported. Movement runs by default; hold Walk
@@ -157,7 +160,8 @@ restores the character's story outfit. The title selector compares the current
 and highlighted titles' bonuses per level as numbers, including fractional stat
 points, with colors indicating better, worse or equal growth.
 
-The importer automatically includes [Ghost Wolf](mods/ghost-wolf/README.md), an
-explicit modding example that adds a new Lloyd arte through editable action,
-animation, effect, learning and menu assets. Its Blender source is included for
-animation editing.
+[Ghost Wolf](mods/ghost-wolf/README.md) is a modding example that adds a new
+Lloyd arte through editable action, animation, effect, learning and menu assets.
+It is not part of the base import: `resonance-import prepare-arte-mod` builds it
+as an ordinary mod against the cooked library. Its Blender source is included
+for animation editing.

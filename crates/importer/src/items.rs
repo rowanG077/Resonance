@@ -24,9 +24,7 @@ const DESCRIPTIONS: u32 = 0x80199bd0;
 pub fn cook_items(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&exe)?;
-    let path = library.join(items::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(&library.join(items::PATH), &document)
 }
 
 fn caption(exe: &[u8], row: &[u8], at: usize) -> Result<String> {

@@ -23,10 +23,7 @@ pub fn field_wing_mappings() -> BTreeMap<u32, ModelTarget> {
 fn convert(library: &Path, id: u32, name: &str, package: &[u8]) -> Result<()> {
     let body = field_core::optional_section(package, 0)?.context("wing model has no body")?;
     ensure!(dol::u32(body, 0x20)? == 0x005b_bc61, "invalid wing model");
-    let palette = body
-        .get(dol::u32(body, 0)? as usize..dol::u32(body, 4)? as usize)
-        .context("wing palette exceeds model")?;
-    ensure!(dol::u32(palette, 0)? == 0x0020_af30, "wing model lacks TPL");
+    let palette = world_texture::model_palette(body)?;
     let base = format!("meshes/effects/{name}");
     let mut textures = Vec::new();
     let mut alpha = Vec::new();

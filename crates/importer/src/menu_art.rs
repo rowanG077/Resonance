@@ -101,7 +101,7 @@ impl<'a> ImageBank<'a> {
                 repeat: wrap == 1,
                 opaque,
             },
-            resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
+            resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
         ))
     }
 }
@@ -135,8 +135,7 @@ fn insert(
     );
     match images.get(&texture.path) {
         Some(existing) => ensure!(
-            resonance_asset_writer::texture::ktx2(existing)?
-                == resonance_asset_writer::texture::ktx2(&bytes)?,
+            existing == &bytes,
             "conflicting shared menu image {}",
             texture.path
         ),

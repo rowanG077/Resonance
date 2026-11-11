@@ -13,6 +13,7 @@ impl Artwork {
         data: &Prepared,
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
+        formats: bevy::image::CompressedImageFormats,
     ) -> Result<Self> {
         use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
         let read = |path: &str| Ok(data.files.read(path)?.to_vec());
@@ -20,6 +21,7 @@ impl Artwork {
             &data.font.texture,
             [data.font.width, data.font.height],
             false,
+            formats,
             &read,
         )?);
         let black = image_assets.add(Image::new_fill(
@@ -43,6 +45,7 @@ impl Artwork {
                     &background.path,
                     [background.width, background.height],
                     false,
+                    formats,
                     &read,
                 ),
             )?

@@ -4,12 +4,12 @@
   "description": "Every authored enemy action binding. Generated metadata is not a runtime or fidelity receipt.",
   "inputs": {
     "state": {
-      "path": "local/battle-repair-20261011/source-all/525-05/start.s01",
-      "sha256": "64541918836acdeabeb7df6317f3c5b2c4fa02390fa868682aaaf5e7ee129a58"
+      "path": "local/oracle-fixtures/battle/classroom-free-control.s01",
+      "sha256": "b0095e98de6baec2cc3de93ec9aed1236c17740620315deb35c8186e20ede89e"
     },
     "movie": {
-      "path": "local/battle-repair-20261011/source-all/525-05/start.s01.dtm",
-      "sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600"
+      "path": "local/oracle-fixtures/battle/classroom-free-control.s01.dtm",
+      "sha256": "763cd0a0bb035732856a43ffa2f36787b77d969d7dd336cc8160d9e5819679db"
     },
     "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
     "packages": "local/battle-actions-recovery-20261011/input",

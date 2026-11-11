@@ -26,11 +26,8 @@ const LEARNING: u32 = 0x80202dc8;
 
 pub fn cook_techniques(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
-    let mut document = convert(&exe)?;
-    crate::modding_examples::add_techniques(&mut document)?;
-    let path = library.join(arte::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    let document = convert(&exe)?;
+    crate::output::json(&library.join(arte::PATH), &document)
 }
 
 fn signed(row: &[u8], at: usize) -> Result<i16> {

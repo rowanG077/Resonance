@@ -214,7 +214,13 @@ impl Assets {
         }
         let mut party_actors = Vec::new();
         let mut victory_owners = Vec::new();
-        for (&character, position) in party.formation.iter().zip(party_positions) {
+        for (slot, (&character, position)) in
+            party.formation.iter().zip(party_positions).enumerate()
+        {
+            ensure!(
+                !party.formation[..slot].contains(&character),
+                "duplicate battle character {character}"
+            );
             let character = Character::try_from(character)?;
             let member = &party.members[character.index()];
             let equipment = available_equipment

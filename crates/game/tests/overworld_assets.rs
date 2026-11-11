@@ -269,7 +269,7 @@ fn original_encounters_select_iselia_groups_and_the_later_tethealla_table() -> R
 }
 
 #[test]
-#[ignore = "requires a prepared world package; set RESONANCE_WORLD_ASSETS"]
+#[ignore = "requires a prepared world package; set RESONANCE_TEST_ASSETS"]
 fn original_world_package_enters_towns_and_restores_travel_without_filesystem_reads() -> Result<()>
 {
     use resonance_events::{PersistentState, party::Party};
@@ -278,7 +278,7 @@ fn original_world_package_enters_towns_and_restores_travel_without_filesystem_re
         travel::{Mount, State},
     };
     let root = PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
     let prepared = prepare_world(&root)?;
     for world in [World::Sylvarant, World::TetheAlla] {
@@ -351,7 +351,7 @@ fn original_world_package_enters_towns_and_restores_travel_without_filesystem_re
 }
 
 #[test]
-#[ignore = "requires a prepared world package; set RESONANCE_WORLD_ASSETS"]
+#[ignore = "requires a prepared world package; set RESONANCE_TEST_ASSETS"]
 fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<()> {
     use resonance_events::{
         PersistentState,
@@ -363,7 +363,7 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
         travel::{Mount, State},
     };
     let root = PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     );
     let prepared = prepare_world(&root)?;
     for world in [World::Sylvarant, World::TetheAlla] {

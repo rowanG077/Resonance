@@ -1,7 +1,6 @@
 //! Figurine previews directly from the native catalogue and NPC model archive.
 use crate::{
     character_models, compression, dol, field_core, native_archive, text, world_gpl, world_motion,
-    world_texture,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
@@ -124,40 +123,6 @@ fn payload(mut bytes: Vec<u8>) -> Result<Vec<u8>> {
     anyhow::bail!("figurine model compression nesting exceeds 16 levels")
 }
 
-fn palette(model: &[u8]) -> Result<&[u8]> {
-    let start = dol::u32(model, 0)? as usize;
-    let end = dol::u32(model, 4)? as usize;
-    let tpl = model
-        .get(start..end)
-        .context("figurine palette exceeds model")?;
-    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "figurine model lacks TPL");
-    Ok(tpl)
-}
-
-fn texture_paths(
-    tpl: &[u8],
-    base: &str,
-    layer: &str,
-    write: bool,
-    library: &Path,
-) -> Result<(Vec<String>, Vec<bool>, Vec<u32>)> {
-    let count = dol::u32(tpl, 4)? as usize;
-    let mut paths = Vec::with_capacity(count);
-    let mut alpha = Vec::with_capacity(count);
-    let mut heights = Vec::with_capacity(count);
-    for index in 0..count {
-        let (ktx, transparent) = world_texture::tpl_texture(tpl, index)?;
-        let path = format!("{base}/textures/{layer}-texture-{index}.ktx2");
-        heights.push(u32::from_le_bytes(ktx[24..28].try_into()?));
-        if write {
-            crate::output::write(&library.join(&path), &ktx)?;
-        }
-        paths.push(path);
-        alpha.push(transparent);
-    }
-    Ok((paths, alpha, heights))
-}
-
 fn first_motion(package: &[u8]) -> Result<Option<Vec<u8>>> {
     let count = dol::u32(package, 0)? as usize;
     for index in 2..count.saturating_sub(1) {
@@ -245,12 +210,17 @@ fn preview(
         };
         let layer = if index == 0 { "body" } else { "outline" };
         let palette_source = if own_palette { source } else { body };
-        let (paths, alpha, heights) = texture_paths(
-            palette(palette_source)?,
+        let mut emit =
+            |path: String, bytes: Vec<u8>| crate::output::write(&library.join(path), &bytes);
+        let (paths, alpha, sizes) = character_models::texture_paths(
+            crate::world_texture::model_palette(palette_source)?,
             &media,
             if own_palette { layer } else { "body" },
-            own_media && own_palette,
-            library,
+            if own_media && own_palette {
+                Some(&mut emit)
+            } else {
+                None
+            },
         )?;
         let paths = if shared.is_some() {
             paths
@@ -284,7 +254,7 @@ fn preview(
         }
         if index == 0 {
             rows = chosen
-                .map(|slot| match heights[slot] {
+                .map(|slot| match sizes[slot].1 {
                     512 => 2,
                     1024 => 4,
                     _ => 0,
@@ -495,11 +465,9 @@ pub fn cook_figurine_media(extracted: &Path, library: &Path, selected: Option<u1
             }
         }
     }
-    let ids: Box<dyn Iterator<Item = usize>> = match selected {
-        Some(id) => Box::new(std::iter::once(id as usize)),
-        None => Box::new(0..COUNT),
-    };
-    for id in ids {
+    let ids = selected.map_or(0..COUNT, |id| usize::from(id)..usize::from(id) + 1);
+    let count = ids.len();
+    for (index, id) in ids.enumerate() {
         let row = &records[id * STRIDE..][..STRIDE];
         let selector = dol::u32(row, 8)?;
         let native = native_model(&bank, selector)?;
@@ -507,6 +475,7 @@ pub fn cook_figurine_media(extracted: &Path, library: &Path, selected: Option<u1
         let name = FigurineId::try_from(id as u16)?
             .resource_name()
             .context("unnamed figurine")?;
+        eprintln!("  [{}/{} jobs] Figurine media: {name}", index + 1, count);
         let base = format!("meshes/figurines/{name}");
         let owner = shared
             .get(&(id as u16))

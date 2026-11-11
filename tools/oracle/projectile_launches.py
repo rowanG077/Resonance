@@ -18,6 +18,11 @@ from battle_fixture import enemy_package
 from named_content import Snapshot as ContentSnapshot, same_evidence
 
 
+
+def velocity_jitter(motion):
+    """Cooked motion omits a zero jitter."""
+    return motion.get("velocity_jitter", [0.0, 0.0, 0.0])
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -53,7 +58,7 @@ def supported(definition):
     return (not definition.get("unsupported_reason")
             and (motion["origin"] == "actor" or isinstance(motion["origin"], dict)
                  and set(motion["origin"]) == {"bone"})
-            and any(abs(value) >= 1 for value in motion["velocity_jitter"])
+            and any(abs(value) >= 1 for value in velocity_jitter(motion))
             and not any(motion.get(key) for key in (
                 "bone_direction", "departure", "velocity_reset",
                 "aim_at_target", "stop_on_ground", "aqua_edge", "contact_path",
@@ -235,7 +240,9 @@ def derive(reference, assets, usual, packages=None):
                         # their final values to the pinned action declaration.
                         for field in ("velocity", "acceleration", "spawn_offset"):
                             declaration[field] = emitted[field]
-                        declaration["motion"]["velocity_jitter"] = emitted["motion"]["velocity_jitter"]
+                        declaration["motion"].pop("velocity_jitter", None)
+                        if "velocity_jitter" in emitted["motion"]:
+                            declaration["motion"]["velocity_jitter"] = emitted["motion"]["velocity_jitter"]
                         declaration["birth_effect"]["member"] = emitted["birth_effect"]["member"]
                         if declaration == emitted:
                             bound.append(choice)
@@ -287,7 +294,7 @@ def derive(reference, assets, usual, packages=None):
                 # binary values rather than Python's float64 decimal parsing.
                 require(struct.pack(">3f", *table_definition[field]) == raw[offset:offset + 12],
                         f"{field} differs from authored template")
-            require(struct.pack(">3f", *table_definition["motion"]["velocity_jitter"]) == raw[0x6c:0x78]
+            require(struct.pack(">3f", *velocity_jitter(table_definition["motion"])) == raw[0x6c:0x78]
                     and definition["lifetime"] == struct.unpack_from(">h", raw, 0xc)[0]
                     and [table_definition["birth_effect"][key] for key in ("bank", "member")] == list(raw[0x5c:0x5e]),
                     "launch parameters differ from authored template")

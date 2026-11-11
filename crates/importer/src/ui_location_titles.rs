@@ -90,7 +90,7 @@ fn cook_title(
             continue;
         }
         let path = format!("ui/location-titles/{image}.ktx2");
-        let encoded = resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?;
+        let encoded = resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?;
         if let Some(existing) = files.get(&path) {
             ensure!(
                 *existing == encoded,
@@ -99,7 +99,7 @@ fn cook_title(
         } else {
             files.insert(path.clone(), encoded);
         }
-        document.push(Some(path));
+        document.push(Some(crate::field_overlays::image(path, [width, height])));
     }
     files.insert(
         format!("ui/location-titles/{name}.json"),
@@ -124,10 +124,20 @@ fn japanese_iselia(extracted: &Path, files: &mut BTreeMap<String, Vec<u8>>) -> R
         "Japanese Iselia image count differs"
     );
     let (width, height, rgba) = menu_sprites::decode_image(&tpl, 0)?;
-    files.insert(
-        "ui/location-titles/iselia-japanese.ktx2".to_owned(),
-        resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
-    );
+    // 259×82 in the source; transparent padding completes its blocks.
+    let mut title = resonance_asset_writer::texture::Pixels {
+        width,
+        height,
+        rgba,
+    };
+    title.pad_to_blocks();
+    files.extend(crate::field_overlays::image_files(
+        crate::field_overlays::image(
+            "ui/location-titles/iselia-japanese.ktx2",
+            [title.width, title.height],
+        ),
+        resonance_asset_writer::gpu::encode(&[title])?,
+    )?);
     Ok(())
 }
 

@@ -12,9 +12,7 @@ use symphonia_constants::{ItemId, KnownId};
 pub fn cook_titles(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&exe)?;
-    let path = library.join(resonance_content::titles::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(&library.join(resonance_content::titles::PATH), &document)
 }
 
 fn convert(exe: &[u8]) -> Result<Document> {

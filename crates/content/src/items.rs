@@ -1,4 +1,4 @@
-//! One editable owner for item rules, equipment eligibility and captions.
+//! Named item rules, equipment eligibility and captions, assembled from granular owners.
 use crate::{
     diagnostics::Diagnostics,
     library::Mappings,

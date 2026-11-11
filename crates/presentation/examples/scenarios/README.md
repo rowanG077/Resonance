@@ -49,17 +49,8 @@ cargo test -p resonance-presentation --lib regular_smaa_preserves -- --ignored -
 It compares sRGB and encoded-unorm targets, verifies edge smoothing, untouched
 UI, loading the preceding camera's scene, resizing and attachment cleanup.
 
-The native S2x regression requires hardware with 2× MSAA support:
-
-```sh
-cargo test -p resonance-presentation --lib native_s2x_preserves -- --ignored --nocapture
-```
-
-It tests the production passes directly: loading a preceding camera's scene,
-geometry rendering, matching edge colors in sRGB/encoded-unorm targets, untouched
-UI, live resize, and attachment cleanup when S2x
-is disabled. The image probe additionally checks S2x coverage against plain 2×
-MSAA, alpha cutout smoothing, and identical output after leaving/re-entering a mode.
+The image probe checks S2x coverage against plain 2× MSAA, alpha cutout
+smoothing, and identical output after leaving/re-entering a mode.
 
 To test the physical GPU on Linux, override the probe's software-adapter default:
 

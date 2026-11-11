@@ -224,8 +224,7 @@ pub(crate) fn sprites(extracted: &Path, exe: &[u8]) -> Result<(MenuTexture, Menu
     );
     equipment.push(dialogue_font::menu_glyph(exe, extracted, character)?);
     rects.insert(Sprite::EquipmentMarkers, atlas.add_all(equipment)?);
-    let bytes =
-        resonance_asset_writer::ktx2::encode_rgba8(SIZE as u32, SIZE as u32, &atlas.pixels)?;
+    let bytes = resonance_asset_writer::gpu::encode_rgba8(SIZE as u32, SIZE as u32, &atlas.pixels)?;
     Ok((
         MenuTexture {
             path: "ui/menu/icons.ktx2".into(),
@@ -234,9 +233,10 @@ pub(crate) fn sprites(extracted: &Path, exe: &[u8]) -> Result<(MenuTexture, Menu
             repeat: false,
             opaque: false,
         },
-        MenuSprites {
-            rects,
-            ..Default::default()
+        {
+            let mut sprites = MenuSprites::default();
+            sprites.rects = rects;
+            sprites
         },
         bytes,
     ))

@@ -276,12 +276,7 @@ fn static_scene_models(
             artwork.insert(slot, document.clone());
             continue;
         }
-        let start = dol::u32(model, 0)? as usize;
-        let end = dol::u32(model, 4)? as usize;
-        let tpl = model
-            .get(start..end)
-            .context("scene model TPL exceeds package")?;
-        ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "scene model lacks TPL");
+        let tpl = world_texture::model_palette(model)?;
         let stem = format!("{owner}/models/model-{slot}-layer-0");
         let mut paths = Vec::new();
         let mut alpha = Vec::new();
@@ -433,11 +428,7 @@ fn summon_models(
                 world_gpl::with_primary_palette(body, outline)?
             };
             let tpl_owner = if owns_palette { outline } else { body };
-            let start = dol::u32(tpl_owner, 0)? as usize;
-            let end = dol::u32(tpl_owner, 4)? as usize;
-            let tpl = tpl_owner
-                .get(start..end)
-                .context("summon TPL exceeds model")?;
+            let tpl = world_texture::model_palette(tpl_owner)?;
             let mut paths = if owns_palette {
                 Vec::new()
             } else {
@@ -553,10 +544,7 @@ fn nurse_models(
         );
     }
     ensure!(dol::u32(motion, 0)? == 0x007b_7960, "invalid Nurse motion");
-    let start = dol::u32(body, 0)? as usize;
-    let end = dol::u32(body, 4)? as usize;
-    let tpl = body.get(start..end).context("Nurse TPL exceeds body")?;
-    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "Nurse body lacks TPL");
+    let tpl = world_texture::model_palette(body)?;
     let stem = format!("{owner}/models/model-0-layer-0");
     let mut files = Vec::new();
     let mut paths = Vec::new();
@@ -857,6 +845,7 @@ pub(crate) fn atlas(
     let count = dol::u32(tpl, 4)? as usize;
     let table = dol::u32(tpl, 8)? as usize;
     let mut files = Vec::<(String, Vec<u8>)>::new();
+    let mut seen = BTreeMap::<[u8; 32], String>::new();
     let mut entries = Vec::new();
     for index in 0..count {
         let descriptor = dol::u32(tpl, table + index * 8)? as usize;
@@ -871,20 +860,23 @@ pub(crate) fn atlas(
         };
         let mut images = Vec::<UiTexture>::new();
         let mut offsets = BTreeMap::new();
-        for page in 0..pages {
-            let offset = page * capacity;
-            let (pixels, _) = world_texture::tpl_texture_palette(tpl, index, offset)?;
-            let path =
-                if let Some((path, _)) = files.iter().find(|(_, previous)| previous == &pixels) {
-                    path.clone()
-                } else {
-                    let path = format!("{owner}/textures/atlas-{slot}-{index}-palette-{page}.ktx2");
-                    files.push((path.clone(), pixels));
-                    path
-                };
-            let image = images
+        let mut extra_page = pages;
+        let mut image_at = |offset, page: Option<usize>, explicit| -> Result<usize> {
+            let pixels = world_texture::tpl_pixels(tpl, index, offset, explicit, true)?;
+            let key = world_texture::texture_key(&pixels);
+            let path = world_texture::shared_path(&mut seen, key, || {
+                let page = page.unwrap_or_else(|| {
+                    let page = extra_page;
+                    extra_page += 1;
+                    page
+                });
+                let path = format!("{owner}/textures/atlas-{slot}-{index}-palette-{page}.ktx2");
+                files.push((path.clone(), resonance_asset_writer::gpu::encode(&pixels)?));
+                Ok(path)
+            })?;
+            Ok(images
                 .iter()
-                .position(|entry| entry.path == path)
+                .position(|image| image.path == path)
                 .unwrap_or_else(|| {
                     images.push(UiTexture {
                         path,
@@ -892,11 +884,13 @@ pub(crate) fn atlas(
                         height,
                     });
                     images.len() - 1
-                });
-            offsets.insert(offset, image);
+                }))
+        };
+        for page in 0..pages {
+            let offset = page * capacity;
+            offsets.insert(offset, image_at(offset, Some(page), false)?);
         }
-        // The default selector table describes the native full-width pages.
-        // Actor-specific tail windows added below must not become defaults.
+        // Extra sliding/tail windows must not become default selector pages.
         let default = if capacity == 0 {
             vec![Some(0); 256]
         } else {
@@ -906,79 +900,23 @@ pub(crate) fn atlas(
         };
         if capacity != 0 {
             let window = colors.min(capacity);
-            for &stride in strides {
-                if stride == 0 {
-                    continue;
-                }
-                let stride = usize::from(stride);
+            for &stride in strides.iter().filter(|&&stride| stride != 0) {
                 for selector in 0..=u8::MAX {
-                    let offset = usize::from(selector) * stride;
+                    let offset = usize::from(selector) * usize::from(stride);
                     if offset + window > colors {
                         break;
                     }
-                    if offsets.contains_key(&offset) {
-                        continue;
+                    if !offsets.contains_key(&offset) {
+                        offsets.insert(offset, image_at(offset, None, false)?);
                     }
-                    let (pixels, _) = world_texture::tpl_texture_palette(tpl, index, offset)?;
-                    let path = if let Some((path, _)) =
-                        files.iter().find(|(_, previous)| previous == &pixels)
-                    {
-                        path.clone()
-                    } else {
-                        let path = format!(
-                            "{owner}/textures/atlas-{slot}-{index}-palette-{}.ktx2",
-                            images.len()
-                        );
-                        files.push((path.clone(), pixels));
-                        path
-                    };
-                    let image = images
-                        .iter()
-                        .position(|entry| entry.path == path)
-                        .unwrap_or_else(|| {
-                            images.push(UiTexture {
-                                path,
-                                width,
-                                height,
-                            });
-                            images.len() - 1
-                        });
-                    offsets.insert(offset, image);
                 }
             }
         }
         for &(stride, selector) in requested {
-            if stride == 0 {
-                continue;
-            }
             let offset = usize::from(stride) * usize::from(selector);
-            if offsets.contains_key(&offset) {
-                continue;
+            if stride != 0 && !offsets.contains_key(&offset) {
+                offsets.insert(offset, image_at(offset, None, true)?);
             }
-            let (pixels, _) = world_texture::tpl_texture_palette_explicit(tpl, index, offset)?;
-            let path =
-                if let Some((path, _)) = files.iter().find(|(_, previous)| previous == &pixels) {
-                    path.clone()
-                } else {
-                    let path = format!(
-                        "{owner}/textures/atlas-{slot}-{index}-palette-{}.ktx2",
-                        images.len()
-                    );
-                    files.push((path.clone(), pixels));
-                    path
-                };
-            let image = images
-                .iter()
-                .position(|entry| entry.path == path)
-                .unwrap_or_else(|| {
-                    images.push(UiTexture {
-                        path,
-                        width,
-                        height,
-                    });
-                    images.len() - 1
-                });
-            offsets.insert(offset, image);
         }
         let entry = AtlasEntry {
             effect: EffectTexture {
@@ -1169,4 +1107,29 @@ pub fn cook_battle_simple_scene(root: &Path, library: &Path, id: u16) -> Result<
         crate::output::write(&output, &bytes)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sliding_windows_do_not_overwrite_deduplicated_pages() -> Result<()> {
+        let tpl = include_bytes!("battle_scene_package/duplicate-palettes.tpl");
+        let strides = BTreeSet::from([8]);
+        let (atlases, sets, files) = atlas(tpl, "fixture", 0, &strides, &Default::default())?;
+        let names = files.iter().map(|(path, _)| path).collect::<BTreeSet<_>>();
+        assert_eq!(names.len(), files.len());
+        let image = atlases[0].palette_image(sets[&8], 1)?;
+        let (_, bytes) = files
+            .iter()
+            .find(|(path, _)| *path == atlases[0].images[image].path)
+            .unwrap();
+        let pixel = resonance_asset_writer::texture::ktx2(bytes)?[0].rgba[..3].to_vec();
+        assert!(
+            pixel[0] >= 253 && pixel[1] <= 2 && pixel[2] <= 2,
+            "sliding palette page must remain red: {pixel:?}"
+        );
+        Ok(())
+    }
 }

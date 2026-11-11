@@ -17,9 +17,7 @@ use symphonia_constants::ItemId;
 pub fn cook_ex_skills(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(extracted.join("disc1/sys/main.dol"))?;
     let document = convert(&exe)?;
-    let path = library.join(ex_skills::PATH);
-    crate::output::json(&path, &document)?;
-    Ok(())
+    crate::output::json(&library.join(ex_skills::PATH), &document)
 }
 
 fn stat(id: u8) -> Result<ExStat> {

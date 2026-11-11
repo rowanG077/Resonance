@@ -52,10 +52,10 @@ pub fn bind_fixture_motion(
         .context("fixture party body absent")?;
     let body = character_models::party_body(root, character, costume)?;
     let (paths, alpha, _) = character_models::texture_paths(
-        character_models::palette(&body)?,
+        crate::world_texture::model_palette(&body)?,
         "fixture",
         "body",
-        |_, _| {},
+        None,
     )?;
     let (glb, _) = world_gpl::static_model(&body, paths, alpha)?;
     let bindings = world_gpl::animation_bindings(&body)?;

@@ -21,7 +21,7 @@ fn title_uses_explicit_artwork_and_retains_mod_snapshots() -> Result<()> {
     // drawing entry is a valid mod; unused art and skipped boot need not exist.
     let mut definition: Definition = serde_json::from_value(serde_json::json!({
         "day_field":1,"night_field":2,"music":"music.wav","cues":"cues.json",
-        "artwork":[{"image":"normal.ktx2","selected_image":"selected.ktx2",
+        "artwork":[{"image":"normal.ktx2","size":[128,32],"selected_image":{"image":"selected.ktx2","size":[128,32]},
             "choice":"continue","top":100}]
     }))?;
     fs::write(root.join(PATH), serde_json::to_vec(&definition)?)?;
@@ -36,7 +36,7 @@ fn title_uses_explicit_artwork_and_retains_mod_snapshots() -> Result<()> {
     assert_eq!(art[0].choice.unwrap().row(), 1);
     assert_eq!(&*retained.read("normal.ktx2", 1024)?, b"normal");
 
-    definition.artwork[0].image = "replacement.ktx2".into();
+    definition.artwork[0].image.path = "replacement.ktx2".into();
     definition.artwork[0].top = 300.;
     definition.artwork[0].choice = Some(Choice::NewGame);
     fs::write(modification.join(PATH), serde_json::to_vec(&definition)?)?;
@@ -55,7 +55,7 @@ fn title_uses_explicit_artwork_and_retains_mod_snapshots() -> Result<()> {
     assert_eq!(changed[0].choice.unwrap().row(), 0);
     assert_eq!(&*snapshot.read("replacement.ktx2", 1024)?, b"replacement");
     assert_eq!(art[0].top, 100.);
-    assert_eq!(art[0].image, "normal.ktx2");
+    assert_eq!(art[0].image.path, "normal.ktx2");
     fs::remove_file(root.join("selected.ktx2"))?;
     assert!(capture(&mut library.snapshot(), false, &|| false).is_err());
     assert_eq!(&*retained.read("selected.ktx2", 1024)?, b"selected");
@@ -67,14 +67,22 @@ fn title_uses_explicit_artwork_and_retains_mod_snapshots() -> Result<()> {
 fn title_rejects_ambiguous_or_unsafe_artwork_without_a_legacy_reader() -> Result<()> {
     let value = serde_json::json!({"day_field":1,"night_field":2,
         "music":"music.wav","cues":"cues.json",
-        "artwork":[{"image":"logo.ktx2","top":24}]});
+        "artwork":[{"image":"logo.ktx2","size":[128,32],"top":24}]});
     let mut definition: Definition = serde_json::from_value(value.clone())?;
     definition.validate()?;
-    definition.artwork[0].selected_image = Some("selected.ktx2".into());
+    definition.artwork[0].selected_image = Some(crate::font::UiTexture {
+        path: "selected.ktx2".into(),
+        width: 128,
+        height: 32,
+    });
     assert!(definition.validate().is_err());
     definition.artwork[0].choice = Some(Choice::Customize);
     definition.validate()?;
-    definition.artwork[0].selected_image = Some("../outside.ktx2".into());
+    definition.artwork[0].selected_image = Some(crate::font::UiTexture {
+        path: "../outside.ktx2".into(),
+        width: 128,
+        height: 32,
+    });
     assert!(definition.validate().is_err());
     let mut old = value.clone();
     old["version"] = 1.into();

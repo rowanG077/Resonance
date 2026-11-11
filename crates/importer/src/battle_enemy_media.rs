@@ -70,16 +70,6 @@ pub(crate) fn member<'a>(package: &'a [u8], field: usize) -> Result<Option<&'a [
     Ok(Some(&package[start..end]))
 }
 
-fn palette(model: &[u8]) -> Result<&[u8]> {
-    let start = dol::u32(model, 0)? as usize;
-    let end = dol::u32(model, 4)? as usize;
-    let data = model
-        .get(start..end)
-        .context("enemy palette exceeds model")?;
-    ensure!(dol::u32(data, 0)? == 0x0020_af30, "missing enemy TPL");
-    Ok(data)
-}
-
 fn clip(path: String, slot: u16) -> SceneClip {
     SceneClip {
         motion: path,
@@ -518,7 +508,7 @@ fn carried_attachment(
     };
     let mut paths = Vec::new();
     let mut alpha = Vec::new();
-    let tpl = palette(&source)?;
+    let tpl = world_texture::model_palette(&source)?;
     for index in 0..dol::u32(tpl, 4)? as usize {
         let (texture, transparent) = world_texture::tpl_texture(tpl, index)?;
         let path = if let Some((path, _)) = files
@@ -710,7 +700,7 @@ fn variant_models(
             world_gpl::with_primary_palette(body, model)?
         };
         let stem = format!("battle/enemies/{name}/weapon-variant-{slot}-layer-0");
-        let tpl = palette(&source)?;
+        let tpl = world_texture::model_palette(&source)?;
         let mut images = Vec::new();
         let mut alpha = Vec::new();
         for index in 0..dol::u32(tpl, 4)? as usize {
@@ -849,7 +839,7 @@ fn convert(
     let mut files = BTreeMap::new();
     let mut paths = Vec::new();
     let mut alpha = Vec::new();
-    let tpl = palette(body)?;
+    let tpl = world_texture::model_palette(body)?;
     for index in 0..dol::u32(tpl, 4)? as usize {
         let path = format!("{base}/textures/body-texture-{index}.ktx2");
         let (texture, transparent) = world_texture::tpl_texture(tpl, index)?;
@@ -880,7 +870,7 @@ fn convert(
             world_gpl::with_primary_palette(body, outline)?
         };
         let (outline_paths, outline_alpha) = if owned_palette {
-            let tpl = palette(&outline)?;
+            let tpl = world_texture::model_palette(&outline)?;
             let mut paths = Vec::new();
             let mut alpha = Vec::new();
             for index in 0..dol::u32(tpl, 4)? as usize {
@@ -932,7 +922,7 @@ fn convert(
         } else {
             world_gpl::with_primary_palette(body, secondary)?
         };
-        let tpl = palette(&source)?;
+        let tpl = world_texture::model_palette(&source)?;
         let mut textures = Vec::new();
         let mut alpha = Vec::new();
         for index in 0..dol::u32(tpl, 4)? as usize {

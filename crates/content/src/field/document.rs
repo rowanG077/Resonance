@@ -49,6 +49,12 @@ pub fn capture_scene(
             {
                 continue;
             }
+            if let Some(texture) = texture {
+                ensure!(
+                    texture.size.is_some(),
+                    "overlay {overlay} needs authored image coordinates"
+                );
+            }
             for path in texture.iter().flat_map(|texture| &texture.images) {
                 read(path).with_context(|| format!("referenced by {overlay}"))?;
             }

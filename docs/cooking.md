@@ -33,22 +33,23 @@ target/release/resonance-import cook-all
 
 `cook-all` uses `--extracted local/extracted` and `--output local/all-assets` by
 default. Category commands in `resonance-importer` can reuse that extraction
-without reading disc images again.
+without reading disc images again. They read existing granular documents as needed,
+overwrite generated output, and publish it back to source owners when finished.
+Cooking does not preserve source formatting or roll back failed writes. After an
+interrupted cook, rerun the category to overwrite its output, or run `cook-all` to
+replace the generated library documents. Keep authored mods outside the cook output.
 
-Importing also includes the [Ghost Wolf modding example](../mods/ghost-wolf/README.md).
-Its one technique entry and Lloyd's learning/defaults are added to the
-newly generated game documents. Once Lloyd's native assets have been cooked,
-the importer resolves the example's relative animation against its local pose
-references and writes its runtime assets under `battle/artes/ghost-wolf`.
-Other imported techniques and characters
-keep their generated values. The example guide covers editing its Blender source
-and exporting the runtime animation.
+The [Ghost Wolf modding example](../mods/ghost-wolf/README.md) is prepared separately
+with `resonance-import prepare-arte-mod` after cooking the base library. The command
+resolves its relative animation against the locally cooked pose and publishes an
+additive mod. The example guide covers preparing the mod, editing its Blender
+source and exporting the runtime animation.
 
 Progress is always written to stderr, with a numbered asset-type heading,
 indented `i/N jobs` lines and further-indented counters within each job:
 
 ```text
-[asset type 48/64] Cooking Movies
+[asset type 48/65] Cooking Movies
   Using 10 worker threads for 10 jobs
   [1/10 jobs] Movie: opening
     [300/1500 frames] opening: decoding
@@ -62,7 +63,7 @@ Each completed pass prints a wall-clock duration with the same asset-type
 number and name, for example:
 
 ```text
-[asset type 39/64] Field scenery and actors took 42.318 seconds
+[asset type 39/65] Field scenery and actors took 42.318 seconds
 ```
 
 A failed pass also prints its elapsed time before the error. Timings include
@@ -77,8 +78,9 @@ rg 'took .* seconds' /tmp/resonance-cook.log
 Independent work within a pass uses `std::thread::available_parallelism()` to
 detect the CPU allowance and start at most that many workers. Each pass finishes
 before the next starts. Parallel passes include field scripts/collision, battle
-party characters (each character's costumes remain ordered), arenas, scenes,
-skills, enemy rules, field definitions, music tracks and movies. Field source and
+party characters (each character's costumes remain ordered), battle equipment,
+arenas, scenes, skills, enemy rules, field definitions, animation bindings,
+music tracks and movies. Field source and
 scenery conversion, field-local rigs, enemy media and enemy effects also run in
 CPU-sized batches. Each batch converts concurrently and applies shared-owner
 updates in the original order. Field actor finalization stays ordered, and field
@@ -87,8 +89,9 @@ Opened field archives are reused for actor finalization. Only one batch is held
 in memory; there is no temporary cooked library.
 
 Music/movie aliases are resolved before dispatch. Enemy motion and effect media
-retain the same first owner as the sequential converter. Native animation
-binding caches and other shared-owner passes keep their required ordering.
+retain the same first owner as the sequential converter. Animation bindings
+are converted in batches, each with its own cache, and merged in the original
+order; other shared-owner passes keep their required ordering.
 On failure, new work stops and active workers finish before the error returns.
 
 ## Conversion and publication
@@ -99,8 +102,9 @@ owners in explicit dependency order. Structured documents use their final editab
 types; media use the existing Rust readers and encoders. No job graph, publication
 registry, hashes, receipts or intermediate asset library is involved.
 
-Cooking writes directly to final paths and overwrites existing output. There
-is no staged publication or interrupted-cook resume mode; rerun the cook after
+Cooking writes media directly to final paths and overwrites existing output;
+structured documents are written whole and split into their owners by the last
+pass. There is no interrupted-cook resume mode; rerun the cook after
 a failure. The command reports the failing owner, and files may be incomplete
 until the cook succeeds.
 

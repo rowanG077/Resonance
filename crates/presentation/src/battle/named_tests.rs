@@ -27,6 +27,8 @@ fn named_shared_battle_rules_bind_original_encounters_and_controls() -> Result<(
         "incomplete formation fixture"
     );
     battle_ui::document::capture(&mut snapshot, &Diagnostics::new(true), &|| false)?;
+    // Menu data reads the gameplay catalogues as well as its own resources.
+    resonance_content::preparation::gameplay(&mut snapshot, &Diagnostics::new(true), &|| false)?;
     resonance_content::preparation::menu_resources(
         &mut snapshot,
         &Diagnostics::new(true),

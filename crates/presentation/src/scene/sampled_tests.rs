@@ -16,6 +16,7 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
         nearest_min: false,
         nearest_mag: false,
         mipmapped: false,
+        scale: TextureBinding::unscaled(),
     };
     let first = sampled_image(
         Some((source.clone(), binding.clone())),

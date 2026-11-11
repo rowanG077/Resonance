@@ -19,13 +19,19 @@ pub fn cook_boot(extracted: &Path, library: &Path) -> Result<()> {
     );
     let mut images = Vec::new();
     let mut backgrounds = [[0; 3]; 4];
+    let mut sizes = [[0; 2]; 4];
     for (index, path) in IMAGES.into_iter().enumerate() {
         let (width, height, rgba) = menu_sprites::decode_image(&source, index)?;
         backgrounds[index].copy_from_slice(&rgba[..3]);
-        images.push((
-            path,
-            resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
-        ));
+        // Two logos are 379 pixels wide; a transparent column completes their blocks.
+        let mut logo = resonance_asset_writer::texture::Pixels {
+            width,
+            height,
+            rgba,
+        };
+        logo.pad_to_blocks();
+        sizes[index] = [logo.width, logo.height];
+        images.push((path, resonance_asset_writer::gpu::encode(&[logo])?));
     }
     let sequence = BootAssets(
         [
@@ -37,6 +43,7 @@ pub fn cook_boot(extracted: &Path, library: &Path) -> Result<()> {
         .into_iter()
         .map(|(index, fade_out_at, skip_after)| Logo {
             image: IMAGES[index].into(),
+            size: sizes[index],
             fade_out_at,
             fade_ticks: 64,
             skip_after,

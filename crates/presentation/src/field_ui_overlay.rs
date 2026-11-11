@@ -78,9 +78,11 @@ impl Artwork {
                     sizes.push([0, 0]);
                     continue;
                 };
-                sizes.push(resonance_asset_writer::texture::dimensions(&read(
-                    &texture.images[0],
-                )?)?);
+                sizes.push(
+                    texture
+                        .size
+                        .context("overlay bank needs an authored size")?,
+                );
                 let descriptor = sampler(&texture.sampler)?;
                 // Equal pixel files can have different native sampling. A tiny
                 // separate sampler image avoids changing a shared image asset.
@@ -437,7 +439,9 @@ mod tests {
         let server = app.world().resource::<AssetServer>().clone();
         let mut materials = Assets::<Surface>::default();
         let mut images = Assets::<Image>::default();
-        let paths: Vec<_> = (0..32).map(|i| format!("legacy/{i}.ktx2")).collect();
+        let paths: Vec<_> = (0..32)
+            .map(|i| serde_json::json!({"images":[format!("legacy/{i}.ktx2")],"size":[16,24]}))
+            .collect();
         let metadata = serde_json::to_vec(&paths)?;
         let panel = resonance_asset_writer::ktx2::encode_rgba8(16, 24, &vec![255; 16 * 24 * 4])?;
         let reads = std::cell::RefCell::new(Vec::new());

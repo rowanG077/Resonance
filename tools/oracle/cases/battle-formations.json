@@ -2,8 +2,8 @@
   "description": "Image-free, selected formation entry and enemy identity observations. Entry receipts do not establish arte, visual or result fidelity.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "source": {
-    "path": "local/battle-repair-20261011/source-all/525-05/start.s01",
-    "sha256": "64541918836acdeabeb7df6317f3c5b2c4fa02390fa868682aaaf5e7ee129a58"
+    "path": "local/oracle-fixtures/battle/classroom-free-control.s01",
+    "sha256": "b0095e98de6baec2cc3de93ec9aed1236c17740620315deb35c8186e20ede89e"
   },
   "authored_arenas": {
     "path": "local/battle-capture-work/all-formations/authored-arenas/bf7e6a044a5fa6c9f282b470e77882dceb07b1c3c88648913fa65499cdd3bea3.json",
@@ -25,8 +25,8 @@
     }
   },
   "source_movie": {
-    "path": "local/battle-repair-20261011/source-all/525-05/start.s01.dtm",
-    "sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600"
+    "path": "local/oracle-fixtures/battle/classroom-free-control.s01.dtm",
+    "sha256": "763cd0a0bb035732856a43ffa2f36787b77d969d7dd336cc8160d9e5819679db"
   },
   "fixture_party": "Manual party with raised persistent HP, satisfying the selected action's party count and admission requirements; enemy formation/actions remain authored."
 }

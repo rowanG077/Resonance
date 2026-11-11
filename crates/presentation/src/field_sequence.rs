@@ -562,7 +562,7 @@ mod tests {
     #[test]
     #[ignore = "requires locally cooked Dirk scenes and a graphics device"]
     fn fireplace_window_stays_visible_during_the_key_crest_conversation() -> Result<()> {
-        let root = PathBuf::from(std::env::var("RESONANCE_WORLD_ASSETS")?);
+        let root = PathBuf::from(std::env::var("RESONANCE_TEST_ASSETS")?);
         let field = crate::field_test::Scene::story(&root, 374, 501_000, |_| Ok(()))?;
         let checkpoint = resonance_game::field::FieldCheckpoint {
             map_id: 374,

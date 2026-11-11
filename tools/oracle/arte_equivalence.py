@@ -4,6 +4,7 @@ One resident emulator, ordinary inputs, no per-arte case files. This adapter
 reports evidence and missing observations; it never certifies equivalence.
 """
 import technique_content
+from resolved_content import pin, read_json as read
 import argparse
 from collections import Counter
 import gc
@@ -59,10 +60,6 @@ MAX_RECIPIENT_POLLS = 2 * 3600  # Two controller polls per update, within the ca
 ENEMY_ENGAGEMENT_DISTANCE = 300.0
 
 
-def read(path):
-    return json.loads(Path(path).read_text())
-
-
 def read_capture_observations(receipt_path):
     """Verify complete raw samples, including consecutive single-action segments."""
     receipt_path = Path(receipt_path)
@@ -108,10 +105,6 @@ def read_capture_observations(receipt_path):
 
 def write(path, value):
     Path(path).write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
-
-
-def pin(path):
-    return {"path": str(Path(path).resolve()), "sha256": digest(path)}
 
 
 def observation_pin(path):
@@ -825,16 +818,18 @@ def effect_banks(state, assets, packages, enemy_ids, usual, evidence_directory):
         offsets = struct.unpack_from(">116I", raw, 0x18)
         if start:
             end = min([v for v in offsets if v > start] + [len(raw)])
-            entry = content.resolve("battle/enemies/mappings.json", enemy, "enemy.json")
-            if entry is None:
-                raise ValueError(f"unmapped original enemy {enemy}")
-            definition = content.document(entry, ("rules", "artwork", "effects"))
+            # Enemy documents are unversioned; use the same reader as the catalogue.
+            _, definition = content.enemy_entry(enemy)
             if definition.get("effects"):
                 sources.append((raw[start:end], assets / definition["effects"]))
     banks = {}
     memory = bytes(state.ram)
     for raw, path in sources:
-        if raw[:4] != b"ef1\0" or not path.exists():
+        if raw[:4] != b"ef1\0":
+            continue
+        try:
+            content.read(path.relative_to(assets).as_posix())
+        except FileNotFoundError:
             continue
         bank = effect_bank(raw, path, assets, evidence_directory)
         start = 0
@@ -3790,9 +3785,11 @@ def prepare_party_ready(worker, output, record, packages):
     manual_opponents(state, battle)
     changes = list(state.changes)
     state.save(path)
-    neutral_movie(source, Path(str(path) + ".new.dtm"), inspect(state)["movie"]["input_count"], polls=16000)
+    # F1 loads keep the worker's boot playback buffer, and BattleFixture.load
+    # rejects any other sidecar. Settle on that boot movie: it is neutral until
+    # the deliberately distant scheduled press, which prepare_ready verifies.
     Path(str(path) + ".dtm").unlink()
-    Path(str(path) + ".new.dtm").rename(str(path) + ".dtm")
+    shutil.copyfile(worker.output / "input.dtm", str(path) + ".dtm")
     # Entry ends through its ordinary path; opponents use declared neutral manual control.
     for attempt in range(16):
         worker.warmup(path, output / f"settle-{attempt}", marker, 30)
@@ -4739,7 +4736,6 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
         opponent_control={"mode": "manual" if manual else "enemy", "port": 3 if manual else None,
             "automatic_guard_disabled": False,
             "scope": "Manual mode also changes control-specific heading/input bookkeeping; profile and reactions preserved."},
-        observation_layout=pin(ROOT / "local/battle-capture-work/arte-equivalence/static-effect-layout.json"),
         source_statistics="Retained initialized state is authoritative; do not assume native defaults match.")
 
 
@@ -5006,15 +5002,18 @@ def run(args):
                         scope="Opponents are manual; the declared recipient receives controller zero input.")
                 setup["common_effect_bank"] = next(b["source_sha256"] for b in banks.values()
                     if b["entry"] == "battle/effects/common/effects.json")
+                # The comparison reads this pin as a file, so an assembled
+                # document is kept with the run's evidence.
+                current = ContentSnapshot(assets, destination / "content-evidence")
                 if "character" in case:
                     catalogue = "game/techniques.json"
                 else:
-                    current = ContentSnapshot(assets, destination / "content-evidence")
                     enemy = current.resolve("battle/enemies/mappings.json", case["enemy"], "enemy.json")
                     if enemy is None:
                         raise ValueError("unmapped observed enemy")
                     catalogue, _ = current.enemy_entry(case["enemy"])
-                setup["catalogue"] = pin(assets / catalogue)
+                current.read(catalogue)
+                setup["catalogue"] = current.files[catalogue][1]
                 setup["knockdown_impacts"] = True
                 object_pool = fixed_particle_slots(state, battle["pool"], OBJECT_POOL_CAPACITY)
                 owner_bones = ready_owner_bones(state, battle, banks)

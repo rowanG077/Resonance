@@ -234,7 +234,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         clock.advance();
     }
     let mut app = App::new();
-    crate::loading::install(&mut app, &root);
+    crate::loading::install(&mut app, &root, package.files.library());
     *app.world()
         .resource::<crate::loading::Resident>()
         .files

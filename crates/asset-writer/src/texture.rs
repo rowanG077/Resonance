@@ -24,6 +24,25 @@ impl Pixels {
         );
         Ok(())
     }
+    /// Extend the right and bottom edges to whole 4×4 blocks without changing
+    /// any existing pixel. The padding is transparent and continues the edge
+    /// colors, so filtering at the original edge meets no unrelated color.
+    pub fn pad_to_blocks(&mut self) {
+        let (width, height) = (self.width, self.height);
+        let padded = (width.next_multiple_of(4), height.next_multiple_of(4));
+        let mut rgba = Vec::with_capacity((padded.0 * padded.1 * 4) as usize);
+        for y in 0..padded.1 {
+            for x in 0..padded.0 {
+                let at = ((y.min(height - 1) * width + x.min(width - 1)) * 4) as usize;
+                rgba.extend_from_slice(&self.rgba[at..at + 4]);
+                if x >= width || y >= height {
+                    *rgba.last_mut().unwrap() = 0;
+                }
+            }
+        }
+        (self.width, self.height) = padded;
+        self.rgba = rgba;
+    }
     pub fn png(&self) -> Result<Vec<u8>> {
         self.validate()?;
         let mut bytes = Vec::new();
@@ -35,6 +54,64 @@ impl Pixels {
         )?;
         Ok(bytes)
     }
+}
+
+/// What the console shows when a texture repeats along `axes`. It wraps with
+/// `coordinate & (size - 1)`, which skips texels unless the size is a power of
+/// two, and is periodic over the next power of two. Each level is extended to
+/// that size by the same lookup, so the result repeats exactly as the console
+/// samples it, without resampling. Other axes keep their size.
+pub fn console_wrapped(levels: &[Pixels], axes: [bool; 2]) -> Vec<Pixels> {
+    let Some(first) = levels.first() else {
+        return Vec::new();
+    };
+    let period = [first.width, first.height].map(u32::next_power_of_two);
+    levels
+        .iter()
+        .enumerate()
+        .map(|(level, source)| {
+            let size = [source.width, source.height];
+            let [width, height] = [0, 1].map(|axis| {
+                if axes[axis] {
+                    (period[axis] >> level).max(1)
+                } else {
+                    size[axis]
+                }
+            });
+            let lookup = |axis: usize, coordinate: u32| {
+                if axes[axis] {
+                    coordinate & (size[axis] - 1)
+                } else {
+                    coordinate
+                }
+            };
+            let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+            for y in 0..height {
+                for x in 0..width {
+                    let at = ((lookup(1, y) * size[0] + lookup(0, x)) * 4) as usize;
+                    rgba.extend_from_slice(&source.rgba[at..at + 4]);
+                }
+            }
+            Pixels {
+                width,
+                height,
+                rgba,
+            }
+        })
+        .collect()
+}
+
+/// Identity of the complete source artwork, including dimensions and every mip.
+pub fn fingerprint(levels: &[Pixels]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update((levels.len() as u32).to_le_bytes());
+    for level in levels {
+        hash.update(level.width.to_le_bytes());
+        hash.update(level.height.to_le_bytes());
+        hash.update(&level.rgba);
+    }
+    hash.finalize().into()
 }
 fn byte_count(width: u32, height: u32) -> Result<usize> {
     ensure!(
@@ -127,21 +204,25 @@ pub fn dimensions(bytes: &[u8]) -> Result<[u32; 2]> {
     Ok([header.pixel_width, header.pixel_height])
 }
 
-/// Recover lossless RGBA8 converter pixels, including authored mip levels.
+/// Recover RGBA pixels from lossless images or GPU blocks, including all mips.
 pub fn ktx2(bytes: &[u8]) -> Result<Vec<Pixels>> {
-    use ktx2::{Format, SupercompressionScheme};
+    use ktx2::Format;
     let reader = ktx2::Reader::new(bytes)?;
     let header = reader.header();
+    let format = header
+        .format
+        .context("texture requires a native pixel format")?;
+    let bc7 = crate::gpu::is_bc7(format);
     ensure!(
-        header.format == Some(Format::R8G8B8A8_UNORM)
+        (matches!(format, Format::R8G8B8A8_UNORM | Format::R8G8B8A8_SRGB) || bc7)
             && header.type_size == 1
             && header.pixel_depth == 0
             && header.layer_count == 0
             && header.face_count == 1,
-        "expected converter RGBA8 KTX2 profile"
+        "expected converter RGBA8 or BC7 KTX2 profile"
     );
     byte_count(header.pixel_width, header.pixel_height)?;
-    let (basic, _) = ktx2::dfd::Basic::from_format(Format::R8G8B8A8_UNORM)?;
+    let basic = ktx2::dfd::Basic::from_format(format)?.0;
     ensure!(
         reader.dfd_blocks() == [ktx2::dfd::Block::Basic(basic)]
             && reader.supercompression_global_data().is_empty(),
@@ -174,28 +255,22 @@ pub fn ktx2(bytes: &[u8]) -> Result<Vec<Pixels>> {
         let width = (header.pixel_width >> index).max(1);
         let height = (header.pixel_height >> index).max(1);
         let size = byte_count(width, height)?;
+        let stored_size = if bc7 {
+            (width.div_ceil(4) * height.div_ceil(4)) as usize * crate::gpu::BLOCK_BYTES
+        } else {
+            size
+        };
         total += size;
         ensure!(
-            total <= MAX_BYTES && level.uncompressed_byte_length == size as u64,
+            total <= MAX_BYTES && level.uncompressed_byte_length == stored_size as u64,
             "invalid converter mip length"
         );
-        let rgba = match header.supercompression_scheme {
-            None => level.data.to_vec(),
-            Some(SupercompressionScheme::Zstandard) => {
-                let mut decoder = ruzstd::decoding::StreamingDecoder::new(level.data)?;
-                let mut rgba = Vec::new();
-                (&mut decoder)
-                    .take(size as u64 + 1)
-                    .read_to_end(&mut rgba)?;
-                ensure!(
-                    decoder.into_inner().is_empty(),
-                    "trailing converter compressed data"
-                );
-                rgba
-            }
-            _ => anyhow::bail!("unsupported converter texture compression"),
+        let rgba = level_bytes(level.data, header.supercompression_scheme, stored_size)?;
+        let rgba = if bc7 {
+            crate::gpu::decode_level(width, height, &rgba)?
+        } else {
+            rgba
         };
-        ensure!(rgba.len() == size, "truncated converter mip");
         levels.push(Pixels {
             width,
             height,
@@ -204,4 +279,29 @@ pub fn ktx2(bytes: &[u8]) -> Result<Vec<Pixels>> {
     }
     validate_levels(&levels)?;
     Ok(levels)
+}
+
+fn level_bytes(
+    data: &[u8],
+    scheme: Option<ktx2::SupercompressionScheme>,
+    size: usize,
+) -> Result<Vec<u8>> {
+    let bytes = match scheme {
+        None => data.to_vec(),
+        Some(ktx2::SupercompressionScheme::Zstandard) => {
+            let mut decoder = ruzstd::decoding::StreamingDecoder::new(data)?;
+            let mut bytes = Vec::new();
+            (&mut decoder)
+                .take(size as u64 + 1)
+                .read_to_end(&mut bytes)?;
+            ensure!(
+                decoder.into_inner().is_empty(),
+                "trailing converter compressed data"
+            );
+            bytes
+        }
+        _ => anyhow::bail!("unsupported converter texture compression"),
+    };
+    ensure!(bytes.len() == size, "truncated converter mip");
+    Ok(bytes)
 }

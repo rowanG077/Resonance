@@ -44,7 +44,7 @@ fn source(extracted: &Path, exe: &[u8], address: u32) -> Result<Vec<u8>> {
 
 fn image(tpl: &[u8], index: usize) -> Result<Vec<u8>> {
     let (width, height, rgba) = menu_sprites::decode_image(tpl, index)?;
-    Ok(resonance_asset_writer::ktx2::encode_rgba8(
+    Ok(resonance_asset_writer::gpu::encode_rgba8(
         width, height, &rgba,
     )?)
 }

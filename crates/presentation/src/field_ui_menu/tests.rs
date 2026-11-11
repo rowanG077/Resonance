@@ -847,12 +847,12 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
     fixture.art.textures.get_mut(&unused_cursor).unwrap().path =
         "missing-unselected-gold-cursor.ktx2".into();
     fixture.art.sprites.rects.remove(&Sprite::Recipes);
-    fixture.art.sprites.named_rects.remove(&Sprite::Recipes);
+    fixture.art.sprites.named.remove(&Sprite::Recipes);
     fixture.art.sprites.names.clear();
     fixture.art.sprites.number_colors.clear();
     fixture.art.sprites.bar_colors.clear();
     fixture.art.sprites.rects.remove(&Sprite::ItemImages);
-    fixture.art.sprites.named_rects.remove(&Sprite::ItemImages);
+    fixture.art.sprites.named.remove(&Sprite::ItemImages);
     fixture
         .art
         .textures

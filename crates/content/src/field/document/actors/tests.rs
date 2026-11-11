@@ -19,10 +19,10 @@ fn named_rosters_aliases_and_banks_preserve_order_targets_and_mod_capture() -> R
         "content.json",
         json!({"version":crate::library::VERSION,"game":crate::library::GAME}),
     )?;
-    write(
+    crate::authoring::publish(
         base.path(),
         MODELS,
-        json!({"1":"hero","2":{"name":"hero/story","model":"hero"},"3":"absent"}),
+        &json!({"1":"hero","2":{"name":"hero/story","model":"hero"},"3":"absent"}),
     )?;
     write(
         base.path(),
@@ -89,8 +89,8 @@ fn named_rosters_aliases_and_banks_preserve_order_targets_and_mod_capture() -> R
     // An alias changes only its own model, even though it previously shared art.
     write(
         edits.path(),
-        MODELS,
-        json!({"2":{"name":"hero/story","model":"alternate"}}),
+        "meshes/mappings/2.json",
+        json!({"name":"hero/story","model":"alternate"}),
     )?;
     write(
         edits.path(),
@@ -102,6 +102,7 @@ fn named_rosters_aliases_and_banks_preserve_order_targets_and_mod_capture() -> R
         MODEL_GROUPS,
         json!({"party":["hero/story","hero"]}),
     )?;
+    write(edits.path(), "actors.json", selection.clone())?;
     let modified = Library::open(
         base.path(),
         &[Mod {

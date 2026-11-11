@@ -16,9 +16,10 @@ use resonance_content::{
     library::Mappings,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     fs,
     path::Path,
+    sync::Mutex,
 };
 
 // These native members are byte-identical to the unsuffixed bank clip. Their
@@ -229,9 +230,8 @@ pub(crate) fn motion_path(id: u32, name: &str) -> Result<String> {
 }
 
 pub(crate) fn mapped_motion_path(library: &Path, id: u32) -> Result<String> {
-    let mappings: AnimationMappings =
-        serde_json::from_slice(&fs::read(library.join("animations/mappings.json"))?)?;
-    mappings.motion(id)
+    crate::authoring::read_json::<AnimationMappings>(library, "animations/mappings.json")?
+        .motion(id)
 }
 
 fn reference(library: &Path, name: &str) -> Result<Option<Vec<u8>>> {
@@ -436,9 +436,12 @@ fn cook_selected(
     } else {
         BTreeMap::new()
     };
-    let path = library.join("animations/mappings.json");
-    let mut targets = if (selected.is_some() || selected_field.is_some()) && path.is_file() {
-        serde_json::from_slice::<AnimationMappings>(&fs::read(&path)?)?
+    const MAPPINGS: &str = "animations/mappings.json";
+    let path = library.join(MAPPINGS);
+    let mut targets = if (selected.is_some() || selected_field.is_some())
+        && crate::authoring::document_exists(library, MAPPINGS)
+    {
+        crate::authoring::read_json::<AnimationMappings>(library, MAPPINGS)?
     } else {
         AnimationMappings(BTreeMap::new())
     };
@@ -574,42 +577,74 @@ pub fn cook_shared_animation_bindings(
         Some(id) => vec![id],
         None => (0..field_core::FIELD_COUNT as u32).collect(),
     };
-    let mut targets = BTreeMap::<Target, Binding>::new();
-    let mut cache = field_bank_bindings::Bindings::default();
-    for field in fields {
-        for (id, rows) in
-            field_bank_bindings::native_bank_bindings(extracted, library, field, &mut cache)
-                .with_context(|| format!("derive shared animation bindings in field {field}"))?
-        {
-            ensure!(
-                names.contains_key(&id),
-                "field {field} selected unnamed animation {id}"
-            );
-            let path = mapped_motion_path(library, id)?;
-            for row in rows {
+    let sources = native.iter().collect::<Vec<_>>();
+    let sources = crate::parallel::map(&sources, |_, &(id, bytes)| {
+        let name = names.get(id).context("native animation lacks a name")?;
+        let labels = track_names(extracted, library, bytes, name)?;
+        let tracks = field_bank_bindings::source_tracks(bytes)?
+            .into_iter()
+            .enumerate()
+            .map(|(index, track)| -> Result<AnimationJoint> {
+                Ok(AnimationJoint {
+                    id: track.id,
+                    name: labels
+                        .get(&track.id)
+                        .context("motion track has no editable node")?
+                        .clone(),
+                    source: track.name,
+                    animated: dol::u16(bytes, 36 + index * 16 + 8)? > 2,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(((*id, labels), (*id, tracks)))
+    })?;
+    let (labels, tracks): (BTreeMap<_, _>, BTreeMap<_, _>) = sources.into_iter().unzip();
+    let batches = fields.chunks(fields.len().div_ceil(crate::parallel::workers()));
+    let batches = batches.collect::<Vec<_>>();
+    let targets = Mutex::new(BTreeMap::<Target, Binding>::new());
+    crate::parallel::for_each(&batches, |_, fields| {
+        let mut cache = field_bank_bindings::Bindings::default();
+        for &field in *fields {
+            let rows = field_bank_bindings::native_bank_bindings(
+                extracted, library, field, &native, &labels, &mut cache,
+            )
+            .with_context(|| format!("derive shared animation bindings in field {field}"))?;
+            let mut targets = targets.lock().unwrap();
+            for (id, rows) in rows {
                 ensure!(
-                    !row.actors.is_empty() && !row.parts.is_empty() && row.motion == path,
-                    "invalid native animation binding {id} in field {field}"
+                    names.contains_key(&id),
+                    "field {field} selected unnamed animation {id}"
                 );
-                for actor in &row.actors {
-                    for &part in &row.parts {
-                        let key = (id, actor.clone(), part, row.resource_slot);
-                        let value = (
-                            row.motion.clone(),
-                            row.joints.clone(),
-                            row.pose_chains.clone(),
-                        );
-                        if let Some(previous) = targets.insert(key, value.clone()) {
-                            ensure!(
-                                previous == value,
-                                "conflicting animation {id} for actor {actor} part {part} in field {field}"
+                for row in rows {
+                    ensure!(
+                        !row.actors.is_empty() && !row.parts.is_empty(),
+                        "invalid native animation binding {id} in field {field}"
+                    );
+                    for actor in &row.actors {
+                        for &part in &row.parts {
+                            let key = (id, actor.clone(), part, row.resource_slot);
+                            let value = (
+                                row.motion.clone(),
+                                row.joints.clone(),
+                                row.pose_chains.clone(),
                             );
+                            match targets.entry(key) {
+                                Entry::Vacant(entry) => {
+                                    entry.insert(value);
+                                }
+                                Entry::Occupied(entry) => ensure!(
+                                    entry.get() == &value,
+                                    "conflicting animation {id} for actor {actor} part {part} in field {field}"
+                                ),
+                            }
                         }
                     }
                 }
             }
         }
-    }
+        Ok(())
+    })?;
+    let targets = targets.into_inner().unwrap();
     ensure!(!targets.is_empty(), "no shared animation bindings found");
     let mut actor_parts = BTreeMap::<(u32, String, u16, Binding), BTreeSet<u16>>::new();
     for ((id, actor, part, slot), binding) in targets {
@@ -627,28 +662,7 @@ pub fn cook_shared_animation_bindings(
     }
     let mut definitions = SharedBankBindings::default();
     definitions.rigs = field_bank_bindings::global_rigs(extracted, library)?;
-    for (id, bytes) in native {
-        let name = names.get(&id).context("native animation lacks a name")?;
-        let labels = track_names(extracted, library, &bytes, name)?;
-        definitions.tracks.insert(
-            id,
-            field_bank_bindings::source_tracks(&bytes)?
-                .into_iter()
-                .enumerate()
-                .map(|(index, track)| -> Result<AnimationJoint> {
-                    Ok(AnimationJoint {
-                        id: track.id,
-                        name: labels
-                            .get(&track.id)
-                            .context("motion track has no editable node")?
-                            .clone(),
-                        source: track.name,
-                        animated: dol::u16(&bytes, 36 + index * 16 + 8)? > 2,
-                    })
-                })
-                .collect::<Result<_>>()?,
-        );
-    }
+    definitions.tracks = tracks;
     definitions.banks.insert(
         131328,
         field_npc_models::cook_motion_only_npc(extracted, library)?.1,

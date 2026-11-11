@@ -135,9 +135,9 @@ pub(super) fn update(
     }
     let logo = &logos.sequence().0[logos.texture];
     let source = &boot.images[logos.texture];
-    let Some(image) = images.get(source) else {
+    if !images.contains(source) {
         return;
-    };
+    }
     let alpha = f32::from(logos.alpha) / 255.;
     for mut camera in &mut cameras {
         let rgb = logo.background.map(|v| f32::from(v) / 255. * alpha);
@@ -151,11 +151,8 @@ pub(super) fn update(
             material.opacity_pulse = opacity;
         }
         // Use symmetric integer half-extents: an odd width such as 379 draws as 378.
-        transform.scale = Vec3::new(
-            (image.width() & !1) as f32,
-            (image.height() & !1) as f32,
-            1.,
-        );
+        let [width, height] = logo.size;
+        transform.scale = Vec3::new((width & !1) as f32, (height & !1) as f32, 1.);
     }
 }
 
@@ -188,7 +185,7 @@ mod tests {
                 RenderAssetUsages::default(),
             ));
         let sequence = serde_json::from_value(serde_json::json!([
-            {"image":"custom.ktx2","fade_out_at":4,"fade_ticks":2,"background":[255,0,0]}]))?;
+            {"image":"custom.ktx2","size":[7,5],"fade_out_at":4,"fade_ticks":2,"background":[255,0,0]}]))?;
         let mut playback = Playback::from_assets(Some(sequence))?;
         assert_eq!(playback.duration(), 6);
         playback.images.push(image.clone());

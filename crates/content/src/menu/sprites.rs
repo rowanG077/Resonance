@@ -182,6 +182,35 @@ impl Gradient {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum NamedSprite {
+    Rect([u32; 4]),
+    Image {
+        image: String,
+        size: [u32; 2],
+        rect: [u32; 4],
+    },
+}
+impl NamedSprite {
+    fn rect(&self) -> [u32; 4] {
+        match self {
+            Self::Rect(rect) | Self::Image { rect, .. } => *rect,
+        }
+    }
+
+    pub fn image(&self) -> Option<crate::font::UiTexture> {
+        match self {
+            Self::Rect(_) => None,
+            Self::Image { image, size, .. } => Some(crate::font::UiTexture {
+                path: image.clone(),
+                width: size[0],
+                height: size[1],
+            }),
+        }
+    }
+}
+
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Source {
@@ -197,9 +226,14 @@ impl MenuSprites {
         let names = rects
             .iter()
             .enumerate()
-            .map(|(i, rect)| Ok((mappings.target(i as u32)?.to_owned(), *rect)))
+            .map(|(i, rect)| {
+                Ok((
+                    mappings.target(i as u32)?.to_owned(),
+                    NamedSprite::Rect(*rect),
+                ))
+            })
             .collect::<Result<_>>()?;
-        self.named_rects.insert(group, names);
+        self.named.insert(group, names);
         Ok(())
     }
     pub fn use_character_defaults(&mut self, defaults: &[String]) -> Result<()> {
@@ -229,11 +263,27 @@ impl MenuSprites {
                 if matches!(group, Sprite::Leader | Sprite::Numbers) {
                     return Ok(vec![serde_json::from_value(value)?]);
                 }
-                let values: BTreeMap<String, [u32; 4]> = serde_json::from_value(value)?;
                 if matches!(group, Sprite::ItemImages | Sprite::Recipes) {
-                    result.named_rects.insert(group, values);
+                    let entries: BTreeMap<String, Value> = serde_json::from_value(value)?;
+                    let mut values = BTreeMap::new();
+                    for (name, value) in entries {
+                        if let Some(sprite) = diagnostics.attempt(
+                            &format!("menu catalogue sprite {name}"),
+                            (|| {
+                                let sprite: NamedSprite = serde_json::from_value(value)?;
+                                if let Some(image) = sprite.image() {
+                                    image.validate()?;
+                                }
+                                Ok(sprite)
+                            })(),
+                        )? {
+                            values.insert(name, sprite);
+                        }
+                    }
+                    result.named.insert(group, values);
                     return Ok(Vec::new());
                 }
+                let values: BTreeMap<String, [u32; 4]> = serde_json::from_value(value)?;
                 let names = roles(group);
                 // Sparse mod groups retain their slots, so a missing icon only
                 // affects the page selecting it rather than shifting later icons.
@@ -291,16 +341,18 @@ impl MenuSprites {
     pub(super) fn prepare_catalogues<B: AsRef<[u8]>>(
         &mut self,
         read: &mut impl FnMut(&str) -> Result<B>,
-    ) {
+    ) -> BTreeMap<(Sprite, usize), crate::font::UiTexture> {
         #[derive(Deserialize)]
         struct Catalogue {
             mappings: Mappings,
         }
+        let mut images = BTreeMap::new();
+        self.texture_slots.clear();
         for (group, path) in [
             (Sprite::ItemImages, crate::items::PATH),
             (Sprite::Recipes, crate::cooking::PATH),
         ] {
-            let Some(named) = self.named_rects.get(&group) else {
+            let Some(named) = self.named.get(&group) else {
                 continue;
             };
             let result = (|| -> Result<Vec<[u32; 4]>> {
@@ -314,8 +366,11 @@ impl MenuSprites {
                 anyhow::ensure!(size <= u32::from(u16::MAX), "menu sprite ID out of range");
                 let mut rects = vec![[0; 4]; size as usize + 1];
                 for (id, name) in catalogue.mappings.iter() {
-                    if let Some(rect) = named.get(name) {
-                        rects[id as usize] = *rect;
+                    if let Some(sprite) = named.get(name) {
+                        rects[id as usize] = sprite.rect();
+                        if let Some(image) = sprite.image() {
+                            images.insert((group, id as usize), image);
+                        }
                     }
                 }
                 Ok(rects)
@@ -358,17 +413,22 @@ impl MenuSprites {
                 .collect()
         })()
         .unwrap_or_default();
+        images
+    }
+
+    fn encode_named(&self, group: Sprite) -> Result<Value> {
+        let values = self
+            .named
+            .get(&group)
+            .context("menu catalogue artwork is unnamed")?;
+        Ok(serde_json::to_value(values)?)
     }
 
     pub(super) fn encode(&self, palette: &[[u8; 4]]) -> Result<Value> {
         let mut rects = BTreeMap::new();
         for (group, values) in &self.rects {
             let value = if matches!(group, Sprite::ItemImages | Sprite::Recipes) {
-                serde_json::to_value(
-                    self.named_rects
-                        .get(group)
-                        .context("menu catalogue artwork is unnamed")?,
-                )?
+                self.encode_named(*group)?
             } else if matches!(group, Sprite::Leader | Sprite::Numbers) {
                 serde_json::to_value(values.first().context("missing menu sprite")?)?
             } else {
@@ -382,8 +442,8 @@ impl MenuSprites {
             rects.insert(*group, value);
         }
         // A decoded catalogue has not necessarily prepared its machine slots.
-        for (group, named) in &self.named_rects {
-            rects.insert(*group, serde_json::to_value(named)?);
+        for group in self.named.keys() {
+            rects.insert(*group, self.encode_named(*group)?);
         }
         let number_colors = self
             .number_colors

@@ -25,7 +25,7 @@ pub fn read(
     let font: BitmapFont =
         serde_json::from_slice(&bytes).with_context(|| definition.font.clone())?;
     let mut art = definition.with_font(font);
-    for image in art.required_images_mut() {
+    for image in art.required_images() {
         crate::ui_art::prepare_image(image, &mut *read)?;
     }
     for portrait in &mut art.portraits {

@@ -652,6 +652,7 @@ mod loading_tests {
 
     fn image_app(root: &std::path::Path) -> App {
         let mut app = App::new();
+        crate::texture::decoded_files(&mut app, &root);
         app.add_plugins((
             MinimalPlugins,
             bevy::asset::AssetPlugin {
@@ -703,8 +704,15 @@ mod loading_tests {
     #[test]
     fn the_normal_image_loader_decodes_textures_and_reports_missing_or_corrupt_files()
     -> anyhow::Result<()> {
+        let [width, height] = default_atlas().size;
+        let compressed = resonance_asset_writer::gpu::encode_rgba8(
+            width,
+            height,
+            &[17, 31, 59, 255].repeat((width * height) as usize),
+        )?;
         for (bytes, valid) in [
             (Some(test_image()), true),
+            (Some(compressed.as_slice()), true),
             (Some(b"invalid KTX2".as_slice()), false),
             (None, false),
         ] {

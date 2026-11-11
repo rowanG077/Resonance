@@ -2,7 +2,7 @@
 use crate::{dol, world_terrain_collision::section};
 use anyhow::{Context, Result, ensure};
 use resonance_asset_writer::texture::Pixels;
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 fn rgb565(value: u16) -> [u8; 4] {
     let five = |value: u16| ((value << 3) | (value >> 2)) as u8;
@@ -156,19 +156,21 @@ fn tpl(tile: &[u8], layer: usize) -> Result<&[u8]> {
         matches!(layer, 0 | 2),
         "terrain texture layer must be 0 or 2"
     );
-    let layer = section(tile, layer)?;
-    let start = dol::u32(layer, 0)? as usize;
-    let end = dol::u32(layer, 4)? as usize;
-    let tpl = layer.get(start..end).context("terrain TPL exceeds model")?;
-    ensure!(
-        dol::u32(tpl, 0)? == 0x0020_af30,
-        "missing terrain TPL header"
-    );
-    Ok(tpl)
+    model_palette(section(tile, layer)?)
 }
 
 pub(crate) fn texture_count(tile: &[u8], layer: usize) -> Result<usize> {
     Ok(dol::u32(tpl(tile, layer)?, 4)? as usize)
+}
+
+pub(crate) fn model_palette(model: &[u8]) -> Result<&[u8]> {
+    let start = dol::u32(model, 0)? as usize;
+    let end = dol::u32(model, 4)? as usize;
+    let tpl = model
+        .get(start..end)
+        .context("model palette exceeds source")?;
+    ensure!(dol::u32(tpl, 0)? == 0x0020_af30, "missing model TPL");
+    Ok(tpl)
 }
 
 pub(crate) fn tpl_texture(tpl: &[u8], index: usize) -> Result<(Vec<u8>, bool)> {
@@ -182,37 +184,32 @@ pub(crate) fn tpl_texture_palette(
     index: usize,
     palette_offset: usize,
 ) -> Result<(Vec<u8>, bool)> {
-    tpl_texture_palette_window(tpl, index, palette_offset, false)
-}
-
-/// Some effect actors explicitly select a full palette window beginning near
-/// the declared palette tail. Only that explicit binding may read the trailing
-/// bytes; ordinary atlas enumeration stays within the declared entries.
-pub(crate) fn tpl_texture_palette_explicit(
-    tpl: &[u8],
-    index: usize,
-    palette_offset: usize,
-) -> Result<(Vec<u8>, bool)> {
-    tpl_texture_palette_window(tpl, index, palette_offset, true)
-}
-
-fn tpl_texture_palette_window(
-    tpl: &[u8],
-    index: usize,
-    palette_offset: usize,
-    explicit_tail: bool,
-) -> Result<(Vec<u8>, bool)> {
-    let levels = tpl_pixels(tpl, index, palette_offset, explicit_tail, true)?;
+    let levels = tpl_pixels(tpl, index, palette_offset, false, true)?;
     let first = &levels[0];
-    let alpha = first.rgba.chunks_exact(4).any(|pixel| pixel[3] < 255);
-    let references = levels
-        .iter()
-        .map(|level| level.rgba.as_slice())
-        .collect::<Vec<_>>();
-    Ok((
-        resonance_asset_writer::ktx2::encode_levels(first.width, first.height, &references)?,
-        alpha,
-    ))
+    let alpha = has_alpha(&first.rgba);
+    Ok((resonance_asset_writer::gpu::encode(&levels)?, alpha))
+}
+
+/// Encode an interface image whose coordinates are its pixels. Transparent
+/// padding completes its last blocks; the returned stored size is then its
+/// coordinate space. Such an image cannot repeat.
+pub(crate) fn tpl_interface_texture(
+    tpl: &[u8],
+    index: usize,
+    wrap: [resonance_content::TextureWrap; 2],
+) -> Result<(Vec<u8>, [u32; 2])> {
+    let mut levels = tpl_pixels(tpl, index, 0, false, true)?;
+    if !levels[0].width.is_multiple_of(4) || !levels[0].height.is_multiple_of(4) {
+        ensure!(
+            levels.len() == 1 && wrap == [resonance_content::TextureWrap::Clamp; 2],
+            "cannot pad a repeating or mipmapped {}×{} interface image",
+            levels[0].width,
+            levels[0].height
+        );
+        levels[0].pad_to_blocks();
+    }
+    let size = [levels[0].width, levels[0].height];
+    Ok((resonance_asset_writer::gpu::encode(&levels)?, size))
 }
 
 /// Menu atlases use only the native base image; do not encode and decode KTX.
@@ -220,7 +217,7 @@ pub(crate) fn tpl_base_image(tpl: &[u8], index: usize) -> Result<Pixels> {
     Ok(tpl_pixels(tpl, index, 0, false, false)?.remove(0))
 }
 
-fn tpl_pixels(
+pub(crate) fn tpl_pixels(
     tpl: &[u8],
     index: usize,
     palette_offset: usize,
@@ -398,4 +395,24 @@ pub(crate) fn sampler(
     };
     sampler.validate()?;
     Ok(sampler)
+}
+
+pub(crate) use resonance_asset_writer::texture::fingerprint as texture_key;
+
+pub(crate) fn has_alpha(rgba: &[u8]) -> bool {
+    rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] < 255)
+}
+
+/// The path already naming identical pixels, or a newly created texture's path.
+pub(crate) fn shared_path(
+    seen: &mut BTreeMap<[u8; 32], String>,
+    key: [u8; 32],
+    create: impl FnOnce() -> Result<String>,
+) -> Result<String> {
+    if let Some(path) = seen.get(&key) {
+        return Ok(path.clone());
+    }
+    let path = create()?;
+    seen.insert(key, path.clone());
+    Ok(path)
 }

@@ -103,6 +103,9 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
     )?;
     assert_eq!(first.skits.preview_order, baseline_skits.preview_order);
     assert_eq!(first.skits.resources.len(), baseline_skits.resources.len());
+    let mut source_files = base.snapshot();
+    let mut source_bytes =
+        |path: &str| source_files.read(path, resonance_content::preparation::ASSET_LIMIT);
     for (id, original) in &baseline_skits.resources {
         let prepared = &first.skits.resources[id];
         assert_eq!(
@@ -111,8 +114,8 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
         );
         assert_eq!(prepared.title, original.title, "skit {id} title");
         assert_eq!(
-            &*first.files.read(&prepared.script)?,
-            fs::read(source.join(&original.script))?,
+            first.files.read(&prepared.script)?,
+            source_bytes(&original.script)?,
             "skit {id} script"
         );
         assert_eq!(
@@ -121,8 +124,8 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
         );
         if let Some(path) = &prepared.messages {
             assert_eq!(
-                &*first.files.read(path)?,
-                fs::read(source.join(path))?,
+                first.files.read(path)?,
+                source_bytes(path)?,
                 "skit {id} messages"
             );
         }
@@ -159,11 +162,12 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
     messages[index].tokens = vec![symphonia_script::message::Token::Text {
         text: "Edited village dialogue.".into(),
     }];
-    fs::create_dir_all(mod_root.join(messages_path).parent().unwrap())?;
-    fs::write(
-        mod_root.join(messages_path),
-        serde_json::to_vec_pretty(&messages)?,
-    )?;
+    // The mod owns only the message it changes.
+    let owner = mod_root
+        .join(messages_path.strip_suffix(".json").unwrap())
+        .join(format!("{index}.json"));
+    fs::create_dir_all(owner.parent().unwrap())?;
+    fs::write(owner, serde_json::to_vec_pretty(&messages[index])?)?;
     let library = Library::open(
         &root,
         &[Mod {
@@ -182,10 +186,10 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
     // An unrelated, missing field must not block loading this save. Only the
     // saved location's dependencies are prepared.
     let gameplay = work.path().join("gameplay");
-    fs::create_dir_all(gameplay.join("fields"))?;
+    fs::create_dir_all(gameplay.join("fields/mappings"))?;
     fs::write(
-        gameplay.join("fields/mappings.json"),
-        br#"{"65534":"unrelated-missing-field"}"#,
+        gameplay.join("fields/mappings/65534.json"),
+        br#""unrelated-missing-field""#,
     )?;
     let edited = Library::open_paths(&root, &[gameplay.clone()])?;
     let reader = Files::from_snapshot(edited.snapshot(), || false, Diagnostics::new(true))?;
@@ -225,11 +229,11 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
 }
 
 #[test]
-#[ignore = "requires complete RESONANCE_NAMED_BATTLE_ASSETS; follows ordered mod layers through real field preparation and save admission"]
+#[ignore = "requires complete RESONANCE_TEST_ASSETS; follows ordered mod layers through real field preparation and save admission"]
 fn named_mod_layers_survive_worker_preparation_and_restore() -> Result<()> {
-    let root = std::env::var_os("RESONANCE_NAMED_BATTLE_ASSETS")
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .context("set RESONANCE_NAMED_BATTLE_ASSETS")?;
+        .context("set RESONANCE_TEST_ASSETS")?;
     let base = Library::open(&root, &[])?;
     let mut snapshot = base.snapshot();
     let path = snapshot.field(332)?;
@@ -247,22 +251,15 @@ fn named_mod_layers_survive_worker_preparation_and_restore() -> Result<()> {
     let write_message = |root: &Path, text: &str| -> Result<_> {
         let mut messages = original.clone();
         messages[0].tokens = vec![symphonia_script::message::Token::Text { text: text.into() }];
-        let path = root.join(definition.messages.as_deref().unwrap());
-        fs::create_dir_all(path.parent().unwrap())?;
-        fs::write(path, serde_json::to_vec(&messages)?)?;
+        // Each layer owns only the message it translates.
+        let directory = definition.messages.as_deref().unwrap();
+        let path = root.join(directory.strip_suffix(".json").unwrap());
+        fs::create_dir_all(&path)?;
+        fs::write(path.join("0.json"), serde_json::to_vec(&messages[0])?)?;
         Ok(messages)
     };
     write_message(&mods[0], "First translation")?;
     let selected = write_message(&mods[1], "Selected translation")?;
-    fs::write(
-        mods[1].join("fields/mappings.json"),
-        br#"{"332":"renamed-village"}"#,
-    )?;
-    fs::create_dir_all(mods[1].join("fields/renamed-village"))?;
-    fs::write(
-        mods[1].join("fields/renamed-village/field.json"),
-        serde_json::to_vec(&definition)?,
-    )?;
     let library = Library::open_paths(&root, &mods)?;
     let first = FieldPackage::capture(
         &library,
@@ -284,10 +281,11 @@ fn named_mod_layers_survive_worker_preparation_and_restore() -> Result<()> {
     )?;
     let resident = crate::loading::Resident::default();
     *resident.files.write().unwrap() = Some(first.files.clone());
+    // Documents are assembled when the library opens: an edit made while the
+    // application runs is not seen by a later preparation.
     let current = write_message(&mods[1], "Newly edited translation")?;
     let task = crate::loading::FieldPending::field(root.clone(), None, 332, &resident)?;
-    let edited = await_preparation(&task)?;
-    assert_eq!(edited.messages.to_vec(), current);
+    assert_eq!(await_preparation(&task)?.messages.to_vec(), selected);
 
     // Restart is the supported reload boundary. A new reader keeps the same
     // ordered mod layers but starts a fresh gameplay view and runtime caches.
@@ -309,19 +307,15 @@ fn named_mod_layers_survive_worker_preparation_and_restore() -> Result<()> {
     let task = crate::loading::Pending::start(root, None, Some(saved), None, &resident)?;
     let restored = await_preparation(&task)?;
     assert_eq!(restored.field().events.resources().messages[0], current[0]);
-    assert_eq!(
-        restored.files().library().unwrap().snapshot().field(332)?,
-        "fields/renamed-village/field.json"
-    );
     Ok(())
 }
 
 #[test]
-#[ignore = "requires a complete RESONANCE_NAMED_BATTLE_ASSETS fixture; validates external projects through field preparation and real save admission"]
+#[ignore = "requires a complete RESONANCE_TEST_ASSETS fixture; validates external projects through field preparation and real save admission"]
 fn named_field_save_loads_after_authored_gameplay_edits() -> Result<()> {
-    let root = std::env::var_os("RESONANCE_NAMED_BATTLE_ASSETS")
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
-        .context("set RESONANCE_NAMED_BATTLE_ASSETS")?;
+        .context("set RESONANCE_TEST_ASSETS")?;
     // Only the external project changes in this test. Reuse the unchanged
     // library session while each preparation captures the current project.
     let library = Library::open(&root, &[])?;

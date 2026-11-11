@@ -4,11 +4,7 @@ use resonance_game::menu::cooking::{Content, Focus};
 
 impl Drawing<'_> {
     fn recipe_icon(&mut self, recipe: usize, [x, y]: [f32; 2], size: f32) -> Result<()> {
-        self.sprite_rect(
-            self.spec.sprite(Sprite::Recipes, recipe)?,
-            [x, y, x + size, y + size],
-            [1.; 4],
-        );
+        self.catalogue_sprite(Sprite::Recipes, recipe, [x, y, x + size, y + size], [1.; 4])?;
         Ok(())
     }
     fn cooking_description(&mut self, menu: &Menu, recipe: usize) -> Result<()> {

@@ -273,7 +273,7 @@ fn model_contact_path(
     let lifetime = shot.lifetime.context("model contact needs a lifetime")?;
     let effect_path = format!("battle/enemies/{name}/effects/effects.json");
     let effect: Definition = serde_json::from_slice(
-        &fs::read(library.join(&effect_path))
+        &crate::authoring::read_document(library, &effect_path)
             .with_context(|| format!("missing native-cooked {effect_path}"))?,
     )?;
     let program = effect

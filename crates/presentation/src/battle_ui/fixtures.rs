@@ -11,8 +11,11 @@ pub(super) fn asset_root() -> std::path::PathBuf {
 
 pub(super) fn dialogue_font() -> Result<BitmapFont> {
     let root = asset_root();
-    let dialogue: DialogueArt =
-        serde_json::from_slice(&std::fs::read(root.join("ui/dialogue.json"))?)?;
+    let mut view = resonance_content::library::Library::open_paths(&root, &[])?.snapshot();
+    let dialogue: DialogueArt = serde_json::from_slice(&view.read(
+        "ui/dialogue.json",
+        resonance_content::preparation::JSON_LIMIT,
+    )?)?;
     let font: BitmapFont = serde_json::from_slice(&std::fs::read(root.join(dialogue.font))?)?;
     font.validate()?;
     Ok(font)

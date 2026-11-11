@@ -7,7 +7,6 @@ pub mod document;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Art {
-    #[serde(with = "crate::ui_art::image_path")]
     pub background: UiTexture,
     pub font: String,
     pub caption: String,

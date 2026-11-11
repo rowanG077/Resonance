@@ -23,9 +23,8 @@ pub struct Art<Font = BitmapFont> {
     #[serde(with = "crate::ui_art::results")]
     pub result_colors: [[[u8; 4]; 2]; 3],
     /// Shared target frame followed by one pointer palette per controller.
-    #[serde(with = "crate::ui_art::target_images")]
+    #[serde(with = "crate::ui_art::targets")]
     pub targets: [UiTexture; 5],
-    #[serde(with = "crate::ui_art::image_path")]
     pub stun: UiTexture,
     pub notices: NoticeArt,
     pub combo: ComboArt,
@@ -36,10 +35,10 @@ pub struct Art<Font = BitmapFont> {
     pub stat_backdrops: [[[u8; 4]; 4]; 2],
     /// Attack, defense, up arrow, magic attack, physical/magical barriers,
     /// accuracy/curse, reduced item effect, Holy Song, down arrow.
-    #[serde(with = "crate::ui_art::status_images")]
+    #[serde(with = "crate::ui_art::status")]
     pub stat_icons: [UiTexture; 10],
     /// Source bank roles retained in the art document; runtime prompts use the shared input atlas.
-    #[serde(with = "crate::ui_art::unison_images")]
+    #[serde(with = "crate::ui_art::unison")]
     pub unison_buttons: [UiTexture; 2],
     pub commands: CommandArt,
     pub feedback: FeedbackArt,
@@ -55,14 +54,13 @@ pub struct FeedbackArt {
     #[serde(with = "crate::ui_art::vitals")]
     pub scan_vitals: [[[u8; 4]; 2]; 2],
     /// Neutral and eight elements, followed by weakness/resistance headings.
-    #[serde(with = "crate::ui_art::scan_images")]
+    #[serde(with = "crate::ui_art::scan")]
     pub scan_icons: [UiTexture; 10],
-    #[serde(with = "crate::ui_art::image_path")]
     pub unison_frame: UiTexture,
     pub unison_ready: String,
     pub unison_text: [[u8; 4]; 2],
     /// Frame, needle, and fill.
-    #[serde(with = "crate::ui_art::escape_images")]
+    #[serde(with = "crate::ui_art::escape")]
     pub escape: [UiTexture; 3],
     #[serde(with = "crate::ui_art::sides")]
     pub escape_positions: [[u16; 2]; 2],
@@ -72,7 +70,6 @@ pub struct FeedbackArt {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommandArt {
-    #[serde(with = "crate::ui_art::image_path")]
     pub texture: UiTexture,
     /// Tech, Unison, Strategy, Equipment, Item, Escape; Unison ends with three sparkle frames.
     #[serde(with = "crate::ui_art::commands")]
@@ -170,17 +167,15 @@ impl CommandArt {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoticeArt {
-    #[serde(with = "crate::ui_art::image_path")]
     pub frame: UiTexture,
-    #[serde(with = "crate::ui_art::image_path")]
     pub fill: UiTexture,
     /// Martial arte, spell, item, and outcome emblems.
-    #[serde(with = "crate::ui_art::notice_images")]
+    #[serde(with = "crate::ui_art::notices")]
     pub icons: [UiTexture; 4],
     #[serde(with = "crate::ui_art::notices")]
     pub icon_origins: [[u16; 2]; 4],
     pub defeated: String,
-    #[serde(with = "crate::ui_art::face_images")]
+    #[serde(with = "crate::ui_art::characters")]
     pub faces: [UiTexture; 9],
 }
 
@@ -273,20 +268,16 @@ impl Art {
         Ok(())
     }
 
-    fn required_images_mut(&mut self) -> impl Iterator<Item = &mut UiTexture> {
-        std::iter::once(&mut self.commands.texture)
-            .chain(&mut self.targets)
-            .chain([
-                &mut self.stun,
-                &mut self.notices.frame,
-                &mut self.notices.fill,
-            ])
-            .chain(&mut self.notices.icons)
-            .chain(&mut self.notices.faces)
-            .chain(&mut self.stat_icons)
-            .chain(&mut self.feedback.scan_icons)
-            .chain([&mut self.feedback.unison_frame])
-            .chain(&mut self.feedback.escape)
+    fn required_images(&self) -> impl Iterator<Item = &UiTexture> {
+        std::iter::once(&self.commands.texture)
+            .chain(&self.targets)
+            .chain([&self.stun, &self.notices.frame, &self.notices.fill])
+            .chain(&self.notices.icons)
+            .chain(&self.notices.faces)
+            .chain(&self.stat_icons)
+            .chain(&self.feedback.scan_icons)
+            .chain([&self.feedback.unison_frame])
+            .chain(&self.feedback.escape)
     }
 
     /// Required controls and shared geometry; optional feedback validates separately.
@@ -370,11 +361,11 @@ impl Art<String> {
                             .iter()
                             .position(|role| *role == name)
                             .ok_or_else(|| anyhow::anyhow!("unknown portrait character {name}"))?;
-                        let portrait: Option<String> = serde_json::from_value(value)?;
-                        if let Some(path) = &portrait {
-                            crate::validate_asset_path(path)?;
+                        let portrait: Option<UiTexture> = serde_json::from_value(value)?;
+                        if let Some(image) = &portrait {
+                            image.validate()?;
                         }
-                        Ok((index, portrait.map(crate::ui_art::image)))
+                        Ok((index, portrait))
                     })(),
                 )?
                 else {

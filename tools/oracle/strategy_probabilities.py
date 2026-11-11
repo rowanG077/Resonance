@@ -4,6 +4,7 @@
 Prime attacks through ordinary Auto decisions with techniques suppressed. Replay
 the resulting checkpoint with declared strategy, TP and random state only.
 """
+from resolved_content import read_json
 import argparse
 from hashlib import sha256
 import json
@@ -110,7 +111,7 @@ def run(args):
     if set(actors) != {0, 1, 4} or actors[0]["kind"] != character or any(a["action"][0] != 3 for a in actors.values()):
         raise ValueError("expected a naturally settled manual party with the requested owner")
     catalogue = args.assets / "game/techniques.json"
-    learning = native_learning(json.loads(catalogue.read_text()))[character - 1]
+    learning = native_learning(read_json(catalogue))[character - 1]
     level = 15 if args.phase in ("level", "throw-level") else 30
     stage = 2 if args.phase == "reserve" else 0
     fixture = dict(position=2 if character == 2 else 1, skill=5,

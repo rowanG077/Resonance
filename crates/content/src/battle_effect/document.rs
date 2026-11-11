@@ -107,7 +107,7 @@ pub fn read(
     let definition: Definition = json(path, &mut read)?;
     let art = definition
         .artwork
-        .map(|mut artwork| -> Result<_> {
+        .map(|artwork| -> Result<_> {
             let mut models = BTreeMap::new();
             for (slot, value) in artwork.models {
                 let candidate =
@@ -120,11 +120,11 @@ pub fn read(
                     models.insert(slot, model);
                 }
             }
-            for bank in artwork.textures.values_mut() {
+            for bank in artwork.textures.values() {
                 for texture in bank {
-                    for image in &mut texture.images {
+                    for image in &texture.images {
                         diagnostics
-                            .attempt(path, crate::texture::images::prepare(image, &mut read))?;
+                            .attempt(path, crate::ui_art::prepare_image(image, &mut read))?;
                     }
                 }
             }

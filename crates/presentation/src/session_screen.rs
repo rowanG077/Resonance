@@ -351,7 +351,7 @@ mod tests {
         })
         .insert_resource(crate::Art {
             manifest: title_art,
-            images: vec![Handle::default(); 17],
+            images: vec![crate::TitleImage::default(); 17],
         });
         let world = app.world_mut();
         let output = world

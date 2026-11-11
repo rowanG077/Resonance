@@ -63,7 +63,7 @@ fn locations_own_their_rewards_characters_and_guideposts_without_padding() -> Re
 }
 
 #[test]
-fn location_mod_edits_remain_local_and_keep_retained_snapshots() -> Result<()> {
+fn location_mod_edits_remain_local() -> Result<()> {
     use crate::library::{Descriptor, GAME, Library, VERSION};
     let root = tempfile::tempdir()?;
     let base = root.path().join("base");
@@ -81,16 +81,16 @@ fn location_mod_edits_remain_local_and_keep_retained_snapshots() -> Result<()> {
     let original = document();
     let path = "world/landmarks.json";
     std::fs::write(base.join(path), serde_json::to_vec(&original)?)?;
-    let library = Library::open_paths(&base, &[modified.clone()])?;
-    let mut retained = library.snapshot();
-    let before: Landmarks = retained.json(path, 1024 * 1024)?;
+    let before: Landmarks = serde_json::from_value(original.clone())?;
     let mut edit = original;
     edit["sylvarant"][0]["reward_item"] = 42.into();
     edit["sylvarant"][0]["required_character"] = "colette".into();
     edit["sylvarant"][0]["guidepost"]["unlock_flags"] = json!([903, 904]);
     edit["sylvarant"][0]["flight_floor"] = json!({"margin":50.,"height":1000.});
     std::fs::write(modified.join(path), serde_json::to_vec(&edit)?)?;
-    let after: Landmarks = library.snapshot().json(path, 1024 * 1024)?;
+    let after: Landmarks = Library::open_paths(&base, &[modified])?
+        .snapshot()
+        .json(path, 1024 * 1024)?;
     after.validate()?;
     assert_eq!(after.worlds[0][0].reward_item, Some(42));
     assert_eq!(
@@ -117,6 +117,5 @@ fn location_mod_edits_remain_local_and_keep_retained_snapshots() -> Result<()> {
     );
     assert_eq!(after.worlds[0][1], before.worlds[0][1]);
     assert_eq!(after.worlds[1], before.worlds[1]);
-    assert_eq!(retained.json::<Landmarks>(path, 1024 * 1024)?, before);
     Ok(())
 }

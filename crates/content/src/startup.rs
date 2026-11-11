@@ -24,12 +24,13 @@ pub struct Definition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Artwork {
-    pub image: String,
+    #[serde(flatten)]
+    pub image: crate::font::UiTexture,
     pub top: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub choice: Option<Choice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_image: Option<String>,
+    pub selected_image: Option<crate::font::UiTexture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,7 +53,11 @@ impl Choice {
 
 impl Artwork {
     pub fn images(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.image.as_str()).chain(self.selected_image.as_deref())
+        std::iter::once(self.image.path.as_str()).chain(
+            self.selected_image
+                .as_ref()
+                .map(|image| image.path.as_str()),
+        )
     }
 }
 
@@ -66,6 +71,10 @@ impl Definition {
                 artwork.selected_image.is_none() || artwork.choice.is_some(),
                 "a selected title image needs a menu choice"
             );
+            artwork.image.validate()?;
+            if let Some(image) = &artwork.selected_image {
+                image.validate()?;
+            }
             for path in artwork.images() {
                 crate::library::validate_path(path)?;
             }

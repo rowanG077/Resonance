@@ -76,6 +76,10 @@ fn battle_authoring_shadow_properties_survive_joint_renames_and_mod_snapshots() 
         {"name":"hand-custom","extras":{"resonance_bone":2,"shadow_bounds":true}}
     ]);
     fs::write(base.path().join("body.glb"), glb(nodes.clone())?)?;
+    fs::copy(
+        base.path().join("body.glb"),
+        modification.path().join("body.glb"),
+    )?;
     let library = Library::open(
         base.path(),
         &[Mod {

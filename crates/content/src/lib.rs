@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub mod animation;
 pub mod appearance;
 pub mod arte;
+pub mod authoring;
 pub mod battle_action;
 pub mod battle_audio;
 pub mod battle_conditions;
@@ -355,6 +356,28 @@ pub struct TextureBinding {
     pub nearest_mag: bool,
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub mipmapped: bool,
+    /// The fraction (numerator, denominator) per axis by which mesh coordinates
+    /// were multiplied when the texture was stored at another size. The console
+    /// wraps with `coordinate & (size - 1)`, so a repeating texture whose size is
+    /// not a power of two is stored as the larger image it effectively shows.
+    /// Animated offsets are multiplied by the same fraction.
+    #[serde(
+        default = "TextureBinding::unscaled",
+        skip_serializing_if = "TextureBinding::is_unscaled"
+    )]
+    pub scale: [[u32; 2]; 2],
+}
+impl TextureBinding {
+    pub fn unscaled() -> [[u32; 2]; 2] {
+        [[1; 2]; 2]
+    }
+    fn is_unscaled(scale: &[[u32; 2]; 2]) -> bool {
+        *scale == Self::unscaled()
+    }
+    /// An authored coordinate offset in the stored image's coordinates.
+    pub fn scaled(&self, offset: [f32; 2]) -> [f32; 2] {
+        [0, 1].map(|axis| offset[axis] * self.scale[axis][0] as f32 / self.scale[axis][1] as f32)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

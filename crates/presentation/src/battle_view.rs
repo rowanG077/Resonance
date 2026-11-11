@@ -1988,10 +1988,12 @@ impl Part {
             .zip(self.appearance_materials(appearance, true)?)
         {
             let uv = [&material.color, &material.multiply].map(|binding| {
-                binding
-                    .as_ref()
-                    .and_then(|binding| animations.iter().find(|a| a.texture == binding.texture))
-                    .map_or([0.; 2], |animation| animation.offset(tick))
+                binding.as_ref().map_or([0.; 2], |binding| {
+                    animations
+                        .iter()
+                        .find(|a| a.texture == binding.texture)
+                        .map_or([0.; 2], |animation| binding.scaled(animation.offset(tick)))
+                })
             });
             let uv_offsets = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
             let surface = surfaces.get(handle).context("missing stage material")?;
@@ -2035,7 +2037,7 @@ impl Part {
                         .iter()
                         .find(|animation| animation.texture == binding.texture)
                 }) {
-                    let offset = animation.offset(tick);
+                    let offset = binding.as_ref().unwrap().scaled(animation.offset(tick));
                     uv[channel * 2] += offset[0];
                     uv[channel * 2 + 1] += offset[1];
                 }
@@ -2331,6 +2333,7 @@ mod tests {
     fn failed_image_recovery_keeps_source_ids_unavailable_to_other_owners() -> Result<()> {
         let root = tempfile::tempdir()?;
         let mut app = App::new();
+        crate::texture::decoded_files(&mut app, &root.path());
         app.add_plugins((
             MinimalPlugins,
             AssetPlugin {

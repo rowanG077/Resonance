@@ -222,9 +222,7 @@ pub(crate) fn declared_resources(extracted: &Path, id: u32) -> Result<BTreeSet<u
 
 /// Static and finite resource selections for a precomputed bank table. Runtime
 /// actor publication uses `declared_resources` and rejects unresolved selectors.
-pub(crate) fn declared_static_resources(extracted: &Path, id: u32) -> Result<BTreeSet<u32>> {
-    let (_, archive) = field_core::read(extracted, id)?;
-    let script = field_core::optional_section(&archive, 6)?.context("field has no script")?;
+pub(crate) fn declared_static_resources(script: &[u8]) -> Result<BTreeSet<u32>> {
     declarations_with_unresolved(script, true)
 }
 
@@ -467,9 +465,7 @@ pub(crate) fn cook_from_source(
         }
         if resource_id < 53 && !actors.local_resources.contains(&resource_id) {
             let standalone: resonance_content::field::document::ModelMappings =
-                serde_json::from_slice(&fs::read(
-                    library.join("meshes/standalone/mappings.json"),
-                )?)?;
+                crate::authoring::read_json(library, "meshes/standalone/mappings.json")?;
             if standalone.0.contains_key(&resource_id) {
                 actors.models.push(ModelBinding::Local(Actor {
                     resource: resonance_content::field::STANDALONE_MODEL_RESOURCE_BASE
@@ -565,7 +561,7 @@ pub(crate) fn cook_from_source(
         "meshes/joint-mappings.json",
     ] {
         ensure!(
-            library.join(path).is_file(),
+            crate::authoring::document_exists(library, path),
             "field {id} actors require {path}"
         );
     }
@@ -601,7 +597,7 @@ pub(crate) fn cook_from_source(
     if !selected_banks.is_empty() {
         for path in ["animations/mappings.json", "animations/bindings.json"] {
             ensure!(
-                library.join(path).is_file(),
+                crate::authoring::document_exists(library, path),
                 "field {id} actors require {path}"
             );
         }

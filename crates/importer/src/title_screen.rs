@@ -1,8 +1,11 @@
 //! The original title bank directly into named, editable menu artwork.
 use crate::{dol, field_core, menu_sprites, native_archive, text, world_cinematics};
 use anyhow::{Context, Result, ensure};
-use resonance_content::startup::{self, Artwork, Choice, Definition};
-use std::{fs, path::Path};
+use resonance_content::{
+    font::UiTexture,
+    startup::{self, Artwork, Choice, Definition},
+};
+use std::{collections::BTreeMap, fs, path::Path};
 
 pub(crate) const IMAGES: [(usize, &str); 14] = [
     (0, "continue-alternate"),
@@ -21,16 +24,24 @@ pub(crate) const IMAGES: [(usize, &str); 14] = [
     (15, "lloyd-in-a-field"),
 ];
 
-fn artwork(image: &str, selected: Option<&str>, choice: Option<Choice>, top: f32) -> Artwork {
-    Artwork {
-        image: format!("ui/title/{image}.ktx2"),
-        selected_image: selected.map(|name| format!("ui/title/{name}.ktx2")),
-        choice,
-        top,
+type Sizes = BTreeMap<&'static str, [u32; 2]>;
+
+fn texture(sizes: &Sizes, name: &str) -> UiTexture {
+    let [width, height] = sizes[name];
+    UiTexture {
+        path: format!("ui/title/{name}.ktx2"),
+        width,
+        height,
     }
 }
 
-fn definition() -> Definition {
+fn definition(sizes: &Sizes) -> Definition {
+    let artwork = |image, selected: Option<&str>, choice, top| Artwork {
+        image: texture(sizes, image),
+        selected_image: selected.map(|name| texture(sizes, name)),
+        choice,
+        top,
+    };
     Definition {
         day_field: 474,
         night_field: 531,
@@ -90,10 +101,10 @@ fn title_field_art(extracted: &Path, exe: &[u8]) -> Result<Vec<(String, Vec<u8>)
     );
     ensure!(dol::u32(source, 4)? == 1, "title overlay is not one image");
     let (width, height, rgba) = menu_sprites::decode_image(source, 0)?;
-    output.push((
-        "ui/title/title-screen.ktx2".into(),
-        resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
-    ));
+    output.extend(crate::field_overlays::image_files(
+        crate::field_overlays::image("ui/title/title-screen.ktx2", [width, height]),
+        resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
+    )?);
     Ok(output)
 }
 
@@ -107,14 +118,16 @@ pub fn cook_title_screen(extracted: &Path, library: &Path) -> Result<()> {
         "unexpected native title image count"
     );
     let mut output = title_field_art(extracted, &exe)?;
+    let mut sizes = Sizes::new();
     for (index, name) in IMAGES {
         let (width, height, rgba) = menu_sprites::decode_image(&tpl, index)?;
+        sizes.insert(name, [width, height]);
         output.push((
             format!("ui/title/{name}.ktx2"),
-            resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?,
+            resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?,
         ));
     }
-    let definition = definition();
+    let definition = definition(&sizes);
     definition.validate()?;
     for (path, bytes) in output {
         crate::output::write(&library.join(&path), &bytes)?;

@@ -10,80 +10,7 @@ use resonance_content::{
 };
 use resonance_events::party::Party;
 use resonance_game::menu::strategy::{Focus, Strategy};
-use std::{fs, path::Path};
 
-#[test]
-#[ignore = "requires current strategy library and pre-migration metadata; no media cooking"]
-fn saved_strategy_selections_and_all_character_choices_survive_named_rules() -> Result<()> {
-    let files = gameplay(&Library::open(&common::asset_root(), &[])?, true)?;
-    let session = SessionData::load(&files)?;
-    let current = session.rules.as_ref().unwrap();
-    let before: serde_json::Value =
-        serde_json::from_slice(&fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../local/structure-review-20261027/strategy-options/before/game/menu-data.json",
-        ))?)?;
-    let mut old = (**current).clone();
-    old.strategy = serde_json::from_value(before["strategy"].clone())?;
-    old.presentation.strategy = Some(serde_json::from_value(
-        before["presentation"]["strategy"].clone(),
-    )?);
-    let mut expected = Party::new(&session, Default::default())?;
-    expected.strategy_presets = Some(old.strategy_presets()?);
-    expected.strategy_presets.as_mut().unwrap()[0].name = "My team".into();
-    let saved = serde_json::to_vec(&expected)?;
-    let mut actual: Party = serde_json::from_slice(&saved)?;
-    actual.bind_rules(&session);
-    actual.validate(&session)?;
-    for character in 0..9 {
-        actual.formation = vec![character as u8 + 1];
-        expected.formation = actual.formation.clone();
-        for group in 0..3 {
-            let state = Strategy {
-                group,
-                focus: Focus::Setting,
-                ..Default::default()
-            };
-            assert_eq!(
-                state.page(&actual, current).options(),
-                state.page(&expected, &old).options()
-            );
-            for choice in 0..current.strategy.groups[group].len() {
-                for preset in [None, Some(0), Some(1), Some(2)] {
-                    assert_eq!(
-                        actual.set_strategy(
-                            &current.strategy,
-                            character,
-                            group,
-                            choice as u8,
-                            preset
-                        ),
-                        expected.set_strategy(
-                            &old.strategy,
-                            character,
-                            group,
-                            choice as u8,
-                            preset
-                        )
-                    );
-                    assert_eq!(
-                        serde_json::to_value(&actual)?,
-                        serde_json::to_value(&expected)?
-                    );
-                }
-            }
-        }
-        for choice in 0..7 {
-            assert_eq!(
-                current.strategy.lane(character, choice),
-                old.strategy.lane(character, choice)
-            );
-        }
-    }
-    println!(
-        "900 character/choice/preset transactions, 63 formation lanes and saved custom presets match"
-    );
-    Ok(())
-}
 #[test]
 #[ignore = "requires current strategy library; metadata-only mod"]
 fn named_mods_change_eligibility_lanes_defaults_and_keep_saved_preset_edits() -> Result<()> {
@@ -129,11 +56,7 @@ fn named_mods_change_eligibility_lanes_defaults_and_keep_saved_preset_edits() ->
         .unwrap()
         .characters = Some(vec![PartyCharacter::Colette, PartyCharacter::Raine]);
     let output = tempfile::tempdir()?;
-    fs::create_dir(output.path().join("game"))?;
-    fs::write(
-        output.path().join(resonance_content::strategy::PATH),
-        serde_json::to_vec(&doc)?,
-    )?;
+    common::write_mod(output.path(), resonance_content::strategy::PATH, &doc)?;
     let modified = gameplay(
         &Library::open_paths(&root, &[output.path().to_owned()])?,
         true,

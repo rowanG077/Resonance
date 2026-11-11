@@ -1,30 +1,39 @@
 use super::*;
-use bevy::{
-    asset::RenderAssetUsages,
-    image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
-    render::render_resource::TextureFormat,
-};
+use bevy::{asset::RenderAssetUsages, image::ImageSampler, render::render_resource::TextureFormat};
+use resonance_asset_writer::{gpu, texture};
 
 #[test]
-fn ktx_preserves_authored_mips_and_sampler() -> Result<()> {
-    let base = vec![37; 16];
-    let mip = vec![17, 31, 59, 127];
-    let bytes = resonance_asset_writer::ktx2::encode_levels(2, 2, &[&base, &mip])?;
-    let settings = ImageLoaderSettings {
-        is_srgb: false,
-        sampler: ImageSampler::Descriptor(ImageSamplerDescriptor {
-            address_mode_u: ImageAddressMode::Repeat,
-            ..ImageSamplerDescriptor::nearest()
-        }),
-        asset_usage: RenderAssetUsages::MAIN_WORLD,
-        ..default()
-    };
-    let image = decode("wood.ktx2", &settings, &|_| Ok(bytes.clone()))?;
-    assert_eq!(image.texture_descriptor.format, TextureFormat::Rgba8Unorm);
-    assert_eq!(image.texture_descriptor.mip_level_count, 2);
-    assert_eq!([image.width(), image.height()], [2, 2]);
-    assert_eq!(image.data.as_ref().unwrap(), &[base, mip].concat());
-    assert!(matches!(&image.sampler, ImageSampler::Descriptor(sampler)
-        if sampler.address_mode_u == ImageAddressMode::Repeat));
+fn bc7_uploads_as_blocks_or_decodes_where_the_adapter_lacks_them() -> Result<()> {
+    // Mips below one block are the ones an adapter is most likely to reject.
+    let levels = [(12, 8), (6, 4), (3, 2), (1, 1)]
+        .into_iter()
+        .map(|(width, height)| texture::Pixels {
+            width,
+            height,
+            rgba: [143, 78, 25, 255].repeat((width * height) as usize),
+        })
+        .collect::<Vec<_>>();
+    let bytes = gpu::encode(&levels)?;
+    for (formats, expected) in [
+        (CompressedImageFormats::BC, TextureFormat::Bc7RgbaUnorm),
+        (CompressedImageFormats::NONE, TextureFormat::Rgba8Unorm),
+    ] {
+        let prepared = prepare(bytes.clone(), formats)?;
+        let image = Image::from_buffer(
+            &prepared,
+            ImageType::Extension("ktx2"),
+            formats,
+            false,
+            ImageSampler::linear(),
+            RenderAssetUsages::MAIN_WORLD,
+        )?;
+        assert_eq!(image.texture_descriptor.format, expected);
+        assert_eq!(image.texture_descriptor.mip_level_count, 4);
+        assert_eq!(texture::ktx2(&prepared)?, texture::ktx2(&bytes)?);
+    }
+    // Blocks that overhang the image cannot be uploaded.
+    let mut overhanging = bytes;
+    overhanging[20..24].copy_from_slice(&10u32.to_le_bytes());
+    assert!(prepare(overhanging, CompressedImageFormats::BC).is_err());
     Ok(())
 }

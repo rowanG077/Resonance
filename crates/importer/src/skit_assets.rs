@@ -170,7 +170,7 @@ fn catalogue(
     let exe = fs::read(root.join("disc1/sys/main.dol"))?;
     let mut skits = definitions(&exe)?;
     let fields: Mappings =
-        serde_json::from_slice(&fs::read(library.join(resonance_content::library::FIELDS))?)?;
+        crate::authoring::read_json(library, resonance_content::library::FIELDS)?;
     resonance_content::skit::fields::name_fields(&mut skits, &fields)?;
     let preview_order = preview_order(&exe)?;
     let ambient: BTreeSet<_> = skits.iter().map(|skit| skit.id).collect();
@@ -252,11 +252,6 @@ fn parse_script(source: &[u8], path: &Path) -> Result<(Vec<u8>, Vec<message::Mes
     Ok((bytes, messages))
 }
 
-fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
-    crate::output::write(&path, bytes)?;
-    Ok(())
-}
-
 /// Focused conversion of one ID, preserving the original SSB bytecode.
 pub fn cook_skit_script(root: &Path, library: &Path, id: u16) -> Result<()> {
     let (mapping, files) = sources(root)?;
@@ -264,9 +259,9 @@ pub fn cook_skit_script(root: &Path, library: &Path, id: u16) -> Result<()> {
     let path = files.get(&id).context("skit has no native package")?;
     let (bytes, messages) = script(path)?;
     let directory = library.join("skits").join(name);
-    write_new(&directory.join("scenario.ssb"), &bytes)?;
+    crate::output::write(&directory.join("scenario.ssb"), &bytes)?;
     if !messages.is_empty() {
-        write_new(
+        crate::output::write(
             &directory.join("messages.json"),
             &resonance_asset_writer::json::encode(&messages)?,
         )?;
@@ -280,11 +275,11 @@ pub fn cook_skit_catalogue(root: &Path, library: &Path) -> Result<()> {
     let (mappings, files) = sources(root)?;
     let media = catalogue_media(&mappings, &files)?;
     let catalogue = catalogue(root, library, &files, media)?;
-    write_new(
+    crate::output::write(
         &library.join(document::MAPPINGS),
         &resonance_asset_writer::json::encode(&mappings)?,
     )?;
-    write_new(
+    crate::output::write(
         &library.join(document::PATH),
         &resonance_asset_writer::json::encode(&catalogue)?,
     )?;
@@ -310,9 +305,9 @@ pub fn cook_skits(root: &Path, library: &Path) -> Result<()> {
         written.insert(name.clone(), source);
         media.extend(requested_voices(&bytes)?);
         let directory = library.join("skits").join(name);
-        write_new(&directory.join("scenario.ssb"), &bytes)?;
+        crate::output::write(&directory.join("scenario.ssb"), &bytes)?;
         if !messages.is_empty() {
-            write_new(
+            crate::output::write(
                 &directory.join("messages.json"),
                 &resonance_asset_writer::json::encode(&messages)?,
             )?;
@@ -320,11 +315,11 @@ pub fn cook_skits(root: &Path, library: &Path) -> Result<()> {
     }
     cook_unassigned_skits(root, library)?;
     let catalogue = catalogue(root, library, &files, media)?;
-    write_new(
+    crate::output::write(
         &library.join(document::MAPPINGS),
         &resonance_asset_writer::json::encode(&mappings)?,
     )?;
-    write_new(
+    crate::output::write(
         &library.join(document::PATH),
         &resonance_asset_writer::json::encode(&catalogue)?,
     )?;
@@ -352,9 +347,9 @@ pub fn cook_unassigned_skits(root: &Path, library: &Path) -> Result<()> {
         };
         let (bytes, messages) = script(&path)?;
         let directory = library.join("skits").join(name);
-        write_new(&directory.join("scenario.ssb"), &bytes)?;
+        crate::output::write(&directory.join("scenario.ssb"), &bytes)?;
         if !messages.is_empty() {
-            write_new(
+            crate::output::write(
                 &directory.join("messages.json"),
                 &resonance_asset_writer::json::encode(&messages)?,
             )?;

@@ -6,39 +6,17 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 mod tests;
 
-pub fn image(path: String) -> UiTexture {
-    UiTexture {
-        path,
-        width: 0,
-        height: 0,
-    }
-}
+/// Capture and validate the selected image without changing authored coordinates.
 pub fn prepare_image<B: AsRef<[u8]>>(
-    image: &mut UiTexture,
+    image: &UiTexture,
     mut read: impl FnMut(&str) -> Result<B>,
 ) -> Result<()> {
-    crate::validate_asset_path(&image.path)?;
-    let [width, height] = resonance_asset_writer::texture::dimensions(read(&image.path)?.as_ref())
+    image.validate()?;
+    read(&image.path)
+        .and_then(|bytes| resonance_asset_writer::texture::dimensions(bytes.as_ref()))
         .with_context(|| format!("UI image {}", image.path))?;
-    image.width = width;
-    image.height = height;
-    image.validate()
+    Ok(())
 }
-pub mod image_path {
-    use super::*;
-    pub fn serialize<S: serde::Serializer>(
-        image: &UiTexture,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        image.path.serialize(serializer)
-    }
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<UiTexture, D::Error> {
-        Ok(image(String::deserialize(deserializer)?))
-    }
-}
-
 pub fn named<'a, T>(values: &'a [T], names: &'a [&str]) -> Result<BTreeMap<&'a str, &'a T>> {
     anyhow::ensure!(values.len() == names.len(), "incomplete named UI roles");
     Ok(names.iter().copied().zip(values).collect())
@@ -146,33 +124,6 @@ roles!(
 roles!(escape, ["frame", "needle", "fill"]);
 roles!(game_over_choices, ["load", "title"]);
 
-macro_rules! images {
-    ($module:ident, $roles:ident) => {
-        pub mod $module {
-            use super::*;
-            pub fn serialize<S: serde::Serializer>(
-                values: &[UiTexture; $roles::NAMES.len()],
-                serializer: S,
-            ) -> Result<S::Ok, S::Error> {
-                let paths = values.each_ref().map(|v| &v.path);
-                $roles::serialize(&paths, serializer)
-            }
-            pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-                deserializer: D,
-            ) -> Result<[UiTexture; $roles::NAMES.len()], D::Error> {
-                Ok($roles::deserialize::<D, String>(deserializer)?.map(image))
-            }
-        }
-    };
-}
-images!(target_images, targets);
-images!(status_images, status);
-images!(unison_images, unison);
-images!(notice_images, notices);
-images!(face_images, characters);
-images!(scan_images, scan);
-images!(escape_images, escape);
-
 pub mod portraits {
     use super::*;
     pub fn serialize<S: serde::Serializer>(
@@ -182,15 +133,15 @@ pub mod portraits {
         characters::NAMES
             .iter()
             .zip(values)
-            .filter_map(|(name, image)| image.as_ref().map(|image| (*name, &image.path)))
+            .filter_map(|(name, image)| image.as_ref().map(|image| (*name, image)))
             .collect::<BTreeMap<_, _>>()
             .serialize(serializer)
     }
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> Result<[Option<UiTexture>; 9], D::Error> {
-        let mut values = BTreeMap::<String, String>::deserialize(deserializer)?;
-        let result = std::array::from_fn(|i| values.remove(characters::NAMES[i]).map(image));
+        let mut values = BTreeMap::<String, UiTexture>::deserialize(deserializer)?;
+        let result = std::array::from_fn(|i| values.remove(characters::NAMES[i]));
         if !values.is_empty() {
             return Err(serde::de::Error::custom("unknown portrait character"));
         }

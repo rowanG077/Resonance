@@ -3,6 +3,8 @@
 Fixtures use persistent party data and ordinary controller input. Special entry
 conditions remain explicit manifest gaps until a measured fixture supports them.
 """
+import resolved_content
+from resolved_content import read_json as read
 import argparse
 import gc
 import gzip
@@ -28,10 +30,6 @@ SET_CHARACTER_COSTUME = 0x5A
 BATTLE_POINTER = "8035a86c 10 30 540"
 ACTORS, ACTOR_BYTES = 0x1CEA0, 0x1BA0
 ATTACK_ACTION, RECOVERY_ACTION, HIT_REACTION_ACTION = 5, 8, 9
-
-
-def read(path):
-    return json.loads(Path(path).read_text())
 
 
 def write(path, value):
@@ -69,7 +67,7 @@ def prepare_case(args, manifest):
     techniques_path = args.techniques or Path(inputs["techniques"]["path"])
     for path, key in [(source_path, "state"), (Path(str(source_path) + ".dtm"), "movie"),
                       (techniques_path, "techniques")]:
-        if digest(path) != inputs[key]["sha256"]:
+        if resolved_content.digest(path) != inputs[key]["sha256"]:
             raise ValueError(f"{key} does not match the pinned fixture input: {path}")
     output = args.output.resolve()
     if not output.is_relative_to(Path("local/battle-capture-work").resolve()):
@@ -157,7 +155,7 @@ def prepare_case(args, manifest):
     record = {"case": case, "defaults": defaults, "party": party, "grants": grants,
               "source": str(source_path), "source_sha256": digest(source_path),
               "movie_sha256": digest(movie_path), "entry_sha256": digest(entry),
-              "manifest_sha256": digest(args.manifest), "commands": commands,
+              "manifest_sha256": resolved_content.digest(args.manifest), "commands": commands,
               "fixture": fixture, "changes": state.changes, "press_poll": press,
               "learned_index": catalogue["learning"][character - 1].index(input_arte),
               "disc_sha256": inputs["disc_sha256"],

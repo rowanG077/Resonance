@@ -236,7 +236,15 @@ pub fn cook_dialogue_font(extracted: &Path, library: &Path) -> Result<()> {
     let exe = fs::read(disc.join("sys/main.dol"))?;
     let filename = text::string(&exe, FONT_FILE)?;
     let source = native_archive::read_named(&disc.join("files"), &filename)?;
-    let (font, rgba) = font(&exe, &source)?;
+    let (mut font, rgba) = font(&exe, &source)?;
+    // Glyph rectangles keep their pixels; transparent rows complete the last blocks.
+    let mut atlas = resonance_asset_writer::texture::Pixels {
+        width: font.width,
+        height: font.height,
+        rgba,
+    };
+    atlas.pad_to_blocks();
+    (font.width, font.height) = (atlas.width, atlas.height);
     let captions = subtitles(&exe, &font)?;
     for (relative, bytes) in [
         (
@@ -245,7 +253,7 @@ pub fn cook_dialogue_font(extracted: &Path, library: &Path) -> Result<()> {
         ),
         (
             "fonts/dialogue.ktx2",
-            resonance_asset_writer::ktx2::encode_rgba8(font.width, font.height, &rgba)?,
+            resonance_asset_writer::gpu::encode(&[atlas])?,
         ),
         (
             "ui/story-subtitles.json",
@@ -335,7 +343,7 @@ pub fn cook_font_styles(extracted: &Path, library: &Path) -> Result<()> {
             write_asset(
                 library,
                 &path,
-                &resonance_asset_writer::ktx2::encode_rgba8(384, (bytes.len() / 96) as u32, &rgba)?,
+                &resonance_asset_writer::gpu::encode_rgba8(384, (bytes.len() / 96) as u32, &rgba)?,
             )?;
             unique.insert(bytes, path.clone());
             path
@@ -441,7 +449,7 @@ fn image(tpl: &[u8], index: usize, path: &str) -> Result<(UiTexture, Vec<u8>)> {
                 }
             }
         }
-        resonance_asset_writer::ktx2::encode_rgba8(width, height, &rgba)?
+        resonance_asset_writer::gpu::encode_rgba8(width, height, &rgba)?
     };
     Ok((
         UiTexture {

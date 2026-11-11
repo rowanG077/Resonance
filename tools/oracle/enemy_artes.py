@@ -5,6 +5,8 @@ Preparation changes selection data and fixture resources/positions. It preserves
 the authored action, animation, contact and command streams. A recording is
 evidence to review, never an automatic claim of gameplay or visual parity.
 """
+import resolved_content
+from resolved_content import read_json as read
 import argparse
 import gc
 import gzip
@@ -36,17 +38,13 @@ ENTRY_ACTION = 13
 FOLLOWUP_CHANCE = 50
 
 
-def read(path):
-    return json.loads(Path(path).read_text())
-
-
 def write(path, value):
     Path(path).write_text(json.dumps(value, indent=2) + "\n")
 
 
 def pinned(record):
     path = Path(record["path"])
-    if digest(path) != record["sha256"]:
+    if resolved_content.digest(path) != record["sha256"]:
         raise ValueError(f"pinned input changed: {path}")
     return path
 

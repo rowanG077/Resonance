@@ -4,6 +4,8 @@
 Entry uses ordinary scenario commands. Over Limit begins naturally from a full
 inactive charge; no action, pose, availability state or active timer is replaced.
 """
+import resolved_content
+from resolved_content import read_json
 import argparse
 from hashlib import sha256
 import json
@@ -209,7 +211,7 @@ def run(args):
     source = State(args.state)
     observed = inspect(source)
     catalogue = args.assets / "game/techniques.json"
-    learning = native_learning(json.loads(catalogue.read_text()))[args.character - 1]
+    learning = native_learning(read_json(catalogue))[args.character - 1]
     entry = out / "entry.s01"
     commands = [(0x24, [args.character]), (0x24, [4])]
     if args.character == 2:
@@ -254,7 +256,7 @@ def run(args):
         for word in (0, 4):
             locations[f"{pointer} {at:x} {offset + word:x}"] = f"owner_{name}_{word}"
     report = dict(complete=False, cases=[], character=args.character, source_sha256=source.sha256,
-        techniques_sha256=digest(catalogue), scope="Character-specific first autonomous admission and combo stage; not exact RNG, timing or audiovisual parity.")
+        techniques_sha256=resolved_content.digest(catalogue), scope="Character-specific first autonomous admission and combo stage; not exact RNG, timing or audiovisual parity.")
     worker = None
     try:
         worker = BattleFixture(args.disc, movie, entry, out / "worker", fixture["marker_address"], locations,

@@ -40,7 +40,7 @@ fn mapped(library: &Path, mapping: &str, ids: &BTreeSet<u32>) -> Result<()> {
         return Ok(());
     }
     let entries: std::collections::BTreeMap<u32, serde_json::Value> =
-        serde_json::from_slice(&fs::read(library.join(mapping))?)?;
+        crate::authoring::read_json(library, mapping)?;
     for id in ids {
         let entry = entries
             .get(id)
@@ -73,10 +73,13 @@ pub fn cook_field_definition(extracted: &Path, library: &Path, id: u32) -> Resul
     let actors = format!("{root}/actors.json");
     let collision = format!("{root}/collision.glb");
     for path in [&script, &scene, &actors] {
-        ensure!(library.join(path).is_file(), "field {id} lacks {path}");
+        ensure!(
+            crate::authoring::document_exists(library, path),
+            "field {id} lacks {path}"
+        );
     }
     ensure!(
-        library.join("fields/settings.json").is_file(),
+        crate::authoring::document_exists(library, "fields/settings.json"),
         "field {id} lacks shared field settings"
     );
     let bytes = fs::read(library.join(&script))?;
@@ -90,7 +93,7 @@ pub fn cook_field_definition(extracted: &Path, library: &Path, id: u32) -> Resul
     let messages_path = format!("{root}/messages.json");
     if !messages.is_empty() {
         ensure!(
-            library.join(&messages_path).is_file(),
+            crate::authoring::document_exists(library, &messages_path),
             "field {id} lacks {messages_path}"
         );
     }

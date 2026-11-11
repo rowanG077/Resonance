@@ -800,6 +800,11 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         })
         .load(resonance_content::model_preview::document::TOON_RAMP);
     phase_timing("metadata/resident snapshot", started);
+    let texture_formats = world
+        .get_resource::<bevy::image::CompressedImageFormatSupport>()
+        .map_or(bevy::image::CompressedImageFormats::NONE, |formats| {
+            formats.0
+        });
     let (mut hud, game_over, dialogue) = world.resource_scope(
         |world, mut materials: Mut<Assets<super::field_ui::Surface>>| {
             let mut images = world.resource_mut::<Assets<Image>>();
@@ -821,12 +826,26 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
             let game_over = assets
                 .game_over
                 .as_ref()
-                .map(|art| super::field_ui::GameOverArt::load(art, &mut materials, &mut images))
+                .map(|art| {
+                    super::field_ui::GameOverArt::load(
+                        art,
+                        &mut materials,
+                        &mut images,
+                        texture_formats,
+                    )
+                })
                 .transpose()?;
             let dialogue = prepared
                 .lifecycle
                 .has_events()
-                .then(|| hud.load_event_dialogue(&assets.files, &mut materials, &mut images))
+                .then(|| {
+                    hud.load_event_dialogue(
+                        &assets.files,
+                        &mut materials,
+                        &mut images,
+                        texture_formats,
+                    )
+                })
                 .transpose()?;
             phase_timing("game-over/dialogue", started);
             let started = std::time::Instant::now();

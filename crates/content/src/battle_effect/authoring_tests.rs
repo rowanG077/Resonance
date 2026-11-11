@@ -31,7 +31,7 @@ fn visual_authoring_named_blends_atlases_and_image_mods_preserve_prepared_choice
             &json!({"version":crate::library::VERSION,"game":crate::library::GAME}),
         )?,
     )?;
-    let bank = json!({"templates":{"stun-bird":declaration},"artwork":{"textures":{"scene":[{"images":["atlas.ktx2"],"palette_sets":[[0,null],0]}]}}});
+    let bank = json!({"templates":{"stun-bird":declaration},"artwork":{"textures":{"scene":[{"images":[{"image":"atlas.ktx2","size":[2,1]}],"palette_sets":[[0,null],0]}]}}});
     fs::write(root.path().join("effects.json"), serde_json::to_vec(&bank)?)?;
     fs::write(
         root.path().join("atlas.ktx2"),
@@ -62,7 +62,11 @@ fn visual_authoring_named_blends_atlases_and_image_mods_preserve_prepared_choice
     let a = texture(&before);
     let b = texture(&after);
     assert_eq!((a.images[0].width, a.images[0].height), (2, 1));
-    assert_eq!((b.images[0].width, b.images[0].height), (4, 2));
+    assert_eq!((b.images[0].width, b.images[0].height), (2, 1));
+    assert_eq!(
+        resonance_asset_writer::texture::dimensions(&changed.snapshot().read("atlas.ktx2", 4096)?)?,
+        [4, 2]
+    );
     assert!(b.palette_image(0, 1).is_err());
     assert_eq!(b.palette_image(1, 255)?, 0);
     assert_eq!(serde_json::to_value(&a)?, serde_json::to_value(&b)?);
@@ -92,12 +96,25 @@ fn installed_banks_and_scenes_roundtrip_current_metadata() -> Result<()> {
     let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
     let library = Library::open(Path::new(&root), &[])?;
     let mut snapshot = library.snapshot();
-    let paths = snapshot
+    // Resolved documents only: a granular owner may also be named effects.json
+    // or scene.json.
+    let banks = library
+        .resolved_documents()
+        .map(|(path, _)| path.to_owned())
+        .filter(|path| path.starts_with("battle/") && path.ends_with("/effects.json"))
+        .collect::<Vec<_>>();
+    let owned = |path: &str| {
+        banks
+            .iter()
+            .any(|bank| path.starts_with(&format!("{}/", bank.trim_end_matches(".json"))))
+    };
+    let mut paths = snapshot
         .files_under("battle")?
         .iter()
-        .filter(|path| path.ends_with("/effects.json") || path.ends_with("/scene.json"))
+        .filter(|path| path.ends_with("/scene.json") && !owned(path))
         .cloned()
         .collect::<Vec<_>>();
+    paths.extend(banks.iter().cloned());
     for required in [document::COMMON, document::TECHNIQUES] {
         ensure!(
             paths.iter().any(|path| path == required),

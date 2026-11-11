@@ -25,6 +25,7 @@ pub fn native_render_plugins(render: bevy::render::RenderPlugin) -> bevy::app::P
 pub(crate) fn default_plugins() -> bevy::app::PluginGroupBuilder {
     DefaultPlugins
         .build()
+        .add(crate::texture::TexturePlugin)
         .add_before::<bevy::transform::TransformPlugin>(transforms::SerialTransformPlugin)
         .disable::<bevy::transform::TransformPlugin>()
 }

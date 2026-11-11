@@ -1,10 +1,18 @@
 //! Resident battle visual-effect media from the native battle archive.
+use crate::world_texture::texture_key;
 use crate::{compression, dol, world_gpl, world_texture};
 use anyhow::{Context, Result, ensure};
+use resonance_asset_writer::texture::Pixels;
 use std::collections::BTreeMap;
 use std::{fs, path::Path};
 
 pub(crate) const ATLAS_SLOTS: [usize; 5] = [10, 0, 11, 12, 1];
+
+fn model_texture(tpl: &[u8], index: usize) -> Result<(Vec<Pixels>, bool)> {
+    let pixels = world_texture::tpl_pixels(tpl, index, 0, false, true)?;
+    let transparent = world_texture::has_alpha(&pixels[0].rgba);
+    Ok((pixels, transparent))
+}
 
 pub(crate) fn member(bytes: &[u8], index: usize) -> Result<&[u8]> {
     let count = dol::u32(bytes, 0)? as usize;
@@ -111,124 +119,60 @@ pub(crate) fn palette_strides(usual: &[u8]) -> Result<[usize; 5]> {
 /// windows are emitted once, with their first page number retained as its name.
 pub fn cook_battle_effect_atlases(root: &Path, library: &Path) -> Result<usize> {
     let usual = fs::read(root.join("disc1/files/BTL/BTLusual.dat"))?;
-    let strides = palette_strides(&usual)?;
-    let directory = member(&usual, 4)?;
-    let mut published = 0;
-    let mut seen = Vec::<Vec<u8>>::new();
-    for (source_member, &slot) in ATLAS_SLOTS.iter().enumerate() {
-        let source = member(directory, source_member)?;
-        let tpl = if source.starts_with(&[0, 0x20, 0xaf, 0x30]) {
-            source.to_vec()
-        } else {
-            compression::decode(source)?
-        };
-        let count = dol::u32(&tpl, 4)? as usize;
-        for index in 0..count {
-            let capacity = world_texture::tpl_palette_capacity(&tpl, index)?;
-            let entries = world_texture::tpl_palette_entries(&tpl, index)?;
-            let step = if capacity == 0 {
-                0
-            } else {
-                gcd(capacity, strides[source_member]).max(1)
-            };
-            let pages = if capacity == 0 {
-                1
-            } else if step == capacity {
-                entries.div_ceil(capacity).max(1)
-            } else {
-                entries.saturating_sub(capacity) / step + 1
-            };
-            for page in 0..pages {
-                let offset = page * step;
-                let (image, _) = world_texture::tpl_texture_palette(&tpl, index, offset)?;
-                if seen.iter().any(|other| *other == image) {
-                    continue;
-                }
-                seen.push(image.clone());
-                let target = library.join(format!(
-                    "battle/effects/common/textures/atlas-{slot}-{index}-palette-{page}.ktx2"
-                ));
-                crate::output::write(&target, &image)?;
-                published += 1;
-            }
-        }
-    }
-    Ok(published)
+    let mut jobs = Vec::new();
+    atlas_artwork(&usual, &[], Some(&mut jobs))?;
+    crate::parallel::for_each(&jobs, |_, (target, pixels)| {
+        crate::output::write(
+            &library.join(target),
+            &resonance_asset_writer::gpu::encode(pixels)?,
+        )
+    })?;
+    Ok(jobs.len())
 }
 
 /// Export the thirteen shared effect meshes and their embedded textures.
 /// The technique bank references these same meshes; it does not own a copy.
 pub fn cook_battle_effect_models(root: &Path, library: &Path) -> Result<usize> {
     let usual = fs::read(root.join("disc1/files/BTL/BTLusual.dat"))?;
-    let directory = member(&usual, 6)?;
-    let count = dol::u32(directory, 0)? as usize;
-    ensure!(count == 13, "unexpected resident effect model count");
-    let mut images = Vec::<(Vec<u8>, String)>::new();
-    for index in 0..count {
-        let model = member(directory, index)?;
-        let start = dol::u32(model, 0)? as usize;
-        let end = dol::u32(model, 4)? as usize;
-        let palette = model
-            .get(start..end)
-            .context("effect model TPL exceeds model")?;
-        ensure!(
-            dol::u32(palette, 0)? == 0x0020_af30,
-            "effect model lacks TPL"
-        );
-        let stem = format!("battle/effects/common/models/model-{}-layer-0", index + 1);
-        let mut paths = Vec::new();
-        let mut alpha = Vec::new();
-        for texture_index in 0..dol::u32(palette, 4)? as usize {
-            let (image, transparent) = world_texture::tpl_texture(palette, texture_index)?;
-            let path = if let Some((_, path)) = images.iter().find(|(old, _)| *old == image) {
-                path.clone()
-            } else {
-                let path = format!("{stem}-texture-{texture_index}.ktx2");
-                let target = library.join(&path);
-                crate::output::write(&target, &image)?;
-                images.push((image, path.clone()));
-                path
-            };
-            paths.push(path);
-            alpha.push(transparent);
-        }
-        let (glb, _) = world_gpl::static_model(model, paths, alpha)?;
-        let target = library.join(format!("{stem}.glb"));
-        crate::output::write(&target, &glb)?;
-    }
-    Ok(count)
+    Ok(model_artwork(
+        &usual,
+        Some(&mut |path, bytes| crate::output::write(&library.join(path), &bytes)),
+    )?
+    .len())
 }
 
-pub(crate) fn model_artwork(usual: &[u8]) -> Result<BTreeMap<u8, serde_json::Value>> {
+pub(crate) fn model_artwork(
+    usual: &[u8],
+    mut emit: Option<&mut dyn FnMut(&str, Vec<u8>) -> Result<()>>,
+) -> Result<BTreeMap<u8, serde_json::Value>> {
     let directory = member(usual, 6)?;
     let count = dol::u32(directory, 0)? as usize;
     ensure!(count == 13, "unexpected resident effect model count");
-    let mut seen = Vec::<(Vec<u8>, String)>::new();
+    let mut seen = BTreeMap::<[u8; 32], String>::new();
     let mut artwork = BTreeMap::new();
     for index in 0..count {
         let model = member(directory, index)?;
-        let start = dol::u32(model, 0)? as usize;
-        let end = dol::u32(model, 4)? as usize;
-        let palette = model
-            .get(start..end)
-            .context("effect model TPL exceeds model")?;
+        let palette = world_texture::model_palette(model)?;
         let stem = format!("battle/effects/common/models/model-{}-layer-0", index + 1);
         let mut paths = Vec::new();
         let mut alpha = Vec::new();
         for texture_index in 0..dol::u32(palette, 4)? as usize {
-            let (image, transparent) = world_texture::tpl_texture(palette, texture_index)?;
-            let path = if let Some((_, path)) = seen.iter().find(|(old, _)| *old == image) {
-                path.clone()
-            } else {
+            let (pixels, transparent) = model_texture(palette, texture_index)?;
+            let path = world_texture::shared_path(&mut seen, texture_key(&pixels), || {
                 let path = format!("{stem}-texture-{texture_index}.ktx2");
-                seen.push((image, path.clone()));
-                path
-            };
+                if let Some(emit) = emit.as_mut() {
+                    emit(&path, resonance_asset_writer::gpu::encode(&pixels)?)?;
+                }
+                Ok(path)
+            })?;
             paths.push(path);
             alpha.push(transparent);
         }
-        let (_, mut scene) = world_gpl::static_model(model, paths, alpha)?;
+        let (mesh, mut scene) = world_gpl::static_model(model, paths, alpha)?;
         scene.mesh = format!("{stem}.glb");
+        if let Some(emit) = emit.as_mut() {
+            emit(&scene.mesh, mesh)?;
+        }
         let document = resonance_content::battle_model::document::Model {
             attachment_nodes: Default::default(),
             independent_layers: Default::default(),
@@ -272,6 +216,7 @@ impl AtlasEntry {
 pub(crate) fn atlas_artwork(
     usual: &[u8],
     bindings: &[(u8, u8)],
+    mut output: Option<&mut Vec<(String, Vec<Pixels>)>>,
 ) -> Result<(
     BTreeMap<u8, Vec<resonance_content::battle_effect::EffectTexture>>,
     BTreeMap<(u8, u8), u8>,
@@ -279,7 +224,7 @@ pub(crate) fn atlas_artwork(
     use resonance_content::{battle_effect::EffectTexture, font::UiTexture};
     let strides = palette_strides(usual)?;
     let directory = member(usual, 4)?;
-    let mut seen = Vec::<(Vec<u8>, String)>::new();
+    let mut seen = BTreeMap::<[u8; 32], String>::new();
     let mut atlas = BTreeMap::<u8, Vec<AtlasEntry>>::new();
     for (source_member, &slot) in ATLAS_SLOTS.iter().enumerate() {
         let source = member(directory, source_member)?;
@@ -312,16 +257,16 @@ pub(crate) fn atlas_artwork(
             let mut images = Vec::<UiTexture>::new();
             let mut offsets = BTreeMap::new();
             for page in 0..pages {
-                let (pixels, _) = world_texture::tpl_texture_palette(&tpl, index, page * step)?;
-                let path = if let Some((_, path)) = seen.iter().find(|(old, _)| *old == pixels) {
-                    path.clone()
-                } else {
+                let pixels = world_texture::tpl_pixels(&tpl, index, page * step, false, true)?;
+                let path = world_texture::shared_path(&mut seen, texture_key(&pixels), || {
                     let path = format!(
                         "battle/effects/common/textures/atlas-{slot}-{index}-palette-{page}.ktx2"
                     );
-                    seen.push((pixels, path.clone()));
-                    path
-                };
+                    if let Some(output) = output.as_mut() {
+                        output.push((path.clone(), pixels));
+                    }
+                    Ok(path)
+                })?;
                 let image = images
                     .iter()
                     .position(|item| item.path == path)

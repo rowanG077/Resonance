@@ -1179,10 +1179,7 @@ fn named_profile_edits_reach_prepared_party() -> Result<()> {
     };
     let root = common::asset_root();
     let modifications = tempfile::tempdir()?;
-    let path = modifications.path().join(battle_rules::PARTY);
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    let mut rules: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join(battle_rules::PARTY))?)?;
+    let mut rules: serde_json::Value = common::cooked(battle_rules::PARTY);
     let profile = &mut rules["characters"]["lloyd"]["profile"];
     profile["head_anchor"] = serde_json::json!({"bone":"spine-01", "offset":[1.,2.,3.]});
     profile["overlimit_bone"] = "head".into();
@@ -1197,7 +1194,7 @@ fn named_profile_edits_reach_prepared_party() -> Result<()> {
     ]);
     profile["shadow"] = serde_json::Value::Null;
     profile.as_object_mut().unwrap().remove("target_anchor");
-    std::fs::write(&path, serde_json::to_vec(&rules)?)?;
+    common::write_mod(modifications.path(), battle_rules::PARTY, &rules)?;
     let library = Library::open(
         &root,
         &[Mod {
@@ -1225,7 +1222,7 @@ fn named_profile_edits_reach_prepared_party() -> Result<()> {
     )?;
     // The selected profile is retained with the captured encounter.
     rules["characters"]["lloyd"]["profile"]["head_anchor"]["bone"] = "missing-after-capture".into();
-    std::fs::write(&path, serde_json::to_vec(&rules)?)?;
+    common::write_mod(modifications.path(), battle_rules::PARTY, &rules)?;
     let (_, prepared, _) = inputs.prepare_named(&menus, opening_options(17), &catalogue)?;
     let (_, body) = resonance_content::battle_model::document::capture_party(
         &mut library.snapshot(),

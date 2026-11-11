@@ -125,7 +125,7 @@ pub fn ui(
 ) -> Result<()> {
     ensure!(!cancelled(), "UI preparation cancelled");
     crate::input_prompts::capture(snapshot)?;
-    let mut dialogue: DialogueArt = snapshot.json("ui/dialogue.json", JSON_LIMIT)?;
+    let dialogue: DialogueArt = snapshot.json("ui/dialogue.json", JSON_LIMIT)?;
     dialogue.validate()?;
     font(snapshot, &dialogue.font)?;
     dialogue.prepare_images(|path| {
@@ -141,7 +141,7 @@ pub fn ui(
         (crate::menu::Sprite::ItemImages, crate::items::PATH),
         (crate::menu::Sprite::Recipes, crate::cooking::PATH),
     ] {
-        if !menu.sprites.named_rects.contains_key(&group) {
+        if !menu.sprites.named.contains_key(&group) {
             continue;
         }
         ensure!(!cancelled(), "UI preparation cancelled");
@@ -166,6 +166,16 @@ pub fn ui(
                 .read(&texture.path, ASSET_LIMIT)
                 .with_context(|| format!("ui/menu.json refers to {}", texture.path)),
         )?;
+    }
+    for image in menu
+        .sprites
+        .named
+        .values()
+        .flat_map(|sprites| sprites.values())
+        .filter_map(crate::menu::NamedSprite::image)
+    {
+        ensure!(!cancelled(), "UI preparation cancelled");
+        diagnostics.attempt("menu sprite image", snapshot.read(&image.path, ASSET_LIMIT))?;
     }
     snapshot.read("ui/story-subtitles.json", JSON_LIMIT)?;
     ensure!(!cancelled(), "UI preparation cancelled");

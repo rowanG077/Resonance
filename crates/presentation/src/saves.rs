@@ -411,6 +411,7 @@ mod tests {
         );
         app.insert_resource(art).insert_resource(session);
         let world = app.world_mut();
+        crate::field_weapons::without_models_for_test(world);
         let visible = world
             .spawn(Camera {
                 is_active: false,

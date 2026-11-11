@@ -11,6 +11,9 @@ from pathlib import Path, PurePosixPath
 import struct
 import effect_defaults
 import effect_sources
+import resolved_content
+
+CONTENT_VERSION = 107
 
 
 def logical(path):
@@ -28,6 +31,18 @@ def object_pairs(pairs):
             raise ValueError(f"duplicate JSON key: {key}")
         result[key] = value
     return result
+
+
+def stored(path, data):
+    """Keep one content-addressed evidence copy and return its pin."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as stream:
+            stream.write(data)
+    except FileExistsError:
+        if path.read_bytes() != data:
+            raise ValueError(f"evidence collision: {path}")
+    return dict(path=str(path), sha256=hashlib.sha256(data).hexdigest())
 
 
 def same_evidence(first, second):
@@ -48,12 +63,21 @@ class Snapshot:
             raise ValueError("oracle evidence must be outside the editable library")
         self.files = {}
         descriptor = self.json("content.json")
-        if descriptor != {"version":102, "game": "tales-of-symphonia"}:
+        if descriptor != {"version": CONTENT_VERSION, "game": "tales-of-symphonia"}:
             raise ValueError("oracle requires a current named Tales of Symphonia library")
 
     def read(self, path):
         logical(path)
         if path not in self.files:
+            if not (self.root / path).is_file() and path in resolved_content.library(self.root).documents:
+                # A granular document has no file. Evidence keeps the assembled
+                # bytes for the Rust readers; other pins name its logical path.
+                data = resolved_content.library(self.root).read(path)
+                signature = hashlib.sha256(data).hexdigest()
+                self.files[path] = data, (
+                    dict(path=str(self.root / path), sha256=signature) if self.evidence_directory is None
+                    else stored(self.evidence_directory / "resolved" / f"{signature}.json", data))
+                return data
             physical = (self.root / path).resolve(strict=True)
             if not physical.is_relative_to(self.root) or not physical.is_file():
                 raise ValueError(f"content resource escapes its library: {path}")
@@ -350,7 +374,7 @@ class Snapshot:
             for textures in art["textures"].values():
                 for texture in textures:
                     for image in texture["images"]:
-                        self.image(image)
+                        self.image(image["image"])
         return dict(programs=programs, actors=actors, art=art)
 
     def scene(self, path):
@@ -370,7 +394,7 @@ class Snapshot:
         cutin = definition.get("cutin")
         if cutin:
             for image in cutin["images"]:
-                self.image(image)
+                self.image(image["image"])
         return dict(rules, effects=definition["effects"], models=art["models"],
                     textures=art["textures"].get("6", []), weapon=weapon, cutin=cutin), effects
 
@@ -382,16 +406,9 @@ class Snapshot:
         if entry not in self.files:
             raise ValueError(f"evidence entry was not captured: {entry}")
         signature = hashlib.sha256(original).hexdigest()
-        source = self.evidence_directory / "original" / f"{signature}.bin"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with source.open("xb") as stream:
-                stream.write(original)
-        except FileExistsError:
-            if source.read_bytes() != original:
-                raise ValueError(f"original evidence collision: {source}")
+        source = stored(self.evidence_directory / "original" / f"{signature}.bin", original)
         result = dict(version=1, entry=entry, files={path: pin for path, (_, pin) in sorted(self.files.items())},
-                    source=dict(path=str(source), sha256=signature))
+                    source=source)
         if original[:4] == b"ef1\0":
             result['effect_templates'] = effect_sources.members(original, self.effects(entry)['actors'])
         return result
