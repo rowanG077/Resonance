@@ -9,6 +9,8 @@ use std::{
     sync::Arc,
 };
 
+const ENEMY_RADII: [f32; 2] = [700., 1000.];
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Input {
     /// Camera-relative right/forward, normalized to [-1,1]. In vehicles these
@@ -101,6 +103,7 @@ pub struct Travel {
     transition: Option<Transition>,
     next_animation: u64,
     camera_distance: f32,
+    enemy_radius: f32,
     camera_turn_input: f32,
     map_opacity: [u8; 2],
     stick_divisor: f32,
@@ -125,6 +128,7 @@ impl Travel {
         };
         Ok(Self {
             map_opacity: state.map_display.opacity(),
+            enemy_radius: ENEMY_RADII[usize::from(state.mount.long_range())],
             state,
             parameters,
             transition: None,
@@ -214,6 +218,19 @@ impl Travel {
     }
     pub fn camera_distance(&self) -> f32 {
         self.camera_distance
+    }
+    /// World symbols fade across the last 255 units of the visible radius,
+    /// independently of their 1,400-unit simulation lifetime.
+    pub fn enemy_opacity(&self, position: Position) -> u8 {
+        if !matches!(self.state.mount, Mount::Foot | Mount::Noishe) {
+            return 0;
+        }
+        let distance = self.state.position.distance_to(position);
+        if distance >= self.enemy_radius {
+            return 0;
+        }
+        // Quantize distance before subtraction so the last visible unit has alpha one.
+        (self.enemy_radius - distance.trunc()).clamp(0., 255.) as u8
     }
     pub fn map_opacity(&self) -> [u8; 2] {
         self.map_opacity
@@ -317,6 +334,12 @@ impl Travel {
                 self.state.position = self.state.position.translated([0., 0., floor.delta[2]])?;
             }
         }
+        // Mount visibility advances independently of camera perspective changes.
+        self.enemy_radius = approach(
+            self.enemy_radius,
+            ENEMY_RADII[usize::from(self.state.mount.long_range())],
+            (ENEMY_RADII[1] - ENEMY_RADII[0]) / self.parameters.zoom_transition_ticks,
+        );
         for (alpha, goal) in self
             .map_opacity
             .iter_mut()

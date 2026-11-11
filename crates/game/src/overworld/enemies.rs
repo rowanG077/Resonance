@@ -669,6 +669,47 @@ mod tests {
     }
 
     #[test]
+    fn hidden_symbols_keep_their_slots_until_the_retirement_radius() -> Result<()> {
+        let ground = terrain(TerrainSurface::Grassland, true);
+        let locations = locations();
+        let parameters = parameters();
+        let player = context(&ground, &locations, &parameters).position;
+        let travel = crate::overworld::travel::Travel::new(
+            crate::overworld::travel::State {
+                position: player,
+                ..crate::overworld::travel::tests::state(Mount::Foot)
+            },
+            parameters.clone(),
+        )?;
+        let mut symbols = Symbols {
+            slots: [700., 1050., 1400.].map(|distance| {
+                Some(symbol(
+                    player.translated([distance, 0., 0.]).unwrap(),
+                    Behavior::Watch,
+                ))
+            }),
+            grace: 60,
+            ..Default::default()
+        };
+        let mut seed = 7;
+        symbols.step(context(&ground, &locations, &parameters), &mut seed)?;
+        assert_eq!(symbols.iter().count(), SLOTS);
+        assert_eq!(
+            seed, 7,
+            "hidden symbols must not free slots or consume spawn RNG"
+        );
+        for symbol in symbols.iter() {
+            assert_eq!(travel.enemy_opacity(symbol.position), 0);
+        }
+        symbols.slots[2].as_mut().unwrap().position = player.translated([1400.25, 0., 0.])?;
+        symbols.step(context(&ground, &locations, &parameters), &mut seed)?;
+        assert!(symbols.get(2).is_none());
+        assert_eq!(symbols.iter().count(), SLOTS - 1);
+        assert_eq!(seed, 7);
+        Ok(())
+    }
+
+    #[test]
     fn missing_collision_rolls_back_spawn_rng_and_vehicle_travel_clears_symbols() -> Result<()> {
         let ground = terrain(TerrainSurface::Grassland, false);
         let locations = locations();

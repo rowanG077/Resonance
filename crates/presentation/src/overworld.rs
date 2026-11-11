@@ -987,7 +987,9 @@ fn pose(
             position
         } else if let Some(index) = instance.enemy {
             if let Some(symbol) = session.enemies.get(index) {
-                visible = instance.model == Model::Actor(100 + u16::from(symbol.variant));
+                alpha = f32::from(session.travel.enemy_opacity(symbol.position)) / 255.;
+                visible =
+                    instance.model == Model::Actor(100 + u16::from(symbol.variant)) && alpha > 0.;
                 heading = symbol.display_heading();
                 slot = Some(symbol.animation);
                 symbol.position
@@ -1128,6 +1130,7 @@ fn pose(
             }
         };
         let fading_vehicle = matches!(instance.model, Model::Actor(200 | 203 | 204..=212));
+        let dynamic_blend = fading_vehicle || instance.enemy.is_some();
         if fading_vehicle {
             alpha *= portal.map_or(1., |p| f32::from(p.vehicle_opacity()) / 255.);
             visible &= alpha > 0.;
@@ -1253,14 +1256,14 @@ fn pose(
                 s.uv_offsets != offset
                     || s.tint != tint
                     || s.fog_range != fog_range
-                    || (fading_vehicle && s.blend != vehicle_blend)
+                    || (dynamic_blend && s.blend != vehicle_blend)
             }) {
                 let mut surface = surfaces.get_mut(handle).unwrap();
                 surface.uv_offsets = offset;
                 surface.tint = tint;
                 surface.fog_color = FOG_COLOR;
                 surface.fog_range = fog_range;
-                if fading_vehicle {
+                if dynamic_blend {
                     surface.blend = vehicle_blend;
                 }
             }
