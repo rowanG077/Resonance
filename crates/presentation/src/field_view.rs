@@ -1103,6 +1103,9 @@ pub(super) fn advance_live(
         session
             .field_mut()
             .set_unison_character(memory.unison_character);
+        session
+            .field_mut()
+            .set_item_statistics(memory.item_statistics);
     }
     if let Err(error) = session.field_mut().step(input) {
         // The VM may already have changed state. Cancel this lifetime and
@@ -1112,6 +1115,7 @@ pub(super) fn advance_live(
         failures.fatal("field update", error);
     } else if let Some(memory) = &mut menu_memory {
         memory.unison_character = session.field().unison_character();
+        memory.item_statistics = session.field().item_statistics();
         if let Some(menu) = &session.field().menu {
             memory.character = menu.character;
         }

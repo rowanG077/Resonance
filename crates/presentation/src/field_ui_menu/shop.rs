@@ -203,7 +203,7 @@ impl Drawing<'_> {
                             .equipment_kind
                             .is_some() =>
                 {
-                    self.item_statistics_data(resources, character, id)?
+                    self.item_statistics_data(data, &resources.session, character, id)?
                 }
                 Description::Item(id) => self.item_description_data(data, id)?,
             }
@@ -511,16 +511,17 @@ impl Drawing<'_> {
 
     pub(super) fn item_statistics_data(
         &mut self,
-        resources: &resonance_game::menu::Resources,
+        data: &resonance_content::menu_data::MenuData,
+        session: &resonance_content::session::SessionData,
         character: Option<usize>,
         id: u16,
     ) -> Result<()> {
-        let item = &resources.data.items[usize::from(id)];
-        let allowed = resources.session.items[usize::from(id)].allowed_characters;
+        let item = &data.items[usize::from(id)];
+        let allowed = session.items[usize::from(id)].allowed_characters;
         let character = character.filter(|&character| allowed & (1 << character) != 0);
         let stats = self.stats.equipment(item, character);
-        let lloyd_swords = resources.session.items[usize::from(id)].equipment_kind == Some(0)
-            && resources.session.items[usize::from(id)].allowed_characters & 1 != 0;
+        let lloyd_swords =
+            session.items[usize::from(id)].equipment_kind == Some(0) && allowed & 1 != 0;
         self.catalogue_sprite(
             Sprite::ItemImages,
             usize::from(id),
@@ -569,7 +570,13 @@ impl Drawing<'_> {
             );
         }
         let opacity = self.opacity;
-        for (slot, (element, &amount)) in item.properties.resistance.iter().enumerate() {
+        for (slot, (element, &amount)) in item
+            .properties
+            .resistance
+            .iter()
+            .filter(|(_, amount)| **amount != 0)
+            .enumerate()
+        {
             let x = 426. + slot as f32 * 23.;
             let index = Element::ALL.iter().position(|e| e == element).unwrap();
             self.sprite(self.spec.sprite(Sprite::Elements, index)?, [x, 372.]);
@@ -582,8 +589,7 @@ impl Drawing<'_> {
             )?;
             self.opacity = opacity;
         }
-        let category = resources
-            .data
+        let category = data
             .items_text()?
             .item_categories
             .get(usize::from(item.category))

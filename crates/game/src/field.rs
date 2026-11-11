@@ -113,6 +113,8 @@ pub struct FieldSession {
     menu_operation: Option<resonance_events::Operation>,
     /// The Unison selection survives each temporary menu.
     unison_character: usize,
+    /// Shared item-information page survives menus and shop equipment visits.
+    item_statistics: bool,
     menu_resources: Option<Arc<crate::menu::Resources>>,
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
     choices: crate::choice::ChoicePlayer,
@@ -219,6 +221,7 @@ impl FieldSession {
     /// Quickloads restart ambient services through ordinary field initialization.
     pub fn continue_ambient(&mut self, previous: &Self) {
         self.unison_character = previous.unison_character();
+        self.item_statistics = previous.item_statistics();
         self.skits = previous.skits.next_field();
         self.effect_clock = previous.effect_clock;
     }
@@ -236,6 +239,16 @@ impl FieldSession {
         self.menu
             .as_ref()
             .map_or(self.unison_character, |menu| menu.unison.character)
+    }
+
+    pub fn set_item_statistics(&mut self, statistics: bool) {
+        self.item_statistics = statistics;
+    }
+
+    pub fn item_statistics(&self) -> bool {
+        self.menu
+            .as_ref()
+            .map_or(self.item_statistics, |menu| menu.item_statistics)
     }
 
     /// Colette's character state, independent of main story progression.
@@ -323,6 +336,7 @@ impl FieldSession {
             crafting: None,
             menu_operation: None,
             unison_character: 0,
+            item_statistics: false,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
             conversation_facing: None,
@@ -536,6 +550,7 @@ impl FieldSession {
                 return Err(error);
             }
             self.unison_character = menu.unison.character;
+            self.item_statistics = menu.item_statistics;
             if let Some((party, gameplay_random)) = menu.take_party_changes() {
                 self.events.world.party = Some(party);
                 self.events.world.gameplay_random = gameplay_random;
@@ -544,6 +559,7 @@ impl FieldSession {
                 && (menu.closed || menu.page == crate::menu::Page::Main)
             {
                 self.menu = None;
+                shop.statistics = self.item_statistics;
                 shop.return_from_equipment();
             } else if menu.closed {
                 let leader_changed = menu.field_leader_changed();
@@ -561,6 +577,7 @@ impl FieldSession {
             return Ok(());
         }
         if let Some(shop) = &mut self.shop {
+            shop.statistics = self.item_statistics;
             let cue = shop.step(
                 input,
                 self.events
@@ -569,6 +586,7 @@ impl FieldSession {
                     .as_mut()
                     .context("shop party is missing")?,
             )?;
+            self.item_statistics = shop.statistics;
             if shop.closed {
                 self.shop = None;
             } else if shop.take_equipment_request() {
@@ -578,6 +596,7 @@ impl FieldSession {
             return Ok(());
         }
         if let Some(crafting) = &mut self.crafting {
+            crafting.statistics = self.item_statistics;
             let cue = crafting.step(
                 input,
                 self.events
@@ -586,6 +605,7 @@ impl FieldSession {
                     .as_mut()
                     .context("crafting party is missing")?,
             )?;
+            self.item_statistics = crafting.statistics;
             if crafting.closed {
                 self.crafting = None;
             }
@@ -1066,6 +1086,7 @@ impl FieldSession {
             crate::menu::Menu::new(page, Some(crate::Checkpoint::Field(checkpoint)), at_circle);
         // Unison keeps its character selection between menu visits.
         menu.unison.character = self.unison_character;
+        menu.item_statistics = self.item_statistics;
         menu.begin_opening();
         menu.resources = self.menu_resources.clone();
         menu.set_play_time(self.play_time);
@@ -2121,6 +2142,7 @@ mod tests {
             allow_incomplete_scripts: false,
             diagnostics: Default::default(),
             unison_character: 0,
+            item_statistics: false,
             entered_control: false,
             entry_wait_ticks: 0,
             map_id: 0,
@@ -3529,7 +3551,7 @@ mod tests {
     }
     #[test]
     #[ignore = "requires prepared session/menu data; no devices"]
-    fn unison_selection_survives_menu_and_field_owners_while_main_character_resets() {
+    fn menu_memory_survives_field_owners_while_main_character_resets() {
         let root = std::env::var_os("RESONANCE_TEST_ASSETS")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
@@ -3582,13 +3604,17 @@ mod tests {
             files: Default::default(),
         }));
         field.set_unison_character(3);
+        field.set_item_statistics(true);
         field.open_menu(crate::menu::Page::Main, checkpoint.clone(), false);
         assert_eq!(field.menu.as_ref().unwrap().character, 0);
         assert_eq!(field.menu.as_ref().unwrap().unison.character, 3);
+        assert!(field.menu.as_ref().unwrap().item_statistics);
         // The active field Menu's scratch wins over a stale host import.
         field.menu.as_mut().unwrap().unison.character = 2;
         field.menu.as_mut().unwrap().character = 2;
         field.set_unison_character(0);
+        field.set_item_statistics(false);
+        assert!(field.item_statistics());
         assert_eq!(field.unison_character(), 2);
         field.menu.as_mut().unwrap().closed = true;
         field
@@ -3603,6 +3629,7 @@ mod tests {
         next.open_menu(crate::menu::Page::Main, checkpoint.clone(), false);
         assert_eq!(next.menu.as_ref().unwrap().character, 0);
         assert_eq!(next.unison_character(), 2);
+        assert!(next.menu.as_ref().unwrap().item_statistics);
         let retained = crate::menu::unison::Unison::opening(
             next.unison_character(),
             &checkpoint.progress.party,

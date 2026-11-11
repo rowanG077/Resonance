@@ -289,6 +289,8 @@ pub struct Menu {
     pub swap_character: Option<usize>,
     pub status: status::Status,
     pub party_statistics: bool,
+    /// Start toggles the shared equipment description/statistics panel.
+    pub item_statistics: bool,
     pub inventory: items::Inventory,
     pub collection: collection::Collection,
     pub world_map: world_map::WorldMap,
@@ -433,6 +435,7 @@ impl Menu {
             swap_character: None,
             status: Default::default(),
             party_statistics: false,
+            item_statistics: false,
             inventory: Default::default(),
             collection: Default::default(),
             world_map: Default::default(),
@@ -487,7 +490,10 @@ impl Menu {
             // Entry advances once before presenting the first sliding pose.
             self.main_fade = 231 - MAIN_SLIDE_STEP;
         } else if self.page == Page::Equip {
-            self.equipment = equipment::Equipment::opening();
+            self.equipment = equipment::Equipment {
+                statistics: self.item_statistics,
+                ..equipment::Equipment::opening()
+            };
         }
     }
     pub fn main_animating(&self) -> bool {
@@ -948,7 +954,10 @@ impl Menu {
                         }
                         CharacterMenu::Equip => {
                             let by_parameter = self.equipment.by_parameter;
-                            self.equipment = equipment::Equipment::opening();
+                            self.equipment = equipment::Equipment {
+                                statistics: self.item_statistics,
+                                ..equipment::Equipment::opening()
+                            };
                             self.equipment.by_parameter = by_parameter;
                             Page::Equip
                         }

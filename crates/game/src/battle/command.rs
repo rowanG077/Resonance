@@ -222,12 +222,13 @@ enum StripIntent {
     Choose(Command),
 }
 
-/// Cursor memory transferred when a battle opens or closes.
+/// UI selections and information mode transferred when a battle opens or closes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Memory {
     pub tech_character: usize,
     pub unison_character: usize,
     pub inventory: InventoryMemory,
+    pub item_statistics: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +294,7 @@ pub struct Owner {
     equipment_character: usize,
     tech_character: usize,
     unison_character: usize,
+    item_statistics: bool,
     item_memory: items::Memory,
     items_available: bool,
     escape_requested: bool,
@@ -327,6 +329,7 @@ impl Owner {
             tech_character: self.tech_character,
             unison_character: self.unison_character,
             inventory: self.item_memory.inventory(),
+            item_statistics: self.item_statistics,
         }
     }
 
@@ -334,6 +337,7 @@ impl Owner {
         self.tech_character = memory.tech_character;
         self.unison_character = memory.unison_character;
         self.item_memory.restore(memory.inventory);
+        self.item_statistics = memory.item_statistics;
     }
 
     fn remember_page(&mut self, page: &Page) {
@@ -344,6 +348,7 @@ impl Owner {
                 self.tech_character = unison.character;
             }
             Page::Items(items) => items.remember(&mut self.item_memory),
+            Page::Equipment(equipment) => self.item_statistics = equipment.statistics,
             _ => {}
         }
     }
@@ -475,8 +480,9 @@ impl Owner {
                                 Some(Page::Strategy(crate::menu::strategy::Strategy::opening()))
                             }
                             Command::Equipment => {
-                                let (equipment, character) =
+                                let (mut equipment, character) =
                                     candidate.begin_equipment(battle, self.equipment_character)?;
+                                equipment.statistics = self.item_statistics;
                                 self.equipment_character = character;
                                 Some(Page::Equipment(equipment))
                             }
@@ -607,6 +613,7 @@ impl Owner {
                     &mut self.equipment_character,
                     input.shared_menu,
                 )?;
+                self.item_statistics = equipment.statistics;
                 result.events.extend(visit.cue.map(Event::Cue));
                 Some(if visit.closed {
                     Page::Strip
@@ -664,6 +671,7 @@ impl Owner {
 mod tests {
     use super::*;
     use resonance_battle::{Actor, PreparedBattle};
+
     fn actor(side: Side) -> Actor {
         Actor {
             hp: 100,

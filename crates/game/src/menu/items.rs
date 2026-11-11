@@ -366,6 +366,10 @@ impl Menu {
         {
             return None;
         }
+        if input == Some(MenuAction::Details) {
+            self.item_statistics = !self.item_statistics;
+            return Some(1);
+        }
         use MenuAction::*;
         let [left, right, up, down, page_up, page_down] =
             [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));

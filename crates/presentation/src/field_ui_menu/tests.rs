@@ -1039,3 +1039,34 @@ fn every_controller_glyph_uses_configured_input_art_without_native_button_sprite
     fixture.export_drawing(&drawing, "RESONANCE_ALL_BUTTONS_PREVIEW")?;
     Ok(())
 }
+
+#[test]
+#[ignore = "requires cooked item/menu artwork"]
+fn item_statistics_panel_switches_equipment_and_preserves_non_equipment_descriptions() -> Result<()>
+{
+    let mut fixture = Fixture::load()?;
+    let weapon = fixture.party.members[0].equipment[0];
+    let panel = |fixture: &Fixture, id, statistics| -> Result<DrawBatches> {
+        let mut drawing = fixture.drawing(20);
+        drawing.item_information_data(&fixture.data, &fixture.session, id, statistics)?;
+        Ok(drawing.batches)
+    };
+    let statistics = panel(&fixture, weapon, true)?;
+    assert!(panel(&fixture, weapon, false)? != statistics);
+    std::sync::Arc::make_mut(&mut fixture.data).items[usize::from(weapon)]
+        .properties
+        .resistance
+        .insert(resonance_content::menu_data::Element::Wind, 0);
+    assert!(
+        panel(&fixture, weapon, true)? == statistics,
+        "omit zero resistance"
+    );
+    std::sync::Arc::make_mut(&mut fixture.data).items[usize::from(weapon)].equipment_stats[4] += 1;
+    assert!(
+        panel(&fixture, weapon, true)? != statistics,
+        "draw the item's numeric value"
+    );
+    let consumable = symphonia_constants::ItemId::AppleGel.raw();
+    assert!(panel(&fixture, consumable, false)? == panel(&fixture, consumable, true)?);
+    Ok(())
+}

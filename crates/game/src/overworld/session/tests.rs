@@ -11,6 +11,28 @@ use resonance_content::{
 use resonance_events::input::Button;
 use resonance_events::party::Party;
 
+#[path = "../../../tests/common/menu_fixture.rs"]
+mod menu_fixture;
+
+#[test]
+fn item_statistics_survives_world_menu_reopening_and_host_transfer() -> Result<()> {
+    let mut session = start(definitions(), vec![])?;
+    Arc::make_mut(&mut Arc::make_mut(&mut session.assets).resources).menu_data =
+        Some(Arc::new(menu_fixture::fixture().1));
+    session.set_item_statistics(true);
+    session.open_menu()?;
+    assert!(session.menu.as_ref().unwrap().item_statistics);
+    session.menu.as_mut().unwrap().item_statistics = false;
+    session.set_item_statistics(true);
+    assert!(!session.item_statistics(), "the active menu owns its mode");
+    session.menu.as_mut().unwrap().closed = true;
+    session.step(Default::default())?;
+    assert!(session.menu.is_none());
+    session.open_menu()?;
+    assert!(!session.menu.as_ref().unwrap().item_statistics);
+    Ok(())
+}
+
 fn data() -> Arc<SessionData> {
     // Small valid party data; no original files are needed for scene ownership.
     Arc::new(serde_json::from_value(serde_json::json!({
