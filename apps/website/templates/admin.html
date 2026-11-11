@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Administration · Resonance{% endblock %}
+{% block content %}
+<section class="wrap page-intro">
+  <h1>Administration</h1>
+  <p><a class="inline-link" href="#releases">Release reviews</a> · <a class="inline-link" href="#accounts">Accounts and upload requests</a> · <a class="inline-link" href="#mods">Remove mods</a></p>
+</section>
+<section class="wrap dashboard-list" id="releases">
+  <h2>Release reviews</h2>
+  <p>Check the description and archive before approving. Each version needs its own approval.</p>
+  {% for r in data.reviews %}
+  <article class="window form-panel">
+    <span class="tag">{{ r.status|title }}</span>
+    <h3>{{ r.metadata.title }} · v{{ r.version }}</h3>
+    <p>By {{ r.author }} · {{ (r.size / 1048576)|round(2) }} MiB · {{ r.metadata.category }}</p>
+    <p>{{ r.metadata.summary }}</p><p class="preserve-lines">{{ r.metadata.description }}</p>
+    <a class="inline-link" href="/admin/releases/{{ r.id }}/download">Download archive for review</a>
+    <form method="post" action="/admin/releases/{{ r.id }}/review">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="note-{{ r.id }}">Note to author</label><textarea id="note-{{ r.id }}" name="note" maxlength="2000" rows="2">{{ r.note }}</textarea>
+      <div class="actions">{% if r.status == 'pending' %}<button class="button" name="decision" value="approve">Approve release</button>{% endif %}<button class="text-button" name="decision" value="reject">Reject and delete archive</button></div>
+    </form>
+  </article>
+  {% else %}<p>No releases to review.</p>{% endfor %}
+</section>
+<section class="wrap dashboard-list" id="accounts">
+  <h2>Accounts</h2>
+  <p>Suspending upload access also hides the author’s mods and blocks their public downloads. Existing files still count toward storage.</p>
+  <p>Set all upload allowances together. Larger ZIPs also need enough total storage and daily allowance. To reset file limits, use 64 MiB ZIP and 256 MiB expanded; existing releases are preserved.</p>
+  {% for a in data.accounts %}
+  <article class="window form-panel">
+    <h3>{{ a.username }}{% if a.admin %} · Administrator{% endif %}</h3>
+    <p>{{ a.policy.status|title }} · {{ (a.policy.used / 1048576)|round(2) }} MiB stored or reserved</p>
+    {% if a.reason %}<p class="preserve-lines">{{ a.reason }}</p>{% endif %}
+    <form method="post" action="/admin/accounts/{{ a.id }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="status-{{ a.id }}">Upload access</label><select id="status-{{ a.id }}" name="status">
+        <option value="requested" {% if a.policy.status in ['requested','unapproved'] %}selected{% endif %}>Awaiting approval</option>
+        <option value="approved" {% if a.policy.status == 'approved' %}selected{% endif %}>Approved</option>
+        <option value="suspended" {% if a.policy.status == 'suspended' %}selected{% endif %}>Suspended</option>
+      </select>
+      <div class="field-row">
+        <div><label for="quota-{{ a.id }}">Total storage (MiB)</label><input id="quota-{{ a.id }}" name="quota_mib" type="number" min="1" max="1048576" value="{{ a.policy.quota_mib }}" required></div>
+        <div><label for="daily-{{ a.id }}">Daily upload allowance (MiB)</label><input id="daily-{{ a.id }}" name="daily_mib" type="number" min="8" max="1048576" value="{{ a.policy.daily_mib }}" required></div>
+        <div><label for="zip-{{ a.id }}">ZIP limit (MiB)</label><input id="zip-{{ a.id }}" name="zip_mib" type="number" min="64" max="16384" value="{{ a.policy.limits.zip_mib }}" required></div>
+        <div><label for="expanded-{{ a.id }}">Expanded file limit (MiB)</label><input id="expanded-{{ a.id }}" name="expanded_mib" type="number" min="256" max="65536" value="{{ a.policy.limits.expanded_mib }}" required></div>
+      </div>
+      <button class="button">Save upload policy</button>
+    </form>
+    <details><summary>Administrator role</summary>
+      <p>Administrators can approve uploads, delete mods, and manage other administrators.</p>
+      <form method="post" action="/admin/accounts/{{ a.id }}/role">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="admin" value="{% if a.admin %}false{% else %}true{% endif %}">
+        <button class="text-button">{% if a.admin %}Remove administrator role{% else %}Make administrator{% endif %}</button>
+      </form>
+    </details>
+  </article>
+  {% else %}<p>No accounts yet.</p>{% endfor %}
+</section>
+<section class="wrap dashboard-list" id="mods">
+  <h2>Remove mods</h2>
+  {% for m in data.mods %}
+  <article class="window form-panel">
+    <h3>{{ m.title }} · {{ m.author }}</h3>
+    <details><summary>Delete this mod</summary><p>This removes every release and its archive. This cannot be undone.</p>
+      <form method="post" action="/admin/mods/{{ m.id }}/delete">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="delete-{{ m.id }}">Type delete to confirm</label><input id="delete-{{ m.id }}" name="confirm" pattern="delete" required autocomplete="off">
+        <button class="text-button">Delete mod and all releases</button>
+      </form>
+    </details>
+  </article>
+  {% else %}<p>No mods uploaded.</p>{% endfor %}
+</section>
+<section class="wrap dashboard-list">
+  <h2>Recent admin actions</h2>
+  {% for entry in data.log %}<p class="small-text">{{ entry.time }} · {{ entry.actor }} · {{ entry.action }} · {{ entry.target }} · {{ entry.note }}</p>{% else %}<p>No actions yet.</p>{% endfor %}
+</section>
+{% endblock %}

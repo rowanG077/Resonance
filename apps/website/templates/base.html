@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Resonance is an open-source reimplementation of Tales of Symphonia, written in Rust. Download the game, find mods, or upload your own.">
+  <meta name="theme-color" content="#303b52">
+  <title>{% block title %}Resonance · Tales of Symphonia in Rust{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preload" href="/static/kalam-regular.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="/">Resonance</a>
+    <nav aria-label="Main navigation">
+      <a href="/#download">Download</a>
+      <a href="/mods">Mods</a>
+      <a href="{{ repo }}">GitHub</a>
+    </nav>
+    <div class="account-nav">
+      {% if user %}
+      <a href="/dashboard">Your mods</a>
+      {% if user.is_admin %}<a href="/admin">Administration</a>{% endif %}
+      <form action="/account/logout" method="post">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="text-button">Sign out</button>
+      </form>
+      {% else %}
+      <a href="/account/login">Sign in</a>
+      {% if registration_open %}<a href="/account/register">Create an account</a>{% endif %}
+      {% endif %}
+    </div>
+  </header>
+  <main id="content">{% block content %}{% endblock %}</main>
+  <footer class="site-footer wrap">
+    <div class="footer-links">
+      <a href="{{ repo }}/blob/main/docs/editable-content.md">Modding guide</a>
+      <a href="/api/v1/mods">Mod catalogue API</a>
+    </div>
+    <p class="legal">Resonance is an independent fan project. Tales of Symphonia belongs to Bandai Namco.</p>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

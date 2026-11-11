@@ -1,0 +1,20 @@
+{% if data.mods %}
+<div class="mod-grid">
+  {% for mod in data.mods %}
+  <article class="window mod-card">
+    <div class="card-meta"><span class="tag">{{ mod.category }}</span><span>v{{ mod.releases[0].version }}</span></div>
+    <h3><a href="/mods/{{ mod.id }}">{{ mod.title }}</a></h3>
+    <p>{{ mod.summary }}</p>
+    <div class="card-bottom"><span>by {{ mod.author }}</span><span>{{ (mod.releases[0].size / 1048576)|round(1) }} MiB</span></div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="window empty-state">
+  <div>
+    <h3>{% if data.q or data.category %}No mods found.{% else %}No mods uploaded yet.{% endif %}</h3>
+    <p>{% if data.q or data.category %}Try a different search or category.{% else %}Uploaded mods will appear here.{% endif %}</p>
+  </div>
+  <a class="button" href="{% if data.q or data.category %}/mods{% else %}/mods/new{% endif %}">{% if data.q or data.category %}Clear filters{% else %}Upload a mod{% endif %}</a>
+</div>
+{% endif %}

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ status }} · Resonance</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="wrap error-page">
+    <a class="brand" href="/">Resonance</a>
+    <div class="window">
+      <p class="error-code">Error {{ status }}</p>
+      <h1>{% if status == 404 %}Page not found{% else %}Request failed{% endif %}</h1>
+      <p>{{ message }}</p>
+      <div class="actions"><a class="button" href="/">Home</a><a class="button" href="/dashboard">Your mods</a></div>
+      <p class="muted">If you submitted a form, use your browser’s Back button to return to it.</p>
+    </div>
+  </main>
+</body>
+</html>

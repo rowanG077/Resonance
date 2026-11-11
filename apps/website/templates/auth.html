@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{% if data.mode == 'register' %}Create an account{% else %}Sign in{% endif %} · Resonance{% endblock %}
+{% block content %}
+<section class="wrap auth-layout">
+  <div class="window form-panel">
+    <h1>{% if data.mode == 'register' %}Create an account{% else %}Sign in{% endif %}</h1>
+    <p>{% if data.mode == 'register' %}An account lets you upload mods and manage your releases. You can browse and download mods without one.{% else %}Sign in to upload a mod or manage your releases.{% endif %}</p>
+    <form method="post">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="username">Username</label>
+      <input id="username" name="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" aria-describedby="username-help">
+      <small id="username-help">3–24 letters, numbers, underscores or hyphens. Shown as the author of your mods.</small>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required maxlength="128" autocomplete="{% if data.mode == 'register' %}new-password{% else %}current-password{% endif %}" aria-describedby="password-help">
+      <small id="password-help">{% if data.mode == 'register' %}10–128 UTF-8 bytes; non-ASCII characters can use multiple bytes. {% endif %}Password recovery is not available yet.</small>
+      <button class="button full-width">{% if data.mode == 'register' %}Create account{% else %}Sign in{% endif %}</button>
+    </form>
+    {% if data.mode == 'register' or registration_open %}
+    <p class="form-switch">
+      {% if data.mode == 'register' %}Already have an account? <a href="/account/login">Sign in</a>
+      {% else %}<a href="/account/register">Create an account</a>{% endif %}
+    </p>
+    {% else %}
+    <p class="form-switch">Account creation is currently closed.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
