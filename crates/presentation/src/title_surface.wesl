@@ -80,8 +80,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 let weights = sample_toon(slot, in.world_normal.xy, toon_dx, toon_dy).rgb;
                 let decoded_light = weights.r * shades[0].rgb + weights.g * shades[1].rgb + weights.b;
                 let light = tev_input(vec4<f32>(decoded_light, 1.0), red_channel).rgb;
-                // Ambient and palette colors each have fourfold gain. Round to bytes
-                // between the two color products;
+                // Round to bytes between the ambient and palette color products;
                 // continuous float multiplication makes the characters slightly brighter.
                 var ambient = vec3<f32>(255.0);
                 // Apply channel lighting before swapping raster color channels.
@@ -91,8 +90,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                         ambient = round(raster.rgb * 255.0 * ambient_scale);
                     }
                 }
+                // Custom opaque actors disable the first TEV gain; the later toon
+                // palette stage still has its independent fourfold gain.
+                let base_divisor = select(256.0, 64.0, material.ambient_scale.w != 0.0);
                 let base = min(floor(round(texture_color.rgb * 255.0)
-                    * (ambient + floor(ambient / 128.0)) / 64.0 + 0.5), vec3<f32>(255.0));
+                    * (ambient + floor(ambient / 128.0)) / base_divisor + 0.5), vec3<f32>(255.0));
                 let lit = min(floor(round(light * 255.0)
                     * (base + floor(base / 128.0)) / 64.0 + 0.5), vec3<f32>(255.0));
                 color = vec4<f32>(lit / 255.0, color.a);

@@ -439,6 +439,7 @@ pub(super) fn render(
                     surface.field_light = body.field_light;
                     surface.shade_colors = body.shade_colors;
                     surface.ambient_color = body.ambient_color;
+                    surface.ambient_modulation = body.ambient_modulation;
                     surface.scenery_lighting = body.scenery_lighting;
                     surface.toon_ramp = if layer.preview.additive {
                         None

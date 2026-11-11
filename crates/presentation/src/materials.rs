@@ -250,6 +250,8 @@ pub struct TitleSurface {
     pub field_fog: bool,
     /// Native ambient channels are applied before byte-quantized toon shading.
     pub ambient_scale: Vec3,
+    /// Apply the ambient tint's fourfold TEV gain before the toon palette.
+    pub ambient_modulation: bool,
     pub vertex_color: bool,
     pub constant_color: bool,
     /// Clamp the texture/color product before fog and framebuffer blending.
@@ -288,6 +290,7 @@ impl Default for TitleSurface {
             fog_range: Vec4::ZERO,
             field_fog: false,
             ambient_scale: Vec3::ONE,
+            ambient_modulation: true,
             vertex_color: true,
             constant_color: false,
             clamp_color: false,
@@ -351,7 +354,11 @@ impl From<&TitleSurface> for SurfaceUniform {
                 | (u32::from(value.clip_below_floor) << 1)
                 | (u32::from(value.vertex_color) << 2)
                 | (u32::from(value.toon_ramp.is_some()) << 3),
-            ambient_scale: value.ambient_scale.extend(0.),
+            ambient_scale: value.ambient_scale.extend(if value.ambient_modulation {
+                1.
+            } else {
+                0.
+            }),
         }
     }
 }

@@ -21,7 +21,7 @@ struct SurfaceUniform {
     fog_range: vec4<f32>, // XYZ: material start/end/exponent; W: use field view fog.
     alpha_cutoff: f32,
     flags: u32, // Bits 0/1: red-channel/floor clip; bits 2/3: vertex color/toon lighting.
-    ambient_scale: vec4<f32>,
+    ambient_scale: vec4<f32>, // RGB: actor scale; W: enable first TEV fourfold gain.
 };
 
 

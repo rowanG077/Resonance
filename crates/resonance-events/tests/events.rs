@@ -4936,6 +4936,70 @@ fn script_lighting_persists_only_when_the_actor_requests_it() {
 }
 
 #[test]
+fn custom_ambient_modulation_follows_opacity_on_actor_updates() {
+    let mut world = GameWorld::default();
+    world.insert_actor(20, Actor::new(164, [0.; 3]));
+    assert!(world.actors[&20].ambient_modulation_enabled());
+    let main = script(&[
+        (Call::SetActorProperty, &[20, 14, 1]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::SetActorProperty, &[20, 8, 128]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::SetActorProperty, &[20, 8, 255]),
+        (Call::YieldCommand, &[0, 1]),
+    ]);
+    let mut events = runtime(program(&main, &[0x20ff]), Default::default(), world);
+    // Scripts write after the actor update, so the enable bit changes next tick.
+    assert!(events.world.actors[&20].ambient_modulation_enabled());
+    events.step().unwrap();
+    assert!(!events.world.actors[&20].ambient_modulation_enabled());
+    events.step().unwrap();
+    assert_eq!(events.world.actors[&20].opacity, 128);
+    assert!(!events.world.actors[&20].ambient_modulation_enabled());
+    events.step().unwrap();
+    assert!(events.world.actors[&20].ambient_modulation_enabled());
+    events.step().unwrap();
+    assert_eq!(events.world.actors[&20].opacity, 255);
+    assert!(events.world.actors[&20].ambient_modulation_enabled());
+    events.step().unwrap();
+    assert!(!events.world.actors[&20].ambient_modulation_enabled());
+}
+
+#[test]
+fn clearing_custom_lighting_retains_ambient_enable_state() {
+    for (opacity, next_opacity) in [(128, 255), (255, 128)] {
+        let mut world = GameWorld::default();
+        world.insert_actor(20, Actor::new(164, [0.; 3]));
+        let main = script(&[
+            (Call::SetActorProperty, &[20, 14, 1]),
+            (Call::SetActorProperty, &[20, 8, opacity]),
+            (Call::YieldCommand, &[0, 2]),
+            (Call::SetActorProperty, &[20, 14, 0]),
+            (Call::YieldCommand, &[0, 2]),
+            (Call::SetActorProperty, &[20, 8, next_opacity]),
+            (Call::YieldCommand, &[0, 2]),
+        ]);
+        let mut events = runtime(program(&main, &[0x20ff]), Default::default(), world);
+        events.step().unwrap();
+        let enabled = opacity != 255;
+        assert_eq!(
+            events.world.actors[&20].ambient_modulation_enabled(),
+            enabled
+        );
+        events.step().unwrap();
+        assert!(!events.world.actors[&20].keeps_script_lighting());
+        for _ in 0..3 {
+            events.step().unwrap();
+            assert_eq!(
+                events.world.actors[&20].ambient_modulation_enabled(),
+                enabled
+            );
+        }
+        assert_eq!(i32::from(events.world.actors[&20].opacity), next_opacity);
+    }
+}
+
+#[test]
 fn actor_color_channels_start_at_native_neutral_and_retain_byte_values() {
     for channel in 42..=44 {
         let mut world = GameWorld::default();

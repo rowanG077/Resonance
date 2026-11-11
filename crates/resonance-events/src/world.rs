@@ -72,6 +72,8 @@ pub struct Actor {
     pub tilt: [i32; 2],
     pub tint: [u8; 3],
     pub opacity: u8,
+    /// Retained native ambient-enable bit; custom lighting updates it from opacity.
+    pub(crate) ambient_modulation: bool,
     pub heading_lock: u8,
     pub interaction_label: i32,
     pub pushable: bool,
@@ -173,6 +175,11 @@ impl Actor {
     /// Custom lighting retains script colours and also disables view culling.
     pub fn keeps_script_lighting(&self) -> bool {
         self.culling_flags[1] == Some(true)
+    }
+
+    /// Last actor update's ambient-enable bit, retained when custom lighting clears.
+    pub fn ambient_modulation_enabled(&self) -> bool {
+        self.ambient_modulation
     }
 
     /// Native model-less emitters draw particles instead of an actor model.
@@ -377,6 +384,7 @@ impl Actor {
             tilt: [0; 2],
             tint: [crate::effect::NEUTRAL_TINT; 3],
             opacity: 255,
+            ambient_modulation: true,
             heading_lock: 0,
             interaction_label: 2,
             pushable: false,
