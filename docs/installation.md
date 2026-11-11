@@ -1,7 +1,7 @@
 # Install and use Resonance
 
-Resonance is a Rust reimplementation of the GameCube version of Tales of
-Symphonia. Download a prebuilt archive from
+Resonance is a Rust reimplementation of Tales of Symphonia.
+Download a prebuilt archive from
 [GitHub Releases](https://github.com/rowanG077/Resonance/releases).
 Each archive includes the game, the asset importer, this README and the license.
 Rust, Nix and external media conversion tools are not required.

@@ -1,11 +1,12 @@
 <p align="center"><img src="resources/logo.svg" alt="Resonance" width="640"></p>
 
-Resonance is a Rust reimplementation of the GameCube version of Tales of
-Symphonia, built with Bevy. Its goals are:
+Resonance is a Rust reimplementation of Tales of Symphonia, built with Bevy.
+Its goals are:
 
 - Faithful gameplay, visuals and audio on modern platforms.
 - Human-readable, editable assets for modding.
 - Support for creating new fields, events, skits and other content.
+- Support for the Steam version.
 
 ## Download and install
 
