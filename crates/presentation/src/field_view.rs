@@ -1680,8 +1680,9 @@ fn instances(
         }
         let resource = actor.model_resource();
         let Some(parts) = art.models.get(&resource) else {
+            // Hidden service actors, including the ring controller, have no model.
             if !actor.interaction_anchor
-                && !(actor.is_model_less_emitter() && !actor.visible)
+                && (actor.visible || resource != 0)
                 && missing_models.insert((art.map, resource))
             {
                 warn!(

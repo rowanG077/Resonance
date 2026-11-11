@@ -4195,7 +4195,7 @@ fn locomotion_changes_gait_and_preserves_phase_when_speed_changes() {
     events.step().unwrap();
     let a = events.world.actors[&1].animation.as_ref().unwrap();
     assert_eq!(a.start_tick, 1);
-    assert_eq!(a.rate, 1.);
+    assert_eq!(a.rate, 1.2);
     assert_eq!(a.sample(events.tick(), 0, 80.), previous);
     events
         .world
@@ -4208,7 +4208,7 @@ fn locomotion_changes_gait_and_preserves_phase_when_speed_changes() {
         .speed = 8.;
     events.step().unwrap();
     let a = events.world.actors[&1].animation.as_ref().unwrap();
-    assert_eq!((a.slot, a.rate, a.blend_ticks), (40, 0.8, 2));
+    assert_eq!((a.slot, a.rate, a.blend_ticks), (40, 8. / 7.75, 2));
     events.world.input_enabled = false;
     events
         .world

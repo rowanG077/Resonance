@@ -17,7 +17,8 @@ pub(super) fn step(
 ) -> AmbientMotion {
     let mut intent = AmbientMotion::default();
     if !free_control {
-        intent.paused = true;
+        intent.movement_paused = true;
+        intent.animation_paused = true;
         intent.selecting = true;
         return intent;
     }
@@ -59,7 +60,8 @@ pub(super) fn step(
                 actor.target_heading = heading;
             }
             intent.walking = true;
-            intent.paused = true;
+            intent.movement_paused = true;
+            intent.animation_paused = true;
         } else {
             intent.walking = patrol(
                 &mut actor.position,
@@ -356,7 +358,7 @@ mod tests {
         enemy.enemy.as_mut().unwrap().pause_ticks = 60;
         for _ in 0..60 {
             let result = enemy.step_autonomy(false, false, None, &mut || 0, &mut |_| true, 1.);
-            assert!(result.paused);
+            assert!(result.movement_paused);
         }
         assert_eq!(enemy.position, before);
         assert_eq!(enemy.enemy.unwrap().pause_ticks, 0);
@@ -396,7 +398,7 @@ mod tests {
         enemy.enemy.as_mut().unwrap().alert_response = 1;
         let before = enemy.position;
         let intent = update(&mut enemy, [before[0], -100., 0.]);
-        assert!(intent.walking && intent.paused);
+        assert!(intent.walking && intent.movement_paused);
         assert_eq!(enemy.position, before);
         assert_eq!(enemy.target_heading, 0.);
     }

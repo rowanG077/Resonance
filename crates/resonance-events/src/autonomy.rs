@@ -131,7 +131,8 @@ pub struct Path {
 #[derive(Default)]
 pub(crate) struct AmbientMotion {
     pub walking: bool,
-    pub paused: bool,
+    pub movement_paused: bool,
+    pub animation_paused: bool,
     pub selecting: bool,
 }
 impl crate::GameWorld {
@@ -188,7 +189,10 @@ impl Actor {
                 if enemy.pause_ticks > 0 {
                     enemy.pause_ticks -= 1;
                 }
-                intent.paused = true;
+                // Preserve the current clip while movement and decisions are paused.
+                intent.movement_paused = true;
+                intent.animation_paused = !free_control;
+                intent.selecting = true;
                 return intent;
             }
         }
@@ -222,8 +226,9 @@ impl Actor {
             if path.count == 0 {
                 return intent;
             }
-            intent.paused = !free_control;
-            if intent.paused {
+            intent.movement_paused = !free_control;
+            intent.animation_paused = !free_control;
+            if intent.movement_paused {
                 return intent;
             }
             path.next = path.next.min(path.count - 1);
@@ -303,8 +308,9 @@ impl Actor {
                     ai.initialized = true;
                 }
                 intent.walking = true;
-                intent.paused = !free_control;
-                if intent.paused {
+                intent.movement_paused = !free_control;
+                intent.animation_paused = !free_control;
+                if intent.movement_paused {
                     return intent;
                 }
                 let outside_home = ai.behavior == Behavior::WanderNearHome

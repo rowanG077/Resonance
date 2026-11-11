@@ -1031,7 +1031,7 @@ impl EventRuntime {
                     })
                 });
             let battle_space = self.world.battle_event.is_some();
-            if !ambient.paused {
+            if !ambient.movement_paused {
                 actor.step_motion(battle_space);
             }
             resolve(&prepared, *id, actor, previous);
@@ -1077,7 +1077,7 @@ impl EventRuntime {
             if let Some(animation) = &mut actor.animation {
                 // Offscreen scripted clips must still advance so their events can finish.
                 animation.set_paused(
-                    ambient.paused || actor.animation_culled && !actor.scripted_animation,
+                    ambient.animation_paused || actor.animation_culled && !actor.scripted_animation,
                     self.world.tick,
                 );
             }
