@@ -30,6 +30,7 @@ fn field(ability: Ability, callback: Option<(u32, &str)>) -> EventRuntime {
         ModelResource {
             clips: [
                 (crate::animation::slot::IDLE, clip()),
+                (crate::animation::slot::WALK, clip()),
                 (crate::animation::slot::STAGGER, clip()),
             ]
             .into(),
@@ -356,11 +357,75 @@ fn walls_prevent_stuns_and_unobstructed_enemies_recover() {
             events.world.actors[&2].enemy.as_ref().unwrap().pause_ticks > 0,
             stuns
         );
+        if stuns {
+            let actor = &events.world.actors[&2];
+            let position = actor.position;
+            let animation = actor.animation.as_ref().unwrap();
+            let start = animation.start_tick;
+            let sample = animation.sample(events.tick(), 0, 30.);
+            steps(&mut events, 10);
+            let actor = &events.world.actors[&2];
+            let animation = actor.animation.as_ref().unwrap();
+            assert_eq!(actor.position, position);
+            assert_eq!(animation.slot, crate::animation::slot::IDLE);
+            assert_eq!(animation.start_tick, start);
+            assert_eq!(animation.paused_at, None);
+            assert_ne!(animation.sample(events.tick(), 0, 30.), sample);
+        }
         steps(&mut events, 300);
         assert_eq!(
             events.world.actors[&2].enemy.as_ref().unwrap().pause_ticks,
             0
         );
+    }
+}
+
+#[test]
+fn enemy_pause_retains_the_current_clip_and_resumes_its_decision() {
+    for pause in [20, -1] {
+        let mut events = field(Ability::Fire, None);
+        let mut actor = enemy([0., -200., 0.]);
+        actor.autonomy.as_mut().unwrap().behavior = crate::Behavior::enemy(2);
+        actor.enemy.as_mut().unwrap().normal_speed = 3.;
+        events.world.insert_actor(2, actor);
+        events.step().unwrap();
+        let actor = events.world.actors.get_mut(&2).unwrap();
+        actor.enemy.as_mut().unwrap().pause_ticks = pause;
+        let position = actor.position;
+        let remaining = actor.autonomy.unwrap().remaining;
+        let animation = actor.animation.as_ref().unwrap();
+        assert_eq!(animation.slot, crate::animation::slot::WALK);
+        let start = animation.start_tick;
+        steps(&mut events, 10);
+        let actor = &events.world.actors[&2];
+        let animation = actor.animation.as_ref().unwrap();
+        assert_eq!(actor.position, position);
+        assert_eq!(actor.autonomy.unwrap().remaining, remaining);
+        assert_eq!(animation.slot, crate::animation::slot::WALK);
+        assert_eq!(animation.start_tick, start);
+        assert_eq!(animation.paused_at, None);
+        let elapsed = animation.elapsed(events.tick(), 0);
+        assert!(elapsed > 0.);
+        events.world.input_enabled = false;
+        steps(&mut events, 5);
+        let actor = &events.world.actors[&2];
+        assert_eq!(actor.position, position);
+        assert_eq!(
+            actor.animation.as_ref().unwrap().elapsed(events.tick(), 0),
+            elapsed
+        );
+        events.world.input_enabled = true;
+        steps(&mut events, 5);
+        let actor = &events.world.actors[&2];
+        assert!(actor.animation.as_ref().unwrap().elapsed(events.tick(), 0) > elapsed);
+        assert_eq!(
+            actor.enemy.as_ref().unwrap().pause_ticks,
+            if pause < 0 { -1 } else { 0 }
+        );
+        let actor = events.world.actors.get_mut(&2).unwrap();
+        actor.enemy.as_mut().unwrap().pause_ticks = 0;
+        events.step().unwrap();
+        assert_ne!(events.world.actors[&2].position, position);
     }
 }
 #[test]
