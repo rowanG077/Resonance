@@ -50,6 +50,25 @@ jobs:
         if: steps.plan.outputs.run_tests == 'true'
         run: python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
+  website:
+    name: Website
+    needs: prepare
+    if: needs.prepare.outputs.run_tests == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+
+      - name: Check website formatting
+        run: cargo fmt --manifest-path apps/website/Cargo.toml --check
+
+      - name: Test website
+        run: cargo test --locked --manifest-path apps/website/Cargo.toml
+
   test:
     name: ${{ matrix.platform }}
     needs: prepare
