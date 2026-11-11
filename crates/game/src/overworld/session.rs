@@ -773,7 +773,16 @@ impl Session {
                     &self.assets.terrain,
                     &self.assets.rules,
                 )?;
-                if self.travel.player_has_control() {
+                let travel_has_control = self.travel.player_has_control();
+                // A forced Noishe dismount carries one selected ground motion
+                // before taking control. It still needs landmark rejection so
+                // the player cannot stop inside an entrance during the clip.
+                let carried_dismount = self.travel.state().position != previous
+                    && cues.contains(&travel::Cue::Started {
+                        from: Mount::Noishe,
+                        to: Mount::Foot,
+                    });
+                if travel_has_control || carried_dismount {
                     let state = self.travel.state();
                     if let Some(contact) = self.locations.contact(
                         state.world,
@@ -800,7 +809,9 @@ impl Session {
                             });
                         }
                         self.travel.reject_displacement(previous);
-                        self.contact(contact, airborne)?;
+                        if travel_has_control {
+                            self.contact(contact, airborne)?;
+                        }
                     }
                     if self.player_has_control()
                         && let Some((position, variant)) =

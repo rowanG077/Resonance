@@ -273,7 +273,7 @@ fn world_views_cycle_fade_and_survive_restore_for_every_mount() -> Result<()> {
     use resonance_content::overworld::MapDisplay;
     let rules = rules();
     let context = Context {
-        event_flags: &Default::default(),
+        event_flags: &[903].into(),
         rheairds_owned: true,
         landing_clear: true,
     };
@@ -455,6 +455,126 @@ fn noishe_waits_for_both_zoom_and_its_own_animation() -> Result<()> {
         )?,
         [Cue::Denied]
     );
+    Ok(())
+}
+
+#[test]
+fn noishe_dismounts_after_crossing_only_when_the_destination_region_is_locked() -> Result<()> {
+    let terrain = terrain(TerrainSurface::Grassland);
+    for world in [World::Sylvarant, World::TetheAlla] {
+        let mut tables = crate::overworld::tests::tables();
+        tables.area_grids[world.index()][1][1] = 3;
+        let rules = Rules::new(tables)?;
+        let mut state = state(Mount::Noishe);
+        state.world = world;
+        state.position = Position::from_map([6395., 3200., 0.])?;
+        let travel = Travel::new(state, parameters())?;
+        let base = 900 + world.index() as u16 * 11;
+        for unlocked in [false, true] {
+            // The other world's region-zero flag cannot unlock this boundary.
+            let mut flags: BTreeSet<_> = [base + 3, 900 + (1 - world.index() as u16) * 11].into();
+            if unlocked {
+                flags.insert(base);
+            }
+            let context = Context {
+                event_flags: &flags,
+                rheairds_owned: false,
+                landing_clear: true,
+            };
+            let running = Input {
+                stick: [1., 0.],
+                walk: true,
+                ..Default::default()
+            };
+            let mut travel = travel.clone();
+            assert!(travel.step(running, &context, &terrain, &rules)?.is_empty());
+            assert_eq!(rules.area(world, travel.state.position), 0);
+            assert_eq!(travel.state.mount, Mount::Noishe);
+            let crossed = travel.state.position;
+            let expected_mount = if unlocked { Mount::Noishe } else { Mount::Foot };
+            let mut released = travel.clone();
+            released.step(Input::default(), &context, &terrain, &rules)?;
+            assert_eq!(released.state.mount, expected_mount);
+            assert_eq!(released.state.position, crossed);
+
+            let cues = travel.step(running, &context, &terrain, &rules)?;
+            assert_eq!(travel.state.mount, expected_mount);
+            assert_eq!(travel.player_has_control(), unlocked);
+            assert!((crossed.distance_to(travel.state.position) - 80. / 6.8).abs() < 0.05);
+            if unlocked {
+                assert!(cues.is_empty());
+            } else {
+                assert!(matches!(
+                    cues.as_slice(),
+                    [
+                        Cue::Animation {
+                            mounting: false,
+                            ..
+                        },
+                        Cue::Started {
+                            from: Mount::Noishe,
+                            to: Mount::Foot
+                        }
+                    ]
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn forced_noishe_dismount_matches_manual_camera_and_enemy_visibility() -> Result<()> {
+    let terrain = terrain(TerrainSurface::Grassland);
+    let rules = rules();
+    let unlocked = Context {
+        event_flags: &[903].into(),
+        rheairds_owned: false,
+        landing_clear: true,
+    };
+    let locked = Context {
+        event_flags: &Default::default(),
+        ..unlocked
+    };
+    for alternate in [false, true] {
+        for view_ticks in [0, 1] {
+            let mut state = state(Mount::Noishe);
+            state.alternate_perspective = alternate;
+            let mut forced = Travel::new(state, parameters())?;
+            for tick in 0..view_ticks {
+                forced.step(
+                    Input {
+                        toggle_perspective: tick == 0,
+                        ..Default::default()
+                    },
+                    &unlocked,
+                    &terrain,
+                    &rules,
+                )?;
+            }
+            let mut manual = forced.clone();
+            let distance = forced.camera_distance();
+            let enemy = forced.state.position.translated([750.5, 0., 0.])?;
+            let input = Input {
+                toggle_perspective: view_ticks == 0,
+                ..Default::default()
+            };
+            forced.step(input, &locked, &terrain, &rules)?;
+            manual.step(
+                Input {
+                    toggle_noishe: true,
+                    ..input
+                },
+                &locked,
+                &terrain,
+                &rules,
+            )?;
+            assert_eq!(forced.state.mount, Mount::Foot);
+            assert!(forced.camera_distance() < distance);
+            assert_eq!(forced.camera_distance(), manual.camera_distance());
+            assert_eq!(forced.enemy_opacity(enemy), manual.enemy_opacity(enemy));
+        }
+    }
     Ok(())
 }
 
