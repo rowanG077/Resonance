@@ -955,12 +955,16 @@ impl Battle {
         input: ControlInput,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
-        if self.phase() != crate::BattlePhase::Combat
+        let index = actor.index();
+        // Ordinary escape retains targeting and accepts commands from an active jump.
+        let escape_targeting =
+            self.ordinary_escape_ending() && self.actors[index].side == crate::Side::Party;
+        if !escape_targeting
+            && self.phase() != crate::BattlePhase::Combat
             && self.terminal.result != Some(crate::BattleResult::Victory)
         {
             return Ok(());
         }
-        let index = actor.index();
         if self.runtime[index].control.is_none() {
             return Ok(());
         }
@@ -987,14 +991,19 @@ impl Battle {
             self.actors[index].input = InputIntent::default();
         }
         if self.actors[index].control == Control::Auto {
-            if let Some(id) = input.assigned_arte
+            if !escape_targeting
+                && let Some(id) = input.assigned_arte
                 && let Some(action) = self.shortcut_action(actor, id)
             {
                 self.queue_technique(actor, action)?;
             }
             return Ok(());
         }
-        if stopping || ordinary {
+        if escape_targeting {
+            if self.escape_jump_commands(actor) {
+                self.player_control(&definition, input, cues)?;
+            }
+        } else if stopping || ordinary {
             self.project_ground_command(&definition, input, stopping, cues);
         } else if moving {
             self.project_moving_command(&definition, input, cues);
@@ -1019,6 +1028,9 @@ impl Battle {
             }
             self.runtime[index].set_target(target);
             self.runtime[index].target_settle_remaining = crate::state::TARGET_SETTLE_UPDATES;
+        }
+        if escape_targeting {
+            return Ok(());
         }
         let intent = self.actors[index].input;
         let replaces_movement = intent.action.is_some()
@@ -1188,6 +1200,10 @@ impl Battle {
         sequence: &crate::action::Sequence,
         cues: &mut Vec<Cue>,
     ) -> Result<bool> {
+        // Escape prevents the current action from chaining into another.
+        if self.escape_ending_phase() {
+            return Ok(false);
+        }
         let actor = sequence.actor;
         let index = actor.index();
         if self.actors[index].control_ex_state.counter_active
