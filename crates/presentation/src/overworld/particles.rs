@@ -281,6 +281,11 @@ impl Artwork {
     pub(super) fn ready(&self, images: &Assets<Image>) -> bool {
         self.images.iter().all(|h| images.contains(h))
     }
+    pub(super) fn hide(&self, world: &mut World) {
+        for draw in self.draws.iter().flatten() {
+            world.entity_mut(draw.entity).insert(Visibility::Hidden);
+        }
+    }
     pub(super) fn despawn(self, world: &mut World) {
         for draw in self.draws.into_iter().flatten() {
             world.despawn(draw.entity);

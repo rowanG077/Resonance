@@ -23,32 +23,38 @@ fn definition() -> Arc<ModelDefinition> {
         duration_frames: 10.,
         tracks: vec![Track {
             bone: 1,
-            nodes: vec![resonance_content::animation::NodeTrack {
-                bind: resonance_content::animation::Transform::default(),
-                translation: Some(Channel {
-                    times: (vec![0., 10.])
-                        .into_iter()
-                        .map(|frame| frame / 30.)
-                        .collect(),
-                    interpolation: Interpolation::Linear,
-                    values: vec![[2., 0., 3.], [12., 0., 3.]],
-                }),
-                rotation: None,
-                scale: None,
-            }],
+            nodes: vec![std::sync::Arc::new(
+                resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(Channel {
+                        times: (vec![0., 10.])
+                            .into_iter()
+                            .map(|frame| frame / 30.)
+                            .collect(),
+                        interpolation: Interpolation::Linear,
+                        values: vec![[2., 0., 3.], [12., 0., 3.]],
+                    }),
+                    rotation: None,
+                    scale: None,
+                },
+            )],
         }],
     };
-    definition.motions = BTreeMap::from([(0, motion.clone()), (1, motion)]);
+    definition.motions = BTreeMap::from([(0, Arc::new(motion.clone())), (1, Arc::new(motion))]);
     Arc::new(definition)
 }
 
 #[test]
 fn partial_pose_keeps_advancing_during_body_blend_and_blends_out_from_visible_pose() -> Result<()> {
     let mut definition = (*definition()).clone();
-    let motion = definition.motions.get_mut(&1).unwrap();
+    let motion = Arc::make_mut(definition.motions.get_mut(&1).unwrap());
     let mut root = motion.tracks[0].clone();
     root.bone = 0;
-    root.nodes[0].translation.as_mut().unwrap().values = vec![[0.; 3], [20., 0., 0.]];
+    std::sync::Arc::make_mut(&mut root.nodes[0])
+        .translation
+        .as_mut()
+        .unwrap()
+        .values = vec![[0.; 3], [20., 0., 0.]];
     motion.tracks.push(root);
     let actor = actor();
     let mut model = Model::new(Arc::new(definition), ActorId(0), &actor)?;
@@ -109,7 +115,7 @@ fn model_playback_loops_freezes_or_finishes_at_its_directional_endpoint() -> Res
     for rate in [-0.5, 0., 0.5, 4.] {
         for repeat in [false, true] {
             let mut definition = (*definition()).clone();
-            let motion = definition.motions.get_mut(&0).unwrap();
+            let motion = Arc::make_mut(definition.motions.get_mut(&0).unwrap());
             motion.duration_frames = 30.;
             motion.tracks.clear();
             definition.initial.frame = 15.;
@@ -466,7 +472,7 @@ fn body_gap_uses_posed_spheres_at_current_placement_without_advancing() -> Resul
 #[test]
 fn affine_root_policy_preserves_translation_observation_and_shear() -> Result<()> {
     let mut definition = (*definition()).clone();
-    let motion = definition.motions.get_mut(&0).unwrap();
+    let motion = Arc::make_mut(definition.motions.get_mut(&0).unwrap());
     let track = &mut motion.tracks[0];
     track.bone = 0;
     *track = serde_json::from_value(serde_json::json!({
@@ -647,7 +653,7 @@ fn affine_root_policy_preserves_translation_observation_and_shear() -> Result<()
 fn hurt_restarts_the_selected_clip_and_preserves_the_contact_frames_drawing_pose() {
     let mut definition = Arc::try_unwrap(definition()).unwrap();
     definition.reactions.hurt = [Some(1), Some(0)];
-    definition.motions.get_mut(&1).unwrap().tracks[0].nodes[0]
+    Arc::make_mut(&mut Arc::make_mut(definition.motions.get_mut(&1).unwrap()).tracks[0].nodes[0])
         .translation
         .as_mut()
         .unwrap()
@@ -698,7 +704,7 @@ fn absent_reaction_slots_preserve_playback_and_declared_missing_clips_fail() {
     let mut definition = Arc::try_unwrap(definition()).unwrap();
     definition.initial.rate = 0.5;
     definition.reactions.hurt = [None, Some(1)];
-    definition.motions.get_mut(&1).unwrap().tracks[0].nodes[0]
+    Arc::make_mut(&mut Arc::make_mut(definition.motions.get_mut(&1).unwrap()).tracks[0].nodes[0])
         .translation
         .as_mut()
         .unwrap()
@@ -1105,25 +1111,27 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
 #[test]
 fn sparse_clips_retain_omitted_channels_until_replaced() {
     let mut definition = (*definition()).clone();
-    definition.motions.get_mut(&0).unwrap().tracks[0].nodes[0]
+    Arc::make_mut(&mut Arc::make_mut(definition.motions.get_mut(&0).unwrap()).tracks[0].nodes[0])
         .translation
         .as_mut()
         .unwrap()
         .values = vec![[12., 0., 3.]; 2];
-    let mut sparse = definition.motions[&1].clone();
-    sparse.tracks[0].nodes[0].translation = None;
-    sparse.tracks[0].nodes[0].rotation = Some(resonance_content::animation::Channel {
-        interpolation: resonance_content::animation::Interpolation::Linear,
-        times: vec![0., 10. / 30.],
-        values: vec![[0., 0., 0., 1.], [0., 0., 1., 0.]],
-    });
-    definition.motions.insert(2, sparse);
+    let mut sparse = (*definition.motions[&1]).clone();
+    std::sync::Arc::make_mut(&mut sparse.tracks[0].nodes[0]).translation = None;
+    std::sync::Arc::make_mut(&mut sparse.tracks[0].nodes[0]).rotation =
+        Some(resonance_content::animation::Channel {
+            interpolation: resonance_content::animation::Interpolation::Linear,
+            times: vec![0., 10. / 30.],
+            values: vec![[0., 0., 0., 1.], [0., 0., 1., 0.]],
+        });
+    definition.motions.insert(2, Arc::new(sparse));
     definition.motions.insert(
         3,
         Motion {
             duration_frames: 10.,
             tracks: vec![],
-        },
+        }
+        .into(),
     );
     let definition = Arc::new(definition);
     let subject = actor();
@@ -1399,7 +1407,7 @@ fn invalid_playback_is_rejected_before_replacing_a_visible_pose() -> Result<()> 
         let mut invalid = (*definition()).clone();
         invalid.initial.frame = frame;
         invalid.initial.rate = rate;
-        invalid.motions.get_mut(&0).unwrap().duration_frames = duration;
+        Arc::make_mut(invalid.motions.get_mut(&0).unwrap()).duration_frames = duration;
         assert!(Model::new(Arc::new(invalid), ActorId(0), &actor).is_err());
         if duration == 10. {
             let before = model.shown.clone();

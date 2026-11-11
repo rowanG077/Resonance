@@ -133,7 +133,7 @@ mod tests {
             &mut resources,
         )?;
         let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        resources.prepare_effects(&mut |_| Ok(None), &diagnostics)?;
+        resources.prepare_effects(&Default::default(), &mut |_| Ok(None), &diagnostics)?;
         assert!(!diagnostics.has_errors());
         let mut recipe = scene.spell_recipe.clone().unwrap();
         let SpellRecipe::FixedPattern(pattern) = &mut recipe;
@@ -172,7 +172,7 @@ mod tests {
         prepare(&files, &scene, &recipe, &bank, &mut invalid)?;
         assert!(
             invalid
-                .prepare_effects(&mut |_| Ok(None), &diagnostics)
+                .prepare_effects(&Default::default(), &mut |_| Ok(None), &diagnostics)
                 .is_err()
         );
         scene.projectiles.clear();

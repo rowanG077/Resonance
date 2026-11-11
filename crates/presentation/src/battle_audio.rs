@@ -259,7 +259,9 @@ impl Playback {
                 (Command::Begin(self.assets.clone(), settings, music), false)
             }
             Handoff::Active => return Ok(false),
-            Handoff::Ending { resume_field } => (Command::End(resume_field), resume_field),
+            // End always returns mixer ownership to the field. The argument
+            // controls whether its music resumes, not where later cues route.
+            Handoff::Ending { resume_field } => (Command::End(resume_field), true),
         };
         if let Err(error) = control
             .check()
@@ -1443,6 +1445,28 @@ mod tests {
     }
 
     #[test]
+    fn ending_without_resuming_music_routes_the_next_entry_cue_to_the_field() -> Result<()> {
+        let (source, mut control) = Arc::new(mixer()).session();
+        let mut frames = source.decoder();
+        let mut playback = Playback::begin(&mut control, assets(), settings(), None)?;
+        frames.frame()?;
+        assert!(frames.battle.is_some());
+        assert!(playback.finish(&mut control, false)?);
+        frames.frame()?;
+        assert!(frames.battle.is_none());
+        assert!(frames.music.is_none());
+        control.battle_entry()?;
+        assert!(
+            matches!(frames.receive.as_ref().unwrap().try_recv()?, Message::Script(AudioCommand::Sound { id, .. })
+            if id == resonance_content::field_audio::ServiceCue::BattleEntry as i16)
+        );
+        let _next = Playback::begin(&mut control, assets(), settings(), None)?;
+        frames.frame()?;
+        assert!(frames.battle.is_some());
+        Ok(())
+    }
+
+    #[test]
     fn cancelling_pending_begin_preserves_or_retires_the_field_for_its_destination() -> Result<()> {
         for resume in [true, false] {
             let diagnostics = Diagnostics::new(false);
@@ -1471,7 +1495,7 @@ mod tests {
                 frames.frame()?;
             }
             assert!(frames.battle.is_none());
-            assert_eq!(control.in_field, resume);
+            assert!(control.in_field);
             assert_eq!(
                 frames.music.as_ref().map(|music| music.id),
                 resume.then_some(0)

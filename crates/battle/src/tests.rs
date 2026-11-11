@@ -239,13 +239,12 @@ pub(super) fn actor(side: Side) -> Actor {
         )
     }
 }
-pub(crate) fn particle_definition(resource: u32, member: u16) -> ParticleDefinition {
+pub(crate) fn particle_definition(member: u16) -> ParticleDefinition {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../tests/fixtures/stun-particle-source.json")).unwrap();
     let declaration: resonance_content::battle_effect::declaration::Declaration =
         serde_json::from_value(fixture["declaration"].clone()).unwrap();
     ParticleDefinition {
-        resource: ResourceId(resource),
         member,
         model: None,
         data: declaration.particle().unwrap(),
@@ -288,7 +287,8 @@ pub(crate) fn model_definition(
                     Motion {
                         duration_frames,
                         tracks: vec![],
-                    },
+                    }
+                    .into(),
                 )
             })
             .collect(),

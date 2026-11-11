@@ -38,10 +38,28 @@ struct Display {
 }
 
 #[test]
-fn ordinary_battle_entry_retains_its_cover_and_fades_only_on_live_updates() -> Result<()> {
+fn battle_entry_cover_fades_on_live_updates_or_yields_to_shatter() -> Result<()> {
     for color in [[0; 3], [255; 3]] {
         check_entry_fade(color)?;
     }
+    let mut f = fixture(None)?;
+    f.lifecycle = f.lifecycle.without_entry_fade();
+    let mut frame = f.battle.snapshot();
+    f.lifecycle.apply_view(&mut frame)?;
+    assert!(
+        frame.event_fade.is_none(),
+        "shatter must reveal the opening pose"
+    );
+    let frame = f.lifecycle.step(
+        &mut f.battle,
+        Input::default(),
+        &mut f.candidate,
+        &mut Display::default(),
+    )?;
+    assert!(
+        frame.event_fade.is_none(),
+        "entry cover must not return after shattering"
+    );
     Ok(())
 }
 

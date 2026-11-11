@@ -424,8 +424,9 @@ fn stun_interrupts_work_and_recovers_without_resuming_it() {
         );
         let mut effects = crate::Effects::new(vec![], None, 1, Default::default())
             .unwrap()
-            .with_stun_particle(Some(std::sync::Arc::new(
-                crate::tests::particle_definition(77, 19),
+            .with_stun_particle(Some((
+                crate::ResourceId(77),
+                std::sync::Arc::new(crate::tests::particle_definition(19)),
             )))
             .unwrap()
             .with_head_anchors(vec![

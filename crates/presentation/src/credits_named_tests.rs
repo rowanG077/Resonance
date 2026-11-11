@@ -222,6 +222,43 @@ fn named_screens_capture_mod_text_art_and_current_recording_clocks() -> Result<(
 }
 
 #[test]
+fn prepared_programs_reuse_only_the_captured_script_bytes() -> Result<()> {
+    let root = fixture()?;
+    let library = Library::open(root.path(), &[])?;
+    let path = "fields/ending/scenario.ssb";
+    let diagnostics = Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    let programs =
+        resonance_game::screen_resources::capture(&mut snapshot, [path], &diagnostics, &|| false)?;
+    let original = Files::from_snapshot(snapshot, || false, diagnostics)?;
+    let program = programs.program(&original, path)?;
+    assert!(Arc::ptr_eq(&program, &programs.program(&original, path)?));
+    // A new capture can share code by byte identity, but edits must take effect.
+    let same = prepare(&library, Diagnostics::new(true))?;
+    assert!(Arc::ptr_eq(&program, &programs.program(&same, path)?));
+    let edited = script("push.s8 17")?;
+    write(root.path(), path, &edited)?;
+    let changed = prepare(&library, Diagnostics::new(true))?;
+    let replacement = programs.program(&changed, path)?;
+    let expected = symphonia_script::Program::decode(&edited)?;
+    assert!(!Arc::ptr_eq(&program, &replacement));
+    assert_eq!(
+        replacement.instruction(replacement.entry()),
+        expected.instruction(expected.entry())
+    );
+    assert_ne!(
+        replacement.instruction(replacement.entry()),
+        program.instruction(program.entry())
+    );
+    write(root.path(), path, b"invalid bytecode")?;
+    let mut snapshot = library.snapshot();
+    snapshot.read(path, 1024)?;
+    let invalid = Files::from_snapshot(snapshot, || false, Diagnostics::new(true))?;
+    assert!(programs.program(&invalid, path).is_err());
+    Ok(())
+}
+
+#[test]
 fn screen_discovery_follows_edited_branches_and_retains_dynamic_choices() -> Result<()> {
     let root = fixture()?;
     let library = Library::open(root.path(), &[])?;

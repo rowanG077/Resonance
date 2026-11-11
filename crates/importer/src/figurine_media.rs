@@ -357,7 +357,7 @@ fn preview(
             }
             scene.clips.push(SceneClip {
                 motion: path,
-                joints: BTreeMap::new(),
+                joints: Default::default(),
                 resource_slot: 0,
                 duration_seconds: 0.,
                 animation_resource: None,

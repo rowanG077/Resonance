@@ -303,49 +303,50 @@ pub(super) fn effect_model(
     part: &resonance_content::battle_model::ModelPart,
     resource: ResourceId,
     animate_layers: bool,
+    cache: &crate::battle::model::EffectCache,
 ) -> Result<Option<(resonance_battle::PreparedEffectModel, RenderModel)>> {
-    let prepared =
-        crate::battle::model::effect(files, part, resource, animate_layers).map(|model| {
-            let mut next_bone = part.rig.skeleton.bones.len();
-            let bone_offsets = part
-                .layers
-                .iter()
-                .map(|layer| {
-                    if let Some(skeleton) = part.layer_skeletons.get(&layer.scene.resource) {
-                        let offset = next_bone;
-                        next_bone += skeleton.bones.len();
-                        offset
-                    } else {
-                        0
-                    }
-                })
-                .collect();
-            let parts = part
-                .layers
-                .iter()
-                .cloned()
-                .map(|mut layer| {
-                    // The sampled pose includes attachments and animation.
-                    layer.attached_to = None;
-                    layer.animation = None;
-                    layer
-                })
-                .collect();
-            (
-                model,
-                RenderModel {
-                    resource,
-                    skeleton: part.rig.skeleton.clone(),
-                    parts,
-                    instances: RenderInstances::Particles(bone_offsets),
-                    lit: true,
-                    texture_channels: vec![],
-                    suppressed_nodes: BTreeSet::new(),
-                    target_anchor: None,
-                    weapon_style: None,
-                },
-            )
-        });
+    let model = cache.prepare(files, part, resource, animate_layers);
+    let prepared = model.map(|model| {
+        let mut next_bone = part.rig.skeleton.bones.len();
+        let bone_offsets = part
+            .layers
+            .iter()
+            .map(|layer| {
+                if let Some(skeleton) = part.layer_skeletons.get(&layer.scene.resource) {
+                    let offset = next_bone;
+                    next_bone += skeleton.bones.len();
+                    offset
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let parts = part
+            .layers
+            .iter()
+            .cloned()
+            .map(|mut layer| {
+                // The sampled pose includes attachments and animation.
+                layer.attached_to = None;
+                layer.animation = None;
+                layer
+            })
+            .collect();
+        (
+            model,
+            RenderModel {
+                resource,
+                skeleton: part.rig.skeleton.clone(),
+                parts,
+                instances: RenderInstances::Particles(bone_offsets),
+                lit: true,
+                texture_channels: vec![],
+                suppressed_nodes: BTreeSet::new(),
+                target_anchor: None,
+                weapon_style: None,
+            },
+        )
+    });
     files.diagnostics().attempt("battle effect model", prepared)
 }
 
@@ -356,10 +357,12 @@ pub(super) fn scene_bank(
     resource: ResourceId,
     mut next_resource: impl FnMut() -> ResourceId,
     models: &mut Vec<RenderModel>,
+    cache: &crate::battle::model::EffectModels,
 ) -> Result<crate::battle::EffectResource> {
     let mut prepared = BTreeMap::new();
     for (&slot, part) in bank.art.iter().flat_map(|art| &art.models) {
-        if let Some((model, mut render)) = effect_model(files, part, next_resource(), false)? {
+        if let Some((model, mut render)) = effect_model(files, part, next_resource(), false, cache)?
+        {
             render.suppressed_nodes = suppressed_body_nodes(&part.rig.skeleton, false);
             prepared.insert(slot, model);
             models.push(render);
@@ -681,6 +684,8 @@ mod tests {
                     clips: vec![],
                     autoplay: false,
                     texture_animations: vec![],
+                    prepared_motions: None,
+                    prepared_geometry: None,
                     bone_names: vec!["root".into()],
                     material_nodes: vec![],
                     outline_color: None,
@@ -707,14 +712,15 @@ mod tests {
         mesh.extend(b"JSON");
         mesh.extend(json);
         files.insert("effect.glb".into(), mesh.into());
-        let (model, render) = effect_model(&files, &part, ResourceId(1), false)?.unwrap();
+        let cache = Default::default();
+        let (model, render) = effect_model(&files, &part, ResourceId(1), false, &cache)?.unwrap();
         assert_eq!(model.resource(), render.resource);
         part.layers[0].scene.bone_names.clear();
-        assert!(effect_model(&files, &part, ResourceId(2), false)?.is_none());
+        assert!(effect_model(&files, &part, ResourceId(2), false, &cache)?.is_none());
         assert_eq!(files.diagnostics().entries().len(), 1);
-        assert!(effect_model(&Files::default(), &part, ResourceId(2), false).is_err());
+        assert!(effect_model(&Files::default(), &part, ResourceId(2), false, &cache).is_err());
         part.layers[0].scene.bone_names.push("root".into());
-        assert!(effect_model(&files, &part, ResourceId(3), false)?.is_some());
+        assert!(effect_model(&files, &part, ResourceId(3), false, &cache)?.is_some());
         Ok(())
     }
 

@@ -8,11 +8,13 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 mod actors;
+mod common;
 pub use actors::{
     ANIMATIONS, Actor, Actors, AnimationBinding, AnimationJoint, AnimationMappings,
     AnimationTarget, JOINT_MAPPINGS, MODEL_GROUPS, MODELS, ModelAlias, ModelBinding, ModelMappings,
     ModelTarget, SharedAnimationBinding, SharedBankBindings,
 };
+pub use common::Common;
 
 /// Capture the declared scene, including artwork only reached through effects
 /// and overlay banks. Media preparation consumes `audio` and `movies` separately.
@@ -22,59 +24,8 @@ pub fn capture_scene(
     id: u32,
     cancelled: impl Fn() -> bool,
 ) -> Result<(Definition, FieldAssets)> {
-    ensure!(!cancelled(), "field preparation cancelled");
-    let path = snapshot.field(id)?;
-    let definition: Definition = snapshot.json(&path, 1024 * 1024)?;
-    let mut read = |path: &str| {
-        ensure!(!cancelled(), "field preparation cancelled");
-        snapshot.read(path, 64 * 1024 * 1024)
-    };
-    let field = definition
-        .assemble(id, &mut read)
-        .with_context(|| format!("assemble {path}"))?;
-    for resource in definition.references().chain(field.references()) {
-        read(resource).with_context(|| format!("referenced by {path}"))?;
-    }
-    let effects = json::<settings::Settings>(&mut read, &field.effects)?.effects;
-    effects.validate().with_context(|| field.effects.clone())?;
-    for texture in effects.references() {
-        read(texture).with_context(|| format!("referenced by {}", field.effects))?;
-    }
-    for overlay in field.overlays.values() {
-        let art = crate::effect::OverlayArt::load(overlay, &mut read)?;
-        art.validate().with_context(|| overlay.clone())?;
-        for (index, texture) in art.textures.iter().enumerate() {
-            if overlay == crate::input_prompts::FIELD_BANK_PATH
-                && !crate::input_prompts::PANEL_GLYPHS.contains(&index)
-            {
-                continue;
-            }
-            if let Some(texture) = texture {
-                ensure!(
-                    texture.size.is_some(),
-                    "overlay {overlay} needs authored image coordinates"
-                );
-            }
-            for path in texture.iter().flat_map(|texture| &texture.images) {
-                read(path).with_context(|| format!("referenced by {overlay}"))?;
-            }
-        }
-    }
-    if field
-        .overlays
-        .values()
-        .any(|path| path == crate::input_prompts::FIELD_BANK_PATH)
-    {
-        crate::input_prompts::capture(snapshot)?;
-    }
-    for path in field
-        .unbound_geometry
-        .iter()
-        .flat_map(|geometry| &geometry.scenes)
-    {
-        crate::physical_scene::capture(snapshot, path, &cancelled)
-            .with_context(|| format!("unbound geometry referenced by {}", definition.scene))?;
-    }
+    let definition = Definition::read(snapshot, id)?;
+    let field = definition.capture_scene(snapshot, id, cancelled, None, &mut |_, _| Ok(()))?;
     Ok((definition, field))
 }
 
@@ -99,6 +50,117 @@ pub struct Definition {
 }
 
 impl Definition {
+    pub fn read(snapshot: &mut crate::library::Snapshot, id: u32) -> Result<Self> {
+        let path = snapshot.field(id)?;
+        snapshot.json(&path, 1024 * 1024)
+    }
+
+    /// Capture scene dependencies from a definition read from this snapshot.
+    /// `captured` publishes graphics before motion preparation, as in the
+    /// checkpoint; every clip is still validated before gameplay admission.
+    pub fn capture_scene(
+        &self,
+        snapshot: &mut crate::library::Snapshot,
+        id: u32,
+        cancelled: impl Fn() -> bool,
+        common: Option<&Common>,
+        captured: &mut dyn FnMut(&crate::library::Snapshot, &FieldAssets) -> Result<()>,
+    ) -> Result<FieldAssets> {
+        ensure!(!cancelled(), "field preparation cancelled");
+        if let Some(common) = common {
+            common.prune();
+        }
+        let path = snapshot.field(id)?;
+        let mut field = self
+            .assemble_documents(
+                id,
+                |path| {
+                    ensure!(!cancelled(), "field preparation cancelled");
+                    snapshot.read(path, 64 * 1024 * 1024)
+                },
+                common,
+            )
+            .with_context(|| format!("assemble {path}"))?;
+        for part in field
+            .parts
+            .iter()
+            .chain(field.actors.iter().flat_map(|actor| &actor.parts))
+        {
+            for texture in part
+                .materials
+                .iter()
+                .flat_map(|material| material.color.iter().chain(&material.multiply))
+                .filter_map(|binding| part.textures.get(binding.texture))
+            {
+                ensure!(!cancelled(), "field preparation cancelled");
+                snapshot.read(texture, 64 * 1024 * 1024)?;
+            }
+        }
+        snapshot.read(&field.toon_ramp, 64 * 1024 * 1024)?;
+        captured(snapshot, &field)?;
+        let mut read = |path: &str| {
+            ensure!(!cancelled(), "field preparation cancelled");
+            snapshot.read(path, 64 * 1024 * 1024)
+        };
+        prepare_clips(
+            field
+                .parts
+                .iter_mut()
+                .chain(field.actors.iter_mut().flat_map(|actor| &mut actor.parts)),
+            &mut read,
+            None,
+            common,
+            &mut Motions::new(),
+        )?;
+        field.validate().with_context(|| format!("field {id}"))?;
+        for resource in self.references().chain(field.references()) {
+            read(resource).with_context(|| format!("referenced by {path}"))?;
+        }
+        let settings = Common::settings(&read(&field.effects)?, common)
+            .with_context(|| format!("decode {}", field.effects))?;
+        let effects = &settings.effects;
+        Common::validate_effects(&settings, common).with_context(|| field.effects.clone())?;
+        for texture in effects.references() {
+            read(texture).with_context(|| format!("referenced by {}", field.effects))?;
+        }
+        for overlay in field.overlays.values() {
+            let art = crate::effect::OverlayArt::load(overlay, &mut read)?;
+            art.validate().with_context(|| overlay.clone())?;
+            for (index, texture) in art.textures.iter().enumerate() {
+                if overlay == crate::input_prompts::FIELD_BANK_PATH
+                    && !crate::input_prompts::PANEL_GLYPHS.contains(&index)
+                {
+                    continue;
+                }
+                if let Some(texture) = texture {
+                    ensure!(
+                        texture.size.is_some(),
+                        "overlay {overlay} needs authored image coordinates"
+                    );
+                }
+                for path in texture.iter().flat_map(|texture| &texture.images) {
+                    read(path).with_context(|| format!("referenced by {overlay}"))?;
+                }
+            }
+        }
+        if field
+            .overlays
+            .values()
+            .any(|path| path == crate::input_prompts::FIELD_BANK_PATH)
+        {
+            crate::input_prompts::capture(snapshot)?;
+        }
+        for path in field
+            .unbound_geometry
+            .iter()
+            .flat_map(|geometry| &geometry.scenes)
+        {
+            crate::physical_scene::capture(snapshot, path, &cancelled)
+                .with_context(|| format!("unbound geometry referenced by {}", self.scene))?;
+        }
+        Ok(field)
+    }
+
     pub fn references(&self) -> impl Iterator<Item = &str> {
         [&self.script, &self.scene, &self.actors]
             .into_iter()
@@ -121,7 +183,7 @@ impl Definition {
         map_id: u32,
         mut read: impl FnMut(&str) -> Result<Arc<[u8]>>,
     ) -> Result<FieldAssets> {
-        let mut field = self.assemble_documents(map_id, &mut read)?;
+        let mut field = self.assemble_documents(map_id, &mut read, None)?;
         prepare_clips(
             field
                 .parts
@@ -129,6 +191,8 @@ impl Definition {
                 .chain(field.actors.iter_mut().flat_map(|actor| &mut actor.parts)),
             &mut read,
             None,
+            None,
+            &mut Motions::new(),
         )?;
         field
             .validate()
@@ -143,6 +207,7 @@ impl Definition {
         &self,
         map_id: u32,
         mut read: impl FnMut(&str) -> Result<Arc<[u8]>>,
+        common: Option<&Common>,
     ) -> Result<FieldAssets> {
         self.validate()?;
         let mut scene: Scene = json(&mut read, &self.scene)?;
@@ -152,8 +217,7 @@ impl Definition {
             if part.resource == 0 {
                 doors.extend(super::doors::decode(&mesh, part.translation)?);
             }
-            part.prepare_bones(&mesh)
-                .with_context(|| part.mesh.clone())?;
+            Common::prepare_geometry(part, mesh, common).with_context(|| part.mesh.clone())?;
         }
         let collision = match &self.collision {
             Some(path) => {
@@ -165,9 +229,10 @@ impl Definition {
         let dynamic_resources = bindings.dynamic_resources;
         let local_resources = bindings.local_resources.clone();
         let actors = bindings
-            .assemble(&mut read)
+            .assemble(&mut read, common)
             .with_context(|| self.actors.clone())?;
-        let shared: settings::Settings = json(&mut read, &scene.effects)?;
+        let shared = Common::settings(&read(&scene.effects)?, common)
+            .with_context(|| format!("decode {}", scene.effects))?;
         let particles = shared.resolve_particles(scene.particles);
         let save_point = scene.save_point.unwrap_or_else(|| {
             if actors
@@ -180,7 +245,7 @@ impl Definition {
             }
         });
         let field = FieldAssets {
-            joint_mappings: json(&mut read, JOINT_MAPPINGS)?,
+            joint_mappings: Common::joints(&read(JOINT_MAPPINGS)?, common)?,
             map_id,
             script: self.script.clone(),
             messages: self.messages.clone(),
@@ -208,10 +273,12 @@ impl Definition {
             dynamic_resources,
             local_resources,
             unbound_geometry: scene.unbound_geometry,
-            contact_shadow: scene.contact_shadow.unwrap_or(shared.contact_shadow),
-            toon_ramp: scene.toon_ramp.unwrap_or(shared.toon_ramp),
+            contact_shadow: scene
+                .contact_shadow
+                .unwrap_or_else(|| shared.contact_shadow.clone()),
+            toon_ramp: scene.toon_ramp.unwrap_or_else(|| shared.toon_ramp.clone()),
             effects: scene.effects,
-            blink: scene.blink.unwrap_or(shared.blink),
+            blink: scene.blink.unwrap_or_else(|| shared.blink.clone()),
             particles,
             overlays: scene.overlays,
             save_point_tutorial: save_point.tutorial.0,
@@ -222,28 +289,147 @@ impl Definition {
     }
 }
 
+type Motions = BTreeMap<String, (Arc<[u8]>, Arc<crate::animation::NamedMotion>)>;
+
 fn prepare_clips<'a>(
     parts: impl Iterator<Item = &'a mut ScenePart>,
     read: &mut impl FnMut(&str) -> Result<Arc<[u8]>>,
     bank: Option<u32>,
+    common: Option<&Common>,
+    motions: &mut Motions,
 ) -> Result<()> {
-    let mut motions = std::collections::BTreeMap::new();
-    for part in parts {
-        for clip in &mut part.clips {
+    // Match the checkpoint's source-grouped, four-worker preparation. Reads
+    // remain on the snapshot thread; workers share only immutable captured bytes.
+    struct Target<'a> {
+        part: usize,
+        clip: usize,
+        bones: &'a [String],
+        joints: &'a crate::JointMap,
+        motion: Option<Arc<crate::animation::Motion>>,
+    }
+    struct Job<'a> {
+        path: String,
+        bytes: Arc<[u8]>,
+        named: Option<Arc<crate::animation::NamedMotion>>,
+        targets: Vec<Target<'a>>,
+    }
+    impl Job<'_> {
+        fn prepare(&mut self, common: Option<&Common>) -> Result<()> {
+            let named = match common {
+                Some(common) => common.decode(&self.path, &self.bytes)?,
+                None => match &self.named {
+                    Some(named) => named.clone(),
+                    None => Arc::new(crate::animation::NamedMotion::decode(&self.bytes)?),
+                },
+            };
+            for target in &mut self.targets {
+                target.motion = Some(
+                    named
+                        .bind_shared(target.bones, target.joints)
+                        .with_context(|| format!("decode field motion {}", self.path))?,
+                );
+            }
+            self.named = Some(named);
+            Ok(())
+        }
+    }
+    let parts: Vec<_> = parts.collect();
+    let mut results: Vec<Vec<_>> = parts
+        .iter()
+        .map(|part| {
+            (0..part.clips.len())
+                .map(|index| {
+                    part.retained_motion(index)
+                        .map(|(bytes, motion)| (bytes.clone(), motion.clone()))
+                })
+                .collect()
+        })
+        .collect();
+    let mut sources = vec![Vec::new(); parts.len()];
+    let mut jobs = BTreeMap::<String, Job<'_>>::new();
+    for (part_index, part) in parts.iter().enumerate() {
+        for (clip_index, clip) in part.clips.iter().enumerate() {
             if bank.is_some_and(|bank| clip.animation_resource != Some(bank)) {
                 continue;
             }
-            if !motions.contains_key(&clip.motion) {
-                motions.insert(
+            if !jobs.contains_key(&clip.motion) {
+                let bytes = read(&clip.motion)?;
+                let named = motions
+                    .get(&clip.motion)
+                    .filter(|(captured, _)| crate::same_bytes(captured, &bytes))
+                    .map(|(_, named)| named.clone());
+                jobs.insert(
                     clip.motion.clone(),
-                    crate::animation::NamedMotion::decode(&read(&clip.motion)?)?,
+                    Job {
+                        path: clip.motion.clone(),
+                        bytes,
+                        named,
+                        targets: Vec::new(),
+                    },
                 );
             }
-            let motion = motions[&clip.motion]
-                .bind(&part.bone_names, &clip.joints)
-                .with_context(|| format!("decode field motion {}", clip.motion))?;
-            clip.duration_seconds = motion.duration_frames / crate::animation::FRAME_HZ;
+            jobs.get_mut(&clip.motion).unwrap().targets.push(Target {
+                part: part_index,
+                clip: clip_index,
+                bones: &part.bone_names,
+                joints: &clip.joints,
+                motion: None,
+            });
         }
+    }
+    let mut jobs: Vec<_> = jobs.into_values().collect();
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(4);
+    if workers > 1 && jobs.len() >= 8 {
+        let pending = std::sync::Mutex::new(jobs.iter_mut());
+        std::thread::scope(|scope| -> Result<()> {
+            let workers: Vec<_> = (0..workers)
+                .map(|_| {
+                    scope.spawn(|| -> Result<()> {
+                        loop {
+                            let Some(job) = pending.lock().unwrap().next() else {
+                                return Ok(());
+                            };
+                            job.prepare(common)?;
+                        }
+                    })
+                })
+                .collect();
+            // Always join every worker before returning or mutating any target.
+            let results: Vec<_> = workers
+                .into_iter()
+                .map(|worker| {
+                    worker
+                        .join()
+                        .map_err(|_| anyhow::anyhow!("animation preparation worker panicked"))?
+                })
+                .collect();
+            results.into_iter().collect()
+        })?;
+    } else {
+        jobs.iter_mut().try_for_each(|job| job.prepare(common))?;
+    }
+    for job in jobs {
+        let named = job.named.unwrap();
+        let mut retained_parts = BTreeSet::new();
+        for target in job.targets {
+            results[target.part][target.clip] = Some((job.bytes.clone(), target.motion.unwrap()));
+            if common.is_some() && retained_parts.insert(target.part) {
+                sources[target.part].push(named.clone());
+            }
+        }
+        if common.is_none() {
+            motions.insert(job.path, (job.bytes, named));
+        }
+    }
+    for ((part, prepared), sources) in parts.into_iter().zip(results).zip(sources) {
+        for (clip, motion) in part.clips.iter_mut().zip(&prepared) {
+            if let Some((_, motion)) = motion {
+                clip.duration_seconds = motion.duration_frames / crate::animation::FRAME_HZ;
+            }
+        }
+        part.retain_motions_with_sources(prepared, sources);
     }
     Ok(())
 }

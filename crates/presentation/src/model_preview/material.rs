@@ -8,11 +8,11 @@ use bevy::{
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
-pub(super) type Surface = ExtendedMaterial<crate::materials::TitleSurface, PreviewExtension>;
+pub(crate) type Surface = ExtendedMaterial<crate::materials::TitleSurface, PreviewExtension>;
 
 /// Distinct pipeline ownership keeps field warmup assertions scoped to field draws.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone, Default)]
-pub(super) struct PreviewExtension {}
+pub(crate) struct PreviewExtension {}
 impl MaterialExtension for PreviewExtension {
     fn specialize(
         _: &MaterialExtensionPipeline,

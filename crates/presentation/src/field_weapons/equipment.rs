@@ -217,10 +217,7 @@ pub(crate) fn prepare(
     mut live: Option<ResMut<crate::new_game::Session>>,
     checkpoint: Option<Res<crate::field_view::Session>>,
     resident: Res<Resident>,
-    server: Res<AssetServer>,
-    gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    clips: Res<Assets<crate::sparse_animation::Clip>>,
-    images: Res<Assets<Image>>,
+    mut assets: crate::model_asset::ModelAssets,
     mut failures: Failures,
 ) {
     if resident.battle.load(Ordering::Acquire) {
@@ -244,7 +241,8 @@ pub(crate) fn prepare(
                         .layers
                         .into_iter()
                         .map(|(part, preview, animation)| {
-                            let artwork = Part::load(preview.scene.clone(), &server, &cache.loads);
+                            let artwork =
+                                Part::load(preview.scene.clone(), &assets.server, &cache.loads);
                             Layer {
                                 part,
                                 preview,
@@ -278,12 +276,10 @@ pub(crate) fn prepare(
                 continue;
             }
             let resolved = equipment.layers.iter_mut().try_fold(true, |ready, layer| {
-                if let Some(error) = layer.art.load_error(&server) {
+                if let Some(error) = layer.art.load_error(&assets.server) {
                     anyhow::bail!("{error}");
                 }
-                Ok::<_, anyhow::Error>(
-                    layer.art.resolve(&server, &gltfs, &clips, &images)? && ready,
-                )
+                Ok::<_, anyhow::Error>(layer.art.resolve(&mut assets)? && ready)
             });
             match resolved {
                 Ok(ready) if ready || equipment.started.elapsed().as_secs() < 30 => {

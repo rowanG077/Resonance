@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 struct Binding {
     motion: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    joints: BTreeMap<String, Option<String>>,
+    joints: crate::JointMap,
     slots: Vec<u16>,
     /// An omitted bank list binds to the model itself.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

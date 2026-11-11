@@ -69,14 +69,14 @@ const PORTRAITS: usize = MenuArt::PORTRAIT_TEXTURES.start;
 const WORLD_MAPS: usize = MenuArt::WORLD_MAP_TEXTURES.start;
 type WorldHudArt = (Handle<Surface>, [u32; 2], Vec<[u32; 4]>);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum MaterialKey {
     Texture(usize),
     Font,
     Cursor,
     InputIcons,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum DrawRole {
     Background,
     Frame(u8),
@@ -216,9 +216,7 @@ fn menu_repeat(spec: &MenuArt, index: usize, repeat: bool) -> [bool; 2] {
 
 #[derive(Resource, Clone, Default, bevy::render::extract_resource::ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
-pub(crate) struct MenuDraws(
-    pub std::sync::Arc<std::sync::Mutex<crate::model_preview::gpu::Report>>,
-);
+pub(crate) struct MenuDraws(pub std::sync::Arc<std::sync::Mutex<crate::gpu_prepare::Report>>);
 
 pub(crate) fn install(app: &mut App) {
     app.add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
@@ -229,31 +227,9 @@ pub(crate) fn install(app: &mut App) {
         rendered.in_set(bevy::render::RenderSystems::Cleanup),
     );
 }
-fn rendered(
-    draws: Option<Res<MenuDraws>>,
-    phases: Res<
-        bevy::render::render_phase::ViewSortedRenderPhases<
-            bevy::core_pipeline::core_3d::Transparent3d,
-        >,
-    >,
-    quads: Res<
-        bevy::render::render_phase::ViewSortedRenderPhases<
-            bevy::core_pipeline::core_2d::Transparent2d,
-        >,
-    >,
-    cache: Res<bevy::render::render_resource::PipelineCache>,
-    device: Res<bevy::render::renderer::RenderDevice>,
-    queue: Res<bevy::render::renderer::RenderQueue>,
-) {
+fn rendered(draws: Option<Res<MenuDraws>>, observer: crate::gpu_prepare::Observer) {
     if let Some(draws) = draws {
-        crate::model_preview::gpu::render_report(
-            &mut draws.0.lock().unwrap(),
-            &phases,
-            &quads,
-            &cache,
-            &device,
-            &queue,
-        );
+        observer.render(&mut draws.0.lock().unwrap(), None);
     }
 }
 impl MenuDraws {
@@ -266,18 +242,17 @@ impl MenuDraws {
     }
 }
 
+#[derive(Clone)]
 struct MenuMaterial {
     image: Handle<Image>,
     sampling: Handle<Image>,
     size: [u32; 2],
     material: Handle<Surface>,
-    pending: Option<String>,
 }
 
 pub(super) struct MenuArtwork {
     resolution: super::super::Resolution,
     spec: MenuArt,
-    server: AssetServer,
     draws: MenuDraws,
     experience: std::sync::Arc<[u32]>,
     materials: BTreeMap<MaterialKey, MenuMaterial>,
@@ -289,6 +264,7 @@ pub(super) struct MenuArtwork {
     world_notice: WorldNotice,
     ship_notice: WorldNotice,
     trail: super::super::choice_cursor::Trail,
+    resident: std::sync::Weak<std::sync::Mutex<super::resident::Inventory>>,
 }
 /// Native world notices slide down from the top while their alpha approaches 255.
 #[derive(Default)]
@@ -323,6 +299,153 @@ impl WorldNotice {
     }
 }
 impl MenuArtwork {
+    pub(super) fn warm_canvases(
+        &self,
+        resident: &super::resident::Resident,
+        world: &mut World,
+    ) -> Result<bool> {
+        let mut unavailable = std::collections::BTreeSet::new();
+        {
+            let images = world.resource::<Assets<Image>>();
+            let server = world.resource::<AssetServer>();
+            for (&key, material) in &self.materials {
+                match crate::field_view::image_ready(server, images, &material.image) {
+                    // Optional pages validate their images when selected. Keep
+                    // their declarations, but omit failed preload bindings.
+                    Err(_) if matches!(key, MaterialKey::Texture(_)) => {
+                        unavailable.insert(key);
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                    Ok(false) => return Ok(false),
+                    Ok(true) => {}
+                }
+                if !images.contains(&material.sampling) {
+                    return Ok(false);
+                }
+            }
+        }
+        let mut inventory = resident.0.lock().unwrap();
+        if !inventory.menus.is_empty() {
+            return Ok(true);
+        }
+        let bindings = self.canvas_bindings();
+        for band in [DepthBand::Field, DepthBand::Battle] {
+            for &(plane, role, texture) in &bindings {
+                if unavailable.contains(&texture) {
+                    continue;
+                }
+                let Some(material) = self.materials.get(&texture) else {
+                    continue;
+                };
+                let layer = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                    Layer::new(
+                        material.material.clone(),
+                        band.at(plane, role.depth()),
+                        &mut world.commands(),
+                        &mut meshes,
+                    )
+                });
+                world.commands().entity(layer.entity).insert((
+                    super::resident::Canvas,
+                    bevy::camera::visibility::NoFrustumCulling,
+                    if matches!(band, DepthBand::Field) {
+                        RenderLayers::default()
+                    } else {
+                        RenderLayers::layer(crate::battle_view::LAYER)
+                    },
+                ));
+                inventory
+                    .menus
+                    .insert((band as u8, plane, role, texture), layer);
+            }
+        }
+        Ok(true)
+    }
+
+    fn canvas_bindings(&self) -> std::collections::BTreeSet<(usize, DrawRole, MaterialKey)> {
+        // Text uses the font; sprites and input prompts use their own atlases.
+        // Window textures participate only in the roles declared by their recipe.
+        let mut roles = std::collections::BTreeSet::from([
+            (DrawRole::Text, FONT),
+            (DrawRole::Content, ATLAS),
+            (DrawRole::Content, MaterialKey::InputIcons),
+            (DrawRole::Background, FONT),
+            (DrawRole::Frame(0), FONT),
+            (DrawRole::Cursor, MaterialKey::Cursor),
+        ]);
+        for texture in [SCROLL_DOWN, SCROLL_UP] {
+            roles.insert((DrawRole::Scroll, MaterialKey::Texture(texture)));
+        }
+        for window in self.spec.windows.values() {
+            for &texture in &window.patterns {
+                roles.insert((DrawRole::Background, MaterialKey::Texture(texture)));
+            }
+            if let Some(texture) = window.heading {
+                roles.insert((DrawRole::Frame(0), MaterialKey::Texture(texture)));
+            }
+            if let Some(texture) = window.cursor {
+                roles.insert((DrawRole::Cursor, MaterialKey::Texture(texture)));
+            }
+            if let Some(slices) = window.slices {
+                for (piece, texture) in slices.into_iter().enumerate().skip(1) {
+                    roles.insert((DrawRole::Frame(piece as u8), MaterialKey::Texture(texture)));
+                }
+            }
+        }
+        let mut bindings: std::collections::BTreeSet<_> = (0..8)
+            .flat_map(|plane| {
+                roles
+                    .iter()
+                    .map(move |&(role, texture)| (plane, role, texture))
+            })
+            .collect();
+        // Status crossfades two portraits; world maps appear below their menu text.
+        for texture in MenuArt::PORTRAIT_TEXTURES {
+            for plane in [1, 2] {
+                bindings.insert((plane, DrawRole::Content, MaterialKey::Texture(texture)));
+            }
+        }
+        for texture in MenuArt::WORLD_MAP_TEXTURES {
+            for plane in [0, 1] {
+                bindings.insert((plane, DrawRole::Content, MaterialKey::Texture(texture)));
+            }
+        }
+        bindings.retain(|(_, _, texture)| self.materials.contains_key(texture));
+        bindings
+    }
+
+    pub(super) fn fresh(&self, experience: std::sync::Arc<[u32]>) -> Self {
+        Self {
+            resolution: Default::default(),
+            spec: self.spec.clone(),
+            draws: Default::default(),
+            experience,
+            materials: self.materials.clone(),
+            input_atlas: self.input_atlas.clone(),
+            prompt_device: Default::default(),
+            layers: Default::default(),
+            band: DepthBand::Field,
+            active_page: None,
+            world_notice: Default::default(),
+            ship_notice: Default::default(),
+            trail: Default::default(),
+            resident: self.resident.clone(),
+        }
+    }
+    pub(super) fn resident(&self) -> Option<super::resident::Resident> {
+        self.resident.upgrade().map(super::resident::Resident)
+    }
+    pub(super) fn experience(&self) -> std::sync::Arc<[u32]> {
+        self.experience.clone()
+    }
+    pub(super) fn prepared_inputs(&self) -> crate::input_icons::Prepared {
+        crate::input_icons::Prepared {
+            atlas: self.input_atlas.clone(),
+            image: self.input_image(),
+        }
+    }
+
     pub(super) fn choice_cursor(&self, window: u8) -> Option<(&Handle<Image>, [u32; 2])> {
         let index = self.spec.windows.get(&usize::from(window))?.cursor?;
         let material = self.materials.get(&MaterialKey::Texture(index))?;
@@ -332,13 +455,19 @@ impl MenuArtwork {
         self.spec.windows[&usize::from(window)].cursor_motion
     }
 
-    pub(super) fn world_map_art(&self, world: usize) -> (Handle<Surface>, [u32; 2]) {
-        let material = &self.materials[&MaterialKey::Texture(WORLD_MAPS + world)];
-        (material.material.clone(), material.size)
+    pub(super) fn world_map_art(&self, world: usize) -> Result<(Handle<Surface>, [u32; 2])> {
+        let material = self
+            .materials
+            .get(&MaterialKey::Texture(WORLD_MAPS + world))
+            .context("missing world map material")?;
+        Ok((material.material.clone(), material.size))
     }
 
     pub(super) fn world_hud_art(&self) -> Result<WorldHudArt> {
-        let atlas = &self.materials[&ATLAS];
+        let atlas = self
+            .materials
+            .get(&ATLAS)
+            .context("missing world HUD atlas")?;
         Ok((
             atlas.material.clone(),
             atlas.size,
@@ -346,28 +475,15 @@ impl MenuArtwork {
         ))
     }
 
-    pub(super) fn prepare_world_maps(
-        &mut self,
-        materials: &mut Assets<Surface>,
-    ) -> Result<Vec<Handle<Image>>> {
-        // The world HUD draws these materials outside the menu's submission path.
+    pub(super) fn prepare_world_maps(&self) -> Result<Vec<Handle<Image>>> {
         MenuArt::WORLD_MAP_TEXTURES
             .chain([MenuArt::ATLAS_TEXTURE])
             .map(|index| {
-                let prepared = self
+                let material = self
                     .materials
-                    .get_mut(&MaterialKey::Texture(index))
+                    .get(&MaterialKey::Texture(index))
                     .context("missing world map material")?;
-                if let Some(path) = prepared.pending.take() {
-                    prepared.image = menu_image(&self.server, path, false);
-                    let mut surface = materials
-                        .get_mut(&prepared.material)
-                        .context("missing world map surface")?;
-                    surface.source = prepared.image.clone();
-                    surface.frame_mask = prepared.image.clone();
-                    surface.color_mask = prepared.image.clone();
-                }
-                Ok([prepared.image.clone(), prepared.sampling.clone()])
+                Ok([material.image.clone(), material.sampling.clone()])
             })
             .collect::<Result<Vec<_>>>()
             .map(|images| images.into_iter().flatten().collect())
@@ -414,7 +530,11 @@ impl MenuArtwork {
         cursor: &resonance_content::font::UiTexture,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
         inputs: crate::input_icons::Prepared,
+        resident: &super::resident::Resident,
     ) -> Result<Self> {
+        if let Some(common) = &resident.0.lock().unwrap().menu {
+            return Ok(common.fresh(experience));
+        }
         let mut spec = MenuArt::decode(&read("ui/menu.json")?, diagnostics)?;
         spec.prepare_resources(&read);
         spec.validate_structure()?;
@@ -445,7 +565,7 @@ impl MenuArtwork {
         };
         let mut prepared = BTreeMap::new();
         for (&index, texture) in &spec.textures {
-            let image = Handle::default();
+            let image = menu_image(server, texture.path.clone(), texture.repeat);
             let sampling = sampler(menu_repeat(&spec, index, texture.repeat));
             let material = materials.add(Surface {
                 source: image.clone(),
@@ -466,7 +586,6 @@ impl MenuArtwork {
                     sampling,
                     size: [texture.width, texture.height],
                     material,
-                    pending: Some(texture.path.clone()),
                 },
             );
         }
@@ -492,7 +611,6 @@ impl MenuArtwork {
                 sampling: prompt_image,
                 size: input_atlas.size,
                 material: prompt_material,
-                pending: None,
             },
         );
         let cursor_image = menu_image(server, cursor.path.clone(), true);
@@ -515,24 +633,8 @@ impl MenuArtwork {
                 sampling: cursor_sampler,
                 size: [cursor.width, cursor.height],
                 material: cursor_material,
-                pending: None,
             },
         );
-        for window in spec.windows.values() {
-            if let Some(index) = window.cursor {
-                let entry = prepared
-                    .get_mut(&MaterialKey::Texture(index))
-                    .context("missing menu cursor")?;
-                let image = menu_image(
-                    server,
-                    entry.pending.take().context("missing cursor path")?,
-                    spec.textures[&index].repeat,
-                );
-                let mut material = materials.get_mut(&entry.material).unwrap();
-                material.source = image.clone();
-                entry.image = image;
-            }
-        }
         let (material, size) = font;
         prepared.insert(
             FONT,
@@ -545,13 +647,11 @@ impl MenuArtwork {
                 sampling: materials.get(material).unwrap().sampling.clone(),
                 size,
                 material: material.clone(),
-                pending: None,
             },
         );
-        Ok(Self {
+        let menu = Self {
             resolution: Default::default(),
             spec,
-            server: server.clone(),
             draws: MenuDraws::default(),
             experience,
             materials: prepared,
@@ -563,7 +663,10 @@ impl MenuArtwork {
             world_notice: Default::default(),
             ship_notice: Default::default(),
             trail: Default::default(),
-        })
+            resident: resident.downgrade(),
+        };
+        resident.0.lock().unwrap().menu = Some(menu.fresh(menu.experience.clone()));
+        Ok(menu)
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
         self.active_page.is_some()
@@ -782,54 +885,35 @@ impl MenuArtwork {
                 .materials
                 .get_mut(&texture)
                 .context("missing selected menu material")?;
-            if let Some(path) = prepared.pending.take() {
-                prepared.image = menu_image(&self.server, path, false);
-                let material = prepared.material.clone();
-                let image = prepared.image.clone();
-                commands.queue(move |world: &mut World| {
-                    if let Some(mut surface) =
-                        world.resource_mut::<Assets<Surface>>().get_mut(&material)
-                    {
-                        surface.source = image.clone();
-                        surface.frame_mask = image.clone();
-                        surface.color_mask = image;
-                    }
-                });
-            }
             let size = prepared.size;
             let layer = self
                 .layers
                 .entry((plane, role, texture))
                 .or_insert_with(|| {
-                    let mesh = meshes.add(batch.clone().mesh(size));
-                    let material = prepared.material.clone();
-                    let render_layers = match self.band {
-                        DepthBand::Field => RenderLayers::default(),
-                        DepthBand::Battle => RenderLayers::layer(crate::battle_view::LAYER),
-                    };
-                    let transform = Transform::from_xyz(0., 0., self.band.at(plane, role.depth()));
-                    let entity = commands
-                        .spawn((
-                            Mesh2d(mesh.clone()),
-                            MeshMaterial2d(material.clone()),
-                            transform,
-                            // Battle menus publish after transform propagation. The
-                            // first queued draw must already have its final depth.
-                            GlobalTransform::from(transform),
-                            Visibility::Hidden,
-                            render_layers,
-                            // Sliding pages must submit their initially offscreen layers
-                            // before the draw fence lets the opening animation advance.
-                            bevy::camera::visibility::NoFrustumCulling,
-                        ))
-                        .id();
-                    Layer {
-                        entity,
-                        mesh,
-                        material,
-                        uploaded: Some((batch.clone(), size)),
-                        visible: false,
+                    if let Some(layer) = self.resident.upgrade().and_then(|shared| {
+                        super::resident::Resident(shared)
+                            .menu_canvas(self.band as u8, (plane, role, texture))
+                    }) {
+                        return layer;
                     }
+                    let mut layer = Layer::with_mesh(
+                        prepared.material.clone(),
+                        self.band.at(plane, role.depth()),
+                        batch.clone().mesh(size),
+                        commands,
+                        meshes,
+                    );
+                    layer.uploaded = Some((batch.clone(), size));
+                    commands.entity(layer.entity).insert((
+                        match self.band {
+                            DepthBand::Field => RenderLayers::default(),
+                            DepthBand::Battle => RenderLayers::layer(crate::battle_view::LAYER),
+                        },
+                        // Sliding pages must submit their initially offscreen layers
+                        // before the draw fence lets the opening animation advance.
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ));
+                    layer
                 });
             layer.update_mesh(batch, size, meshes)?;
             layer.show(true, commands);
@@ -842,7 +926,7 @@ impl MenuArtwork {
             .collect();
         let mut report = self.draws.0.lock().unwrap();
         if report.expected != expected || !report.armed {
-            *report = crate::model_preview::gpu::Report {
+            *report = crate::gpu_prepare::Report {
                 armed: true,
                 expected,
                 ..Default::default()

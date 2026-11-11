@@ -236,7 +236,7 @@ pub(crate) fn artwork(package: &[u8], library: &Path, name: &str) -> Result<Valu
         } else if library.join(&motion).exists() {
             part.scene.clips.push(SceneClip {
                 motion,
-                joints: BTreeMap::new(),
+                joints: Default::default(),
                 resource_slot: 0,
                 duration_seconds: 0.,
                 animation_resource: None,

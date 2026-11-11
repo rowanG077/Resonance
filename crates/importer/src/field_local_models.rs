@@ -511,7 +511,7 @@ pub(crate) fn local_models(id: u32, archive: &[u8]) -> Result<Vec<(usize, Actor)
 fn clip(motion: String, slot: u16, bank: Option<u32>) -> SceneClip {
     SceneClip {
         motion,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: bank,
@@ -781,7 +781,7 @@ fn convert_source_document(
     part.clips.retain(|clip| clip.animation_resource.is_none());
     for (id, path, joints, rig) in shared {
         let mut binding = clip(path.clone(), 12, Some(*id));
-        binding.joints = shared_joint_map(&bindings, &target, joints, rig);
+        binding.joints = shared_joint_map(&bindings, &target, joints, rig).into();
         part.clips.push(binding);
     }
     for &index in local_motions {
@@ -809,7 +809,8 @@ fn convert_source_document(
                     ),
                 ))
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>()
+            .into();
         part.clips.push(binding);
     }
     check_model_media(library, &model)?;
@@ -1070,7 +1071,7 @@ fn convert(
                     .any(|owner| path.starts_with(&format!("animations/{owner}/")))
             })
         {
-            binding.joints = shared_joint_map(&bindings, &target, joints, rig);
+            binding.joints = shared_joint_map(&bindings, &target, joints, rig).into();
         }
         part.clips.push(binding);
     }
@@ -1098,7 +1099,8 @@ fn convert(
                     ),
                 ))
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>()
+            .into();
         part.clips.push(binding);
     }
     let collision = if bare {
@@ -1347,7 +1349,7 @@ fn convert_volt(
     }
     for (id, path, joints, labels) in shared {
         let mut binding = clip(path.clone(), 12, Some(*id));
-        binding.joints = shared_joint_map(&bindings, &target, joints, labels);
+        binding.joints = shared_joint_map(&bindings, &target, joints, labels).into();
         part.clips.push(binding);
     }
     let hidden_geometry = part

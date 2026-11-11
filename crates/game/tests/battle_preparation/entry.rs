@@ -1,12 +1,13 @@
 use super::*;
 use resonance_content::{animation::Motion, battle_profile::Entry};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-fn motion(duration_frames: f32) -> Motion {
+fn motion(duration_frames: f32) -> Arc<Motion> {
     Motion {
         duration_frames,
         tracks: vec![],
     }
+    .into()
 }
 
 #[test]

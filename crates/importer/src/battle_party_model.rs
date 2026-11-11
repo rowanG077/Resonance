@@ -57,7 +57,7 @@ pub(crate) fn expanded_motion(native: &[u8]) -> Result<Vec<u8>> {
 fn clip(path: String, slot: u16, pose_chains: Vec<String>) -> SceneClip {
     SceneClip {
         motion: path,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: None,

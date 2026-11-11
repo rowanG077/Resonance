@@ -18,7 +18,7 @@ pub struct Prepared {
     pub resources: Arc<ResourceLibrary>,
     program: Arc<Program>,
     story_rules: Arc<super::scripts::Rules>,
-    skits: Arc<std::collections::BTreeMap<u16, crate::skit::Prepared>>,
+    pub skits: Arc<std::collections::BTreeMap<u16, crate::skit::Prepared>>,
 }
 
 impl Prepared {
@@ -27,6 +27,7 @@ impl Prepared {
         files: Arc<Files>,
         skits: Arc<resonance_content::skit::SkitCatalog>,
         mut available_fields: BTreeSet<u32>,
+        programs: &crate::screen_resources::Programs,
     ) -> Result<Self> {
         definition.validate_content(|path| files.contains_key(path))?;
         let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
@@ -42,11 +43,12 @@ impl Prepared {
             fields: available_fields,
             ..Default::default()
         });
-        let program = Arc::new(Program::decode(&files.read(&definition.script)?)?);
+        let program = programs.program(&files, &definition.script)?;
         let skits = Arc::new(crate::skit::Prepared::load(
             resources.skits.clone().unwrap(),
             &files,
             &resources,
+            programs,
         )?);
         let story_rules =
             super::scripts::Rules::prepare(&mut Default::default(), &files.script_sources()?)?;

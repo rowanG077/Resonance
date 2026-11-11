@@ -89,6 +89,11 @@ pub(super) fn configure(app: &mut App) {
         });
     }
     let render = app.sub_app_mut(RenderApp);
+    // A field upload must not grow and copy the large resident boot buffers.
+    render
+        .world_mut()
+        .resource_mut::<bevy::render::mesh::allocator::MeshAllocatorSettings>()
+        .max_slab_size = 16 * 1024 * 1024;
     for label in [
         Render.intern(),
         RenderGraph.intern(),

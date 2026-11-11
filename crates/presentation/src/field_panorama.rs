@@ -17,7 +17,7 @@ pub(crate) struct Artwork {
 }
 
 pub(crate) struct Draw {
-    pub entity: Entity,
+    entity: Option<Entity>,
     pub mesh: Handle<Mesh>,
     pub material: Handle<TitleSurface>,
     from_clip: Option<Mat4>,
@@ -43,8 +43,8 @@ impl Artwork {
     }
 
     pub fn despawn(&mut self, world: &mut World) {
-        if let Some(draw) = self.draw.take() {
-            world.despawn(draw.entity);
+        if let Some(draw) = &mut self.draw {
+            draw.despawn(world);
         }
     }
 }
@@ -64,21 +64,34 @@ impl Draw {
             vertex_color: false,
             ..TitleSurface::textured(Some(image))
         });
-        let entity = commands
-            .spawn((
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::default(),
-                DrawOrder(Layer::Background, 0, 0),
-                NoFrustumCulling,
-                layers,
-            ))
-            .id();
-        Self {
-            entity,
+        let mut draw = Self {
+            entity: None,
             mesh,
             material,
             from_clip: None,
+        };
+        draw.show(layers, commands);
+        draw
+    }
+
+    fn show(&mut self, layers: RenderLayers, commands: &mut Commands) {
+        self.entity.get_or_insert_with(|| {
+            commands
+                .spawn((
+                    Mesh3d(self.mesh.clone()),
+                    MeshMaterial3d(self.material.clone()),
+                    Transform::default(),
+                    DrawOrder(Layer::Background, 0, 0),
+                    NoFrustumCulling,
+                    layers,
+                ))
+                .id()
+        });
+    }
+
+    pub fn despawn(&mut self, world: &mut World) {
+        if let Some(entity) = self.entity.take() {
+            world.despawn(entity);
         }
     }
 
@@ -143,6 +156,7 @@ pub(super) fn render(
             &mut materials,
         )
     });
+    draw.show(RenderLayers::layer(0), &mut commands);
     let from_clip = view.to_matrix() * projection.get_clip_from_view().inverse();
     let horizontal_span = display.0.aspect() / (4. / 3.);
     let vertical = -camera.angles[0] / 90.;

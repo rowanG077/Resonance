@@ -2,6 +2,7 @@
 pub(crate) mod defaults;
 pub mod diagnostics;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 pub mod animation;
 pub mod appearance;
 pub mod arte;
@@ -117,6 +118,11 @@ pub struct ScenePart {
     pub translation: [f32; 3],
     #[serde(default, skip_serializing_if = "Vec::is_empty", with = "scene_clips")]
     pub clips: Vec<SceneClip>,
+    /// Validated curves captured with this prepared scene; never serialized.
+    #[serde(skip)]
+    pub prepared_motions: Option<Arc<PreparedMotions>>,
+    #[serde(skip)]
+    pub prepared_geometry: Option<Arc<field::attachments::Geometry>>,
     /// Play the field's default clip from scene entry, independently of actors.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub autoplay: bool,
@@ -139,8 +145,107 @@ pub struct ScenePart {
     pub secondary_motion: secondary_motion::Definition,
 }
 
+#[derive(Debug)]
+pub struct PreparedMotions {
+    bones: Vec<String>,
+    clips: Vec<Option<(SceneClip, Arc<[u8]>, Arc<animation::Motion>)>>,
+    _sources: Vec<Arc<animation::NamedMotion>>,
+}
+
+/// Captured inputs are the same by identity or, after a fresh read, by content.
+/// Every prepared-value cache validates reuse against its source this way.
+pub fn same_bytes(a: &Arc<[u8]>, b: &Arc<[u8]>) -> bool {
+    Arc::ptr_eq(a, b) || a == b
+}
+
 impl ScenePart {
+    pub(crate) fn retained_motion(
+        &self,
+        index: usize,
+    ) -> Option<(&Arc<[u8]>, &Arc<animation::Motion>)> {
+        let prepared = self.prepared_motions.as_ref()?;
+        let (clip, bytes, motion) = prepared.clips.get(index)?.as_ref()?;
+        (prepared.bones == self.bone_names && self.clips.get(index) == Some(clip))
+            .then_some((bytes, motion))
+    }
+
+    pub fn prepared_motion(
+        &self,
+        index: usize,
+        bytes: &Arc<[u8]>,
+    ) -> Option<Arc<animation::Motion>> {
+        let (captured, motion) = self.retained_motion(index)?;
+        same_bytes(captured, bytes).then(|| motion.clone())
+    }
+
+    pub fn motion_for_skeleton(
+        &self,
+        index: usize,
+        bytes: &Arc<[u8]>,
+        skeleton: &animation::Skeleton,
+    ) -> anyhow::Result<Arc<animation::Motion>> {
+        if skeleton
+            .bones
+            .iter()
+            .map(|bone| &bone.name)
+            .eq(&self.bone_names)
+        {
+            if let Some(motion) = self.prepared_motion(index, bytes) {
+                return Ok(motion);
+            }
+        }
+        let clip = self
+            .clips
+            .get(index)
+            .ok_or_else(|| anyhow::anyhow!("missing scene clip {index}"))?;
+        Ok(Arc::new(clip.decode_for_skeleton(bytes, skeleton)?))
+    }
+
+    /// Rendering consumes the exact snapshot prepared with this descriptor.
+    pub fn prepared_motion_snapshot(&self) -> Option<Vec<Arc<animation::Motion>>> {
+        (0..self.clips.len())
+            .map(|index| {
+                self.retained_motion(index)
+                    .map(|(_, motion)| motion.clone())
+            })
+            .collect()
+    }
+
+    /// Every supplied curve has been validated against this part's bone names.
+    pub(crate) fn retain_motions(
+        &mut self,
+        motions: Vec<Option<(Arc<[u8]>, Arc<animation::Motion>)>>,
+    ) {
+        self.retain_motions_with_sources(motions, Vec::new());
+    }
+
+    pub(crate) fn retain_motions_with_sources(
+        &mut self,
+        motions: Vec<Option<(Arc<[u8]>, Arc<animation::Motion>)>>,
+        sources: Vec<Arc<animation::NamedMotion>>,
+    ) {
+        assert_eq!(motions.len(), self.clips.len());
+        self.prepared_motions = Some(Arc::new(PreparedMotions {
+            bones: self.bone_names.clone(),
+            _sources: sources,
+            clips: self
+                .clips
+                .iter()
+                .cloned()
+                .zip(motions)
+                .map(|(clip, data)| data.map(|(bytes, motion)| (clip, bytes, motion)))
+                .collect(),
+        }));
+    }
+
+    pub(crate) fn prepare_geometry(&mut self, geometry: Arc<field::attachments::Geometry>) {
+        self.bone_names = geometry.bone_names.clone();
+        self.material_nodes = geometry.material_nodes.clone();
+        self.prepared_geometry = Some(geometry);
+    }
+
     pub fn prepare_bones(&mut self, mesh: &[u8]) -> anyhow::Result<()> {
+        self.prepared_geometry = None;
         (self.bone_names, self.material_nodes) = animation::scene_nodes_from_glb(mesh)?;
         Ok(())
     }
@@ -222,6 +327,9 @@ impl<Texture> TextureAnimation<Texture> {
     }
 }
 
+/// Joint maps are immutable across aliases; editors copy only when changing one.
+pub type JointMap = Arc<std::collections::BTreeMap<String, Option<String>>>;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneClip {
@@ -230,7 +338,7 @@ pub struct SceneClip {
     /// Overrides for model-joint -> clip-joint binding; null leaves a joint at rest.
     /// Other joints bind by name, so ordinary compatible rigs need no table.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub joints: std::collections::BTreeMap<String, Option<String>>,
+    pub joints: JointMap,
     pub resource_slot: u16,
     /// Prepared from the current motion file. Editable bindings omit this value.
     #[serde(default, skip_serializing_if = "SceneClip::duration_is_derived")]

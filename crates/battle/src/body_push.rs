@@ -302,26 +302,25 @@ mod tests {
             bone: 0,
             radius: 60.,
         });
-        moving
-            .motions
-            .get_mut(&0)
-            .unwrap()
+        Arc::make_mut(moving.motions.get_mut(&0).unwrap())
             .tracks
             .push(resonance_content::animation::Track {
                 bone: 0,
-                nodes: vec![resonance_content::animation::NodeTrack {
-                    bind: resonance_content::animation::Transform::default(),
-                    translation: Some(resonance_content::animation::Channel {
-                        times: (vec![0., 10.])
-                            .into_iter()
-                            .map(|frame| frame / 30.)
-                            .collect(),
-                        interpolation: resonance_content::animation::Interpolation::Linear,
-                        values: vec![[0.; 3], [140., 0., 0.]],
-                    }),
-                    rotation: None,
-                    scale: None,
-                }],
+                nodes: vec![std::sync::Arc::new(
+                    resonance_content::animation::NodeTrack {
+                        bind: resonance_content::animation::Transform::default(),
+                        translation: Some(resonance_content::animation::Channel {
+                            times: (vec![0., 10.])
+                                .into_iter()
+                                .map(|frame| frame / 30.)
+                                .collect(),
+                            interpolation: resonance_content::animation::Interpolation::Linear,
+                            values: vec![[0.; 3], [140., 0., 0.]],
+                        }),
+                        rotation: None,
+                        scale: None,
+                    },
+                )],
             });
         let mut fixed = crate::tests::model_definition(2, [(0, 10.)]);
         fixed.body_spheres.push(crate::BodySphere {

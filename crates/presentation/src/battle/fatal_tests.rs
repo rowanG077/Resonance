@@ -140,7 +140,7 @@ impl Fixture {
             .unwrap();
         let field_tick = session.field().events.tick();
         let party = serde_json::to_value(&session.field().events.world.party)?;
-        let entry = Entry::capture(&session, &request)?;
+        let entry = Entry::capture(&session, &request, &resident)?;
         let mut package = finish(loading::BattlePending::battle(entry, &resident)?)?;
         configure(&mut package);
         let directory = tempfile::Builder::new()

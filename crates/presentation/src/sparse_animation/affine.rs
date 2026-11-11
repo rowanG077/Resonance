@@ -623,7 +623,7 @@ mod tests {
                 Track {
                     bone: 0,
                     nodes: vec![
-                        NodeTrack {
+                        std::sync::Arc::new(NodeTrack {
                             bind: Default::default(),
                             translation: Some(Channel {
                                 interpolation: Interpolation::Step,
@@ -656,8 +656,8 @@ mod tests {
                                     [1.2807764064044151, 1.0, 0.7807764064044151],
                                 ],
                             }),
-                        },
-                        NodeTrack {
+                        }),
+                        std::sync::Arc::new(NodeTrack {
                             bind: Default::default(),
                             translation: Some(Channel {
                                 interpolation: Interpolation::Step,
@@ -687,13 +687,13 @@ mod tests {
                                 times: vec![0.0, 0.03333333333333333],
                                 values: vec![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
                             }),
-                        },
+                        }),
                     ],
                 },
                 Track {
                     bone: 1,
                     nodes: vec![
-                        NodeTrack {
+                        std::sync::Arc::new(NodeTrack {
                             bind: Default::default(),
                             translation: Some(Channel {
                                 interpolation: Interpolation::Step,
@@ -715,8 +715,8 @@ mod tests {
                                 times: vec![0.0],
                                 values: vec![[1.104987562112089, 1.0, 0.9049875621120891]],
                             }),
-                        },
-                        NodeTrack {
+                        }),
+                        std::sync::Arc::new(NodeTrack {
                             bind: Default::default(),
                             translation: Some(Channel {
                                 interpolation: Interpolation::Step,
@@ -738,7 +738,7 @@ mod tests {
                                 times: vec![0.0],
                                 values: vec![[1.0, 1.0, 1.0]],
                             }),
-                        },
+                        }),
                     ],
                 },
             ],

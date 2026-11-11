@@ -82,8 +82,8 @@ fn shared_clip_edits_reach_exact_slots_and_banks_and_keep_distinct_pose_chains()
     ];
     let mut other = clip(Some(3), 12, "greeting.glb");
     other.pose_chains = vec!["hair".into()];
-    other.joints.insert("hips".into(), Some("waist".into()));
-    other.joints.insert("cape".into(), None);
+    std::sync::Arc::make_mut(&mut other.joints).insert("hips".into(), Some("waist".into()));
+    std::sync::Arc::make_mut(&mut other.joints).insert("cape".into(), None);
     clips.push(other);
     let mut value = serde_json::to_value(Clips(clips))?;
     assert_eq!(value.as_array().unwrap().len(), 4);
@@ -120,4 +120,29 @@ fn bindings_reject_missing_duplicate_and_old_request_shapes() {
     ] {
         assert!(serde_json::from_value::<Clips>(rows).is_err());
     }
+}
+
+#[test]
+fn aliases_share_joint_maps_and_edits_only_change_the_selected_binding() -> Result<()> {
+    use std::sync::Arc;
+    let mut clips: Clips = serde_json::from_value(json!([{
+        "motion":"idle.glb", "slots":[12,36], "banks":[1,2],
+        "joints":{"hips":"waist","cape":null}
+    }]))?;
+    assert!(
+        clips
+            .0
+            .iter()
+            .all(|clip| Arc::ptr_eq(&clip.joints, &clips.0[0].joints))
+    );
+    Arc::make_mut(&mut clips.0[0].joints).insert("hips".into(), Some("new-waist".into()));
+    assert_eq!(clips.0[0].joints["hips"].as_deref(), Some("new-waist"));
+    assert!(
+        clips.0[1..]
+            .iter()
+            .all(|clip| clip.joints["hips"].as_deref() == Some("waist"))
+    );
+    let round_trip: Clips = serde_json::from_value(serde_json::to_value(&clips)?)?;
+    assert_eq!(requests(&clips.0), requests(&round_trip.0));
+    Ok(())
 }

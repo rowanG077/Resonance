@@ -12,13 +12,14 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct EffectModelDefinition {
     pub resource: ResourceId,
     pub skeleton: Skeleton,
-    pub motions: BTreeMap<u16, Motion>,
+    pub motions: BTreeMap<u16, Arc<Motion>>,
     pub secondary_motion: Vec<Chain>,
 }
 
 /// Shared model data with playback owned by one encounter instance.
 #[derive(Debug, Clone)]
 pub struct PreparedEffectModel {
+    resource_override: Option<ResourceId>,
     definition: Arc<EffectModelDefinition>,
     animation: Option<(u16, AnimatedPose, Arc<EffectModelDefinition>)>,
     layers: Vec<PreparedEffectModel>,
@@ -34,8 +35,11 @@ pub struct EffectModelFrame {
 }
 
 impl PreparedEffectModel {
+    pub(crate) fn same_definition(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.definition, &other.definition)
+    }
     pub fn resource(&self) -> ResourceId {
-        self.definition.resource
+        self.resource_override.unwrap_or(self.definition.resource)
     }
     pub fn new(definition: Arc<EffectModelDefinition>) -> Result<Self> {
         definition.skeleton.validate()?;
@@ -46,10 +50,21 @@ impl PreparedEffectModel {
             chain.validate(definition.skeleton.bones.len())?;
         }
         Ok(Self {
+            resource_override: None,
             definition,
             animation: None,
             layers: Vec::new(),
         })
+    }
+
+    /// Rebind an independent instance while retaining its verified immutable
+    /// definition. Cloning a startup prototype gives fresh playback buffers.
+    pub fn with_resource(mut self, resource: ResourceId) -> Self {
+        self.resource_override = Some(resource);
+        for layer in &mut self.layers {
+            layer.resource_override = Some(resource);
+        }
+        self
     }
 
     /// Independent visual rigs share the particle transform, but own their animation clocks.
@@ -278,7 +293,7 @@ impl PreparedEffectModel {
             bones.extend(layer.sample_pose(world, rotation, layer_secondary, advance)?);
         }
         Ok(EffectModelFrame {
-            resource: self.definition.resource,
+            resource: self.resource(),
             clip: self.animation.as_ref().map(|(clip, _, _)| *clip),
             frame: self
                 .animation
@@ -324,26 +339,75 @@ mod tests {
     use resonance_content::battle_effect::ModelAnimation;
 
     #[test]
+    fn rebound_prototypes_share_definitions_with_independent_playback() -> Result<()> {
+        let make = |duration| -> Result<_> {
+            let source = crate::tests::model_definition(41, [(0, duration)]);
+            PreparedEffectModel::new(Arc::new(EffectModelDefinition {
+                resource: ResourceId(41),
+                skeleton: source.skeleton,
+                motions: source.motions,
+                secondary_motion: vec![],
+            }))
+        };
+        let prototype = make(8.)?
+            .with_layers(vec![make(12.)?])?
+            .with_playback(Playback {
+                clip: 0,
+                frame: 0.,
+                rate: 1.,
+                repeat: true,
+            })?;
+        let mut first = prototype.clone().with_resource(ResourceId(100));
+        let second = prototype.clone().with_resource(ResourceId(200));
+        assert!(Arc::ptr_eq(&prototype.definition, &first.definition));
+        assert!(Arc::ptr_eq(
+            &prototype.layers[0].definition,
+            &second.layers[0].definition
+        ));
+        for _ in 0..3 {
+            first.advance()?;
+        }
+        let sample = |model: &PreparedEffectModel| {
+            model.sample_at(Mat4::IDENTITY, Quat::IDENTITY, &mut vec![], false)
+        };
+        assert_eq!(sample(&first)?.resource, ResourceId(100));
+        assert!(sample(&first)?.frame > 0.);
+        assert_eq!(sample(&second)?.resource, ResourceId(200));
+        assert_eq!(sample(&second)?.frame, 0.);
+        assert_eq!(sample(&prototype)?.frame, 0.);
+        assert_eq!(first.layers[0].resource(), ResourceId(100));
+        assert_eq!(
+            second.layers[0].animation.as_ref().unwrap().1.clock.frame,
+            0.
+        );
+        Ok(())
+    }
+
+    #[test]
     fn independent_layers_keep_their_rig_and_loop_length() -> Result<()> {
         use resonance_content::animation::{Channel, Interpolation, Track};
         let make = |duration, extra_bone| -> Result<_> {
             let mut source = crate::tests::model_definition(41, [(0, duration)]);
-            source.motions.get_mut(&0).unwrap().tracks.push(Track {
-                bone: 0,
-                nodes: vec![resonance_content::animation::NodeTrack {
-                    bind: resonance_content::animation::Transform::default(),
-                    translation: Some(Channel {
-                        times: (vec![0., duration])
-                            .into_iter()
-                            .map(|frame| frame / 30.)
-                            .collect(),
-                        interpolation: Interpolation::Linear,
-                        values: vec![[0.; 3], [duration, 0., 0.]],
-                    }),
-                    rotation: None,
-                    scale: None,
-                }],
-            });
+            Arc::make_mut(source.motions.get_mut(&0).unwrap())
+                .tracks
+                .push(Track {
+                    bone: 0,
+                    nodes: vec![std::sync::Arc::new(
+                        resonance_content::animation::NodeTrack {
+                            bind: resonance_content::animation::Transform::default(),
+                            translation: Some(Channel {
+                                times: (vec![0., duration])
+                                    .into_iter()
+                                    .map(|frame| frame / 30.)
+                                    .collect(),
+                                interpolation: Interpolation::Linear,
+                                values: vec![[0.; 3], [duration, 0., 0.]],
+                            }),
+                            rotation: None,
+                            scale: None,
+                        },
+                    )],
+                });
             if extra_bone {
                 let mut child = source.skeleton.bones[0].clone();
                 child.name = "child".into();
@@ -394,7 +458,7 @@ mod tests {
 
         let mut source = make(8., true)?;
         let definition = Arc::make_mut(&mut source.definition);
-        let motion = definition.motions.get_mut(&0).unwrap();
+        let motion = Arc::make_mut(definition.motions.get_mut(&0).unwrap());
         let mut child_track = motion.tracks[0].clone();
         child_track.bone = 1;
         motion.tracks.push(child_track);

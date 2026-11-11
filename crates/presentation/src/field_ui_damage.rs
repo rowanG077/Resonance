@@ -16,25 +16,12 @@ impl Artwork {
         if self.damage_layer.is_some() {
             return;
         }
-        let mut batch = Batch::default();
-        batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-        let mesh = meshes.add(batch.mesh([1, 1]));
-        let material = self.prompt_layers[0].material.clone();
-        let entity = commands
-            .spawn((
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(0., 0., DEPTH),
-                Visibility::Hidden,
-            ))
-            .id();
-        self.damage_layer = Some(Layer {
-            entity,
-            mesh,
-            material,
-            uploaded: None,
-            visible: false,
-        });
+        self.damage_layer = Some(Layer::new(
+            self.prompt_layers[0].material.clone(),
+            DEPTH,
+            commands,
+            meshes,
+        ));
     }
 
     pub(super) fn render_damage(

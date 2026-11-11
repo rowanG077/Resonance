@@ -120,6 +120,12 @@ impl Lifecycle {
         self
     }
 
+    /// A retained-screen shatter reveals the opening pose without another cover.
+    pub fn without_entry_fade(mut self) -> Self {
+        self.entry_alpha = 0;
+        self
+    }
+
     pub fn with_events(
         mut self,
         plan: super::event::Plan,

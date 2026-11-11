@@ -51,7 +51,8 @@ pub(crate) fn append_shared_scenery_clips(
                         Some((target.clone(), source.cloned()))
                     }
                 })
-                .collect();
+                .collect::<BTreeMap<_, _>>()
+                .into();
             part.clips.push(SceneClip {
                 motion: motion.clone(),
                 joints,
@@ -111,7 +112,8 @@ pub(crate) fn append_local_scenery_clips(
                     };
                     Some((target.clone(), Some(labels.get(&source)?.clone())))
                 })
-                .collect();
+                .collect::<BTreeMap<_, _>>()
+                .into();
             part.clips.push(SceneClip {
                 motion: format!("{root}/animations/local-motion-{index}.glb"),
                 joints: map,

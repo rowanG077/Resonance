@@ -384,17 +384,14 @@ pub(super) fn diagnostic(world: &mut World) -> serde_json::Value {
 pub(super) fn bind(
     mut commands: Commands,
     art: Res<Art>,
-    actors: Query<(Entity, &ActorPart), Without<Rig>>,
-    children: Query<&Children>,
-    nodes: Query<(&Name, &Transform, &ChildOf)>,
-    meshes: Query<(), With<Mesh3d>>,
+    actors: Query<(Entity, &ActorPart, &crate::model_asset::Instance), Without<Rig>>,
 ) {
-    for (root, actor) in &actors {
+    for (root, actor, model) in &actors {
         let spec = &art.models[&actor.resource][actor.part].spec;
         if !actor.prepared || spec.secondary_motion.is_empty() {
             continue;
         }
-        let names = super::field_pose::named_bones(root, &children, &nodes, &meshes);
+        let names = model.named_bones();
         if let Some(rig) = Rig::new(root, spec, &names) {
             commands.entity(root).insert(rig);
         }

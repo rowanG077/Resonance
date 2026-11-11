@@ -217,7 +217,8 @@ fn named_world_battle_worker_prepares_its_own_toon_ramp() -> Result<()> {
         })
         .map_err(anyhow::Error::msg)?;
     let request = session.events_mut().world.battle_request.take().unwrap();
-    let task = loading::BattlePending::battle(Entry::capture(&session, &request)?, &resident)?;
+    let task =
+        loading::BattlePending::battle(Entry::capture(&session, &request, &resident)?, &resident)?;
     let package = crate::test_support::await_preparation(&task)?;
 
     assert_eq!(
@@ -292,7 +293,8 @@ fn named_battle_worker_retains_mod_selection_and_rechecks_edits() -> Result<()> 
     let before = serde_json::to_value(&session.events().world.party)?;
     let resident = loading::Resident::default();
     *resident.files.write().unwrap() = Some(session.files());
-    let task = loading::BattlePending::battle(Entry::capture(&session, &request)?, &resident)?;
+    let task =
+        loading::BattlePending::battle(Entry::capture(&session, &request, &resident)?, &resident)?;
     let package = crate::test_support::await_preparation(&task)?;
     assert_eq!(package.prepared.music, 91);
     let selected = resonance_audio::recording::Prepared::new(resonance_content::music::capture(
@@ -317,7 +319,8 @@ fn named_battle_worker_retains_mod_selection_and_rechecks_edits() -> Result<()> 
     // logical song was successfully prepared above and still has a live owner.
     fs::write(owner.join("new.wav"), b"invalid current recording")?;
     fs::rename(owner.join("new.wav"), owner.join("replacement.wav"))?;
-    let task = loading::BattlePending::battle(Entry::capture(&session, &request)?, &resident)?;
+    let task =
+        loading::BattlePending::battle(Entry::capture(&session, &request, &resident)?, &resident)?;
     let error = crate::test_support::await_preparation(&task)
         .err()
         .context("invalid mod recording silently used the base or old cache")?;

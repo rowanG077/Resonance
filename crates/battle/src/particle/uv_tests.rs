@@ -2,7 +2,7 @@ use super::*;
 use resonance_content::battle_effect::{UvAnimation, UvChange, UvFrame};
 
 fn template() -> ParticleTemplate {
-    crate::tests::particle_definition(1, 19).data
+    crate::tests::particle_definition(19).data
 }
 
 fn particle(data: ParticleTemplate) -> Particle {
@@ -10,9 +10,9 @@ fn particle(data: ParticleTemplate) -> Particle {
     let mut effects = Effects::new(vec![], None, 1, Default::default()).unwrap();
     let id = effects
         .spawn_particle(
+            crate::ResourceId(1),
             Arc::new(ParticleDefinition {
                 model: None,
-                resource: crate::ResourceId(1),
                 member: 19,
                 data,
             }),

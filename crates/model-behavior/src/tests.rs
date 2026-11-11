@@ -19,6 +19,8 @@ fn preview(elevation: f32) -> ModelPreview {
             clips: vec![],
             autoplay: false,
             texture_animations: vec![],
+            prepared_motions: None,
+            prepared_geometry: None,
             bone_names: vec!["root".into(), "tail".into()],
             material_nodes: vec![],
             outline_color: None,

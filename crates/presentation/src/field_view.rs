@@ -7,6 +7,7 @@ mod lighting;
 mod panorama;
 #[path = "field_shadow.rs"]
 mod shadows;
+pub(crate) use shadows::Shared as SharedShadows;
 #[path = "field_water.rs"]
 mod water;
 use super::draw_order::DrawOrderPlugin;
@@ -30,10 +31,9 @@ use bevy::{
     ecs::system::SystemParam,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
-    world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
-    HEIGHT, ScenePart, TextureBinding, WIDTH,
+    HEIGHT, WIDTH,
     field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
 };
 use resonance_events::effect::Blend;
@@ -45,6 +45,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, Weak},
     time::Instant,
 };
 #[cfg(test)]
@@ -141,7 +142,6 @@ impl Plugin for FieldPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FieldRendering)
             .init_resource::<Controls>()
-            .init_resource::<RetainedFields>()
             .add_systems(
                 Update,
                 super::field_ui::subtitles
@@ -179,6 +179,7 @@ impl Plugin for FieldPlugin {
                     (
                         retire_live,
                         load_live,
+                        load_costumes,
                         super::field_resources::update,
                         recover,
                     )
@@ -323,23 +324,26 @@ impl Controls {
         input
     }
 }
-#[derive(Resource, Default)]
-struct RetainedFields(
-    BTreeMap<u32, (Art, super::field_ui::Artwork, super::field_effects::Artwork)>,
-);
+type Graphics = (Art, super::field_effects::Artwork);
+/// A live field package keeps its GPU resources while another scene is shown.
+/// Art points back weakly; retiring either side cannot form an ownership cycle.
+pub(super) type CachedGraphics = Arc<Mutex<Option<Graphics>>>;
 #[derive(Resource)]
 pub(super) struct Art {
+    cache: Weak<Mutex<Option<Graphics>>>,
     pub(super) map: u32,
     pub(super) models: BTreeMap<u32, Vec<Part>>,
+    pub(super) failed_models: BTreeSet<u32>,
     pub(super) environment: resonance_content::field::FieldEnvironment,
     texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
+    pub(super) gpu: Option<u32>,
     pub(super) loads: super::loading::LoadTasks,
     pub(super) loading_since: Instant,
     shadows: shadows::Artwork,
     pub(super) toon_ramp: Handle<Image>,
-    unlit: bool,
+    pub(super) unlit: bool,
     disabled_shadows: bool,
     pub(super) panorama: Option<panorama::Artwork>,
     water: Option<water::Artwork>,
@@ -366,157 +370,7 @@ pub(super) fn actor_layers(
     }
 }
 
-pub(super) struct Part {
-    pub(super) spec: ScenePart,
-    // Retain all scenes, clips, meshes and skins for the field's lifetime.
-    // Resolve labeled assets only after this canonical model load finishes.
-    gltf: Handle<bevy::gltf::Gltf>,
-    resolved: bool,
-    pub(super) scene: Handle<WorldAsset>,
-    pub(super) clips: Vec<Handle<super::sparse_animation::Clip>>,
-    pub(super) motions: Vec<std::sync::Arc<resonance_content::animation::Motion>>,
-    pub(super) materials: Vec<Surface>,
-    /// Physical GLB meshes can remain uninstanced; only scene draws are required.
-    scene_materials: std::collections::BTreeSet<usize>,
-}
-pub(super) struct Surface {
-    pub(super) color: Option<(Handle<Image>, TextureBinding)>,
-    pub(super) multiply: Option<(Handle<Image>, TextureBinding)>,
-}
-impl Part {
-    pub(super) fn load(
-        spec: ScenePart,
-        server: &AssetServer,
-        loads: &super::loading::LoadTasks,
-    ) -> Self {
-        let gltf = server
-            .load_builder()
-            .with_guard(loads.ticket())
-            .load(spec.mesh.clone());
-        let load = |b: &TextureBinding| {
-            (
-                server
-                    .load_builder()
-                    .with_guard(loads.ticket())
-                    .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
-                    .load(spec.textures[b.texture].clone()),
-                b.clone(),
-            )
-        };
-        let materials = spec
-            .materials
-            .iter()
-            .map(|m| Surface {
-                color: m.color.as_ref().map(load),
-                multiply: m.multiply.as_ref().map(load),
-            })
-            .collect();
-        Self {
-            gltf,
-            resolved: false,
-            scene: Handle::default(),
-            clips: spec
-                .clips
-                .iter()
-                .map(|clip| {
-                    server
-                        .load_builder()
-                        .with_guard(loads.ticket())
-                        .load(clip.motion.clone())
-                })
-                .collect(),
-            motions: Vec::new(),
-            materials,
-            scene_materials: Default::default(),
-            spec,
-        }
-    }
-
-    pub(super) fn resolve(
-        &mut self,
-        server: &AssetServer,
-        gltfs: &Assets<bevy::gltf::Gltf>,
-        clips: &Assets<super::sparse_animation::Clip>,
-        images: &Assets<Image>,
-    ) -> Result<bool> {
-        if !server.is_loaded_with_dependencies(self.gltf.id()) {
-            return Ok(false);
-        }
-        let Some(gltf) = gltfs.get(&self.gltf) else {
-            return Ok(false);
-        };
-        if !self.clips.iter().all(|clip| clips.contains(clip)) {
-            return Ok(false);
-        }
-        if !self.resolved {
-            self.motions = self
-                .clips
-                .iter()
-                .zip(&self.spec.clips)
-                .map(|(handle, spec)| clips.get(handle).unwrap().bind(&self.spec.bone_names, spec))
-                .collect::<Result<_>>()?;
-            ensure!(
-                gltf.meshes.len() == self.materials.len(),
-                "model material recipe differs: {}",
-                self.spec.mesh
-            );
-            self.scene = gltf.scenes.first().context("model has no scene")?.clone();
-            self.resolved = true;
-        }
-        Ok(server.is_loaded_with_dependencies(self.scene.id())
-            && self.materials.iter().all(|m| {
-                m.color
-                    .iter()
-                    .chain(&m.multiply)
-                    .all(|(h, _)| images.contains(h.id()))
-            }))
-    }
-
-    pub(super) fn load_error(&self, server: &AssetServer) -> Option<String> {
-        std::iter::once(self.gltf.id().untyped())
-            .chain(self.clips.iter().map(|c| c.id().untyped()))
-            .chain(self.materials.iter().flat_map(|m| {
-                m.color
-                    .iter()
-                    .chain(&m.multiply)
-                    .map(|(h, _)| h.id().untyped())
-            }))
-            .find_map(|id| match server.get_load_states(id) {
-                Some((bevy::asset::LoadState::Failed(error), _, _)) => {
-                    Some(format!("{}: {error}", self.spec.mesh))
-                }
-                _ => None,
-            })
-    }
-
-    pub(super) fn surfaces(
-        &self,
-        images: &mut Assets<Image>,
-        sampled: &mut super::scene::SampledImages,
-    ) -> Vec<TitleSurface> {
-        self.materials
-            .iter()
-            .zip(&self.spec.materials)
-            .map(|(material, spec)| TitleSurface {
-                field_fog: true,
-                vertex_color: spec.vertex_color,
-                multiply: super::scene::sampled_image(material.multiply.clone(), images, sampled),
-                constant_color: self.spec.outline_color_for(spec).is_some(),
-                blend: spec.blend.then_some(Blend::Alpha),
-                depth_write: spec.depth_write,
-                cull: spec.cull,
-                tint: self.spec.outline_color_for(spec).map_or(Vec4::ONE, |c| {
-                    Vec4::from_array(c.map(|v| f32::from(v) / 255.))
-                }),
-                ..TitleSurface::textured(super::scene::sampled_image(
-                    material.color.clone(),
-                    images,
-                    sampled,
-                ))
-            })
-            .collect()
-    }
-}
+pub(super) use super::model_asset::Part;
 
 /// Ownership shared by original meshes, replacements and procedural geometry.
 #[derive(Component, Clone, Copy)]
@@ -532,7 +386,6 @@ pub(super) struct ActorPart {
     pub(super) materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
     pub(super) disabled: bool,
-    instantiated: bool,
     pub(super) geometry: Vec<(usize, Entity)>,
     pub(super) active_clip: Option<usize>,
     shadow_anchor: Option<Entity>,
@@ -554,7 +407,6 @@ impl ActorPart {
             materials,
             prepared: false,
             disabled: false,
-            instantiated: false,
             geometry: Vec::new(),
             active_clip: None,
             shadow_anchor: None,
@@ -571,53 +423,78 @@ impl ActorPart {
         self.active_clip = None;
     }
 }
+/// Warmup and live actors must use the same textures and shader features.
+pub(super) fn model_surfaces<'a>(
+    models: &'a BTreeMap<u32, Vec<Part>>,
+    toon_ramp: &'a Handle<Image>,
+    unlit: bool,
+    resource: u32,
+    index: usize,
+) -> impl Iterator<Item = TitleSurface> + 'a {
+    let part = &models[&resource][index];
+    part.materials
+        .iter()
+        .zip(&part.spec.materials)
+        .map(move |(material, spec)| {
+            TitleSurface {
+                field_fog: true,
+                vertex_color: spec.vertex_color,
+                multiply: material.sampled[1].clone(),
+                toon_ramp: (!unlit)
+                    .then(|| model_toon_ramp(models, toon_ramp, resource, index, spec, None))
+                    .flatten(),
+                constant_color: part.spec.outline_color_for(spec).is_some(),
+                blend: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                    Some(Blend::Additive)
+                } else {
+                    spec.blend.then_some(Blend::Alpha)
+                },
+                depth_write: spec.depth_write,
+                // The circle's translucent shell is visible from both sides.
+                cull: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                    resonance_content::CullFace::None
+                } else {
+                    spec.cull
+                },
+                ..TitleSurface::textured(material.sampled[0].clone())
+            }
+        })
+}
+
+pub(super) fn model_toon_ramp(
+    models: &BTreeMap<u32, Vec<Part>>,
+    toon_ramp: &Handle<Image>,
+    resource: u32,
+    index: usize,
+    material: &resonance_content::SceneMaterial,
+    enabled: Option<i32>,
+) -> Option<Handle<Image>> {
+    (index == 0
+        && material.color.is_some()
+        && enabled.map_or_else(
+            || {
+                models[&resource]
+                    .iter()
+                    .any(|part| part.spec.outline_color.is_some())
+            },
+            |value| value != 0,
+        ))
+    .then(|| toon_ramp.clone())
+}
+
 impl Art {
-    /// Warmup and live actors must use the same textures and shader features.
+    /// Script replacements belong to this live entry, not the captured package.
+    pub(super) fn invalidate(&mut self) {
+        self.gpu = None;
+        self.cache = Weak::new();
+    }
     pub(super) fn surfaces<'a>(
         &'a self,
         resource: u32,
         index: usize,
-        images: &'a mut Assets<Image>,
-        sampled: &'a mut super::scene::SampledImages,
     ) -> impl Iterator<Item = TitleSurface> + 'a {
-        let part = &self.models[&resource][index];
-        part.materials
-            .iter()
-            .zip(&part.spec.materials)
-            .map(move |(material, spec)| {
-                TitleSurface {
-                    field_fog: true,
-                    vertex_color: spec.vertex_color,
-                    multiply: super::scene::sampled_image(
-                        material.multiply.clone(),
-                        images,
-                        sampled,
-                    ),
-                    toon_ramp: (!self.unlit)
-                        .then(|| self.toon_ramp_for(resource, index, spec, None))
-                        .flatten(),
-                    constant_color: part.spec.outline_color_for(spec).is_some(),
-                    blend: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
-                        Some(Blend::Additive)
-                    } else {
-                        spec.blend.then_some(Blend::Alpha)
-                    },
-                    depth_write: spec.depth_write,
-                    // The circle's translucent shell is visible from both sides.
-                    cull: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
-                        resonance_content::CullFace::None
-                    } else {
-                        spec.cull
-                    },
-                    ..TitleSurface::textured(super::scene::sampled_image(
-                        material.color.clone(),
-                        images,
-                        sampled,
-                    ))
-                }
-            })
+        model_surfaces(&self.models, &self.toon_ramp, self.unlit, resource, index)
     }
-
     pub(super) fn toon_ramp_for(
         &self,
         resource: u32,
@@ -625,17 +502,14 @@ impl Art {
         material: &resonance_content::SceneMaterial,
         enabled: Option<i32>,
     ) -> Option<Handle<Image>> {
-        (index == 0
-            && material.color.is_some()
-            && enabled.map_or_else(
-                || {
-                    self.models[&resource]
-                        .iter()
-                        .any(|part| part.spec.outline_color.is_some())
-                },
-                |value| value != 0,
-            ))
-        .then(|| self.toon_ramp.clone())
+        model_toon_ramp(
+            &self.models,
+            &self.toon_ramp,
+            resource,
+            index,
+            material,
+            enabled,
+        )
     }
 
     pub(super) fn shadow_binding(&self) -> Option<(Handle<Mesh>, Handle<TitleSurface>)> {
@@ -809,17 +683,9 @@ pub(super) fn retire_live(world: &mut World) {
         super::field_model_particles::retire(world);
         ui.despawn(world);
         effects.despawn(world);
-        if world.contains_resource::<super::new_game::Session>() {
-            world
-                .resource_mut::<RetainedFields>()
-                .0
-                .insert(art.map, (art, ui, effects));
+        if let Some(cache) = art.cache.upgrade() {
+            *cache.lock().unwrap() = Some((art, effects));
         }
-    }
-    if !world.contains_resource::<super::new_game::Session>()
-        && let Some(mut retained) = world.get_resource_mut::<RetainedFields>()
-    {
-        retained.0.clear();
     }
     if !world.contains_resource::<super::new_game::Session>() {
         world.insert_resource(super::field_weapons::EquipmentCache::default());
@@ -831,27 +697,24 @@ fn load_live(
     mut commands: Commands,
     session: Option<Res<super::new_game::Session>>,
     art: Option<Res<Art>>,
+    prefetch: Option<Res<super::loading::FieldPrefetch>>,
     server: Res<AssetServer>,
+    ui_resident: Res<super::field_ui::Resident>,
+    resident: Res<super::loading::Resident>,
+    shared_effects: Option<Res<super::field_effects::Shared>>,
+    shared_shadows: Option<Res<SharedShadows>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut controls: ResMut<Controls>,
-    mut retained: ResMut<RetainedFields>,
     mut failures: Failures,
 ) {
+    profile_span!("field live load");
     let Some(session) = session else {
         return;
     };
     if art.is_some() || session.overworld().is_some() {
-        return;
-    }
-    if let Some((art, mut ui, effects)) = retained.0.remove(&session.map_id()) {
-        ui.prepare(&mut commands, &mut meshes, &mut materials);
-        commands.insert_resource(art);
-        commands.insert_resource(ui);
-        commands.insert_resource(effects);
-        controls.input = Default::default();
         return;
     }
     let files = session.files();
@@ -863,6 +726,7 @@ fn load_live(
         &mut materials,
         &mut images,
         &files,
+        &ui_resident,
     ) {
         Ok(ui) => ui,
         Err(error) => {
@@ -871,12 +735,26 @@ fn load_live(
         }
     };
     ui.prepare(&mut commands, &mut meshes, &mut materials);
+    let cached = session.field_package().graphics.clone();
+    if let Some((art, effects)) = cached.lock().unwrap().take() {
+        commands.insert_resource(art);
+        commands.insert_resource(ui);
+        commands.insert_resource(effects);
+        commands.remove_resource::<super::loading::FieldPrefetch>();
+        controls.input = Default::default();
+        return;
+    }
     let effects = match super::field_effects::Artwork::load(
         session.field_assets(),
         &server,
         &mut meshes,
         &mut surfaces,
         &files,
+        resident
+            .common
+            .get()
+            .and_then(|common| common.field.as_ref()),
+        shared_effects.as_deref(),
     ) {
         Ok(effects) => effects,
         Err(error) => {
@@ -886,7 +764,32 @@ fn load_live(
     };
     commands.insert_resource(effects);
     commands.insert_resource(ui);
-    commands.insert_resource(load_art(session.field_assets(), &server));
+    let selected = selected_costumes(&session.events().world);
+    let mut art = load_art_selected(session.field_assets(), &server, |resource| {
+        !is_costume(resource) || selected.contains(&resource)
+    });
+    if let Some(shared) = shared_shadows.as_deref() {
+        art.shadows.reuse(shared);
+    }
+    // Transfer any sampler views already resolved by the early upload.
+    if let Some(prefetch) = prefetch.filter(|prefetch| prefetch.map == art.map) {
+        for (resource, parts) in &mut art.models {
+            if let Some(early) = prefetch.models.get(resource) {
+                for (part, early) in parts.iter_mut().zip(early) {
+                    if part.spec.mesh == early.spec.mesh {
+                        for (material, early) in part.materials.iter_mut().zip(&early.materials) {
+                            if material.color == early.color && material.multiply == early.multiply
+                            {
+                                material.sampled.clone_from(&early.sampled);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    art.cache = Arc::downgrade(&cached);
+    commands.insert_resource(art);
     controls.clear_actions();
 }
 
@@ -1456,12 +1359,74 @@ fn ui(
     }
 }
 
+pub(super) fn is_costume(resource: u32) -> bool {
+    resource & 0xff00_0000 == 0x2300_0000
+}
+
+pub(super) fn selected_costumes(world: &resonance_events::GameWorld) -> BTreeSet<u32> {
+    world
+        .party
+        .iter()
+        .flat_map(|party| {
+            party.members.iter().enumerate().map(|(index, member)| {
+                resonance_content::appearance::costume_resource(index as u32 + 1, member.costume)
+            })
+        })
+        .chain(world.actors.values().map(|actor| actor.model_resource()))
+        .collect()
+}
+
+fn load_costumes(
+    session: Option<Res<super::new_game::Session>>,
+    art: Option<ResMut<Art>>,
+    server: Res<AssetServer>,
+    resident: Res<super::loading::Resident>,
+) {
+    let Some(session) = session.filter(|s| s.is_field()) else {
+        return;
+    };
+    let Some(mut art) = art.filter(|a| a.map == session.map_id()) else {
+        return;
+    };
+    let selected = selected_costumes(&session.events().world);
+    for actor in &session.field_assets().actors {
+        if is_costume(actor.resource)
+            && selected.contains(&actor.resource)
+            && !art.models.contains_key(&actor.resource)
+            && !art.failed_models.contains(&actor.resource)
+        {
+            let parts = actor
+                .parts
+                .iter()
+                .cloned()
+                .map(|part| Part::load(part, &server, &art.loads))
+                .collect();
+            art.models.insert(actor.resource, parts);
+            art.ready = false;
+            art.gpu = None;
+            art.loading_since = Instant::now();
+            resident
+                .active
+                .store(false, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
 fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
+    load_art_selected(manifest, server, |_| true)
+}
+
+fn load_art_selected(
+    manifest: &FieldAssets,
+    server: &AssetServer,
+    include: impl Fn(u32) -> bool,
+) -> Art {
     let loads = super::loading::LoadTasks::default();
     let mut models = BTreeMap::new();
     for (resource, parts) in manifest
         .actors
         .iter()
+        .filter(|actor| include(actor.resource))
         .map(|a| (a.resource, a.parts.clone()))
         .chain(manifest.parts.iter().map(|p| {
             (
@@ -1477,12 +1442,15 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
         models.insert(resource, parts);
     }
     Art {
+        cache: Weak::new(),
         map: manifest.map_id,
         texture_animations: manifest.texture_animations.clone(),
         environment: manifest.environment.clone(),
         models,
+        failed_models: BTreeSet::new(),
         instances: BTreeMap::new(),
         ready: false,
+        gpu: None,
         loading_since: Instant::now(),
         unlit: false,
         disabled_shadows: false,
@@ -1541,67 +1509,17 @@ pub(super) fn image_ready(
     }
 }
 
-fn prepare_part(
-    part: &mut Part,
-    server: &AssetServer,
-    gltfs: &Assets<bevy::gltf::Gltf>,
-    clips: &Assets<super::sparse_animation::Clip>,
-    images: &Assets<Image>,
-) -> Result<bool> {
-    let mut ready = asset_ready(server, part.gltf.id().untyped())?;
-    for handle in &part.clips {
-        ready &= asset_ready(server, handle.id().untyped())? && clips.contains(handle);
-    }
-    for (handle, _) in part
-        .materials
-        .iter()
-        .flat_map(|m| m.color.iter().chain(&m.multiply))
-    {
-        ready &= asset_ready(server, handle.id().untyped())? && images.contains(handle);
-    }
-    if !ready {
-        return Ok(false);
-    }
-    let gltf = gltfs
-        .get(&part.gltf)
-        .context("loaded field model is missing")?;
-    if !part.resolved {
-        let scene = gltf.scenes.first().context("field model has no scene")?;
-        ensure!(
-            gltf.meshes.len() == part.materials.len(),
-            "field material count differs from its recipe"
-        );
-        part.motions = part
-            .clips
-            .iter()
-            .zip(&part.spec.clips)
-            .map(|(handle, spec)| {
-                clips
-                    .get(handle)
-                    .context("loaded field clip is missing")?
-                    .bind(&part.spec.bone_names, spec)
-            })
-            .collect::<Result<_>>()?;
-        part.scene = scene.clone();
-        part.resolved = true;
-    }
-    asset_ready(server, part.scene.id().untyped())
-}
-
 #[expect(
     clippy::too_many_arguments,
     reason = "Field preparation resolves meshes, materials and animation assets together."
 )]
 fn prepare(
     mut art: ResMut<Art>,
-    server: Res<AssetServer>,
-    gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    gltf_meshes: Res<Assets<bevy::gltf::GltfMesh>>,
+    mut assets: super::model_asset::ModelAssets,
     meshes: Res<Assets<Mesh>>,
-    clips: Res<Assets<super::sparse_animation::Clip>>,
-    images: Res<Assets<Image>>,
     mut failures: Failures,
 ) {
+    profile_span!("field assets");
     if art.ready {
         return;
     }
@@ -1610,26 +1528,35 @@ fn prepare(
     let mut stopped = false;
     // A model's parts share a skeleton. Omit that model together, keeping all
     // other model resources available and preventing an impossible ready gate.
-    art.models.retain(|resource, parts| {
+    let Art {
+        models,
+        failed_models,
+        ..
+    } = &mut *art;
+    models.retain(|resource, parts| {
         let result = parts.iter_mut().try_fold(true, |ready, part| {
-            let resolved = part.resolved;
-            let loaded = prepare_part(part, &server, &gltfs, &clips, &images)
+            let resolved = part.layout.is_some();
+            let loaded = part
+                .resolve(&mut assets)
                 .with_context(|| format!("model {resource}, {}", part.spec.mesh))?;
             if !resolved
-                && part.resolved
+                && part.layout.is_some()
                 && *resource == SCENERY_RESOURCE_BASE + u32::from(part.spec.resource)
                 && DrawStage::scenery(part.spec.resource) == Some(DrawStage::Foreground)
             {
-                let gltf = gltfs.get(&part.gltf).expect("resolved field model");
-                for (handle, material) in gltf.meshes.iter().zip(&mut part.spec.materials) {
-                    let mesh = gltf_meshes.get(handle).expect("resolved field mesh");
+                for (primitives, material) in part
+                    .layout
+                    .as_ref()
+                    .unwrap()
+                    .meshes
+                    .iter()
+                    .zip(&mut part.spec.materials)
+                {
                     // Translucent light panels must not occlude later scenery.
                     // Cutout foliage keeps depth writes between overlapping leaves.
                     if material.blend && material.vertex_color {
-                        material.depth_write &= !mesh.primitives.iter().any(|primitive| {
-                            let mesh = meshes
-                                .get(&primitive.mesh)
-                                .expect("resolved field primitive");
+                        material.depth_write &= !primitives.iter().any(|primitive| {
+                            let mesh = meshes.get(primitive).expect("resolved field primitive");
                             matches!(
                                 mesh.attribute(Mesh::ATTRIBUTE_COLOR),
                                 Some(bevy::mesh::VertexAttributeValues::Float32x4(colors))
@@ -1652,6 +1579,7 @@ fn prepare(
             }
             Err(error) => {
                 if failures.skip("field model preparation", error) {
+                    failed_models.insert(*resource);
                     false
                 } else {
                     stopped = true;
@@ -1664,14 +1592,15 @@ fn prepare(
         return;
     }
     if let Some(panorama) = &art.panorama {
-        let result = asset_ready(&server, panorama.image.id().untyped()).and_then(|loaded| {
-            let loaded = loaded && images.contains(&panorama.image);
-            ensure!(
-                loaded || !timed_out,
-                "field panorama did not load within 30 seconds"
-            );
-            Ok(loaded)
-        });
+        let result =
+            asset_ready(&assets.server, panorama.image.id().untyped()).and_then(|loaded| {
+                let loaded = loaded && assets.images.contains(&panorama.image);
+                ensure!(
+                    loaded || !timed_out,
+                    "field panorama did not load within 30 seconds"
+                );
+                Ok(loaded)
+            });
         match result {
             Ok(loaded) => ready &= loaded,
             Err(error) => {
@@ -1692,8 +1621,8 @@ fn prepare(
         if disabled {
             continue;
         }
-        let result = asset_ready(&server, handle.id().untyped()).and_then(|loaded| {
-            let loaded = loaded && images.contains(&handle);
+        let result = asset_ready(&assets.server, handle.id().untyped()).and_then(|loaded| {
+            let loaded = loaded && assets.images.contains(&handle);
             ensure!(
                 loaded || !timed_out,
                 "shared field image did not load within 30 seconds"
@@ -1722,11 +1651,10 @@ fn instances(
     mut art: ResMut<Art>,
     session: State,
     mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut images: ResMut<Assets<Image>>,
-    mut sampled: ResMut<super::scene::SampledImages>,
     instances: Query<&ActorPart>,
     mut missing_models: Local<BTreeSet<(u32, u32)>>,
 ) {
+    profile_span!("field instances");
     if !art.ready {
         return;
     }
@@ -1771,43 +1699,17 @@ fn instances(
             })
             .map(|(index, part, pass)| {
                 let materials = art
-                    .surfaces(actor.model_resource(), index, &mut images, &mut sampled)
+                    .surfaces(actor.model_resource(), index)
                     .map(|surface| surfaces.add(surface))
                     .collect();
-                commands
+                let root = commands
                     .spawn((
-                        WorldAssetRoot(part.scene.clone()),
                         Transform::default(),
                         ActorPart::new(id, actor, index, pass, materials),
                     ))
-                    .observe(
-                        |event: On<WorldInstanceReady>,
-                         mut actors: Query<&mut ActorPart>,
-                         mut commands: Commands,
-                         mut applied: ResMut<Applied>| {
-                            if let Ok(mut actor) = actors.get_mut(event.entity) {
-                                // glTF subasset loads can replace a scene instance.
-                                // Entity caches belong to that instance, not just
-                                // to the outer actor's lifetime.
-                                actor.instantiated = true;
-                                actor.prepared = false;
-                                // Scene readiness can arrive after Update's
-                                // bind pass. Rebuilding the rig is a real load
-                                // dependency until the next pass, not a lost
-                                // secondary-motion request. Keep the same
-                                // bounded allowance used by initial loading.
-                                applied.loading(Request::SecondaryMotion(actor.actor, actor.part));
-                                actor.geometry.clear();
-                                actor.active_clip = None;
-                                actor.shadow_anchor = None;
-                                commands
-                                    .entity(event.entity)
-                                    .remove::<super::secondary_motion::Rig>()
-                                    .remove::<super::field_animation::Rig>();
-                            }
-                        },
-                    )
-                    .id()
+                    .id();
+                crate::model_asset::instantiate(&mut commands, root, part.scene.clone());
+                root
             })
             .collect();
         art.instances.insert(id, entities);
@@ -1833,7 +1735,13 @@ fn pose(
     session: State,
     art: Res<Art>,
     children: Query<&Children>,
-    mut roots: Query<(Entity, &mut ActorPart, &mut Transform, &mut Visibility)>,
+    mut roots: Query<(
+        Entity,
+        &mut ActorPart,
+        &mut Transform,
+        &mut Visibility,
+        &crate::model_asset::Instance,
+    )>,
     meshes: Query<&super::materials::MaterialSlot>,
     names: Query<&Name>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
@@ -1844,6 +1752,7 @@ fn pose(
     mut failures: Failures,
     mut actor_depths: Local<Vec<(i32, f32)>>,
 ) {
+    profile_span!("field pose");
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
@@ -1863,30 +1772,9 @@ fn pose(
     // Stable ties preserve submission order. Recompute from the live camera
     // and positions so moving actors and camera cuts update the blend order.
     actor_depths.sort_by(|a, b| b.1.total_cmp(&a.1));
-    for (root, mut instance, mut transform, mut visibility) in &mut roots {
+    for (root, mut instance, mut transform, mut visibility, _model) in &mut roots {
         if instance.disabled {
             *visibility = Visibility::Hidden;
-            continue;
-        }
-        if !instance.instantiated {
-            if let Some(index) = world
-                .save_points
-                .iter()
-                .position(|p| p.actor == instance.actor)
-            {
-                applied.loading(Request::SavePoint(index, instance.pass));
-            }
-            applied.loading(Request::SecondaryMotion(instance.actor, instance.part));
-            if instance.part == 0 {
-                applied.loading(Request::Mouth(instance.actor));
-                applied.loading(Request::Eyes(instance.actor));
-            }
-            applied.loading(Request::Actor(instance.actor, instance.part));
-            if let Some(actor) = world.actors.get(&instance.actor) {
-                for request in audit::actor_requests(instance.actor, instance.part, actor) {
-                    applied.loading(request);
-                }
-            }
             continue;
         }
         let Some(actor) = world.actors.get(&instance.actor) else {
@@ -2300,12 +2188,19 @@ fn pose(
         }
         instance.active_clip = animation.map(|(_, index)| index);
         if instance.prepared
-            && part.scene_materials.iter().all(|index| {
-                instance
-                    .geometry
-                    .iter()
-                    .any(|(material, _)| material == index)
-            })
+            && part
+                .layout
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .filter_map(|node| node.draw.as_ref())
+                .all(|draw| {
+                    instance
+                        .geometry
+                        .iter()
+                        .any(|(material, _)| *material == draw.slot.0)
+                })
         {
             applied.ack(Request::Actor(instance.actor, instance.part));
             if let Some(index) = world
@@ -2483,11 +2378,12 @@ fn capture_field_cached(
         }
         let mut package = packages[&map].clone();
         if let Some(script) = target.scene.script() {
-            package.script = script
-                .iter()
-                .flat_map(|v| v.to_be_bytes())
-                .collect::<Vec<_>>()
-                .into();
+            package.program = resonance_game::field::PreparedProgram::decode(
+                &script
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .collect::<Vec<_>>(),
+            )?;
         }
         let assets = package.assets.clone();
         let entry = if let Some(checkpoint) = checkpoint {
@@ -2744,6 +2640,8 @@ fn setup(
         &mut meshes,
         &mut surfaces,
         &root.files,
+        None,
+        None,
     )
     .expect("validated cooked field effects");
     commands.insert_resource(effects);
@@ -2768,6 +2666,7 @@ fn setup(
         &mut ui_materials,
         &mut images,
         &root.files,
+        &crate::field_ui::Resident::default(),
     )
     .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);

@@ -180,7 +180,10 @@ fn original_named_field_prepares_and_restores_without_inventory() -> Result<()> 
     let (field, _) = second.restore(&checkpoint, [332].into())?;
     assert_eq!(field.events.resources().messages[index], messages[index]);
     assert_ne!(first.messages, second.messages);
-    assert_eq!(first.script, second.script);
+    assert_eq!(
+        first.files.read(&first.assets.script)?,
+        second.files.read(&second.assets.script)?
+    );
     assert!(!second.files.overrides().is_empty());
 
     // An unrelated, missing field must not block loading this save. Only the
@@ -298,12 +301,14 @@ fn named_mod_layers_survive_worker_preparation_and_restore() -> Result<()> {
     *resident.files.write().unwrap() = Some(fresh.files.clone());
     assert_eq!(fresh.messages.to_vec(), current);
     assert_eq!(first.messages.to_vec(), selected);
-    // A prepared field belongs to the running application. Revisit and quickload
-    // reuse that exact package; edits are picked up after restarting, as above.
+    // No departed field is retained: a revisit or quickload prepares a new
+    // package. It reuses bytes captured by the field it leaves, so edits are
+    // only guaranteed to be picked up after restarting, as above.
     write_message(&mods[1], "Edit for the next application restart")?;
     let task = crate::loading::FieldPending::field(root.clone(), None, 332, &resident)?;
     let revisited = await_preparation(&task)?;
-    assert!(Arc::ptr_eq(&fresh, &revisited));
+    assert!(!Arc::ptr_eq(&fresh, &revisited));
+    assert_eq!(revisited.messages.to_vec(), current);
     let task = crate::loading::Pending::start(root, None, Some(saved), None, &resident)?;
     let restored = await_preparation(&task)?;
     assert_eq!(restored.field().events.resources().messages[0], current[0]);

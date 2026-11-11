@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 /// glTF geometry nodes and their primitive children can repeat bone names.
 /// Exclude both so pose updates always reach the skeleton.
+#[cfg(test)]
 pub(super) fn named_bones(
     root: Entity,
     children: &Query<&Children>,

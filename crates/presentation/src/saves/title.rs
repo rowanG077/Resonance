@@ -42,6 +42,13 @@ pub(super) fn install(app: &mut App) {
         );
 }
 fn prepare(world: &mut World) {
+    if !crate::loading::startup::ready(world) {
+        return;
+    }
+    let ui_resident = world
+        .get_resource::<crate::field_ui::Resident>()
+        .cloned()
+        .unwrap_or_default();
     if !world.contains_resource::<TitleMenu>() || world.contains_resource::<MenuOverlay>() {
         return;
     }
@@ -60,6 +67,7 @@ fn prepare(world: &mut World) {
             &server,
             &mut world.resource_mut::<Assets<Surface>>(),
             &diagnostics,
+            &ui_resident,
         )
     })();
     match result {
@@ -289,6 +297,7 @@ mod tests {
                 app.world().resource::<AssetServer>(),
                 &mut materials,
                 &diagnostics,
+                &crate::field_ui::Resident::default(),
             )?;
             app.insert_resource(materials);
             app.world_mut().resource_mut::<TitleMenu>().0.take_command();
@@ -465,6 +474,7 @@ mod tests {
                     &server,
                     &mut materials,
                     &diagnostics,
+                    &crate::field_ui::Resident::default(),
                 )?;
                 app.insert_resource(materials);
                 let healthy = server.load::<Image>(ready.clone());

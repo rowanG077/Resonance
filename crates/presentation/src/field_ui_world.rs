@@ -5,8 +5,7 @@ mod map;
 
 pub(crate) struct Artwork {
     common: super::Artwork,
-    layer: Layer,
-    map: map::Artwork,
+    graphics: Graphics,
     camera_mode: Option<bool>,
     camera_notice: Option<u32>,
 }
@@ -22,6 +21,7 @@ impl Artwork {
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
         images: &mut Assets<Image>,
+        resident: &Resident,
     ) -> Result<Self> {
         let mut common = super::Artwork::load_shared(
             files,
@@ -36,45 +36,27 @@ impl Artwork {
             server,
             materials,
             images,
+            resident,
         )?;
         common.prepare(commands, meshes, materials);
-        common
-            .images
-            .extend(common.menu.prepare_world_maps(materials)?);
-        let map = map::Artwork::prepare(&common.menu, commands, meshes)?;
-        let mut placeholder = Batch::default();
-        placeholder.quad([0., 0., 1., 1.], [0.5; 4], [0.; 4]);
-        let mesh = meshes.add(placeholder.mesh([common.font.width, common.font.height]));
-        let material = common.surfaces[9].clone();
-        let entity = commands
-            .spawn((
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(0., 0., 3.),
-                Visibility::Hidden,
-            ))
-            .id();
-        let layer = Layer {
-            entity,
-            mesh,
-            material,
-            uploaded: None,
-            visible: false,
+        common.images.extend(common.menu.prepare_world_maps()?);
+        let graphics = match resident.0.lock().unwrap().world.clone() {
+            Some(graphics) => graphics,
+            None => Graphics::prepare(&common.menu, &common.surfaces[9], commands, meshes)?,
         };
         Ok(Self {
             common,
-            layer,
-            map,
+            graphics,
             camera_mode: None,
             camera_notice: None,
         })
     }
-    pub fn ready(&self, images: &Assets<Image>) -> bool {
-        self.common.ready(images)
+    pub fn ready(&self, images: &Assets<Image>, server: &AssetServer) -> Result<bool> {
+        Ok(self.common.essential_ready(images, server)? && self.common.ready(images))
     }
     pub fn despawn(mut self, world: &mut World) {
-        self.map.despawn(world);
-        world.despawn(self.layer.entity);
+        self.graphics.map.despawn(world);
+        resident::retire(world, self.graphics.layer.entity);
         self.common.despawn(world);
     }
     #[allow(clippy::too_many_arguments)] // Shared UI artwork and Bevy asset stores.
@@ -116,7 +98,9 @@ impl Artwork {
                 false,
             )?;
         }
-        self.map.render(session, &mut batch, commands, meshes)?;
+        self.graphics
+            .map
+            .render(session, &mut batch, commands, meshes)?;
         if let Some((line, alpha)) = session.cinematic.as_ref().and_then(|c| c.dialogue()) {
             let lines: Vec<_> = line.text.lines().collect();
             let y = 424. - lines.len() as f32 * 26.;
@@ -193,13 +177,15 @@ impl Artwork {
         self.common
             .render_world_notifications(session, commands, meshes)?;
         if !batch.indices.is_empty() {
-            self.layer.update_mesh(
+            self.graphics.layer.update_mesh(
                 batch.clone(),
                 [self.common.font.width, self.common.font.height],
                 meshes,
             )?;
         }
-        self.layer.show(!batch.indices.is_empty(), commands);
+        self.graphics
+            .layer
+            .show(!batch.indices.is_empty(), commands);
         self.common.skits.render(
             session.active_skit.as_ref(),
             &self.common.font,
@@ -285,4 +271,25 @@ fn cinematic_text(
         x += (glyph.advance as f32 * height / if narrow { 34. } else { 25. }).trunc();
     }
     Ok(())
+}
+
+#[derive(Clone)]
+pub(super) struct Graphics {
+    layer: Layer,
+    map: map::Artwork,
+}
+impl Graphics {
+    pub(super) fn prepare(
+        menu: &menu::MenuArtwork,
+        font: &Handle<Surface>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<Self> {
+        let map = map::Artwork::prepare(menu, commands, meshes)?;
+        let layer = Layer::new(font.clone(), 3., commands, meshes);
+        Ok(Self { layer, map })
+    }
+    pub(super) fn layers(&self) -> impl Iterator<Item = &Layer> {
+        std::iter::once(&self.layer).chain(self.map.layers())
+    }
 }

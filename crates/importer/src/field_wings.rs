@@ -64,7 +64,7 @@ fn convert(library: &Path, id: u32, name: &str, package: &[u8]) -> Result<()> {
         };
         part.clips.push(SceneClip {
             motion,
-            joints: BTreeMap::new(),
+            joints: Default::default(),
             resource_slot: slot,
             duration_seconds: 0.,
             animation_resource: None,

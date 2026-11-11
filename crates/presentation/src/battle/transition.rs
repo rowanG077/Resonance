@@ -1,17 +1,11 @@
-//! Break the retained field image into tumbling pieces during battle loading.
+//! Hold the retained field image until the battle is ready, then shatter it.
 use super::*;
-use crate::model_preview::gpu;
+use crate::gpu_prepare as gpu;
 use bevy::{
     asset::RenderAssetUsages,
-    core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d},
     image::ImageSampler,
     mesh::PrimitiveTopology,
-    render::{
-        Render, RenderApp, RenderSystems,
-        render_phase::ViewSortedRenderPhases,
-        render_resource::PipelineCache,
-        renderer::{RenderDevice, RenderQueue},
-    },
+    render::{Render, RenderApp, RenderSystems},
 };
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
@@ -19,16 +13,21 @@ use std::{
 };
 
 const LAYER: usize = 25;
-const HOLD_TICKS: u16 = 30;
-const FADE_START: u16 = 57;
-const END_TICK: u16 = 120;
-const FADE_STEP: f32 = 4. / 255.;
+const HOLD_TICKS: u16 = 22;
+const FADE_START: u16 = 43;
+const END_TICK: u16 = 90;
+const FADE_STEP: f32 = 1. / (END_TICK - FADE_START) as f32;
 const EDGE_SPEED: f32 = 2.5;
 const CRACK_SPREAD: f32 = 1.025;
 const MIN_SPIN_DEGREES: f32 = 1.;
 const SPIN_STEP_DEGREES: f32 = 0.15;
 const SPIN_VARIANTS: u64 = 20;
 const ROLL_MULTIPLIER: f32 = 1.5;
+
+/// Only the diagnostic benchmark can remove animation's minimum duration.
+#[cfg(all(test, feature = "preparation-trace"))]
+#[derive(Resource)]
+pub(super) struct SkipMinimumDuration;
 
 #[cfg(test)]
 mod gpu_tests;
@@ -56,9 +55,25 @@ pub(super) struct State {
     age: Option<u16>,
     mesh_age: u16,
     crack_color: Color,
+    battle_ready: bool,
+    #[cfg(all(test, feature = "preparation-trace"))]
+    skip_minimum_duration: bool,
 }
 
 impl State {
+    pub(super) fn start_shatter(&mut self) {
+        self.battle_ready = true;
+        #[cfg(all(test, feature = "preparation-trace"))]
+        if self.skip_minimum_duration {
+            // Called only after capture, view activation and menu preparation.
+            self.age = Some(END_TICK);
+        }
+    }
+
+    pub(super) fn finished(&self) -> bool {
+        self.age == Some(END_TICK)
+    }
+
     pub(super) fn diagnostic(&self) -> serde_json::Value {
         serde_json::json!({
             "age": self.age,
@@ -91,22 +106,8 @@ pub(super) fn install(app: &mut App) {
         .add_systems(Render, rendered.in_set(RenderSystems::Cleanup));
 }
 
-fn rendered(
-    warmup: Res<Warmup>,
-    phases: Res<ViewSortedRenderPhases<Transparent3d>>,
-    quads: Res<ViewSortedRenderPhases<Transparent2d>>,
-    cache: Res<PipelineCache>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-) {
-    gpu::render_report(
-        &mut warmup.0.lock().unwrap(),
-        &phases,
-        &quads,
-        &cache,
-        &device,
-        &queue,
-    );
+fn rendered(warmup: Res<Warmup>, observer: gpu::Observer) {
+    observer.render(&mut warmup.0.lock().unwrap(), None);
 }
 
 fn crack_color(formations: usize) -> Color {
@@ -126,8 +127,8 @@ fn field_cover(field: Option<&resonance_events::GameWorld>) -> Vec4 {
 
 pub(super) fn entry_color(field: Option<&resonance_events::GameWorld>) -> [u8; 3] {
     let cover = field_cover(field);
-    // A visible field is revealed by the shatter over the ordinary black entry.
-    // A completed white fade instead stays white until the battle fades in.
+    // Entries without a shatter retain their completed field cover.
+    // A completed white fade stays white until the battle fades in.
     if cover.w == 1. && cover.x == 1. {
         [255; 3]
     } else {
@@ -202,6 +203,8 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         expected: [entity.into()].into(),
         ..default()
     };
+    #[cfg(all(test, feature = "preparation-trace"))]
+    let skip_minimum_duration = world.contains_resource::<SkipMinimumDuration>();
     world.insert_resource(State {
         capture,
         warmup,
@@ -215,6 +218,9 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         age: None,
         mesh_age: 0,
         crack_color: crack_color(formations),
+        battle_ready: false,
+        #[cfg(all(test, feature = "preparation-trace"))]
+        skip_minimum_duration,
     });
     Ok(())
 }
@@ -259,15 +265,15 @@ pub(super) fn dispose(world: &mut World) {
 
 fn advance(
     state: Option<ResMut<State>>,
-    owner: Option<Res<Owner>>,
     audio: Option<Res<crate::field_audio::Control>>,
     mut exit: crate::diagnostics::Fatal,
 ) {
     if let Some(mut state) = state
         && let Some(age) = state.age
     {
-        // Show the cracks during preparation, but only uncover a ready battle.
-        if age >= HOLD_TICKS && !owner.as_ref().is_some_and(|owner| owner.presenting()) {
+        // Keep the cracked field intact until the battle's first frame has
+        // completed on the GPU, then animate both scenes together.
+        if age >= HOLD_TICKS && !state.battle_ready {
             return;
         }
         if age == HOLD_TICKS
@@ -309,7 +315,7 @@ fn render(
         .entity(state.capture_camera)
         .remove::<crate::menu_backdrop::SceneCapture>();
     let battle_visible = owner.as_ref().is_some_and(|owner| owner.presenting());
-    if battle_visible && state.age == Some(END_TICK) {
+    if battle_visible && state.finished() {
         state.warmup.0.lock().unwrap().armed = false;
         commands.entity(state.entity).despawn();
         commands.entity(state.camera).despawn();
@@ -404,7 +410,7 @@ fn pieces(seed: u64) -> Vec<Piece> {
 }
 
 fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
-    let motion = age.saturating_sub(HOLD_TICKS) as f32;
+    let motion = age.saturating_sub(HOLD_TICKS) as f32 * 90. / (END_TICK - HOLD_TICKS) as f32;
     let alpha = if age >= END_TICK {
         0.
     } else {
@@ -443,6 +449,52 @@ fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
 mod tests {
     use super::*;
     use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn fragments_wait_for_the_battle_and_keep_the_full_animation() {
+        for loading_ticks in [0, END_TICK * 2] {
+            let mut app = App::new();
+            app.add_message::<AppExit>()
+                .add_systems(FixedUpdate, advance)
+                .insert_resource(State {
+                    capture: crate::menu_backdrop::Capture::once(
+                        Handle::default(),
+                        Handle::default(),
+                    ),
+                    warmup: Warmup::default(),
+                    target: Handle::default(),
+                    capture_camera: Entity::PLACEHOLDER,
+                    camera: Entity::PLACEHOLDER,
+                    entity: Entity::PLACEHOLDER,
+                    mesh: Handle::default(),
+                    pieces: Vec::new(),
+                    size: Vec2::ZERO,
+                    age: Some(0),
+                    mesh_age: 0,
+                    crack_color: Color::WHITE,
+                    battle_ready: false,
+                    #[cfg(feature = "preparation-trace")]
+                    skip_minimum_duration: false,
+                });
+            for tick in 0..loading_ticks {
+                app.world_mut().run_schedule(FixedUpdate);
+                assert_eq!(
+                    app.world().resource::<State>().age,
+                    Some((tick + 1).min(HOLD_TICKS)),
+                );
+            }
+            app.world_mut().resource_mut::<State>().start_shatter();
+            let age = app.world().resource::<State>().age.unwrap();
+            for next in age + 1..=END_TICK {
+                app.world_mut().run_schedule(FixedUpdate);
+                let state = app.world().resource::<State>();
+                assert_eq!(state.age, Some(next));
+                assert_eq!(state.finished(), next == END_TICK);
+            }
+            app.world_mut().run_schedule(FixedUpdate);
+            assert!(app.world().resource::<State>().finished());
+        }
+    }
 
     #[test]
     fn scripted_battle_entry_retains_black_white_and_partial_field_covers() {

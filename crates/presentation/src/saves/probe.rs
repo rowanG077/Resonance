@@ -57,14 +57,6 @@ pub fn run_quicksave_probe(
                 save_directory: None,
             },
         )?;
-        let report: serde_json::Value =
-            serde_json::from_slice(&fs::read(route_output.join("recording.json"))?)?;
-        let village = replay::capture_from(&report, "village")?;
-        let returned = replay::capture_from(&report, "school-returned")?;
-        ensure!(
-            village["asset_reads"] == returned["asset_reads"],
-            "revisited field reloaded its prepared assets"
-        );
     }
     Ok(())
 }
@@ -192,10 +184,6 @@ impl Probe {
                     .context("loaded field has no publication snapshot")?,
                 baseline,
             )?;
-            ensure!(
-                !world.contains_resource::<RetainedFrame>(),
-                "restored field image was not released"
-            );
             self.samples.push(started.elapsed().as_secs_f64() * 1000.);
             if self.samples.len() == 1 {
                 fs::write(

@@ -29,7 +29,7 @@ symphonia-script-compiler = { path = "crates/symphonia-script-compiler" }
 symphonia-script-tools = { path = "crates/symphonia-script-tools" }
 resonance-events = { path = "crates/resonance-events" }
 clap = { version = "4", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 sha2 = "0.11.1"

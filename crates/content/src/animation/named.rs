@@ -1,27 +1,38 @@
 //! A GLB's curves are loaded once. Each model selects joints independently;
 //! neither model node order nor a second instance can change the shared asset.
 use super::*;
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::{Arc, Mutex, Weak},
+};
+
+type Binding = (Vec<String>, crate::JointMap);
 
 #[derive(Debug)]
 pub struct NamedMotion {
-    pub motion: Motion,
+    source: Source,
     pub joints: Vec<String>,
+    bound: Mutex<VecDeque<(Binding, Weak<Motion>)>>,
+}
+
+#[derive(Debug)]
+enum Source {
+    Skin(Motion),
     // Scene-only exports have no explicit joint boundary. Select their model
     // joints before folding editor-added parent transforms into each track.
-    scene: Option<gltf::Gltf>,
+    Scene(super::codec::Nodes),
 }
 
 impl NamedMotion {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let glb = super::codec::parse(bytes)?;
-        let motion = super::codec::decode(&glb, None, false)?;
+        let decoded = super::codec::Nodes::decode(&glb)?;
         let skin = glb.skins().next();
         let nodes: Vec<_> = match skin.as_ref() {
             Some(skin) => skin.joints().collect(),
             None => glb.nodes().collect(),
         };
-        let joints = nodes
+        let joints: Vec<String> = nodes
             .into_iter()
             .map(|node| {
                 node.name()
@@ -29,12 +40,47 @@ impl NamedMotion {
                     .context("animation has an unnamed joint")
             })
             .collect::<Result<_>>()?;
-        let scene_only = skin.is_none();
+        ensure!(
+            joints.len() <= usize::from(u16::MAX),
+            "too many animation joints"
+        );
+        let source = if skin.is_none() {
+            Source::Scene(decoded)
+        } else {
+            Source::Skin(decoded.select(None, false)?)
+        };
         Ok(Self {
-            motion,
+            source,
             joints,
-            scene: scene_only.then_some(glb),
+            bound: Default::default(),
         })
+    }
+
+    /// The captured clip owns this lookup. Expired targets are removed on use;
+    /// only scene/asset owners retain curves, so visiting fields adds no history.
+    pub fn bind_shared(
+        &self,
+        bones: &[String],
+        selection: &crate::JointMap,
+    ) -> Result<Arc<Motion>> {
+        let mut bound = self.bound.lock().unwrap();
+        bound.retain(|(_, motion)| motion.strong_count() > 0);
+        if let Some(index) = bound
+            .iter()
+            .position(|((names, joints), _)| names == bones && joints == selection)
+        {
+            let entry = bound.remove(index).unwrap();
+            if let Some(motion) = entry.1.upgrade() {
+                bound.push_back(entry);
+                return Ok(motion);
+            }
+        }
+        let motion = Arc::new(self.bind(bones, selection)?);
+        if bound.len() == 128 {
+            bound.pop_front();
+        }
+        bound.push_back(((bones.to_vec(), selection.clone()), Arc::downgrade(&motion)));
+        Ok(motion)
     }
 
     /// Bind named channels and validate the result against the target joints.
@@ -43,6 +89,10 @@ impl NamedMotion {
         bones: &[String],
         selection: &BTreeMap<String, Option<String>>,
     ) -> Result<Motion> {
+        ensure!(
+            bones.len() <= usize::from(u16::MAX),
+            "too many model joints"
+        );
         ensure!(
             bones
                 .iter()
@@ -74,24 +124,24 @@ impl NamedMotion {
             }
         }
         let mut tracks = Vec::new();
-        let scene_names = self.scene.as_ref().map(|_| {
-            bones
-                .iter()
-                .filter_map(|name| match selection.get(name) {
-                    Some(Some(source)) => Some(source.clone()),
-                    Some(None) => None,
-                    None => indices.contains_key(name.as_str()).then(|| name.clone()),
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>()
-        });
-        let scene = self
-            .scene
-            .as_ref()
-            .zip(scene_names.as_ref())
-            .map(|(glb, names)| super::codec::decode(glb, Some(names), false))
-            .transpose()?;
+        let scene_motion;
+        let (motion, scene_names) = match &self.source {
+            Source::Skin(motion) => (motion, None),
+            Source::Scene(nodes) => {
+                let names = bones
+                    .iter()
+                    .filter_map(|name| match selection.get(name) {
+                        Some(Some(source)) => Some(source.clone()),
+                        Some(None) => None,
+                        None => indices.contains_key(name.as_str()).then(|| name.clone()),
+                    })
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                scene_motion = nodes.select(Some(&names), false)?;
+                (&scene_motion, Some(names))
+            }
+        };
         for (bone, name) in bones.iter().enumerate() {
             let source = match selection.get(name) {
                 Some(Some(source)) => source,
@@ -101,12 +151,9 @@ impl NamedMotion {
             let Some(&index) = indices.get(source.as_str()) else {
                 continue;
             };
-            let (motion, index) = match (&scene, &scene_names) {
-                (Some(motion), Some(names)) => (
-                    motion,
-                    names.iter().position(|n| n == source).unwrap() as u16,
-                ),
-                _ => (&self.motion, index),
+            let index = match &scene_names {
+                Some(names) => names.iter().position(|n| n == source).unwrap() as u16,
+                None => index,
             };
             if let Some(track) = motion.tracks.iter().find(|track| track.bone == index) {
                 let mut track = track.clone();
@@ -115,10 +162,11 @@ impl NamedMotion {
             }
         }
         let motion = Motion {
-            duration_frames: self.motion.duration_frames,
+            duration_frames: motion.duration_frames,
             tracks,
         };
-        motion.validate_bones(bones.len())?;
+        // Each track keeps its validated immutable nodes. Binding changes only
+        // its unique target index, checked above, not the underlying curves.
         Ok(motion)
     }
 }
@@ -143,7 +191,7 @@ mod tests {
                 duration_frames: 30.,
                 tracks: vec![Track {
                     bone: 0,
-                    nodes: vec![node],
+                    nodes: vec![node.into()],
                 }],
             },
         ))
@@ -176,8 +224,11 @@ mod tests {
         }
         // One edit reaches both targets, without mutating either prepared clip.
         let mut edited = motion;
-        edited.tracks[0].nodes[0].rotation.as_mut().unwrap().values[1] =
-            glam::Quat::from_rotation_y(1.).to_array();
+        Arc::make_mut(&mut edited.tracks[0].nodes[0])
+            .rotation
+            .as_mut()
+            .unwrap()
+            .values[1] = glam::Quat::from_rotation_y(1.).to_array();
         let edited = NamedMotion::decode(&edited.encode(&small)?)?;
         assert_ne!(
             a.tracks,
@@ -238,6 +289,87 @@ mod tests {
             bound.tracks[0].sample_matrix(15., Transform::default())?[3],
             [3., 4., 5., 1.]
         );
+        let alias = named.bind(
+            &["ankle".into()],
+            &[("ankle".into(), Some("hips".into()))].into(),
+        )?;
+        assert_eq!(bound, alias);
+        assert!(Arc::ptr_eq(
+            &bound.tracks[0].nodes[0],
+            &alias.tracks[0].nodes[0]
+        ));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod shared_nodes_tests {
+    use super::*;
+    #[test]
+    fn overflowing_duration_is_rejected_before_binding() -> Result<()> {
+        let skeleton = Skeleton::single("root");
+        let mut node = NodeTrack::new(Transform::default());
+        node.scale = Some(Channel {
+            interpolation: Interpolation::Step,
+            times: vec![f32::MAX],
+            values: vec![[1.; 3]],
+        });
+        let source = Motion {
+            duration_frames: 1.,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![node.into()],
+            }],
+        };
+        let bytes = source.encode(&skeleton)?;
+        assert!(NamedMotion::decode(&bytes).is_err());
+        assert!(Motion::decode(&bytes).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn distinct_rigs_share_validated_curves_and_node_edits_are_independent() -> Result<()> {
+        let skeleton = Skeleton::single("root");
+        let mut node = NodeTrack::new(Transform::default());
+        node.translation = Some(Channel {
+            interpolation: Interpolation::Linear,
+            times: vec![0., 1.],
+            values: vec![[0.; 3], [1.; 3]],
+        });
+        let source = Motion {
+            duration_frames: FRAME_HZ,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![node.into()],
+            }],
+        };
+        let named = NamedMotion::decode(&source.encode(&skeleton)?)?;
+        let first = named.bind(&["root".into()], &BTreeMap::new())?;
+        let mut second = named.bind(&["other".into(), "root".into()], &BTreeMap::new())?;
+        assert_eq!(first.tracks[0].bone, 0);
+        assert_eq!(second.tracks[0].bone, 1);
+        assert!(Arc::ptr_eq(
+            &first.tracks[0].nodes[0],
+            &second.tracks[0].nodes[0]
+        ));
+        Arc::make_mut(&mut second.tracks[0].nodes[0])
+            .translation
+            .as_mut()
+            .unwrap()
+            .values[1] = [2.; 3];
+        assert_eq!(
+            first.tracks[0].nodes[0]
+                .translation
+                .as_ref()
+                .unwrap()
+                .values[1],
+            [1.; 3]
+        );
+        assert_eq!(named.bind(&["root".into()], &BTreeMap::new())?, first);
+        first.validate_bones(1)?;
+        second.validate_bones(2)?;
+        let round_trip: Motion = serde_json::from_value(serde_json::to_value(&first)?)?;
+        assert_eq!(round_trip, first);
         Ok(())
     }
 }

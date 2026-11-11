@@ -299,7 +299,10 @@ fn victory_definition(
         skeleton,
         body_spheres: vec![],
         reception_spheres: None,
-        motions,
+        motions: motions
+            .into_iter()
+            .map(|(clip, motion)| (clip, Arc::new(motion)))
+            .collect(),
         secondary_motion: vec![],
         initial: resonance_battle::Playback {
             clip: 0,

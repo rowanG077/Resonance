@@ -11,11 +11,11 @@ mod ropes;
 use super::{
     draw_order::DrawOrder,
     field_view::{ActorPart, Art, Failures, State},
-    materials::{MaterialSlot, TitleSurface},
+    materials::TitleSurface,
     sparse_animation::{Binding, affine::Locals},
 };
 use anyhow::{Context as ContextExt, Result};
-use bevy::{prelude::*, world_serialization::WorldInstanceReady};
+use bevy::prelude::*;
 pub(super) use choreography::apply as choreograph;
 pub(super) use publication::publish;
 use resonance_content::battle_model::AttachmentTextureAnimation;
@@ -203,8 +203,6 @@ impl Instance {
         }
     }
 }
-#[derive(Component)]
-pub(super) struct Loaded;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn instances(
@@ -214,8 +212,6 @@ pub(super) fn instances(
     actors: Query<(Entity, &ActorPart)>,
     roots: Query<(Entity, &Instance)>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut images: ResMut<Assets<Image>>,
-    mut sampled: ResMut<super::scene::SampledImages>,
 ) {
     let field = state.get();
     let world = &field.events.world;
@@ -262,13 +258,12 @@ pub(super) fn instances(
             }
             let materials = layer
                 .art
-                .surfaces(&mut images, &mut sampled)
+                .surfaces()
                 .into_iter()
                 .map(|surface| surfaces.add(surface))
                 .collect();
-            commands
+            let root = commands
                 .spawn((
-                    WorldAssetRoot(layer.art.scene.clone()),
                     Transform::from_translation(Vec3::from_array(layer.preview.scene.translation)),
                     Visibility::Hidden,
                     Instance {
@@ -290,26 +285,8 @@ pub(super) fn instances(
                         rope: None,
                     },
                 ))
-                .observe(
-                    |event: On<WorldInstanceReady>,
-                     mut commands: Commands,
-                     mut roots: Query<&mut Instance>| {
-                        if let Ok(mut root) = roots.get_mut(event.entity) {
-                            root.binding = None;
-                            root.camera_facing.clear();
-                            root.geometry.clear();
-                            root.dynamics = None;
-                            root.choreography = None;
-                            root.prepared = false;
-                            if let Some((entity, _, _)) = root.rope.take()
-                                && let Ok(mut entity) = commands.get_entity(entity)
-                            {
-                                entity.try_despawn();
-                            }
-                        }
-                        commands.entity(event.entity).insert(Loaded);
-                    },
-                );
+                .id();
+            crate::model_asset::instantiate(&mut commands, root, layer.art.scene.clone());
         }
     }
     for (entity, root) in &roots {
@@ -361,14 +338,12 @@ pub(super) fn render(
     mut commands: Commands,
     state: State,
     cache: Res<EquipmentCache>,
-    children: Query<&Children>,
-    slots: Query<&MaterialSlot>,
     actors: Query<(Entity, &ActorPart)>,
-    mut roots: Query<(Entity, &mut Instance), With<Loaded>>,
-    mut transforms: ParamSet<(
-        Query<(&Transform, &bevy::gltf::GltfExtras)>,
-        Query<&mut Transform>,
-    )>,
+    mut roots: Query<
+        (Entity, &mut Instance, &crate::model_asset::Instance),
+        With<crate::model_asset::Instance>,
+    >,
+    mut transforms: Query<&mut Transform>,
     mut orders: Query<&mut DrawOrder>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut affine: ResMut<Locals>,
@@ -376,7 +351,7 @@ pub(super) fn render(
 ) {
     let field = state.get();
     let world = &field.events.world;
-    for (entity, mut root) in &mut roots {
+    for (_entity, mut root, model_instance) in &mut roots {
         root.sampled = false;
         root.prepared = false;
         let Some(actor) = world.actors.get(&root.actor) else {
@@ -391,26 +366,15 @@ pub(super) fn render(
         let layer = &model.layers[root.layer];
         let result = (|| -> Result<()> {
             if root.binding.is_none() {
-                let rest = transforms.p0();
-                let binding =
-                    Binding::new(entity, layer.art.spec.bone_names.len(), &children, &rest)?;
-                for &(entity, _) in &binding.0 {
-                    let extras: serde_json::Value =
-                        serde_json::from_str(&rest.get(entity)?.1.value)?;
-                    if extras["resonance_camera_facing"] == true {
-                        root.camera_facing.push(entity);
-                    }
-                }
-                root.binding = Some(binding);
-                for child in children.iter_descendants(entity) {
-                    if let Ok(slot) = slots.get(child) {
-                        let index = slot.index(root.materials.len())?;
-                        root.geometry.push((index, child));
-                        commands.entity(child).insert((
-                            MeshMaterial3d(root.materials[index].clone()),
-                            super::field_view::ActorGeometry(root.actor),
-                        ));
-                    }
+                root.binding = Some(model_instance.binding(layer.art.spec.bone_names.len())?);
+                root.camera_facing = model_instance.facing();
+                for (child, draw) in model_instance.draws() {
+                    let index = draw.slot.index(root.materials.len())?;
+                    root.geometry.push((index, child));
+                    commands.entity(child).insert((
+                        MeshMaterial3d(root.materials[index].clone()),
+                        super::field_view::ActorGeometry(root.actor),
+                    ));
                 }
             }
             let age = field.effect_clock.tick().wrapping_sub(root.birth);
@@ -427,18 +391,18 @@ pub(super) fn render(
                 root.binding.as_ref().unwrap().sample(
                     motion,
                     clock.sample(age, 0, duration) / resonance_content::ANIMATION_HZ,
-                    &mut transforms.p1(),
+                    &mut transforms,
                     &mut affine,
                 )?;
             } else {
                 for &(entity, rest) in &root.binding.as_ref().unwrap().0 {
-                    affine.set(entity, &mut *transforms.p1().get_mut(entity)?, rest.into());
+                    affine.set(entity, &mut *transforms.get_mut(entity)?, rest.into());
                 }
             }
             if let Some(camera) = &world.field_camera {
                 let rotation = super::field_view::camera_transform(camera).rotation;
                 for &entity in &root.camera_facing {
-                    affine.face_camera(entity, &mut *transforms.p1().get_mut(entity)?, rotation);
+                    affine.face_camera(entity, &mut *transforms.get_mut(entity)?, rotation);
                 }
             }
             let body_material = owner
@@ -540,7 +504,7 @@ pub(super) fn dynamics(
     state: State,
     cache: Res<EquipmentCache>,
     parents: Query<&ChildOf>,
-    mut roots: Query<(Entity, &mut Instance), With<Loaded>>,
+    mut roots: Query<(Entity, &mut Instance), With<crate::model_asset::Instance>>,
     mut transforms: ParamSet<(
         super::sparse_animation::affine::Helper,
         (Query<&mut Transform>, ResMut<Locals>),

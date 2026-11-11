@@ -59,17 +59,7 @@ pub(super) fn update(world: &mut World) {
         world.remove_resource::<Loading>();
         match result {
             Ok(candidate) => {
-                crate::game_over::loaded(world);
-                if let Some(mut session) = world.get_resource_mut::<new_game::Session>() {
-                    let changing = session.map_id() != candidate.map_id()
-                        || session.overworld().is_some()
-                        || candidate.overworld().is_some();
-                    session.replace_loaded(candidate);
-                    restored(world, changing);
-                } else {
-                    new_game::activate(world, candidate);
-                    field_view::reset_live(world);
-                }
+                install_loaded(world, candidate);
             }
             Err(error) => failed(world, error),
         }

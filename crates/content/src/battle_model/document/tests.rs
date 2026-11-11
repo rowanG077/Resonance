@@ -246,14 +246,14 @@ fn model_edits_supply_combat_rigs_and_named_attachments_without_sidecars() -> Re
         duration_frames: 30.,
         tracks: vec![Track {
             bone: 0,
-            nodes: vec![NodeTrack {
+            nodes: vec![std::sync::Arc::new(NodeTrack {
                 translation: Some(Channel {
                     interpolation: Interpolation::Linear,
                     times: vec![0., 1.],
                     values: vec![[25., 0., 0.], [35., 0., 0.]],
                 }),
                 ..NodeTrack::new(Transform::default())
-            }],
+            })],
         }],
     };
     assert_eq!(

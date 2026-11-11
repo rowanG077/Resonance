@@ -150,8 +150,9 @@ impl ActionResources {
         })
     }
 
-    pub fn prepare_effects(
+    pub(crate) fn prepare_effects(
         &self,
+        cache: &effect_program::cache::Cache,
         sound: &mut impl FnMut(u16) -> Result<Option<resonance_battle::Sound>>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Vec<resonance_battle::EffectBank>> {
@@ -159,15 +160,16 @@ impl ActionResources {
             .values()
             .filter_map(|request| request.bank.as_ref().map(|bank| (request, bank)))
             .map(|(request, source)| {
-                effect_program::prepare(
-                    source,
-                    request.resource,
-                    &request.members,
-                    request.models.clone(),
-                    sound,
-                    diagnostics,
-                )
-                .with_context(|| format!("prepare effect bank {}", request.resource))
+                cache
+                    .prepare(
+                        source,
+                        request.resource,
+                        &request.members,
+                        request.models.clone(),
+                        sound,
+                        diagnostics,
+                    )
+                    .with_context(|| format!("prepare effect bank {}", request.resource))
             })
             .collect()
     }

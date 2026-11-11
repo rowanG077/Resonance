@@ -4,9 +4,11 @@ use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
 #[path = "battle_audio.rs"]
 pub(crate) mod battle;
+mod effects;
 mod music;
 #[cfg(test)]
 mod named_tests;
+mod voices;
 use music::MusicPlayer;
 #[path = "field_audio_record.rs"]
 mod record;
@@ -248,10 +250,118 @@ pub(super) struct Assets {
 
 #[derive(Default)]
 pub(super) struct Cache {
+    recordings: crate::audio::recording::Cache,
     samples: resonance_audio::package::SampleCache,
+    effects: effects::Cache,
+    voices: voices::Cache,
 }
 
 impl Cache {
+    pub(crate) fn warm_music(
+        &mut self,
+        common: &resonance_game::battle::encounter::Common,
+        snapshot: &mut resonance_content::library::Snapshot,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Vec<Arc<crate::audio::Recording>>> {
+        let mut recordings = Vec::new();
+        for id in common.common_music() {
+            let Some(path) = common.audio.resolved.music.get(&(id as i16)) else {
+                continue;
+            };
+            if let Some(recording) = common.files.diagnostics().preload(
+                &format!("common battle music {id}"),
+                cancelled,
+                || self.recordings.capture(snapshot, path, cancelled),
+            )? {
+                recordings.push(recording);
+            }
+        }
+        Ok(recordings)
+    }
+    #[cfg(test)]
+    pub(crate) fn effect_cache_hits(&self) -> usize {
+        self.effects.hits()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn voice_cache_hits(&self) -> usize {
+        self.voices.hits()
+    }
+
+    pub(crate) fn warm_voices(
+        &mut self,
+        common: &resonance_game::battle::encounter::Common,
+        snapshot: &mut resonance_content::library::Snapshot,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Vec<Arc<Clip>>> {
+        let mut prepared = Vec::new();
+        for id in common.voice_streams() {
+            ensure!(!cancelled(), "common battle speech preparation cancelled");
+            let Some(voice) = common.audio.resolved.voices.get(&u32::from(id)) else {
+                continue;
+            };
+            if let Some(clip) = common.files.diagnostics().preload(
+                &format!("common battle speech {id}"),
+                cancelled,
+                || {
+                    self.voices.prepare(voice, &mut |path, limit| {
+                        ensure!(!cancelled(), "common battle speech preparation cancelled");
+                        snapshot.read(path, limit)
+                    })
+                },
+            )? {
+                prepared.push(clip);
+            }
+        }
+        ensure!(!cancelled(), "common battle speech preparation cancelled");
+        Ok(prepared)
+    }
+
+    /// Startup prepares fixed player, action and shared feedback cues. Tolerant
+    /// mode records a broken cue as a preload miss; strict mode preserves its error.
+    pub(crate) fn warm_effects(
+        &mut self,
+        common: &resonance_game::battle::encounter::Common,
+        snapshot: &mut resonance_content::library::Snapshot,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Vec<Arc<PreparedEffect>>> {
+        let mut prepared = Vec::new();
+        for id in common.effect_sounds() {
+            ensure!(!cancelled(), "common battle audio preparation cancelled");
+            let Some(path) = i16::try_from(id)
+                .ok()
+                .and_then(|id| common.audio.resolved.effects.get(&id))
+            else {
+                continue;
+            };
+            if let Some(effect) = common.files.diagnostics().preload(
+                &format!("common battle sound {id}"),
+                cancelled,
+                || {
+                    self.effects.prepare(
+                        path,
+                        common.audio.audio.reverbs,
+                        &mut |path, limit| {
+                            ensure!(!cancelled(), "common battle audio preparation cancelled");
+                            snapshot.read(path, limit)
+                        },
+                        &mut self.samples,
+                    )
+                },
+            )? {
+                prepared.push(effect);
+            }
+        }
+        ensure!(!cancelled(), "common battle audio preparation cancelled");
+        Ok(prepared)
+    }
+
+    pub(crate) fn adopt_prepared(&mut self, other: Self) {
+        self.recordings.adopt(other.recordings);
+        self.effects.adopt(other.effects);
+        self.voices.adopt(other.voices);
+    }
+
     /// Prepare an editable bank from the same snapshot as its field. All nested
     /// program/sample paths are discovered here; no persisted inventory or
     /// declared digest is consulted.
@@ -278,6 +388,8 @@ impl Cache {
     ) -> Result<Arc<Assets>> {
         ensure!(!cancelled(), "audio preparation cancelled");
         self.samples.prune();
+        self.effects.prune();
+        self.voices.prune();
         let mut assets = Assets {
             voice_gains: definition.voice_gains,
             reverbs: definition.reverbs,
@@ -286,7 +398,9 @@ impl Cache {
         };
         for (id, path) in resolved.music {
             ensure!(!cancelled(), "audio preparation cancelled");
-            let prepared = crate::audio::Recording::capture(snapshot, &path, cancelled)
+            let prepared = self
+                .recordings
+                .capture(snapshot, &path, cancelled)
                 .with_context(|| format!("music resource {id}: {path}"));
             ensure!(!cancelled(), "audio preparation cancelled");
             if let Some(recording) = diagnostics.attempt("music resource", prepared)? {
@@ -300,19 +414,18 @@ impl Cache {
                 continue;
             }
             ensure!(!cancelled(), "audio preparation cancelled");
-            let prepared = (|| -> Result<_> {
-                let program =
-                    EffectDefinition::read(&path, &mut |path, limit| snapshot.read(path, limit))?;
-                Ok(Arc::new(program.prepare_in(
-                    Some(definition.reverbs),
+            let prepared = self
+                .effects
+                .prepare(
+                    &path,
+                    definition.reverbs,
                     &mut |path, limit| {
                         ensure!(!cancelled(), "audio preparation cancelled");
                         snapshot.read(path, limit)
                     },
                     &mut self.samples,
-                )?))
-            })()
-            .with_context(|| format!("audio resource {id}: {path}"));
+                )
+                .with_context(|| format!("audio resource {id}: {path}"));
             ensure!(!cancelled(), "audio preparation cancelled");
             if let Some(package) = diagnostics.attempt("audio resource", prepared)? {
                 effects_by_path.insert(path, package.clone());
@@ -337,18 +450,13 @@ impl Cache {
                 continue;
             }
             ensure!(!cancelled(), "audio preparation cancelled");
-            let prepared = (|| -> Result<_> {
-                let bytes = snapshot.read(path, 129 * 1024 * 1024)?;
-                let metadata = resonance_content::field_audio::Voice::from_wave(
-                    path,
-                    voice.sample_rate,
-                    &bytes,
-                )?;
-                Clip::capture(&metadata, &mut |reference, limit| {
+            let prepared = self
+                .voices
+                .prepare(&voice, &mut |reference, limit| {
+                    ensure!(!cancelled(), "audio preparation cancelled");
                     snapshot.read(reference, limit)
                 })
-            })()
-            .with_context(|| format!("speech {id}: {path}"));
+                .with_context(|| format!("speech {id}: {path}"));
             ensure!(!cancelled(), "audio preparation cancelled");
             if let Some(clip) = diagnostics.attempt("speech", prepared)? {
                 voices_by_path.insert(key, clip.clone());
@@ -359,7 +467,25 @@ impl Cache {
     }
 }
 
+pub(crate) type SkitVoices = BTreeMap<u32, Arc<Clip>>;
+
 impl Assets {
+    pub(crate) fn prepare_skits(
+        skits: &resonance_content::skit::SkitCatalog,
+        snapshot: &mut resonance_content::library::Snapshot,
+        diagnostics: Diagnostics,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<SkitVoices> {
+        let mut assets = Self::silent(diagnostics);
+        assets.capture_skits(skits, snapshot, cancelled)?;
+        Ok(assets.voices)
+    }
+
+    pub(crate) fn use_skits(&mut self, voices: &SkitVoices) {
+        self.voices
+            .extend(voices.iter().map(|(&id, voice)| (id, voice.clone())));
+    }
+
     /// Skit clocks and voices have already been resolved from this snapshot.
     /// Decode the current bytes into the same bank used by ordinary dialogue.
     pub(crate) fn capture_skits(
@@ -447,6 +573,7 @@ impl Assets {
             levels: [127; 3],
             in_field: true,
             skipping: Default::default(),
+            stalled: None,
         };
         (
             FieldSource {
@@ -474,6 +601,8 @@ pub(super) struct Control {
     levels: [u8; 3],
     in_field: bool,
     skipping: Arc<AtomicBool>,
+    /// Decoder frame and time when a full queue last stopped making progress.
+    stalled: Option<(u64, std::time::Instant)>,
 }
 type Completions = Arc<Mutex<VecDeque<(u64, Arc<AtomicBool>)>>>;
 fn voice_completion(command: &AudioCommand) -> Option<Arc<AtomicBool>> {
@@ -1215,83 +1344,17 @@ pub(super) fn update(world: &mut World) {
         return;
     }
     let result = (|| -> Result<()> {
-        if let Some(control) = world.get_resource::<Control>()
-            && let Err(error) = control.check()
-        {
-            let assets = control.assets.clone();
-            let diagnostics = control.diagnostics.clone();
-            retire(world);
-            diagnostics.report("field audio mixer", error)?;
-            if let Some(mut session) = world.get_resource_mut::<super::new_game::Session>() {
-                session.audio.get_or_insert(assets);
-            }
-        }
-        if !world.contains_resource::<super::new_game::Session>() {
-            retire(world);
-            return Ok(());
-        }
         if world.resource::<super::new_game::Session>().audio.is_some()
             && !super::new_game::scene_ready(world)
         {
             return Ok(());
         }
-        if let Some(assets) = world.resource::<super::new_game::Session>().audio.clone() {
-            if let Some(mut control) = world.get_resource_mut::<Control>() {
-                control.enter_field(assets)?;
-            } else {
-                let (source, control) = assets.session();
-                let handle = world
-                    .resource_mut::<bevy::asset::Assets<FieldSource>>()
-                    .add(source);
-                world.spawn((AudioPlayer(handle), PlaybackSettings::ONCE));
-                world.insert_resource(control);
-            }
-            let mut session = world.resource_mut::<super::new_game::Session>();
-            session.audio = None;
-            if session.is_field() {
-                session.field_mut().voice_feedback = true;
-            }
+        if !prepare_scene(world)? {
+            return Ok(());
         }
-        let owner = world.resource::<super::new_game::Session>();
-        let preferences = owner
-            .events()
-            .world
-            .party
-            .as_ref()
-            .map(|p| &p.settings.preferences);
-        let stereo = preferences.is_none_or(|p| p.stereo);
-        let mut levels = preferences.map_or([127; 3], |p| {
-            [
-                p.volumes.music,
-                p.volumes.effects,
-                if p.event_voiceover {
-                    p.volumes.voice
-                } else {
-                    0
-                },
-            ]
-        });
-        // Music previews while editing. New cues and stereo use the committed
-        // settings, including the Back cue emitted when Customize commits.
-        if let Some(preview) = owner
-            .menu()
-            .and_then(resonance_game::menu::Menu::preferences)
-        {
-            levels[0] = preview.volumes.music;
+        if let Err(error) = synchronize_settings(world).and_then(|()| flush_commands(world)) {
+            recover_handoff(world, error)?;
         }
-        let diagnostics = super::diagnostics::policy(world);
-        diagnostics.attempt(
-            "audio stereo setting",
-            world.resource_mut::<Control>().stereo(stereo),
-        )?;
-        diagnostics.attempt(
-            "audio volume setting",
-            world.resource_mut::<Control>().levels(levels),
-        )?;
-        let session = world.resource::<super::new_game::Session>();
-        let movie_active = session.movie_owns_audio() || session.events().world.blocked_by_movie();
-        world.resource_mut::<Control>().movie(movie_active)?;
-        flush_commands(world)?;
         Ok(())
     })();
     if let Err(error) = result
@@ -1304,60 +1367,206 @@ pub(super) fn update(world: &mut World) {
     }
 }
 
+// The ordinary update and immediate handoffs must enqueue the same settings
+// before any cues. A partial queue admission remains retryable on Control.
+fn synchronize_settings(world: &mut World) -> Result<()> {
+    let owner = world.resource::<super::new_game::Session>();
+    let preferences = owner
+        .events()
+        .world
+        .party
+        .as_ref()
+        .map(|p| &p.settings.preferences);
+    let stereo = preferences.is_none_or(|p| p.stereo);
+    let mut levels = preferences.map_or([127; 3], |p| {
+        [
+            p.volumes.music,
+            p.volumes.effects,
+            if p.event_voiceover {
+                p.volumes.voice
+            } else {
+                0
+            },
+        ]
+    });
+    // Music previews while editing. New cues and stereo use the committed
+    // settings, including the Back cue emitted when Customize commits.
+    if let Some(preview) = owner
+        .menu()
+        .and_then(resonance_game::menu::Menu::preferences)
+    {
+        levels[0] = preview.volumes.music;
+    }
+    world
+        .resource_mut::<Control>()
+        .stereo(stereo)
+        .context("audio stereo setting")?;
+    world
+        .resource_mut::<Control>()
+        .levels(levels)
+        .context("audio volume setting")?;
+    let session = world.resource::<super::new_game::Session>();
+    let movie_active = session.movie_owns_audio() || session.events().world.blocked_by_movie();
+    world.resource_mut::<Control>().movie(movie_active)?;
+    Ok(())
+}
+
+/// Install the current scene's captured bank before its commands or a handoff.
+/// Immediate transitions can precede the ordinary render-ready audio update.
+/// False leaves the bank pending until a full mixer queue can accept it.
+fn prepare_scene(world: &mut World) -> Result<bool> {
+    if let Some(control) = world.get_resource::<Control>()
+        && let Err(error) = control.check()
+    {
+        recover_handoff(world, error)?;
+    }
+    let Some(assets) = world
+        .get_resource::<super::new_game::Session>()
+        .and_then(|session| session.audio.clone())
+    else {
+        return Ok(true);
+    };
+    if let Some(Err(error)) = world
+        .get_resource_mut::<Control>()
+        .map(|mut control| control.enter_field(assets.clone()))
+        && !recover_handoff(world, error)?
+    {
+        return Ok(false);
+    }
+    if !world.contains_resource::<Control>() {
+        let (source, control) = assets.session();
+        let handle = world
+            .resource_mut::<bevy::asset::Assets<FieldSource>>()
+            .add(source);
+        world.spawn((AudioPlayer(handle), PlaybackSettings::ONCE));
+        world.insert_resource(control);
+    }
+    let mut session = world.resource_mut::<super::new_game::Session>();
+    session.audio = None;
+    if session.is_field() {
+        session.field_mut().voice_feedback = true;
+    }
+    Ok(true)
+}
+
 fn flush_commands(world: &mut World) -> Result<()> {
-    let commands = std::mem::take(
+    let control = world
+        .get_resource::<Control>()
+        .context("field audio session is unavailable")?
+        .clone();
+    control.check()?;
+    if world.contains_resource::<Trace>() {
+        ensure!(
+            world.resource::<Trace>().0.len()
+                + world
+                    .resource::<super::new_game::Session>()
+                    .events()
+                    .world
+                    .audio_commands
+                    .len()
+                <= 4096,
+            "field audio evidence limit exceeded"
+        );
+    }
+    let mut commands = std::mem::take(
         &mut world
             .resource_mut::<super::new_game::Session>()
             .events_mut()
             .world
             .audio_commands,
     );
+    let mut admitted = 0;
+    let frame = control.rendered_frames();
+    let result = commands.iter().try_for_each(|command| {
+        control.enqueue(Message::Script(command.clone()))?;
+        admitted += 1;
+        Ok(())
+    });
+    // Preserve the failed command and its successors in their original order.
+    // In particular, a full queue must not lose a cue or complete a pending voice.
+    world
+        .resource_mut::<super::new_game::Session>()
+        .events_mut()
+        .world
+        .audio_commands = commands.split_off(admitted);
     if world.contains_resource::<Trace>() {
         let tick = world.resource::<super::new_game::Session>().events().tick();
-        let frame = world.resource::<Control>().rendered_frames();
         let mut trace = world.resource_mut::<Trace>();
-        ensure!(
-            trace.0.len() + commands.len() <= 4096,
-            "field audio evidence limit exceeded"
-        );
-        for command in &commands {
+        for command in commands {
             trace.0.push(serde_json::json!({"tick":tick,"source_frame":frame,"command":format!("{command:?}")}));
         }
     }
-    let control = world
-        .get_resource::<Control>()
-        .context("field audio session is unavailable")?;
-    control.check()?;
-    for command in commands {
-        control.send(command)?;
+    result
+}
+
+/// Every scene handoff reconciles its mixer and drains outgoing script commands
+/// before ownership changes. Queue pressure or decoder retirement defers entry,
+/// but only briefly: see `recover_handoff`.
+pub(super) fn prepare_handoff(world: &mut World) -> Result<bool> {
+    if !prepare_scene(world)? {
+        return Ok(false);
     }
-    Ok(())
+    if world.contains_resource::<Control>()
+        && let Err(error) = synchronize_settings(world).and_then(|()| flush_commands(world))
+    {
+        recover_handoff(world, error)?;
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 /// Field effects and dialogue end at the boundary; music and its clock survive.
 /// A full queue defers the transition; a stopped optional mixer cannot block it.
 pub(super) fn leave_field(world: &mut World) -> Result<bool> {
-    let Some(control) = world.get_resource::<Control>() else {
-        return Ok(true);
-    };
-    let checked = control.check();
-    let diagnostics = control.diagnostics.clone();
-    let result = checked.and_then(|()| {
-        flush_commands(world)?;
-        world.resource_mut::<Control>().leave_field()
-    });
+    if !prepare_handoff(world)? {
+        return Ok(false);
+    }
+    let result = world
+        .get_resource_mut::<Control>()
+        .map_or(Ok(()), |mut control| control.leave_field());
     if let Err(error) = result {
-        let full = matches!(
-            error.downcast_ref::<mpsc::TrySendError<Message>>(),
-            Some(mpsc::TrySendError::Full(_))
-        );
-        if !full {
-            retire(world);
-        }
-        diagnostics.report("field audio handoff", error)?;
-        return Ok(!full);
+        return recover_handoff(world, error);
     }
     Ok(true)
+}
+
+const QUEUE_STALL: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn recover_handoff(world: &mut World, error: anyhow::Error) -> Result<bool> {
+    let diagnostics = world
+        .get_resource::<Control>()
+        .map(|control| control.diagnostics.clone())
+        .unwrap_or_else(|| super::diagnostics::policy(world));
+    let mut full = matches!(
+        error.downcast_ref::<mpsc::TrySendError<Message>>(),
+        Some(mpsc::TrySendError::Full(_))
+    );
+    // A running decoder drains commands before advancing its frame counter.
+    // Empty flushes do not prove progress; partial batches from a healthy mixer
+    // do. Retire only when a full queue persists without decoder progress.
+    if full && let Some(mut control) = world.get_resource_mut::<Control>() {
+        let frame = control.rendered_frames();
+        let (previous, since) = control
+            .stalled
+            .get_or_insert_with(|| (frame, std::time::Instant::now()));
+        if *previous != frame {
+            *previous = frame;
+            *since = std::time::Instant::now();
+        }
+        full = since.elapsed() < QUEUE_STALL;
+    }
+    if !full {
+        if let Some(assets) = world
+            .get_resource::<Control>()
+            .map(|control| control.assets.clone())
+            && let Some(mut session) = world.get_resource_mut::<super::new_game::Session>()
+        {
+            session.audio.get_or_insert(assets);
+        }
+        retire(world);
+    }
+    diagnostics.report("field audio handoff", error)?;
+    Ok(!full)
 }
 
 pub(super) fn retire(world: &mut World) {
@@ -1602,6 +1811,363 @@ mod tests {
         control.send(AudioCommand::voice(7))?;
         assert!(frames.frame()?.unwrap()[0] > 0.);
         assert!(Arc::ptr_eq(&frames.assets, &destination));
+        Ok(())
+    }
+
+    // Share immutable preparation across these device-free handoff cases; each
+    // invocation still gets a fresh VM, party, commands and audio owner.
+    fn handoff_session() -> Result<crate::new_game::Session> {
+        static PACKAGE: std::sync::OnceLock<
+            std::result::Result<Arc<crate::new_game::FieldPackage>, String>,
+        > = std::sync::OnceLock::new();
+        let package = PACKAGE
+            .get_or_init(|| {
+                (|| -> Result<_> {
+                    let root =
+                        std::env::var_os("RESONANCE_TEST_ASSETS").context("assets required")?;
+                    Ok(Arc::new(crate::new_game::FieldPackage::prepare(
+                        Path::new(&root),
+                        5,
+                        &mut Default::default(),
+                        || false,
+                    )?))
+                })()
+                .map_err(|error| format!("{error:#}"))
+            })
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!(error.clone()))?;
+        crate::new_game::Session::load_prepared(package.clone(), None, None)
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn handoff_applies_saved_settings_before_cues_on_new_and_recovered_mixers() -> Result<()> {
+        for recovered in [false, true] {
+            for muted in [false, true] {
+                let mut session = handoff_session()?;
+                let settings = &mut session
+                    .events_mut()
+                    .world
+                    .party
+                    .as_mut()
+                    .unwrap()
+                    .settings
+                    .preferences;
+                settings.volumes.music = 71;
+                settings.volumes.effects = if muted { 0 } else { 127 };
+                settings.stereo = false;
+                settings.event_voiceover = false;
+                let mut assets = synthetic_assets();
+                assets.diagnostics = Diagnostics::default();
+                assets.voice_gains = std::array::from_fn(|level| level as f32 / 127.);
+                assets.sounds.insert(1, test_score());
+                assets
+                    .voices
+                    .insert(7, Arc::new(test_clip([16384; 64], RATE, 1)));
+                let assets = Arc::new(assets);
+                let mut world = World::new();
+                world.init_resource::<bevy::asset::Assets<FieldSource>>();
+                if recovered {
+                    let (source, control) = assets.clone().session();
+                    drop(source.decoder());
+                    world.insert_resource(control);
+                    session.audio = None;
+                } else {
+                    session.audio = Some(assets);
+                }
+                session.events_mut().world.audio_commands = vec![
+                    AudioCommand::Sound {
+                        id: 1,
+                        pan: 0,
+                        volume: 127,
+                        slot: None,
+                    },
+                    AudioCommand::voice(7),
+                ];
+                world.insert_resource(session);
+                assert!(prepare_handoff(&mut world)?);
+                let handle = world
+                    .query::<&AudioPlayer<FieldSource>>()
+                    .single(&world)?
+                    .0
+                    .clone();
+                let mut frames = world
+                    .resource::<bevy::asset::Assets<FieldSource>>()
+                    .get(&handle)
+                    .unwrap()
+                    .decoder();
+                let mut peak = 0.0_f32;
+                for _ in 0..4096 {
+                    let frame = frames.frame()?.unwrap();
+                    assert_eq!(frame[0], frame[1], "saved mono setting was not applied");
+                    peak = peak.max(frame[0].abs());
+                }
+                assert_eq!(frames.levels, [71, if muted { 0 } else { 127 }, 0]);
+                assert!(!frames.stereo);
+                assert_eq!(
+                    peak == 0.,
+                    muted,
+                    "saved effects/voice settings were not applied"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn handoff_defers_cues_until_settings_fit_in_the_queue() -> Result<()> {
+        for (paranoid, stalled) in [(false, false), (true, false), (false, true)] {
+            let mut assets = synthetic_assets();
+            assets.diagnostics = Diagnostics::new(paranoid);
+            assets.voice_gains = std::array::from_fn(|level| level as f32 / 127.);
+            assets
+                .voices
+                .insert(7, Arc::new(test_clip([16384; 64], RATE, 1)));
+            let (source, control) = Arc::new(assets).session();
+            for _ in 0..511 {
+                control.enqueue(Message::Stereo(true))?;
+            }
+            let mut session = handoff_session()?;
+            let settings = &mut session
+                .events_mut()
+                .world
+                .party
+                .as_mut()
+                .unwrap()
+                .settings
+                .preferences;
+            settings.stereo = false;
+            settings.event_voiceover = false;
+            session.audio = None;
+            let completion = Arc::new(AtomicBool::new(false));
+            session.events_mut().world.audio_commands = vec![AudioCommand::Voice {
+                resource: 7,
+                completion: Some(completion.clone()),
+            }];
+            let mut world = World::new();
+            world.insert_resource(session);
+            world.insert_resource(control);
+            world.init_resource::<Trace>();
+            let result = prepare_handoff(&mut world);
+            assert_eq!(result.is_err(), paranoid);
+            if !paranoid {
+                assert!(!result?);
+            }
+            assert_eq!(
+                world
+                    .resource::<crate::new_game::Session>()
+                    .events()
+                    .world
+                    .audio_commands
+                    .len(),
+                1
+            );
+            assert!(!completion.load(Ordering::Acquire));
+            assert!(world.resource::<Trace>().0.is_empty());
+            if stalled {
+                // A mixer which never drains is replaced instead of blocking entry.
+                world.resource_mut::<Control>().stalled.as_mut().unwrap().1 =
+                    std::time::Instant::now() - QUEUE_STALL;
+                assert!(!prepare_handoff(&mut world)?);
+                assert!(!world.contains_resource::<Control>());
+                assert!(world.resource::<crate::new_game::Session>().audio.is_some());
+                continue;
+            }
+            let mut frames = source.decoder();
+            frames.frame()?;
+            assert!(prepare_handoff(&mut world)?);
+            assert_eq!(frames.frame()?.unwrap(), [0.; 2]);
+            assert_eq!(frames.levels[2], 0);
+            assert!(!frames.stereo);
+            assert_eq!(world.resource::<Trace>().0.len(), 1);
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn stalled_handoffs_distinguish_empty_retries_from_partial_decoder_progress() -> Result<()> {
+        for command_count in [0, 2] {
+            let mut assets = synthetic_assets();
+            assets.diagnostics = Diagnostics::default();
+            let (source, control) = Arc::new(assets).session();
+            let mut frames = source.decoder();
+            let mut session = handoff_session()?;
+            session.audio = None;
+            session.events_mut().world.audio_commands =
+                vec![AudioCommand::StopVoice; command_count];
+            let mut world = World::new();
+            world.insert_resource(session);
+            world.insert_resource(control);
+            synchronize_settings(&mut world)?;
+            while world
+                .resource::<Control>()
+                .enqueue(Message::Stereo(true))
+                .is_ok()
+            {}
+            assert!(!leave_field(&mut world)?);
+            world.resource_mut::<Control>().stalled.as_mut().unwrap().1 =
+                std::time::Instant::now() - QUEUE_STALL;
+
+            if command_count != 0 {
+                frames.frame()?;
+                for _ in 0..511 {
+                    world.resource::<Control>().enqueue(Message::Stereo(true))?;
+                }
+                // One script cue fits, the second must retry. Decoder progress
+                // restarts the timeout even though the complete batch did not fit.
+                assert!(!leave_field(&mut world)?);
+                assert!(world.contains_resource::<Control>());
+                assert_eq!(
+                    world
+                        .resource::<crate::new_game::Session>()
+                        .events()
+                        .world
+                        .audio_commands
+                        .len(),
+                    1,
+                );
+                world.resource_mut::<Control>().stalled.as_mut().unwrap().1 =
+                    std::time::Instant::now() - QUEUE_STALL;
+            }
+
+            leave_field(&mut world)?;
+            assert!(
+                !world.contains_resource::<Control>(),
+                "stalled mixer kept the handoff pending"
+            );
+            assert!(world.resource::<crate::new_game::Session>().audio.is_some());
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn scene_bank_handoff_defers_queue_pressure_and_recovers_decoder_failure() -> Result<()> {
+        for paranoid in [false, true] {
+            let mut assets = synthetic_assets();
+            assets.diagnostics = Diagnostics::new(paranoid);
+            let destination = Arc::new(assets.clone());
+            let (source, control) = Arc::new(assets).session();
+            while control.enqueue(Message::Stereo(true)).is_ok() {}
+            let mut session = handoff_session()?;
+            session.audio = Some(destination.clone());
+            let mut world = World::new();
+            world.init_resource::<bevy::asset::Assets<FieldSource>>();
+            world.insert_resource(session);
+            world.insert_resource(control);
+            let result = prepare_scene(&mut world);
+            assert_eq!(result.is_err(), paranoid);
+            if !paranoid {
+                assert!(!result?);
+            }
+            assert!(Arc::ptr_eq(
+                world
+                    .resource::<crate::new_game::Session>()
+                    .audio
+                    .as_ref()
+                    .unwrap(),
+                &destination
+            ));
+
+            let mut frames = source.decoder();
+            frames.frame()?;
+            assert!(prepare_scene(&mut world)?);
+            assert!(world.resource::<crate::new_game::Session>().audio.is_none());
+            assert!(Arc::ptr_eq(
+                &world.resource::<Control>().assets,
+                &destination
+            ));
+
+            drop(frames);
+            world.resource_mut::<crate::new_game::Session>().audio = Some(destination.clone());
+            let result = prepare_scene(&mut world);
+            assert_eq!(result.is_err(), paranoid);
+            assert!(world.contains_resource::<crate::new_game::Session>());
+            if paranoid {
+                assert!(world.resource::<crate::new_game::Session>().audio.is_some());
+                assert!(!world.contains_resource::<Control>());
+            } else {
+                assert!(result?);
+                world.resource::<Control>().check()?;
+                assert!(world.resource::<crate::new_game::Session>().audio.is_none());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn handoff_retains_unsent_commands_and_records_only_admitted_cues() -> Result<()> {
+        for paranoid in [false, true] {
+            let mut assets = synthetic_assets();
+            assets.diagnostics = Diagnostics::new(paranoid);
+            let (source, control) = Arc::new(assets).session();
+            for _ in 0..511 {
+                control.enqueue(Message::Stereo(true))?;
+            }
+            let completion = Arc::new(AtomicBool::new(false));
+            let mut session = handoff_session()?;
+            session.audio = None;
+            session.events_mut().world.audio_commands = vec![
+                AudioCommand::StopSound(1),
+                AudioCommand::Voice {
+                    resource: 7,
+                    completion: Some(completion.clone()),
+                },
+                AudioCommand::StopSound(2),
+            ];
+            let mut world = World::new();
+            world.insert_resource(session);
+            world.insert_resource(control);
+            world.init_resource::<Trace>();
+            let result = prepare_handoff(&mut world);
+            assert_eq!(result.is_err(), paranoid);
+            if !paranoid {
+                assert!(!result?);
+            }
+            let pending = &world
+                .resource::<crate::new_game::Session>()
+                .events()
+                .world
+                .audio_commands;
+            assert!(matches!(
+                pending.as_slice(),
+                [
+                    AudioCommand::Voice { resource: 7, .. },
+                    AudioCommand::StopSound(2)
+                ]
+            ));
+            assert!(!completion.load(Ordering::Acquire));
+            assert_eq!(world.resource::<Trace>().0.len(), 1);
+
+            let mut frames = source.decoder();
+            frames.frame()?;
+            assert!(prepare_handoff(&mut world)?);
+            assert!(
+                world
+                    .resource::<crate::new_game::Session>()
+                    .events()
+                    .world
+                    .audio_commands
+                    .is_empty()
+            );
+            assert_eq!(world.resource::<Trace>().0.len(), 3);
+            let receive = frames.receive.as_ref().unwrap();
+            assert!(matches!(
+                receive.try_recv()?,
+                Message::Script(AudioCommand::Voice { resource: 7, .. })
+            ));
+            assert!(matches!(
+                receive.try_recv()?,
+                Message::Script(AudioCommand::StopSound(2))
+            ));
+            assert!(
+                receive.try_recv().is_err(),
+                "admitted cue was duplicated on retry"
+            );
+        }
         Ok(())
     }
 

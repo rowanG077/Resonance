@@ -60,7 +60,7 @@ fn resource(root: &Path, exe: &[u8], id: u32) -> Result<Vec<u8>> {
 fn clip(motion: String, slot: u16, bank: Option<u32>) -> SceneClip {
     SceneClip {
         motion,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: bank,

@@ -187,6 +187,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             package.resources.skits.as_ref().unwrap().clone(),
             &package.files,
             &package.resources,
+            &Default::default(),
         )?;
         session.active_skit = Some(resonance_game::skit::Playback::start(
             &skits[&id],

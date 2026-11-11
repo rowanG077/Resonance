@@ -103,6 +103,7 @@ impl Fixture {
                 &|path| Ok(self.files.read(path)?.to_vec()),
                 app.world().resource::<AssetServer>(),
             )?,
+            &crate::field_ui::Resident::default(),
         )?;
         world.insert_resource(app.world_mut().remove_resource::<Assets<Image>>().unwrap());
         world.insert_resource(materials);

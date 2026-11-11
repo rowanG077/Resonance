@@ -391,7 +391,7 @@ mod tests {
             duration_frames: 2.0,
             tracks: vec![Track {
                 bone: 0,
-                nodes: vec![NodeTrack {
+                nodes: vec![std::sync::Arc::new(NodeTrack {
                     bind: Default::default(),
                     translation: Some(Channel {
                         interpolation: Interpolation::Linear,
@@ -411,7 +411,7 @@ mod tests {
                         times: vec![0.0, 0.06666666666666667],
                         values: vec![[2.0, 2.0, 2.0], [2.0, 2.0, 2.0]],
                     }),
-                }],
+                })],
             }],
         };
         let model = ModelResource {

@@ -43,6 +43,89 @@ including Windows MSVC. The final distribution executables use `--release`
 with thin LTO and are packaged from `target/release`. Every architecture's build
 and test job has a 180-minute (three-hour) timeout.
 
+The installed-content residency regression checks field/world reentry, battle
+handoff and bounded resource ownership. Optional diagnostics run separately:
+
+```sh
+python3 tools/residency_probe.py local/all-assets --trace
+python3 tools/residency_probe.py local/all-assets --captures /tmp/residency --msaa 4 --audit-pipelines
+python3 tools/residency_probe.py local/all-assets --trace --resolution 1920x1080 \
+  --benchmark-rounds 11 --jsonl /tmp/transitions.jsonl
+```
+
+The benchmark mode repeats six fields and the overworld, entering the same battle
+from both field 332 and the overworld on each round. It writes every completed
+transition and renderer metadata as JSONL. Unlike the original diagnostic route,
+battle benchmarks use the real-time simulation clock, with the shatter's minimum
+duration disabled only in this diagnostic test. The outgoing-image capture,
+transition pipeline warm-up, battle activation and opening-frame GPU completion
+remain measured. Field entry fades settle outside the admission timer before
+requesting the next transition. Save several independent launches, then run
+`python3 tools/transition_histograms.py /tmp/run-*.jsonl --output /tmp/histograms`
+with matplotlib and numpy installed. Histograms exclude each launch's first
+route pass; the JSON summary retains those samples separately. Repeat visits
+can still incur cache eviction, and the probe does not flush filesystem caches.
+
+A Linux host without a usable Vulkan device can run the existing residency
+regression through Mesa's headless software OpenGL renderer:
+
+```sh
+EGL_PLATFORM=surfaceless WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 \
+  RESONANCE_TEST_ASSETS="$PWD/local/all-assets" \
+  cargo test -p resonance-presentation --lib \
+  field_ui::resident::tests::boot_and_field_reentry_reuse_uploaded_ui \
+  -- --exact --ignored --test-threads=1
+```
+
+This checks rendering and resource lifetimes, but its timings describe the
+software renderer rather than the player's GPU.
+
+The probe uses a feature-gated, ignored internal driver so private scene hooks
+stay out of the production API. It requires a working GPU backend. Screenshots
+advance the scene and perform readbacks; omit `--captures` for timing runs.
+Diagnostic scopes and schedule probes are excluded from ordinary tests and
+distribution builds.
+`--trace` also enables background blocking GPU polling for prompt transition
+completion timestamps; ordinary runs use nonblocking polling.
+Scene and battle timings use the completed transition record, including the
+opening frame's GPU acknowledgement, before the driver requests another scene.
+
+Review preparation changes by following each resource from capture to retirement,
+including the ordinary path used when its preload misses. Check the same rules
+across battle bodies, field bodies, actions, equipment, scenes, UI and audio:
+
+| Boundary | Required behavior |
+| --- | --- |
+| Speculative preload fails, including discovery | Tolerant mode leaves a cache miss; strict mode preserves the error. |
+| Failed resource is selected | The ordinary preparation path still validates it and reports its original error. |
+| Preparation is cancelled | No cache entry is published; cancellation stays outside optional-error recovery. |
+| Content or binding changes | Cached bytes, joint order and material state must still match the consumer. |
+| Scene retires or cache evicts it | Scene state and resources release; fixed shared owners retain only their declared inventory. |
+| GPU admission completes | Uploads, pipelines and the actual initial frame have completed before gameplay resumes. |
+| Audio changes owners | Recover a stopped optional mixer, install the owning bank, and admit outgoing commands first; queue pressure preserves unsent commands and defers the handoff. |
+
+Use a regression at the boundary that failed, then extend the existing installed
+route for interactions; avoid duplicating every combination in separate tests.
+Compile the diagnostic driver before relying on it:
+
+```sh
+cargo check -p resonance-presentation --tests --features preparation-trace
+```
+
+Record unavailable backend coverage explicitly.
+
+For performance work, compare the same route, build profile, assets, resolution,
+AA and backend before and after a change. Separate boot, first entry, reentry and
+post-eviction entry; report several samples, including the median and slowest.
+Use the scopes to identify repeated work or the phase delaying admission before
+changing cache policy. Scope times are inclusive and workers overlap, so adding
+them does not give transition latency. Initial save-fixture construction stays
+outside the scene admission timer. Capture/readback runs are unsuitable for
+latency comparisons. The driver uses manual simulation ticks; battle entry also
+includes the fixed shatter animation, so separate it from preparation costs.
+Treat reduced allocations or faster CPU preparation as supporting evidence;
+validate the end-to-end GPU-ready transition and retained memory too.
+
 The Windows pixel check uses Microsoft's pinned WARP software renderer and DXC
 shader compiler, following
 [wgpu's Windows CI setup](https://github.com/gfx-rs/wgpu/blob/trunk/.github/workflows/ci.yml).

@@ -74,6 +74,10 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
         "embedded://resonance_presentation/surface_bindings.wesl",
     ));
     sources.push(Shader::from_wesl(
+        include_str!("surface_vertex.wesl"),
+        "embedded://resonance_presentation/surface_vertex.wesl",
+    ));
+    sources.push(Shader::from_wesl(
         include_str!("effect_color.wesl"),
         "embedded://resonance_presentation/effect_color.wesl",
     ));
@@ -180,12 +184,7 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
                 }
                 for (name, handle) in &shaders {
                     if *name == "fragment" {
-                        for flags in [
-                            vec!["CONSTANT_COLOR"],
-                            vec!["RED_CHANNEL"],
-                            vec!["MULTIPLY_ALPHA_ONLY", "RED_CHANNEL"],
-                            vec!["CLIP_BELOW_FLOOR"],
-                        ] {
+                        for flags in [vec!["CONSTANT_COLOR"], vec!["MULTIPLY_ALPHA_ONLY"]] {
                             let mut effect = defs.clone();
                             effect.extend(flags.iter().copied().map(ShaderDefVal::from));
                             cache.get(0, handle.id(), &effect).map_err(|error| {
@@ -196,6 +195,8 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
                     if *name == "vertex" {
                         for flags in [
                             vec!["SKINNED"],
+                            vec!["SURFACE_LAYOUT"],
+                            vec!["SKINNED", "SURFACE_LAYOUT"],
                             vec!["MORPH_TARGETS"],
                             vec!["SKINNED", "MORPH_TARGETS"],
                         ] {

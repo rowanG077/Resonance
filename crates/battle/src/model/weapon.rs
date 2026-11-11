@@ -29,7 +29,7 @@ pub enum WeaponPlayback {
 pub struct WeaponLayerDefinition {
     pub resource: ResourceId,
     pub skeleton: Skeleton,
-    pub motions: BTreeMap<u16, Motion>,
+    pub motions: BTreeMap<u16, Arc<Motion>>,
     pub playback: WeaponPlayback,
     pub secondary_motion: Vec<Chain>,
     pub texture_animation: Option<WeaponTextureAnimation>,
@@ -726,7 +726,8 @@ mod tests {
                             Motion {
                                 duration_frames,
                                 tracks: vec![],
-                            },
+                            }
+                            .into(),
                         )
                     })
                     .collect(),
@@ -920,18 +921,21 @@ mod tests {
                 duration_frames: 4.,
                 tracks: vec![Track {
                     bone: 0,
-                    nodes: vec![resonance_content::animation::NodeTrack {
-                        bind: resonance_content::animation::Transform::default(),
-                        translation: Some(Channel {
-                            times: vec![0., 4. / 30.],
-                            interpolation: Interpolation::Linear,
-                            values: vec![[1., 2., 3.], [9., 2., 3.]],
-                        }),
-                        rotation: None,
-                        scale: None,
-                    }],
+                    nodes: vec![std::sync::Arc::new(
+                        resonance_content::animation::NodeTrack {
+                            bind: resonance_content::animation::Transform::default(),
+                            translation: Some(Channel {
+                                times: vec![0., 4. / 30.],
+                                interpolation: Interpolation::Linear,
+                                values: vec![[1., 2., 3.], [9., 2., 3.]],
+                            }),
+                            rotation: None,
+                            scale: None,
+                        },
+                    )],
                 }],
-            },
+            }
+            .into(),
         )]
         .into();
         let mut decoration = primary.clone();
@@ -1101,14 +1105,16 @@ mod tests {
             values,
         };
         let mut definition = definition();
-        definition.layers[0].motions.get_mut(&90).unwrap().tracks = vec![Track {
+        Arc::make_mut(definition.layers[0].motions.get_mut(&90).unwrap()).tracks = vec![Track {
             bone: 0,
-            nodes: vec![resonance_content::animation::NodeTrack {
-                bind: resonance_content::animation::Transform::default(),
-                translation: Some(curve(vec![[1., 2., 3.], [21., 2., 3.]])),
-                rotation: None,
-                scale: Some(curve(vec![[2., 3., 4.]; 2])),
-            }],
+            nodes: vec![std::sync::Arc::new(
+                resonance_content::animation::NodeTrack {
+                    bind: resonance_content::animation::Transform::default(),
+                    translation: Some(curve(vec![[1., 2., 3.], [21., 2., 3.]])),
+                    rotation: None,
+                    scale: Some(curve(vec![[2., 3., 4.]; 2])),
+                },
+            )],
         }];
         let definition = Arc::new(definition);
         let mut previous = Weapon::new(Arc::clone(&definition), &owner)?;
@@ -1155,9 +1161,10 @@ mod tests {
             rate: 0.5,
             repeat: true,
         });
-        let track = &mut layer.motions.get_mut(&90).unwrap().tracks[0];
-        track.nodes[0].translation = Some(curve(vec![[31., 2., 3.], [71., 2., 3.]]));
-        track.nodes[0].scale = None;
+        let track = &mut Arc::make_mut(layer.motions.get_mut(&90).unwrap()).tracks[0];
+        std::sync::Arc::make_mut(&mut track.nodes[0]).translation =
+            Some(curve(vec![[31., 2., 3.], [71., 2., 3.]]));
+        std::sync::Arc::make_mut(&mut track.nodes[0]).scale = None;
         changed.validate()?;
         let mut rebound = Weapon::rebind(Arc::new(changed), &owner, Some(&previous), body, 10.)?;
         for (frame, x) in [(1., 33.), (1.5, 34.)] {

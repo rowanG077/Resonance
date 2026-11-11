@@ -58,7 +58,7 @@ fn named_rosters_aliases_and_banks_preserve_order_targets_and_mod_capture() -> R
     write(base.path(), "actors.json", selection.clone())?;
     let assemble = |snapshot: &mut crate::library::Snapshot| -> Result<Vec<ActorAssets>> {
         let actors: Actors = snapshot.json("actors.json", 65536)?;
-        actors.assemble(&mut |p| snapshot.read(p, 65536))
+        actors.assemble(&mut |p| snapshot.read(p, 65536), None)
     };
     let library = Library::open(base.path(), &[])?;
     let mut captured = library.snapshot();

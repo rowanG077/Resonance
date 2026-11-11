@@ -6,10 +6,11 @@ import bevy_pbr::render::{
     mesh_functions,
     skinning,
     morph::{morph_position, morph_normal, morph_tangent},
-    forward_io::{Vertex, UncompressedVertex, VertexOutput, decompress_vertex},
+    forward_io::{Vertex, UncompressedVertex, decompress_vertex},
     view_transformations::position_world_to_clip,
 };
 import resonance_presentation::surface_bindings::surface_data;
+import resonance_presentation::surface_vertex::VertexOutput;
 
 // Pass draw indices from the entry point so backend base offsets survive
 // vertex decompression and copying.
@@ -36,8 +37,26 @@ fn morph_vertex(vertex_in: UncompressedVertex, instance_index: u32, index: u32) 
 }
 
 @vertex
-fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
+fn vertex(vertex_no_morph: Vertex,
+    @if(SURFACE_LAYOUT) @location(8) channels: u32,
+) -> VertexOutput {
     var out: VertexOutput;
+    out.channels = 0u;
+    @if(SURFACE_LAYOUT)
+    out.channels = channels;
+    @else {
+        @if(VERTEX_NORMALS) out.channels |= 1u;
+        @if(VERTEX_UVS_A) out.channels |= 2u;
+        @if(VERTEX_UVS_B) out.channels |= 4u;
+        @if(VERTEX_COLORS) out.channels |= 8u;
+    }
+    @if(BINDLESS)
+    let material_slot = mesh[vertex_no_morph.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+    @else
+    let material_slot = 0u;
+    let vertex_material = surface_data(material_slot);
+    let field_lighting = (vertex_material.flags & 8u) != 0u;
+    if (vertex_material.flags & 4u) == 0u { out.channels &= ~8u; }
     let uncompressed_vertex_no_morph = decompress_vertex(vertex_no_morph, vertex_no_morph.instance_index);
 
     @if(MORPH_TARGETS)
@@ -90,34 +109,38 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     @if(VERTEX_COLORS)
     out.color = vertex.color;
 
-    @if(FIELD_LIGHTING && VERTEX_NORMALS) {
-        @if(BINDLESS)
-        let slot = mesh[vertex_no_morph.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
-        @else
-        let slot = 0u;
-        let material = surface_data(slot);
-        let field_light = material.field_light;
-        let direction = normalize(field_light.xyz - out.world_position.xyz);
-        let diffuse = dot(out.world_normal, direction);
-        // Signed diffuse light plus constant ambient select a texel in the
-        // cooked toon ramp, with eight-bit rounding before the lookup.
-        let illumination = clamp(field_light.w + round(field_light.w * diffuse), 0.0, 255.0);
-        let coordinate = floor(field_light.w * (illumination + floor(illumination / 128.0)) / 256.0) / 255.0;
-        @if(VERTEX_COLORS)
-        out.color = vec4<f32>(floor(round(vertex.color.rgb * 255.0)
-            * material.ambient_color.rgb / 256.0) / 255.0, vertex.color.a);
-        // This unlit material has no later use for the normal varying. Reusing it
-        // keeps the vertex layout identical for skinned and ordinary scene meshes.
-        out.world_normal = vec3<f32>(coordinate, 16.0 / 255.0, 0.0);
+    @if(VERTEX_NORMALS) {
+        if field_lighting && (out.channels & 1u) != 0u {
+            @if(BINDLESS)
+            let slot = mesh[vertex_no_morph.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+            @else
+            let slot = 0u;
+            let material = surface_data(slot);
+            let field_light = material.field_light;
+            let direction = normalize(field_light.xyz - out.world_position.xyz);
+            let diffuse = dot(out.world_normal, direction);
+            // Signed diffuse light plus constant ambient select a texel in the
+            // cooked toon ramp, with eight-bit rounding before the lookup.
+            let illumination = clamp(field_light.w + round(field_light.w * diffuse), 0.0, 255.0);
+            let coordinate = floor(field_light.w * (illumination + floor(illumination / 128.0)) / 256.0) / 255.0;
+            @if(VERTEX_COLORS)
+            if (out.channels & 8u) != 0u {
+                out.color = vec4<f32>(floor(round(vertex.color.rgb * 255.0)
+                    * material.ambient_color.rgb / 256.0) / 255.0, vertex.color.a);
+            }
+            // This unlit material has no later use for the normal varying. Reusing it
+            // keeps the vertex layout identical for skinned and ordinary scene meshes.
+            out.world_normal = vec3<f32>(coordinate, 16.0 / 255.0, 0.0);
+        }
     }
 
-    @if(!FIELD_LIGHTING && VERTEX_NORMALS) {
+    @if(VERTEX_NORMALS) {
         @if(BINDLESS)
         let scenery_slot = mesh[vertex_no_morph.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
         @else
         let scenery_slot = 0u;
         let lighting = surface_data(scenery_slot).scenery_lighting;
-        if lighting.ambient.w != 0.0 {
+        if !field_lighting && (out.channels & 1u) != 0u && lighting.ambient.w != 0.0 {
             var illumination = lighting.ambient.rgb;
             for (var index = 0u; index < 2u; index++) {
                 let light = lighting.positions[index];
@@ -144,9 +167,11 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
         @else
         let particle_slot = 0u;
         let particle_material = surface_data(particle_slot);
-        let opacity = particle_material.tint.a;
-        let vertex_tint = vec4<f32>(particle_material.ambient_color.rgb, round(opacity * 255.0));
-        out.color = floor(round(out.color * 255.0) * vertex_tint / 256.0) / 255.0;
+        if (out.channels & 8u) != 0u {
+            let opacity = particle_material.tint.a;
+            let vertex_tint = vec4<f32>(particle_material.ambient_color.rgb, round(opacity * 255.0));
+            out.color = floor(round(out.color * 255.0) * vertex_tint / 256.0) / 255.0;
+        }
     }
 
     @if(VISIBILITY_RANGE_DITHER)
@@ -154,14 +179,4 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
         vertex_no_morph.instance_index, mesh_world_from_local[3]);
 
     return out;
-}
-
-@fragment
-fn fragment(
-    mesh: VertexOutput,
-) -> @location(0) vec4<f32> {
-    @if(VERTEX_COLORS)
-    return mesh.color;
-    @else
-    return vec4<f32>(1.0, 0.0, 1.0, 1.0);
 }

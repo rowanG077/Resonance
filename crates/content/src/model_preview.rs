@@ -174,6 +174,8 @@ mod tests {
                         .collect(),
                     autoplay: false,
                     texture_animations: vec![],
+                    prepared_motions: None,
+                    prepared_geometry: None,
                     bone_names: vec!["root".into(), "cape".into(), "tail".into()],
                     material_nodes: vec![],
                     outline_color: None,

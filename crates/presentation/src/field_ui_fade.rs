@@ -60,24 +60,12 @@ impl Artwork {
         if self.fade_layer.is_some() {
             return;
         }
-        let mesh = meshes
-            .add(batch(&resonance_events::GameWorld::default(), self.resolution).mesh([1, 1]));
-        let material = self.fade_surface.clone();
-        let entity = commands
-            .spawn((
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(0., 0., DEPTH),
-                Visibility::Hidden,
-            ))
-            .id();
-        self.fade_layer = Some(Layer {
-            entity,
-            mesh,
-            material,
-            uploaded: None,
-            visible: false,
-        });
+        self.fade_layer = Some(Layer::new(
+            self.fade_surface.clone(),
+            DEPTH,
+            commands,
+            meshes,
+        ));
     }
 
     pub(super) fn render_fade(

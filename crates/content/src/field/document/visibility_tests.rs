@@ -19,7 +19,7 @@ fn mesh(names: [&str; 3]) -> Result<Vec<u8>> {
 }
 fn assemble(snapshot: &mut Snapshot) -> Result<Vec<ActorAssets>> {
     let actors: Actors = snapshot.json("actors.json", 4096)?;
-    actors.assemble(&mut |p| snapshot.read(p, 1024 * 1024))
+    actors.assemble(&mut |p| snapshot.read(p, 1024 * 1024), None)
 }
 fn selections(actors: &[ActorAssets]) -> Vec<Vec<u16>> {
     actors.iter().map(|a| a.hidden_nodes.clone()).collect()

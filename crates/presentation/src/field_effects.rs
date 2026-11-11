@@ -7,7 +7,7 @@ use super::{
     field_view::{ActorPart, State},
     materials::TitleSurface,
 };
-use anyhow::Result;
+use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::RenderAssetUsages,
     camera::visibility::NoFrustumCulling,
@@ -27,6 +27,56 @@ const STATUS: usize = 1;
 
 // Blend mode, then whether field fog is enabled.
 type SpriteMaterials = [[usize; 2]; 3];
+type Bindings = BTreeMap<(String, Blend, bool), usize>;
+
+/// Fixed default bindings have one owner; live draws and overrides remain scene-owned.
+#[derive(Resource)]
+pub(crate) struct Shared(Artwork);
+
+impl Shared {
+    pub(crate) fn new(
+        settings: &resonance_content::field::settings::Settings,
+        server: &AssetServer,
+        meshes: &mut Assets<Mesh>,
+        surfaces: &mut Assets<TitleSurface>,
+        files: &resonance_content::prepared::Files,
+    ) -> Result<Self> {
+        let mut spec = settings.effects.clone();
+        merge_particles(&mut spec, &settings.particles)?;
+        Ok(Self(Artwork::build(
+            spec, None, server, meshes, surfaces, files, None,
+        )?))
+    }
+
+    pub(crate) fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.0.textures.iter().chain(&self.0.refraction_texture)
+    }
+
+    pub(crate) fn bindings(
+        &self,
+    ) -> impl Iterator<Item = (Handle<Mesh>, Handle<TitleSurface>)> + '_ {
+        self.0.prepared_bindings()
+    }
+}
+
+fn merge_particles(
+    spec: &mut FieldEffects,
+    particles: &BTreeMap<i32, resonance_content::effect::FlutterRecipe>,
+) -> Result<()> {
+    for (&kind, leaf) in particles {
+        spec.sprites.insert(
+            kind.try_into()?,
+            resonance_content::effect::SpriteRecipe {
+                texture: leaf.texture.clone(),
+                uv: leaf.uv,
+                additive: false,
+                frames: Vec::new(),
+                repeat: false,
+            },
+        );
+    }
+    Ok(())
+}
 
 #[derive(Component)]
 pub(super) struct EffectDraw;
@@ -38,6 +88,7 @@ pub(super) struct Artwork {
     spec: FieldEffects,
     textures: Vec<Handle<Image>>,
     materials: Vec<Handle<TitleSurface>>,
+    bindings: Bindings,
     warm_mesh: Handle<Mesh>,
     draws: Vec<Vec<(Entity, Handle<Mesh>)>>,
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
@@ -89,44 +140,67 @@ impl Artwork {
         meshes: &mut Assets<Mesh>,
         surfaces: &mut Assets<TitleSurface>,
         files: &resonance_content::prepared::Files,
+        common: Option<&resonance_content::field::document::Common>,
+        shared: Option<&Shared>,
     ) -> Result<Self> {
-        let mut spec: FieldEffects = files
-            .json::<resonance_content::field::settings::Settings>(&field.effects)?
-            .effects;
-        spec.validate()?;
-        for (&kind, leaf) in &field.particles {
-            spec.sprites.insert(
-                kind.try_into()?,
-                resonance_content::effect::SpriteRecipe {
-                    texture: leaf.texture.clone(),
-                    uv: leaf.uv,
-                    additive: false,
-                    frames: Vec::new(),
-                    repeat: false,
-                },
-            );
-        }
-        let emotes = load_image(server, &spec.emote_texture, false);
-        let status = load_image(server, &spec.status_texture, true);
-        let mut textures = vec![emotes.clone(), status.clone()];
-        let mut materials: Vec<_> = [emotes.clone(), status]
-            .map(|color| {
-                surfaces.add(TitleSurface {
-                    color: Some(color),
-                    // World symbols share the UI atlas, with linear sampling.
-                    sampling: Some(emotes.clone()),
-                    blend: Some(Blend::Alpha),
-                    depth_test: false,
-                    depth_write: false,
-                    cull: resonance_content::CullFace::None,
-                    ..default()
-                })
-            })
-            .into();
-        let mut shared = BTreeMap::new();
+        let settings = resonance_content::field::document::Common::settings(
+            &files.read(&field.effects)?,
+            common,
+        )
+        .with_context(|| format!("decode {}", field.effects))?;
+        let mut spec = settings.effects.clone();
+        resonance_content::field::document::Common::validate_effects(&settings, common)?;
+        merge_particles(&mut spec, &field.particles)?;
+        Self::build(spec, Some(field), server, meshes, surfaces, files, shared)
+    }
+
+    fn build(
+        spec: FieldEffects,
+        field: Option<&FieldAssets>,
+        server: &AssetServer,
+        meshes: &mut Assets<Mesh>,
+        surfaces: &mut Assets<TitleSurface>,
+        files: &resonance_content::prepared::Files,
+        shared: Option<&Shared>,
+    ) -> Result<Self> {
+        let base = shared.map(|shared| &shared.0).filter(|base| {
+            base.spec.emote_texture == spec.emote_texture
+                && base.spec.status_texture == spec.status_texture
+        });
+        let mut textures = base.map_or_else(
+            || {
+                vec![
+                    load_image(server, &spec.emote_texture, false),
+                    load_image(server, &spec.status_texture, true),
+                ]
+            },
+            |base| base.textures.clone(),
+        );
+        let emotes = textures[EMOTES].clone();
+        let status = textures[STATUS].clone();
+        let mut materials: Vec<_> = base.map_or_else(
+            || {
+                [emotes.clone(), status]
+                    .map(|color| {
+                        surfaces.add(TitleSurface {
+                            color: Some(color),
+                            // World symbols share the UI atlas, with linear sampling.
+                            sampling: Some(emotes.clone()),
+                            blend: Some(Blend::Alpha),
+                            depth_test: false,
+                            depth_write: false,
+                            cull: resonance_content::CullFace::None,
+                            ..default()
+                        })
+                    })
+                    .into()
+            },
+            |base| base.materials.clone(),
+        );
+        let mut bindings = base.map_or_else(BTreeMap::new, |base| base.bindings.clone());
         let mut register = |path: &str, blend, field_fog| {
             let key = (path.to_owned(), blend, field_fog);
-            *shared.entry(key).or_insert_with(|| {
+            *bindings.entry(key).or_insert_with(|| {
                 let index = materials.len();
                 let color = load_image(server, path, false);
                 textures.push(color.clone());
@@ -153,7 +227,7 @@ impl Artwork {
             .map(|(&kind, recipe)| (kind, variants(&recipe.texture)))
             .collect();
         let mut overlay_materials = BTreeMap::new();
-        for (&resource, path) in &field.overlays {
+        for (&resource, path) in field.into_iter().flat_map(|field| &field.overlays) {
             let overlay =
                 resonance_content::effect::OverlayArt::load(path, |path| files.read(path))?;
             overlay_materials.insert(
@@ -166,9 +240,8 @@ impl Artwork {
             );
         }
         let mut ambient_bindings: Vec<_> = field
-            .environment
-            .particles
-            .iter()
+            .into_iter()
+            .flat_map(|field| &field.environment.particles)
             .map(|recipe| {
                 let blend = if recipe.sprite.additive {
                     Blend::Additive
@@ -203,11 +276,13 @@ impl Artwork {
             &spec.air_refraction.texture,
         ]
         .map(|path| load_image(server, path, false));
-        let heat_haze = field.environment.heat_haze.as_ref().map(|recipe| {
-            let image = load_image(server, &recipe.sprite.texture, false);
-            textures.push(image.clone());
-            (recipe.clone(), image)
-        });
+        let heat_haze = field
+            .and_then(|field| field.environment.heat_haze.as_ref())
+            .map(|recipe| {
+                let image = load_image(server, &recipe.sprite.texture, false);
+                textures.push(image.clone());
+                (recipe.clone(), image)
+            });
         let warm = Quad::new(
             Vec3::ZERO,
             Quat::IDENTITY,
@@ -222,7 +297,11 @@ impl Artwork {
             spec,
             textures,
             materials,
-            warm_mesh: meshes.add(Quad::mesh(std::iter::once(&warm))),
+            bindings,
+            warm_mesh: base.map_or_else(
+                || meshes.add(Quad::mesh(std::iter::once(&warm))),
+                |base| base.warm_mesh.clone(),
+            ),
             draws: Vec::new(),
             sprite_materials,
             overlay_materials,
@@ -600,6 +679,89 @@ fn anchor_position(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_effect_bindings_are_reused_without_retaining_field_overrides_or_draws() -> Result<()>
+    {
+        let root = tempfile::tempdir()?;
+        std::fs::create_dir(root.path().join("effects"))?;
+        std::fs::write(
+            root.path().join("effects/default.ktx2"),
+            resonance_asset_writer::ktx2::encode_levels(1, 1, &[&[255; 4]])?,
+        )?;
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin {
+                file_path: root.path().to_string_lossy().into_owned(),
+                ..default()
+            },
+            bevy::image::ImagePlugin::default(),
+        ));
+        app.finish();
+        app.cleanup();
+        let server = app.world().resource::<AssetServer>().clone();
+        let settings = resonance_content::field::settings::test_fixture();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut surfaces = Assets::<TitleSurface>::default();
+        let files = resonance_content::prepared::Files::default();
+        let shared = Shared::new(&settings, &server, &mut meshes, &mut surfaces, &files)?;
+        let counts = (meshes.len(), surfaces.len());
+        let mut first = Artwork::build(
+            settings.effects.clone(),
+            None,
+            &server,
+            &mut meshes,
+            &mut surfaces,
+            &files,
+            Some(&shared),
+        )?;
+        let second = Artwork::build(
+            settings.effects.clone(),
+            None,
+            &server,
+            &mut meshes,
+            &mut surfaces,
+            &files,
+            Some(&shared),
+        )?;
+        assert_eq!(
+            (meshes.len(), surfaces.len()),
+            counts,
+            "field reentry allocated default GPU bindings again"
+        );
+        assert_eq!(first.warm_mesh.id(), shared.0.warm_mesh.id());
+        assert_eq!(first.materials, shared.0.materials);
+        assert_eq!(second.materials, shared.0.materials);
+
+        let mut overridden = settings.effects.clone();
+        overridden.sprites.get_mut(&0).unwrap().texture = "effects/override.ktx2".into();
+        let local = Artwork::build(
+            overridden,
+            None,
+            &server,
+            &mut meshes,
+            &mut surfaces,
+            &files,
+            Some(&shared),
+        )?;
+        let key = ("effects/override.ktx2".into(), Blend::Alpha, false);
+        assert!(local.bindings.contains_key(&key));
+        assert!(
+            !shared.0.bindings.contains_key(&key),
+            "a local variant enlarged the startup inventory"
+        );
+        assert_eq!(shared.0.materials.len(), counts.1);
+        first.draws.push(vec![(
+            app.world_mut().spawn_empty().id(),
+            meshes.add(Mesh::from(Rectangle::new(1., 1.))),
+        )]);
+        first.spec.palette[0] = [0; 4];
+        assert!(second.draws.is_empty() && shared.0.draws.is_empty());
+        assert_eq!(second.spec.palette[0], [255; 4]);
+        assert_eq!(shared.0.spec.palette[0], [255; 4]);
+        Ok(())
+    }
 
     #[test]
     fn inactive_effects_stop_uploading_and_reused_draws_preserve_order() {

@@ -7,14 +7,14 @@ use resonance_content::{
     animation::Motion,
     battle_profile::{Entry, Profile},
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 pub fn initial_playback(
     random: &mut Random,
     entry: &Entry,
     profile: &Profile,
     side: Side,
-    motions: &BTreeMap<u16, Motion>,
+    motions: &BTreeMap<u16, Arc<Motion>>,
     (hp, max_hp): (i32, i32),
     petrified: bool,
 ) -> Result<Playback> {
@@ -68,16 +68,19 @@ pub fn initial_playback(
     })
 }
 
+/// Ordinary battle themes eligible for the fixed startup recording cache.
+pub const COMMON_MUSIC: [u16; 3] = [85, 86, 92];
+
 /// An encounter override takes precedence over the map and world themes.
 pub fn music(setup: &resonance_events::battle::Setup, map: u32, world_selection: i32) -> u16 {
     setup.music.unwrap_or({
         if map == 0x20c {
-            92
+            COMMON_MUSIC[2]
         } else {
             match world_selection {
-                1 => 86,
-                2 => 92,
-                _ => 85,
+                1 => COMMON_MUSIC[1],
+                2 => COMMON_MUSIC[2],
+                _ => COMMON_MUSIC[0],
             }
         }
     })

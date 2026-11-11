@@ -120,9 +120,14 @@ fn advance(world: &mut World) {
         match result.destination {
             Some(Destination::Load) => {
                 let server = world.resource::<AssetServer>().clone();
+                let ui_resident = world
+                    .get_resource::<super::field_ui::Resident>()
+                    .cloned()
+                    .unwrap_or_default();
                 let menu = active.art.load_menu(
                     &server,
                     &mut world.resource_mut::<Assets<super::field_ui::Surface>>(),
+                    &ui_resident,
                 );
                 let menu = match menu {
                     Ok(menu) => menu,

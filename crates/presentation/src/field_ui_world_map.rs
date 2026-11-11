@@ -3,6 +3,7 @@ use super::*;
 use resonance_content::overworld::{WORLD_DEPTH, WORLD_WIDTH};
 use std::f32::consts::{FRAC_PI_2, PI};
 
+#[derive(Clone)]
 pub(super) struct Artwork {
     maps: [Layer; 2],
     map_sizes: [[u32; 2]; 2],
@@ -16,31 +17,13 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<Self> {
-        let art = [menu.world_map_art(0), menu.world_map_art(1)];
-        let map_sizes = art.clone().map(|(_, size)| size);
-        let mut layer = |material: Handle<Surface>, z| {
-            let mut batch = Batch::default();
-            batch.quad([0., 0., 1., 1.], [0.; 4], [0.; 4]);
-            let mesh = meshes.add(batch.mesh([1, 1]));
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    Transform::from_xyz(0., 0., z),
-                    Visibility::Hidden,
-                ))
-                .id();
-            Layer {
-                entity,
-                mesh,
-                material,
-                uploaded: None,
-                visible: false,
-            }
-        };
-        let maps = art.map(|(material, _)| layer(material, 2.));
+        // Validate the complete recipe before allocating any optional canvases.
+        let art = [menu.world_map_art(0)?, menu.world_map_art(1)?];
         let (material, atlas_size, sprites) = menu.world_hud_art()?;
         anyhow::ensure!(sprites.len() == 7, "world HUD artwork is incomplete");
+        let map_sizes = art.clone().map(|(_, size)| size);
+        let mut layer = |material, depth| Layer::new(material, depth, commands, meshes);
+        let maps = art.map(|(material, _)| layer(material, 2.));
         Ok(Self {
             maps,
             map_sizes,
@@ -49,9 +32,12 @@ impl Artwork {
             sprites,
         })
     }
+    pub(super) fn layers(&self) -> impl Iterator<Item = &Layer> {
+        self.maps.iter().chain(std::iter::once(&self.decorations))
+    }
     pub fn despawn(self, world: &mut World) {
         for layer in self.maps.into_iter().chain([self.decorations]) {
-            world.despawn(layer.entity);
+            resident::retire(world, layer.entity);
         }
     }
     pub fn render(

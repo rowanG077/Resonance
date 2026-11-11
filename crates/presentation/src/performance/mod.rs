@@ -166,6 +166,7 @@ fn begin_frame(
     let summary = (flush && monitor.file.is_some()).then(|| monitor.history.summary());
     let result = (|| -> Result<()> {
         if let Some(writer) = &mut monitor.file {
+            let sampler_stats = sampled.as_ref().map(|sampled| sampled.stats());
             line(
                 writer,
                 &serde_json::json!({"kind":"frame", "sample":sample,
@@ -179,7 +180,7 @@ fn begin_frame(
                     "map":session.as_ref().map(|s| s.map_id()),
                     "tick":session.as_ref().map(|s| s.events().tick()),
                     "resources": {"images":images.as_ref().map(|a| a.len()), "meshes":meshes.as_ref().map(|a| a.len()), "surfaces":surfaces.as_ref().map(|a| a.len()),
-                        "sampler_hits":sampled.as_ref().map(|s| s.hits), "sampler_misses":sampled.as_ref().map(|s| s.misses),
+                        "sampler_hits":sampler_stats.map(|(hits, _)| hits), "sampler_misses":sampler_stats.map(|(_, misses)| misses),
                         "memory_reads":resident.as_ref().map(|r| r.memory_reads.load(std::sync::atomic::Ordering::Relaxed)),
                         "late_reads":resident.as_ref().map(|r| r.unprepared_reads.load(std::sync::atomic::Ordering::Relaxed))}}),
             )?;

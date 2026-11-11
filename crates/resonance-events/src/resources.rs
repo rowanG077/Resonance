@@ -18,7 +18,7 @@ pub struct MemoryCircleText {
 pub struct ResourceLibrary {
     pub dynamic_resources: bool,
     pub local_resources: BTreeSet<u32>,
-    pub joint_mappings: BTreeMap<String, String>,
+    pub joint_mappings: std::sync::Arc<BTreeMap<String, String>>,
     pub texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     pub field_wind: Option<resonance_content::field::FieldWind>,
     pub rising_light_destination: Option<[f32; 3]>,
@@ -356,6 +356,13 @@ pub struct AttachmentPose {
     skeleton: std::sync::Arc<resonance_content::animation::Skeleton>,
     motion: std::sync::Arc<resonance_content::animation::Motion>,
 }
+impl From<resonance_content::field::attachments::Clip> for AttachmentPose {
+    fn from(clip: resonance_content::field::attachments::Clip) -> Self {
+        let (skeleton, motion) = clip.into_parts();
+        Self { skeleton, motion }
+    }
+}
+
 impl AttachmentPose {
     pub fn new(
         skeleton: std::sync::Arc<resonance_content::animation::Skeleton>,

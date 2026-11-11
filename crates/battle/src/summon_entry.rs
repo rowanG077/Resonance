@@ -450,7 +450,8 @@ mod tests {
                         Motion {
                             duration_frames: 500.,
                             tracks: vec![],
-                        },
+                        }
+                        .into(),
                     )
                 })
                 .collect(),

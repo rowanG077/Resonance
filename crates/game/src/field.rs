@@ -27,6 +27,18 @@ pub use prompt::{ActionPrompt, FieldAction};
 pub use skit::Playback as SkitPlayback;
 pub use skit::SkitPrompt;
 
+/// Validated, specialized code owned by a prepared field, without runtime state.
+#[derive(Clone)]
+pub struct PreparedProgram(Arc<Program>);
+impl PreparedProgram {
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        Ok(Self::new(Program::decode(bytes)?))
+    }
+    pub fn new(program: Program) -> Self {
+        Self(Arc::new(resonance_events::prepare_field_program(program)))
+    }
+}
+
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     #[default]
@@ -253,6 +265,14 @@ impl FieldSession {
         assets: &FieldAssets,
         entry: FieldEntry,
     ) -> Result<Self> {
+        Self::enter_prepared(&PreparedProgram::decode(script)?, messages, assets, entry)
+    }
+    pub fn enter_prepared(
+        program: &PreparedProgram,
+        messages: Vec<symphonia_script::message::Message>,
+        assets: &FieldAssets,
+        entry: FieldEntry,
+    ) -> Result<Self> {
         let skits = skit::Skits::new(entry.skits.clone());
         let menu_resources =
             entry
@@ -296,7 +316,7 @@ impl FieldSession {
             play_time: entry.play_time,
             effect_clock: crate::clock::PresentationClock::new(entry.persistent.tick),
             map_id: assets.map_id,
-            events: start_with_entry(script, messages, assets, entry)?,
+            events: start_with_entry(program, messages, assets, entry)?,
             authored_entry: None,
             menu: None,
             shop: None,
@@ -1392,7 +1412,12 @@ pub fn start(
     messages: Vec<symphonia_script::message::Message>,
     assets: &FieldAssets,
 ) -> Result<EventRuntime> {
-    start_with_entry(script, messages, assets, FieldEntry::default())
+    start_with_entry(
+        &PreparedProgram::decode(script)?,
+        messages,
+        assets,
+        FieldEntry::default(),
+    )
 }
 
 fn bind_clips(
@@ -1539,7 +1564,7 @@ pub fn prepare_resource(
 }
 
 fn start_with_entry(
-    script: &[u8],
+    program: &PreparedProgram,
     messages: Vec<symphonia_script::message::Message>,
     assets: &FieldAssets,
     mut entry: FieldEntry,
@@ -1662,9 +1687,7 @@ fn start_with_entry(
             .snap_follow_view(&world.actors);
     }
     EventRuntime::with_state_policy(
-        Arc::new(resonance_events::prepare_field_program(Program::decode(
-            script,
-        )?)),
+        program.0.clone(),
         Arc::new(resources),
         world,
         memory,

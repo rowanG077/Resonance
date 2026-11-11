@@ -334,7 +334,7 @@ pub struct ModelDefinition {
     pub body_spheres: Vec<BodySphere>,
     /// Authored reception markers. None retains the collider for unprepared bodies.
     pub reception_spheres: Option<Vec<BodySphere>>,
-    pub motions: BTreeMap<u16, Motion>,
+    pub motions: BTreeMap<u16, Arc<Motion>>,
     pub secondary_motion: Vec<resonance_content::secondary_motion::Chain>,
     pub initial: Playback,
     /// Optional poses selected from native actor state.
@@ -396,7 +396,10 @@ pub struct ReactionMotions {
 
 impl ModelDefinition {
     fn motion(&self, clip: u16) -> Result<&Motion> {
-        self.motions.get(&clip).context("unprepared battle motion")
+        self.motions
+            .get(&clip)
+            .map(Arc::as_ref)
+            .context("unprepared battle motion")
     }
 
     /// Bind authored contacts once; runtime contacts sample these exact bones.

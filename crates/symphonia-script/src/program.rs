@@ -68,6 +68,12 @@ pub enum ProgramError {
 
 impl Program {
     pub fn decode(bytes: &[u8]) -> Result<Self, ProgramError> {
+        Self::decode_with_analysis(bytes).map(|(program, _)| program)
+    }
+
+    pub(crate) fn decode_with_analysis(
+        bytes: &[u8],
+    ) -> Result<(Self, scenario::Analysis), ProgramError> {
         // Header/code PCs are 16-bit word offsets; bound analysis allocations.
         if bytes.len() > 4 * 1024 * 1024 {
             return Err(ProgramError::Invalid("resource exceeds 4 MiB".into()));
@@ -146,17 +152,20 @@ impl Program {
         if !code.contains_key(&entry) {
             return Err(invalid("invalid default entry".into()));
         }
-        Ok(Self {
-            entry,
-            events,
-            code,
-            auxiliary: if header.auxiliary_words == 0 {
-                vec![]
-            } else {
-                bytes[header.auxiliary_offset()..].to_vec()
+        Ok((
+            Self {
+                entry,
+                events,
+                code,
+                auxiliary: if header.auxiliary_words == 0 {
+                    vec![]
+                } else {
+                    bytes[header.auxiliary_offset()..].to_vec()
+                },
+                authored: None,
             },
-            authored: None,
-        })
+            analysis,
+        ))
     }
 
     /// PCs in authored modules are instruction indices, independent of legacy bytes.

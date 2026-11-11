@@ -12,6 +12,15 @@ fn execution_rejects_unverified_control_flow_and_headers() {
         vec![4, 0, 99, 0, 0x20ff],        // auxiliary outside input
     ] {
         assert!(Program::decode(&bytes(&words)).is_err(), "{words:x?}");
+        assert!(
+            symphonia_script::scenario::calls::arguments(
+                &bytes(&words),
+                symphonia_script::NativeCall::ConfigureSession,
+                2
+            )
+            .is_err(),
+            "argument discovery accepted invalid control flow: {words:x?}"
+        );
     }
 }
 
@@ -35,4 +44,25 @@ fn duplicate_registry_keys_keep_the_first_entry() {
         Program::decode(&invalid).is_err(),
         "unreachable duplicates must still have valid targets"
     );
+}
+
+#[test]
+fn native_argument_discovery_returns_the_same_validated_code_and_observes_edits() {
+    use symphonia_script::{NativeCall, Op, scenario::calls};
+    let original = bytes(&[
+        4, 0, 0, 0, 0x0200, 18, 0, 0x3000, 0x4000, 0x0200, 3, 0, 0x3000, 0x4000, 0x206d, 0x20ff,
+    ]);
+    let (program, arguments) =
+        calls::program_arguments(&original, NativeCall::ConfigureSession, 2).unwrap();
+    assert_eq!(arguments[&10], [Some(18), Some(3)]);
+    assert_eq!(program.instruction(0).unwrap().0, Op::Push(18));
+    assert_eq!(
+        program.instruction(10).unwrap().0,
+        Op::Native(NativeCall::ConfigureSession as u8)
+    );
+    let mut edited = original;
+    edited[11] = 19;
+    let (_, changed) = calls::program_arguments(&edited, NativeCall::ConfigureSession, 2).unwrap();
+    assert_eq!(changed[&10], [Some(19), Some(3)]);
+    assert_eq!(program.instruction(0).unwrap().0, Op::Push(18));
 }

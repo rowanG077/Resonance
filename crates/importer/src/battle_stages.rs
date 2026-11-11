@@ -374,7 +374,7 @@ fn convert(root: &Path, id: u16, name: &str) -> Result<Vec<(String, Vec<u8>)>> {
             files.push((path.clone(), world_motion::encode(animation, &mesh)?));
             scene.clips.push(SceneClip {
                 motion: path,
-                joints: BTreeMap::new(),
+                joints: Default::default(),
                 resource_slot: 0,
                 duration_seconds: 0.,
                 animation_resource: None,

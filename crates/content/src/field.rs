@@ -144,7 +144,7 @@ impl CollisionGroup {
 #[derive(Debug, Clone, Serialize)]
 pub struct FieldAssets {
     #[serde(skip)]
-    pub joint_mappings: BTreeMap<String, String>,
+    pub joint_mappings: std::sync::Arc<BTreeMap<String, String>>,
     pub map_id: u32,
     pub script: String,
     #[serde(skip_serializing_if = "Option::is_none")]

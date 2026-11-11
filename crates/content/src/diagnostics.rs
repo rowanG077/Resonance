@@ -1,5 +1,5 @@
 //! Session error policy shared by loading, simulation and presentation.
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
@@ -80,6 +80,21 @@ impl Diagnostics {
         }
     }
 
+    /// Speculative preparation includes discovery. Cancellation must never be
+    /// recovered as an optional miss, or publish a partially prepared value.
+    /// Like `attempt`, this does not roll back side effects of the operation.
+    pub fn preload<T>(
+        &self,
+        scope: &str,
+        cancelled: &impl Fn() -> bool,
+        prepare: impl FnOnce() -> Result<T>,
+    ) -> Result<Option<T>> {
+        ensure!(!cancelled(), "preload cancelled: {scope}");
+        let result = prepare();
+        ensure!(!cancelled(), "preload cancelled: {scope}");
+        self.attempt(scope, result)
+    }
+
     pub fn has_errors(&self) -> bool {
         !self.0.entries.lock().unwrap().is_empty()
     }
@@ -148,5 +163,46 @@ mod tests {
         assert_eq!(error.to_string(), "missing mesh");
         assert!(paranoid.has_errors());
         assert!(!Diagnostics::default().has_errors());
+    }
+
+    #[test]
+    fn preloads_recover_discovery_errors_but_never_recover_cancellation() -> Result<()> {
+        use std::cell::Cell;
+        for paranoid in [false, true] {
+            let diagnostics = Diagnostics::new(paranoid);
+            let result = diagnostics.preload::<()>("discovery", &|| false, || {
+                Err(anyhow::anyhow!("bad mapping"))
+            });
+            assert_eq!(result.is_err(), paranoid);
+            assert_eq!(diagnostics.entries().len(), 1);
+
+            for success in [false, true] {
+                let diagnostics = Diagnostics::new(paranoid);
+                let cancelled = Cell::new(false);
+                assert!(
+                    diagnostics
+                        .preload("discovery", &|| cancelled.get(), || {
+                            cancelled.set(true);
+                            if success {
+                                Ok(7)
+                            } else {
+                                Err(anyhow::anyhow!("interrupted read"))
+                            }
+                        })
+                        .is_err()
+                );
+                assert!(diagnostics.entries().is_empty());
+            }
+            let diagnostics = Diagnostics::new(paranoid);
+            assert!(
+                diagnostics
+                    .preload("discovery", &|| true, || -> Result<()> {
+                        panic!("cancelled work must not run")
+                    })
+                    .is_err()
+            );
+            assert!(diagnostics.entries().is_empty());
+        }
+        Ok(())
     }
 }

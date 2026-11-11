@@ -5,9 +5,8 @@ use super::{
     field_effects::effect_rotation,
     field_view::{Art, State},
     materials::{MaterialSlot, TitleSurface},
-    scene::SampledImages,
 };
-use bevy::{ecs::entity::EntityHashMap, prelude::*};
+use bevy::prelude::*;
 use resonance_events::effect::{Blend, SpriteOrientation};
 use std::collections::BTreeSet;
 
@@ -34,33 +33,12 @@ impl Part {
     }
 }
 
-fn instantiate(world: &mut World, root: Entity, scene: &Handle<WorldAsset>) {
-    // All field models are loaded before play. Instantiate short-lived effects
-    // immediately so their lifetime cannot run out while their scene is queued.
-    world.resource_scope(|world, scenes: Mut<Assets<WorldAsset>>| {
-        let registry = world.resource::<AppTypeRegistry>().clone();
-        let mut entities = EntityHashMap::default();
-        scenes
-            .get(scene)
-            .expect("loaded model particle scene")
-            .write_to_world_with(world, &mut entities, &registry)
-            .expect("model particle scene components");
-        for entity in entities.values() {
-            if world.get::<ChildOf>(*entity).is_none() {
-                world.entity_mut(*entity).insert(ChildOf(root));
-            }
-        }
-    });
-}
-
 pub(super) fn spawn(
     state: State,
     art: Res<Art>,
     mut commands: Commands,
     roots: Query<&Part>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut images: ResMut<Assets<Image>>,
-    mut sampled: ResMut<SampledImages>,
 ) {
     if !art.ready {
         return;
@@ -75,7 +53,7 @@ pub(super) fn spawn(
                 continue;
             }
             let materials = part
-                .surfaces(&mut images, &mut sampled)
+                .surfaces()
                 .into_iter()
                 .map(|mut surface| {
                     material(&mut surface, particle.blend);
@@ -95,8 +73,7 @@ pub(super) fn spawn(
                     },
                 ))
                 .id();
-            let scene = part.scene.clone();
-            commands.queue(move |world: &mut World| instantiate(world, root, &scene));
+            crate::model_asset::instantiate(&mut commands, root, part.scene.clone());
         }
     }
 }
@@ -268,43 +245,6 @@ pub(super) fn sync(
 mod tests {
     use super::*;
     use bevy::{ecs::system::RunSystemOnce, transform::helper::TransformHelper};
-
-    #[test]
-    fn loaded_particle_scene_is_available_in_its_birth_update() {
-        let mut app = App::new();
-        app.init_resource::<Assets<WorldAsset>>()
-            .register_type::<Transform>()
-            .register_type::<GlobalTransform>()
-            .register_type::<ChildOf>()
-            .register_type::<Children>()
-            .register_type::<MaterialSlot>();
-        let mut scene = World::new();
-        let parent = scene.spawn(Transform::from_xyz(3., 0., 0.)).id();
-        scene.spawn((ChildOf(parent), Transform::IDENTITY, MaterialSlot(0)));
-        let scene = app
-            .world_mut()
-            .resource_mut::<Assets<WorldAsset>>()
-            .add(WorldAsset::new(scene));
-        let root = app.world_mut().spawn_empty().id();
-        app.world_mut()
-            .run_system_once(move |mut commands: Commands| {
-                let scene = scene.clone();
-                commands.queue(move |world: &mut World| instantiate(world, root, &scene));
-            })
-            .unwrap();
-        let parent = app.world().get::<Children>(root).unwrap()[0];
-        let mesh = app.world().get::<Children>(parent).unwrap()[0];
-        assert_eq!(
-            app.world().get::<MaterialSlot>(mesh),
-            Some(&MaterialSlot(0))
-        );
-        assert_eq!(
-            app.world().get::<Transform>(parent).unwrap().translation.x,
-            3.
-        );
-        app.world_mut().despawn(root);
-        assert!(app.world().get_entity(mesh).is_err());
-    }
 
     #[test]
     fn particle_placement_preserves_layout_and_stretches_on_world_axes() {

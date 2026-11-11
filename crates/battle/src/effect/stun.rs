@@ -15,9 +15,9 @@ impl Effects {
 
     pub fn with_stun_particle(
         mut self,
-        definition: Option<Arc<crate::ParticleDefinition>>,
+        definition: Option<(ResourceId, Arc<crate::ParticleDefinition>)>,
     ) -> Result<Self> {
-        if let Some(definition) = &definition {
+        if let Some((_, definition)) = &definition {
             definition.validate()?;
             ensure!(
                 definition.model.is_none() && definition.data.lifetime.is_none(),
@@ -52,7 +52,7 @@ impl Effects {
             }
             live && self.particles.contains_key(particle)
         });
-        let Some(definition) = self.stun_particle.clone().filter(|_| !clearing) else {
+        let Some((resource, definition)) = self.stun_particle.clone().filter(|_| !clearing) else {
             return Ok(());
         };
         for (index, actor) in frame.actors.iter().enumerate() {
@@ -85,8 +85,14 @@ impl Effects {
                 if paused || phase == StunPhase::Existing && contact {
                     continue;
                 }
-                let id =
-                    self.spawn_particle(definition.clone(), owner, owner, origin, actor.heading)?;
+                let id = self.spawn_particle(
+                    resource,
+                    definition.clone(),
+                    owner,
+                    owner,
+                    origin,
+                    actor.heading,
+                )?;
                 crate::particle::apply_scale(
                     &mut self.particles.get_mut(&id).unwrap().frame.state,
                     actor.effect_scale,

@@ -18,6 +18,7 @@ impl Prepared {
         catalog: Arc<SkitCatalog>,
         files: &Files,
         resources: &ResourceLibrary,
+        programs: &crate::screen_resources::Programs,
     ) -> Result<BTreeMap<u16, Self>> {
         catalog.validate()?;
         catalog
@@ -36,7 +37,7 @@ impl Prepared {
                             .map(|s| s.title.clone())
                             .or_else(|| paths.title.clone())
                             .unwrap_or_default(),
-                        program: Arc::new(Program::decode(&files.read(&paths.script)?)?),
+                        program: programs.program(files, &paths.script)?,
                         resources: Arc::new(ResourceLibrary {
                             skits: Some(catalog.clone()),
                             text: resources.text.clone(),
@@ -250,7 +251,12 @@ mod tests {
                 .collect(),
         };
         let mut parent = EventRuntime::new(program, Arc::default())?;
-        let prepared = Prepared::load(Arc::new(catalog), &files, parent.resources())?;
+        let prepared = Prepared::load(
+            Arc::new(catalog),
+            &files,
+            parent.resources(),
+            &Default::default(),
+        )?;
         for (id, caller_permission, expected) in [
             (472, true, true),
             (472, false, false),

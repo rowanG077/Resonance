@@ -13,7 +13,6 @@ pub use resonance_content::battle_effect::{ParticleGeometry, ParticleState, Part
 
 #[derive(Debug, Clone)]
 pub struct ParticleDefinition {
-    pub resource: crate::ResourceId,
     pub member: u16,
     pub model: Option<resonance_content::battle_effect::ModelBinding>,
     pub data: ParticleTemplate,
@@ -400,6 +399,7 @@ pub(crate) fn apply_scale(state: &mut ParticleState, scale: f32) -> Result<()> {
 impl Effects {
     pub(crate) fn spawn_particle(
         &mut self,
+        resource: crate::ResourceId,
         definition: Arc<ParticleDefinition>,
         owner: ActorId,
         target: ActorId,
@@ -420,7 +420,7 @@ impl Effects {
             .map(|binding| {
                 let mut model = self
                     .banks
-                    .get(&definition.resource)
+                    .get(&resource)
                     .and_then(|bank| bank.models.get(&binding.slot))
                     .ok_or_else(|| anyhow::anyhow!("unprepared particle model"))?
                     .clone();
@@ -436,7 +436,7 @@ impl Effects {
             owner,
             owner_bone: definition.data.owner_bone,
             draw_after: definition.data.draw_after_target.then_some(target),
-            resource: definition.resource,
+            resource,
             member: definition.member,
             origin,
             heading,

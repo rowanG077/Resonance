@@ -335,19 +335,21 @@ mod tests {
             duration_frames: 30.,
             tracks: vec![Track {
                 bone: 0,
-                nodes: vec![resonance_content::animation::NodeTrack {
-                    bind: resonance_content::animation::Transform::default(),
-                    translation: Some(Channel {
-                        times: (vec![0., 30.])
-                            .into_iter()
-                            .map(|frame| frame / 30.)
-                            .collect(),
-                        interpolation: Interpolation::Linear,
-                        values: vec![[0.; 3], [30., 0., 0.]],
-                    }),
-                    rotation: None,
-                    scale: None,
-                }],
+                nodes: vec![std::sync::Arc::new(
+                    resonance_content::animation::NodeTrack {
+                        bind: resonance_content::animation::Transform::default(),
+                        translation: Some(Channel {
+                            times: (vec![0., 30.])
+                                .into_iter()
+                                .map(|frame| frame / 30.)
+                                .collect(),
+                            interpolation: Interpolation::Linear,
+                            values: vec![[0.; 3], [30., 0., 0.]],
+                        }),
+                        rotation: None,
+                        scale: None,
+                    },
+                )],
             }],
         }
     }

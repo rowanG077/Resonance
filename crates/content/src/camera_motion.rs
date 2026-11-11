@@ -64,6 +64,7 @@ fn convert_times(tracks: &mut [Track], frames: bool) {
     }
     for track in tracks {
         for node in &mut track.nodes {
+            let node = std::sync::Arc::make_mut(node);
             channel(&mut node.translation, frames);
             channel(&mut node.rotation, frames);
             channel(&mut node.scale, frames);
@@ -93,7 +94,7 @@ impl CameraMotion {
         let tracks = (0..2)
             .map(|bone| Track {
                 bone,
-                nodes: vec![NodeTrack {
+                nodes: vec![std::sync::Arc::new(NodeTrack {
                     bind: Transform::default(),
                     translation: Some(Channel {
                         interpolation: Interpolation::Linear,
@@ -116,7 +117,7 @@ impl CameraMotion {
                             .collect(),
                     }),
                     scale: None,
-                }],
+                })],
             })
             .collect();
         let value = Self {

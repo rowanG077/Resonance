@@ -150,8 +150,10 @@ pub(super) fn update(
                     .map(|part| Part::load(part, &server, &art.loads))
                     .collect();
                 art.models.insert(resource, parts);
+                art.failed_models.remove(&resource);
             }
             art.ready = false;
+            art.invalidate();
             art.loading_since = std::time::Instant::now();
             *pending = Some(Pending::Loading(request, prepared));
         }

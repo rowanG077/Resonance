@@ -38,10 +38,9 @@ pub fn prepare(
                 .map_or((AnimationSource::Model, resource), |id| {
                     (AnimationSource::Resource, id)
                 });
-            poses.clips.insert(
-                (source, resource, slot),
-                AttachmentPose::new(skeleton.clone(), motion)?,
-            );
+            poses
+                .clips
+                .insert((source, resource, slot), AttachmentPose::from(motion));
         }
     }
     Ok(poses)

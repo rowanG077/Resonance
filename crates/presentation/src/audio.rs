@@ -8,7 +8,7 @@ use resonance_playback::Decodable;
 use std::{fs, path::Path, sync::Arc};
 
 mod playback;
-mod recording;
+pub(crate) mod recording;
 pub(super) use playback::{GameAudio, PlaybackAssets};
 pub(crate) use recording::Recording;
 

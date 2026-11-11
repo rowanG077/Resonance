@@ -27,17 +27,20 @@ pub(super) struct Rig {
 pub(super) fn bind(
     mut commands: Commands,
     art: Res<Art>,
-    roots: Query<(Entity, &ActorPart), Without<Rig>>,
-    children: Query<&Children>,
-    nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
+    roots: Query<(Entity, &ActorPart, &crate::model_asset::Instance), Without<Rig>>,
 ) {
-    for (root, part) in &roots {
+    for (root, part, model) in &roots {
         if !part.prepared {
             continue;
         }
         let spec = &art.models[&part.resource][part.part].spec;
-        let mut rig = Rig::from_scene(root, spec.bone_names.len(), &children, &nodes)
-            .expect("prepared animation skeleton must contain every bone");
+        let mut rig = Rig::new(
+            model
+                .binding(spec.bone_names.len())
+                .expect("prepared animation skeleton must contain every bone")
+                .0,
+        );
+        rig.camera_facing = model.facing();
         rig.secondary_bones.extend(
             spec.secondary_motion
                 .prepare(&spec.bone_names)
@@ -174,6 +177,7 @@ pub(super) fn sample(
 }
 
 impl Rig {
+    #[cfg(test)]
     fn from_scene(
         root: Entity,
         count: usize,

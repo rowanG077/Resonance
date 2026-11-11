@@ -1,7 +1,6 @@
 //! Party HUD composed on bitmap UI surfaces.
 use super::*;
 use anyhow::ensure;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use resonance_battle::{Activity, ActorId, BattleFrame, Character, Side};
 use resonance_content::battle_ui::Art;
 use std::collections::BTreeMap;
@@ -91,6 +90,28 @@ pub(crate) struct ActorMarkers {
     pub effect_tick: u16,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct GraphicsKey(
+    AssetId<Image>,
+    [u32; 2],
+    u32,
+    bool,
+    TextureEffect,
+    UiInterpolation,
+);
+impl GraphicsKey {
+    fn of(d: &LayerDefinition) -> Self {
+        Self(
+            d.image.id(),
+            d.size,
+            d.depth.to_bits(),
+            d.nearest,
+            d.texture_effect,
+            d.interpolation,
+        )
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct Artwork {
     resolution: crate::Resolution,
@@ -154,23 +175,9 @@ impl Artwork {
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
+        resident: &Resident,
     ) -> Result<Self> {
-        let mut white = Image::new(
-            Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            TextureDimension::D2,
-            vec![255; 4],
-            TextureFormat::Rgba8Unorm,
-            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-        );
-        white.sampler = ImageSampler::linear();
-        let mut nearest = white.clone();
-        nearest.sampler = ImageSampler::nearest();
-        let nearest = image_assets.add(nearest);
-        let white = image_assets.add(white);
+        let [white, nearest] = resident.images(image_assets);
         let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.prepare_images(&read)?;
         dialogue.validate()?;
@@ -209,6 +216,7 @@ impl Artwork {
             )
             .pixel_center(),
             nearest,
+            resident: resident.clone(),
         };
         let solid = |depth| palette.solid.clone().at(depth);
         let text = |depth| palette.font.clone().at(depth).offset_depth(1.);
@@ -323,6 +331,7 @@ impl Artwork {
             &dialogue.cursor,
             diagnostics,
             inputs,
+            resident,
         )?;
         Ok(Self {
             resolution: Default::default(),
@@ -373,6 +382,11 @@ impl Artwork {
         }
         self.pending_images = pending;
         if !omitted.is_empty() {
+            // Cut-ins are optional only during boot prewarming. A live
+            // encounter still requires its selected portrait.
+            self.cutin
+                .layers
+                .retain(|_, layer| !omitted.contains(&layer.definition.image));
             for (portrait, layer) in self.art.portraits.iter_mut().zip(&self.ui.portraits) {
                 if omitted.contains(&layer.definition.image) {
                     *portrait = None;
@@ -414,10 +428,48 @@ impl Artwork {
         resolution: crate::Resolution,
     ) {
         self.resolution = resolution;
+        if let Some(resident) = self.windows.resident() {
+            let inventory = resident.0.lock().unwrap();
+            let mut used = std::collections::HashMap::new();
+            for layer in self.layers_mut() {
+                let key = GraphicsKey::of(&layer.definition);
+                let index = used.entry(key).or_insert(0usize);
+                if let Some(common) = inventory
+                    .hud
+                    .get(&key)
+                    .and_then(|layers| layers.get(*index))
+                    .filter(|_| layer.rendered.is_none())
+                {
+                    let mut rendered = common.clone();
+                    rendered.uploaded = None;
+                    rendered.visible = false;
+                    layer.material = rendered.material.clone();
+                    let transform = Transform::from_xyz(0., 0., layer.definition.depth);
+                    commands
+                        .entity(rendered.entity)
+                        .insert((transform, GlobalTransform::from(transform)));
+                    layer.rendered = Some(rendered);
+                }
+                *index += 1;
+            }
+        }
         for layer in self.layers_mut() {
             layer.prepare(commands, meshes);
         }
         self.windows.prepare_windows(resolution);
+    }
+
+    pub(super) fn remember_graphics(&self, resident: &Resident) {
+        let mut inventory = resident.0.lock().unwrap();
+        for layer in self.layers() {
+            if let Some(rendered) = &layer.rendered {
+                inventory
+                    .hud
+                    .entry(GraphicsKey::of(&layer.definition))
+                    .or_default()
+                    .push(rendered.clone());
+            }
+        }
     }
 
     pub(crate) fn menu_images_ready(
@@ -523,6 +575,11 @@ impl Artwork {
         images: &mut Assets<Image>,
         formats: bevy::image::CompressedImageFormats,
     ) -> Result<DialogueOverlay> {
+        if let Some(resident) = self.windows.resident()
+            && let Some(dialogue) = &resident.0.lock().unwrap().dialogue
+        {
+            return Ok(dialogue.clone());
+        }
         DialogueOverlay::load(
             &self.dialogue,
             &self.font,
@@ -657,7 +714,7 @@ impl Artwork {
 
     pub fn despawn(self, world: &mut World) {
         for entity in self.entities() {
-            world.despawn(entity);
+            resident::retire(world, entity);
         }
     }
 }
@@ -821,6 +878,7 @@ pub(super) fn test_tiled_surface(image: Handle<Image>, size: [u32; 2]) -> Surfac
         LayerDefinition::new(image.clone(), size, Depth::Notice),
         &image,
         &mut materials,
+        &Resident::default(),
     );
     materials.get(&layer.material).unwrap().clone()
 }
@@ -910,6 +968,7 @@ fn test_artwork_with(
         &mut materials,
         &mut app.world_mut().resource_mut::<Assets<Image>>(),
         diagnostics,
+        &Resident::default(),
     )?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {

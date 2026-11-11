@@ -10,8 +10,10 @@ mod cinematic;
 mod effects;
 mod particles;
 mod preparation;
+pub(crate) use preparation::Inputs;
+pub(crate) mod warm;
 use anyhow::{Context as ContextExt, Result};
-use bevy::{prelude::*, world_serialization::WorldInstanceReady};
+use bevy::prelude::*;
 pub use capture::{Probe, capture_overworld};
 use resonance_content::{
     ScenePart,
@@ -39,6 +41,22 @@ impl State<'_> {
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct Failures<'w> {
+    warming: Option<Res<'w, warm::Draws>>,
+    fatal: crate::diagnostics::Fatal<'w>,
+}
+impl Failures<'_> {
+    fn fail(&mut self, scope: &str, error: anyhow::Error) {
+        if let Some(warm) = &self.warming {
+            warm.fail(scope, error);
+        } else {
+            self.fatal.fail(scope, error);
+        }
+    }
+}
+
+#[derive(Clone)]
 pub(super) struct Package {
     pub world: Arc<game::Prepared>,
     pub audio: Arc<super::field_audio::Assets>,
@@ -48,6 +66,9 @@ pub(super) struct Scene {
     pub session: game::Session,
     pub package: Arc<game::Prepared>,
     models: BTreeMap<Model, Vec<ScenePart>>,
+    alternates: std::collections::BTreeSet<usize>,
+    sky: usize,
+    generation: Arc<()>,
     landmarks: BTreeMap<u16, Position>,
     animation: Option<MountAnimation>,
     effects: effects::Effects,
@@ -61,7 +82,7 @@ struct MountAnimation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Model {
     Sky(usize),
-    Tile(usize),
+    Tile(usize, bool),
     Actor(u16),
     Marker(u8),
     Cinematic(u8),
@@ -70,11 +91,24 @@ impl Scene {
     pub fn new(session: game::Session, package: Arc<game::Prepared>) -> Result<Self> {
         let persistent = session.events.persistent_state()?;
         let world = session.travel.state().world;
-        let mut models: BTreeMap<_, _> = package
+        let selected: BTreeMap<_, _> = package
             .terrain(world, &persistent)?
             .into_iter()
-            .map(|(tile, resources)| (Model::Tile(tile.index()), resources.parts.clone()))
+            .map(|(tile, resources)| (tile.index(), resources))
             .collect();
+        let mut alternates = std::collections::BTreeSet::new();
+        let mut models = BTreeMap::new();
+        for tile in &package.definition.worlds[world.index()] {
+            let index =
+                resonance_content::overworld::TileCoordinate::new(tile.column, tile.row)?.index();
+            models.insert(Model::Tile(index, false), tile.base.parts.clone());
+            if let Some(alternate) = &tile.alternate {
+                if std::ptr::eq(selected[&index], alternate) {
+                    alternates.insert(index);
+                }
+                models.insert(Model::Tile(index, true), alternate.parts.clone());
+            }
+        }
         models.extend(
             package
                 .definition
@@ -99,10 +133,9 @@ impl Scene {
         }
         let story = persistent.memory.read(0x40, symphonia_script::Width::S32)?;
         let sky = usize::from(story >= 22_605_000);
-        models.insert(
-            Model::Sky(sky),
-            package.definition.visuals.skies[sky].clone(),
-        );
+        for (variant, parts) in package.definition.visuals.skies.iter().enumerate() {
+            models.insert(Model::Sky(variant), parts.clone());
+        }
         let terrain = package.assets(world, &persistent)?.terrain.clone();
         let mut landmarks = BTreeMap::new();
         for landmark in &package.definition.landmarks.worlds[world.index()] {
@@ -122,6 +155,9 @@ impl Scene {
             session,
             package,
             models,
+            alternates,
+            sky,
+            generation: Arc::new(()),
             landmarks,
             animation: None,
             effects: Default::default(),
@@ -192,7 +228,9 @@ pub(super) fn destination(
 pub(super) struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
+        warm::install(app);
         app.init_resource::<Controls>()
+            .init_resource::<Retained>()
             .add_systems(PreUpdate, controls.after(bevy::input::InputSystems))
             .add_systems(
                 FixedUpdate,
@@ -284,7 +322,7 @@ fn advance(
     mut controls: ResMut<Controls>,
     mut menu_controls: ResMut<super::field_view::Controls>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
-    mut exit: crate::diagnostics::Fatal,
+    mut exit: Failures,
 ) {
     let mut input = controls.0;
     if owner.as_ref().is_some_and(|s| s.overworld().is_some()) {
@@ -315,11 +353,16 @@ fn advance(
     }
 }
 
+// Two fixed graphics owners, independent of live travel and field history.
+#[derive(Resource, Default)]
+struct Retained([Option<Art>; 2]);
+
 #[derive(Resource)]
 struct Art {
     package: Arc<game::Prepared>,
     world: game::World,
     cinematic: Option<u16>,
+    generation: Arc<()>,
     models: BTreeMap<Model, Vec<Part>>,
     loads: super::loading::LoadTasks,
     ready: bool,
@@ -329,7 +372,10 @@ struct Art {
     since: std::time::Instant,
     ui: Option<super::field_ui::WorldArtwork>,
     particles: particles::Artwork,
+    retired: Vec<(Entity, Instance)>,
 }
+#[derive(Component)]
+pub(super) struct WorldRoot;
 #[derive(Component)]
 struct Instance {
     model: Model,
@@ -339,7 +385,6 @@ struct Instance {
     flight: Option<usize>,
     wake: Option<usize>,
     barrier: Option<usize>,
-    instantiated: bool,
     prepared: bool,
     materials: Vec<Handle<TitleSurface>>,
     draws: Vec<(Entity, usize)>,
@@ -360,39 +405,89 @@ fn retire(world: &mut World) {
     let Some(art) = world.get_resource::<Art>() else {
         return;
     };
-    if current.is_some_and(|s| {
-        Arc::ptr_eq(&s.package, &art.package)
-            && s.session.travel.state().world == art.world
-            && s.session.cinematic.as_ref().map(|c| c.id) == art.cinematic
-    }) {
+    if current.is_some_and(|scene| Arc::ptr_eq(&scene.generation, &art.generation)) {
         return;
     }
+    let mut art = world.remove_resource::<Art>().unwrap();
+    if let Some(ui) = art.ui.take() {
+        ui.despawn(world);
+    }
+    let common = world
+        .resource::<super::loading::Resident>()
+        .common
+        .get()
+        .and_then(|common| common.world.as_ref());
+    let retain = art.ready
+        && art.spawned
+        && art.cinematic.is_none()
+        && common.is_some_and(|common| Arc::ptr_eq(&common.world, &art.package))
+        && world.query::<&Instance>().iter(world).all(|i| i.prepared);
     let entities: Vec<_> = world
         .query_filtered::<Entity, With<Instance>>()
         .iter(world)
         .collect();
-    for entity in entities {
-        world.despawn(entity);
-    }
-    if let Some(art) = world.remove_resource::<Art>() {
-        art.particles.despawn(world);
-        if let Some(ui) = art.ui {
-            ui.despawn(world);
+    if retain {
+        for entity in entities {
+            let mut root = world.entity_mut(entity);
+            let mut instance = root.take::<Instance>().unwrap();
+            instance.clip = None;
+            root.insert(Visibility::Hidden);
+            art.retired.push((entity, instance));
         }
+        art.particles.hide(world);
+        let index = art.world.index();
+        let previous = world.resource_mut::<Retained>().0[index].replace(art);
+        if let Some(previous) = previous {
+            discard(previous, world);
+        }
+    } else {
+        for entity in entities {
+            world.despawn(entity);
+        }
+        art.particles.despawn(world);
     }
 }
-fn load(mut commands: Commands, owner: State, art: Option<Res<Art>>, server: Res<AssetServer>) {
+fn discard(art: Art, world: &mut World) {
+    for (entity, _) in art.retired {
+        world.despawn(entity);
+    }
+    art.particles.despawn(world);
+}
+fn load(
+    mut commands: Commands,
+    owner: State,
+    art: Option<Res<Art>>,
+    mut retained: ResMut<Retained>,
+    server: Res<AssetServer>,
+) {
     let Some(scene) = owner.get() else {
         return;
     };
     if art.is_some() {
         return;
     }
+    let world = scene.session.travel.state().world;
+    if scene.session.cinematic.is_none()
+        && let Some(mut cached) = retained.0[world.index()].take()
+    {
+        // Both terrain appearances and skies belong to this immutable package;
+        // fresh travel selects their visibility without rebuilding the graph.
+        if Arc::ptr_eq(&scene.package, &cached.package) {
+            cached.generation = scene.generation.clone();
+            for (entity, instance) in cached.retired.drain(..) {
+                commands.entity(entity).insert(instance);
+            }
+            commands.insert_resource(cached);
+            return;
+        }
+        commands.queue(move |world: &mut World| discard(cached, world));
+    }
     let loads = super::loading::LoadTasks::default();
     commands.insert_resource(Art {
         package: scene.package.clone(),
         world: scene.session.travel.state().world,
         cinematic: scene.session.cinematic.as_ref().map(|c| c.id),
+        generation: scene.generation.clone(),
         models: scene
             .models
             .iter()
@@ -406,6 +501,7 @@ fn load(mut commands: Commands, owner: State, art: Option<Res<Art>>, server: Res
                 )
             })
             .collect(),
+        retired: Vec::new(),
         particles: particles::Artwork::load(
             &scene.package.definition.visuals.dust,
             &server,
@@ -422,11 +518,8 @@ fn load(mut commands: Commands, owner: State, art: Option<Res<Art>>, server: Res
 }
 fn prepare(
     mut art: Option<ResMut<Art>>,
-    server: Res<AssetServer>,
-    gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    clips: Res<Assets<sparse_animation::Clip>>,
-    images: Res<Assets<Image>>,
-    mut exit: crate::diagnostics::Fatal,
+    mut assets: super::model_asset::ModelAssets,
+    mut exit: Failures,
 ) {
     let Some(art) = art.as_mut() else {
         return;
@@ -435,12 +528,12 @@ fn prepare(
         return;
     }
     let result = (|| -> Result<()> {
-        let mut ready = art.loads.complete() && art.particles.ready(&images);
+        let mut ready = art.loads.complete() && art.particles.ready(&assets.images);
         for part in art.models.values_mut().flatten() {
-            if let Some(error) = part.load_error(&server) {
+            if let Some(error) = part.load_error(&assets.server) {
                 anyhow::bail!("{error}");
             }
-            ready &= part.resolve(&server, &gltfs, &clips, &images)?;
+            ready &= part.resolve(&mut assets)?;
         }
         art.ready = ready;
         anyhow::ensure!(
@@ -457,14 +550,15 @@ fn prepare(
 fn instances(
     mut commands: Commands,
     owner: State,
+    warming: Option<Res<warm::Draws>>,
     mut art: Option<ResMut<Art>>,
     mut images: ResMut<Assets<Image>>,
-    mut sampled: ResMut<super::scene::SampledImages>,
     mut materials: ResMut<Assets<TitleSurface>>,
     server: Res<AssetServer>,
+    ui_resident: Res<super::field_ui::Resident>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
-    mut exit: crate::diagnostics::Fatal,
+    mut exit: Failures,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -472,7 +566,9 @@ fn instances(
     let Some(art) = art.as_mut().filter(|a| a.ready) else {
         return;
     };
-    if art.ui.is_none() {
+    // Shared UI has its own startup preparation. World warmup only needs models;
+    // optional map artwork remains validated when the live world uses it.
+    if art.ui.is_none() && warming.is_none() {
         match super::field_ui::WorldArtwork::load(
             &scene.package.files,
             scene
@@ -486,6 +582,7 @@ fn instances(
             &mut meshes,
             &mut ui_materials,
             &mut images,
+            &ui_resident,
         ) {
             Ok(ui) => art.ui = Some(ui),
             Err(error) => {
@@ -500,7 +597,7 @@ fn instances(
         };
         for (index, part) in parts.iter().enumerate() {
             let surfaces = part
-                .surfaces(&mut images, &mut sampled)
+                .surfaces()
                 .into_iter()
                 .map(|mut s| {
                     s.field_fog = false;
@@ -532,9 +629,9 @@ fn instances(
                     materials.add(s)
                 })
                 .collect();
-            commands
+            let root = commands
                 .spawn((
-                    WorldAssetRoot(part.scene.clone()),
+                    WorldRoot,
                     Transform::default(),
                     Visibility::Hidden,
                     Instance {
@@ -545,7 +642,6 @@ fn instances(
                         flight,
                         wake,
                         barrier,
-                        instantiated: false,
                         prepared: false,
                         materials: surfaces,
                         draws: Vec::new(),
@@ -553,19 +649,13 @@ fn instances(
                         clip: None,
                     },
                 ))
-                .observe(
-                    |event: On<WorldInstanceReady>, mut roots: Query<&mut Instance>| {
-                        if let Ok(mut instance) = roots.get_mut(event.entity) {
-                            instance.instantiated = true;
-                            instance.prepared = false;
-                        }
-                    },
-                );
+                .id();
+            crate::model_asset::instantiate(&mut commands, root, part.scene.clone());
         }
     };
     if !art.spawned {
         for &model in art.models.keys() {
-            if matches!(model, Model::Sky(_) | Model::Tile(_) | Model::Cinematic(_) | Model::Actor(1..=9 | 201..=202 | 204..=212 | 214))
+            if matches!(model, Model::Sky(_) | Model::Tile(..) | Model::Cinematic(_) | Model::Actor(1..=9 | 201..=202 | 204..=212 | 214))
             {
                 spawn(model, None, None, None, None, None);
             }
@@ -622,20 +712,29 @@ fn bind(
     mut commands: Commands,
     owner: State,
     art: Option<Res<Art>>,
-    mut roots: Query<(Entity, &mut Instance)>,
-    children: Query<&Children>,
-    nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
-    meshes: Query<&super::materials::MaterialSlot>,
+    mut roots: Query<(Entity, &mut Instance, Option<&crate::model_asset::Instance>)>,
     resident: Res<super::loading::Resident>,
-    mut exit: crate::diagnostics::Fatal,
+    mut exit: Failures,
     images: Res<Assets<Image>>,
+    server: Res<AssetServer>,
 ) {
     let Some(art) = art.filter(|a| a.ready && a.spawned) else {
         return;
     };
-    let mut ready = art.ui.as_ref().is_some_and(|ui| ui.ready(&images));
-    for (root, mut instance) in &mut roots {
-        if !instance.instantiated {
+    let mut ready = match art
+        .ui
+        .as_ref()
+        .map(|ui| ui.ready(&images, &server))
+        .transpose()
+    {
+        Ok(ready) => ready.unwrap_or(false),
+        Err(error) => {
+            exit.fail("World interface failed", error);
+            return;
+        }
+    };
+    for (_root, mut instance, model) in &mut roots {
+        if model.is_none() {
             // Cosmetic impacts may grow their draw pool while travel continues.
             if instance.barrier.is_none() {
                 ready = false;
@@ -647,16 +746,12 @@ fn bind(
         }
         let result = (|| -> Result<()> {
             let part = &art.models[&instance.model][instance.part];
-            instance.binding = sparse_animation::Binding::new(
-                root,
-                part.spec.bone_names.len(),
-                &children,
-                &nodes,
-            )?;
+            let model = model.context("world model instance missing")?;
+            instance.binding = model.binding(part.spec.bone_names.len())?;
             instance.draws.clear();
-            for entity in children.iter_descendants(root) {
-                if let Ok(slot) = meshes.get(entity) {
-                    let slot = slot.index(instance.materials.len())?;
+            for (entity, draw) in model.draws() {
+                {
+                    let slot = draw.slot.index(instance.materials.len())?;
                     if matches!(instance.model, Model::Actor(1..=9 | 204..=212)) {
                         instance.draws.push((entity, slot));
                     }
@@ -684,8 +779,8 @@ fn bind(
                                             | effects::BARRIER_MODEL
                                             | effects::PORTAL_MODEL,
                                         ) => 4 << 20,
-                                        Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
-                                        Model::Tile(_) => 1 << 20,
+                                        Model::Tile(..) if part.spec.resource == 2 => 3 << 20,
+                                        Model::Tile(..) => 1 << 20,
                                         _ => 2 << 20,
                                     },
                             ),
@@ -696,7 +791,7 @@ fn bind(
                     commands
                         .entity(entity)
                         .insert((MeshMaterial3d(instance.materials[slot].clone()), order));
-                    if let Model::Tile(tile) = instance.model {
+                    if let Model::Tile(tile, _) = instance.model {
                         let material = part.spec.materials[slot].draw_order;
                         anyhow::ensure!(material < 4096, "world tile draw order exceeds its span");
                         commands.entity(entity).insert(TerrainDraw {
@@ -739,7 +834,7 @@ fn terrain_order(
         .models
         .keys()
         .filter_map(|model| match model {
-            Model::Tile(index) => {
+            Model::Tile(index, false) => {
                 let center = Position::from_map([
                     (index % 12) as f32 * TILE_SIZE + TILE_SIZE / 2.,
                     (index / 12) as f32 * TILE_SIZE + TILE_SIZE / 2.,
@@ -935,14 +1030,16 @@ fn pose(
             }
         } else {
             match instance.model {
-                Model::Sky(_) => {
-                    visible = cinema.is_none_or(|c| !matches!(c.id, 521 | 526));
+                Model::Sky(variant) => {
+                    visible =
+                        variant == scene.sky && cinema.is_none_or(|c| !matches!(c.id, 521 | 526));
                     cinema.map_or_else(
                         || Position::from_map([origin.map()[0], origin.map()[1], -100.]).unwrap(),
                         cinematic::sky_position,
                     )
                 }
-                Model::Tile(index) => {
+                Model::Tile(index, alternate) => {
+                    visible = scene.alternates.contains(&index) == alternate;
                     if part.spec.autoplay {
                         slot = Some(0);
                     }
@@ -1114,7 +1211,7 @@ fn pose(
                     })
                 });
                 offset = Vec4::new(uv[0].x, uv[0].y, uv[1].x, uv[1].y);
-            } else if matches!(instance.model, Model::Tile(_)) {
+            } else if matches!(instance.model, Model::Tile(..)) {
                 let uv = [&binding.color, &binding.multiply].map(|binding| {
                     binding
                         .as_ref()
@@ -1247,7 +1344,7 @@ fn animate(
     roots: Query<&Instance>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<sparse_animation::affine::Locals>,
-    mut exit: crate::diagnostics::Fatal,
+    mut exit: Failures,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -1331,12 +1428,13 @@ fn animate(
 }
 fn camera(
     owner: State,
+    warming: Option<Res<warm::Draws>>,
     display: Res<super::display::Display>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
     mut clear: ResMut<ClearColor>,
 ) {
-    let Some(scene) = owner.get() else {
+    let Some(scene) = owner.get().filter(|_| warming.is_none()) else {
         return;
     };
     clear.0 = Color::linear_rgb(60. / 255., 130. / 255., 30. / 255.);
@@ -1414,22 +1512,29 @@ fn camera(
 fn ui(
     mut commands: Commands,
     owner: State,
+    warming: Option<Res<warm::Draws>>,
     mut art: Option<ResMut<Art>>,
     display: Res<super::display::Display>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
+    server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
-    mut exit: crate::diagnostics::Fatal,
+    mut exit: Failures,
     prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
-    let Some(scene) = owner.get() else {
+    let Some(scene) = owner.get().filter(|_| warming.is_none()) else {
         return;
     };
     let Some(ui) = art.as_mut().and_then(|a| a.ui.as_mut()) else {
         return;
     };
-    if !ui.ready(&images) {
-        return;
+    match ui.ready(&images, &server) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            exit.fail("World interface failed", error);
+            return;
+        }
     }
     ui.set_prompt_device(prompt_device.device());
     if let Err(error) = ui.render(
@@ -1454,6 +1559,25 @@ pub(super) fn ready(world: &mut World) -> bool {
             .active
             .load(Ordering::Acquire)
         && world.query::<&Instance>().iter(world).all(|p| p.prepared)
+}
+
+#[cfg(test)]
+pub(crate) fn residency_roots(world: &mut World) -> std::collections::BTreeSet<Entity> {
+    let retained = world.resource::<Retained>();
+    for art in retained.0.iter().flatten() {
+        for (entity, instance) in &art.retired {
+            assert!(world.get::<Instance>(*entity).is_none());
+            assert_eq!(world.get::<Visibility>(*entity), Some(&Visibility::Hidden));
+            assert!(
+                instance.clip.is_none(),
+                "retired world retained animation playback"
+            );
+        }
+    }
+    world
+        .query_filtered::<Entity, With<Instance>>()
+        .iter(world)
+        .collect()
 }
 
 #[cfg(test)]

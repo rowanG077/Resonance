@@ -3,12 +3,17 @@ use resonance_content::battle_effect::*;
 
 #[derive(Debug, Clone, Default)]
 pub struct EffectDefinition {
-    pub events: Vec<ScheduledEvent>,
+    pub events: Arc<Vec<ScheduledEvent>>,
     pub particles: BTreeMap<u8, Arc<crate::ParticleDefinition>>,
-    pub sounds: BTreeMap<u16, crate::Sound>,
 }
 impl EffectDefinition {
-    pub(crate) fn validate(&self, models: &BTreeMap<u8, crate::PreparedEffectModel>) -> Result<()> {
+    /// Timelines are shared between banks; each bank binds its own cues.
+    /// An unbound cue never runs, so it takes no part in the schedule order.
+    pub(crate) fn validate<'a>(
+        &self,
+        models: &mut impl FnMut(u8) -> Option<&'a crate::PreparedEffectModel>,
+        bound: &impl Fn(u16) -> bool,
+    ) -> Result<()> {
         for (&member, definition) in &self.particles {
             definition
                 .validate()
@@ -22,15 +27,15 @@ impl EffectDefinition {
         let mut spawned = Vec::new();
         let mut model_births = Vec::new();
         let mut model_selections = Vec::new();
-        for event in &self.events {
+        for event in self.events.iter() {
+            if matches!(event.operation, EffectOperation::Sound { id, .. } if !bound(id)) {
+                continue;
+            }
             ensure!(event.at >= previous, "effect schedule is out of order");
             previous = event.at;
             match &event.operation {
                 EffectOperation::Unsupported { reason } => anyhow::bail!("{reason}"),
-                EffectOperation::Sound { id, .. } => ensure!(
-                    *id == 0 || self.sounds.contains_key(id),
-                    "unbound effect sound"
-                ),
+                EffectOperation::Sound { .. } => {}
                 EffectOperation::Shake { .. } => {}
                 EffectOperation::StageTint { duration, .. } => {
                     ensure!(*duration > 0, "zero stage tint duration")
@@ -58,8 +63,7 @@ impl EffectDefinition {
                             model_selections.get(*spawn) == Some(&Some((true, animation.model))),
                             "delayed animation requires the selected program-owned model"
                         );
-                        models
-                            .get(&animation.model)
+                        models(animation.model)
                             .context("unprepared animated model")?
                             .validate_clip(animation.clip)?;
                     }
@@ -278,7 +282,9 @@ impl EffectDefinition {
                                     animation.model == slot,
                                     "model animation selects a different model"
                                 );
-                                models[&slot].validate_clip(animation.clip)?;
+                                models(slot)
+                                    .context("unprepared animated model")?
+                                    .validate_clip(animation.clip)?;
                             }
                         }
                     }
@@ -288,18 +294,14 @@ impl EffectDefinition {
         Ok(())
     }
 }
-fn validate_model(
-    models: &BTreeMap<u8, crate::PreparedEffectModel>,
+fn validate_model<'a>(
+    models: &mut impl FnMut(u8) -> Option<&'a crate::PreparedEffectModel>,
     binding: ModelBinding,
     slot: u8,
 ) -> Result<()> {
-    models
-        .get(&slot)
-        .with_context(|| format!("unprepared effect model {slot}"))?;
+    models(slot).with_context(|| format!("unprepared effect model {slot}"))?;
     if let Some(clip) = binding.animation {
-        let source = models
-            .get(&binding.slot)
-            .context("unprepared declaration model")?;
+        let source = models(binding.slot).context("unprepared declaration model")?;
         source.validate_clip(clip)?;
     }
     Ok(())
@@ -314,6 +316,11 @@ impl Active {
         cues: &mut Vec<Cue>,
     ) -> Result<bool> {
         while let Some(event) = self.definition.events.get(self.next) {
+            // Muted cues are omitted without extending the emitter's lifetime.
+            if effects.banks[&self.appearance.resource].muted(&event.operation) {
+                self.next += 1;
+                continue;
+            }
             if event.at > self.age {
                 break;
             }
@@ -357,10 +364,10 @@ impl Active {
                 }));
             }
             EffectOperation::Sound { id, priority } => {
-                if *id != 0 {
+                if let Some(sound) = effects.banks[&self.appearance.resource].sound(*id) {
                     cues.push(Cue::Sound {
                         actor: self.actor,
-                        sound: effect.sounds[id],
+                        sound,
                         position: self.origin,
                         priority: *priority,
                     });
@@ -488,6 +495,7 @@ impl Active {
                     self.samples[first_draw..].copy_from_slice(&recorded.samples);
                 }
                 let handle = effects.spawn_particle(
+                    self.appearance.resource,
                     definition.clone(),
                     self.actor,
                     self.target,

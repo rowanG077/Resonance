@@ -1,6 +1,6 @@
 //! Prepared, animated catalogue models. Loading belongs to the paused menu.
-pub(super) mod gpu;
-mod material;
+use crate::gpu_prepare as gpu;
+pub(super) mod material;
 mod motion;
 mod source;
 use anyhow::{Context as ContextExt, Result, ensure};
@@ -19,7 +19,6 @@ use bevy::{
         sync_world::MainEntity,
     },
     sprite_render::Material2dPlugin,
-    world_serialization::WorldInstanceReady,
 };
 use material::{Composite, Surface};
 use resonance_content::model_preview::{ModelPreview, PreviewPart};
@@ -100,8 +99,6 @@ pub(super) fn synchronize_capture(app: &mut App) -> Result<()> {
     Ok(())
 }
 
-#[derive(Component)]
-struct Instantiated;
 struct Part {
     spec: PreviewPart,
     gltf: Handle<Gltf>,
@@ -162,6 +159,7 @@ struct AssetsForPreview<'w> {
     composites: ResMut<'w, Assets<Composite>>,
     clips: Res<'w, Assets<crate::sparse_animation::Clip>>,
     gltfs: Res<'w, Assets<Gltf>>,
+    scenes: Res<'w, Assets<WorldAsset>>,
 }
 #[derive(SystemParam)]
 struct PreviewContext<'w> {
@@ -174,10 +172,7 @@ struct PreviewContext<'w> {
 struct PreviewEntities<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     nodes: Query<'w, 's, (&'static Name, &'static Transform, &'static ChildOf)>,
-    pose_nodes: Query<'w, 's, (&'static Transform, &'static bevy::gltf::GltfExtras)>,
-    meshes: Query<'w, 's, (), With<Mesh3d>>,
-    slots: Query<'w, 's, &'static crate::materials::MaterialSlot>,
-    instantiated: Query<'w, 's, (), With<Instantiated>>,
+    instances: Query<'w, 's, &'static crate::model_asset::Instance>,
 }
 
 fn setup(
@@ -186,6 +181,7 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut composites: ResMut<Assets<Composite>>,
+    sampled: Res<crate::scene::SampledImages>,
 ) {
     let size = display.map_or_else(crate::Resolution::default, |d| d.0);
     let mut target = Image::new_target_texture(
@@ -239,7 +235,7 @@ fn setup(
         job: None,
         parts: Vec::new(),
         retired: Vec::new(),
-        sampled: Default::default(),
+        sampled: sampled.clone(),
         started: Instant::now(),
         status: PreviewStatus::Loading,
         behaviors: PreparationCache::default(),
@@ -449,7 +445,7 @@ fn prepare(
                 part.instantiate(&mut commands, &mut assets, &record, &mut sampled)?;
             }
             let root = part.root.unwrap();
-            if part.ready || !entities.instantiated.contains(root) {
+            if part.ready || !entities.instances.contains(root) {
                 continue;
             }
             part.bind(root, &mut commands, &entities, &record, shared)?;
@@ -539,6 +535,15 @@ impl Part {
     ) -> Result<()> {
         let gltf = assets.gltfs.get(&self.gltf).unwrap();
         let scene = &self.spec.scene;
+        let handle = gltf.scenes.first().context("preview has no scene")?;
+        crate::model_asset::prepared(
+            assets
+                .scenes
+                .get(handle)
+                .context("loaded preview scene missing")?,
+        )?
+        .check_bones(scene.bone_names.len())?;
+
         ensure!(
             gltf.meshes.len() == scene.materials.len(),
             "preview material count differs from its recipe"
@@ -599,19 +604,15 @@ impl Part {
         if let Some((index, _)) = self.spec.selected_clip()? {
             self.clip = Some(index);
         }
-        self.root = Some(
-            commands
-                .spawn((
-                    WorldAssetRoot(gltf.scenes.first().context("preview has no scene")?.clone()),
-                    Visibility::Hidden,
-                    RenderLayers::layer(LAYER),
-                    Transform::default(),
-                ))
-                .observe(|event: On<WorldInstanceReady>, mut commands: Commands| {
-                    commands.entity(event.entity).insert(Instantiated);
-                })
-                .id(),
-        );
+        let root = commands
+            .spawn((
+                Visibility::Hidden,
+                RenderLayers::layer(LAYER),
+                Transform::default(),
+            ))
+            .id();
+        crate::model_asset::instantiate(commands, root, handle.clone());
+        self.root = Some(root);
         Ok(())
     }
 
@@ -624,33 +625,24 @@ impl Part {
         shared: &gpu::Shared,
     ) -> Result<()> {
         let scene = &self.spec.scene;
-        let names = crate::field_pose::named_bones(
-            root,
-            &entities.children,
-            &entities.nodes,
-            &entities.meshes,
-        );
+        let instance = entities.instances.get(root)?;
+        let names = instance.named_bones();
         if !scene.secondary_motion.is_empty() {
             let rig = crate::secondary_motion::Rig::new(root, scene, &names)
                 .context("preview secondary-motion rig is incomplete")?;
             commands.entity(root).insert(rig);
         }
-        self.binding = crate::sparse_animation::Binding::new(
-            root,
-            scene.bone_names.len(),
-            &entities.children,
-            &entities.pose_nodes,
-        )?;
+        self.binding = instance.binding(scene.bone_names.len())?;
         self.bones = names
             .into_iter()
             .map(|(name, (entity, _, _))| (name, entity))
             .collect();
-        for entity in entities.children.iter_descendants(root) {
+        for (node, &entity) in instance.data.nodes.iter().zip(&instance.nodes) {
             commands
                 .entity(entity)
                 .insert((RenderLayers::layer(LAYER), NoFrustumCulling));
-            if let Ok(slot) = entities.slots.get(entity) {
-                let i = slot.index(self.materials.len())?;
+            if let Some(draw) = &node.draw {
+                let i = draw.slot.index(self.materials.len())?;
                 let hidden = self.spec.attached_to.is_none()
                     && scene.material_nodes.get(i).is_some_and(|indices| {
                         indices.iter().any(|&n| {
@@ -953,6 +945,7 @@ mod tests {
             world.init_resource::<Assets<Image>>();
             world.init_resource::<Assets<Mesh>>();
             world.init_resource::<Assets<Composite>>();
+            world.init_resource::<crate::scene::SampledImages>();
             world.init_resource::<Messages<AppExit>>();
             world.init_resource::<gpu::Shared>();
             let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);

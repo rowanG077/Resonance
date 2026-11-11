@@ -5,6 +5,8 @@ use anyhow::{Context, Result, ensure};
 use resonance_battle::{Actor, ModelDefinition, Playback, ReactionMotions, Side};
 use resonance_content::{animation::Motion, battle_model, prepared::Files};
 use std::{collections::BTreeMap, sync::Arc};
+mod effects;
+pub(crate) use effects::{EffectCache, EffectModels};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSource {
@@ -100,15 +102,13 @@ pub(super) fn motions(
     files: &Files,
     scene: &resonance_content::ScenePart,
     skeleton: &resonance_content::animation::Skeleton,
-) -> Result<BTreeMap<u16, Motion>> {
+) -> Result<BTreeMap<u16, Arc<Motion>>> {
     skeleton.validate()?;
     let mut motions = BTreeMap::new();
-    for clip in &scene.clips {
-        let decoded = (|| -> Result<Motion> {
-            let motion = clip.decode_for_skeleton(&files.read(&clip.motion)?, skeleton)?;
-            motion.validate(skeleton)?;
-            Ok(motion)
-        })();
+    for (index, clip) in scene.clips.iter().enumerate() {
+        let decoded = files
+            .read(&clip.motion)
+            .and_then(|bytes| scene.motion_for_skeleton(index, &bytes, skeleton));
         if let Some(motion) = files.diagnostics().attempt(
             "battle motion",
             decoded.with_context(|| format!("clip {} ({})", clip.resource_slot, clip.motion)),
@@ -128,7 +128,7 @@ pub(super) fn body(
     rig: &battle_model::Rig,
     scene: &resonance_content::ScenePart,
     profile: &resonance_content::battle_profile::Profile,
-    motions: BTreeMap<u16, Motion>,
+    motions: BTreeMap<u16, Arc<Motion>>,
     actor: &Actor,
     setup: ModelSetup,
 ) -> Result<Arc<ModelDefinition>> {
@@ -303,22 +303,32 @@ pub fn effect(
     resource: resonance_battle::ResourceId,
     animate_layers: bool,
 ) -> Result<resonance_battle::PreparedEffectModel> {
+    effect_from(part, resource, animate_layers, |path| files.read(path))
+}
+
+fn effect_from(
+    part: &resonance_content::battle_model::ModelPart,
+    resource: resonance_battle::ResourceId,
+    animate_layers: bool,
+    mut read: impl FnMut(&str) -> Result<Arc<[u8]>>,
+) -> Result<resonance_battle::PreparedEffectModel> {
     let primary = &part
         .layers
         .first()
         .context("missing effect model layer")?
         .scene;
     let prepare = |layer: &resonance_content::model_preview::PreviewPart,
-                   skeleton: &resonance_content::animation::Skeleton|
+                   skeleton: &resonance_content::animation::Skeleton,
+                   read: &mut dyn FnMut(&str) -> Result<Arc<[u8]>>|
      -> Result<_> {
         let scene = &layer.scene;
         let mut motions = BTreeMap::new();
-        for clip in &scene.clips {
+        for (index, clip) in scene.clips.iter().enumerate() {
             ensure!(
                 motions
                     .insert(
                         clip.resource_slot,
-                        clip.decode_for_skeleton(&files.read(&clip.motion)?, skeleton)?
+                        scene.motion_for_skeleton(index, &read(&clip.motion)?, skeleton)?
                     )
                     .is_none(),
                 "duplicate effect motion slot"
@@ -347,8 +357,7 @@ pub fn effect(
     for layer in &part.layers {
         let declared = part.layer_skeletons.get(&layer.scene.resource);
         let expected = declared.unwrap_or(&part.rig.skeleton);
-        let skeleton =
-            resonance_content::animation::Skeleton::from_glb(&files.read(&layer.scene.mesh)?)?;
+        let skeleton = resonance_content::animation::Skeleton::from_glb(&read(&layer.scene.mesh)?)?;
         ensure!(
             skeleton
                 .bones
@@ -363,7 +372,7 @@ pub fn effect(
                 layer.attached_to.is_none(),
                 "independent effect layer has an attachment"
             );
-            independent.push(prepare(layer, expected)?);
+            independent.push(prepare(layer, expected, &mut read)?);
         } else {
             // Shared layers consume the primary indexed pose. Their GLBs can
             // differ because body and outline rigs use different joint names;
@@ -382,7 +391,7 @@ pub fn effect(
             );
         }
     }
-    prepare(&part.layers[0], &part.rig.skeleton)?.with_layers(independent)
+    prepare(&part.layers[0], &part.rig.skeleton, &mut read)?.with_layers(independent)
 }
 
 /// Effect layers consume indexed poses. Labels may differ between the body and
