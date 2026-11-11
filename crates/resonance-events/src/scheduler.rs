@@ -802,6 +802,9 @@ impl EventRuntime {
         self.world.battle_request = None;
         self.world.movie = None;
         self.world.voice = None;
+        if let Some(scene) = &mut self.world.skit {
+            scene.media = None;
+        }
         self.world.rumble = None;
         if let Some(camera) = &mut self.world.field_camera {
             camera.shake = Default::default();
@@ -883,12 +886,15 @@ impl EventRuntime {
             self.world.rumble = None;
         }
         if let Some(scene) = &mut self.world.skit {
-            scene.step(
+            if let Some(command) = scene.step(
                 self.resources
                     .skits
                     .as_ref()
                     .context("skit catalog missing")?,
-            )?;
+                self.world.tick,
+            )? {
+                self.world.audio_commands.push(command);
+            }
         }
         for dialogue in self.world.dialogue.values_mut() {
             if let Some(id) = dialogue.opening_actor

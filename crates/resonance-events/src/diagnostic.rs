@@ -54,6 +54,7 @@ pub enum WaitObservation {
     },
     Voice,
     SkitMedia {
+        ready: bool,
         id: Option<u32>,
         position: Option<u32>,
     },
@@ -143,7 +144,12 @@ pub(crate) fn wait(wait: &Wait, world: &GameWorld) -> WaitObservation {
             ready_at: *ready_at,
         },
         Wait::Voice => O::Voice,
-        Wait::SkitMedia { id, position } => O::SkitMedia {
+        Wait::SkitMedia {
+            ready,
+            id,
+            position,
+        } => O::SkitMedia {
+            ready: *ready,
             id: *id,
             position: *position,
         },

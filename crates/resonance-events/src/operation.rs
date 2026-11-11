@@ -109,6 +109,7 @@ pub(crate) enum Wait {
     },
     Voice,
     SkitMedia {
+        ready: bool,
         id: Option<u32>,
         position: Option<u32>,
     },
@@ -175,17 +176,24 @@ impl Wait {
                 return Ok(false);
             }
             Self::ControlReleased => return Ok(true),
-            Self::SkitMedia { id, position } => {
+            Self::SkitMedia {
+                ready,
+                id,
+                position,
+            } => {
                 let scene = world
                     .skit
                     .as_ref()
                     .ok_or("skit media wait outside a skit")?;
-                return Ok(if let Some(id) = id {
+                return Ok(if *ready {
+                    scene.media.as_ref().is_none_or(|m| m.ready(world.tick))
+                } else if let Some(id) = id {
                     scene.media.as_ref().is_some_and(|m| m.id == *id)
                 } else {
                     scene.media.as_ref().is_none_or(|m| {
                         m.finished(world.tick)
-                            || position.is_some_and(|p| m.position(world.tick) >= p)
+                            || m.ready(world.tick)
+                                && position.is_some_and(|p| m.position(world.tick) >= p)
                     })
                 });
             }
