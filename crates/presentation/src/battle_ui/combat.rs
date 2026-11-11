@@ -649,7 +649,6 @@ mod tests {
                 .all(|b| b.indices.is_empty())
         );
 
-        hud.notice_request(ActorId::from_index(0)?, "Magic Lens", 90, &frame)?;
         frame.cues.push(Cue::EnemyScanned {
             actor: ActorId::from_index(1)?,
         });
@@ -660,12 +659,17 @@ mod tests {
         }
         let mut scanned = hud.scan_batches(&frame)?;
         assert!(scanned[..2].iter().all(|b| !b.indices.is_empty()));
+        hud.notice_request(ActorId::from_index(0)?, "Fire Ball", 90, &frame)?;
+        hud.notice_request(ActorId::from_index(1)?, "Poisonous Pollen", 12, &frame)?;
+        hud.advance(&frame, false)?;
+        let active_notices = hud.draw_notices(&frame, party)?;
+        assert!(active_notices.iter().any(|b| !b.indices.is_empty()));
+        let scan = hud.scan.take();
         assert!(
-            hud.draw_notices(&frame, party)?
-                .iter()
-                .all(|b| b.indices.is_empty()),
-            "scan details take precedence over notices"
+            hud.draw_notices(&frame, party)? == active_notices,
+            "party and enemy artes remain visible during a scan"
         );
+        hud.scan = scan;
         for _ in 0..300 {
             hud.advance(&frame, true)?;
         }
