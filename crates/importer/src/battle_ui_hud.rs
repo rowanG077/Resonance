@@ -311,6 +311,7 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
                 array(|axis| half(&module, 0x4280 + index * 4 + axis * 2))
             })?,
             defeated: module.text(4, 0x2c3c)?,
+            escaped: module.text(4, 0x220)?,
             faces: array(|index| {
                 image!(
                     32 + index,

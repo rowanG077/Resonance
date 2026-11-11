@@ -831,9 +831,14 @@ impl Artwork {
     ) -> Result<()> {
         use resonance_game::battle::lifecycle::Request::*;
         match kind {
-            DefeatNotice => self.notices.defeat_age = Some(0),
+            DefeatNotice => {
+                self.notices.outcome = Some((resonance_battle::BattleResult::Defeat, 0))
+            }
+            EscapeNotice => {
+                self.notices.outcome = Some((resonance_battle::BattleResult::Escaped, 0))
+            }
             // Scene transitions and prepared effects own these outcomes.
-            VictoryBanner | EscapeNotice => {}
+            VictoryBanner => {}
             _ => anyhow::bail!("request is not a battle overlay"),
         }
         Ok(())

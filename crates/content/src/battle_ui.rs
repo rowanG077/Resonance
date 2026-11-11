@@ -175,8 +175,15 @@ pub struct NoticeArt {
     #[serde(with = "crate::ui_art::notices")]
     pub icon_origins: [[u16; 2]; 4],
     pub defeated: String,
+    /// Older cooked libraries predate the escape outcome notice.
+    #[serde(default = "escaped_notice")]
+    pub escaped: String,
     #[serde(with = "crate::ui_art::characters")]
     pub faces: [UiTexture; 9],
+}
+
+fn escaped_notice() -> String {
+    "Escaped".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,7 +237,8 @@ impl Art {
         font.validate_text(
             "0123456789 HP TP / CASTING Unknown PARTY ENEMY HITS DAMAGE STUN DEFEATED ESCAPED:",
         )?;
-        font.validate_text(&self.notices.defeated)
+        font.validate_text(&self.notices.defeated)?;
+        font.validate_text(&self.notices.escaped)
     }
 
     pub fn files(&self) -> impl Iterator<Item = &str> {

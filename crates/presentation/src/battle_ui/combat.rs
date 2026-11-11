@@ -741,11 +741,13 @@ mod tests {
                 .iter()
                 .all(|b| b.indices.is_empty())
         );
+        frame.recognized_result = Some(BattleResult::Escaped);
         hud.overlay_request(Request::EscapeNotice)?;
+        hud.notices.advance(&frame, 8);
         assert!(
             hud.draw_notices(&frame, party)?
                 .iter()
-                .all(|batch| batch.indices.is_empty())
+                .any(|batch| !batch.indices.is_empty())
         );
         hud.overlay_request(Request::DefeatNotice)?;
         hud.notices.advance(&frame, 8);
