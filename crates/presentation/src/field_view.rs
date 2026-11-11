@@ -1874,6 +1874,7 @@ fn pose(
             };
         let light = session.character_light(instance.actor);
         let scenery_lighting = lighting::resolve(&art.environment, world, instance.actor);
+        let ambient_modulation = echo_color.is_some() || actor.ambient_modulation_enabled();
         let ambient_color = if let Some(rgba) = echo_color {
             Vec4::new(
                 f32::from(rgba[0]),
@@ -1881,7 +1882,7 @@ fn pose(
                 f32::from(rgba[2]),
                 1.,
             )
-        } else if instance.part == 0 {
+        } else if instance.part == 0 && ambient_modulation {
             Vec3::from_array(actor.tint.map(f32::from)).extend(1.)
         } else {
             Vec4::new(64., 64., 64., 0.)
@@ -2033,6 +2034,7 @@ fn pose(
                     || s.uv_scales != uv_scales
                     || s.tint != tint
                     || s.ambient_color != ambient_color
+                    || s.ambient_modulation != ambient_modulation
                     || s.depth_write != depth_write
                     || s.blend != blend
                     || s.field_light != light_position
@@ -2048,6 +2050,7 @@ fn pose(
                 surface.uv_scales = uv_scales;
                 surface.tint = tint;
                 surface.ambient_color = ambient_color;
+                surface.ambient_modulation = ambient_modulation;
                 surface.depth_write = depth_write;
                 surface.blend = blend;
                 surface.field_light = light_position;

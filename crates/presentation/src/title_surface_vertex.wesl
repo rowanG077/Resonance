@@ -123,6 +123,7 @@ fn vertex(vertex_no_morph: Vertex,
             // cooked toon ramp, with eight-bit rounding before the lookup.
             let illumination = clamp(field_light.w + round(field_light.w * diffuse), 0.0, 255.0);
             let coordinate = floor(field_light.w * (illumination + floor(illumination / 128.0)) / 256.0) / 255.0;
+            // Toon channel lighting stays active when the scripted ambient override is off.
             @if(VERTEX_COLORS)
             if (out.channels & 8u) != 0u {
                 out.color = vec4<f32>(floor(round(vertex.color.rgb * 255.0)
