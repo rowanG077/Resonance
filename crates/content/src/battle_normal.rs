@@ -58,6 +58,10 @@ pub enum Event<H = ActionHit> {
     TraverseTarget {
         duration: u16,
         clearance: f32,
+        /// Maximum planar travel, including the clearance beyond the target.
+        /// Older authored actions retain a finite, short-range lunge.
+        #[serde(default = "default_traversal_max_distance")]
+        max_distance: f32,
     },
     /// Suppress hit reactions for this many updates; zero clears the protection.
     ReactionArmor(u16),
@@ -127,4 +131,41 @@ pub struct WeaponFlight {
     pub speed: f32,
     pub return_speed: f32,
     pub direction_y: f32,
+}
+
+fn default_traversal_max_distance() -> f32 {
+    200.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_target_traversal_gets_a_bounded_default() -> anyhow::Result<()> {
+        let event: Event =
+            serde_json::from_str(r#"{"traverse_target":{"duration":9,"clearance":70.0}}"#)?;
+        assert!(matches!(
+            event,
+            Event::TraverseTarget {
+                max_distance: 200.,
+                ..
+            }
+        ));
+        let explicit: Event = serde_json::from_str(
+            r#"{"traverse_target":{"duration":9,"clearance":70.0,"max_distance":120.0}}"#,
+        )?;
+        assert!(matches!(
+            explicit,
+            Event::TraverseTarget {
+                max_distance: 120.,
+                ..
+            }
+        ));
+        assert_eq!(
+            serde_json::from_value::<Event>(serde_json::to_value(&explicit)?)?,
+            explicit
+        );
+        Ok(())
+    }
 }
