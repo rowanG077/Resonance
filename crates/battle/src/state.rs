@@ -2829,6 +2829,22 @@ impl Battle {
     }
 
     pub(crate) fn action_rejection(&self, request: ActionRequest) -> Result<Option<Rejection>> {
+        self.action_rejection_inner(request, false)
+    }
+
+    /// Only a committed jump callback handoff can reach this admission path.
+    pub(crate) fn jump_action_rejection(
+        &self,
+        request: ActionRequest,
+    ) -> Result<Option<Rejection>> {
+        self.action_rejection_inner(request, self.ordinary_escape_ending())
+    }
+
+    fn action_rejection_inner(
+        &self,
+        request: ActionRequest,
+        escape_jump: bool,
+    ) -> Result<Option<Rejection>> {
         let actor = self.actor(request.actor)?;
         let busy = matches!(
             self.activity(request.actor),
@@ -2844,7 +2860,7 @@ impl Battle {
                 ActorTask::Recovering { .. } | ActorTask::Released
             )
             || self.runtime[request.actor.index()].task.action().is_some();
-        let reason = if self.terminal.result.is_some() {
+        let reason = if self.terminal.result.is_some() && !escape_jump {
             Some(Rejection::BattleEnding)
         } else if actor.availability == crate::ActorAvailability::Petrified {
             Some(Rejection::Petrified)

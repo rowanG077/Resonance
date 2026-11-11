@@ -597,6 +597,10 @@ impl Battle {
         sequence: &mut crate::action::Sequence,
         cues: &mut Vec<crate::Cue>,
     ) -> Result<bool> {
+        // Escape suppresses followup decisions and their random draws.
+        if self.escape_ending_phase() {
+            return Ok(false);
+        }
         let actor = sequence.actor;
         if self.actors[actor.index()].control != crate::Control::Enemy
             || sequence.started_at == self.update

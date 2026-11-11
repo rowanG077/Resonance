@@ -169,6 +169,33 @@ fn fresh_aerial_technique_takes_priority_and_is_paid_once() -> Result<()> {
 }
 
 #[test]
+fn ordinary_escape_keeps_eligible_fresh_jump_technique_admission() -> Result<()> {
+    for mode in [Control::Manual, Control::SemiAuto] {
+        let mut combat = fixture(mode);
+        let mut escaping = fixture(mode);
+        escaping.recognize_escape(false)?;
+        assert_eq!(
+            escaping.recognize_result(),
+            Some(crate::BattleResult::Escaped)
+        );
+        for tick in 0..4 {
+            let combat_frame = combat.step(buttons(false, tick == 0))?;
+            let escape_frame = escaping.step(buttons(false, tick == 0))?;
+            assert_eq!(escape_frame.actions, combat_frame.actions);
+            assert_eq!(escaping.activity(ActorId(0)), combat.activity(ActorId(0)));
+            assert_eq!(escaping.actors[0].position, combat.actors[0].position);
+        }
+        assert!(
+            escaping
+                .sequences()
+                .any(|(_, sequence)| sequence.action == DIVE)
+        );
+        assert_command(&escaping, None, 12, 50);
+    }
+    Ok(())
+}
+
+#[test]
 fn held_aerial_technique_does_not_execute_without_a_fresh_edge() -> Result<()> {
     let mut battle = fixture(Control::Manual);
     let mut input = buttons(false, false);

@@ -1,5 +1,5 @@
 //! Escape requests, success checks, and gauge updates.
-//! Successful escape replaces party combat activity with departure.
+//! Ordinary escape lets current party actions finish before departure.
 use crate::{ActorId, Battle, BattlePhase, BattleResult, PreparedBattle, Side, Sound};
 use anyhow::{Context, Result, ensure};
 

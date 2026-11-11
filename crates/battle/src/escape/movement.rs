@@ -27,12 +27,45 @@ impl Battle {
         self.phase() == BattlePhase::Ending && self.terminal.result == Some(BattleResult::Escaped)
     }
 
-    /// Departure replaces combat activity and owns movement until the battle ends.
+    pub(crate) fn ordinary_escape_ending(&self) -> bool {
+        self.escape_ending_phase()
+            && self.departure_reason() == Some(crate::DepartureReason::Escape)
+    }
+
+    pub(crate) fn escape_jump_commands(&self, actor: ActorId) -> bool {
+        self.ordinary_escape_ending()
+            && self.actors[actor.index()].side == Side::Party
+            && matches!(
+                self.runtime[actor.index()].task().mobility(),
+                Some(
+                    crate::mobility::Mobility::Jump { launched: true }
+                        | crate::mobility::Mobility::Breakfall
+                )
+            )
+    }
+
+    /// Ordinary Escape lets the actor's current work reach idle before departure.
+    /// Ordinary approaches can leave immediately; a committed jump command finishes admission.
     pub(crate) fn advance_escape_actor(&mut self, actor: ActorId, cues: &mut Vec<Cue>) -> bool {
         let index = actor.index();
         if !self.escape_ending_phase()
             || self.actors[index].side != Side::Party
             || !self.actors[index].available()
+        {
+            return false;
+        }
+        // Ordinary escape preserves active work until it finishes.
+        // Forced escape can interrupt it immediately.
+        if self.departure_reason() == Some(crate::DepartureReason::Escape)
+            && (self.jump_approach(index)
+                || !matches!(
+                    self.runtime[index].task(),
+                    ActorTask::None
+                        | ActorTask::EnteringGuard
+                        | ActorTask::Approach(_)
+                        | ActorTask::Returning(_)
+                        | ActorTask::Escaping
+                ))
         {
             return false;
         }

@@ -18,6 +18,13 @@ pub struct ApproachParameters {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum Origin {
+    Ordinary,
+    /// The live jump callback has already selected this airborne command.
+    Jump,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Approach {
     action: crate::ActionKey,
     target: ActorId,
@@ -29,9 +36,17 @@ pub(crate) struct Approach {
     /// Keep selection separate from an immediately usable action's admission.
     entry_pending: bool,
     elapsed: u16,
+    origin: Origin,
 }
 
 impl Battle {
+    pub(crate) fn jump_approach(&self, index: usize) -> bool {
+        self.runtime[index]
+            .task()
+            .approach()
+            .is_some_and(|approach| matches!(approach.origin, Origin::Jump))
+    }
+
     pub(crate) fn approach_jump_allowed(&self, index: usize) -> bool {
         self.runtime[index].task().approach().is_some()
     }
@@ -111,6 +126,23 @@ impl Battle {
         parameters: ApproachParameters,
         range_required: bool,
     ) -> Result<bool> {
+        self.begin_approach_from(
+            request,
+            action_target,
+            parameters,
+            range_required,
+            Origin::Ordinary,
+        )
+    }
+
+    fn begin_approach_from(
+        &mut self,
+        request: ActionRequest,
+        action_target: Option<ActorId>,
+        parameters: ApproachParameters,
+        range_required: bool,
+        origin: Origin,
+    ) -> Result<bool> {
         let ActionRequest {
             actor,
             target,
@@ -118,6 +150,7 @@ impl Battle {
         } = request;
         let owner = self.actor(actor)?;
         if self.terminal.result.is_some()
+            && !(matches!(origin, Origin::Jump) && self.escape_jump_commands(actor))
             || !owner.available()
             || !matches!(
                 self.activity(actor),
@@ -177,6 +210,7 @@ impl Battle {
                 retreating,
                 entry_pending: true,
                 elapsed: 0,
+                origin,
             }),
         );
         self.actors[index].movement.locomotion = if self.approach_within_range(index) {
@@ -232,7 +266,7 @@ impl Battle {
         request: ActionRequest,
         parameters: ApproachParameters,
     ) -> Result<()> {
-        self.begin_approach(request, None, parameters, false)?;
+        self.begin_approach_from(request, None, parameters, false, Origin::Jump)?;
         Ok(())
     }
 
@@ -272,7 +306,8 @@ impl Battle {
         let Some(mut approach) = self.runtime[index].task().approach() else {
             return Ok(false);
         };
-        if self.terminal.result.is_some() {
+        let escape_jump = self.ordinary_escape_ending() && matches!(approach.origin, Origin::Jump);
+        if self.terminal.result.is_some() && !escape_jump {
             self.cancel_approach(index);
             cues.push(Cue::Rejected {
                 actor,
@@ -502,7 +537,11 @@ impl Battle {
                 target: approach.action_target.unwrap_or(approach.target),
                 action: approach.action,
             };
-            if let Some(reason) = self.action_rejection(request)? {
+            if let Some(reason) = if escape_jump {
+                self.jump_action_rejection(request)?
+            } else {
+                self.action_rejection(request)?
+            } {
                 cues.push(Cue::Rejected { actor, reason });
                 self.enter_idle(actor);
                 return Ok(true);
