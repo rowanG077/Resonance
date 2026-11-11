@@ -6,6 +6,8 @@ struct Vertex {
     @if(GLYPH_PATTERN)
     @location(3) pattern_uv: vec2<f32>,
     @location(4) color: vec4<f32>,
+    @if(CLAMP_UI_ATLAS)
+    @location(5) atlas_bounds: vec4<f32>,
 };
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -41,6 +43,9 @@ struct VertexOutput {
     @location(4) color: vec4<f32>,
     @if(!(MULTISAMPLED_UI || CENTROID_UI))
     @location(4) color: vec4<f32>,
+    @if(CLAMP_UI_ATLAS)
+    @interpolate(flat)
+    @location(5) atlas_bounds: vec4<f32>,
 };
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
@@ -52,6 +57,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     @if(GLYPH_PATTERN)
     out.pattern_uv = vertex.pattern_uv;
     out.color = vertex.color;
+    @if(CLAMP_UI_ATLAS)
+    out.atlas_bounds = vertex.atlas_bounds;
     return out;
 }
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var source: texture_2d<f32>;
@@ -93,7 +100,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
     var raster = in.color;
-    var sampled = textureSample(source, source_sampler, in.uv);
+    var uv = in.uv;
+    @if(CLAMP_UI_ATLAS) {
+        let inset = min(0.5 / vec2<f32>(textureDimensions(source)),
+            (in.atlas_bounds.zw - in.atlas_bounds.xy) * 0.5);
+        uv = clamp(uv, in.atlas_bounds.xy + inset, in.atlas_bounds.zw - inset);
+    }
+    var sampled = textureSample(source, source_sampler, uv);
     // Apply the channel swap to texture and raster inputs.
     @if(RED_CHANNEL) {
         sampled = sampled.rrra;

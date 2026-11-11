@@ -190,6 +190,25 @@ pub(super) struct ViewResources {
     neighborhood: BindGroup,
     pipelines: Pipelines,
 }
+#[cfg(test)]
+pub(crate) fn test_smaa_ready(app: &mut App, mode: AntiAliasing, size: UVec2) -> bool {
+    let Some(mode) = Smaa::new(mode) else {
+        return true;
+    };
+    let render = app.sub_app_mut(RenderApp).world_mut();
+    let mut resources = render.query::<&ViewResources>();
+    let cache = render.resource::<PipelineCache>();
+    resources.iter(render).any(|resources| {
+        resources.size == size
+            && resources.mode == mode
+            && resources.pipelines.ready(cache)
+            && resources.spatial.as_ref().is_none_or(|spatial| {
+                spatial
+                    .calibrated
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            })
+    })
+}
 struct SpatialSamples {
     calibrated: std::sync::atomic::AtomicBool,
     msaa: Surface,
