@@ -1589,6 +1589,7 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
         prepared.resources.skits.as_ref().unwrap().clone(),
         &prepared.files,
         &prepared.resources,
+        &Default::default(),
     )?;
     const STATE: &str = "test::skit::visits";
     parent.world.script_state.insert(STATE.into(), 0);

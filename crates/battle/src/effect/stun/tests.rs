@@ -2,7 +2,10 @@ use super::*;
 
 fn fixture() -> Result<(Effects, BattleFrame)> {
     let effects = Effects::new(vec![], None, 7, Default::default())?
-        .with_stun_particle(Some(Arc::new(crate::tests::particle_definition(77, 19))))?
+        .with_stun_particle(Some((
+            ResourceId(77),
+            Arc::new(crate::tests::particle_definition(19)),
+        )))?
         .with_head_anchors(vec![crate::HeadAnchor {
             bone: 0,
             offset: [0., 100., 0.],

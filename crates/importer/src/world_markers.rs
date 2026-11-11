@@ -91,7 +91,7 @@ pub fn cook_world_markers(root: &Path, library: &Path) -> Result<()> {
                 )?;
                 part.clips.push(SceneClip {
                     motion: path,
-                    joints: BTreeMap::new(),
+                    joints: Default::default(),
                     resource_slot: 0,
                     duration_seconds: 0.,
                     animation_resource: None,

@@ -2,6 +2,7 @@
 use super::{Matrix, Skeleton, Transform, TransformChannels, multiply};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Interpolation {
@@ -79,7 +80,7 @@ pub struct Track {
     pub bone: u16,
     /// Standard node transforms between the model's parent joint and this joint.
     /// Intermediate nodes allow ordinary glTF TRS animation to retain affine shear.
-    pub nodes: Vec<NodeTrack>,
+    pub nodes: Vec<Arc<NodeTrack>>,
 }
 
 impl Track {

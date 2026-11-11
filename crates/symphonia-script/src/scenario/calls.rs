@@ -23,9 +23,18 @@ pub fn arguments(
     call: NativeCall,
     count: usize,
 ) -> Result<BTreeMap<u32, Vec<Option<i32>>>, Error> {
-    let program = Program::decode(bytes)?;
-    let analysis = scenario::analyze(bytes)?;
-    analyzed_arguments(&program, &analysis, call, count)
+    program_arguments(bytes, call, count).map(|(_, arguments)| arguments)
+}
+
+/// Return the validated code used by dependency discovery for later execution.
+pub fn program_arguments(
+    bytes: &[u8],
+    call: NativeCall,
+    count: usize,
+) -> Result<(Program, BTreeMap<u32, Vec<Option<i32>>>), Error> {
+    let (program, analysis) = Program::decode_with_analysis(bytes)?;
+    let arguments = analyzed_arguments(&program, &analysis, call, count)?;
+    Ok((program, arguments))
 }
 
 /// `analysis` must describe the same validated legacy program as `program`.

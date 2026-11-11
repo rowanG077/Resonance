@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+pub(crate) mod cache;
 
 pub fn load(files: &Files, path: &str) -> Result<Option<Arc<SourceBank>>> {
     let result =
@@ -71,6 +72,38 @@ pub(super) fn validate_owner(
     Ok(())
 }
 
+/// One member's shared timeline. Its cues are bound by each selecting bank.
+fn definition(
+    source: &SourceBank,
+    member: u16,
+    particles: &mut BTreeMap<u8, Arc<ParticleDefinition>>,
+) -> Result<EffectDefinition> {
+    let mut definition = EffectDefinition {
+        events: source.program(usize::from(member))?.to_vec().into(),
+        ..Default::default()
+    };
+    for event in definition.events.iter() {
+        if let EffectOperation::Spawn { particle, .. } = event.operation {
+            if let std::collections::btree_map::Entry::Vacant(entry) = particles.entry(particle) {
+                let data = source.particle(usize::from(particle))?.clone();
+                let model = match &source.actors[usize::from(particle)] {
+                    Declaration::ModelParticle { binding, .. } => Some(*binding),
+                    _ => None,
+                };
+                entry.insert(Arc::new(ParticleDefinition {
+                    member: u16::from(particle),
+                    model,
+                    data,
+                }));
+            }
+            definition
+                .particles
+                .insert(particle, particles[&particle].clone());
+        }
+    }
+    Ok(definition)
+}
+
 pub fn prepare(
     source: &SourceBank,
     resource: ResourceId,
@@ -81,67 +114,56 @@ pub fn prepare(
 ) -> Result<EffectBank> {
     let mut definitions = BTreeMap::new();
     let mut particles = BTreeMap::new();
-    let mut sounds = BTreeMap::new();
     for member in members.iter().copied().collect::<BTreeSet<_>>() {
-        let definition = (|| -> Result<_> {
-            let mut definition = EffectDefinition {
-                events: source.program(usize::from(member))?.to_vec(),
-                ..Default::default()
-            };
-            for event in &definition.events {
-                match event.operation {
-                    EffectOperation::Spawn { particle, .. } => {
-                        if let std::collections::btree_map::Entry::Vacant(entry) =
-                            particles.entry(particle)
-                        {
-                            let data = source.particle(usize::from(particle))?.clone();
-                            let model = match &source.actors[usize::from(particle)] {
-                                Declaration::ModelParticle { binding, .. } => Some(*binding),
-                                _ => None,
-                            };
-                            entry.insert(Arc::new(ParticleDefinition {
-                                resource,
-                                member: u16::from(particle),
-                                model,
-                                data,
-                            }));
-                        }
-                        definition
-                            .particles
-                            .insert(particle, Arc::clone(&particles[&particle]));
-                    }
-                    EffectOperation::Sound { id, .. } if id != 0 => {
-                        if let std::collections::btree_map::Entry::Vacant(entry) = sounds.entry(id)
-                        {
-                            entry.insert(sound(id)?);
-                        }
-                        if let Some(binding) = sounds[&id] {
-                            definition.sounds.insert(id, binding);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            // Missing audio does not discard an otherwise usable animation.
-            definition.events.retain(|event| match event.operation {
-                EffectOperation::Sound { id, .. } => definition.sounds.contains_key(&id),
-                _ => true,
-            });
-            Ok(Arc::new(definition))
-        })();
+        let definition = definition(source, member, &mut particles).map(Arc::new);
         if let Some(definition) =
             diagnostics.attempt(&format!("battle effect {resource}:{member}"), definition)?
         {
             definitions.insert(member, definition);
         }
     }
-    EffectBank::new(resource, models, definitions, diagnostics)
+    // Optional audio never discards an otherwise usable animation.
+    EffectBank::new(resource, models, definitions, sound, diagnostics)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use resonance_content::battle_effect::ScheduledEvent;
+
+    #[test]
+    fn unavailable_audio_takes_no_part_in_timeline_order_validation() -> Result<()> {
+        let source = SourceBank {
+            document: None,
+            template_names: vec![],
+            actors: vec![],
+            art: None,
+            programs: vec![vec![
+                ScheduledEvent {
+                    at: 100,
+                    operation: EffectOperation::Sound { id: 7, priority: 0 },
+                },
+                ScheduledEvent {
+                    at: 0,
+                    operation: EffectOperation::Notice {
+                        text: "Ready".into(),
+                    },
+                },
+            ]],
+        };
+        for available in [false, true] {
+            let bank = prepare(
+                &source,
+                ResourceId(77),
+                &[0],
+                BTreeMap::new(),
+                &mut |_| Ok(available.then_some(Sound::Cue(7))),
+                &Diagnostics::new(true),
+            );
+            assert_eq!(bank.is_ok(), !available);
+        }
+        Ok(())
+    }
 
     #[test]
     fn unavailable_effects_and_sounds_leave_other_visuals_usable() -> Result<()> {
@@ -168,7 +190,7 @@ mod tests {
             &mut |_| Ok(None),
             &diagnostics,
         )?;
-        assert!(bank.member(0).unwrap().events.is_empty());
+        assert!(bank.member(0).is_some() && bank.sound(7).is_none());
         assert!(bank.member(1).is_none());
         assert!(bank.member(2).is_some());
         assert_eq!(diagnostics.entries().len(), 1);

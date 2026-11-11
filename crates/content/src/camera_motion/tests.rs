@@ -66,7 +66,7 @@ fn glb_camera_nodes_preserve_points_and_honor_editor_parent_transforms() -> Resu
 #[test]
 fn camera_edits_keep_step_cubic_and_static_target_behavior() -> Result<()> {
     let mut source = CameraMotion::from_keys(&keys())?;
-    source.tracks[0].nodes[0].translation = Some(Channel {
+    std::sync::Arc::make_mut(&mut source.tracks[0].nodes[0]).translation = Some(Channel {
         interpolation: Interpolation::CubicSpline,
         times: vec![0., 150.],
         values: vec![
@@ -78,7 +78,7 @@ fn camera_edits_keep_step_cubic_and_static_target_behavior() -> Result<()> {
             [0.; 3],
         ],
     });
-    source.tracks[1].nodes[0]
+    std::sync::Arc::make_mut(&mut source.tracks[1].nodes[0])
         .translation
         .as_mut()
         .unwrap()

@@ -618,7 +618,7 @@ pub(crate) fn sample_bound_points(
             }
             Track {
                 bone: bone as u16,
-                nodes: vec![node],
+                nodes: vec![node.into()],
             }
         })
         .collect();
@@ -901,7 +901,7 @@ fn encode_with_skeleton(
             }
             Ok(Track {
                 bone: index as u16,
-                nodes: vec![node],
+                nodes: vec![node.into()],
             })
         })
         .collect::<Result<Vec<_>>>()?;

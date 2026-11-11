@@ -405,24 +405,7 @@ fn allocate(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
 ) -> Layer {
-    let mut batch = Batch::default();
-    batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-    let mesh = meshes.add(batch.mesh([1, 1]));
-    let entity = commands
-        .spawn((
-            Mesh2d(mesh.clone()),
-            MeshMaterial2d(material.clone()),
-            Transform::from_xyz(0., 0., 2.),
-            Visibility::Hidden,
-        ))
-        .id();
-    Layer {
-        entity,
-        mesh,
-        material,
-        uploaded: None,
-        visible: false,
-    }
+    Layer::new(material, 2., commands, meshes)
 }
 
 #[cfg(test)]

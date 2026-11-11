@@ -6,14 +6,16 @@ mod effects;
 mod model_particles;
 pub(super) use model_particles::Stats as ModelParticleStats;
 mod accessories;
+mod resident_models;
 mod scene_sample;
 mod shadows;
 mod stage_color;
+pub(crate) mod startup;
 mod trails;
 use crate::{
     draw_order::{ActorLayer, DrawOrder, Layer},
-    materials::{MaterialSlot, TitleSurface},
-    model_preview::gpu,
+    gpu_prepare as gpu,
+    materials::TitleSurface,
 };
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
@@ -21,20 +23,16 @@ use bevy::{
         CameraProjection, RenderTarget, SubCameraView,
         visibility::{NoCpuCulling, NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d, tonemapping::Tonemapping},
+    core_pipeline::tonemapping::Tonemapping,
     ecs::system::SystemParam,
     gltf::Gltf,
     image::{ImageLoaderSettings, ImageSampler},
     mesh::skinning::SkinnedMesh,
     prelude::*,
-    render::{
-        render_phase::ViewSortedRenderPhases,
-        render_resource::{CachedPipelineState, PipelineCache, TextureFormat, TextureUsages},
-        renderer::{RenderDevice, RenderQueue},
-        sync_world::MainEntity,
-    },
-    world_serialization::WorldInstanceReady,
+    render::render_resource::{TextureFormat, TextureUsages},
 };
+pub(crate) use effects::resident::ResidentBindings;
+pub(crate) use resident_models::ResidentModels;
 
 use effects::ModelStyle;
 use resonance_battle::{ActorId, BattleFrame, ModelMaterial, ParticleId};
@@ -170,8 +168,8 @@ pub(super) struct Warmup(Arc<Mutex<Report>>);
 #[derive(Default)]
 struct Report {
     diagnostics: Option<Diagnostics>,
-    discarded: BTreeSet<Entity>,
     draws: gpu::Report,
+    frame_ready: bool,
 }
 
 impl Report {
@@ -193,6 +191,7 @@ impl Report {
     }
 
     fn disarm(&mut self) {
+        self.frame_ready = false;
         self.draws.armed = false;
     }
 
@@ -207,32 +206,103 @@ impl Report {
 pub(super) fn install(app: &mut App) {
     scene_sample::install(app);
     let warmup = Warmup::default();
-    app.insert_resource(warmup.clone());
-    app.sub_app_mut(bevy::render::RenderApp)
-        .insert_resource(warmup)
-        .add_systems(
-            bevy::render::Render,
-            rendered.in_set(bevy::render::RenderSystems::Cleanup),
+    app.world()
+        .resource::<crate::gpu_prepare::Registry>()
+        .watch(
+            &warmup.0,
+            |report| &mut report.draws,
+            None,
+            |report, world, observer| {
+                rendered(
+                    report,
+                    world.resource::<scene_sample::Pipeline>(),
+                    world.resource::<crate::loading::Resident>(),
+                    observer,
+                );
+            },
         );
+    app.insert_resource(warmup).add_systems(
+        PostUpdate,
+        capture_frame.after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+    );
 }
 
-#[allow(clippy::too_many_arguments)] // Shared render fence and pipeline cache.
-fn rendered(
-    warmup: Res<Warmup>,
-    scene_sample: Res<scene_sample::Pipeline>,
-    resident: Res<crate::loading::Resident>,
-    phases: Res<ViewSortedRenderPhases<Transparent3d>>,
-    quads: Res<ViewSortedRenderPhases<Transparent2d>>,
-    cache: Res<PipelineCache>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
+// Admission follows the real initial frame, including visible model effects,
+// dialogue and HUD. Hidden variants still join the report's pipeline/upload gate.
+fn capture_frame(
+    shared: Res<Warmup>,
+    draws: Query<(Entity, &ViewVisibility, &RenderLayers), Or<(With<Mesh3d>, With<Mesh2d>)>>,
 ) {
-    let mut report = warmup.0.lock().unwrap();
+    let mut report = shared.0.lock().unwrap();
+    if report.frame_ready && !report.draws.submitted {
+        let layer = RenderLayers::layer(LAYER);
+        report.draws.expected = draws
+            .iter()
+            .filter(|(_, visible, layers)| visible.get() && layers.intersects(&layer))
+            .map(|(entity, _, _)| entity.into())
+            .collect();
+        report.draws.armed = true;
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
+    use bevy::render::sync_world::MainEntity;
+    use std::collections::HashSet;
+    let expected: HashSet<MainEntity> = world.query_filtered::<
+        (Entity, &ViewVisibility, &RenderLayers), Or<(With<Mesh3d>, With<Mesh2d>)>
+    >().iter(world)
+        .filter(|(_, visible, layers)| visible.get() && layers.intersects(&RenderLayers::layer(LAYER)))
+        .map(|(entity, _, _)| entity.into()).collect();
+    let report = world.resource::<Warmup>().0.lock().unwrap();
+    ensure!(
+        report.draws.completed.load(Ordering::Acquire) && report.draws.submitted,
+        "battle admitted before GPU completion"
+    );
+    ensure!(
+        report.draws.requests.is_empty() && report.draws.pending.is_empty(),
+        "battle admitted with unfinished pipelines or draws"
+    );
+    let surfaces = world.resource::<Assets<TitleSurface>>();
+    ensure!(
+        report
+            .draws
+            .material_bindings
+            .iter()
+            .filter_map(|(_, id)| id.try_typed::<TitleSurface>().ok())
+            .all(|id| surfaces.contains(id)),
+        "battle released preparation materials before admission"
+    );
+    ensure!(
+        expected == report.draws.expected,
+        "entry fence omitted visible draws"
+    );
+    ensure!(
+        expected
+            .iter()
+            .any(|e| world.get::<SkinnedMesh>(e.id()).is_some()),
+        "entry check missed playable models"
+    );
+    ensure!(
+        expected
+            .iter()
+            .any(|e| world.get::<Mesh2d>(e.id()).is_some()),
+        "entry check missed the HUD"
+    );
+    Ok(())
+}
+
+fn rendered(
+    report: &mut Report,
+    scene_sample: &scene_sample::Pipeline,
+    resident: &crate::loading::Resident,
+    observer: &gpu::Observer,
+) {
     report.recover();
     if !report.draws.armed || report.draws.error.is_some() {
         return;
     }
-    match scene_sample.ready(&cache) {
+    match scene_sample.ready(&observer.cache) {
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {
@@ -240,34 +310,13 @@ fn rendered(
             return;
         }
     }
-    for (entity, pipeline) in crate::field_warm::draws(&phases, &quads) {
-        if report.draws.expected.contains(&entity)
-            && let CachedPipelineState::Err(error) = cache.get_render_pipeline_state(pipeline)
-            && !crate::model_preview::gpu::shader_pending(error)
-        {
-            if report.tolerant() {
-                let _ = report
-                    .diagnostics
-                    .as_ref()
-                    .unwrap()
-                    .report("battle draw pipeline", anyhow::anyhow!("{error}"));
-                report.discarded.insert(entity.id());
-            } else {
-                report.draws.error = Some(error.to_string());
-            }
-        }
+    let diagnostics = report.diagnostics.clone();
+    let policy = diagnostics.as_ref().map(|d| (d, "battle draw pipeline"));
+    if report.draws.submitted {
+        observer.watch(&mut report.draws, policy);
+    } else {
+        observer.render(&mut report.draws, policy);
     }
-    if report.tolerant() {
-        let discarded = report.discarded.clone();
-        report
-            .draws
-            .expected
-            .retain(|entity| !discarded.contains(&entity.id()));
-        if report.draws.expected.is_empty() {
-            report.draws.completed.store(true, Ordering::Release);
-        }
-    }
-    gpu::render_report(&mut report.draws, &phases, &quads, &cache, &device, &queue);
     let unprepared_reads = resident.unprepared_reads.load(Ordering::Relaxed);
     if unprepared_reads != 0 && report.draws.error.is_none() {
         report.draws.error = Some(format!(
@@ -277,9 +326,6 @@ fn rendered(
     report.recover();
 }
 
-#[derive(Component)]
-struct Instantiated;
-
 #[derive(SystemParam)]
 pub(super) struct AssetsForView<'w> {
     pub images: ResMut<'w, Assets<Image>>,
@@ -288,16 +334,8 @@ pub(super) struct AssetsForView<'w> {
     pub gltfs: Res<'w, Assets<Gltf>>,
     pub scenes: Res<'w, Assets<WorldAsset>>,
     pub inverse_bindposes: Res<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
-}
-
-#[derive(SystemParam)]
-pub(super) struct Entities<'w, 's> {
-    children: Query<'w, 's, &'static Children>,
-    nodes: Query<'w, 's, (&'static Transform, &'static ChildOf)>,
-    bones: Query<'w, 's, (&'static Transform, &'static bevy::gltf::GltfExtras)>,
-    slots: Query<'w, 's, &'static MaterialSlot>,
-    meshes: Query<'w, 's, (&'static Mesh3d, Option<&'static SkinnedMesh>)>,
-    instantiated: Query<'w, 's, (), With<Instantiated>>,
+    model_bindings: Option<Res<'w, ResidentModels>>,
+    effect_bindings: Option<Res<'w, ResidentBindings>>,
 }
 
 /// A static suffix after the nearest sampled bone. Applying global matrices
@@ -316,14 +354,20 @@ struct Part {
     draws: Vec<(Entity, usize)>,
     suppressed_draws: Vec<Entity>,
     materials: Vec<Handle<TitleSurface>>,
+    resident_materials: Vec<resident_models::Lease>,
     depth_materials: Vec<Handle<TitleSurface>>,
-    red_materials: Vec<Handle<TitleSurface>>,
-    red_depth_materials: Vec<Handle<TitleSurface>>,
-    warm: Vec<Entity>,
 
     bound: bool,
     disabled: bool,
 }
+struct DrawBinding<'a> {
+    entity: Entity,
+    mesh: &'a Mesh3d,
+    skin: Option<&'a SkinnedMesh>,
+    index: usize,
+    bone: Option<usize>,
+}
+
 struct Instance {
     key: Option<Key>,
     parts: Vec<Part>,
@@ -382,7 +426,6 @@ pub(super) struct View {
     toon: Handle<Image>,
     sampled: crate::scene::SampledImages,
     camera: Option<Entity>,
-    warm_target: Option<Handle<Image>>,
     warmup: Option<Warmup>,
     prepared: bool,
     active: bool,
@@ -453,6 +496,7 @@ impl View {
         trail_assets: Vec<RenderTrail>,
         server: &AssetServer,
         diagnostics: Diagnostics,
+        sampled: crate::scene::SampledImages,
     ) -> Result<Self> {
         let stage_valid = diagnostics
             .attempt("battle stage", stage.validate())?
@@ -584,9 +628,8 @@ impl View {
             trails: trails::Trails::load(trail_assets, server, diagnostics.clone())?,
             diagnostics,
             toon,
-            sampled: Default::default(),
+            sampled,
             camera: None,
-            warm_target: None,
             warmup: None,
             prepared: false,
             active: false,
@@ -624,72 +667,25 @@ impl View {
             .chain(self.trails.images_mut())
     }
 
-    fn warm_entities(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.scenery
-            .iter()
-            .flat_map(|(_, p)| {
-                p.draws
-                    .iter()
-                    .map(|&(e, _)| e)
-                    .chain(p.warm.iter().copied())
-            })
-            .chain(
-                self.models
-                    .values()
-                    .filter_map(|m| m.instances.first())
-                    .flat_map(|i| &i.parts)
-                    .flat_map(|p| {
-                        p.draws
-                            .iter()
-                            .map(|&(e, _)| e)
-                            .chain(p.warm.iter().copied())
-                    }),
-            )
-            .chain(self.model_particles.warm_draws())
-            .chain(self.effects.entities())
-            .chain(self.trails.entities())
-    }
-
-    /// Poll loading and the submitted-draw fence for one instance of each
-    /// model and its material variants. Other instances share those recipes.
+    /// Prepare immutable bindings; the initial live frame owns GPU admission.
     pub fn prepare(
         &mut self,
         commands: &mut Commands,
         server: &AssetServer,
         assets: &mut AssetsForView,
-        entities: &Entities,
         warmup: &Warmup,
-        other_draws: Option<&[Entity]>,
+        target: &RenderTarget,
     ) -> Result<bool> {
+        profile_span!("battle view preparation");
         if self.prepared {
             return Ok(true);
         }
-        let phase_timing = |phase: &'static str, started: std::time::Instant, ready: bool| {
-            let elapsed_ms = started.elapsed().as_secs_f64() * 1000.;
-            // Loading and fence polling may span many display frames.
-            if elapsed_ms >= 1. || ready {
-                debug!(
-                    target: "resonance_presentation::battle_entry",
-                    phase,
-                    elapsed_ms,
-                    ready,
-                    "Battle view preparation"
-                );
-            }
-        };
-        let started = std::time::Instant::now();
         if self.camera.is_none() {
             *warmup.0.lock().unwrap() = Report {
                 diagnostics: Some(self.diagnostics.clone()),
                 ..default()
             };
             self.warmup = Some(warmup.clone());
-            let target = assets.images.add(Image::new_target_texture(
-                64,
-                64,
-                TextureFormat::Bgra8Unorm,
-                None,
-            ));
             self.camera = Some(
                 commands
                     .spawn((
@@ -697,17 +693,17 @@ impl View {
                         Tonemapping::Linear,
                         Msaa::Off,
                         Camera {
-                            order: -15,
+                            order: -4,
+                            is_active: false,
                             ..default()
                         },
-                        RenderTarget::Image(target.clone().into()),
-                        RenderLayers::layer(WARM_LAYER),
+                        target.clone(),
+                        RenderLayers::layer(LAYER),
                         battle_projection(),
                         Transform::from_xyz(0., 300., 2000.).looking_at(Vec3::ZERO, Vec3::Y),
                     ))
                     .id(),
             );
-            self.warm_target = Some(target);
         }
         let diagnostics = self.diagnostics.clone();
         recover_images(
@@ -718,19 +714,19 @@ impl View {
             "battle image",
         )?;
         let images_ready = self.images().all(|h| assets.images.contains(h));
-        phase_timing("recover/images", started, false);
+
         if !images_ready {
             return Ok(false);
         }
-        let started = std::time::Instant::now();
+
         let mut queued_roots = 0;
+        profile_span!(model_profile = "battle instance preparation");
         for (slot, part) in &mut self.scenery {
             let had_root = part.root.is_some();
             let result = part.prepare(
                 commands,
                 server,
                 assets,
-                entities,
                 &mut self.sampled,
                 &self.toon,
                 false,
@@ -738,7 +734,7 @@ impl View {
                 None,
                 &BTreeSet::new(),
                 false,
-                true,
+                Some((self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws)),
             );
             if let Err(error) = result {
                 self.diagnostics
@@ -747,7 +743,6 @@ impl View {
             }
             queued_roots += usize::from(!had_root && part.root.is_some());
             if queued_roots >= PREPARATION_ROOTS_PER_UPDATE {
-                phase_timing("scenery/models", started, false);
                 return Ok(false);
             }
         }
@@ -755,11 +750,11 @@ impl View {
             for (index, instance) in model.instances.iter_mut().enumerate() {
                 for part in &mut instance.parts {
                     let had_root = part.root.is_some();
+                    let mut warm_report = warmup.0.lock().unwrap();
                     let result = part.prepare(
                         commands,
                         server,
                         assets,
-                        entities,
                         &mut self.sampled,
                         &self.toon,
                         model.lit,
@@ -767,7 +762,7 @@ impl View {
                         model.weapon_style,
                         &model.suppressed_nodes,
                         model.weapon_style.is_none(),
-                        index == 0,
+                        (index == 0).then(|| (self.camera.unwrap(), &mut warm_report.draws)),
                     );
                     if let Err(error) = result {
                         self.diagnostics.report(
@@ -778,14 +773,16 @@ impl View {
                     }
                     queued_roots += usize::from(!had_root && part.root.is_some());
                     if queued_roots >= PREPARATION_ROOTS_PER_UPDATE {
-                        phase_timing("scenery/models", started, false);
                         return Ok(false);
                     }
                 }
             }
         }
+        profile_span!(end model_profile);
+        profile_span!("battle effect preparation");
         if !self.model_particles.prepare(
-            commands,
+            self.camera.unwrap(),
+            &mut warmup.0.lock().unwrap().draws,
             server,
             assets,
             &mut self.sampled,
@@ -795,20 +792,23 @@ impl View {
         )? {
             return Ok(false);
         }
-        phase_timing("scenery/models", started, false);
-        let started = std::time::Instant::now();
+
         self.effects.prepare(
             commands,
             &mut assets.meshes,
             &mut assets.surfaces,
             &mut assets.images,
             &mut self.sampled,
+            assets.effect_bindings.as_deref(),
+            (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
         )?;
-        self.effects.set_layer(commands, WARM_LAYER, true);
-        self.trails.prepare(commands, assets, &mut self.sampled)?;
-        self.trails.set_layer(commands, WARM_LAYER, true);
-        phase_timing("effects/trails", started, false);
-        let started = std::time::Instant::now();
+        self.trails.prepare(
+            commands,
+            assets,
+            &mut self.sampled,
+            (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
+        )?;
+
         if !self.scenery.iter().all(|(_, p)| p.bound)
             || !self
                 .models
@@ -819,41 +819,12 @@ impl View {
         {
             return Ok(false);
         }
-        let Some(other_draws) = other_draws else {
-            return Ok(false);
-        };
-        let mut report = warmup.0.lock().unwrap();
-        if let Err(error) = report.check() {
-            self.diagnostics.report("battle GPU", error)?;
-        }
-        let report = &mut report.draws;
-        report
-            .expected
-            .extend(self.warm_entities().map(MainEntity::from));
-        report
-            .expected
-            .extend(other_draws.iter().copied().map(MainEntity::from));
-        if report.expected.is_empty() {
-            self.diagnostics.report(
-                "battle preparation",
-                anyhow::anyhow!("battle has no prepared draws"),
-            )?;
-            report.completed.store(true, Ordering::Release);
-        }
-        report.armed = true;
-        self.prepared = report.completed.load(Ordering::Acquire);
-        phase_timing("fence poll", started, self.prepared);
-        Ok(self.prepared)
-    }
-
-    pub fn warm_target(&self) -> Option<Handle<Image>> {
-        self.warm_target.clone()
+        self.prepared = true;
+        Ok(true)
     }
 
     /// Retained field camera/roots are hidden by the caller in this same handoff.
     pub fn activate(&mut self, commands: &mut Commands, target: RenderTarget) -> Result<()> {
-        let started = std::time::Instant::now();
-        let mut relayered_parts = 0;
         ensure!(
             self.prepared && !self.active,
             "battle view is not ready to activate"
@@ -867,8 +838,8 @@ impl View {
             -4,
         );
         for (slot, part) in &self.scenery {
-            part.layer(commands, LAYER, true);
-            relayered_parts += usize::from(part.root.is_some());
+            part.visible(commands, true);
+
             let layer = self
                 .stage
                 .foreground_layers
@@ -884,17 +855,6 @@ impl View {
             }
         }
 
-        for model in self.models.values() {
-            for instance in &model.instances {
-                for part in &instance.parts {
-                    part.layer(commands, LAYER, false);
-                    relayered_parts += usize::from(part.root.is_some());
-                }
-            }
-        }
-        self.model_particles.activate(commands);
-        self.effects.set_layer(commands, LAYER, false);
-        self.trails.set_layer(commands, LAYER, false);
         let warmup = self
             .warmup
             .as_ref()
@@ -903,22 +863,16 @@ impl View {
         if let Err(error) = report.check() {
             self.diagnostics.report("battle GPU", error)?;
         }
-        report.draws = gpu::Report {
-            armed: true,
-            expected: self
-                .scenery
-                .iter()
-                .flat_map(|(_, p)| p.draws.iter().map(|&(e, _)| MainEntity::from(e)))
-                .collect(),
-            ..default()
-        };
-        debug!(
-            target: "resonance_presentation::battle_entry",
-            elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
-            relayered_parts,
-            "Battle view activation"
-        );
+        // Keep every hidden variant's requests and uploads. The initial live
+        // pose supplies expected draws before the single completion fence arms.
+        report.draws.armed = false;
         Ok(())
+    }
+
+    pub fn submit_frame(&self) {
+        if let Some(warmup) = &self.warmup {
+            warmup.0.lock().unwrap().frame_ready = true;
+        }
     }
 
     /// Finish the actual target's draws before simulation and audio start.
@@ -1102,7 +1056,6 @@ impl View {
                     surfaces,
                 )?;
                 part.stage_materials(
-                    material,
                     self.stage
                         .texture_animations
                         .get(slot)
@@ -1112,7 +1065,7 @@ impl View {
                     fog_distance,
                     surfaces,
                 )?;
-                let materials = part.appearance_materials(material, true)?;
+                let materials = part.appearance_materials(true)?;
                 for &(draw, index) in &part.draws {
                     commands
                         .entity(draw)
@@ -1417,21 +1370,19 @@ impl View {
                         surfaces,
                     )?;
                     if let Some((texture, uv)) = texture_scroll {
-                        part.scroll_uv(material, depth_write, Some(texture), uv, surfaces)?;
+                        part.scroll_uv(depth_write, Some(texture), uv, surfaces)?;
                     }
                     if let Some((layers, tick)) = texture_layers {
                         part.expression(
                             &model.texture_channels,
                             layers,
                             tick,
-                            material,
                             depth_write,
                             surfaces,
                         )?;
                     }
                     for &(draw, index) in &part.draws {
-                        let material =
-                            part.appearance_materials(material, depth_write)?[index].clone();
+                        let material = part.appearance_materials(depth_write)?[index].clone();
                         let instance = match key {
                             Key::Accessory(_, pass, _) => usize::from(pass),
                             _ => 0,
@@ -1476,6 +1427,19 @@ impl View {
         self.model_particles.stats()
     }
 
+    pub fn reset_model_bindings(&mut self, surfaces: &mut Assets<TitleSurface>) {
+        for part in self.scenery.iter_mut().map(|(_, part)| part).chain(
+            self.models
+                .values_mut()
+                .flat_map(|model| &mut model.instances)
+                .flat_map(|instance| &mut instance.parts),
+        ) {
+            for lease in &part.resident_materials {
+                lease.reset(surfaces);
+            }
+        }
+    }
+
     pub fn despawn(self, commands: &mut Commands) {
         // The retained field/title may specialize again as soon as it is restored.
         if let Some(warmup) = &self.warmup {
@@ -1513,8 +1477,8 @@ fn surface_recipes(
     lit: bool,
     weapon_style: Option<WeaponStyle>,
 ) -> Result<Vec<TitleSurface>> {
-    let mut surfaces = Vec::with_capacity(spec.scene.materials.len());
-    for (index, material) in spec.scene.materials.iter().enumerate() {
+    let mut views = Vec::with_capacity(spec.scene.materials.len());
+    for material in &spec.scene.materials {
         let binding = |binding: &resonance_content::TextureBinding| -> Result<_> {
             Ok((
                 textures
@@ -1534,21 +1498,44 @@ fn surface_recipes(
             images,
             sampled,
         );
+        views.push([color, multiply]);
+    }
+    Ok(surface_recipes_from_views(
+        &spec.scene,
+        views,
+        toon,
+        lit,
+        weapon_style,
+        spec.additive,
+        &spec.uv_offsets,
+    ))
+}
+
+fn surface_recipes_from_views(
+    scene: &resonance_content::ScenePart,
+    views: impl IntoIterator<Item = [Option<Handle<Image>>; 2]>,
+    toon: &Handle<Image>,
+    lit: bool,
+    weapon_style: Option<WeaponStyle>,
+    additive: bool,
+    uv_offsets: &[[f32; 4]],
+) -> Vec<TitleSurface> {
+    let mut surfaces = Vec::with_capacity(scene.materials.len());
+    for (index, (material, [color, multiply])) in scene.materials.iter().zip(views).enumerate() {
         let mut surface = TitleSurface {
             vertex_color: material.vertex_color,
             multiply,
-            uv_offsets: Vec4::from_array(spec.uv_offsets.get(index).copied().unwrap_or([0.; 4])),
-            constant_color: spec.scene.outline_color_for(material).is_some(),
-            tint: spec
-                .scene
+            uv_offsets: Vec4::from_array(uv_offsets.get(index).copied().unwrap_or([0.; 4])),
+            constant_color: scene.outline_color_for(material).is_some(),
+            tint: scene
                 .outline_color_for(material)
                 .map_or(Vec4::ONE, |color| {
                     Vec4::from_array(color.map(|value| f32::from(value) / 255.))
                 }),
-            toon_ramp: (lit && spec.scene.outline_color.is_none() && material.color.is_some())
+            toon_ramp: (lit && scene.outline_color.is_none() && material.color.is_some())
                 .then(|| toon.clone()),
             shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
-            blend: if spec.additive {
+            blend: if additive {
                 Some(Blend::Additive)
             } else {
                 (material.blend || lit).then_some(Blend::Alpha)
@@ -1560,7 +1547,20 @@ fn surface_recipes(
         apply_weapon_style(&mut surface, weapon_style);
         surfaces.push(surface);
     }
-    Ok(surfaces)
+    surfaces
+}
+
+/// Startup and live models prepare the same optional faded appearance.
+fn model_surface_variants(
+    normal: TitleSurface,
+    body: bool,
+) -> (TitleSurface, Option<TitleSurface>) {
+    let faded = body.then(|| TitleSurface {
+        depth_write: false,
+        depth_equal: true,
+        ..normal.clone()
+    });
+    (normal, faded)
 }
 
 impl Part {
@@ -1571,7 +1571,6 @@ impl Part {
         self.nodes.clear();
         self.draws.clear();
         self.suppressed_draws.clear();
-        self.warm.clear();
         self.bound = true;
         self.disabled = true;
     }
@@ -1613,11 +1612,9 @@ impl Part {
             draws: Vec::new(),
             suppressed_draws: Vec::new(),
             materials: Vec::new(),
+            resident_materials: Vec::new(),
 
             depth_materials: Vec::new(),
-            red_materials: Vec::new(),
-            red_depth_materials: Vec::new(),
-            warm: Vec::new(),
 
             bound: false,
             disabled: false,
@@ -1630,7 +1627,6 @@ impl Part {
         commands: &mut Commands,
         server: &AssetServer,
         assets: &mut AssetsForView,
-        entities: &Entities,
         sampled: &mut crate::scene::SampledImages,
         toon: &Handle<Image>,
         lit: bool,
@@ -1638,7 +1634,7 @@ impl Part {
         weapon_style: Option<WeaponStyle>,
         suppressed_nodes: &BTreeSet<usize>,
         body: bool,
-        warm_variants: bool,
+        warm: Option<(Entity, &mut gpu::Report)>,
     ) -> Result<()> {
         if self.bound {
             return Ok(());
@@ -1650,145 +1646,174 @@ impl Part {
         let Some(gltf) = assets.gltfs.get(&self.gltf) else {
             return Ok(());
         };
-        if self.root.is_none() {
-            ensure!(
-                gltf.meshes.len() == self.spec.scene.materials.len(),
-                "battle material count differs from cooked geometry"
+        ensure!(
+            gltf.meshes.len() == self.spec.scene.materials.len(),
+            "battle material count differs from cooked geometry"
+        );
+        let recipes = surface_recipes(
+            &self.spec,
+            &self.textures,
+            &mut assets.images,
+            sampled,
+            toon,
+            lit,
+            weapon_style,
+        )?;
+        if self.materials.is_empty() {
+            self.prepare_materials(
+                recipes,
+                body,
+                &mut assets.surfaces,
+                assets.model_bindings.as_deref(),
             );
-            let recipes = surface_recipes(
-                &self.spec,
-                &self.textures,
-                &mut assets.images,
-                sampled,
-                toon,
-                lit,
-                weapon_style,
-            )?;
-            self.prepare_materials(recipes, body, &mut assets.surfaces);
-            self.root = Some(
-                commands
-                    .spawn((
-                        WorldAssetRoot(
-                            gltf.scenes
-                                .first()
-                                .context("battle model has no scene")?
-                                .clone(),
-                        ),
-                        Transform::default(),
-                        if warm_variants {
-                            Visibility::Inherited
-                        } else {
-                            Visibility::Hidden
-                        },
-                        RenderLayers::layer(WARM_LAYER),
-                    ))
-                    .observe(|event: On<WorldInstanceReady>, mut commands: Commands| {
-                        commands.entity(event.entity).insert(Instantiated);
-                    })
-                    .id(),
-            );
-            return Ok(());
         }
-        let root = self.root.unwrap();
-        if !entities.instantiated.contains(root) {
+        let handle = gltf.scenes.first().context("battle model has no scene")?;
+        let Some(scene) = assets.scenes.get(handle) else {
             return Ok(());
-        }
-        let binding = if bone_count == 0 {
-            Default::default()
-        } else {
-            crate::sparse_animation::Binding::new(
-                root,
-                bone_count,
-                &entities.children,
-                &entities.bones,
-            )?
         };
-        let indices: BTreeMap<_, _> = binding
-            .0
-            .iter()
-            .enumerate()
-            .map(|(i, (e, _))| (*e, i))
-            .collect();
-        let mut paths = BTreeMap::from([(root, (None, Mat4::IDENTITY))]);
-        for entity in entities.children.iter_descendants(root) {
-            let Ok((transform, parent)) = entities.nodes.get(entity) else {
-                continue;
-            };
-            let (bone, suffix) = if let Some(&bone) = indices.get(&entity) {
-                (Some(bone), Mat4::IDENTITY)
-            } else {
-                let &(bone, parent_suffix) = paths
-                    .get(&parent.parent())
-                    .context("battle scene has an unbound transform parent")?;
-                (bone, parent_suffix * transform.to_matrix())
-            };
-            paths.insert(entity, (bone, suffix));
+        let template = crate::model_asset::prepared(scene)?;
+        template.check_bones(bone_count)?;
+        self.instantiate_template(
+            commands,
+            assets,
+            &template,
+            bone_count,
+            suppressed_nodes,
+            warm,
+        )
+    }
+
+    fn instantiate_template(
+        &mut self,
+        commands: &mut Commands,
+        assets: &mut AssetsForView,
+        template: &crate::model_asset::Data,
+        bone_count: usize,
+        suppressed_nodes: &BTreeSet<usize>,
+        mut warm: Option<(Entity, &mut gpu::Report)>,
+    ) -> Result<()> {
+        profile_span!("battle model instantiation");
+        let root = commands
+            .spawn((
+                Transform::default(),
+                Visibility::Hidden,
+                RenderLayers::layer(LAYER),
+            ))
+            .id();
+        self.root = Some(root);
+        let mut nodes = vec![Entity::PLACEHOLDER; template.nodes.len()];
+        for &index in &template.render {
+            let node = &template.nodes[index];
+            let entity = commands
+                .spawn((
+                    Transform::default(),
+                    Visibility::Inherited,
+                    ChildOf(root),
+                    RenderLayers::layer(LAYER),
+                    NoFrustumCulling,
+                ))
+                .id();
+            nodes[index] = entity;
             self.nodes.push(Node {
                 entity,
-                bone,
-                suffix,
+                bone: (bone_count > 0).then_some(node.bone).flatten(),
+                suffix: if bone_count > 0 {
+                    node.suffix
+                } else {
+                    node.global
+                },
+            });
+        }
+        for &index in &template.render {
+            let node = &template.nodes[index];
+            let entity = nodes[index];
+            let Some(draw) = &node.draw else { continue };
+            let index = draw.slot.index(self.materials.len())?;
+            let skin = draw.skin.as_ref().map(|skin| SkinnedMesh {
+                inverse_bindposes: skin.inverse_bindposes.clone(),
+                joints: skin.joints.iter().map(|&index| nodes[index]).collect(),
             });
             commands
                 .entity(entity)
-                .insert((RenderLayers::layer(WARM_LAYER), NoFrustumCulling));
-            if let Ok(slot) = entities.slots.get(entity) {
-                let index = slot.index(self.materials.len())?;
-                let (mesh, skin) = entities.meshes.get(entity)?;
-                validate_draw_mesh(
-                    assets
-                        .meshes
-                        .get(&mesh.0)
-                        .context("missing battle mesh data")?,
-                    assets
-                        .surfaces
-                        .get(&self.materials[index])
-                        .context("missing battle material data")?,
-                    skin.is_some(),
-                )?;
-                commands
-                    .entity(entity)
-                    .remove::<MeshMaterial3d<StandardMaterial>>()
-                    .insert((
-                        MeshMaterial3d(self.materials[index].clone()),
-                        DrawOrder(
-                            Layer::Scene(self.spec.scene.materials[index].draw_order),
-                            0,
-                            0,
-                        ),
-                    ));
-                self.draws.push((entity, index));
-                if bone.is_some_and(|bone| suppressed_nodes.contains(&bone)) {
-                    // Hide the object while retaining anchors and skinning transforms for
-                    // its children.
-                    self.suppressed_draws.push(entity);
-                }
-                // Instances share mesh layouts and material recipes. One set of
-                // variant draws prepares their pipelines without duplicate skins.
-                for variants in [
-                    &self.depth_materials,
-                    &self.red_materials,
-                    &self.red_depth_materials,
-                ]
-                .into_iter()
-                .filter(|variants| warm_variants && !variants.is_empty())
+                .insert((Mesh3d(draw.mesh.clone()), draw.slot));
+            if let Some(skin) = &skin {
+                commands.entity(entity).insert(skin.clone());
+            }
+            self.bind_draw(
+                commands,
+                assets,
+                DrawBinding {
+                    entity,
+                    mesh: &Mesh3d(draw.mesh.clone()),
+                    skin: skin.as_ref(),
+                    index,
+                    bone: (bone_count > 0).then_some(node.bone).flatten(),
+                },
+                suppressed_nodes,
+            )?;
+            if let Some((camera, report)) = &mut warm {
+                for material in self
+                    .materials
+                    .get(index)
+                    .into_iter()
+                    .chain(self.depth_materials.get(index))
                 {
-                    let mut warm = commands.spawn((
-                        mesh.clone(),
-                        MeshMaterial3d(variants[index].clone()),
-                        Transform::default(),
-                        Visibility::Inherited,
-                        NoFrustumCulling,
-                        RenderLayers::layer(WARM_LAYER),
-                        ChildOf(root),
-                    ));
-                    if let Some(skin) = skin {
-                        warm.insert(skin.clone());
-                    }
-                    self.warm.push(warm.id());
+                    report.prepare(
+                        *camera,
+                        draw.mesh.id(),
+                        material.id().untyped(),
+                        false,
+                        None,
+                    );
                 }
             }
         }
         self.bound = true;
+        Ok(())
+    }
+
+    fn bind_draw(
+        &mut self,
+        commands: &mut Commands,
+        assets: &mut AssetsForView,
+        draw: DrawBinding,
+        suppressed_nodes: &BTreeSet<usize>,
+    ) -> Result<()> {
+        let DrawBinding {
+            entity,
+            mesh,
+            skin,
+            index,
+            bone,
+        } = draw;
+        validate_draw_mesh(
+            assets
+                .meshes
+                .get(&mesh.0)
+                .context("missing battle mesh data")?,
+            assets
+                .surfaces
+                .get(&self.materials[index])
+                .context("missing battle material data")?,
+            skin.is_some(),
+        )?;
+        commands
+            .entity(entity)
+            .remove::<MeshMaterial3d<StandardMaterial>>()
+            .insert((
+                MeshMaterial3d(self.materials[index].clone()),
+                DrawOrder(
+                    Layer::Scene(self.spec.scene.materials[index].draw_order),
+                    0,
+                    0,
+                ),
+            ));
+        self.draws.push((entity, index));
+        if bone.is_some_and(|bone| suppressed_nodes.contains(&bone)) {
+            // Hide the object while retaining anchors and skinning transforms for
+            // its children.
+            self.suppressed_draws.push(entity);
+        }
         Ok(())
     }
 
@@ -1824,7 +1849,7 @@ impl Part {
         if self.disabled {
             return Ok(());
         }
-        let materials = self.appearance_materials(material, depth_write)?;
+        let materials = self.appearance_materials(depth_write)?;
         for handle in materials {
             let surface = surfaces
                 .get(handle)
@@ -1862,11 +1887,15 @@ impl Part {
                     Vec4::ZERO,
                 )
             };
-            if surface.ambient_scale != ambient
+            let red =
+                material == ModelMaterial::RedChannel && self.spec.scene.outline_color.is_none();
+            if surface.red_channel != red
+                || surface.ambient_scale != ambient
                 || surface.tint != tint
                 || surface.field_light != field_light
             {
                 let mut surface = surfaces.get_mut(handle).unwrap();
+                surface.red_channel = red;
                 surface.ambient_scale = ambient;
                 surface.tint = tint;
                 surface.field_light = field_light;
@@ -1880,43 +1909,33 @@ impl Part {
         recipes: Vec<TitleSurface>,
         body: bool,
         surfaces: &mut Assets<TitleSurface>,
+        resident: Option<&ResidentModels>,
     ) {
+        let mut add = |surface| {
+            if let Some((handle, lease)) =
+                resident.and_then(|pool| pool.acquire(&surface, surfaces))
+            {
+                self.resident_materials.push(lease);
+                handle
+            } else {
+                profile_span!("new battle model material");
+                surfaces.add(surface)
+            }
+        };
         for surface in recipes {
-            let faded = body.then(|| TitleSurface {
-                depth_write: false,
-                depth_equal: true,
-                ..surface.clone()
-            });
-            if self.spec.scene.outline_color.is_none() {
-                self.red_materials.push(surfaces.add(TitleSurface {
-                    red_channel: true,
-                    ..surface.clone()
-                }));
-                if let Some(faded) = &faded {
-                    self.red_depth_materials.push(surfaces.add(TitleSurface {
-                        red_channel: true,
-                        ..faded.clone()
-                    }));
-                }
-            }
+            let (surface, faded) = model_surface_variants(surface, body);
             if let Some(faded) = faded {
-                self.depth_materials.push(surfaces.add(faded));
+                self.depth_materials.push(add(faded));
             }
-            self.materials.push(surfaces.add(surface));
+            self.materials.push(add(surface));
         }
     }
 
-    fn appearance_materials(
-        &self,
-        material: ModelMaterial,
-        depth_write: bool,
-    ) -> Result<&[Handle<TitleSurface>]> {
-        let red = material == ModelMaterial::RedChannel && self.spec.scene.outline_color.is_none();
-        let handles = match (red, depth_write) {
-            (false, true) => &self.materials,
-            (false, false) => &self.depth_materials,
-            (true, true) => &self.red_materials,
-            (true, false) => &self.red_depth_materials,
+    fn appearance_materials(&self, depth_write: bool) -> Result<&[Handle<TitleSurface>]> {
+        let handles = if depth_write {
+            &self.materials
+        } else {
+            &self.depth_materials
         };
         ensure!(
             handles.len() == self.materials.len(),
@@ -1927,17 +1946,12 @@ impl Part {
 
     fn scroll_uv(
         &self,
-        material: ModelMaterial,
         depth_write: bool,
         texture: Option<usize>,
         scroll: [f32; 2],
         surfaces: &mut Assets<TitleSurface>,
     ) -> Result<()> {
-        for (index, handle) in self
-            .appearance_materials(material, depth_write)?
-            .iter()
-            .enumerate()
-        {
+        for (index, handle) in self.appearance_materials(depth_write)?.iter().enumerate() {
             let mut offset = self.spec.uv_offsets.get(index).copied().unwrap_or_default();
             let material = &self.spec.scene.materials[index];
             for (channel, binding) in [&material.color, &material.multiply]
@@ -1967,7 +1981,6 @@ impl Part {
 
     fn stage_materials(
         &self,
-        appearance: ModelMaterial,
         animations: &[resonance_content::battle_stage::TextureAnimation],
         tick: u64,
         fog: Option<&resonance_content::battle_stage::Fog>,
@@ -1985,7 +1998,7 @@ impl Part {
             .scene
             .materials
             .iter()
-            .zip(self.appearance_materials(appearance, true)?)
+            .zip(self.appearance_materials(true)?)
         {
             let uv = [&material.color, &material.multiply].map(|binding| {
                 binding.as_ref().map_or([0.; 2], |binding| {
@@ -2015,15 +2028,10 @@ impl Part {
         channels: &[resonance_content::AtlasChannel],
         layers: [u8; 4],
         tick: u64,
-        appearance: ModelMaterial,
         depth_write: bool,
         surfaces: &mut Assets<TitleSurface>,
     ) -> Result<()> {
-        for (index, handle) in self
-            .appearance_materials(appearance, depth_write)?
-            .iter()
-            .enumerate()
-        {
+        for (index, handle) in self.appearance_materials(depth_write)?.iter().enumerate() {
             let material = &self.spec.scene.materials[index];
             let mut uv = self.spec.uv_offsets.get(index).copied().unwrap_or([0.; 4]);
             for (channel, binding) in [&material.color, &material.multiply]
@@ -2071,28 +2079,9 @@ impl Part {
                 Visibility::Hidden
             });
         }
-    }
-    fn layer(&self, commands: &mut Commands, layer: usize, visible: bool) {
-        self.visible(commands, visible);
-        for &entity in &self.warm {
-            commands
-                .entity(entity)
-                .insert((Visibility::Hidden, NoCpuCulling));
-        }
-        for entity in self
-            .root
-            .into_iter()
-            .chain(self.nodes.iter().map(|n| n.entity))
-        {
-            commands.entity(entity).insert(RenderLayers::layer(layer));
-        }
-        // All declared meshes participate in preparation's draw fence. Suppress
-        // only this object's draw after layer assignment; Visibility::Hidden
-        // would also hide its children.
-        if layer != WARM_LAYER {
-            for &entity in &self.suppressed_draws {
-                commands.entity(entity).insert(RenderLayers::none());
-            }
+        // A draw mask leaves its skeletal children visible.
+        for &entity in &self.suppressed_draws {
+            commands.entity(entity).insert_if_neq(RenderLayers::none());
         }
     }
 }
@@ -2106,13 +2095,13 @@ fn validate_draw_mesh(mesh: &Mesh, surface: &TitleSurface, skinned: bool) -> Res
     );
     if surface.color.is_some() && !surface.constant_color {
         ensure!(
-            mesh.contains_attribute(Mesh::ATTRIBUTE_UV_0),
+            crate::materials::has_uv(mesh, 0),
             "textured battle mesh has no primary UVs"
         );
     }
     if surface.multiply.is_some() && !surface.constant_color {
         ensure!(
-            mesh.contains_attribute(Mesh::ATTRIBUTE_UV_1),
+            crate::materials::has_uv(mesh, 1),
             "battle mesh has no secondary UVs"
         );
     }
@@ -2296,9 +2285,7 @@ pub(super) fn activate_camera(
     projection: Projection,
     order: isize,
 ) {
-    // Bevy 0.19 does not recompute Camera::computed when only RenderTarget
-    // changes. Preserve the camera and refresh its projection so the isolated
-    // 64x64 target cannot survive the handoff to the actual scene target.
+    // Refresh the current display projection when enabling the prepared view.
     commands
         .entity(camera)
         .insert((target, RenderLayers::layer(LAYER), projection))
@@ -2422,7 +2409,7 @@ mod tests {
     }
 
     #[test]
-    fn attachment_suppression_preserves_child_draws_and_warmup_layers() {
+    fn attachment_suppression_keeps_skeletal_children_visible() {
         use bevy::camera::{primitives::Frustum, visibility::VisibilityPlugin};
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default(), VisibilityPlugin))
@@ -2435,12 +2422,17 @@ mod tests {
             RenderLayers::layer(LAYER),
         ));
         let root = world
-            .spawn((Visibility::Inherited, GlobalTransform::default()))
+            .spawn((
+                Visibility::Inherited,
+                GlobalTransform::default(),
+                RenderLayers::layer(LAYER),
+            ))
             .id();
         let object = world
             .spawn((
                 Mesh3d::default(),
                 NoFrustumCulling,
+                RenderLayers::layer(LAYER),
                 GlobalTransform::default(),
                 ChildOf(root),
             ))
@@ -2449,6 +2441,7 @@ mod tests {
             .spawn((
                 Mesh3d::default(),
                 NoFrustumCulling,
+                RenderLayers::layer(LAYER),
                 GlobalTransform::default(),
                 ChildOf(object),
             ))
@@ -2481,36 +2474,34 @@ mod tests {
             draws: vec![(object, 0), (child, 1)],
             suppressed_draws: vec![object],
             materials: vec![],
+            resident_materials: Vec::new(),
 
             depth_materials: Vec::new(),
-            red_materials: Vec::new(),
-            red_depth_materials: Vec::new(),
-            warm: vec![],
 
             bound: true,
             disabled: false,
         };
-        for layer in [WARM_LAYER, LAYER, WARM_LAYER] {
-            part.layer(&mut world.commands(), layer, true);
-            world.flush();
-            let expected_object = if layer == WARM_LAYER {
-                RenderLayers::layer(layer)
-            } else {
-                RenderLayers::none()
-            };
-            assert_eq!(world.get::<RenderLayers>(object).unwrap(), &expected_object);
-            for entity in [root, child] {
-                assert_eq!(
-                    world.get::<RenderLayers>(entity).unwrap(),
-                    &RenderLayers::layer(layer)
-                );
-            }
-            for entity in [root, object, child] {
-                assert_eq!(
-                    world.get::<Visibility>(entity).unwrap(),
-                    &Visibility::Inherited
-                );
-            }
+        for visible in [true, false, true] {
+            part.visible(&mut app.world_mut().commands(), visible);
+            app.world_mut().flush();
+            app.update();
+            let world = app.world();
+            assert_eq!(
+                world.get::<RenderLayers>(object).unwrap(),
+                &RenderLayers::none()
+            );
+            assert_eq!(
+                world.get::<RenderLayers>(child).unwrap(),
+                &RenderLayers::layer(LAYER)
+            );
+            assert_eq!(
+                world.get::<InheritedVisibility>(child).unwrap().get(),
+                visible
+            );
+            assert_eq!(
+                world.get::<Visibility>(object).unwrap(),
+                &Visibility::Inherited
+            );
             assert_eq!(part.draws, [(object, 0), (child, 1)]);
         }
     }
@@ -2544,11 +2535,9 @@ mod tests {
             draws: vec![],
             suppressed_draws: vec![],
             materials: vec![handle.clone(), textured.clone()],
+            resident_materials: Vec::new(),
 
             depth_materials: Vec::new(),
-            red_materials: Vec::new(),
-            red_depth_materials: Vec::new(),
-            warm: vec![],
 
             bound: true,
             disabled: false,
@@ -2898,7 +2887,7 @@ mod tests {
                 uv_offsets: vec![[0.125, 0.25, 0.375, 0.5]],
             };
             let mut part = Part::unbound(spec.into(), Handle::default(), vec![]);
-            part.prepare_materials(vec![recipe], body, surfaces);
+            part.prepare_materials(vec![recipe], body, surfaces, None);
             Ok(part)
         };
         let mut body = part(
@@ -2950,10 +2939,8 @@ mod tests {
                 depth,
                 &mut surfaces,
             )?;
-            body.expression(&channels, [2, 3, 0, 0], 0, material, depth, &mut surfaces)?;
-            let surface = surfaces
-                .get(&body.appearance_materials(material, depth)?[0])
-                .unwrap();
+            body.expression(&channels, [2, 3, 0, 0], 0, depth, &mut surfaces)?;
+            let surface = surfaces.get(&body.appearance_materials(depth)?[0]).unwrap();
             assert_eq!(surface.depth_write, depth);
             assert_eq!(surface.red_channel, material == ModelMaterial::RedChannel);
             assert_eq!(surface.ambient_scale, Vec3::new(3., 2., 2.));
@@ -2972,7 +2959,7 @@ mod tests {
                 &mut surfaces,
             )?;
             let surface = surfaces
-                .get(&outline.appearance_materials(material, depth)?[0])
+                .get(&outline.appearance_materials(depth)?[0])
                 .unwrap();
             assert!(!surface.red_channel);
             assert_eq!(surface.depth_write, depth);
@@ -2981,14 +2968,13 @@ mod tests {
             assert_eq!(surface.field_light, Vec4::ZERO);
             assert_eq!(surface.tint, Vec4::new(0., 0., 0., 38. / 255.));
         }
+        assert_eq!(
+            surfaces.len(),
+            4,
+            "petrification uses a uniform, not another GPU binding"
+        );
         // Wing scrolling changes only the selected texture stage.
-        body.scroll_uv(
-            ModelMaterial::Normal,
-            false,
-            Some(0),
-            [0.5, 0.],
-            &mut surfaces,
-        )?;
+        body.scroll_uv(false, Some(0), [0.5, 0.], &mut surfaces)?;
         assert_eq!(
             surfaces.get(&body.depth_materials[0]).unwrap().uv_offsets,
             Vec4::new(0.625, 0.25, 0.375, 0.5)
@@ -3008,14 +2994,7 @@ mod tests {
                 offsets: vec![[0.; 2], [0.25, 0.5]],
             },
         ];
-        body.expression(
-            &channels,
-            [2, 3, 0, 0],
-            1,
-            ModelMaterial::Normal,
-            false,
-            &mut surfaces,
-        )?;
+        body.expression(&channels, [2, 3, 0, 0], 1, false, &mut surfaces)?;
         assert_eq!(
             surfaces.get(&body.depth_materials[0]).unwrap().uv_offsets,
             Vec4::new(0.25, 1., 0.625, 1.375)
@@ -3043,7 +3022,7 @@ mod tests {
             &mut surfaces,
         )?;
         let surface = surfaces
-            .get(&weapon.appearance_materials(ModelMaterial::RedChannel, true)?[0])
+            .get(&weapon.appearance_materials(true)?[0])
             .unwrap();
         assert!(surface.red_channel && surface.depth_equal);
         assert!(!surface.depth_write);

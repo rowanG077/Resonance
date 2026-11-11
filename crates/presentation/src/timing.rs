@@ -12,13 +12,15 @@ pub(super) struct Ready(pub bool);
 
 pub(super) fn prepare(
     mut ready: ResMut<Ready>,
+    startup: crate::loading::startup::Status,
     field: Res<FieldAssets>,
     renderer: Res<RenderReady>,
     art: Res<Art>,
     server: Res<AssetServer>,
     boot: Res<boot::Playback>,
 ) {
-    ready.0 |= field.ready
+    ready.0 |= startup.ready()
+        && field.ready
         && boot.ready(&server)
         && renderer.0.load(Ordering::Acquire)
         && art

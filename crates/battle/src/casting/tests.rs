@@ -837,22 +837,26 @@ fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Res
                 vec![],
             )?));
         }
-        model.motions.get_mut(&12).unwrap().tracks.push(Track {
-            bone: 0,
-            nodes: vec![resonance_content::animation::NodeTrack {
-                bind: resonance_content::animation::Transform::default(),
-                translation: Some(Channel {
-                    times: (vec![0., 15.])
-                        .into_iter()
-                        .map(|frame| frame / 30.)
-                        .collect(),
-                    interpolation: Interpolation::Linear,
-                    values: vec![[0.; 3], [15., 0., 0.]],
-                }),
-                rotation: None,
-                scale: None,
-            }],
-        });
+        Arc::make_mut(model.motions.get_mut(&12).unwrap())
+            .tracks
+            .push(Track {
+                bone: 0,
+                nodes: vec![std::sync::Arc::new(
+                    resonance_content::animation::NodeTrack {
+                        bind: resonance_content::animation::Transform::default(),
+                        translation: Some(Channel {
+                            times: (vec![0., 15.])
+                                .into_iter()
+                                .map(|frame| frame / 30.)
+                                .collect(),
+                            interpolation: Interpolation::Linear,
+                            values: vec![[0.; 3], [15., 0., 0.]],
+                        }),
+                        rotation: None,
+                        scale: None,
+                    },
+                )],
+            });
         model.weapons.push(Arc::new(crate::WeaponDefinition::body(
             None,
             vec![crate::WeaponLayerDefinition {

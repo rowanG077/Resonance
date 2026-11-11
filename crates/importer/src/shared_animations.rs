@@ -560,7 +560,7 @@ pub fn cook_original_animations(extracted: &Path, library: &Path) -> Result<()> 
     Ok(())
 }
 
-type JointMap = BTreeMap<String, Option<String>>;
+type JointMap = resonance_content::JointMap;
 type Target = (u32, String, u16, u16);
 type Binding = (String, JointMap, Vec<String>);
 

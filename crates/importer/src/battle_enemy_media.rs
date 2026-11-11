@@ -73,7 +73,7 @@ pub(crate) fn member<'a>(package: &'a [u8], field: usize) -> Result<Option<&'a [
 fn clip(path: String, slot: u16) -> SceneClip {
     SceneClip {
         motion: path,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: None,

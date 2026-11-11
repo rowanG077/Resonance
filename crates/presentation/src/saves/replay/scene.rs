@@ -95,6 +95,7 @@ pub(super) fn phase(world: &World) -> Result<Phase> {
             || super::super::menu::loading(world),
         field_loading: world.contains_resource::<loading::FieldPending>()
             || world.contains_resource::<loading::WorldPending>()
+                && !new_game::scene_fade::outgoing(world)
             || world.contains_resource::<super::super::Quickload>(),
         title: world.contains_resource::<crate::TitleActive>(),
     }
@@ -108,7 +109,7 @@ pub(super) fn preparing(world: &World) -> bool {
         .is_some_and(loading::Task::is_running)
         || world
             .get_resource::<loading::FieldPending>()
-            .is_some_and(loading::Task::is_running)
+            .is_some_and(|pending| pending.is_running())
         || world
             .get_resource::<loading::WorldPending>()
             .is_some_and(loading::Task::is_running)

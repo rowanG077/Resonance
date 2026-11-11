@@ -122,6 +122,7 @@ impl Trails {
         commands: &mut Commands,
         assets: &mut AssetsForView,
         sampled: &mut crate::scene::SampledImages,
+        (camera, report): (Entity, &mut gpu::Report),
     ) -> Result<()> {
         if self.ready {
             return Ok(());
@@ -161,9 +162,13 @@ impl Trails {
                     cull: resonance_content::CullFace::None,
                     ..TitleSurface::textured(color)
                 });
-                ribbon
-                    .draws
-                    .push(Draw::prepare(commands, &mut assets.meshes, surface));
+                ribbon.draws.push(Draw::prepare(
+                    commands,
+                    &mut assets.meshes,
+                    surface,
+                    camera,
+                    report,
+                ));
             }
         }
         let surface = assets.surfaces.add(TitleSurface {
@@ -176,24 +181,18 @@ impl Trails {
         });
         // Eight native actors, each with at most two ordinary weapon slots.
         for _ in 0..16 {
-            self.ropes
-                .push(Draw::prepare(commands, &mut assets.meshes, surface.clone()));
+            self.ropes.push(Draw::prepare(
+                commands,
+                &mut assets.meshes,
+                surface.clone(),
+                camera,
+                report,
+            ));
         }
         self.ready = true;
         Ok(())
     }
-    pub fn set_layer(&self, commands: &mut Commands, layer: usize, visible: bool) {
-        for entity in self.entities() {
-            commands.entity(entity).insert((
-                RenderLayers::layer(layer),
-                if visible {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                },
-            ));
-        }
-    }
+
     pub fn apply(
         &self,
         frame: &BattleFrame,
@@ -333,6 +332,8 @@ impl Draw {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         material: Handle<TitleSurface>,
+        camera: Entity,
+        report: &mut gpu::Report,
     ) -> Self {
         let mut data = Vertices::default();
         data.quad(
@@ -341,13 +342,15 @@ impl Draw {
             [[1.; 4]; 4],
         );
         let mesh = meshes.add(data.mesh());
+        report.prepare(camera, mesh.id(), material.id().untyped(), false, None);
         let entity = commands
             .spawn((
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material),
                 Transform::default(),
+                Visibility::Hidden,
                 NoFrustumCulling,
-                RenderLayers::layer(WARM_LAYER),
+                RenderLayers::layer(LAYER),
                 DrawOrder(Layer::Effects, 0, 0),
             ))
             .id();

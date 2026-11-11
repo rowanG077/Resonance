@@ -282,7 +282,7 @@ fn write_shared(
 fn clip(path: String, slot: u16) -> SceneClip {
     SceneClip {
         motion: path,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: None,

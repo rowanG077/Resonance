@@ -22,32 +22,14 @@ impl Artwork {
         .into_iter()
         .enumerate()
         {
-            let mut batch = Batch::default();
-            batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-            let mesh = meshes.add(batch.mesh([1, 1]));
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    Transform::from_xyz(
-                        0.,
-                        0.,
-                        3. + if index == 1 {
-                            0.03
-                        } else {
-                            index as f32 * 0.01
-                        },
-                    ),
-                    Visibility::Hidden,
-                ))
-                .id();
-            self.prompt_layers.push(Layer {
-                entity,
-                mesh,
-                material,
-                uploaded: None,
-                visible: false,
-            });
+            let depth = 3.
+                + if index == 1 {
+                    0.03
+                } else {
+                    index as f32 * 0.01
+                };
+            self.prompt_layers
+                .push(Layer::new(material, depth, commands, meshes));
         }
     }
 

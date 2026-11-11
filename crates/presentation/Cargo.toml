@@ -3,6 +3,11 @@ name = "resonance-presentation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[features]
+# Opt-in scopes, schedule probes and the installed-content diagnostic driver.
+preparation-trace = []
+
 [dependencies]
 resonance-battle.workspace = true
 resonance-model-behavior.workspace = true

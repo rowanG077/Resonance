@@ -508,7 +508,7 @@ pub(crate) fn native_bank_bindings(
                     actors,
                     parts,
                     motion: path.clone(),
-                    joints,
+                    joints: joints.into(),
                     resource_slot: 12,
                     pose_chains,
                 }

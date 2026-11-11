@@ -12,9 +12,11 @@ const HOLY_SONG_PHASE: u16 = 120;
 const ACTOR_EFFECT_CYCLE: u16 = 360;
 const OVERLIMIT_AURA_INTERVAL: u16 = 4;
 
+mod prepared;
 #[cfg(feature = "test-support")]
 mod recorded;
 mod scheduler;
+pub use prepared::EffectLibrary;
 #[cfg(feature = "test-support")]
 pub use recorded::FixtureEffectBirth;
 mod stun;
@@ -33,6 +35,8 @@ pub struct EffectBank {
     pub(crate) models: BTreeMap<u8, crate::PreparedEffectModel>,
     members: BTreeMap<u16, Arc<crate::EffectDefinition>>,
     weapon_model: Option<WeaponModel>,
+    /// Cues bound for this encounter. Absent ids are muted.
+    sounds: BTreeMap<u16, crate::Sound>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,16 +53,52 @@ impl EffectBank {
         resource: ResourceId,
         models: BTreeMap<u8, crate::PreparedEffectModel>,
         members: BTreeMap<u16, Arc<crate::EffectDefinition>>,
+        sound: &mut impl FnMut(u16) -> Result<Option<crate::Sound>>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
+        Self::select(
+            resource,
+            models,
+            members
+                .into_iter()
+                .map(|(member, definition)| (member, Ok((definition, false)))),
+            sound,
+            diagnostics,
+        )
+    }
+
+    /// Each candidate says whether its timeline was already validated against
+    /// these models with every cue bound, which covers any muted subset.
+    /// Cues resolve once per bank, in first-use order.
+    fn select(
+        resource: ResourceId,
+        models: BTreeMap<u8, crate::PreparedEffectModel>,
+        candidates: impl IntoIterator<Item = (u16, Result<(Arc<EffectDefinition>, bool)>)>,
+        sound: &mut impl FnMut(u16) -> Result<Option<crate::Sound>>,
+        diagnostics: &Diagnostics,
+    ) -> Result<Self> {
+        use resonance_content::battle_effect::EffectOperation;
         let mut admitted = BTreeMap::new();
-        for (member, definition) in members {
-            if diagnostics
-                .attempt(
-                    &format!("battle effect {resource}:{member}"),
-                    definition.validate(&models),
-                )?
-                .is_some()
+        let mut sounds = BTreeMap::new();
+        for (member, candidate) in candidates {
+            let definition = candidate.and_then(|(definition, validated)| {
+                for event in definition.events.iter() {
+                    if let EffectOperation::Sound { id, .. } = event.operation
+                        && id != 0
+                        && let std::collections::btree_map::Entry::Vacant(entry) = sounds.entry(id)
+                    {
+                        entry.insert(sound(id)?);
+                    }
+                }
+                if !validated {
+                    definition.validate(&mut |slot| models.get(&slot), &|id| {
+                        matches!(sounds.get(&id), Some(Some(_)))
+                    })?;
+                }
+                Ok(definition)
+            });
+            if let Some(definition) =
+                diagnostics.attempt(&format!("battle effect {resource}:{member}"), definition)?
             {
                 admitted.insert(member, definition);
             }
@@ -101,6 +141,10 @@ impl EffectBank {
             models,
             members: admitted,
             weapon_model: None,
+            sounds: sounds
+                .into_iter()
+                .filter_map(|(id, sound)| Some((id, sound?)))
+                .collect(),
         })
     }
 
@@ -124,7 +168,9 @@ impl EffectBank {
         for model in variants.values() {
             models.insert(model_slot, model.clone());
             for definition in self.members.values() {
-                definition.validate(&models)?;
+                definition.validate(&mut |slot| models.get(&slot), &|id| {
+                    self.sounds.contains_key(&id)
+                })?;
             }
         }
         self.weapon_model = Some(WeaponModel {
@@ -134,6 +180,19 @@ impl EffectBank {
             variants,
         });
         Ok(())
+    }
+
+    pub fn sound(&self, id: u16) -> Option<crate::Sound> {
+        self.sounds.get(&id).copied()
+    }
+
+    /// An unbound cue behaves as if its shared timeline did not contain it.
+    pub(crate) fn muted(
+        &self,
+        operation: &resonance_content::battle_effect::EffectOperation,
+    ) -> bool {
+        matches!(operation, resonance_content::battle_effect::EffectOperation::Sound { id, .. }
+            if !self.sounds.contains_key(id))
     }
 
     pub fn member(&self, member: u16) -> Option<&Arc<crate::EffectDefinition>> {
@@ -249,7 +308,7 @@ pub struct Effects {
     pub(crate) next_particle: i32,
     ambient: Option<Ambient>,
     passive: Vec<Passive>,
-    stun_particle: Option<Arc<crate::ParticleDefinition>>,
+    stun_particle: Option<(ResourceId, Arc<crate::ParticleDefinition>)>,
     head_anchors: Vec<HeadAnchor>,
     stunned: BTreeMap<ActorId, ParticleId>,
     #[cfg(feature = "test-support")]
@@ -716,8 +775,13 @@ impl Effects {
             "observed passive effect clock differs from its declaration"
         );
         let appearance = passive.effect.appearance;
-        let definition = &self.banks[&appearance.resource].members[&appearance.member];
-        let final_birth = definition.events.last().map_or(0, |event| event.at);
+        let bank = &self.banks[&appearance.resource];
+        let definition = &bank.members[&appearance.member];
+        let final_birth = definition
+            .events
+            .iter()
+            .rfind(|event| !bank.muted(&event.operation))
+            .map_or(0, |event| event.at);
         // Body emitters count elapsed updates since their previous emission.
         let elapsed_at_ready = if weapon.is_none() {
             u32::from(counter)

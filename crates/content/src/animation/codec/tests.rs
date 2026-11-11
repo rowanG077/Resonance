@@ -19,7 +19,7 @@ fn motion() -> (Skeleton, Motion) {
         duration_frames: 30.,
         tracks: vec![Track {
             bone: 0,
-            nodes: vec![node],
+            nodes: vec![node.into()],
         }],
     };
     (skeleton, motion)
@@ -100,7 +100,7 @@ fn standard_transform_chain_preserves_affine_attachment() -> Result<()> {
         duration_frames: 30.,
         tracks: vec![Track {
             bone: 0,
-            nodes: vec![parent, child],
+            nodes: vec![parent.into(), child.into()],
         }],
     };
     let bytes = motion.encode(&skeleton)?;
@@ -132,5 +132,28 @@ fn empty_and_hold_clips_have_standard_timing_without_bone_channels() -> Result<(
     for length in [0, 4, bytes.len() / 2, bytes.len() - 1] {
         assert!(Motion::decode(&bytes[..length]).is_err());
     }
+    Ok(())
+}
+
+#[test]
+fn unselected_nodes_still_require_valid_hierarchies_and_transforms() -> Result<()> {
+    let (skeleton, motion) = motion();
+    let bytes = motion.encode_nodes(&skeleton)?;
+    let glb = gltf::binary::Glb::from_slice(&bytes)?;
+    let original: Value = serde_json::from_slice(&glb.json)?;
+    let mut cyclic = original.clone();
+    cyclic["nodes"].as_array_mut().unwrap().extend([
+        json!({"name":"unused-a","children":[2]}),
+        json!({"name":"unused-b","children":[1]}),
+    ]);
+    let bytes = resonance_asset_writer::gltf::pack_glb(&cyclic, glb.bin.as_deref().unwrap())?;
+    assert!(Motion::decode_for_bones(&bytes, &["root".into()]).is_err());
+    assert!(NamedMotion::decode(&bytes).is_err());
+    let mut shear = original;
+    shear["nodes"].as_array_mut().unwrap().push(json!({
+        "name":"unused-shear", "matrix":[1,0,0,0, 1,1,0,0, 0,0,1,0, 0,0,0,1]
+    }));
+    let bytes = resonance_asset_writer::gltf::pack_glb(&shear, glb.bin.as_deref().unwrap())?;
+    assert!(NamedMotion::decode(&bytes).is_err());
     Ok(())
 }

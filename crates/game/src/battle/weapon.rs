@@ -116,9 +116,11 @@ fn layers(
                 WeaponPlayback::Rigid
             };
             let mut motions = BTreeMap::new();
-            for clip in &layer.scene.clips {
-                let motion = clip.decode_for_skeleton(&files.read(&clip.motion)?, skeleton)?;
-                motion.validate(skeleton)?;
+            for (index, clip) in layer.scene.clips.iter().enumerate() {
+                let motion =
+                    layer
+                        .scene
+                        .motion_for_skeleton(index, &files.read(&clip.motion)?, skeleton)?;
                 ensure!(
                     motions.insert(clip.resource_slot, motion).is_none(),
                     "duplicate weapon motion slot"

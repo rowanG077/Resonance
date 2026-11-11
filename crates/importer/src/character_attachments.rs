@@ -109,7 +109,7 @@ fn write_mesh(
 fn clip(motion: String, slot: u16) -> SceneClip {
     SceneClip {
         motion,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: None,

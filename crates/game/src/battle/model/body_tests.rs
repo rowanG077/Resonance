@@ -432,13 +432,14 @@ fn low_health_enemy_entry_never_selects_the_party_weak_pose() -> Result<()> {
         Motion {
             duration_frames: 30.,
             tracks: vec![],
-        },
+        }
+        .into(),
     )]);
     let entry = battle_profile::Entry {
         replacement_motion_rate: 0.5,
         ..Default::default()
     };
-    let select = |side, motions: &BTreeMap<u16, Motion>| {
+    let select = |side, motions: &BTreeMap<u16, Arc<Motion>>| {
         battle::entry::initial_playback(
             &mut resonance_battle::Random::new(1),
             &entry,

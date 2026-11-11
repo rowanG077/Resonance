@@ -36,6 +36,8 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
         clips: vec![],
         autoplay: false,
         texture_animations: vec![],
+        prepared_motions: None,
+        prepared_geometry: None,
         bone_names: vec![],
         material_nodes: vec![],
         outline_color: None,

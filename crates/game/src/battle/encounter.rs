@@ -1,5 +1,9 @@
 //! Resolve an encounter's enemy requirements before combat or resource activation.
 mod assets;
+mod common;
+pub use common::{
+    Body as CommonBody, Common, Equipment as CommonEquipment, ModelKind as CommonModelKind,
+};
 pub(crate) mod event_assets;
 pub use assets::Assets;
 mod placement;
@@ -34,7 +38,10 @@ pub struct Prepared {
     pub feedback: super::feedback::Feedback,
     pub poison_effect: resonance_battle::EffectAppearance,
     pub holy_song_effect: resonance_battle::EffectAppearance,
-    pub stun_particle: Option<Arc<resonance_battle::ParticleDefinition>>,
+    pub stun_particle: Option<(
+        resonance_battle::ResourceId,
+        Arc<resonance_battle::ParticleDefinition>,
+    )>,
     pub head_anchors: Vec<resonance_battle::HeadAnchor>,
     pub ambient_effect: Option<(resonance_battle::EffectAppearance, u16)>,
     pub passive_effects: Vec<resonance_battle::PassiveEffect>,

@@ -11,8 +11,12 @@ use std::{
     sync::Arc,
 };
 
+mod opened;
+use opened::Opened;
 mod stream;
 pub use stream::StreamReader;
+mod capture;
+pub use capture::Capture;
 
 pub const VERSION: u32 = 107;
 /// The game contract, independent of the release used to import its content.
@@ -166,7 +170,7 @@ pub struct Mod {
     pub root: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Layer {
     name: String,
     root: PathBuf,
@@ -401,6 +405,7 @@ impl Index {
 pub struct Library {
     pub descriptor: Descriptor,
     index: Arc<Index>,
+    layers: Vec<Layer>,
 }
 
 impl Library {
@@ -421,9 +426,9 @@ impl Library {
     pub fn open(root: &Path, mods: &[Mod]) -> Result<Self> {
         let base = Layer::new("base".into(), root)?;
         let descriptor_path = base
-            .path(DESCRIPTOR)?
+            .open(DESCRIPTOR)?
             .context("missing content.json; recook the original game")?;
-        let descriptor: Descriptor = serde_json::from_slice(&read_limited(&descriptor_path, 4096)?)
+        let descriptor: Descriptor = serde_json::from_slice(&read_opened(descriptor_path, 4096)?)
             .context("decode content.json")?;
         descriptor.validate()?;
         let mut names = BTreeSet::from(["base".to_owned()]);
@@ -451,7 +456,11 @@ impl Library {
             layers.push(layer);
         }
         let index = Arc::new(Index::build(&layers)?);
-        Ok(Self { descriptor, index })
+        Ok(Self {
+            descriptor,
+            index,
+            layers,
+        })
     }
 
     /// Startup-assembled document views for inspectors and authoring tools.
@@ -474,7 +483,27 @@ impl Library {
             disk_bytes: 0,
             directories: BTreeMap::new(),
             streams: BTreeMap::new(),
+            common: None,
+            reused: None,
+            source: None,
+            read_locks: BTreeMap::new(),
+            missing: BTreeSet::new(),
         }
+    }
+
+    /// A scene can inherit the fixed startup inputs, but never another scene.
+    /// Tools use `snapshot()` to keep seeing current filesystem edits.
+    pub fn snapshot_with(&self, common: &crate::prepared::Files) -> Result<Snapshot> {
+        ensure!(
+            common
+                .library()
+                .is_some_and(|library| library.layers == self.layers),
+            "startup inputs belong to a different content namespace"
+        );
+        let mut snapshot = self.snapshot();
+        snapshot.common = Some(common.startup_bytes()?);
+        snapshot.overrides.extend_from_slice(common.overrides());
+        Ok(snapshot)
     }
 }
 
@@ -490,6 +519,7 @@ pub(crate) struct CapturedFiles {
     pub disk_bytes: u64,
     pub overrides: Vec<Override>,
     pub files: BTreeMap<String, Arc<[u8]>>,
+    pub common: Option<Arc<crate::prepared::Bytes>>,
 }
 
 /// Captures each input on its first read. Parsing and compilation all
@@ -503,11 +533,43 @@ pub struct Snapshot {
     disk_bytes: u64,
     directories: BTreeMap<String, BTreeSet<String>>,
     streams: BTreeMap<String, File>,
+    common: Option<Arc<crate::prepared::Bytes>>,
+    // A temporary read source, discarded when producing Files; never an inherited scene owner.
+    reused: Option<Arc<crate::prepared::Files>>,
+    source: Option<Arc<std::sync::Mutex<Snapshot>>>,
+    read_locks: BTreeMap<String, Arc<std::sync::Mutex<()>>>,
+    missing: BTreeSet<String>,
 }
 
 impl Snapshot {
+    /// Runtime transitions may reuse requested bytes from their preceding
+    /// preparation. Output Files own only those bytes, never this scene owner.
+    pub fn reuse(&mut self, files: Arc<crate::prepared::Files>) -> Result<()> {
+        // Views resolve first reads through their shared source alone.
+        ensure!(
+            self.source.is_none(),
+            "reused inputs must be chosen before a capture is shared"
+        );
+        ensure!(
+            files
+                .library()
+                .is_some_and(|library| self.uses_library(library)),
+            "reused inputs belong to a different content namespace"
+        );
+        self.reused = Some(files);
+        Ok(())
+    }
+
+    pub fn uses_library(&self, library: &Library) -> bool {
+        self.library.layers == library.layers
+    }
+
     pub fn contains_key(&self, path: &str) -> bool {
         self.bytes.contains_key(path)
+            || self
+                .common
+                .as_ref()
+                .is_some_and(|bytes| bytes.contains_key(path))
     }
 
     pub(crate) fn captured(&self) -> CapturedFiles {
@@ -516,11 +578,18 @@ impl Snapshot {
             disk_bytes: self.disk_bytes,
             overrides: self.overrides.clone(),
             files: self.bytes.clone(),
+            common: self.common.clone(),
         }
     }
 
     /// Enumerate the startup index without accessing the filesystem.
     pub fn files_under(&mut self, directory: &str) -> Result<&BTreeSet<String>> {
+        if !self.directories.contains_key(directory)
+            && let Some(source) = &self.source
+        {
+            let paths = source.lock().unwrap().files_under(directory)?.clone();
+            self.directories.insert(directory.into(), paths);
+        }
         validate_path(directory)?;
         ensure!(
             !self.library.index.files.contains_key(directory),
@@ -547,6 +616,7 @@ impl Snapshot {
             disk_bytes: self.disk_bytes,
             overrides: self.overrides,
             files: self.bytes,
+            common: self.common,
         }
     }
 
@@ -559,55 +629,91 @@ impl Snapshot {
     }
 
     pub fn read(&mut self, path: &str, limit: usize) -> Result<Arc<[u8]>> {
-        validate_path(path)?;
-        if !self.bytes.contains_key(path) {
-            let (bytes, overrides) = if let Some((selected, bytes)) = self
-                .library
-                .index
-                .files
-                .get(path)
-                .and_then(|file| file.resolved.as_ref().map(|bytes| (file, bytes)))
-            {
-                ensure!(
-                    bytes.len() <= limit,
-                    "content resource exceeds {limit} bytes: {path}"
-                );
-                (bytes.clone(), selected.overrides.clone())
-            } else if path == DESCRIPTOR {
-                (
-                    serde_json::to_vec_pretty(&self.library.descriptor)?.into(),
-                    vec![],
-                )
-            } else {
-                let (physical, overrides) = self.select(path)?;
-                let bytes = read_limited(&physical, limit)
-                    .with_context(|| format!("read content {path}"))?;
-                self.disk_bytes += bytes.len() as u64;
-                (bytes.into(), overrides)
-            };
-            self.bytes.insert(path.into(), bytes);
-            self.overrides.extend(overrides);
-        }
-        let captured = &self.bytes[path];
-        ensure!(
-            captured.len() <= limit,
-            "content resource exceeds {limit} bytes: {path}"
-        );
-        Ok(captured.clone())
+        self.observe(path, limit, false)?
+            .with_context(|| format!("missing content resource {path}"))
     }
 
-    /// Capture an optional resource from the startup selection. A new
-    /// preparation refreshes ordinary media; resolved metadata stays at startup.
-    /// Additions require reopening the library.
+    /// Absence is retained too. Namespace additions require reopening the library.
     pub fn read_optional(&mut self, path: &str, limit: usize) -> Result<Option<Arc<[u8]>>> {
+        self.observe(path, limit, true)
+    }
+
+    fn observe(&mut self, path: &str, limit: usize, optional: bool) -> Result<Option<Arc<[u8]>>> {
         validate_path(path)?;
-        if !self.bytes.contains_key(path)
-            && path != DESCRIPTOR
-            && self.select_optional(path)?.is_none()
-        {
+        if self.missing.contains(path) {
+            ensure!(
+                optional,
+                "missing content resource {path} in this preparation"
+            );
             return Ok(None);
         }
-        self.read(path, limit).map(Some)
+        if self.source.is_some() && !self.bytes.contains_key(path) {
+            return self.observe_shared(path, limit, optional);
+        }
+        let checked = |bytes: Arc<[u8]>| -> Result<_> {
+            ensure!(
+                bytes.len() <= limit,
+                "content resource exceeds {limit} bytes: {path}"
+            );
+            Ok(Some(bytes))
+        };
+        if let Some(bytes) = self
+            .bytes
+            .get(path)
+            .or_else(|| self.common.as_ref().and_then(|bytes| bytes.get(path)))
+        {
+            return checked(bytes.clone());
+        }
+        if let Some((files, bytes)) = self
+            .reused
+            .as_ref()
+            .and_then(|files| files.read(path).ok().map(|bytes| (files, bytes)))
+        {
+            let result = checked(bytes.clone())?;
+            self.overrides.extend(
+                files
+                    .overrides()
+                    .iter()
+                    .filter(|row| row.path == path)
+                    .cloned(),
+            );
+            self.bytes.insert(path.into(), bytes);
+            return Ok(result);
+        }
+        let captured = if let Some(selected) = self.library.index.files.get(path)
+            && let Some(bytes) = &selected.resolved
+        {
+            Some((bytes.clone(), selected.overrides.clone()))
+        } else if path == DESCRIPTOR {
+            Some((
+                serde_json::to_vec_pretty(&self.library.descriptor)?.into(),
+                vec![],
+            ))
+        } else {
+            self.open_optional(path)?
+                .map(|(file, overrides)| -> Result<_> {
+                    let bytes =
+                        read_opened(file, limit).with_context(|| format!("read content {path}"))?;
+                    self.disk_bytes += bytes.len() as u64;
+                    Ok((Arc::<[u8]>::from(bytes), overrides))
+                })
+                .transpose()?
+        };
+        let Some((bytes, overrides)) = captured else {
+            let kind = if is_mapping(path) {
+                "mapping"
+            } else {
+                "resource"
+            };
+            ensure!(optional, "missing content {kind} {path}");
+            self.missing.insert(path.into());
+            return Ok(None);
+        };
+        let bytes: Arc<[u8]> = bytes.into();
+        let result = checked(bytes.clone())?;
+        self.bytes.insert(path.into(), bytes);
+        self.overrides.extend(overrides);
+        Ok(result)
     }
 
     pub fn json<T: de::DeserializeOwned>(&mut self, path: &str, limit: usize) -> Result<T> {
@@ -626,9 +732,18 @@ impl Snapshot {
 
     pub fn resolve(&mut self, mapping: &str, id: u32, entry: Option<&str>) -> Result<String> {
         let path = self.mappings(mapping)?.resolve(mapping, id, entry)?;
-        if !self.bytes.contains_key(&path) {
-            self.select(&path)
-                .with_context(|| format!("{mapping} ID {id} refers to {path}"))?;
+        if !self.contains_key(&path)
+            && !self
+                .reused
+                .as_ref()
+                .is_some_and(|files| files.contains_key(&path))
+            && !self
+                .source
+                .as_ref()
+                .is_some_and(|source| source.lock().unwrap().contains_key(&path))
+        {
+            self.select_optional(&path)?
+                .with_context(|| format!("{mapping} ID {id} refers to missing {path}"))?;
         }
         Ok(path)
     }
@@ -644,6 +759,20 @@ impl Snapshot {
     /// Keep this handle alive for streamed playback. Do not reopen through the
     /// base root, which would lose mod selection and replacement-file identity.
     pub fn open_stream(&mut self, path: &str) -> Result<File> {
+        if !self.streams.contains_key(path)
+            && let Some(source) = &self.source
+        {
+            let mut source = source.lock().unwrap();
+            let file = source.open_stream(path)?;
+            self.overrides.extend(
+                source
+                    .overrides
+                    .iter()
+                    .filter(|row| row.path == path)
+                    .cloned(),
+            );
+            self.streams.insert(path.into(), file);
+        }
         validate_path(path)?;
         ensure!(path != DESCRIPTOR, "metadata is not a stream: {path}");
         if !self.streams.contains_key(path) {
@@ -655,15 +784,11 @@ impl Snapshot {
                     .is_none_or(|file| file.resolved.is_none()),
                 "resolved metadata is not a media stream: {path}"
             );
-            let (physical, overrides) = self.select(path)?;
-            let file =
-                File::open(&physical).with_context(|| format!("open content stream {path}"))?;
-            ensure!(
-                file.metadata()?.is_file(),
-                "content stream is not a file: {path}"
-            );
+            let (file, overrides) = self
+                .open_optional(path)?
+                .with_context(|| format!("missing content stream {path}"))?;
             self.overrides.extend(overrides);
-            self.streams.insert(path.into(), file);
+            self.streams.insert(path.into(), file.file);
         }
         // A repeated capture retains the same selected file even after atomic
         // path replacement. Media readers use positional I/O: duplicated OS
@@ -671,9 +796,21 @@ impl Snapshot {
         Ok(self.streams[path].try_clone()?)
     }
 
-    fn select(&self, path: &str) -> Result<(PathBuf, Vec<Override>)> {
-        self.select_optional(path)?
-            .with_context(|| format!("missing content resource {path}"))
+    fn open_optional(&self, path: &str) -> Result<Option<(Opened, Vec<Override>)>> {
+        let Some((physical, overrides)) = self.select_optional(path)? else {
+            return Ok(None);
+        };
+        let layer = self
+            .library
+            .layers
+            .iter()
+            .rev()
+            .find(|layer| layer.root.join(path) == physical)
+            .context("selected content file has no owning layer")?;
+        let file = layer
+            .open(path)?
+            .with_context(|| format!("selected content resource disappeared: {path}"))?;
+        Ok(Some((file, overrides)))
     }
 
     fn select_optional(&self, path: &str) -> Result<Option<(PathBuf, Vec<Override>)>> {
@@ -692,7 +829,24 @@ impl Snapshot {
 
 fn read_limited(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let file = File::open(path).with_context(|| path.display().to_string())?;
-    let length = file.metadata()?.len();
+    let metadata = file.metadata()?;
+    read_opened(
+        Opened {
+            file,
+            path: path.to_owned(),
+            metadata,
+        },
+        limit,
+    )
+}
+
+fn read_opened(opened: Opened, limit: usize) -> Result<Vec<u8>> {
+    let Opened {
+        file,
+        path,
+        metadata,
+    } = opened;
+    let length = metadata.len();
     ensure!(
         length <= limit as u64,
         "content resource exceeds {limit} bytes: {}",

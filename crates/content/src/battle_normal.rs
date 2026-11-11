@@ -94,6 +94,26 @@ impl<H> Event<H> {
     }
 }
 
+impl Event {
+    /// Timeline audio and explicit contact/projectile feedback share one owner.
+    pub fn sounds(&self) -> impl Iterator<Item = Sound> {
+        let direct = match self {
+            Self::Sound(id) => Some(Sound::Cue(*id)),
+            Self::Voice(sound) => *sound,
+            _ => None,
+        };
+        let contact = self.hit().and_then(|hit| hit.sound).map(Sound::Cue);
+        let projectile = match self {
+            Self::Projectile {
+                feedback: Some(feedback),
+                ..
+            } => Some(Sound::Cue(feedback.sound)),
+            _ => None,
+        };
+        [direct, contact, projectile].into_iter().flatten()
+    }
+}
+
 /// Directional successors and the selection used for any other input.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Continuation {

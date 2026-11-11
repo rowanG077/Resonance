@@ -114,6 +114,7 @@ fn composite(
     }
 }
 
+#[derive(Clone)]
 struct Canvas {
     image: Handle<Image>,
     surface: Handle<Surface>,
@@ -121,6 +122,7 @@ struct Canvas {
     painted: Option<(u32, Vec<PortraitTile>)>,
 }
 
+#[derive(Clone)]
 pub(super) struct Artwork {
     catalog: Arc<SkitCatalog>,
     images: BTreeMap<u32, Vec<Handle<Image>>>,
@@ -223,26 +225,7 @@ impl Artwork {
         for canvas in &mut self.canvases {
             canvas.painted = None;
         }
-        let mut allocate = |material: Handle<Surface>, depth| {
-            let mut batch = Batch::default();
-            batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-            let mesh = meshes.add(batch.mesh([1, 1]));
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    Transform::from_xyz(0., 0., depth),
-                    Visibility::Hidden,
-                ))
-                .id();
-            Layer {
-                entity,
-                mesh,
-                material,
-                uploaded: None,
-                visible: false,
-            }
-        };
+        let mut allocate = |material, depth| Layer::new(material, depth, commands, meshes);
         self.layers.push(allocate(self.background.clone(), 4.));
         self.layers.push(allocate(self.font.clone(), 9.));
         for (index, canvas) in self.canvases.iter().enumerate() {

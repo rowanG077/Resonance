@@ -462,8 +462,9 @@ supported reload boundary. It recreates the asset server, image and sampler
 caches, and scene preparations from the effective library and mod files.
 Re-entering a field or reopening a preview does not reload edits. Preparations
 retain the files they selected, and a playing recording keeps its open file
-handle; finish exports before starting a new run. An atomic file replacement is
-preferable to rewriting an open WAV in place.
+handle. Stop Resonance and finish exports before cooking or overwriting these
+files. Cooking writes directly to the output directory and overwrites existing
+files.
 
 The game automatically loads directories in `local/mods`. Names must begin with
 exactly six digits, a hyphen and a nonempty mod name:

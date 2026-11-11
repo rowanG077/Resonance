@@ -195,7 +195,8 @@ mod tests;
 #[cfg(feature = "test-support")]
 pub use effect::FixtureEffectBirth;
 pub use effect::{
-    EffectBank, EffectDefinition, EffectFollow, EffectRequest, Effects, HeadAnchor, PassiveEffect,
+    EffectBank, EffectDefinition, EffectFollow, EffectLibrary, EffectRequest, Effects, HeadAnchor,
+    PassiveEffect,
 };
 
 pub use weapon_flight::WeaponFlightFrame;

@@ -1,132 +1,74 @@
-//! Exercise the live material/mesh specializations before a field is visible.
-use super::{field_view::Art, loading::Resident, materials::TitleSurface};
-use bevy::{
-    camera::{
-        RenderTarget,
-        visibility::{NoFrustumCulling, RenderLayers},
-    },
-    core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d, tonemapping::Tonemapping},
-    mesh::{BaseMeshPipelineKey, MeshVertexBufferLayoutRef, MeshVertexBufferLayouts},
-    prelude::*,
-    render::{
-        render_asset::RenderAssets,
-        render_phase::ViewSortedRenderPhases,
-        render_resource::{CachedPipelineState, CachedRenderPipelineId, TextureFormat},
-        sync_world::MainEntity,
-        texture::GpuImage,
-    },
-    world_serialization::WorldInstanceReady,
-};
+//! Prepare the renderer's own pipelines before a field is visible.
+use super::{field_view::Art, gpu_prepare as gpu, loading::Resident, materials::TitleSurface};
+use bevy::{ecs::system::SystemParam, prelude::*};
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    collections::HashMap,
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Instant,
 };
-const LAYER: usize = 30;
-
-enum MaterialVariant {
-    Actor {
-        depth_write: bool,
-        lighting: bool,
-        blend: Option<resonance_events::effect::Blend>,
-        two_sided: bool,
-    },
-    Override {
-        blend: resonance_events::effect::Blend,
-        depth_write: bool,
-    },
-}
 
 #[derive(Resource, Clone, Default)]
 pub(super) struct Shared(Arc<Mutex<Report>>);
 #[derive(Default)]
 struct Report {
     map: Option<u32>,
-    expected: HashSet<MainEntity>,
-    images: HashSet<AssetId<Image>>,
-    pipelines: HashSet<CachedRenderPipelineId>,
-    armed: bool,
-    submitted: bool,
-    completed: Arc<AtomicBool>,
-    failure: Option<String>,
-    seen: usize,
-    missing: Vec<MainEntity>,
+    draws: gpu::Report,
 }
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 struct Preparation {
     map: u32,
-    roots: Vec<Entity>,
-    entities: Vec<Entity>,
-    scene_count: usize,
-    converted: usize,
     started: Instant,
-    effects_copied: bool,
-    retained: Bindings,
+    early: bool,
+    samples: u32,
 }
-#[derive(Resource)]
-struct PreparedMaterials {
-    fields: HashMap<u32, Bindings>,
+#[derive(SystemParam)]
+struct Gpu<'w, 's> {
+    images: ResMut<'w, Assets<Image>>,
+    surfaces: ResMut<'w, Assets<TitleSurface>>,
+    variants: ResMut<'w, Pipelines>,
+    cameras: Query<'w, 's, &'static Msaa, With<super::FieldCamera>>,
 }
-#[derive(Clone, Default)]
-struct Bindings {
-    surfaces: Vec<Handle<TitleSurface>>,
-    // The sampler cache holds weak handles. Hidden actors still need their
-    // sampled images retained even when another model warms their pipeline.
-    images: HashSet<Handle<Image>>,
-}
-#[derive(Component)]
-struct Scene {
-    materials: Vec<Option<Handle<TitleSurface>>>,
-    loaded: bool,
-    converted: bool,
-    draws: Vec<MainEntity>,
-}
-
-/// Pipeline specialization depends on mesh layout and material features, not
-/// the model, texture identity or number of instances using them.
-#[derive(Clone, PartialEq, Eq, Hash)]
-struct MeshKey {
-    bits: u64,
-    layout: MeshVertexBufferLayoutRef,
-}
-impl MeshKey {
-    fn new(mesh: &Mesh, layouts: &mut MeshVertexBufferLayouts) -> Self {
-        let bits = BaseMeshPipelineKey::from_primitive_topology_and_strip_index(
-            mesh.primitive_topology(),
-            mesh.indices().map(|indices| match indices {
-                bevy::mesh::Indices::U16(_) => bevy::render::render_resource::IndexFormat::Uint16,
-                bevy::mesh::Indices::U32(_) => bevy::render::render_resource::IndexFormat::Uint32,
-            }),
-        );
-        // Morph targets are disabled in the renderer's Bevy feature set.
-        Self {
-            bits: bits.bits(),
-            layout: mesh.get_mesh_vertex_buffer_layout(layouts),
-        }
+impl Preparation {
+    fn retire(&self, commands: &mut Commands) {
+        commands.remove_resource::<Preparation>();
     }
 }
 
+// Structural pipeline representatives contain no scene textures. The finite
+// material-state cache is shared by all fields; actual sampler views live in Part.
+#[derive(Resource, Default)]
+struct Pipelines(HashMap<super::materials::SurfaceKey, Handle<TitleSurface>>);
 pub(super) fn install(app: &mut App) {
     let shared = Shared::default();
     let resident = app.world().resource::<Resident>().clone();
-    app.insert_resource(shared.clone()).add_systems(
-        Update,
-        (retire, begin, convert, effects, complete, guard)
-            .chain()
-            .after(super::field_view::FieldPreparation)
-            .run_if(super::battle::field_running),
-    );
-    app.get_sub_app_mut(bevy::render::RenderApp)
-        .unwrap()
-        .insert_resource(shared)
-        .insert_resource(resident)
-        .add_systems(
-            bevy::render::Render,
-            rendered.in_set(bevy::render::RenderSystems::Cleanup),
+    app.world()
+        .resource::<crate::gpu_prepare::Registry>()
+        .watch(
+            &shared.0,
+            |report| &mut report.draws,
+            Some((resident.diagnostics.clone(), "field draw pipeline")),
+            {
+                let resident = resident.clone();
+                move |report, _, observer| rendered(report, &resident, observer)
+            },
         );
+    app.init_resource::<Pipelines>()
+        .insert_resource(shared.clone())
+        .add_systems(
+            Update,
+            (retire, resolve_prefetch, begin, complete, guard)
+                .chain()
+                .after(super::field_view::FieldPreparation)
+                .run_if(super::battle::field_running),
+        )
+        .add_systems(
+            PostUpdate,
+            capture_frame
+                .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
+                .run_if(super::battle::field_running),
+        );
+    app.sub_app_mut(bevy::render::RenderApp)
+        .insert_resource(resident);
 }
 
 fn retire(
@@ -135,10 +77,27 @@ fn retire(
     pending: Option<Res<super::loading::Pending>>,
     resident: Res<Resident>,
     preparation: Option<Res<Preparation>>,
-    retained: Option<Res<PreparedMaterials>>,
     shared: Res<Shared>,
+    field: Option<Res<super::loading::FieldPending>>,
 ) {
-    if session.as_ref().is_some_and(|s| s.is_field()) || pending.is_some() {
+    if preparation.as_ref().is_some_and(|preparation| {
+        preparation.early
+            && field
+                .as_ref()
+                .is_some_and(|pending| pending.map == preparation.map)
+    }) {
+        return; // The source can be an overworld scene while its field destination warms.
+    }
+    let stale = preparation.as_ref().is_some_and(|preparation| {
+        preparation.early
+            && !field
+                .as_ref()
+                .is_some_and(|pending| pending.map == preparation.map)
+            && !session
+                .as_ref()
+                .is_some_and(|session| session.is_field() && session.map_id() == preparation.map)
+    });
+    if !stale && (session.as_ref().is_some_and(|s| s.is_field()) || pending.is_some()) {
         return;
     }
     if session.is_none() {
@@ -147,16 +106,135 @@ fn retire(
         // transitions own that snapshot; retiring field GPU work must keep it.
     }
     if let Some(preparation) = preparation {
-        for entity in preparation.roots.iter().chain(&preparation.entities) {
-            commands.entity(*entity).despawn();
-        }
-        commands.remove_resource::<Preparation>();
-    }
-    if retained.is_some() {
-        commands.remove_resource::<PreparedMaterials>();
+        preparation.retire(&mut commands);
     }
     if shared.0.lock().unwrap().map.is_some() {
         *shared.0.lock().unwrap() = Report::default();
+    }
+}
+
+impl Preparation {
+    fn models<'a>(
+        &self,
+        models: impl Iterator<Item = &'a super::field_view::Part>,
+        gpu: &mut Gpu,
+        report: &mut Report,
+    ) {
+        profile_span!("field pipeline requests");
+        let mut groups = HashMap::new();
+        for part in models {
+            report.draws.images.extend(
+                part.materials
+                    .iter()
+                    .flat_map(|material| material.sampled.iter().flatten().map(Handle::id)),
+            );
+            for draw in part
+                .layout
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .filter_map(|node| node.draw.as_ref())
+            {
+                let spec = &part.spec.materials[draw.slot.0];
+                let constant = part.spec.outline_color_for(spec).is_some();
+                let materials = groups
+                    .entry((constant, spec.cull, spec.blend))
+                    .or_insert_with(|| {
+                        let actor = TitleSurface {
+                            constant_color: constant,
+                            cull: spec.cull,
+                            ..default()
+                        };
+                        model_variants(&actor, spec.blend)
+                            .into_iter()
+                            .map(|surface| {
+                                gpu.variants
+                                    .0
+                                    .entry((&surface).into())
+                                    .or_insert_with(|| gpu.surfaces.add(surface))
+                                    .clone()
+                            })
+                            .collect::<Vec<_>>()
+                    });
+                for material in materials.iter() {
+                    report.draws.prepare(
+                        crate::gpu_prepare::View::Field,
+                        draw.mesh.id(),
+                        material.id().untyped(),
+                        false,
+                        Some(self.samples),
+                    );
+                }
+            }
+        }
+    }
+}
+
+// Scripts can draw any loaded model as an actor or a particle. Enumerate the
+// structural material keys once; textures and lighting share those pipelines.
+fn model_variants(surface: &TitleSurface, blended: bool) -> Vec<TitleSurface> {
+    use resonance_events::effect::Blend;
+    let mut variants = Vec::new();
+    for depth_write in [false, true] {
+        let base = TitleSurface {
+            blend: blended.then_some(Blend::Alpha),
+            depth_write,
+            ..surface.clone()
+        };
+        variants.push(base.clone());
+        for blend in Blend::ACTOR_MODES {
+            for cull in [base.cull, resonance_content::CullFace::None] {
+                variants.push(TitleSurface {
+                    blend: Some(blend),
+                    cull,
+                    ..base.clone()
+                });
+            }
+        }
+        for blend in [Blend::Alpha, Blend::Additive, Blend::Subtractive] {
+            let mut surface = surface.clone();
+            super::field_model_particles::material(&mut surface, blend);
+            surface.depth_write = depth_write;
+            variants.push(surface);
+        }
+    }
+    variants
+}
+
+fn resolve_prefetch(
+    graphics: Option<ResMut<super::loading::FieldPrefetch>>,
+    pending: Option<Res<super::loading::FieldPending>>,
+    session: Option<Res<super::new_game::Session>>,
+    mut assets: super::model_asset::ModelAssets,
+) {
+    let Some(mut graphics) = graphics else { return };
+    if graphics.disabled
+        || !(pending.is_some_and(|pending| pending.map == graphics.map)
+            || session
+                .is_some_and(|session| session.is_field() && session.map_id() == graphics.map))
+    {
+        return;
+    }
+    let resolved = (|| -> anyhow::Result<_> {
+        let mut changed = Vec::new();
+        for (&resource, parts) in &mut graphics.models {
+            for (index, part) in parts.iter_mut().enumerate() {
+                anyhow::ensure!(
+                    part.load_error(&assets.server).is_none(),
+                    "early field model failed"
+                );
+                let unresolved = part.layout.is_none();
+                if part.resolve(&mut assets)? && unresolved {
+                    changed.push((resource, index));
+                }
+            }
+        }
+        Ok(changed)
+    })();
+    match resolved {
+        Ok(changed) => graphics.changed.extend(changed),
+        Err(_) => graphics.disabled = true, // Full capture keeps its normal error policy.
     }
 }
 
@@ -164,12 +242,13 @@ fn retire(
 fn begin(
     mut commands: Commands,
     art: Option<Res<Art>>,
-    preparation: Option<Res<Preparation>>,
+    effects: Option<Res<super::field_effects::Artwork>>,
+    mut graphics: Option<ResMut<super::loading::FieldPrefetch>>,
+    pending: Option<Res<super::loading::FieldPending>>,
+    mut preparation: Option<ResMut<Preparation>>,
     resident: Res<Resident>,
     shared: Res<Shared>,
-    mut images: ResMut<Assets<Image>>,
-    mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut sampled: ResMut<super::scene::SampledImages>,
+    mut gpu: Gpu,
     ui: Option<Res<super::field_ui::Artwork>>,
     ui_materials: Res<Assets<super::field_ui::Surface>>,
     server: Res<AssetServer>,
@@ -179,414 +258,255 @@ fn begin(
         (&Mesh2d, &MeshMaterial2d<super::menu_backdrop::Material>),
         With<super::menu_backdrop::Quad>,
     >,
-    scenes: Res<Assets<WorldAsset>>,
-    meshes: Res<Assets<Mesh>>,
 ) {
-    let Some(art) = art.filter(|a| a.ready) else {
-        return;
-    };
-    if session.is_none_or(|s| {
-        s.overworld().is_some()
-            || s.map_id() != art.map
-            || s.events().world.field_transition.is_some()
-            || s.events().world.world_transition.is_some()
-    }) {
-        return;
-    }
-    if resident.active.load(Ordering::Acquire)
-        || preparation.as_ref().is_some_and(|p| p.map == art.map)
+    let art = art.filter(|art| {
+        art.ready
+            && session.as_ref().is_some_and(|session| {
+                session.is_field()
+                    && session.map_id() == art.map
+                    && session.events().world.field_transition.is_none()
+                    && session.events().world.world_transition.is_none()
+            })
+    });
+    let samples = gpu.cameras.single().map_or(1, Msaa::samples);
+    if let Some(art) = &art
+        && (resident.active.load(Ordering::Acquire)
+            || preparation
+                .as_ref()
+                .is_some_and(|p| p.map == art.map && !p.early))
     {
         return;
     }
-    let Some(ui) = ui else {
-        return;
+    let early = art.is_none();
+    let (map, models, toon) = match &art {
+        Some(art) => (art.map, &art.models, &art.toon_ramp),
+        None => {
+            let Some(graphics) = graphics.as_ref().filter(|graphics| {
+                !graphics.changed.is_empty()
+                    && !graphics.disabled
+                    && gpu.images.contains(&graphics.toon_ramp)
+                    && preparation
+                        .as_ref()
+                        .is_none_or(|p| p.early && p.map == graphics.map)
+                    && (pending
+                        .as_ref()
+                        .is_some_and(|pending| pending.map == graphics.map)
+                        || session.as_ref().is_some_and(|session| {
+                            session.is_field() && session.map_id() == graphics.map
+                        }))
+            }) else {
+                return;
+            };
+            (graphics.map, &graphics.models, &graphics.toon_ramp)
+        }
     };
-    match ui.essential_ready(&images, &server) {
-        Ok(true) => {}
-        Ok(false) => return,
-        Err(error) => {
-            failures.fatal("field essential artwork", error);
+    let backdrop = if early {
+        None
+    } else {
+        let Some(ui) = &ui else { return };
+        if effects.is_none() {
             return;
         }
+        match ui.essential_ready(&gpu.images, &server) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                failures.fatal("field essential artwork", error);
+                return;
+            }
+        }
+        let Ok((mesh, material)) = backdrop.single() else {
+            return;
+        };
+        Some((mesh.clone(), material.clone()))
+    };
+    let staged = preparation
+        .as_deref_mut()
+        .filter(|p| p.map == map && p.early);
+    let (mut preparation, mut report) = match staged {
+        Some(staged) => (
+            staged.clone(),
+            std::mem::take(&mut *shared.0.lock().unwrap()),
+        ),
+        None => (
+            Preparation {
+                map,
+                early,
+                samples,
+                started: Instant::now(),
+            },
+            Report {
+                map: Some(map),
+                ..Default::default()
+            },
+        ),
+    };
+    preparation.early = early;
+    preparation.started = Instant::now();
+    // Early uploads can finish independently. Final admission also needs the
+    // newly instantiated scene's materials and actual draws, captured below.
+    report.draws.restart_submission(early);
+    if let Some((backdrop_mesh, backdrop_material)) = backdrop {
+        let art = art.as_ref().unwrap();
+        let ui = ui.as_ref().unwrap();
+        // Loading may freeze the live cameras until preparation finishes. Warm the
+        // menu backdrop offscreen too, so readiness never depends on that frozen view.
+        report.draws.prepare(
+            crate::gpu_prepare::View::Field,
+            backdrop_mesh.0.id(),
+            backdrop_material.0.id().untyped(),
+            true,
+            Some(samples),
+        );
+        if let Some(panorama) = &art.panorama
+            && let Some(draw) = &panorama.draw
+        {
+            report.draws.prepare(
+                crate::gpu_prepare::View::Field,
+                draw.mesh.id(),
+                draw.material.id().untyped(),
+                false,
+                Some(samples),
+            );
+            report.draws.images.insert(panorama.image.id());
+        }
+        for (mesh, material, essential) in ui.prepared_layers() {
+            // Optional pages may still be loading, or may never be selected. Their
+            // missing textures must not enter the mandatory submission fence.
+            if !essential
+                && !ui_materials
+                    .get(material)
+                    .is_some_and(|surface| surface.images_ready(&gpu.images))
+            {
+                continue;
+            }
+            report.draws.prepare(
+                crate::gpu_prepare::View::Field,
+                mesh.id(),
+                material.id().untyped(),
+                true,
+                Some(samples),
+            );
+        }
     }
-    let Ok((backdrop_mesh, backdrop_material)) = backdrop.single() else {
+    if !early {
+        // The loader creates these immutable bindings before Art becomes ready.
+        // They share the models/UI upload, specialization and submission gate.
+        for (mesh, material) in effects
+            .as_ref()
+            .unwrap()
+            .prepared_bindings()
+            .chain(art.as_ref().and_then(|a| a.shadow_binding()))
+        {
+            report.draws.prepare(
+                crate::gpu_prepare::View::Field,
+                mesh.id(),
+                material.id().untyped(),
+                false,
+                Some(samples),
+            );
+        }
+    }
+    report.draws.images.insert(toon.id());
+    if early || art.as_ref().is_some_and(|art| art.gpu != Some(samples)) {
+        preparation.models(
+            models.iter().flat_map(|(&resource, parts)| {
+                let graphics = &graphics;
+                parts.iter().enumerate().filter_map(move |(index, part)| {
+                    (part.layout.is_some()
+                        && (!early
+                            || graphics
+                                .as_ref()
+                                .unwrap()
+                                .changed
+                                .contains(&(resource, index))))
+                    .then_some(part)
+                })
+            }),
+            &mut gpu,
+            &mut report,
+        );
+    }
+    if early {
+        graphics.as_mut().unwrap().changed.clear();
+    }
+    let count = report.draws.material_bindings.len();
+    *shared.0.lock().unwrap() = report;
+    if !early {
+        commands.remove_resource::<super::loading::FieldPrefetch>();
+        info!("Field {} preparing {} pipeline bindings", map, count);
+    }
+    commands.insert_resource(preparation);
+}
+
+fn capture_frame(world: &mut World) {
+    let Some(preparation) = world.get_resource::<Preparation>() else {
         return;
     };
-    let mut entities = Vec::new();
-    let mut report = Report {
-        map: Some(art.map),
-        ..Default::default()
-    };
-    let target = images.add(Image::new_target_texture(
-        64,
-        64,
-        TextureFormat::Bgra8Unorm,
-        None,
-    ));
-    entities.push(
-        commands
-            .spawn((
-                Camera3d::default(),
-                // Match FieldCamera even before a script enables fog.
-                DistanceFog::default(),
-                Camera {
-                    order: -20,
-                    ..default()
-                },
-                RenderTarget::Image(target.clone().into()),
-                RenderLayers::layer(LAYER),
-                Msaa::Off,
-                Tonemapping::Linear,
-                Projection::custom(super::camera::TitleProjection(
-                    PerspectiveProjection::default(),
-                )),
-                Transform::from_xyz(0., -1000., 500.).looking_at(Vec3::ZERO, Vec3::Z),
-            ))
-            .id(),
-    );
-    entities.push(
-        commands
-            .spawn((
-                Camera2d,
-                Camera {
-                    order: -19,
-                    clear_color: ClearColorConfig::None,
-                    ..default()
-                },
-                RenderTarget::Image(target.into()),
-                RenderLayers::layer(LAYER),
-                Msaa::Off,
-                Tonemapping::Linear,
-            ))
-            .id(),
-    );
-    // Loading may freeze the live cameras until preparation finishes. Warm the
-    // menu backdrop offscreen too, so readiness never depends on that frozen view.
-    let backdrop = commands
-        .spawn((
-            backdrop_mesh.clone(),
-            backdrop_material.clone(),
-            Transform::default(),
-            RenderLayers::layer(LAYER),
-            NoFrustumCulling,
-        ))
-        .id();
-    report.expected.insert(backdrop.into());
-    entities.push(backdrop);
-    if let Some(panorama) = &art.panorama
-        && let Some(draw) = &panorama.draw
-    {
-        let entity = commands
-            .spawn((
-                Mesh3d(draw.mesh.clone()),
-                MeshMaterial3d(draw.material.clone()),
-                Transform::default(),
-                RenderLayers::layer(LAYER),
-                NoFrustumCulling,
-            ))
-            .id();
-        report.expected.insert(entity.into());
-        report.images.insert(panorama.image.id());
-        entities.push(entity);
+    if preparation.early {
+        return;
     }
-    for (mesh, material, essential) in ui.prepared_layers() {
-        // Optional pages may still be loading, or may never be selected. Their
-        // missing textures must not enter the mandatory submission fence.
-        if !essential
-            && !ui_materials
-                .get(material)
-                .is_some_and(|surface| surface.images_ready(&images))
+    let shared = world.resource::<Shared>().clone();
+    if shared.0.lock().unwrap().draws.armed || !super::field_view::ready(world) {
+        return;
+    }
+    let mut report = shared.0.lock().unwrap();
+    // Visibility has been resolved for the held opening pose. Waiting on the
+    // current bindings matters even when geometry and pipelines were retained.
+    capture_draws(world, &mut report.draws);
+    report.draws.armed = true;
+}
+
+fn capture_draws(world: &mut World, report: &mut gpu::Report) {
+    use bevy::camera::visibility::{RenderLayers, VisibleEntities};
+    use std::any::TypeId;
+
+    let layers = RenderLayers::from_layers(&[0, 3]);
+    for (camera, visible, render_layers, model) in world
+        .query_filtered::<(
+            &Camera,
+            &VisibleEntities,
+            Option<&RenderLayers>,
+            Has<Camera3d>,
+        ), Or<(With<Camera3d>, With<Camera2d>)>>()
+        .iter(world)
+    {
+        if !camera.is_active
+            || !render_layers
+                .unwrap_or(&Default::default())
+                .intersects(&layers)
         {
             continue;
         }
-        let entity = commands
-            .spawn((
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(320., -240., 0.),
-                RenderLayers::layer(LAYER),
-                NoFrustumCulling,
-            ))
-            .id();
-        report.expected.insert(entity.into());
-        entities.push(entity);
-    }
-    let mut roots = Vec::new();
-    let mut retained = Bindings::default();
-    let mut layouts = MeshVertexBufferLayouts::default();
-    let mut prepared = HashSet::new();
-    for (&resource, parts) in &art.models {
-        for (index, part) in parts.iter().enumerate() {
-            let scene = scenes.get(&part.scene).expect("prepared field scene");
-            let mut geometry = vec![Vec::new(); part.spec.materials.len()];
-            if let Some(mut query) = scene
-                .world
-                .try_query::<(&Mesh3d, &super::materials::MaterialSlot)>()
-            {
-                for (mesh, slot) in query.iter(&scene.world) {
-                    let slot = slot.index(geometry.len()).expect("validated material slot");
-                    geometry[slot].push(MeshKey::new(
-                        meshes.get(&mesh.0).expect("prepared field mesh"),
-                        &mut layouts,
-                    ));
-                }
-            }
-            // Resolve every sampler once, including those needed by hidden
-            // actors. GPU warmup only needs representatives of distinct keys.
-            let actor_surfaces: Vec<_> = art
-                .surfaces(resource, index, &mut images, &mut sampled)
-                .collect();
-            let particle_surfaces = part.surfaces(&mut images, &mut sampled);
-            retained
-                .images
-                .extend(
-                    actor_surfaces
-                        .iter()
-                        .chain(&particle_surfaces)
-                        .flat_map(|surface| {
-                            surface
-                                .color
-                                .iter()
-                                .chain(&surface.sampling)
-                                .chain(&surface.multiply)
-                                .chain(&surface.toon_ramp)
-                                .cloned()
-                        }),
-                );
-            // Scripts may draw any loaded model as an actor or a model particle.
-            // Warm every blend/depth key, including currently hidden geometry.
-            use resonance_events::effect::Blend;
-            for variant in [false, true]
-                .into_iter()
-                .flat_map(|depth_write| {
-                    [false, true].into_iter().flat_map(move |lighting| {
-                        std::iter::once((None, false))
-                            .chain(Blend::ACTOR_MODES.into_iter().flat_map(|blend| {
-                                [false, true].map(|two_sided| (Some(blend), two_sided))
-                            }))
-                            .map(move |(blend, two_sided)| MaterialVariant::Actor {
-                                depth_write,
-                                lighting,
-                                blend,
-                                two_sided,
-                            })
-                    })
-                })
-                .chain(
-                    [Blend::Alpha, Blend::Additive, Blend::Subtractive]
-                        .into_iter()
-                        .flat_map(|blend| {
-                            [false, true]
-                                .map(|depth_write| MaterialVariant::Override { blend, depth_write })
-                        }),
-                )
-            {
-                let source = match variant {
-                    MaterialVariant::Actor { .. } => &actor_surfaces,
-                    MaterialVariant::Override { .. } => &particle_surfaces,
-                };
-                let materials: Vec<_> = source
-                    .iter()
-                    .cloned()
-                    .enumerate()
-                    .map(|(material, mut surface)| {
-                        match variant {
-                            MaterialVariant::Actor {
-                                depth_write,
-                                lighting,
-                                blend,
-                                two_sided,
-                            } => {
-                                surface.blend = blend.or_else(|| {
-                                    part.spec.materials[material].blend.then_some(Blend::Alpha)
-                                });
-                                if two_sided {
-                                    surface.cull = resonance_content::CullFace::None;
-                                }
-                                surface.depth_write = depth_write;
-                                surface.toon_ramp = art.toon_ramp_for(
-                                    resource,
-                                    index,
-                                    &part.spec.materials[material],
-                                    Some(i32::from(lighting)),
-                                );
-                            }
-                            MaterialVariant::Override { blend, depth_write } => {
-                                super::field_model_particles::material(&mut surface, blend);
-                                surface.depth_write = depth_write;
-                            }
-                        }
-                        let key = super::materials::SurfaceKey::from(&surface);
-                        let mut needed = false;
-                        for mesh in &geometry[material] {
-                            needed |= prepared.insert((mesh.clone(), key));
-                        }
-                        if !needed {
-                            return None;
-                        }
-                        let handle = surfaces.add(surface);
-                        retained.surfaces.push(handle.clone());
-                        Some(handle)
-                    })
-                    .collect();
-                if materials.iter().all(Option::is_none) {
-                    continue;
-                }
-                let root = commands
-                    .spawn((
-                        WorldAssetRoot(part.scene.clone()),
-                        Transform::default(),
-                        Visibility::Hidden,
-                        Scene {
-                            materials,
-                            loaded: false,
-                            converted: false,
-                            draws: Vec::new(),
-                        },
-                    ))
-                    .observe(
-                        |event: On<WorldInstanceReady>,
-                         mut scenes: Query<&mut Scene>,
-                         mut preparation: ResMut<Preparation>,
-                         shared: Res<Shared>| {
-                            if let Ok(mut scene) = scenes.get_mut(event.entity) {
-                                // Loading another glTF label can replace an instance.
-                                // Its old entity IDs no longer describe live draws.
-                                if scene.converted {
-                                    preparation.converted -= 1;
-                                    let mut report = shared.0.lock().unwrap();
-                                    for entity in scene.draws.drain(..) {
-                                        report.expected.remove(&entity);
-                                    }
-                                    report.armed = false;
-                                    report.submitted = false;
-                                    report.completed = Arc::new(AtomicBool::new(false));
-                                }
-                                scene.loaded = true;
-                                scene.converted = false;
-                            }
-                        },
-                    )
-                    .id();
-                roots.push(root);
+        // ViewVisibility includes every camera: a 2D view can mark a 3D mesh
+        // visible without ever queuing it. Only wait for this view's draw class.
+        let class = if model {
+            TypeId::of::<Mesh3d>()
+        } else {
+            TypeId::of::<Mesh2d>()
+        };
+        for &entity in visible.iter(class) {
+            let binding = if model {
+                world
+                    .get::<Mesh3d>(entity)
+                    .zip(world.get::<MeshMaterial3d<TitleSurface>>(entity))
+                    .map(|(mesh, material)| (mesh.0.id(), material.0.id().untyped()))
+            } else {
+                world
+                    .get::<Mesh2d>(entity)
+                    .zip(world.get::<MeshMaterial2d<super::field_ui::Surface>>(entity))
+                    .map(|(mesh, material)| (mesh.0.id(), material.0.id().untyped()))
+            };
+            if let Some((mesh, material)) = binding {
+                report.meshes.insert(mesh);
+                report.material_bindings.insert((!model, material));
+                report.expected.insert(entity.into());
             }
         }
     }
-    report.images = retained.images.iter().map(Handle::id).collect();
-    *shared.0.lock().unwrap() = report;
-    let scene_count = roots.len();
-    info!(
-        "Field {} warming {scene_count} scene variants and {} UI layers",
-        art.map,
-        entities.len() - 2
-    );
-    commands.insert_resource(Preparation {
-        map: art.map,
-        roots,
-        entities,
-        scene_count,
-        converted: 0,
-        started: Instant::now(),
-        effects_copied: false,
-        retained,
-    });
 }
 
-fn convert(
-    mut commands: Commands,
-    preparation: Option<ResMut<Preparation>>,
-    shared: Res<Shared>,
-    resident: Res<Resident>,
-    mut scenes: Query<(Entity, &mut Scene)>,
-    children: Query<&Children>,
-    meshes: Query<&super::materials::MaterialSlot>,
-) {
-    let Some(mut preparation) = preparation else {
-        return;
-    };
-    let mut report = shared.0.lock().unwrap();
-    for (root, mut scene) in &mut scenes {
-        if !scene.loaded || scene.converted {
-            continue;
-        }
-        for child in children.iter_descendants(root) {
-            commands.entity(child).insert((
-                RenderLayers::layer(LAYER),
-                Visibility::Inherited,
-                NoFrustumCulling,
-            ));
-            if let Ok(slot) = meshes.get(child) {
-                let index = match slot.index(scene.materials.len()) {
-                    Ok(index) => index,
-                    Err(error) => {
-                        let error = format!("field {}: {error}", preparation.map);
-                        if resident
-                            .diagnostics
-                            .report("field warm draw", anyhow::anyhow!(error.clone()))
-                            .is_err()
-                        {
-                            report.failure = Some(error);
-                        }
-                        commands.entity(child).insert(Visibility::Hidden);
-                        continue;
-                    }
-                };
-                let Some(material) = &scene.materials[index] else {
-                    commands.entity(child).insert(Visibility::Hidden);
-                    continue;
-                };
-                commands
-                    .entity(child)
-                    .insert(MeshMaterial3d(material.clone()));
-                report.expected.insert(child.into());
-                scene.draws.push(child.into());
-            }
-        }
-        commands
-            .entity(root)
-            .insert((Visibility::Inherited, RenderLayers::layer(LAYER)));
-        scene.converted = true;
-        preparation.converted += 1;
-    }
-}
-
-fn effects(
-    mut commands: Commands,
-    preparation: Option<ResMut<Preparation>>,
-    shared: Res<Shared>,
-    art: Option<Res<Art>>,
-    effects: Option<Res<super::field_effects::Artwork>>,
-) {
-    let Some(mut preparation) = preparation else {
-        return;
-    };
-    if preparation.effects_copied || art.as_ref().is_none_or(|a| !a.ready) {
-        return;
-    }
-    let Some(effects) = effects else { return };
-    let mut report = shared.0.lock().unwrap();
-    // Effect and shadow assets are created by field preparation before this
-    // pass. Copy their bindings into the offscreen view, not their state.
-    let bindings = effects
-        .prepared_bindings()
-        .chain(art.as_ref().and_then(|a| a.shadow_binding()));
-    for (mesh, material) in bindings {
-        let entity = commands
-            .spawn((
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-                Transform::default(),
-                RenderLayers::layer(LAYER),
-                NoFrustumCulling,
-            ))
-            .id();
-        preparation.entities.push(entity);
-        report.expected.insert(entity.into());
-    }
-    preparation.effects_copied = true;
-}
-
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 fn complete(
     mut commands: Commands,
     preparation: Option<Res<Preparation>>,
@@ -594,70 +514,45 @@ fn complete(
     resident: Res<Resident>,
     refraction: Res<super::field_refraction::Ready>,
     mut failures: super::field_view::Failures,
-    mut logged: Local<u64>,
-    names: Query<(
-        Option<&Name>,
-        Option<&Mesh2d>,
-        Option<&Mesh3d>,
-        Option<&ViewVisibility>,
-        Option<&InheritedVisibility>,
-    )>,
-    retained: Option<ResMut<PreparedMaterials>>,
+    art: Option<ResMut<Art>>,
+    cameras: Query<&Msaa, With<super::FieldCamera>>,
 ) {
     let Some(preparation) = preparation else {
         return;
     };
-    let mut report = shared.0.lock().unwrap();
-    report.armed = preparation.converted == preparation.scene_count && preparation.effects_copied;
-    let seconds = preparation.started.elapsed().as_secs();
-    if seconds / 5 > *logged {
-        *logged = seconds / 5;
-        info!(
-            "Field {} preparation: {}/{} scenes, {}/{} draws ready, submitted={}",
-            preparation.map,
-            preparation.converted,
-            preparation.scene_count,
-            report.seen,
-            report.expected.len(),
-            report.submitted
-        );
-        for id in report.missing.iter().take(3) {
-            info!("Missing warm draw {id:?}: {:?}", names.get(id.id()));
-        }
-    }
-    if let Some(error) = &report.failure {
+    let report = shared.0.lock().unwrap();
+    if let Some(error) = &report.draws.error {
         failures.fatal("field preparation", anyhow::anyhow!(error.clone()));
         return;
     }
-    if report.completed.load(Ordering::Acquire) && refraction.get() {
+    let samples = cameras.single().map_or(1, Msaa::samples);
+    if samples != preparation.samples {
+        preparation.retire(&mut commands);
+        return;
+    }
+    if preparation.early {
+        return;
+    }
+    if report.draws.completed.load(Ordering::Acquire) && refraction.get() {
         info!(
-            "Field {} GPU preparation complete in {:.3}s: {} draws, {} pipelines",
+            "Field {} GPU preparation complete in {:.3}s: {} bindings, {} pipelines",
             preparation.map,
             preparation.started.elapsed().as_secs_f64(),
-            report.expected.len(),
-            report.pipelines.len()
+            report.draws.material_bindings.len(),
+            report.draws.pipelines.len()
         );
-        for entity in preparation.roots.iter().chain(&preparation.entities) {
-            commands.entity(*entity).despawn();
-        }
         resident.active.store(true, Ordering::Release);
-        if let Some(mut retained) = retained {
-            retained
-                .fields
-                .insert(preparation.map, preparation.retained.clone());
-        } else {
-            commands.insert_resource(PreparedMaterials {
-                fields: [(preparation.map, preparation.retained.clone())].into(),
-            });
+        if let Some(mut art) = art.filter(|art| art.map == preparation.map) {
+            art.gpu = Some(preparation.samples);
         }
-        commands.remove_resource::<Preparation>();
+        preparation.retire(&mut commands);
     } else if preparation.started.elapsed().as_secs() > 120 {
         failures.fatal(
             "field preparation",
             anyhow::anyhow!(
-                "Field {} GPU preparation timed out ({} expected draws)",
+                "Field {} GPU preparation timed out ({} pending pipelines)",
                 preparation.map,
-                report.expected.len()
+                report.draws.requests.len()
             ),
         );
     }
@@ -665,7 +560,7 @@ fn complete(
 
 fn guard(shared: Res<Shared>, resident: Res<Resident>, mut exit: crate::diagnostics::Fatal) {
     let report = shared.0.lock().unwrap();
-    let failure = report.failure.clone().or_else(|| {
+    let failure = report.draws.error.clone().or_else(|| {
         (resident.unprepared_reads.load(Ordering::Relaxed) > 0)
             .then(|| format!("field {:?} attempted an undeclared asset read", report.map))
     });
@@ -678,113 +573,25 @@ fn guard(shared: Res<Shared>, resident: Res<Resident>, mut exit: crate::diagnost
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Warm draws, pipelines, image uploads and GPU completion.
-fn rendered(
-    shared: Res<Shared>,
-    resident: Res<Resident>,
-    cache: Res<bevy::render::render_resource::PipelineCache>,
-    phases3: Res<ViewSortedRenderPhases<Transparent3d>>,
-    phases2: Res<ViewSortedRenderPhases<Transparent2d>>,
-    queue: Res<bevy::render::renderer::RenderQueue>,
-    device: Res<bevy::render::renderer::RenderDevice>,
-    images: Res<RenderAssets<GpuImage>>,
-) {
-    let mut report = shared.0.lock().unwrap();
-    // The overworld also uses Resident, but never starts this field-only GPU
-    // preparation pass. A retired field report cannot govern its pipelines.
-    if report.map.is_none() {
-        return;
-    }
-    if resident.battle.load(Ordering::Acquire) {
+fn rendered(report: &mut Report, resident: &Resident, observer: &gpu::Observer) {
+    if report.map.is_none() || resident.battle.load(Ordering::Acquire) {
         return;
     }
     if resident.active.load(Ordering::Acquire) {
-        let error = report.pipelines.iter().find_map(|&pipeline| {
-            if let CachedPipelineState::Err(error) = cache.get_render_pipeline_state(pipeline)
-                && !crate::model_preview::gpu::shader_pending(error)
-            {
-                Some(error.to_string())
-            } else {
-                None
-            }
-        });
-        if let Some(error) = error
+        if let Some(error) = observer.failed(&report.draws)
             && resident
                 .diagnostics
                 .report("field draw pipeline", anyhow::anyhow!(error.clone()))
                 .is_err()
         {
-            report.failure = Some(error);
+            report.draws.error = Some(error);
         }
-        return;
+    } else {
+        observer.render(
+            &mut report.draws,
+            Some((&resident.diagnostics, "field draw pipeline")),
+        );
     }
-    if !report.armed {
-        return;
-    }
-    // Drive completion callbacks on headless backends as well as windowed
-    // ones. Active gameplay needs no explicit polling or synchronization.
-    let _ = device.poll(bevy::render::render_resource::PollType::Poll);
-    if report.submitted {
-        return;
-    }
-    let mut seen = HashSet::new();
-    for (entity, pipeline) in draws(&phases3, &phases2) {
-        if report.expected.contains(&entity) {
-            report.pipelines.insert(pipeline);
-            match cache.get_render_pipeline_state(pipeline) {
-                CachedPipelineState::Ok(_) => {
-                    seen.insert(entity);
-                }
-                CachedPipelineState::Err(error)
-                    if !crate::model_preview::gpu::shader_pending(error) =>
-                {
-                    if resident
-                        .diagnostics
-                        .report("field draw pipeline", anyhow::anyhow!("{error}"))
-                        .is_err()
-                    {
-                        report.failure = Some(error.to_string());
-                        return;
-                    }
-                    // Bevy omits this failed draw. Other draws still have to
-                    // complete their own preparation and submission.
-                    report.expected.remove(&entity);
-                    report.pipelines.remove(&pipeline);
-                }
-                _ => {}
-            }
-        }
-    }
-    seen.retain(|entity| report.expected.contains(entity));
-    report.seen = seen.len();
-    report.missing = report.expected.difference(&seen).copied().collect();
-    if seen == report.expected
-        && report
-            .images
-            .iter()
-            .all(|image| images.get(*image).is_some())
-    {
-        report.submitted = true;
-        let done = report.completed.clone();
-        queue.on_submitted_work_done(move || done.store(true, Ordering::Release));
-    }
-}
-
-/// Draws queued by both cameras; callers retain their own pipeline/error policy.
-pub(super) fn draws<'a>(
-    models: &'a ViewSortedRenderPhases<Transparent3d>,
-    ui: &'a ViewSortedRenderPhases<Transparent2d>,
-) -> impl Iterator<Item = (MainEntity, CachedRenderPipelineId)> + 'a {
-    let models = models
-        .0
-        .values()
-        .flat_map(|p| p.items.values())
-        .map(|p| (p.entity.1, p.pipeline));
-    let ui =
-        ui.0.values()
-            .flat_map(|p| p.items.values())
-            .map(|p| (p.entity.1, p.pipeline));
-    models.chain(ui)
 }
 
 #[cfg(test)]
@@ -799,13 +606,12 @@ pub(super) fn begin_test_startup(world: &mut World) -> bool {
 #[cfg(test)]
 pub(super) fn complete_test_startup(world: &mut World) {
     use bevy::ecs::system::RunSystemOnce;
-    assert!(world.resource::<Preparation>().roots.is_empty());
-    world.run_system_once(effects).unwrap();
     world
         .resource::<Shared>()
         .0
         .lock()
         .unwrap()
+        .draws
         .completed
         .store(true, Ordering::Release);
     world.insert_resource(super::field_refraction::Ready::completed());
@@ -815,7 +621,41 @@ pub(super) fn complete_test_startup(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::{asset::RenderAssetUsages, ecs::system::RunSystemOnce, mesh::PrimitiveTopology};
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn opening_frame_only_waits_for_draws_seen_by_the_matching_camera() {
+        use bevy::camera::visibility::VisibleEntities;
+        use std::any::TypeId;
+
+        let mut world = World::new();
+        let model = world
+            .spawn((Mesh3d::default(), MeshMaterial3d::<TitleSurface>::default()))
+            .id();
+        let offscreen = world
+            .spawn((Mesh3d::default(), MeshMaterial3d::<TitleSurface>::default()))
+            .id();
+        let quad = world
+            .spawn((
+                Mesh2d::default(),
+                MeshMaterial2d::<crate::field_ui::Surface>::default(),
+            ))
+            .id();
+        let mut scene_visible = VisibleEntities::default();
+        scene_visible.push(model, TypeId::of::<Mesh3d>());
+        scene_visible.push(quad, TypeId::of::<Mesh2d>());
+        world.spawn((Camera3d::default(), scene_visible));
+        let mut overlay_visible = VisibleEntities::default();
+        overlay_visible.push(model, TypeId::of::<Mesh3d>());
+        overlay_visible.push(offscreen, TypeId::of::<Mesh3d>());
+        overlay_visible.push(quad, TypeId::of::<Mesh2d>());
+        world.spawn((Camera2d, overlay_visible));
+
+        let mut report = gpu::Report::default();
+        capture_draws(&mut world, &mut report);
+        assert_eq!(report.expected, [model.into(), quad.into()].into());
+        assert_eq!(report.material_bindings.len(), 2);
+    }
 
     #[test]
     fn field_retirement_keeps_title_files_while_releasing_field_gpu_work() {
@@ -826,19 +666,11 @@ mod tests {
         resident.active.store(true, Ordering::Release);
         world.insert_resource(resident.clone());
         world.init_resource::<Shared>();
-        let root = world.spawn_empty().id();
         world.insert_resource(Preparation {
             map: 340,
-            roots: vec![root],
-            entities: vec![],
-            scene_count: 0,
-            converted: 0,
             started: Instant::now(),
-            effects_copied: false,
-            retained: Bindings::default(),
-        });
-        world.insert_resource(PreparedMaterials {
-            fields: HashMap::new(),
+            early: false,
+            samples: 1,
         });
         world.resource::<Shared>().0.lock().unwrap().map = Some(340);
 
@@ -851,135 +683,8 @@ mod tests {
             ));
             assert!(!resident.active.load(Ordering::Acquire));
             assert!(!world.contains_resource::<Preparation>());
-            assert!(!world.contains_resource::<PreparedMaterials>());
             assert!(world.resource::<Shared>().0.lock().unwrap().map.is_none());
         }
-        assert!(world.get_entity(root).is_err());
-    }
-
-    #[test]
-    fn warm_keys_share_geometry_but_preserve_pipeline_features() {
-        let mut layouts = MeshVertexBufferLayouts::default();
-        let mesh = Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.; 3]; 3]);
-        let moved = mesh
-            .clone()
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[10.; 3]; 3]);
-        let skin = mesh
-            .clone()
-            .with_inserted_attribute(
-                Mesh::ATTRIBUTE_JOINT_INDEX,
-                bevy::mesh::VertexAttributeValues::Uint16x4(vec![[0; 4]; 3]),
-            )
-            .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1., 0., 0., 0.]; 3]);
-        let strip = Mesh::new(
-            PrimitiveTopology::TriangleStrip,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.; 3]; 3]);
-        let strip16 = strip
-            .clone()
-            .with_inserted_indices(bevy::mesh::Indices::U16(vec![0, 1, 2]));
-        let strip32 = strip.with_inserted_indices(bevy::mesh::Indices::U32(vec![0, 1, 2]));
-        let key = MeshKey::new(&mesh, &mut layouts);
-        assert!(key == MeshKey::new(&moved, &mut layouts));
-        assert!(key != MeshKey::new(&skin, &mut layouts));
-        assert!(key != MeshKey::new(&strip16, &mut layouts));
-        assert!(MeshKey::new(&strip16, &mut layouts) != MeshKey::new(&strip32, &mut layouts));
-
-        let surface = TitleSurface::default();
-        let mut keys = HashSet::new();
-        keys.insert((
-            key.clone(),
-            super::super::materials::SurfaceKey::from(&surface),
-        ));
-        let mut tinted = surface.clone();
-        tinted.tint = Vec4::ZERO;
-        assert!(!keys.insert((
-            key.clone(),
-            super::super::materials::SurfaceKey::from(&tinted)
-        )));
-        for variant in [
-            TitleSurface {
-                depth_write: false,
-                ..surface.clone()
-            },
-            TitleSurface {
-                blend: Some(resonance_events::effect::Blend::Alpha),
-                ..surface.clone()
-            },
-            TitleSurface {
-                cull: resonance_content::CullFace::None,
-                ..surface.clone()
-            },
-            TitleSurface {
-                toon_ramp: Some(Handle::default()),
-                ..surface
-            },
-        ] {
-            assert!(keys.insert((
-                key.clone(),
-                super::super::materials::SurfaceKey::from(&variant)
-            )));
-        }
-    }
-
-    #[test]
-    fn warm_scene_only_exposes_selected_materials() {
-        let mut world = World::new();
-        let mut surfaces = Assets::<TitleSurface>::default();
-        let surface = surfaces.add(TitleSurface::default());
-        let root = world
-            .spawn(Scene {
-                materials: vec![Some(surface), None],
-                loaded: true,
-                converted: false,
-                draws: Vec::new(),
-            })
-            .id();
-        let selected = world
-            .spawn((super::super::materials::MaterialSlot(0), ChildOf(root)))
-            .id();
-        let duplicate = world
-            .spawn((super::super::materials::MaterialSlot(1), ChildOf(root)))
-            .id();
-        world.insert_resource(Shared::default());
-        world.init_resource::<Resident>();
-        world.insert_resource(Preparation {
-            map: 340,
-            roots: vec![root],
-            entities: Vec::new(),
-            scene_count: 1,
-            converted: 0,
-            started: Instant::now(),
-            effects_copied: false,
-            retained: Bindings::default(),
-        });
-        world.run_system_once(convert).unwrap();
-        assert_eq!(
-            world.get::<Visibility>(selected),
-            Some(&Visibility::Inherited)
-        );
-        assert_eq!(
-            world.get::<Visibility>(duplicate),
-            Some(&Visibility::Hidden)
-        );
-        assert!(
-            world
-                .get::<MeshMaterial3d<TitleSurface>>(selected)
-                .is_some()
-        );
-        assert!(
-            world
-                .get::<MeshMaterial3d<TitleSurface>>(duplicate)
-                .is_none()
-        );
-        let report = world.resource::<Shared>().0.lock().unwrap();
-        assert_eq!(report.expected, HashSet::from([selected.into()]));
-        assert_eq!(world.resource::<Preparation>().converted, 1);
     }
 
     #[test]

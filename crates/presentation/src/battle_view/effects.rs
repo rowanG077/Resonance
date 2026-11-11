@@ -3,10 +3,13 @@
 use resonance_events::effect::Blend;
 #[path = "effects_geometry.rs"]
 mod geometry;
+#[path = "effects_resident.rs"]
+pub(super) mod resident;
 
-use super::{ActorOrder, WARM_LAYER};
+use super::{ActorOrder, LAYER};
 use crate::{
     draw_order::{DrawOrder, Layer},
+    gpu_prepare as gpu,
     materials::TitleSurface,
     scene::{SampledImages, sampled_image},
 };
@@ -95,7 +98,23 @@ pub(super) struct ModelStyle {
     pub cull_back: bool,
 }
 impl ModelStyle {
-    fn new(visual: &ModelVisual, opaque: bool) -> Self {
+    pub(super) fn surface(self, mut surface: TitleSurface, toon: &Handle<Image>) -> TitleSurface {
+        surface.toon_ramp =
+            (self.lit && !surface.constant_color && surface.color.is_some()).then(|| toon.clone());
+        surface.blend = Some(self.blend);
+        surface.depth_test = self.depth_test;
+        surface.depth_write = self.depth_write;
+        surface.depth_equal = true;
+        if !surface.constant_color {
+            surface.cull = if self.cull_back {
+                resonance_content::CullFace::Back
+            } else {
+                resonance_content::CullFace::None
+            };
+        }
+        surface
+    }
+    pub(super) fn new(visual: &ModelVisual, opaque: bool) -> Self {
         Self {
             lit: visual.lit,
             blend: Blend::try_from(i32::from(visual.blend))
@@ -166,7 +185,6 @@ pub(super) struct Effects {
     diagnostics: Diagnostics,
     banks: BTreeMap<ResourceId, Bank>,
     materials: BTreeMap<MaterialKey, Handle<TitleSurface>>,
-    warm: Vec<Entity>,
     draws: Vec<Draw>,
     // Scene-sampling triangles stay on the CPU instead of being uploaded as a draw.
     sample_mesh: Mesh,
@@ -319,7 +337,6 @@ impl Effects {
             diagnostics,
             banks: prepared,
             materials: BTreeMap::new(),
-            warm: Vec::new(),
             draws: Vec::new(),
             sample_mesh: warm_mesh(),
             vertices: geometry::Vertices::default(),
@@ -344,10 +361,22 @@ impl Effects {
     }
 
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.warm
-            .iter()
-            .copied()
-            .chain(self.draws.iter().map(|d| d.entity))
+        self.draws.iter().map(|d| d.entity)
+    }
+
+    /// Startup retains material bindings without allocating live draw slots.
+    pub(super) fn prepare_startup(
+        &mut self,
+        surfaces: &mut Assets<TitleSurface>,
+        images: &mut Assets<Image>,
+        sampled: &mut SampledImages,
+        resident: &resident::ResidentBindings,
+    ) -> Result<()> {
+        if !self.prepared {
+            self.prepare_bindings(surfaces, images, sampled, Some(resident), true)?;
+            self.prepared = true;
+        }
+        Ok(())
     }
 
     pub fn prepare(
@@ -357,10 +386,40 @@ impl Effects {
         surfaces: &mut Assets<TitleSurface>,
         images: &mut Assets<Image>,
         sampled: &mut SampledImages,
+        resident: Option<&resident::ResidentBindings>,
+        (camera, report): (Entity, &mut gpu::Report),
     ) -> Result<()> {
         if self.prepared {
             return Ok(());
         }
+        self.prepare_bindings(surfaces, images, sampled, resident, false)?;
+        if let Some((_, surface)) = self.materials.first_key_value() {
+            // Shadows and wing sparkles have fixed slots; particles grow after them.
+            let wing_draws = self
+                .wing_resource
+                .map_or(0, |_| ModelAccessory::SPARKLE_PALETTES.len());
+            for _ in 0..2 + wing_draws {
+                let mesh = meshes.add(warm_mesh());
+                let entity = spawn(commands, mesh.clone(), surface.clone());
+                self.draws.push(Draw { entity, mesh });
+            }
+        }
+        let mesh = &self.draws[0].mesh;
+        for material in self.materials.values() {
+            report.prepare(camera, mesh.id(), material.id().untyped(), false, None);
+        }
+        self.prepared = true;
+        Ok(())
+    }
+
+    fn prepare_bindings(
+        &mut self,
+        surfaces: &mut Assets<TitleSurface>,
+        images: &mut Assets<Image>,
+        sampled: &mut SampledImages,
+        resident: Option<&resident::ResidentBindings>,
+        warming: bool,
+    ) -> Result<()> {
         ensure!(
             self.images().all(|h| images.contains(h)),
             "particle textures are still loading"
@@ -376,6 +435,13 @@ impl Effects {
             }
         }
         for key in keys {
+            let (color, alpha) = self.sources(key);
+            let binding_key = resident::Key::new(key, color.as_ref(), alpha.as_ref());
+            if let Some(surface) = resident.and_then(|resident| resident.get(&binding_key, warming))
+            {
+                self.materials.insert(key, surface);
+                continue;
+            }
             let texture = |index: usize,
                            page: usize,
                            images: &mut Assets<Image>,
@@ -407,61 +473,31 @@ impl Effects {
                 .atlas
                 .and_then(|atlas| atlas.alpha)
                 .and_then(|page| texture(1, page, images, sampled));
-            let surface = surfaces.add(TitleSurface {
-                tint: Vec4::new(2., 2., 2., 1.),
-                multiply_alpha_only: alpha.is_some(),
-                multiply: alpha,
-                blend: Some(key.blend),
-                depth_test: key.depth_test,
-                depth_write: key.depth_write,
-                clip_below_floor: key.clip_below_floor,
-                depth_equal: true,
-                cull: if key.cull_back {
-                    resonance_content::CullFace::Back
-                } else {
-                    resonance_content::CullFace::None
-                },
-                ..TitleSurface::textured(color)
-            });
-            let entity = spawn(commands, meshes.add(warm_mesh()), surface.clone());
+            let recipe = particle_surface(key, color, alpha);
+            let surface = surfaces.add(recipe);
             self.materials.insert(key, surface);
-            self.warm.push(entity);
         }
-        if let Some((_, surface)) = self.materials.first_key_value() {
-            // Shadows and wing sparkles have fixed slots; particles grow after them.
-            let wing_draws = self
-                .wing_resource
-                .map_or(0, |_| ModelAccessory::SPARKLE_PALETTES.len());
-            for _ in 0..2 + wing_draws {
-                let mesh = meshes.add(warm_mesh());
-                let entity = spawn(commands, mesh.clone(), surface.clone());
-                self.draws.push(Draw { entity, mesh });
-            }
-        }
-        self.prepared = true;
         Ok(())
     }
 
-    pub fn set_layer(&self, commands: &mut Commands, layer: usize, visible: bool) {
-        for &entity in &self.warm {
-            commands.entity(entity).insert((
-                RenderLayers::layer(layer),
-                if visible && layer == WARM_LAYER {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                },
-            ));
-        }
-        for draw in &self.draws {
-            commands.entity(draw.entity).insert((
-                RenderLayers::layer(layer),
-                if visible {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                },
-            ));
+    fn sources(&self, key: MaterialKey) -> (Option<Handle<Image>>, Option<Handle<Image>>) {
+        let Some(atlas) = key.atlas else {
+            return (None, None);
+        };
+        let textures = &self.banks[&atlas.resource].textures[&atlas.slot];
+        (
+            Some(textures[0].images[&atlas.color].clone()),
+            atlas.alpha.map(|page| textures[1].images[&page].clone()),
+        )
+    }
+
+    pub(super) fn retain_bindings(&self, resident: &mut resident::ResidentBindings) {
+        for (&key, surface) in &self.materials {
+            let (color, alpha) = self.sources(key);
+            resident.retain(
+                resident::Key::new(key, color.as_ref(), alpha.as_ref()),
+                surface.clone(),
+            );
         }
     }
 
@@ -707,6 +743,68 @@ impl Effects {
     }
 }
 
+fn particle_surface(
+    key: MaterialKey,
+    color: Option<Handle<Image>>,
+    alpha: Option<Handle<Image>>,
+) -> TitleSurface {
+    TitleSurface {
+        tint: Vec4::new(2., 2., 2., 1.),
+        multiply_alpha_only: alpha.is_some(),
+        multiply: alpha,
+        blend: Some(key.blend),
+        depth_test: key.depth_test,
+        depth_write: key.depth_write,
+        clip_below_floor: key.clip_below_floor,
+        depth_equal: true,
+        cull: if key.cull_back {
+            resonance_content::CullFace::Back
+        } else {
+            resonance_content::CullFace::None
+        },
+        ..TitleSurface::textured(color)
+    }
+}
+
+/// Compile declared common sprite features without retaining per-palette draws.
+/// Texture identities, floor clipping and tint are uniforms, not pipeline keys.
+pub(super) fn startup_surfaces<'a>(
+    banks: impl Iterator<Item = &'a resonance_content::battle_effect::SourceBank>,
+    image: &Handle<Image>,
+) -> Vec<TitleSurface> {
+    let mut surfaces = [false, true]
+        .map(|additive| particle_surface(shadow_key(additive), None, None))
+        .to_vec();
+    for declaration in banks.flat_map(|bank| &bank.actors) {
+        let Declaration::Particle { template, visual } = declaration else {
+            continue;
+        };
+        if visual.scene_sample.is_some() {
+            continue;
+        }
+        let Some(&blend) = Blend::ALL.get(usize::from(visual.blend)) else {
+            continue;
+        };
+        for blend in [blend, Blend::Alpha, Blend::Additive] {
+            for cull_back in [false, true] {
+                surfaces.push(particle_surface(
+                    MaterialKey {
+                        atlas: None,
+                        blend,
+                        depth_test: visual.depth_test,
+                        depth_write: visual.depth_write,
+                        clip_below_floor: template.state.effect_group.is_some(),
+                        cull_back,
+                    },
+                    visual.texture.slot().map(|_| image.clone()),
+                    visual.texture.dual().then(|| image.clone()),
+                ));
+            }
+        }
+    }
+    surfaces
+}
+
 type Pages = BTreeMap<(u8, usize), BTreeSet<usize>>;
 
 fn select_declaration(
@@ -840,16 +938,16 @@ fn spawn(commands: &mut Commands, mesh: Handle<Mesh>, surface: Handle<TitleSurfa
             Mesh3d(mesh),
             MeshMaterial3d(surface),
             Transform::default(),
-            Visibility::Inherited,
+            Visibility::Hidden,
             NoFrustumCulling,
             bevy::render::batching::NoAutomaticBatching,
-            RenderLayers::layer(WARM_LAYER),
+            RenderLayers::layer(LAYER),
             DrawOrder(Layer::Effects, 0, 0),
         ))
         .id()
 }
 
-fn warm_mesh() -> Mesh {
+pub(super) fn warm_mesh() -> Mesh {
     use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology};
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -938,6 +1036,138 @@ mod tests {
             members: BTreeSet::from([0, 1, 2, 3, 4]),
             palettes: BTreeMap::new(),
             blends: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn resident_effect_bindings_survive_battles_and_do_not_admit_encounter_materials() -> Result<()>
+    {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let load = |resource| {
+            let mut bank = mixed_bank();
+            bank.resource = resource;
+            Effects::load(
+                vec![bank],
+                None,
+                app.world().resource(),
+                Diagnostics::default(),
+            )
+        };
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut surfaces = Assets::<TitleSurface>::default();
+        let mut images = Assets::<Image>::default();
+        let mut sampled = SampledImages::default();
+        let mut resident = resident::ResidentBindings::default();
+        let mut startup = load(ResourceId(7))?;
+        startup.prepare_startup(&mut surfaces, &mut images, &mut sampled, &resident)?;
+        world.flush();
+        startup.retain_bindings(&mut resident);
+        for &key in startup.materials.keys() {
+            let (color, alpha) = startup.sources(key);
+            assert!(
+                resident
+                    .get(
+                        &resident::Key::new(key, color.as_ref(), alpha.as_ref()),
+                        false
+                    )
+                    .is_none(),
+                "encounters cannot reuse bindings before the startup GPU fence"
+            );
+        }
+        resident.finish_startup();
+        let retained = resident.len();
+        let bindings = startup.materials.clone();
+        startup.despawn(&mut world.commands());
+        world.flush();
+        let before = surfaces.len();
+        let mut encounter = load(ResourceId(77))?;
+        encounter.prepare(
+            &mut world.commands(),
+            &mut meshes,
+            &mut surfaces,
+            &mut images,
+            &mut sampled,
+            Some(&resident),
+            (Entity::PLACEHOLDER, &mut gpu::Report::default()),
+        )?;
+        world.flush();
+        assert!(encounter.materials == bindings);
+        assert_eq!(
+            surfaces.len(),
+            before,
+            "entry must reuse the actual materials"
+        );
+        assert!(resident.hits() > 0);
+        // Encounter-only styles stay owned by the encounter, never by the fixed cache.
+        let bank = encounter.banks.get_mut(&ResourceId(77)).unwrap();
+        visual(bank.declarations.get_mut(&2).unwrap()).depth_test = false;
+        encounter.prepared = false;
+        encounter.prepare(
+            &mut world.commands(),
+            &mut meshes,
+            &mut surfaces,
+            &mut images,
+            &mut sampled,
+            Some(&resident),
+            (Entity::PLACEHOLDER, &mut gpu::Report::default()),
+        )?;
+        assert!(surfaces.len() > before);
+        assert_eq!(resident.len(), retained);
+        encounter.despawn(&mut world.commands());
+        world.flush();
+        assert!(bindings.values().all(|handle| surfaces.contains(handle)));
+        Ok(())
+    }
+
+    #[test]
+    fn resident_binding_identity_uses_texture_pages_and_every_immutable_render_flag() {
+        let mut images = Assets::<Image>::default();
+        let color = images.add(Image::default());
+        let alpha = images.add(Image::default());
+        let mut state = shadow_key(false);
+        state.atlas = Some(Atlas {
+            resource: ResourceId(7),
+            slot: 0,
+            color: 3,
+            alpha: Some(4),
+        });
+        let key = resident::Key::new(state, Some(&color), Some(&alpha));
+        let mut alias = state;
+        alias.atlas = Some(Atlas {
+            resource: ResourceId(77),
+            slot: 8,
+            color: 0,
+            alpha: Some(1),
+        });
+        assert!(key == resident::Key::new(alias, Some(&color), Some(&alpha)));
+        assert!(key != resident::Key::new(state, Some(&alpha), Some(&color)));
+        assert!(key != resident::Key::new(state, Some(&color), None));
+        for changed in [
+            MaterialKey {
+                blend: Blend::Additive,
+                ..state
+            },
+            MaterialKey {
+                depth_test: !state.depth_test,
+                ..state
+            },
+            MaterialKey {
+                depth_write: !state.depth_write,
+                ..state
+            },
+            MaterialKey {
+                clip_below_floor: !state.clip_below_floor,
+                ..state
+            },
+            MaterialKey {
+                cull_back: !state.cull_back,
+                ..state
+            },
+        ] {
+            assert!(key != resident::Key::new(changed, Some(&color), Some(&alpha)));
         }
     }
 

@@ -35,7 +35,7 @@ pub(super) struct LayerDefinition {
     pub(super) size: [u32; 2],
     pub(super) depth: f32,
     pub(super) nearest: bool,
-    interpolation: UiInterpolation,
+    pub(super) interpolation: UiInterpolation,
     pub(super) texture_effect: TextureEffect,
 }
 impl LayerDefinition {
@@ -82,29 +82,43 @@ impl HudLayer {
         definition: LayerDefinition,
         nearest: &Handle<Image>,
         materials: &mut Assets<Surface>,
+        resident: &Resident,
     ) -> Self {
-        let image = &definition.image;
-        let material = materials.add(Surface {
-            source: image.clone(),
-            sampling: if definition.nearest {
-                nearest.clone()
-            } else {
-                image.clone()
-            },
-            frame_mask: image.clone(),
-            color_mask: image.clone(),
-            coverage: Coverage::default(),
-            interpolation: definition.interpolation,
-            additive: false,
-            texture_effect: definition.texture_effect,
-            opaque: false,
-        });
+        // Canvases need distinct slots, but identical layers can borrow an
+        // existing material before preparation assigns their resident canvas.
+        let material = resident
+            .0
+            .lock()
+            .unwrap()
+            .hud
+            .get(&GraphicsKey::of(&definition))
+            .and_then(|layers| layers.first())
+            .map(|layer| layer.material.clone())
+            .unwrap_or_else(|| {
+                let image = &definition.image;
+                materials.add(Surface {
+                    source: image.clone(),
+                    sampling: if definition.nearest {
+                        nearest.clone()
+                    } else {
+                        image.clone()
+                    },
+                    frame_mask: image.clone(),
+                    color_mask: image.clone(),
+                    coverage: Coverage::default(),
+                    interpolation: definition.interpolation,
+                    additive: false,
+                    texture_effect: definition.texture_effect,
+                    opaque: false,
+                })
+            });
         Self {
             definition,
             material,
             rendered: None,
         }
     }
+
     pub(super) fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
         if self.rendered.is_some() {
             return;
@@ -114,24 +128,13 @@ impl HudLayer {
         if self.definition.texture_effect == TextureEffect::GlyphPattern {
             batch.pattern_uv = batch.uv.clone();
         }
-        let mesh = meshes.add(batch.mesh([1, 1]));
-        let transform = Transform::from_xyz(0., 0., self.definition.depth);
-        let entity = commands
-            .spawn((
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(self.material.clone()),
-                transform,
-                GlobalTransform::from(transform),
-                Visibility::Hidden,
-            ))
-            .id();
-        self.rendered = Some(Layer {
-            entity,
-            mesh,
-            material: self.material.clone(),
-            uploaded: None,
-            visible: false,
-        });
+        self.rendered = Some(Layer::with_mesh(
+            self.material.clone(),
+            self.definition.depth,
+            batch.mesh([1, 1]),
+            commands,
+            meshes,
+        ));
     }
     pub(super) fn upload(
         &mut self,
@@ -160,6 +163,7 @@ pub(super) struct Palette {
     pub(super) font: LayerDefinition,
     pub(super) main_font: LayerDefinition,
     pub(super) nearest: Handle<Image>,
+    pub(super) resident: Resident,
 }
 impl Palette {
     pub(super) fn layer(
@@ -167,7 +171,7 @@ impl Palette {
         definition: LayerDefinition,
         materials: &mut Assets<Surface>,
     ) -> HudLayer {
-        HudLayer::load(definition, &self.nearest, materials)
+        HudLayer::load(definition, &self.nearest, materials, &self.resident)
     }
     pub(super) fn layers(
         &self,

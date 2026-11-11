@@ -1,10 +1,11 @@
 //! Scene ownership, field preparation and checkpoint entry.
 mod fields;
+pub(crate) mod scene_fade;
 use super::audio_output::Player as AudioPlayer;
 use super::{Events, PendingAudio, PendingInput, RunOptions, audio, movie};
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
-pub(super) use fields::{FieldPackage, available_fields};
+pub(super) use fields::{FieldPackage, available_fields, capture_fields};
 use resonance_content::{field::FieldAssets, prepared::Files};
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldSession};
 #[cfg(test)]
@@ -19,10 +20,12 @@ pub(super) struct Request(pub Option<Vec<u8>>);
 pub(super) struct TransitionFailure;
 
 fn transition_failed(world: &mut World, error: anyhow::Error) {
+    super::transition_metrics::failed(world);
     super::diagnostics::remember_failure("area transition", &format_args!("{error:#}"));
     super::diagnostics::record(world, true);
     error!("Area transition failed: {error:#}");
     world.remove_resource::<super::loading::FieldPending>();
+    world.remove_resource::<super::loading::FieldPrefetch>();
     world.remove_resource::<super::loading::WorldPending>();
     world.insert_resource(TransitionFailure);
     world
@@ -563,6 +566,9 @@ pub(crate) mod tests;
 /// Exclusive access makes replacement atomic: validate first, then cancel
 /// the old scene. A missing asset leaves the title usable for another attempt.
 pub(super) fn enter(world: &mut World) {
+    if !super::loading::startup::ready(world) {
+        return;
+    }
     if world.contains_resource::<Session>() {
         return;
     }
@@ -615,7 +621,11 @@ pub(super) fn enter(world: &mut World) {
         elapsed.as_secs_f64(),
         files.disk_bytes
     );
-    activate(world, session);
+    if session.restored_checkpoint.is_some() || !session.is_field() {
+        super::saves::install_loaded(world, session);
+    } else {
+        activate(world, session);
+    }
 }
 
 fn entry_failed(world: &mut World, scope: &str, error: anyhow::Error) {
@@ -666,7 +676,11 @@ pub(super) fn activate(world: &mut World, mut session: Session) {
     }
     // Retain the title for returning sessions and share its output/camera.
     let models: Vec<_> = world
-        .query_filtered::<Entity, (With<WorldAssetRoot>, Without<super::scene::PartRoot>)>()
+        .query_filtered::<Entity, (
+            Or<(With<WorldAssetRoot>, With<crate::model_asset::Instance>)>,
+            Without<super::scene::PartRoot>,
+            Without<super::overworld::WorldRoot>,
+        )>()
         .iter(world)
         .collect();
     for entity in models {
@@ -743,6 +757,13 @@ pub(super) fn transition(world: &mut World) {
     let Some(request) = session.events().world.field_transition.clone() else {
         return;
     };
+    if let Some(from) = super::transition_metrics::Place::current(world) {
+        super::transition_metrics::begin(
+            world,
+            from,
+            super::transition_metrics::Place::Field(request.map),
+        );
+    }
     let script_root = world
         .get_resource::<RunOptions>()
         .and_then(|options| options.script_root.clone());
@@ -751,14 +772,21 @@ pub(super) fn transition(world: &mut World) {
         .active
         .store(false, std::sync::atomic::Ordering::Release);
     let result = (|| -> Result<()> {
-        if !super::field_audio::leave_field(world)? {
-            return Ok(());
-        }
+        let audio_ready = super::field_audio::leave_field(world)?;
         let next = if let Some(pending) = world.get_resource::<super::loading::FieldPending>() {
+            if !audio_ready {
+                return Ok(());
+            }
+            profile_span!("field handoff poll");
             let Some(result) = pending.poll()? else {
                 return Ok(());
             };
-            world.remove_resource::<super::loading::FieldPending>();
+            let pending = world
+                .remove_resource::<super::loading::FieldPending>()
+                .unwrap();
+            if let Some(graphics) = pending.take_graphics() {
+                world.insert_resource(graphics);
+            }
             result?
         } else {
             info!(
@@ -767,17 +795,20 @@ pub(super) fn transition(world: &mut World) {
                 request.map
             );
             super::diagnostics::record(world, true);
-            let pending = super::loading::FieldPending::field(
+            let pending = super::loading::FieldPending::prefetch(
                 world.resource::<RunOptions>().assets.clone(),
                 script_root.clone(),
                 request.map,
                 world.resource::<super::loading::Resident>(),
+                world.get_resource::<AssetServer>().cloned(),
+                super::field_view::selected_costumes(&world.resource::<Session>().events().world),
             )?;
             world.insert_resource(pending);
             return Ok(());
         };
-        super::field_audio::leave_field(world)?;
+        profile_span!(profile = "field session activation");
         world.resource_mut::<Session>().change_field(next)?;
+        profile_span!(end profile);
         let files = world.resource::<Session>().files();
         *world
             .resource::<super::loading::Resident>()
@@ -794,14 +825,23 @@ pub(super) fn transition(world: &mut World) {
 }
 
 fn transition_world(world: &mut World) {
-    world
-        .resource::<super::loading::Resident>()
-        .active
-        .store(false, std::sync::atomic::Ordering::Release);
+    if let Some(from) = super::transition_metrics::Place::current(world) {
+        super::transition_metrics::begin(world, from, super::transition_metrics::Place::World);
+    }
+    scene_fade::begin(world);
+    if !scene_fade::outgoing(world) {
+        world
+            .resource::<super::loading::Resident>()
+            .active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
     let result = (|| -> Result<()> {
         let package = if let Some(package) = &world.resource::<Session>().world_package {
             package.clone()
         } else if let Some(pending) = world.get_resource::<super::loading::WorldPending>() {
+            if scene_fade::outgoing(world) {
+                return Ok(());
+            }
             let Some(result) = pending.poll()? else {
                 return Ok(());
             };
@@ -823,6 +863,7 @@ fn transition_world(world: &mut World) {
         if !super::field_audio::leave_field(world)? {
             return Ok(());
         }
+        scene_fade::cover(world);
         world.resource_mut::<Session>().change_world(package)?;
         *world
             .resource::<super::loading::Resident>()

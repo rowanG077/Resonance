@@ -124,9 +124,7 @@ impl Pipeline {
         {
             match cache.get_render_pipeline_state(id) {
                 CachedPipelineState::Ok(_) => {}
-                CachedPipelineState::Err(error)
-                    if !crate::model_preview::gpu::shader_pending(error) =>
-                {
+                CachedPipelineState::Err(error) if !crate::gpu_prepare::shader_pending(error) => {
                     anyhow::bail!("battle scene-sampling pipeline: {error}");
                 }
                 _ => return Ok(false),

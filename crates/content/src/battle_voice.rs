@@ -43,3 +43,94 @@ pub struct Voices {
     pub taunt: Option<Sound>,
     pub contact_recovery: Option<Sound>,
 }
+
+impl Voices {
+    /// All declared choices, before an encounter selects speakers or variations.
+    pub fn sounds(&self) -> impl Iterator<Item = Sound> + '_ {
+        let Self {
+            hurt,
+            defeat,
+            critical,
+            guard,
+            ally_defeated,
+            unison_start,
+            technique_command,
+            item_use,
+            acquisition,
+            entry,
+            major_enemy,
+            outnumbered,
+            weaker_enemies,
+            stronger_enemies,
+            repeated_encounter,
+            victory,
+            interrupted_cast,
+            escape_request,
+            escape_success,
+            escape_cancel,
+            taunt,
+            contact_recovery,
+        } = self;
+        [
+            *defeat,
+            *critical,
+            *guard,
+            *unison_start,
+            *technique_command,
+            *item_use,
+            *acquisition,
+            *major_enemy,
+            *outnumbered,
+            *weaker_enemies,
+            *stronger_enemies,
+            *repeated_encounter,
+            *interrupted_cast,
+            *escape_request,
+            *escape_success,
+            *escape_cancel,
+            *taunt,
+            *contact_recovery,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(
+            hurt.iter()
+                .chain(ally_defeated)
+                .chain(entry)
+                .copied()
+                .flatten(),
+        )
+        .chain(victory.iter().flatten().copied())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn declared_choices_keep_recorded_and_streamed_audio_distinct() {
+        let voices = Voices {
+            hurt: [Some(Sound::Cue(1)), Some(Sound::Stream(1))],
+            defeat: Some(Sound::Cue(2)),
+            entry: [None, Some(Sound::Stream(3)), Some(Sound::Cue(4))],
+            victory: vec![[Sound::Cue(5), Sound::Stream(6)]],
+            ..Default::default()
+        };
+        let sounds: std::collections::BTreeSet<_> = voices.sounds().collect();
+        assert_eq!(
+            sounds,
+            [
+                Sound::Cue(1),
+                Sound::Cue(2),
+                Sound::Cue(4),
+                Sound::Cue(5),
+                Sound::Stream(1),
+                Sound::Stream(3),
+                Sound::Stream(6)
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+}

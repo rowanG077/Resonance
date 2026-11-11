@@ -853,8 +853,17 @@ impl Assets {
         }
         let current = &self.party.members[character.index()];
         let performances = if let (Some(victory), Some(model)) = (victory, &body) {
-            let (prepared, performances) =
-                battle::victory::prepare(&self.files, victory, character, current.costume, model)?;
+            let (prepared, performances) = battle::victory::prepare_with_motions(
+                &self.files,
+                victory,
+                character,
+                current.costume,
+                model,
+                input
+                    .prepared_body
+                    .as_ref()
+                    .map(|body| body.victory_motions.as_ref()),
+            )?;
             body = Some(prepared);
             performances
         } else {
@@ -1203,7 +1212,8 @@ impl Assets {
             .flat_map(|art| &art.models)
         {
             let resource = handles.resource();
-            if let Some((model, render)) = render::effect_model(&self.files, part, resource, false)?
+            if let Some((model, render)) =
+                render::effect_model(&self.files, part, resource, false, &self.effect_models)?
             {
                 technique_models.insert(slot, model);
                 models.push(render);
@@ -1237,9 +1247,13 @@ impl Assets {
                     .parts
                     .get(&0)
                     .context("Colette's primary weapon artwork is missing")?;
-                if let Some((model, render)) =
-                    render::effect_model(&self.files, part, handles.resource(), true)?
-                {
+                if let Some((model, render)) = render::effect_model(
+                    &self.files,
+                    part,
+                    handles.resource(),
+                    true,
+                    &self.effect_models,
+                )? {
                     variants.insert(weapon.primary_resource(), model);
                     models.push(render);
                 }
@@ -1277,9 +1291,13 @@ impl Assets {
                 .flat_map(|art| &art.models)
             {
                 let model_resource = handles.resource();
-                if let Some((model, render)) =
-                    render::effect_model(&self.files, part, model_resource, false)?
-                {
+                if let Some((model, render)) = render::effect_model(
+                    &self.files,
+                    part,
+                    model_resource,
+                    false,
+                    &self.effect_models,
+                )? {
                     prepared.insert(slot, model);
                     models.push(render);
                 }
@@ -1353,6 +1371,7 @@ impl Assets {
                 handles.resource(),
                 || handles.resource(),
                 &mut models,
+                &self.effect_models,
             )
         };
         let spell_scenes = self
@@ -1910,6 +1929,7 @@ impl Assets {
             None
         };
         let mut effect_banks = action_resources.prepare_effects(
+            &self.effect_programs,
             &mut |id| (sound)(battle::voice::Sound::Cue(id)),
             self.files.diagnostics(),
         )?;
@@ -2190,12 +2210,14 @@ impl Assets {
                     source
                         .named_particle(resonance_content::battle_effect::document::STUN_BIRD)
                         .map(|(member, data)| {
-                            Arc::new(resonance_battle::ParticleDefinition {
-                                resource: common_id,
-                                member: u16::from(member),
-                                model: None,
-                                data: data.clone(),
-                            })
+                            (
+                                common_id,
+                                Arc::new(resonance_battle::ParticleDefinition {
+                                    member: u16::from(member),
+                                    model: None,
+                                    data: data.clone(),
+                                }),
+                            )
                         }),
                 )
             })
@@ -2218,7 +2240,7 @@ impl Assets {
                     self.files.diagnostics(),
                 )?;
                 if effect.resource == common_id
-                    && let Some(particle) = &stun_particle
+                    && let Some((_, particle)) = &stun_particle
                 {
                     render.members.insert(particle.member);
                 }

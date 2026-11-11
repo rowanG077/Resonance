@@ -208,7 +208,7 @@ pub(crate) fn apply(
     cache: Res<EquipmentCache>,
     actors: Query<(&ActorPart, &crate::field_animation::Rig)>,
     parents: Query<&ChildOf>,
-    mut roots: Query<(Entity, &mut Instance), With<Loaded>>,
+    mut roots: Query<(Entity, &mut Instance), With<crate::model_asset::Instance>>,
     mut visibility: Query<&mut Visibility, Without<Instance>>,
     mut transforms: ParamSet<(Helper, (Query<&mut Transform>, ResMut<Locals>))>,
     mut failures: Failures,

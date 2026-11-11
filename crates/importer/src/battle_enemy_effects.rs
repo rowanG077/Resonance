@@ -102,7 +102,7 @@ fn model_artwork(
                 )?;
                 scene.clips.push(SceneClip {
                     motion: path,
-                    joints: BTreeMap::new(),
+                    joints: Default::default(),
                     resource_slot: motion_slot.into(),
                     duration_seconds: 0.,
                     animation_resource: None,

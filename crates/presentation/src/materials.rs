@@ -9,6 +9,8 @@ use bevy::{
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
 use resonance_events::effect::Blend;
+mod vertex;
+pub(super) use vertex::has_uv;
 
 #[cfg(test)]
 #[path = "surface_shader_tests.rs"]
@@ -22,6 +24,7 @@ fn embed_shaders(app: &mut App) {
     bevy::asset::embedded_asset!(app, "title_surface.wesl");
     bevy::asset::embedded_asset!(app, "title_surface_vertex.wesl");
     bevy::shader::load_shader_library!(app, "surface_bindings.wesl");
+    bevy::shader::load_shader_library!(app, "surface_vertex.wesl");
     embed_effect_color(app);
 }
 
@@ -45,10 +48,44 @@ pub(super) fn install(app: &mut App) {
     use bevy::gltf::extensions::{
         ErasedGltfExtensionHandler, GltfExtensionHandler, GltfExtensionHandlers,
     };
-    struct Slots;
+    #[derive(Clone, Default)]
+    struct Slots {
+        usage: bevy::asset::RenderAssetUsages,
+        rotate: bool,
+    }
     impl GltfExtensionHandler for Slots {
         fn dyn_clone(&self) -> Box<dyn ErasedGltfExtensionHandler> {
-            Box::new(Self)
+            Box::new(self.clone())
+        }
+
+        fn on_root(
+            &mut self,
+            _: &mut bevy::asset::LoadContext<'_>,
+            _: &bevy::gltf::gltf::Gltf,
+            settings: &bevy::gltf::GltfLoaderSettings,
+        ) {
+            self.usage = settings.load_meshes;
+            self.rotate = settings
+                .convert_coordinates
+                .unwrap_or_default()
+                .rotate_meshes;
+        }
+
+        async fn on_gltf_primitive(
+            &mut self,
+            _: &mut bevy::asset::LoadContext<'_>,
+            _: &bevy::gltf::gltf::Gltf,
+            _: &bevy::gltf::gltf::Mesh<'_>,
+            primitive: &bevy::gltf::gltf::Primitive<'_>,
+            buffers: &[Vec<u8>],
+            _: &bevy::platform::collections::HashMap<Box<str>, bevy::mesh::MeshVertexAttribute>,
+            skinned: bool,
+            _: bool,
+            mesh: &mut Option<Mesh>,
+        ) {
+            if mesh.is_none() {
+                *mesh = vertex::load(primitive, buffers, self.usage, self.rotate, skinned);
+            }
         }
 
         fn on_spawn_mesh_and_material(
@@ -63,12 +100,14 @@ pub(super) fn install(app: &mut App) {
             entity.insert(MaterialSlot(mesh.index()));
         }
     }
+    super::model_asset::install(app);
+    super::gpu_prepare::install(app);
     app.register_type::<MaterialSlot>();
     app.world_mut()
         .resource_mut::<GltfExtensionHandlers>()
         .0
         .write_blocking()
-        .push(Box::new(Slots));
+        .push(Box::new(Slots::default()));
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -159,6 +198,7 @@ pub fn install_output_materials(app: &mut App) {
 
 /// Register the scene material and its embedded production shaders.
 pub fn install_surface_material(app: &mut App) {
+    crate::scene::install_sampled_images(app);
     // Bevy starts loading 3D material shaders while adding the plugin.
     embed_shaders(app);
     app.add_plugins(MaterialPlugin::<TitleSurface>::default());
@@ -175,7 +215,7 @@ pub struct SceneryLighting {
 }
 
 /// Unlit scene surface with an optional second, independently mapped texture.
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone, PartialEq)]
 #[bind_group_data(SurfaceKey)]
 #[data(4, SurfaceUniform, binding_array(10))]
 #[bindless]
@@ -288,6 +328,7 @@ pub struct SurfaceUniform {
     fog_color: Vec4,
     fog_range: Vec4,
     alpha_cutoff: f32,
+    flags: u32,
     ambient_scale: Vec4,
 }
 impl From<&TitleSurface> for SurfaceUniform {
@@ -306,6 +347,10 @@ impl From<&TitleSurface> for SurfaceUniform {
                 .truncate()
                 .extend(if value.field_fog { 1. } else { 0. }),
             alpha_cutoff: f32::from(value.alpha_cutoff) / 255.,
+            flags: u32::from(value.red_channel)
+                | (u32::from(value.clip_below_floor) << 1)
+                | (u32::from(value.vertex_color) << 2)
+                | (u32::from(value.toon_ramp.is_some()) << 3),
             ambient_scale: value.ambient_scale.extend(0.),
         }
     }
@@ -313,16 +358,12 @@ impl From<&TitleSurface> for SurfaceUniform {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SurfaceKey {
-    vertex_color: bool,
-    field_lighting: bool,
     constant_color: bool,
     clamp_color: bool,
     vertex_alpha: bool,
-    red_channel: bool,
     depth_test: bool,
     depth_equal: bool,
     depth_write: bool,
-    clip_below_floor: bool,
     blend: Option<Blend>,
     multiply_alpha_only: bool,
     cull: resonance_content::CullFace,
@@ -374,16 +415,12 @@ impl SurfaceKey {
 impl From<&TitleSurface> for SurfaceKey {
     fn from(material: &TitleSurface) -> Self {
         Self {
-            vertex_color: material.vertex_color,
-            field_lighting: material.toon_ramp.is_some(),
             constant_color: material.constant_color,
             clamp_color: material.clamp_color,
             vertex_alpha: material.vertex_alpha,
-            red_channel: material.red_channel,
             depth_test: material.depth_test,
             depth_equal: material.depth_equal,
             depth_write: material.depth_write,
-            clip_below_floor: material.clip_below_floor,
             blend: material.blend,
             multiply_alpha_only: material.multiply_alpha_only,
             cull: material.cull,
@@ -408,22 +445,18 @@ impl Material for TitleSurface {
     fn specialize(
         _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/surface".into());
-        if !key.bind_group_data.vertex_color {
-            // Keep shared vertex buffers intact; this recipe does not consume color.
-            let color = bevy::shader::ShaderDefVal::from("VERTEX_COLORS");
-            descriptor
-                .vertex
-                .shader_defs
-                .retain(|definition| *definition != color);
-            if let Some(fragment) = &mut descriptor.fragment {
-                fragment
-                    .shader_defs
-                    .retain(|definition| *definition != color);
-            }
+        if layout.0.contains(vertex::FLAGS) {
+            let flags = layout
+                .0
+                .get_layout(&[vertex::FLAGS.at_shader_location(8)])?;
+            descriptor.vertex.buffers[0]
+                .attributes
+                .extend(flags.attributes);
+            descriptor.vertex.shader_defs.push("SURFACE_LAYOUT".into());
         }
         // Imported triangles have counter-clockwise winding.
         descriptor.primitive.cull_mode = match key.bind_group_data.cull {
@@ -431,12 +464,6 @@ impl Material for TitleSurface {
             resonance_content::CullFace::Front => Some(Face::Front),
             resonance_content::CullFace::None => None,
         };
-        if key.bind_group_data.field_lighting {
-            descriptor.vertex.shader_defs.push("FIELD_LIGHTING".into());
-            if let Some(fragment) = &mut descriptor.fragment {
-                fragment.shader_defs.push("FIELD_LIGHTING".into());
-            }
-        }
         if key.bind_group_data.vertex_alpha {
             descriptor.vertex.shader_defs.push("VERTEX_ALPHA".into());
             if let Some(fragment) = &mut descriptor.fragment {
@@ -452,14 +479,8 @@ impl Material for TitleSurface {
             if key.bind_group_data.clamp_color {
                 fragment.shader_defs.push("CLAMP_COLOR".into());
             }
-            if key.bind_group_data.red_channel {
-                fragment.shader_defs.push("RED_CHANNEL".into());
-            }
             if key.bind_group_data.multiply_alpha_only {
                 fragment.shader_defs.push("MULTIPLY_ALPHA_ONLY".into());
-            }
-            if key.bind_group_data.clip_below_floor {
-                fragment.shader_defs.push("CLIP_BELOW_FLOOR".into());
             }
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.bind_group_data.blend_state();
@@ -483,6 +504,23 @@ impl Material for TitleSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn material_flags_share_the_pipeline_and_keep_separate_uniform_bits() {
+        let ordinary = TitleSurface::default();
+        let key = SurfaceKey::from(&ordinary);
+        for flags in 0..16 {
+            let surface = TitleSurface {
+                red_channel: flags & 1 != 0,
+                clip_below_floor: flags & 2 != 0,
+                vertex_color: flags & 4 != 0,
+                toon_ramp: (flags & 8 != 0).then(Handle::default),
+                ..ordinary.clone()
+            };
+            assert!(SurfaceKey::from(&surface) == key);
+            assert_eq!(SurfaceUniform::from(&surface).flags, flags);
+        }
+    }
 
     #[test]
     fn field_fog_uses_the_view_without_changing_overworld_fog() {

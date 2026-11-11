@@ -198,12 +198,23 @@ pub fn prepare_part(
     part.scene
         .prepare_bones(&read(&part.scene.mesh)?)
         .with_context(|| part.scene.mesh.clone())?;
+    let mut prepared = Vec::new();
+    let mut named = BTreeMap::new();
     for clip in &mut part.scene.clips {
-        let motion = clip
-            .decode_motion(&read(&clip.motion)?, &part.scene.bone_names)
+        let bytes = read(&clip.motion)?;
+        if !named.contains_key(&clip.motion) {
+            named.insert(
+                clip.motion.clone(),
+                crate::animation::NamedMotion::decode(&bytes)?,
+            );
+        }
+        let motion = named[&clip.motion]
+            .bind_shared(&part.scene.bone_names, &clip.joints)
             .with_context(|| format!("decode battle motion {}", clip.motion))?;
         clip.duration_seconds = motion.duration_frames / crate::animation::FRAME_HZ;
+        prepared.push(Some((bytes, motion)));
     }
+    part.scene.retain_motions(prepared);
     part.scene.validate(|_| true)?;
     part.selected_clip()?;
     Ok(())
@@ -388,19 +399,32 @@ pub(crate) fn capture_scene(
         diagnostics.attempt(path, snapshot.read(texture, ASSET_LIMIT))?;
     }
     let mut slots = BTreeSet::new();
+    let mut prepared = Vec::new();
+    let mut named = BTreeMap::new();
     for clip in &mut part.clips {
         ensure!(
             slots.insert((clip.animation_resource, clip.resource_slot)),
             "duplicate battle motion slot in {path}"
         );
         ensure!(!cancelled(), "battle motion preparation cancelled");
-        let result = snapshot
-            .read(&clip.motion, ASSET_LIMIT)
-            .and_then(|bytes| clip.decode_motion(&bytes, &part.bone_names));
-        if let Some(motion) = diagnostics.attempt(&clip.motion, result)? {
+        let result = (|| {
+            let bytes = snapshot.read(&clip.motion, ASSET_LIMIT)?;
+            if !named.contains_key(&clip.motion) {
+                named.insert(
+                    clip.motion.clone(),
+                    crate::animation::NamedMotion::decode(&bytes)?,
+                );
+            }
+            let motion = named[&clip.motion].bind_shared(&part.bone_names, &clip.joints)?;
+            Ok((bytes, motion))
+        })();
+        let result = diagnostics.attempt(&clip.motion, result)?;
+        if let Some((_, motion)) = &result {
             clip.duration_seconds = motion.duration_frames / crate::animation::FRAME_HZ;
         }
+        prepared.push(result);
     }
+    part.retain_motions(prepared);
     ensure!(!cancelled(), "battle model preparation cancelled");
     Ok(())
 }

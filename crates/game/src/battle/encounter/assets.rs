@@ -34,6 +34,8 @@ pub struct Assets {
     pub(super) events: Option<crate::battle::event::Plan>,
     event_audio: Selection,
     pub files: Files,
+    pub(super) effect_models: model::EffectModels,
+    pub(super) effect_programs: crate::battle::effect_program::cache::Programs,
     pub stage: Stage,
     pub ui: Art,
     pub catalogue: Arc<arte::Catalogue>,
@@ -53,7 +55,7 @@ pub struct Assets {
         u8,
         (
             battle_model::Enemy,
-            BTreeMap<u16, resonance_content::animation::Motion>,
+            BTreeMap<u16, Arc<resonance_content::animation::Motion>>,
         ),
     >,
     pub common_effects: Option<Arc<SourceBank>>,
@@ -69,8 +71,9 @@ pub(super) struct PartyInput {
     pub character: Character,
     pub position: [f32; 3],
     pub(super) source: battle_model::Party,
+    pub(super) prepared_body: Option<Arc<super::CommonBody>>,
     pub(super) equipment: BTreeMap<u16, EquipmentKind>,
-    pub(super) motions: BTreeMap<u16, resonance_content::animation::Motion>,
+    pub(super) motions: BTreeMap<u16, Arc<resonance_content::animation::Motion>>,
 }
 
 impl Assets {
@@ -92,23 +95,22 @@ impl Assets {
             "fixture motion slot is already bound"
         );
         motion.validate(&input.source.body.skeleton)?;
-        input.motions.insert(clip, motion);
+        input.motions.insert(clip, Arc::new(motion));
         Ok(())
     }
 }
 
-fn choreography_ids(
+pub(super) fn choreography_ids(
     catalogue: &arte::Catalogue,
     unison: &resonance_content::battle_unison::Catalogue,
-    party_actors: &[PartyInput],
+    characters: impl IntoIterator<Item = Character>,
     enemy_definitions: &BTreeMap<u8, battle_enemy::Definition>,
 ) -> Result<(BTreeSet<u16>, BTreeSet<u16>)> {
     let mut scene_ids = BTreeSet::new();
     let mut skill_ids = BTreeSet::new();
     let mut party_artes = BTreeSet::new();
-    for actor in party_actors {
-        for catalogue in super::resources::party_techniques(catalogue, actor.character)?.into_keys()
-        {
+    for character in characters {
+        for catalogue in super::resources::party_techniques(catalogue, character)?.into_keys() {
             if crate::battle::skill_scene::contains(catalogue) {
                 skill_ids.insert(catalogue);
             }

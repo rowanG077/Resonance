@@ -1,4 +1,22 @@
 //! Desktop presentation for the high-level title controller.
+
+/// Time a scope for `RESONANCE_PREPARATION_TRACE`. Expands to nothing outside
+/// trace-enabled test builds. A named span ends at `profile_span!(end name)`.
+macro_rules! profile_span {
+    ($label:literal) => {
+        #[cfg(all(test, feature = "preparation-trace"))]
+        let _profile = crate::preparation_profile::Span::new($label);
+    };
+    ($name:ident = $label:literal) => {
+        #[cfg(all(test, feature = "preparation-trace"))]
+        let $name = crate::preparation_profile::Span::new($label);
+    };
+    (end $name:ident) => {
+        #[cfg(all(test, feature = "preparation-trace"))]
+        drop($name);
+    };
+}
+
 mod diagnostics;
 pub use diagnostics::{crash_context, write_crash_context_to};
 #[cfg(test)]
@@ -37,10 +55,15 @@ mod debug_font;
 mod display;
 mod dungeons;
 mod field_warm;
+mod gpu_prepare;
 mod input;
 mod input_icons;
 mod loading;
+mod model_asset;
+#[cfg(all(test, feature = "preparation-trace"))]
+mod preparation_profile;
 mod renderer;
+mod transition_metrics;
 pub use renderer::native_render_plugins;
 mod testing;
 pub use display::Resolution;
@@ -497,12 +520,11 @@ fn build_app(
                 .chain()
                 .run_if(resource_exists::<display::InteractiveDisplay>),
         )
-        .add_systems(PostUpdate, loading::black_hold)
-        .add_systems(Update, audio::check)
         .add_systems(
-            Update,
-            saves::release_frame.after(field_view::FieldPreparation),
+            PostUpdate,
+            (loading::black_hold, new_game::scene_fade::update).chain(),
         )
+        .add_systems(Update, audio::check)
         .add_systems(
             FixedUpdate,
             (
@@ -528,7 +550,6 @@ fn build_app(
                     session_screen::update,
                 )
                     .chain(),
-                scene::bind_animated,
                 prepare_field,
                 update_materials,
                 animate_field,
@@ -575,6 +596,8 @@ fn build_app(
     battle::install(&mut app);
     game_over::install(&mut app)?;
     renderer::configure(&mut app);
+    loading::startup::install(&mut app)?;
+    transition_metrics::install(&mut app);
     diagnostics::record(app.world(), true);
     info!("Presentation initialized");
     Ok((app, recording))

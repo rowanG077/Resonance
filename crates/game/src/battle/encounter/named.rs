@@ -58,6 +58,42 @@ impl Assets {
             diagnostics,
             cancelled,
             false,
+            None,
+        )
+    }
+
+    /// Runtime startup inputs are immutable; enemies and arena remain captured here.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "One candidate borrows independent scene and startup inputs."
+    )]
+    pub fn capture_with_common(
+        snapshot: &mut Snapshot,
+        menus: &MenuData,
+        session: &SessionData,
+        party: &Party,
+        setup: Setup,
+        diagnostics: Diagnostics,
+        cancelled: &impl Fn() -> bool,
+        common: &super::super::Common,
+    ) -> Result<Self> {
+        ensure!(
+            common
+                .files
+                .library()
+                .is_some_and(|library| snapshot.uses_library(library)),
+            "common battle inputs belong to a different content namespace"
+        );
+        Self::capture_inner(
+            snapshot,
+            menus,
+            session,
+            party,
+            setup,
+            diagnostics,
+            cancelled,
+            false,
+            Some(common),
         )
     }
 
@@ -86,6 +122,7 @@ impl Assets {
             diagnostics,
             cancelled,
             true,
+            None,
         )
     }
 
@@ -103,12 +140,18 @@ impl Assets {
         diagnostics: Diagnostics,
         cancelled: &impl Fn() -> bool,
         isolated_fixture: bool,
+        common: Option<&super::super::Common>,
     ) -> Result<Self> {
         ensure!(!cancelled(), "battle preparation cancelled");
         // Battle menus, fatal-load slots and event dialogue share the field UI.
         // Capture their current dependencies into this encounter's own snapshot.
-        resonance_content::preparation::ui(snapshot, &diagnostics, cancelled)?;
-        let mut rules = resonance_content::battle_rules::capture(snapshot, cancelled)?;
+        if common.is_none() {
+            resonance_content::preparation::ui(snapshot, &diagnostics, cancelled)?;
+        }
+        let mut rules = match common {
+            Some(common) => common.rules.clone(),
+            None => resonance_content::battle_rules::capture(snapshot, cancelled)?,
+        };
         let mut enemies = super::super::enemies_from_formations(
             &rules.formations,
             menus.monsters()?,
@@ -203,12 +246,18 @@ impl Assets {
                 );
                 continue;
             }
-            let (kind, weapon) =
-                match models::capture_equipment(snapshot, item, &diagnostics, cancelled)? {
-                    battle_model::Attachment::Nonvisual => continue,
-                    battle_model::Attachment::Weapon(weapon) => (EquipmentKind::Weapon, weapon),
-                    battle_model::Attachment::Shield(weapon) => (EquipmentKind::Shield, weapon),
-                };
+            let attachment = match common.and_then(|common| common.equipment(item)) {
+                Some(equipment) => {
+                    equipment.adopt(snapshot, cancelled)?;
+                    equipment.attachment.clone()
+                }
+                None => models::capture_equipment(snapshot, item, &diagnostics, cancelled)?,
+            };
+            let (kind, weapon) = match attachment {
+                battle_model::Attachment::Nonvisual => continue,
+                battle_model::Attachment::Weapon(weapon) => (EquipmentKind::Weapon, weapon),
+                battle_model::Attachment::Shield(weapon) => (EquipmentKind::Shield, weapon),
+            };
             available_equipment.insert(item, (kind, definition.allowed_characters));
             weapons.insert(item, weapon);
         }
@@ -232,13 +281,20 @@ impl Assets {
                         .then_some((item, kind))
                 })
                 .collect();
-            let (selection, source) = models::capture_party(
-                snapshot,
-                character as u8,
-                member.costume,
-                &diagnostics,
-                cancelled,
-            )?;
+            let body = common.and_then(|common| common.body(character as u8, member.costume));
+            let (selection, source) = match &body {
+                Some(body) => {
+                    common.unwrap().adopt_body(snapshot, body, cancelled)?;
+                    (body.selection.clone(), body.source.clone())
+                }
+                None => models::capture_party(
+                    snapshot,
+                    character as u8,
+                    member.costume,
+                    &diagnostics,
+                    cancelled,
+                )?,
+            };
             if enemies.settings.celebrate {
                 victory_owners.push((character as u8, member.costume, selection));
             }
@@ -247,7 +303,11 @@ impl Assets {
                 position,
                 source,
                 equipment,
-                motions: BTreeMap::new(),
+                motions: body
+                    .as_ref()
+                    .map(|body| body.motions.clone())
+                    .unwrap_or_default(),
+                prepared_body: body,
             });
         }
         let mut enemy_definitions = BTreeMap::new();
@@ -312,10 +372,20 @@ impl Assets {
         if setup.defeat == resonance_events::battle::DefeatPolicy::GameOver {
             resonance_content::game_over::document::capture(snapshot, &diagnostics, cancelled)?;
         }
-        let ui =
-            resonance_content::battle_ui::document::capture(snapshot, &diagnostics, cancelled)?;
-        let common_effects = effect(snapshot, effects::COMMON, &diagnostics, cancelled)?;
-        let technique_effects = effect(snapshot, effects::TECHNIQUES, &diagnostics, cancelled)?;
+        let ui = match common {
+            Some(common) => common.ui.clone(),
+            None => {
+                resonance_content::battle_ui::document::capture(snapshot, &diagnostics, cancelled)?
+            }
+        };
+        let common_effects = match common {
+            Some(common) => common.banks.get(effects::COMMON).cloned(),
+            None => effect(snapshot, effects::COMMON, &diagnostics, cancelled)?,
+        };
+        let technique_effects = match common {
+            Some(common) => common.banks.get(effects::TECHNIQUES).cloned(),
+            None => effect(snapshot, effects::TECHNIQUES, &diagnostics, cancelled)?,
+        };
         let mut stage_effects = if stage.recurring_interval.is_some() {
             effect(
                 snapshot,
@@ -343,43 +413,47 @@ impl Assets {
                 let Some(path) = &catalogue.definition(usize::from(id))?.action else {
                     continue;
                 };
-                let action: resonance_content::battle_martial::AuthoredAction =
-                    snapshot.json(path, JSON_LIMIT)?;
+                let action = match common.and_then(|common| common.actions.get(&id)) {
+                    Some(action) => action.clone(),
+                    None => snapshot.json::<resonance_content::battle_martial::AuthoredAction>(
+                        path, JSON_LIMIT,
+                    )?,
+                };
                 rules.unison.placements.insert(id, action.unison);
                 if let Some(path) = &action.effects {
                     if !authored_effects.contains_key(&id) {
                         authored_effects.insert(
                             id,
-                            Arc::new(effects::capture(snapshot, path, &diagnostics, cancelled)?),
+                            match common.and_then(|common| common.banks.get(path)) {
+                                Some(bank) => bank.clone(),
+                                None => Arc::new(effects::capture(
+                                    snapshot,
+                                    path,
+                                    &diagnostics,
+                                    cancelled,
+                                )?),
+                            },
                         );
                     }
                 }
-                let scene = input
-                    .source
-                    .parts
-                    .first_mut()
-                    .context("missing authored arte body")?;
-                for (slot, path) in action.motions {
-                    ensure!(
-                        !scene.clips.iter().any(|clip| clip.resource_slot == slot),
-                        "authored arte {id} conflicts with motion slot {slot}"
-                    );
-                    snapshot.read(&path, resonance_content::preparation::ASSET_LIMIT)?;
-                    scene.clips.push(resonance_content::SceneClip {
-                        resource_slot: slot,
-                        motion: path,
-                        joints: BTreeMap::new(),
-                        duration_seconds: 0.,
-                        animation_resource: None,
-                        pose_chains: Vec::new(),
-                    });
+                if input.prepared_body.is_none() {
+                    super::super::common::append_motions(
+                        snapshot,
+                        &mut input.source,
+                        &action,
+                        cancelled,
+                    )?;
                 }
             }
         }
         let recoil = crate::battle::recoil::Parameters::from_table(rules.recoil);
         let unison = Arc::new(rules.unison);
-        let (scene_ids, skill_ids) =
-            choreography_ids(&catalogue, &unison, &party_actors, &enemy_definitions)?;
+        let (scene_ids, skill_ids) = choreography_ids(
+            &catalogue,
+            &unison,
+            party_actors.iter().map(|actor| actor.character),
+            &enemy_definitions,
+        )?;
         let mut spell_scenes = BTreeMap::new();
         let mut skill_scenes = BTreeMap::new();
         for (kind, ids, target) in [
@@ -389,8 +463,17 @@ impl Assets {
             for id in ids {
                 // The scene is required; independently invalid optional art
                 // retains the bank reader's diagnostics within that scene.
-                let (_, bank) = scenes::capture(snapshot, kind, id, &diagnostics, cancelled)?;
-                target.insert(id, Arc::new(bank));
+                let bank = match common.and_then(|common| {
+                    common
+                        .scenes
+                        .get(&(super::super::common::kind_key(kind), id))
+                }) {
+                    Some((_, bank)) => bank.clone(),
+                    None => {
+                        Arc::new(scenes::capture(snapshot, kind, id, &diagnostics, cancelled)?.1)
+                    }
+                };
+                target.insert(id, bank);
             }
         }
         for bank in stage_effects
@@ -399,10 +482,16 @@ impl Assets {
             .chain(spell_scenes.values_mut())
             .chain(skill_scenes.values_mut())
         {
-            if let (Some(art), Some(common)) = (
-                Arc::make_mut(bank).art.as_mut(),
-                common_effects.as_ref().and_then(|bank| bank.art.as_ref()),
-            ) {
+            let common = common_effects.as_ref().and_then(|bank| bank.art.as_ref());
+            if bank.art.as_ref().zip(common).is_none_or(|(art, common)| {
+                common
+                    .textures
+                    .keys()
+                    .all(|slot| art.textures.contains_key(slot))
+            }) {
+                continue;
+            }
+            if let (Some(art), Some(common)) = (Arc::make_mut(bank).art.as_mut(), common) {
                 for (&slot, textures) in &common.textures {
                     art.textures.entry(slot).or_insert_with(|| textures.clone());
                 }
@@ -410,6 +499,9 @@ impl Assets {
         }
         let files = Files::capture_snapshot(snapshot, cancelled, diagnostics.clone())?;
         for input in &mut party_actors {
+            if input.prepared_body.is_some() {
+                continue;
+            }
             input.motions = diagnostics
                 .attempt(
                     "party body motions",
@@ -475,6 +567,12 @@ impl Assets {
             events,
             event_audio,
             files,
+            effect_models: common
+                .map(|common| common.effect_models.clone())
+                .unwrap_or_default(),
+            effect_programs: common
+                .map(|common| common.effect_programs.clone())
+                .unwrap_or_default(),
             stage,
             ui,
             catalogue,

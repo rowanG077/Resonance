@@ -413,7 +413,7 @@ fn summon_models(
             };
             primary.clips.push(SceneClip {
                 motion: path,
-                joints: BTreeMap::new(),
+                joints: Default::default(),
                 resource_slot: index as u16,
                 duration_seconds: 0.,
                 animation_resource: None,
@@ -586,7 +586,7 @@ fn nurse_models(
     let motion_path = format!("{stem}-animation-0.glb");
     let clip = SceneClip {
         motion: motion_path.clone(),
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: 0,
         duration_seconds: 0.,
         animation_resource: None,

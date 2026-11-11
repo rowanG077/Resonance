@@ -1,15 +1,20 @@
 //! Field preparation ownership and a verified, memory-backed asset reader.
+mod field;
+pub(crate) mod graphics;
+pub(crate) mod party;
+mod prefetch;
+pub(crate) mod startup;
 use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::io::{
         AssetReader, AssetReaderError, AssetSource, AssetSourceBuilder, AssetSourceId,
-        ErasedAssetReader, PathStream, Reader, VecReader,
+        ErasedAssetReader, PathStream, Reader,
     },
     prelude::*,
 };
+pub(super) use prefetch::{FieldPending, FieldPrefetch};
 use resonance_content::prepared::Files;
 use std::{
-    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, RwLock,
@@ -20,23 +25,48 @@ use std::{
     time::Instant,
 };
 
-/// Asset load state describes the published asset, not every outstanding loader
-/// for its path. Hold a ticket in each explicit load job until it actually exits.
+/// Tickets follow actual loaders, including after their requesting scene retires.
 #[derive(Default)]
-pub(super) struct LoadTasks(Arc<AtomicUsize>);
-pub(super) struct LoadTicket(Arc<AtomicUsize>);
+struct LoadScope {
+    pending: AtomicUsize,
+    files: Option<Arc<Files>>,
+}
+#[derive(Clone, Default)]
+pub(super) struct LoadTasks(Arc<LoadScope>);
+pub(super) struct LoadTicket(Arc<LoadScope>);
 impl LoadTasks {
     pub fn ticket(&self) -> LoadTicket {
-        self.0.fetch_add(1, Ordering::Relaxed);
+        self.0.pending.fetch_add(1, Ordering::Relaxed);
         LoadTicket(self.0.clone())
     }
     pub fn complete(&self) -> bool {
-        self.0.load(Ordering::Acquire) == 0
+        self.0.pending.load(Ordering::Acquire) == 0
     }
 }
 impl Drop for LoadTicket {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Release);
+        self.0.pending.fetch_sub(1, Ordering::Release);
+    }
+}
+
+/// Upload geometry and images without cloning or loading animation state.
+fn geometry_only(part: &resonance_content::ScenePart) -> resonance_content::ScenePart {
+    resonance_content::ScenePart {
+        resource: part.resource,
+        mesh: part.mesh.clone(),
+        textures: part.textures.clone(),
+        materials: part.materials.clone(),
+        appearance: part.appearance.clone(),
+        translation: part.translation,
+        clips: Vec::new(),
+        autoplay: false,
+        texture_animations: Vec::new(),
+        bone_names: part.bone_names.clone(),
+        prepared_motions: None,
+        prepared_geometry: part.prepared_geometry.clone(),
+        material_nodes: part.material_nodes.clone(),
+        outline_color: part.outline_color,
+        secondary_motion: Default::default(),
     }
 }
 
@@ -46,20 +76,27 @@ pub(super) struct Resident {
     library: Option<resonance_content::library::Library>,
     pub diagnostics: resonance_content::diagnostics::Diagnostics,
     pub files: Arc<RwLock<Option<Arc<Files>>>>,
+    scopes: Arc<Mutex<Vec<std::sync::Weak<LoadScope>>>>,
     cache: Arc<Mutex<Cache>>,
+    pub common: Arc<std::sync::OnceLock<Arc<startup::Common>>>,
     pub active: Arc<AtomicBool>,
-    /// Battle preparation and rendering temporarily own the shared asset reader.
     pub battle: Arc<AtomicBool>,
     pub memory_reads: Arc<AtomicU64>,
     pub unprepared_reads: Arc<AtomicU64>,
 }
 impl Default for Resident {
     fn default() -> Self {
+        let common = Arc::new(std::sync::OnceLock::new());
         Self {
             library: None,
             diagnostics: resonance_content::diagnostics::Diagnostics::new(true),
             files: Default::default(),
-            cache: Default::default(),
+            scopes: Default::default(),
+            cache: Arc::new(Mutex::new(Cache {
+                common: common.clone(),
+                ..Default::default()
+            })),
+            common,
             active: Default::default(),
             battle: Default::default(),
             memory_reads: Default::default(),
@@ -68,8 +105,28 @@ impl Default for Resident {
     }
 }
 impl Resident {
-    /// Preparations share the application's library and enabled mod layers.
-    /// Restart opens a new library and drops all resident preparations.
+    fn scope(&self, files: Arc<Files>) -> LoadTasks {
+        let scope = Arc::new(LoadScope {
+            pending: AtomicUsize::new(0),
+            files: Some(files),
+        });
+        let mut scopes = self.scopes.lock().unwrap();
+        scopes.retain(|scope| scope.strong_count() > 0);
+        scopes.push(Arc::downgrade(&scope));
+        LoadTasks(scope)
+    }
+    fn scoped_bytes(&self, path: &str) -> (Option<Arc<[u8]>>, bool) {
+        let scopes = self.scopes.lock().unwrap();
+        let mut prepared = false;
+        for scope in scopes.iter().filter_map(std::sync::Weak::upgrade) {
+            prepared = true;
+            if let Some(bytes) = scope.files.as_ref().and_then(|files| files.read(path).ok()) {
+                return (Some(bytes), true);
+            }
+        }
+        (None, prepared)
+    }
+    /// Restart opens a new library and drops the resident preparations.
     pub fn library(&self, root: &Path) -> Result<resonance_content::library::Library> {
         if let Some(library) = &self.library {
             return Ok(library.clone());
@@ -88,57 +145,81 @@ impl Resident {
 }
 #[derive(Default)]
 pub(super) struct Cache {
+    pub common: Arc<std::sync::OnceLock<Arc<startup::Common>>>,
     pub audio: super::field_audio::Cache,
     pub scripts: Option<resonance_game::authored::FieldScripts>,
     pub service_scripts: symphonia_script_tools::PreparationCache,
-    /// The two most recently used fields, scoped to this running application.
-    /// Direct capture APIs remain fresh for tools inspecting edits.
-    pub fields: VecDeque<Arc<super::new_game::FieldPackage>>,
+    /// The most recently captured field's bytes, while that field is still alive.
+    pub previous: std::sync::Weak<Files>,
 }
 impl Cache {
+    pub(super) fn snapshot(
+        &self,
+        library: &resonance_content::library::Library,
+    ) -> Result<resonance_content::library::Snapshot> {
+        match self.common.get().filter(|_| self.scripts.is_none()) {
+            Some(common) => library.snapshot_with(&common.files),
+            None => Ok(library.snapshot()),
+        }
+    }
     fn configure_scripts(&mut self, root: Option<PathBuf>) {
         if self.scripts.as_ref().map(|scripts| scripts.root()) != root.as_deref() {
             self.scripts = root.map(resonance_game::authored::FieldScripts::new);
-            self.fields.clear();
         }
-    }
-
-    fn field(
-        &mut self,
-        library: &resonance_content::library::Library,
-        map: u32,
-        cancelled: impl Fn() -> bool,
-        diagnostics: resonance_content::diagnostics::Diagnostics,
-    ) -> Result<Arc<super::new_game::FieldPackage>> {
-        anyhow::ensure!(!cancelled(), "field preparation cancelled");
-        // Explicit external script projects are reread during preparation.
-        if self.scripts.is_some() {
-            return Ok(Arc::new(super::new_game::FieldPackage::capture(
-                library,
-                map,
-                self,
-                cancelled,
-                diagnostics,
-            )?));
-        }
-        let package = if let Some(index) = self.fields.iter().position(|p| p.assets.map_id == map) {
-            self.fields.remove(index).unwrap()
-        } else {
-            Arc::new(super::new_game::FieldPackage::capture(
-                library,
-                map,
-                self,
-                &cancelled,
-                diagnostics,
-            )?)
-        };
-        self.fields.push_back(package.clone());
-        while self.fields.len() > 2 {
-            self.fields.pop_front();
-        }
-        Ok(package)
     }
 }
+struct SharedReader(bevy::tasks::futures_lite::io::Cursor<Arc<[u8]>>);
+impl SharedReader {
+    fn new(bytes: Arc<[u8]>) -> Self {
+        Self(bevy::tasks::futures_lite::io::Cursor::new(bytes))
+    }
+}
+impl bevy::tasks::futures_lite::io::AsyncRead for SharedReader {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+        buffer: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.0).poll_read(context, buffer)
+    }
+}
+impl bevy::tasks::futures_lite::io::AsyncSeek for SharedReader {
+    fn poll_seek(
+        mut self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+        position: std::io::SeekFrom,
+    ) -> std::task::Poll<std::io::Result<u64>> {
+        std::pin::Pin::new(&mut self.0).poll_seek(context, position)
+    }
+}
+impl Reader for SharedReader {
+    fn read_to_end<'a>(
+        &'a mut self,
+        buffer: &'a mut Vec<u8>,
+    ) -> bevy::asset::io::StackFuture<
+        'a,
+        std::io::Result<usize>,
+        { bevy::asset::io::STACK_FUTURE_SIZE },
+    > {
+        bevy::asset::io::StackFuture::from(async move {
+            let position = self.0.position();
+            let bytes = self.0.get_ref();
+            let start = position.min(bytes.len() as u64) as usize;
+            let count = bytes.len() - start;
+            buffer.extend_from_slice(&bytes[start..]);
+            self.0.set_position(position + count as u64);
+            Ok(count)
+        })
+    }
+
+    fn seekable(
+        &mut self,
+    ) -> Result<&mut dyn bevy::asset::io::SeekableReader, bevy::asset::io::ReaderNotSeekableError>
+    {
+        Ok(self)
+    }
+}
+
 struct ReaderAdapter {
     resident: Resident,
     fallback: Box<dyn ErasedAssetReader>,
@@ -151,14 +232,27 @@ impl AssetReader for ReaderAdapter {
             let files = self.resident.files.read().unwrap();
             (
                 files.as_ref().and_then(|f| f.read(key.as_ref()).ok()),
-                files.is_some(),
+                files.is_some() || self.resident.common.get().is_some(),
             )
         };
-        if let Some(bytes) = bytes {
+        let mut scoped_prepared = false;
+        if let Some(bytes) = bytes
+            .or_else(|| {
+                self.resident
+                    .common
+                    .get()
+                    .and_then(|common| common.files.read(&key).ok())
+            })
+            .or_else(|| {
+                let (bytes, prepared) = self.resident.scoped_bytes(&key);
+                scoped_prepared = prepared;
+                bytes
+            })
+        {
             self.resident.memory_reads.fetch_add(1, Ordering::Relaxed);
-            return Ok(Box::new(VecReader::new(bytes.to_vec())) as Box<dyn Reader>);
+            return Ok(Box::new(SharedReader::new(bytes)) as Box<dyn Reader>);
         }
-        if prepared {
+        if prepared || scoped_prepared {
             self.resident
                 .unprepared_reads
                 .fetch_add(1, Ordering::Relaxed);
@@ -187,7 +281,7 @@ impl AssetReader for ReaderAdapter {
     }
 
     async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
-        if self.resident.files.read().unwrap().is_some() {
+        if self.resident.files.read().unwrap().is_some() || self.resident.common.get().is_some() {
             return Err(AssetReaderError::NotFound(path.to_owned()));
         }
         self.fallback.read_meta(path).await
@@ -212,6 +306,7 @@ pub(super) fn install(
     root: &Path,
     library: Option<&resonance_content::library::Library>,
 ) {
+    prefetch::install(app);
     let supported = super::texture::Supported::default();
     app.insert_resource(supported.clone());
     super::model_preview::register(app, supported.clone());
@@ -241,7 +336,6 @@ pub(super) fn install(
 }
 
 pub(super) type Pending = Task<super::new_game::Session>;
-pub(super) type FieldPending = Task<Arc<super::new_game::FieldPackage>>;
 pub(super) type BattlePending = Task<super::battle::Package>;
 #[derive(Resource)]
 pub(super) struct Task<T: Send + 'static> {
@@ -264,12 +358,13 @@ impl Pending {
         Self::spawn(format!("dungeon field {}", destination.map), move |stop| {
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
-            let package = cache.field(
+            let package = Arc::new(super::new_game::FieldPackage::capture(
                 &library,
                 destination.map,
+                &mut cache,
                 || stop.load(Ordering::Relaxed),
                 diagnostics,
-            )?;
+            )?);
             super::new_game::Session::load_start(
                 package,
                 super::new_game::Start::Dungeon(destination),
@@ -309,31 +404,19 @@ impl Pending {
             };
             let new_game = checkpoint.is_none();
             let map = checkpoint.as_ref().map_or(5, |saved| saved.map_id);
-            let package =
-                cache.field(&library, map, || stop.load(Ordering::Relaxed), diagnostics)?;
+            let package = Arc::new(super::new_game::FieldPackage::capture(
+                &library,
+                map,
+                &mut cache,
+                || stop.load(Ordering::Relaxed),
+                diagnostics,
+            )?);
             let mut session =
                 super::new_game::Session::load_prepared(package, checkpoint, initial_preferences)?;
             if new_game {
                 session.prepare_movie(|| stop.load(Ordering::Relaxed))?;
             }
             Ok(session)
-        })
-    }
-}
-impl FieldPending {
-    pub fn field(
-        root: PathBuf,
-        script_root: Option<PathBuf>,
-        map: u32,
-        resident: &Resident,
-    ) -> Result<Self> {
-        let library = resident.library(&root)?;
-        let cache = resident.cache.clone();
-        let diagnostics = resident.diagnostics.clone();
-        Self::spawn(format!("field {map}"), move |stop| {
-            let mut cache = cache.lock().unwrap();
-            cache.configure_scripts(script_root);
-            cache.field(&library, map, || stop.load(Ordering::Relaxed), diagnostics)
         })
     }
 }
@@ -376,19 +459,37 @@ impl BattlePending {
                 let mut cache = cache.lock().unwrap();
                 let entry_seed = options.random_seed;
                 let cancelled = || stop.load(Ordering::Relaxed);
-                let catalogue = resonance_content::battle_audio::document::Catalogue::capture(
-                    &mut snapshot,
-                    &cancelled,
-                )?;
-                let inputs = resonance_game::battle::encounter::Assets::capture(
-                    &mut snapshot,
-                    &menus,
-                    &data,
-                    &party,
-                    setup,
-                    diagnostics.clone(),
-                    &cancelled,
-                )?;
+                let common = cache.common.get().and_then(|common| common.battle.clone());
+                let catalogue = match &common {
+                    Some(common) => common.audio.clone(),
+                    None => Arc::new(
+                        resonance_content::battle_audio::document::Catalogue::capture(
+                            &mut snapshot,
+                            &cancelled,
+                        )?,
+                    ),
+                };
+                let inputs = match &common {
+                    Some(common) => resonance_game::battle::encounter::Assets::capture_with_common(
+                        &mut snapshot,
+                        &menus,
+                        &data,
+                        &party,
+                        setup,
+                        diagnostics.clone(),
+                        &cancelled,
+                        common,
+                    )?,
+                    None => resonance_game::battle::encounter::Assets::capture(
+                        &mut snapshot,
+                        &menus,
+                        &data,
+                        &party,
+                        setup,
+                        diagnostics.clone(),
+                        &cancelled,
+                    )?,
+                };
                 let (mut assets, prepared, selected) =
                     inputs.prepare_named(&menus, options, &catalogue)?;
                 let audio = super::battle_audio::Assets::capture_named(
@@ -497,6 +598,7 @@ impl<T: Send + 'static> Drop for Task<T> {
 }
 
 pub(super) fn black_hold(
+    startup: startup::Status,
     pending: Option<Res<Pending>>,
     field: Option<Res<FieldPending>>,
     session: Option<Res<super::new_game::Session>>,
@@ -506,11 +608,13 @@ pub(super) fn black_hold(
     title_return: Option<Res<super::game_over::Returning>>,
 ) {
     let battle_visible = battle.is_some();
-    let held = title_return.is_some()
+    let held = !startup.ready()
+        || title_return.is_some()
         || pending.is_some()
         || field.is_some()
         || session.is_some() && !resident.active.load(Ordering::Acquire) && !battle_visible;
-    let portal = title_return.is_none()
+    let portal = startup.ready()
+        && title_return.is_none()
         && session
             .as_ref()
             .and_then(|s| s.overworld())
@@ -527,6 +631,29 @@ pub(super) fn black_hold(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn loader_tickets_keep_inputs_after_owner_cancellation_without_scene_history() {
+        let resident = Resident::default();
+        let mut files = Files::default();
+        files.insert("late.bin".into(), Arc::from(&b"captured"[..]));
+        let files = Arc::new(files);
+        let retired = Arc::downgrade(&files);
+        let loads = resident.scope(files);
+        let ticket = loads.ticket();
+        assert!(!loads.complete());
+        drop(loads);
+        assert_eq!(
+            resident.scoped_bytes("late.bin").0.unwrap().as_ref(),
+            b"captured"
+        );
+        drop(ticket);
+        assert!(retired.upgrade().is_none());
+        assert!(resident.scoped_bytes("late.bin").0.is_none());
+        let next = resident.scope(Arc::new(Files::default()));
+        assert_eq!(resident.scopes.lock().unwrap().len(), 1);
+        drop(next);
+    }
+
     use super::*;
     use resonance_content::diagnostics::Diagnostics;
     use std::fs;

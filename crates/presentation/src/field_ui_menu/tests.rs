@@ -440,6 +440,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     let fixture = Fixture::load()?;
     let mut world = World::new();
     let mut artwork = fixture.artwork(&mut world)?;
+    let canvases = artwork.canvas_bindings();
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let mut meshes = Assets::<Mesh>::default();
     artwork.prepare_windows(crate::Resolution::default());
@@ -515,6 +516,39 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             ));
         }
     }
+    // The warm inventory must cover actual page draws, including every window
+    // recipe and the portrait/map planes, without allocating unused text atlases.
+    for &window in fixture.art.windows.keys() {
+        menu.checkpoint
+            .as_mut()
+            .unwrap()
+            .progress_mut()
+            .party
+            .settings
+            .preferences
+            .window = window as u8;
+        for page in [Page::Main, Page::Status, Page::WorldMap] {
+            menu.page = page;
+            artwork.render(
+                Source::Title(Some(&menu)),
+                &fixture.font,
+                &fixture.dialogue,
+                101,
+                crate::Resolution::default(),
+                &mut Commands::new(&mut queue, &world),
+                &mut meshes,
+            )?;
+            queue.apply(&mut world);
+            assert!(
+                artwork.layers.keys().all(|key| canvases.contains(key)),
+                "unwarmed menu binding for {page:?}, window {window}"
+            );
+        }
+    }
+    eprintln!(
+        "Menu residency: {} canvases across both depth bands",
+        canvases.len() * 2
+    );
     let list = resonance_game::battle::command::ListFrame {
         rows: vec![],
         selected: 0,
@@ -863,6 +897,39 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
     fixture.art.textures.insert(usize::MAX, atlas);
     let mut world = World::new();
     let mut artwork = fixture.artwork(&mut world)?;
+    // Model completed uploads for healthy textures; unavailable optional images
+    // must remain errors only for the page that actually selects them.
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+    world.insert_resource(app.world().resource::<AssetServer>().clone());
+    world.init_resource::<Assets<Mesh>>();
+    for material in artwork
+        .materials
+        .values()
+        .filter(|material| !material.size.contains(&0))
+    {
+        world
+            .resource_mut::<Assets<Image>>()
+            .insert(material.image.id(), Image::default())?;
+        world
+            .resource_mut::<Assets<Image>>()
+            .insert(material.sampling.id(), Image::default())?;
+    }
+    let resident = crate::field_ui::Resident::default();
+    assert!(artwork.warm_canvases(&resident, &mut world)?);
+    world.flush();
+    assert!(
+        resident
+            .menu_canvas(
+                DepthBand::Field as u8,
+                (
+                    1,
+                    DrawRole::Content,
+                    MaterialKey::Texture(MenuArt::PORTRAIT_TEXTURES.start)
+                )
+            )
+            .is_none()
+    );
     let mut slots = Menu::new(Page::Slots(Mode::Load), None, false);
     slots.take_command();
     slots.finish(None);

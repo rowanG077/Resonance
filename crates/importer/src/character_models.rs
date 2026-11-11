@@ -201,7 +201,7 @@ pub(crate) fn appearance(model: &[u8], sizes: &[(u32, u32)]) -> Result<Option<Ap
 fn clip(path: String, slot: u16, bank: Option<u32>) -> SceneClip {
     SceneClip {
         motion: path,
-        joints: BTreeMap::new(),
+        joints: Default::default(),
         resource_slot: slot,
         duration_seconds: 0.,
         animation_resource: bank,

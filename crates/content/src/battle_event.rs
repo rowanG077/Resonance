@@ -8,7 +8,7 @@ pub mod document;
 #[derive(Debug, Clone, Serialize)]
 pub struct Scene {
     #[serde(skip)]
-    pub joint_mappings: BTreeMap<String, String>,
+    pub joint_mappings: std::sync::Arc<BTreeMap<String, String>>,
     /// Captured authored blink cycle for this event.
     #[serde(skip)]
     pub blink: Option<crate::effect::BlinkCycle>,

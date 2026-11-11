@@ -1,11 +1,14 @@
 //! Immutable bytes captured from current named content. Media streams retain their own handles.
 use crate::diagnostics::Diagnostics;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeMap, sync::Arc};
+
+pub(crate) type Bytes = BTreeMap<String, Arc<[u8]>>;
 
 #[derive(Clone)]
 pub struct Files {
-    bytes: BTreeMap<String, Arc<[u8]>>,
+    bytes: Arc<Bytes>,
+    common: Option<Arc<Bytes>>,
     pub disk_bytes: u64,
     diagnostics: Diagnostics,
     overrides: Vec<crate::library::Override>,
@@ -19,7 +22,8 @@ impl Default for Files {
 impl Files {
     pub fn new(diagnostics: Diagnostics) -> Self {
         Self {
-            bytes: BTreeMap::new(),
+            bytes: Default::default(),
+            common: None,
             disk_bytes: 0,
             diagnostics,
             overrides: Vec::new(),
@@ -41,6 +45,14 @@ impl Files {
     /// such as a paused model viewer. Captured bytes themselves remain immutable.
     pub fn library(&self) -> Option<&crate::library::Library> {
         self.library.as_ref()
+    }
+
+    pub(crate) fn startup_bytes(&self) -> Result<Arc<Bytes>> {
+        ensure!(
+            self.common.is_none(),
+            "startup inputs cannot inherit a scene"
+        );
+        Ok(self.bytes.clone())
     }
 
     pub fn from_snapshot(
@@ -74,7 +86,8 @@ impl Files {
         result.library = Some(captured.library);
         result.disk_bytes = captured.disk_bytes;
         result.overrides = captured.overrides;
-        result.bytes = captured.files;
+        result.bytes = Arc::new(captured.files);
+        result.common = captured.common;
         Ok(result)
     }
 
@@ -99,32 +112,58 @@ impl Files {
     pub fn read(&self, path: &str) -> Result<Arc<[u8]>> {
         self.bytes
             .get(path)
+            .or_else(|| self.common.as_ref()?.get(path))
             .cloned()
             .with_context(|| format!("unprepared cooked resource {path}"))
     }
     pub fn insert(&mut self, path: String, bytes: Arc<[u8]>) {
-        self.bytes.insert(path, bytes);
+        Arc::make_mut(&mut self.bytes).insert(path, bytes);
     }
     pub fn remove(&mut self, path: &str) {
-        self.bytes.remove(path);
+        // Explicit editing APIs materialize the inherited view locally. Runtime
+        // preparations keep startup bytes shared and immutable.
+        let bytes = Arc::make_mut(&mut self.bytes);
+        if let Some(common) = self.common.take() {
+            for (path, value) in common.iter() {
+                bytes.entry(path.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        bytes.remove(path);
     }
     pub fn clear(&mut self) {
-        self.bytes.clear();
+        self.bytes = Default::default();
+        self.common = None;
     }
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Arc<[u8]>)> {
-        self.bytes.iter()
+        let mut own = self.bytes.iter().peekable();
+        let mut common = self.common.iter().flat_map(|bytes| bytes.iter()).peekable();
+        std::iter::from_fn(move || match (own.peek(), common.peek()) {
+            (Some((a, _)), Some((b, _))) if a <= b => {
+                if a == b {
+                    common.next();
+                }
+                own.next()
+            }
+            (Some(_), None) => own.next(),
+            (_, Some(_)) => common.next(),
+            _ => None,
+        })
     }
     pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.bytes.keys()
+        self.iter().map(|(path, _)| path)
     }
     pub fn len(&self) -> usize {
-        self.bytes.len()
+        self.iter().count()
     }
     pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
+        self.bytes.is_empty() && self.common.as_ref().is_none_or(|bytes| bytes.is_empty())
     }
     pub fn contains_key(&self, path: &str) -> bool {
         self.bytes.contains_key(path)
+            || self
+                .common
+                .as_ref()
+                .is_some_and(|bytes| bytes.contains_key(path))
     }
     pub fn json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         serde_json::from_slice(&self.read(path)?).with_context(|| format!("decode {path}"))

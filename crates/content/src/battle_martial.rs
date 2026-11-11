@@ -159,6 +159,53 @@ pub struct Attack<E = Event> {
     pub hurricane_hit: Option<crate::battle_action::ActionHit>,
 }
 
+impl Attack {
+    pub fn sounds(&self) -> impl Iterator<Item = crate::battle_voice::Sound> + '_ {
+        use crate::battle_voice::Sound;
+        let mut extra = Vec::new();
+        let hits = self
+            .callback_hits
+            .values()
+            .chain(self.fierce_fang.iter().flat_map(|fang| &fang.hits))
+            .chain(self.hurricane_hit.iter());
+        extra.extend(hits.filter_map(|hit| hit.sound).map(Sound::Cue));
+        if let Some(hammer) = &self.hammer {
+            extra.push(Sound::Cue(hammer.impact_sound));
+            extra.extend(
+                hammer
+                    .hits
+                    .iter()
+                    .filter_map(|hit| hit.sound)
+                    .map(Sound::Cue),
+            );
+            match &hammer.pattern {
+                HammerPattern::Single { alternate_events } => extra.extend(
+                    alternate_events
+                        .iter()
+                        .flat_map(|(_, event)| event.sounds()),
+                ),
+                HammerPattern::Ring { opening_hit, .. } => {
+                    extra.extend(opening_hit.sound.map(Sound::Cue))
+                }
+                HammerPattern::Volley { .. } => {}
+            }
+        }
+        if let Some(steal) = &self.steal {
+            extra.extend(
+                steal
+                    .success_events
+                    .iter()
+                    .flat_map(|(_, event)| event.sounds()),
+            );
+            extra.extend(steal.bonus_hit.sound.map(Sound::Cue));
+        }
+        self.events
+            .iter()
+            .flat_map(|(_, event)| event.sounds())
+            .chain(extra)
+    }
+}
+
 // Internally tagged SceneAction buffers JSON keys as strings before reading Attack.
 fn read_callback_hits<'de, D>(
     deserializer: D,
@@ -259,6 +306,46 @@ pub struct Steal<E = Event> {
 #[cfg(test)]
 mod tests {
     use super::gameplay_tick;
+
+    #[test]
+    fn audio_discovery_includes_contacts_and_alternate_action_branches() -> anyhow::Result<()> {
+        use super::*;
+        use crate::battle_voice::Sound;
+        use serde_json::json;
+        let hit = |sound| json!({"kind":"slash","power":"normal","sound":sound});
+        let mut attack: Attack = serde_json::from_value(json!({
+            "duration":10,"recovery":0,
+            "events":[[0,{"voice":{"cue":1}}],
+                [1,{"projectile":{"member":0,"hit":hit(2),"feedback":{"effect":0,"sound":3,"on_guard":false}}}]],
+            "callback_hits":{"0":hit(4)},
+            "hammer":{"pattern":{"kind":"single","alternate_events":[[0,{"sound":5}]]},
+                "hits":[hit(6),hit(7),hit(8)],"impact_effect":0,"impact_sound":9},
+            "steal":{"attempt_at":0,"bonus_at":1,"success_duration":10,
+                "success_events":[[0,{"sound":10}],[0,{"voice":{"stream":15}}]],
+                "bonus_hit":hit(11),"bonus_offset":[0,0,0],"bonus_forward_speed":0,"bonus_velocity_jitter":[0,0,0]},
+            "fierce_fang":{"hits":[hit(12),hit(13)]},"hurricane_hit":hit(14)
+        }))?;
+        let observed: std::collections::BTreeSet<_> = attack.sounds().collect();
+        let expected = (1..=14)
+            .map(Sound::Cue)
+            .chain([Sound::Stream(15)])
+            .collect();
+        assert_eq!(observed, expected);
+        attack.hammer.as_mut().unwrap().pattern = HammerPattern::Ring {
+            offset: [0.; 3],
+            step: 0.,
+            radians: 0.,
+            speed: 0.,
+            speed_jitter: 0.,
+            lift: 0.,
+            lift_jitter: 0.,
+            opening_hit: serde_json::from_value(hit(16))?,
+        };
+        let observed: std::collections::BTreeSet<_> = attack.sounds().collect();
+        assert!(observed.contains(&Sound::Cue(16)));
+        assert!(!observed.contains(&Sound::Cue(5)));
+        Ok(())
+    }
 
     #[test]
     fn gameplay_waits_for_crossed_blends_but_not_simultaneous_admissions() {
@@ -386,7 +473,8 @@ mod authored_tests {
                 "the distributable motion must not reference external payloads"
             );
             let motion = crate::animation::NamedMotion::decode(&bytes)?;
-            assert!(!motion.motion.tracks.is_empty());
+            let bound = motion.bind(&motion.joints, &Default::default())?;
+            assert!(!bound.tracks.is_empty());
             let (at, pose) = action
                 .attack
                 .events
@@ -397,8 +485,8 @@ mod authored_tests {
                 })
                 .context("authored motion is not played by the action")?;
             assert!(!pose.repeat && pose.rate > 0.);
-            let end = pose.end.unwrap_or(motion.motion.duration_frames);
-            assert!(end <= motion.motion.duration_frames);
+            let end = pose.end.unwrap_or(bound.duration_frames);
+            assert!(end <= bound.duration_frames);
             let playback_updates = (end - pose.start) / pose.rate;
             let available_updates = f32::from(action.attack.duration - at - u16::from(pose.blend));
             assert!(

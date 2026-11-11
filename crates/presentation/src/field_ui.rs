@@ -22,9 +22,12 @@ mod game_over_ui;
 pub(super) use game_over_ui::Artwork as GameOverArt;
 #[path = "field_ui_menu.rs"]
 mod menu;
+pub(crate) mod resident;
 #[cfg(test)]
 pub(super) use menu::MenuDraws;
+pub(crate) use resident::Resident;
 pub(super) fn install(app: &mut App) {
+    app.init_resource::<Resident>();
     app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
     bevy::asset::embedded_asset!(app, "field_ui.wesl");
     crate::input_icons::install(app);
@@ -292,6 +295,7 @@ pub(super) struct Artwork {
     skits: skit::Artwork,
     credits: Option<credits::Artwork>,
 }
+#[derive(Clone)]
 struct Layer {
     entity: Entity,
     mesh: Handle<Mesh>,
@@ -316,6 +320,7 @@ impl MenuOverlay {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
+        resident: &Resident,
     ) -> Result<Self> {
         let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.prepare_images(&read)?;
@@ -344,6 +349,7 @@ impl MenuOverlay {
             &dialogue.cursor,
             diagnostics,
             inputs,
+            resident,
         )?;
         Ok(Self {
             font,
@@ -388,7 +394,7 @@ impl MenuOverlay {
     }
     pub fn despawn(self, world: &mut World) {
         for layer in self.artwork.layers.into_values() {
-            world.despawn(layer.entity);
+            resident::retire(world, layer.entity);
         }
     }
     pub fn hide(&mut self, commands: &mut Commands) {
@@ -396,6 +402,42 @@ impl MenuOverlay {
     }
 }
 impl Layer {
+    fn new(
+        material: Handle<Surface>,
+        depth: f32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Self {
+        let mut batch = Batch::default();
+        batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
+        Self::with_mesh(material, depth, batch.mesh([1, 1]), commands, meshes)
+    }
+    fn with_mesh(
+        material: Handle<Surface>,
+        depth: f32,
+        mesh: Mesh,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Self {
+        let mesh = meshes.add(mesh);
+        let transform = Transform::from_xyz(0., 0., depth);
+        let entity = commands
+            .spawn((
+                Mesh2d(mesh.clone()),
+                MeshMaterial2d(material.clone()),
+                transform,
+                GlobalTransform::from(transform),
+                Visibility::Hidden,
+            ))
+            .id();
+        Self {
+            entity,
+            mesh,
+            material,
+            uploaded: None,
+            visible: false,
+        }
+    }
     fn update_mesh(
         &mut self,
         batch: Batch,
@@ -456,6 +498,16 @@ fn subtitle_cues(
 }
 
 impl Artwork {
+    fn common_layers(&self) -> impl Iterator<Item = &Layer> {
+        self.layers
+            .values()
+            .chain(&self.subtitle_layer)
+            .chain(&self.fade_layer)
+            .chain(&self.prompt_layers)
+            .chain(&self.damage_layer)
+            .chain(&self.skits.layers)
+            .chain(&self.skits.warm)
+    }
     pub(crate) fn set_prompt_device(&mut self, device: crate::input_icons::PromptDevice) {
         self.menu.set_prompt_device(device);
     }
@@ -474,13 +526,13 @@ impl Artwork {
                     .flat_map(|credits| credits.layers.drain(..)),
             )
         {
-            world.despawn(layer.entity);
+            resident::retire(world, layer.entity);
         }
         if let Some(layer) = self.fade_layer.take() {
-            world.despawn(layer.entity);
+            resident::retire(world, layer.entity);
         }
         if let Some(layer) = self.subtitle_layer.take() {
-            world.despawn(layer.entity);
+            resident::retire(world, layer.entity);
         }
         self.choice_trail = Default::default();
         self.head_heights.clear();
@@ -494,6 +546,7 @@ impl Artwork {
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
         files: &resonance_content::prepared::Files,
+        resident: &Resident,
     ) -> Result<Self> {
         let mut art = Self::load_shared(
             files,
@@ -503,6 +556,7 @@ impl Artwork {
             server,
             materials,
             image_assets,
+            resident,
         )?;
         art.subtitles = subtitle_cues(files)?;
         if resonance_content::credits::Manifest::captured(files) {
@@ -539,7 +593,11 @@ impl Artwork {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
+        resident: &Resident,
     ) -> Result<Self> {
+        if let Some(art) = resident.field(files, overlays, server, materials, image_assets)? {
+            return Ok(art);
+        }
         let read = |path: &str| -> Result<Vec<u8>> { Ok(files.read(path)?.to_vec()) };
         let spec: DialogueArt = serde_json::from_slice(
             &read("ui/dialogue.json").context("classroom dialogue art is missing; run cook-all")?,
@@ -598,6 +656,7 @@ impl Artwork {
             &spec.cursor,
             files.diagnostics(),
             inputs.clone(),
+            resident,
         )?;
         let skits = skit::Artwork::load(skits, server, materials, &surfaces[9], image_assets)?;
         let (fade_image, fade_surface) = fade::surface(materials, image_assets);
@@ -741,26 +800,16 @@ impl Artwork {
             materials,
         );
         if self.subtitle_layer.is_none() {
-            let mut batch = Batch::default();
-            batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-            let mesh = meshes.add(batch.mesh([1, 1]));
-            let material = self.surfaces[layer::TEXTURES[layer::FONT]].clone();
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    Transform::from_xyz(0., 0., 1.),
-                    Visibility::Hidden,
-                    bevy::camera::visibility::RenderLayers::layer(3),
-                ))
-                .id();
-            self.subtitle_layer = Some(Layer {
-                entity,
-                mesh,
-                material,
-                uploaded: None,
-                visible: false,
-            });
+            let layer = Layer::new(
+                self.surfaces[layer::TEXTURES[layer::FONT]].clone(),
+                1.,
+                commands,
+                meshes,
+            );
+            commands
+                .entity(layer.entity)
+                .insert(bevy::camera::visibility::RenderLayers::layer(3));
+            self.subtitle_layer = Some(layer);
         }
     }
     pub(super) fn prepared_layers(
@@ -893,6 +942,7 @@ impl Artwork {
 
 /// Scene-owned dialogue surfaces using the same layout and drawing as fields.
 /// Battle borrows no retained field entities or attachment history.
+#[derive(Clone)]
 pub(super) struct DialogueOverlay {
     images: Vec<Handle<Image>>,
     surfaces: Vec<Handle<Surface>>,
@@ -976,6 +1026,7 @@ impl DialogueOverlay {
     pub(super) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.layers.values().map(|layer| layer.entity)
     }
+
     pub(super) fn hide(&mut self, commands: &mut Commands) {
         for layer in self.layers.values_mut() {
             layer.show(false, commands);
@@ -985,7 +1036,7 @@ impl DialogueOverlay {
     }
     pub(super) fn despawn(self, world: &mut World) {
         for entity in self.entities() {
-            world.despawn(entity);
+            resident::retire(world, entity);
         }
     }
 }
@@ -1002,9 +1053,6 @@ fn prepare_dialogue(
             if layers.contains_key(&(slot, index)) {
                 continue;
             }
-            let mut batch = Batch::default();
-            batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-            let mesh = meshes.add(batch.mesh([1, 1]));
             let mut template = materials.get(&surfaces[texture]).unwrap().clone();
             // Only sliced windows need sample-frequency masking. Bitmap text
             // and cursors retain pixel-center sampling, even on MSAA UI cameras.
@@ -1014,24 +1062,14 @@ fn prepare_dialogue(
                 UiInterpolation::Center
             };
             let material = materials.add(template);
-            let order = index as f32;
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    Transform::from_xyz(0., 0., 10. + f32::from(slot) * 20. + order),
-                    Visibility::Hidden,
-                ))
-                .id();
             layers.insert(
                 (slot, index),
-                Layer {
-                    entity,
-                    mesh,
+                Layer::new(
                     material,
-                    uploaded: None,
-                    visible: false,
-                },
+                    10. + f32::from(slot) * 20. + index as f32,
+                    commands,
+                    meshes,
+                ),
             );
         }
     }
@@ -2210,6 +2248,7 @@ mod tests {
                 &mut materials,
                 &mut images,
                 &files,
+                &crate::field_ui::Resident::default(),
             )?;
             let unused_image: Handle<Image> = server.load(menu_spec.textures[&unused].path.clone());
             let skit_image: Handle<Image> = server.load("missing-active-skit.ktx2");

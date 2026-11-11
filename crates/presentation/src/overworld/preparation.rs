@@ -26,19 +26,56 @@ impl Package {
         cancelled: impl Fn() -> bool,
         diagnostics: Diagnostics,
     ) -> Result<Self> {
-        let mut snapshot = library.snapshot();
-        let (definition, package) = document::capture(&mut snapshot, &cancelled)?;
+        if let Some(world) = cache.common.get().and_then(|common| common.world.as_ref()) {
+            anyhow::ensure!(!cancelled(), "world preparation cancelled");
+            return Ok(world.clone());
+        }
+        let mut snapshot = cache.snapshot(library)?;
+        let mut inputs =
+            Inputs::capture(&mut snapshot, &mut cache.audio, &cancelled, &diagnostics)?;
         preparation::gameplay(&mut snapshot, &diagnostics, &cancelled)?;
         preparation::ui(&mut snapshot, &diagnostics, &cancelled)?;
         let skits = Arc::new(skit::document::capture(&mut snapshot, &cancelled)?);
-        resonance_game::screen_resources::capture(
+        let programs = resonance_game::screen_resources::capture(
             &mut snapshot,
-            std::iter::once(package.script.as_str())
-                .chain(skits.resources.values().map(|skit| skit.script.as_str())),
+            skits.resources.values().map(|skit| skit.script.as_str()),
             &diagnostics,
             &cancelled,
         )?;
-        let choices = definition.audio.resolve(&mut snapshot)?;
+        match cache.common.get() {
+            Some(common) => Arc::make_mut(&mut inputs.audio).use_skits(&common.skit_voices),
+            None => {
+                Arc::make_mut(&mut inputs.audio).capture_skits(&skits, &mut snapshot, &cancelled)?
+            }
+        }
+        let files = Arc::new(Files::from_snapshot(snapshot, &cancelled, diagnostics)?);
+        inputs.prepare(files, skits, programs, &cancelled)
+    }
+}
+
+/// World-only inputs can load alongside common gameplay, UI and skit inputs.
+/// Assembly consumes their completed snapshot, without capturing common data again.
+pub(crate) struct Inputs {
+    package: resonance_content::overworld::Package,
+    audio: Arc<crate::field_audio::Assets>,
+    programs: resonance_game::screen_resources::Programs,
+}
+
+impl Inputs {
+    pub(crate) fn capture(
+        snapshot: &mut resonance_content::library::Snapshot,
+        audio: &mut crate::field_audio::Cache,
+        cancelled: &impl Fn() -> bool,
+        diagnostics: &Diagnostics,
+    ) -> Result<Self> {
+        let (definition, package) = document::capture(snapshot, cancelled)?;
+        let programs = resonance_game::screen_resources::capture(
+            snapshot,
+            std::iter::once(package.script.as_str()),
+            diagnostics,
+            cancelled,
+        )?;
+        let choices = definition.audio.resolve(snapshot)?;
         for scene in package.visuals.cinematics.values() {
             scene
                 .presentation
@@ -51,26 +88,48 @@ impl Package {
                 );
             }
         }
-        let environment = definition.audio.environment(&mut snapshot)?;
-        let mut audio = cache.audio.capture_resolved(
+        let environment = definition.audio.environment(snapshot)?;
+        let audio = audio.capture_resolved(
             &environment,
             choices,
-            &mut snapshot,
+            snapshot,
             diagnostics.clone(),
-            &cancelled,
+            cancelled,
         )?;
-        Arc::make_mut(&mut audio).capture_skits(&skits, &mut snapshot, &cancelled)?;
-        let fields = snapshot
-            .mappings(FIELDS)?
+        anyhow::ensure!(!cancelled(), "world preparation cancelled");
+        Ok(Self {
+            package,
+            audio,
+            programs,
+        })
+    }
+
+    pub(crate) fn prepare(
+        self,
+        files: Arc<Files>,
+        skits: Arc<skit::SkitCatalog>,
+        mut programs: resonance_game::screen_resources::Programs,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Package> {
+        anyhow::ensure!(!cancelled(), "world preparation cancelled");
+        programs.extend(self.programs);
+        let fields = files
+            .json::<resonance_content::library::Mappings>(FIELDS)?
             .iter()
             .map(|(id, _)| id)
             .chain([3000])
             .collect();
-        let files = Arc::new(Files::from_snapshot(snapshot, &cancelled, diagnostics)?);
         let world = Arc::new(game::Prepared::from_prepared(
-            package, files, skits, fields,
+            self.package,
+            files,
+            skits,
+            fields,
+            &programs,
         )?);
         anyhow::ensure!(!cancelled(), "world preparation cancelled");
-        Ok(Self { world, audio })
+        Ok(Package {
+            world,
+            audio: self.audio,
+        })
     }
 }

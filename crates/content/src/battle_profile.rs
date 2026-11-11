@@ -243,6 +243,20 @@ pub struct VoiceSequence {
     pub fallback_ticks: u16,
 }
 
+impl VoiceSequence {
+    pub fn sounds(self) -> impl Iterator<Item = Sound> {
+        let Self {
+            chant,
+            chant_ticks: _,
+            self_chant,
+            release,
+            fallback,
+            fallback_ticks: _,
+        } = self;
+        [chant, self_chant, release, fallback].into_iter().flatten()
+    }
+}
+
 /// Neutral party and elemental contact cue tables.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ContactSounds {

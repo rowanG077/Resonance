@@ -63,6 +63,98 @@ mod tests {
         )
     }
 
+    #[test]
+    fn prepared_recordings_survive_cache_adoption_but_not_unrelated_inputs() -> Result<()> {
+        let root = fixture()?;
+        let library = Library::open(root.path(), &[])?;
+        let capture = |cache: &mut Cache| {
+            cache.capture_test_field(
+                "fields/iselia/field.json",
+                &mut library.snapshot(),
+                Diagnostics::new(true),
+                || false,
+            )
+        };
+        let mut startup = Cache::default();
+        let first = capture(&mut startup)?;
+        let mut cache = Cache::default();
+        cache.adopt_prepared(startup);
+        let second = capture(&mut cache)?;
+        assert!(Arc::ptr_eq(&first.recordings[&7], &second.recordings[&7]));
+        let mut snapshot = library.snapshot();
+        cache
+            .recordings
+            .capture(&mut snapshot, "audio/music/test-song.wav", &|| false)?;
+        assert!(
+            !snapshot.contains_key("audio/music/test-song.wav"),
+            "a shared stream must not cache the whole WAV"
+        );
+        let mut a = first.recordings[&7].start()?;
+        let mut b = second.recordings[&7].start()?;
+        let expected = a.next_frame()?;
+        a.next_frame()?;
+        assert_eq!(
+            b.next_frame()?,
+            expected,
+            "playback cursors must remain independent"
+        );
+
+        let tables_path = resonance_audio::effect::recipe::TABLES;
+        let original = std::fs::read(root.path().join(tables_path))?;
+        let mut tables: serde_json::Value = serde_json::from_slice(&original)?;
+        tables["mix"]["volume"][64] = 0.125.into();
+        write(root.path(), tables_path, &serde_json::to_vec(&tables)?)?;
+        let changed = capture(&mut cache)?;
+        assert!(!Arc::ptr_eq(&first.recordings[&7], &changed.recordings[&7]));
+        assert_eq!(changed.recordings[&7].gains[64], 0.125);
+        write(root.path(), tables_path, b"invalid volume table")?;
+        assert!(
+            capture(&mut cache).is_err(),
+            "bad new tables must not reuse a previous validated recording"
+        );
+        write(root.path(), tables_path, &original)?;
+
+        write(
+            root.path(),
+            "replacement.wav",
+            &looped_wav(&[-6000; 128], RATE)?,
+        )?;
+        std::fs::rename(
+            root.path().join("replacement.wav"),
+            root.path().join("audio/music/test-song.wav"),
+        )?;
+        let replacement = capture(&mut cache)?;
+        assert!(!Arc::ptr_eq(
+            &first.recordings[&7],
+            &replacement.recordings[&7]
+        ));
+        assert_ne!(replacement.recordings[&7].start()?.next_frame()?, expected);
+        assert_eq!(
+            first.recordings[&7].start()?.next_frame()?,
+            expected,
+            "existing playback keeps the selected file"
+        );
+        let old_owner = Arc::downgrade(&first.recordings[&7]);
+        let new_owner = Arc::downgrade(&replacement.recordings[&7]);
+        drop((first, second, changed, replacement));
+        assert!(old_owner.upgrade().is_none());
+        assert!(
+            new_owner.upgrade().is_none(),
+            "weak music lookups must not retain retired scenes"
+        );
+        assert!(
+            cache
+                .recordings
+                .capture(
+                    &mut library.snapshot(),
+                    "audio/music/test-song.wav",
+                    &|| true
+                )
+                .is_err()
+        );
+        Ok(())
+    }
+
     fn full_volume(frames: &mut Frames) -> Result<()> {
         frames.command(AudioCommand::MusicVolume {
             volume: 127,

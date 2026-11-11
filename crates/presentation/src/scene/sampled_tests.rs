@@ -1,4 +1,54 @@
 use super::*;
+use bevy::image::{ImageFilterMode, ImageSampler};
+
+#[test]
+fn encounter_retention_keeps_only_selected_sources_and_reuses_uploaded_samplers() {
+    let mut images = Assets::<Image>::default();
+    let a = images.add(Image::default());
+    let b = images.add(Image::default());
+    let binding = TextureBinding {
+        texture: 0,
+        wrap_u: TextureWrap::Clamp,
+        wrap_v: TextureWrap::Clamp,
+        nearest_min: false,
+        nearest_mag: false,
+        mipmapped: false,
+        scale: TextureBinding::unscaled(),
+    };
+    let mut cache = SampledImages::default();
+    let mut next_encounter = cache.clone();
+    let sampled_a =
+        sampled_image(Some((a.clone(), binding.clone())), &mut images, &mut cache).unwrap();
+    let sampled_b =
+        sampled_image(Some((b.clone(), binding.clone())), &mut images, &mut cache).unwrap();
+    assert_eq!(next_encounter.stats(), (0, 2));
+    let old_a = sampled_a.id();
+    let old_b = sampled_b.id();
+    let retained = cache.retained_for(std::iter::once(a.id()));
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].id(), old_a);
+    drop(sampled_a);
+    drop(sampled_b);
+    next_encounter.prune();
+    let next_a =
+        sampled_image(Some((a, binding.clone())), &mut images, &mut next_encounter).unwrap();
+    let next_b = sampled_image(
+        Some((b.clone(), binding.clone())),
+        &mut images,
+        &mut next_encounter,
+    )
+    .unwrap();
+    assert_eq!(next_a.id(), old_a);
+    assert_ne!(next_b.id(), old_b);
+    assert_eq!(
+        sampled_image(Some((b, binding)), &mut images, &mut cache).unwrap(),
+        next_b,
+        "samplers created through a clone must be shared with the original owner"
+    );
+    assert_eq!(cache.stats(), (2, 3));
+    assert_eq!(next_encounter.stats(), cache.stats());
+}
+
 #[test]
 fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
     let mut images = Assets::<Image>::default();
@@ -35,7 +85,11 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
     assert_eq!(derived.texture_descriptor.mip_level_count, 2);
     let view = derived.texture_view_descriptor.as_ref().unwrap();
     assert_eq!((view.base_mip_level, view.mip_level_count), (0, Some(1)));
-    assert_eq!(derived.data, images.get(&source).unwrap().data);
+    assert!(
+        derived.data.is_none(),
+        "sampler variants never duplicate pixels"
+    );
+    assert!(images.get(&source).unwrap().data.is_some());
     assert!(
         images
             .get(&source)
@@ -65,7 +119,11 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
     };
     assert_eq!(sampler.mipmap_filter, ImageFilterMode::Linear);
     assert_eq!(derived.texture_descriptor.mip_level_count, 2);
-    assert_eq!(derived.data, images.get(&source).unwrap().data);
+    assert!(
+        derived.data.is_none(),
+        "sampler variants never duplicate pixels"
+    );
+    assert!(images.get(&source).unwrap().data.is_some());
     binding.wrap_u = TextureWrap::Repeat;
     let distinct = sampled_image(
         Some((source.clone(), binding.clone())),
@@ -82,5 +140,5 @@ fn bindings_share_images_but_distinct_samplers_and_retired_fields_do_not() {
         fresh.id(),
         "weak cache must release retired bindings"
     );
-    assert_eq!((cache.hits, cache.misses), (1, 4));
+    assert_eq!(cache.stats(), (1, 4));
 }

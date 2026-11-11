@@ -61,7 +61,7 @@ pub struct AnimationBinding {
     pub parts: Vec<u16>,
     pub motion: String,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub joints: BTreeMap<String, Option<String>>,
+    pub joints: crate::JointMap,
     #[serde(default = "default_slot", skip_serializing_if = "is_default_slot")]
     pub resource_slot: u16,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -77,7 +77,7 @@ pub struct SharedBankBindings {
     pub rigs: BTreeMap<String, Vec<AnimationJoint>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tracks: BTreeMap<u32, Vec<AnimationJoint>>,
-    pub joint_maps: BTreeMap<String, BTreeMap<String, Option<String>>>,
+    pub joint_maps: BTreeMap<String, crate::JointMap>,
     pub banks: BTreeMap<u32, Vec<SharedAnimationBinding>>,
 }
 
@@ -184,15 +184,18 @@ impl Actors {
                 &mut actors,
                 &mappings,
                 &mut read,
+                None,
             )?;
             actors
         } else {
-            selected.assemble(&mut read)?
+            selected.assemble(&mut read, None)?
         };
         super::prepare_clips(
             actors.iter_mut().flat_map(|actor| &mut actor.parts),
             &mut read,
             animation.then_some(resource),
+            None,
+            &mut super::Motions::new(),
         )?;
         for part in actors.iter().flat_map(|actor| &actor.parts) {
             for path in std::iter::once(&part.mesh)
@@ -208,6 +211,7 @@ impl Actors {
     pub(super) fn assemble(
         self,
         read: &mut impl FnMut(&str) -> Result<Arc<[u8]>>,
+        common: Option<&Common>,
     ) -> Result<Vec<ActorAssets>> {
         let models = Self::expand_models(self.models, read)?;
         let mappings: ModelMappings = if models.iter().any(|b| matches!(b, ModelBinding::Shared(_)))
@@ -243,7 +247,7 @@ impl Actors {
             );
             let mut model: Model = json(read, &binding.model)?;
             for part in &mut model.parts {
-                part.prepare_bones(&read(&part.mesh)?)
+                Common::prepare_geometry(part, read(&part.mesh)?, common)
                     .with_context(|| part.mesh.clone())?;
             }
             model.validate().with_context(|| binding.model.clone())?;
@@ -272,6 +276,7 @@ impl Actors {
             &mut actors,
             &mappings,
             read,
+            common,
         )?;
         Ok(actors)
     }
@@ -282,6 +287,7 @@ impl Actors {
         actors: &mut [ActorAssets],
         mappings: &ModelMappings,
         read: &mut impl FnMut(&str) -> Result<Arc<[u8]>>,
+        common: Option<&Common>,
     ) -> Result<()> {
         let names = mappings.by_name()?;
         let indices = actors
@@ -292,7 +298,7 @@ impl Actors {
         let mut banks = local_animations;
         if !animations.is_empty() {
             let motions: AnimationMappings = json(read, ANIMATIONS)?;
-            let definitions: SharedBankBindings = json(read, ANIMATION_BINDINGS)?;
+            let definitions = Common::bindings(&read(ANIMATION_BINDINGS)?, common)?;
             let mut bank_names = BTreeMap::new();
             for (id, name) in motions.iter() {
                 ensure!(
@@ -324,7 +330,7 @@ impl Actors {
                                     )
                                 })?
                                 .clone(),
-                            None => BTreeMap::new(),
+                            None => Default::default(),
                         };
                         Ok(AnimationBinding {
                             actors: row.actors.clone(),
@@ -468,8 +474,11 @@ mod installed_tests {
         for (id, name) in mappings.iter() {
             let path = format!("fields/{name}/field.json");
             let definition: super::super::Definition = snapshot.json(&path, 1024 * 1024)?;
-            let field =
-                definition.assemble_documents(id, |path| snapshot.read(path, 64 * 1024 * 1024))?;
+            let field = definition.assemble_documents(
+                id,
+                |path| snapshot.read(path, 64 * 1024 * 1024),
+                None,
+            )?;
             for part in field
                 .parts
                 .iter()

@@ -907,7 +907,9 @@ fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
         let mut actor = Actor::new(9, [0.; 3]);
         actor.appearance.costume = 1;
         let resources = ResourceLibrary {
-            joint_mappings: [("Bone_sebone03".into(), "spine-03".into())].into(),
+            joint_mappings: std::sync::Arc::new(
+                [("Bone_sebone03".into(), "spine-03".into())].into(),
+            ),
             models: [
                 (
                     9,
@@ -954,7 +956,7 @@ fn named_nodes_warn_once_when_a_mapped_joint_is_missing() {
     bytes.extend(4_u32.to_be_bytes());
     bytes.extend(b"Bone_sebone03\0");
     let resources = ResourceLibrary {
-        joint_mappings: [("Bone_sebone03".into(), "spine-03".into())].into(),
+        joint_mappings: std::sync::Arc::new([("Bone_sebone03".into(), "spine-03".into())].into()),
         models: [(
             7,
             ModelResource {
@@ -3411,7 +3413,8 @@ fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pos
                             0.7051388086518144,
                         ],
                         [2.079707626949502, 1., 0.9616736381996076],
-                    ),
+                    )
+                    .into(),
                     affine_node(
                         [
                             -0.6983879065115112,
@@ -3420,19 +3423,20 @@ fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pos
                             0.6983879065115111,
                         ],
                         [1.; 3],
-                    ),
+                    )
+                    .into(),
                 ],
             },
             Track {
                 bone: 1,
-                nodes: vec![NodeTrack {
+                nodes: vec![std::sync::Arc::new(NodeTrack {
                     translation: Some(Channel {
                         interpolation: Interpolation::Linear,
                         times: vec![0., 2. / FRAME_HZ],
                         values: vec![[0., 1., 3.], [8., 1., 3.]],
                     }),
                     ..NodeTrack::new(Transform::default())
-                }],
+                })],
             },
         ],
     };
@@ -3446,14 +3450,14 @@ fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pos
         duration_frames: 2.,
         tracks: vec![Track {
             bone: 1,
-            nodes: vec![NodeTrack {
+            nodes: vec![std::sync::Arc::new(NodeTrack {
                 translation: Some(Channel {
                     interpolation: Interpolation::Linear,
                     times: vec![0.],
                     values: vec![[4., 5., 6.]],
                 }),
                 ..NodeTrack::new(Transform::default())
-            }],
+            })],
         }],
     };
     model.clips.get_mut(&13).unwrap().attachments =

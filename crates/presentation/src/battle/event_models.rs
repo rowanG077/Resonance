@@ -218,7 +218,7 @@ impl State {
                                 .checked_add(1)
                                 .context("event motion slots exhausted")?
                         };
-                        definition.motions.insert(slot, motion);
+                        definition.motions.insert(slot, Arc::new(motion));
                         clips.insert(key, slot);
                     }
                 }

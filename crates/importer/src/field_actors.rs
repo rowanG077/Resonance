@@ -387,7 +387,8 @@ fn local_bindings(
                 joints: joints
                     .into_iter()
                     .map(|(target, source)| (target, Some(source)))
-                    .collect(),
+                    .collect::<BTreeMap<_, _>>()
+                    .into(),
                 resource_slot: 12,
                 pose_chains,
             });

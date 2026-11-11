@@ -127,11 +127,11 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
             |request| Ok(Some(request)),
         )?;
         assert!(!diagnostics.has_errors());
-        let stun = result.stun_particle.as_ref().context("stun bird missing")?;
+        let (stun_bank, stun) = result.stun_particle.as_ref().context("stun bird missing")?;
         let render = result
             .effects
             .iter()
-            .find(|effect| effect.resource == stun.resource)
+            .find(|effect| effect.resource == *stun_bank)
             .context("stun artwork bank missing")?;
         let (member, template) = render
             .source

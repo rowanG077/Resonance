@@ -49,8 +49,8 @@ impl Artwork {
         if let Some(draw) = self.draw.take() {
             world.despawn(draw.camera);
             world.despawn(draw.plane);
-            if let Some(background) = draw.background {
-                world.despawn(background.entity);
+            if let Some(mut background) = draw.background {
+                background.despawn(world);
             }
         }
     }

@@ -1130,6 +1130,8 @@ fn project(
             clips: Vec::new(),
             autoplay: false,
             texture_animations,
+            prepared_motions: None,
+            prepared_geometry: None,
             bone_names: nodes.into_iter().map(|node| node.name).collect(),
             material_nodes: if meshes.iter().all(|mesh| mesh.joints.is_some()) {
                 Vec::new()

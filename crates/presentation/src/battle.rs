@@ -51,15 +51,19 @@ impl Entry {
     fn capture(
         session: &super::new_game::Session,
         request: &resonance_events::battle::Request,
+        resident: &super::loading::Resident,
     ) -> Result<Self> {
         let events = session.events();
         let party = events.world.party.clone().context("battle has no party")?;
         let mut gameplay_random = events.world.gameplay_random;
-        let mut snapshot = session
-            .files()
+        let files = session.files();
+        let library = files
             .library()
-            .context("battle requires a named content library")?
-            .snapshot();
+            .context("battle requires a named content library")?;
+        let mut snapshot = match resident.common.get() {
+            Some(common) => library.snapshot_with(&common.files)?,
+            None => library.snapshot(),
+        };
         use resonance_events::battle::Encounter;
         let mut setup = request.setup.clone();
         let mut selected = Vec::new();
@@ -195,6 +199,14 @@ impl Owner {
             && scene.menu_ready && scene.failure.is_none())
     }
 
+    #[cfg(all(test, feature = "preparation-trace"))]
+    pub(crate) fn frame_update(&self) -> Option<u64> {
+        match &self.phase {
+            Phase::Scene(scene) => scene.frame.as_ref().map(|frame| frame.update),
+            _ => None,
+        }
+    }
+
     pub(super) fn model_particle_stats(&self) -> Option<super::battle_view::ModelParticleStats> {
         match &self.phase {
             Phase::Scene(scene) => Some(scene.view.model_particle_stats()),
@@ -215,6 +227,7 @@ fn diagnostics(world: &World) -> resonance_content::diagnostics::Diagnostics {
 /// A missing mandatory battle input cannot produce a meaningful outcome. Keep
 /// the application usable without completing its caller or saving guessed state.
 fn finish_failed(world: &mut World, owner: Owner) {
+    super::transition_metrics::failed(world);
     // manage() has removed this owner from the world. Preserve it before
     // recording the world or retiring the scene, including when logs are off.
     let context = owner.crash_context();
@@ -357,7 +370,12 @@ pub(super) fn install(app: &mut App) {
                 .after(bevy::input::InputSystems)
                 .run_if(resource_exists::<super::saves::ScenarioInput>),
         )
-        .add_systems(Update, manage.after(super::field_view::FieldPreparation))
+        .add_systems(
+            Update,
+            manage
+                .after(super::field_view::FieldPreparation)
+                .after(super::loading::party::update),
+        )
         .add_systems(Update, prepare.after(manage))
         .add_systems(PostUpdate, publish_field.after(super::field_audit::check))
         .add_systems(
@@ -389,6 +407,23 @@ fn manage(world: &mut World) {
         if !request.is_pending() {
             return;
         }
+        // The pending battle suppresses the ordinary audio update. Reconcile
+        // its mixer and drain outgoing commands before transferring ownership.
+        match super::field_audio::prepare_handoff(world) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                super::diagnostics::fatal(world, "battle entry audio", error);
+                return;
+            }
+        }
+        if let Some(from) = super::transition_metrics::Place::current(world) {
+            super::transition_metrics::begin(world, from, super::transition_metrics::Place::Battle);
+        }
+        let assets_ready = super::loading::party::battle_ready(world);
+        if matches!(assets_ready, Ok(false)) {
+            return;
+        }
         info!(
             "Battle requested: id={}, setup={:?}",
             request.id(),
@@ -401,7 +436,13 @@ fn manage(world: &mut World) {
             phase = "entry"
         )
         .entered();
-        let result = Entry::capture(world.resource::<super::new_game::Session>(), &request);
+        let result = assets_ready.and_then(|_| {
+            Entry::capture(
+                world.resource::<super::new_game::Session>(),
+                &request,
+                world.resource::<super::loading::Resident>(),
+            )
+        });
         let result = result.and_then(|entry| {
             request.setup = entry.setup.clone();
             let seed = entry.options.random_seed;
@@ -740,31 +781,14 @@ pub(super) fn capture_view_files(
 }
 
 fn scene(world: &mut World, package: Package) -> Result<Scene> {
-    let started = std::time::Instant::now();
     let target = world
         .query_filtered::<&RenderTarget, With<super::FieldCamera>>()
         .single(world)?
         .clone();
-    let result = construct_scene(world, package, target);
-    debug!(
-        target: "resonance_presentation::battle_entry",
-        elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
-        success = result.is_ok(),
-        "Battle scene adoption"
-    );
-    result
+    construct_scene(world, package, target)
 }
 
 fn construct_scene(world: &mut World, package: Package, target: RenderTarget) -> Result<Scene> {
-    let phase_timing = |phase: &'static str, started: std::time::Instant| {
-        debug!(
-            target: "resonance_presentation::battle_entry",
-            phase,
-            elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
-            "Battle scene adoption phase"
-        );
-    };
-    let started = std::time::Instant::now();
     let diagnostics = diagnostics(world);
     let Package {
         assets,
@@ -799,16 +823,16 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
             settings.sampler = bevy::image::ImageSampler::linear();
         })
         .load(resonance_content::model_preview::document::TOON_RAMP);
-    phase_timing("metadata/resident snapshot", started);
     let texture_formats = world
         .get_resource::<bevy::image::CompressedImageFormatSupport>()
         .map_or(bevy::image::CompressedImageFormats::NONE, |formats| {
             formats.0
         });
+    let ui_resident = world.resource::<super::field_ui::Resident>().clone();
     let (mut hud, game_over, dialogue) = world.resource_scope(
         |world, mut materials: Mut<Assets<super::field_ui::Surface>>| {
             let mut images = world.resource_mut::<Assets<Image>>();
-            let started = std::time::Instant::now();
+
             let mut hud = super::field_ui::BattleHud::load(
                 assets.ui.clone(),
                 menus.clone(),
@@ -820,19 +844,20 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
                 &mut materials,
                 &mut images,
                 &diagnostics,
+                &ui_resident,
             )?;
-            phase_timing("HUD", started);
-            let started = std::time::Instant::now();
+
             let game_over = assets
                 .game_over
                 .as_ref()
-                .map(|art| {
-                    super::field_ui::GameOverArt::load(
+                .map(|art| match ui_resident.game_over() {
+                    Some(common) => Ok(common),
+                    None => super::field_ui::GameOverArt::load(
                         art,
                         &mut materials,
                         &mut images,
                         texture_formats,
-                    )
+                    ),
                 })
                 .transpose()?;
             let dialogue = prepared
@@ -847,8 +872,7 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
                     )
                 })
                 .transpose()?;
-            phase_timing("game-over/dialogue", started);
-            let started = std::time::Instant::now();
+
             hud.load_cutins(
                 &assets.files,
                 assets
@@ -875,11 +899,11 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
                 &mut materials,
                 &server,
             )?;
-            phase_timing("cutins", started);
+
             Ok::<_, anyhow::Error>((hud, game_over, dialogue))
         },
     )?;
-    let started = std::time::Instant::now();
+
     let event_models = prepared
         .lifecycle
         .has_events()
@@ -893,8 +917,7 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
             )
         })
         .transpose()?;
-    phase_timing("event models", started);
-    let started = std::time::Instant::now();
+
     let view = super::battle_view::View::load_with_diagnostics(
         assets.stage.clone(),
         scenery_models,
@@ -905,9 +928,9 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         prepared.trails,
         &server,
         diagnostics.clone(),
+        world.resource::<super::scene::SampledImages>().clone(),
     )?;
-    phase_timing("View load", started);
-    let started = std::time::Instant::now();
+
     let settings = party.settings.preferences.clone();
     hud.settings(settings.clone());
     hud.configure_unison_names(&assets.unison)?;
@@ -920,13 +943,16 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         menus,
         catalogue,
     )?;
-    phase_timing("Candidate/settings", started);
-    let started = std::time::Instant::now();
+
     let core = prepared.core;
     let session = world.resource::<super::new_game::Session>();
-    let mut lifecycle = prepared.lifecycle.with_entry_color(transition::entry_color(
-        session.is_field().then_some(&session.events().world),
-    ));
+    let mut lifecycle = if world.contains_resource::<transition::State>() {
+        prepared.lifecycle.without_entry_fade()
+    } else {
+        prepared.lifecycle.with_entry_color(transition::entry_color(
+            session.is_field().then_some(&session.events().world),
+        ))
+    };
     let memory = world.resource::<MenuMemory>();
     lifecycle.restore_menu_memory(resonance_game::battle::command::Memory {
         inventory: memory.inventory,
@@ -990,7 +1016,7 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         preparing_since: std::time::Instant::now(),
         diagnostics,
     };
-    phase_timing("runtime owners", started);
+
     Ok(scene)
 }
 
@@ -1002,10 +1028,9 @@ fn prepare(
     display: Res<super::display::Display>,
     mut assets: super::battle_view::AssetsForView,
     mut ui_surfaces: ResMut<Assets<super::field_ui::Surface>>,
-    entities: super::battle_view::Entities,
     warmup: Res<super::battle_view::Warmup>,
     resident: Res<super::loading::Resident>,
-    transition: Option<Res<transition::State>>,
+    mut transition: Option<ResMut<transition::State>>,
     mut cameras: Query<
         &mut Camera,
         Or<(With<super::FieldCamera>, With<super::FieldOverlayCamera>)>,
@@ -1044,54 +1069,32 @@ fn prepare(
         if let Some(art) = &mut scene.game_over {
             art.prepare(&mut commands, &mut assets.meshes);
         }
-        let draws: Vec<_> = scene
-            .hud
-            .entities()
-            .chain(
-                scene
-                    .dialogue
-                    .iter()
-                    .flat_map(|dialogue| dialogue.entities()),
-            )
-            .chain(scene.game_over.iter().flat_map(|art| art.entities()))
-            .collect();
-        if !scene.view.prepare(
-            &mut commands,
-            &server,
-            &mut assets,
-            &entities,
-            &warmup,
-            Some(draws.as_slice()),
-        )? {
-            if scene.camera.is_none()
-                && let Some(target) = scene.view.warm_target()
-            {
-                let camera = commands
+        if scene.camera.is_none() {
+            scene.camera = Some(
+                commands
                     .spawn((
                         Camera2d,
                         Msaa::Off,
                         Tonemapping::Linear,
                         Camera {
-                            order: -14,
+                            order: -3,
+                            is_active: false,
                             clear_color: ClearColorConfig::None,
                             output_mode: super::renderer::COMPOSITED_OUTPUT,
                             ..default()
                         },
-                        RenderTarget::Image(target.into()),
-                        RenderLayers::layer(super::battle_view::WARM_LAYER),
+                        scene.target.clone(),
+                        RenderLayers::layer(super::battle_view::LAYER),
                         super::camera::overlay_alignment(),
                         overlay_projection(display.0),
                     ))
-                    .id();
-                scene.camera = Some(camera);
-            }
-            for entity in draws {
-                commands.entity(entity).insert((
-                    RenderLayers::layer(super::battle_view::WARM_LAYER),
-                    Visibility::Visible,
-                    NoFrustumCulling,
-                ));
-            }
+                    .id(),
+            );
+        }
+        if !scene
+            .view
+            .prepare(&mut commands, &server, &mut assets, &warmup, &scene.target)?
+        {
             return Ok(());
         }
         if scene.state == SceneState::Warming {
@@ -1107,7 +1110,7 @@ fn prepare(
             scene.view.activate(&mut commands, scene.target.clone())?;
             super::battle_view::activate_camera(
                 &mut commands,
-                scene.camera.context("battle HUD camera was not warmed")?,
+                scene.camera.context("battle HUD camera missing")?,
                 scene.target.clone(),
                 overlay_projection(display.0),
                 -3,
@@ -1148,9 +1151,14 @@ fn prepare(
             scene.state = SceneState::Activating;
             return Ok(());
         }
-        if !scene.view.finish_activation()? {
+        if !scene.view.finish_activation()? || !scene.menu_ready {
             return Ok(());
         }
+        if let Some(transition) = transition.as_mut() {
+            transition.start_shatter();
+        }
+        // The opening pan and actor animations run as the fragments clear.
+        // Waiting for the shatter here exposes a frozen battle underneath it.
         scene.state = SceneState::Active;
         info!(
             "Battle activated; seed={}; tick={:?}; preparation={:.3}s",
@@ -1191,6 +1199,11 @@ fn restore_reader(world: &mut World) {
 }
 
 fn retire(world: &mut World, owner: Owner, resume: bool) {
+    if matches!(&owner.phase, Phase::Scene(scene) if scene.state == SceneState::Active) {
+        if let Some(to) = super::transition_metrics::Place::current(world) {
+            super::transition_metrics::begin(world, super::transition_metrics::Place::Battle, to);
+        }
+    }
     dispose(world, owner, Some(resume));
     restore_reader(world);
     world
@@ -1238,6 +1251,10 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
             game_over,
             ..
         } = *scene;
+        let mut view = view;
+        view.reset_model_bindings(
+            &mut world.resource_mut::<Assets<super::materials::TitleSurface>>(),
+        );
         view.despawn(&mut world.commands());
         hud.despawn(world);
         if let Some(dialogue) = dialogue {
@@ -1880,6 +1897,7 @@ fn render(
                 &mut meshes,
             ),
         )?;
+        scene.view.submit_frame();
         scene.published_tick = Some(*input_tick);
         Ok(())
     })();
@@ -2085,6 +2103,7 @@ pub(crate) mod tests {
             &mut materials,
             &mut app.world_mut().resource_mut::<Assets<Image>>(),
             assets.files.diagnostics(),
+            &crate::field_ui::Resident::default(),
         )?;
         let diagnostics = Diagnostics::new(true);
         for tick in 0..180 {
@@ -2257,4 +2276,19 @@ pub(crate) mod tests {
         );
         Ok(())
     }
+}
+
+#[cfg(test)]
+pub(crate) fn entry_status(world: &World) -> (bool, bool) {
+    (
+        world
+            .get_resource::<Owner>()
+            .is_some_and(|owner| owner.presenting()),
+        world.contains_resource::<transition::State>(),
+    )
+}
+
+#[cfg(all(test, feature = "preparation-trace"))]
+pub(crate) fn skip_shatter_duration_for_benchmark(app: &mut App) {
+    app.insert_resource(transition::SkipMinimumDuration);
 }

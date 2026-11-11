@@ -92,6 +92,7 @@ fn read_recoil(read: &mut Reader<'_>) -> Result<recoil::Table> {
 }
 
 // Import retains authored techniques for publication; runtime keeps their prepared catalogue.
+#[derive(Clone)]
 pub struct Captured<Techniques = crate::arte::document::Document> {
     pub formations: formation::Formations,
     pub party: profile::Table,

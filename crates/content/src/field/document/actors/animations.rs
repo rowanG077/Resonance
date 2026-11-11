@@ -133,7 +133,8 @@ impl SharedBankBindings {
                     .map(|(joint, track)| {
                         (joint.name.clone(), track.map(|track| track.name.clone()))
                     })
-                    .collect();
+                    .collect::<BTreeMap<_, _>>()
+                    .into();
                 let animated = rig
                     .iter()
                     .zip(&selected)

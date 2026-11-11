@@ -36,13 +36,10 @@ fn request() -> EffectRequest {
     }
 }
 fn effects(events: Vec<ScheduledEvent>, followed: bool) -> Effects {
-    let mut particle = crate::tests::particle_definition(77, 0);
+    let mut particle = crate::tests::particle_definition(0);
     particle.data.follow_origin = followed;
     particle.data.lifetime = Some(6);
-    let mut definition = definition(events, Arc::new(particle));
-    Arc::make_mut(&mut definition)
-        .sounds
-        .insert(1, crate::Sound::Cue(1));
+    let definition = definition(events, Arc::new(particle));
     Effects::new(
         vec![bank([(1, definition)]).unwrap()],
         Some(request().appearance),
@@ -56,9 +53,8 @@ fn definition(
     particle: Arc<crate::ParticleDefinition>,
 ) -> Arc<EffectDefinition> {
     Arc::new(EffectDefinition {
-        events,
+        events: events.into(),
         particles: [(0, particle)].into(),
-        sounds: BTreeMap::new(),
     })
 }
 fn bank(members: impl IntoIterator<Item = (u16, Arc<EffectDefinition>)>) -> Result<EffectBank> {
@@ -66,6 +62,7 @@ fn bank(members: impl IntoIterator<Item = (u16, Arc<EffectDefinition>)>) -> Resu
         ResourceId(77),
         BTreeMap::new(),
         members.into_iter().collect(),
+        &mut |id| Ok(Some(crate::Sound::Cue(id))),
         &Diagnostics::new(true),
     )
 }
@@ -135,7 +132,7 @@ fn cinematic_cleanup_destroys_particles_and_delayed_births_while_held() -> Resul
 
 #[test]
 fn trail_birth_sizes_and_acceleration_preserve_distinct_motion_fields() -> Result<()> {
-    let mut particle = crate::tests::particle_definition(77, 0);
+    let mut particle = crate::tests::particle_definition(0);
     particle.data.state.offset = [0.; 3];
     particle.data.state.velocity = [0.; 3];
     particle.data.state.acceleration = [0.; 3];
@@ -187,7 +184,7 @@ fn trail_birth_sizes_and_acceleration_preserve_distinct_motion_fields() -> Resul
 
 #[test]
 fn delayed_size_motion_targets_its_birth_before_integration_and_waits_when_paused() -> Result<()> {
-    let mut particle = crate::tests::particle_definition(77, 0);
+    let mut particle = crate::tests::particle_definition(0);
     particle.data.lifetime = Some(100);
     particle.data.state.geometry = ParticleGeometry::Size {
         value: [0., 0., 150.],
@@ -671,11 +668,10 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
     assert!(effects.frames().is_empty());
     let mut other_bank = effects.banks[&ResourceId(77)].clone();
     other_bank.resource = ResourceId(78);
-    for definition in other_bank.members.values_mut() {
-        for particle in Arc::make_mut(definition).particles.values_mut() {
-            Arc::make_mut(particle).resource = ResourceId(78);
-        }
-    }
+    assert!(Arc::ptr_eq(
+        &other_bank.members[&1],
+        &effects.banks[&ResourceId(77)].members[&1]
+    ));
     effects.banks.insert(ResourceId(78), other_bank);
     let mut other_owner = request();
     other_owner.owner = ActorId(1);
@@ -758,14 +754,20 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         particle.data.state.angular_velocity = [0.; 3];
         particle.data.state.orbit = [0.; 3];
         particle.data.orbit_velocity = [0.; 3];
-        effect.validate(&bank.models)?;
+        effect.validate(&mut |slot| bank.models.get(&slot), &|_| true)?;
         if following && static_model {
             let mut mismatch = effect.clone();
-            let EffectOperation::Spawn { birth, .. } = &mut mismatch.events[0].operation else {
+            let EffectOperation::Spawn { birth, .. } =
+                &mut Arc::make_mut(&mut mismatch.events)[0].operation
+            else {
                 unreachable!();
             };
             birth.origin_bone = Some(1);
-            assert!(mismatch.validate(&bank.models).is_err());
+            assert!(
+                mismatch
+                    .validate(&mut |slot| bank.models.get(&slot), &|_| true)
+                    .is_err()
+            );
         }
         let mut frame = frame();
         let mut model = actor_model(&frame.actors[0])?;
@@ -820,15 +822,21 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         let mut effects = effects(births([0, 0]), false);
         let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
         let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
-        let EffectOperation::Spawn { birth, .. } = &mut effect.events[1].operation else {
+        let EffectOperation::Spawn { birth, .. } =
+            &mut Arc::make_mut(&mut effect.events)[1].operation
+        else {
             unreachable!();
         };
         birth.attachment_bone = Some(1);
-        assert!(effect.validate(&bank.models).is_err());
+        assert!(
+            effect
+                .validate(&mut |slot| bank.models.get(&slot), &|_| true)
+                .is_err()
+        );
         let particle = Arc::make_mut(effect.particles.get_mut(&0).unwrap());
         particle.data.follow_bone = following.then_some(0);
         particle.data.owner_bone = (!following).then_some(0);
-        effect.validate(&bank.models)?;
+        effect.validate(&mut |slot| bank.models.get(&slot), &|_| true)?;
         let mut frame = frame();
         let mut model = actor_model(&frame.actors[0])?;
         let bone = |x| {
@@ -1226,7 +1234,7 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         (vec![(0, 0)], 60, vec![(1, 0), (61, 0), (121, 0)]),
         (vec![(0, 0)], 1, vec![(1, 0), (2, 0), (3, 0)]),
     ] {
-        let mut particle = crate::tests::particle_definition(77, 0);
+        let mut particle = crate::tests::particle_definition(0);
         particle.data.state.effect_group = Some(0);
         particle.data.state.offset = [0., 30., 0.];
         particle.data.lifetime = Some(32);
@@ -1404,21 +1412,21 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
 
 #[test]
 fn floor_bounces_emit_prepared_children_once_per_crossing() -> Result<()> {
-    let mut parent = crate::tests::particle_definition(77, 0);
+    let mut parent = crate::tests::particle_definition(0);
     parent.data.ground_restitution = Some(0.65);
     parent.data.bounce_effect = Some(2);
     parent.data.state.offset = [0., -3., 0.];
     parent.data.state.velocity = [0., -2., 0.];
     parent.data.state.acceleration = [0.; 3];
     parent.data.jerk = [0.; 3];
-    let mut child = crate::tests::particle_definition(77, 1);
+    let mut child = crate::tests::particle_definition(1);
     child.data.state.offset = [0., 1., 0.];
     child.data.state.velocity = [0.; 3];
     child.data.state.acceleration = [0.; 3];
     let parent = definition(births([0]), Arc::new(parent));
     assert!(bank([(1, parent.clone())]).is_err());
     let child = Arc::new(EffectDefinition {
-        events: vec![ScheduledEvent {
+        events: Arc::new(vec![ScheduledEvent {
             at: 0,
             operation: EffectOperation::Spawn {
                 particle: 1,
@@ -1426,9 +1434,8 @@ fn floor_bounces_emit_prepared_children_once_per_crossing() -> Result<()> {
                 palette: None,
                 birth: Default::default(),
             },
-        }],
+        }]),
         particles: [(1, Arc::new(child))].into(),
-        sounds: BTreeMap::new(),
     });
     let bank = bank([(1, parent), (2, child)])?;
     let mut effects = Effects::new(vec![bank], None, 7, Diagnostics::new(true))?;
@@ -1503,7 +1510,7 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
         .into_iter()
         .enumerate()
         .map(|(member, during_pause)| {
-            let mut particle = crate::tests::particle_definition(77, member as u16);
+            let mut particle = crate::tests::particle_definition(member as u16);
             particle.data.lifetime = Some(100);
             particle.data.during_pause = during_pause;
             (member as u8, Arc::new(particle))
@@ -1523,9 +1530,9 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
                     },
                 })
             })
-            .collect(),
+            .collect::<Vec<_>>()
+            .into(),
         particles,
-        sounds: BTreeMap::new(),
     });
     let bank = bank([(1, definition)])?;
     let mut effects = Effects::new(vec![bank], None, 1, Diagnostics::new(true))?
@@ -1706,5 +1713,64 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
         delayed.advance(&frame, false)?;
         assert_eq!(delayed.particles.len(), count);
     }
+    Ok(())
+}
+
+#[test]
+fn shared_timelines_keep_bank_audio_isolated_and_muted_cues_do_not_hold_emitters() -> Result<()> {
+    let mut library = EffectLibrary::default();
+    library.insert(
+        1,
+        EffectDefinition {
+            events: vec![ScheduledEvent {
+                at: 20,
+                operation: EffectOperation::Sound { id: 5, priority: 0 },
+            }]
+            .into(),
+            particles: BTreeMap::new(),
+        },
+    )?;
+    let diagnostics = Diagnostics::new(true);
+    let muted = library.bind(
+        ResourceId(77),
+        &[1],
+        BTreeMap::new(),
+        &mut |_| Ok(None),
+        &diagnostics,
+    )?;
+    let audible = library.bind(
+        ResourceId(78),
+        &[1],
+        BTreeMap::new(),
+        &mut |_| Ok(Some(crate::Sound::Stream(105))),
+        &diagnostics,
+    )?;
+    assert!(Arc::ptr_eq(
+        muted.member(1).unwrap(),
+        audible.member(1).unwrap()
+    ));
+    let frame = frame();
+    let mut effects = Effects::new(vec![muted, audible], None, 7, diagnostics)?;
+    effects.start(&request(), &frame, None)?;
+    assert!(effects.advance(&frame, false)?.is_empty());
+    assert!(
+        effects.emitters.is_empty(),
+        "an unavailable late sound kept an emitter alive"
+    );
+    let mut playing = request();
+    playing.appearance.resource = ResourceId(78);
+    effects.start(&playing, &frame, None)?;
+    for _ in 0..20 {
+        assert!(effects.advance(&frame, false)?.is_empty());
+    }
+    let cues = effects.advance(&frame, false)?;
+    assert!(cues.iter().any(|cue| matches!(
+        cue,
+        Cue::Sound {
+            sound: crate::Sound::Stream(105),
+            ..
+        }
+    )));
+    assert!(effects.emitters.is_empty());
     Ok(())
 }

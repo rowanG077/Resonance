@@ -227,7 +227,7 @@ pub(super) fn controls(world: &mut World) {
         {
             choose |= menu.select_row(index);
         }
-        if choose {
+        if choose && loading::startup::ready(world) {
             let options = world.resource::<super::RunOptions>();
             let result = loading::Pending::dungeon(
                 options.assets.clone(),
@@ -249,13 +249,8 @@ fn activate(world: &mut World, candidate: new_game::Session) {
     world.remove_resource::<loading::WorldPending>();
     world.remove_resource::<new_game::TransitionFailure>();
     if let Some(mut current) = world.get_resource_mut::<new_game::Session>() {
-        let changing_field =
-            current.overworld().is_some() || current.map_id() != candidate.map_id();
         current.replace_loaded(candidate);
-        // Cold rooms must submit their UI draws during GPU preparation. Holding
-        // the old scene cameras (as for a warm quickload) prevents that submission.
-        super::saves::release_retained_frame(world);
-        super::saves::reset_scene(world, changing_field);
+        super::saves::reset_scene(world);
     } else {
         new_game::activate(world, candidate);
     }

@@ -117,22 +117,13 @@ impl Artwork {
             return;
         }
         for (i, draw) in self.draws.iter().enumerate() {
-            let mesh = meshes.add(draw.batch.clone().mesh(draw.size));
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(draw.material.clone()),
-                    Transform::from_xyz(0., 0., UI_DEPTH + i as f32),
-                    Visibility::Hidden,
-                ))
-                .id();
-            self.layers.push(Layer {
-                entity,
-                mesh,
-                material: draw.material.clone(),
-                uploaded: None,
-                visible: false,
-            });
+            self.layers.push(Layer::with_mesh(
+                draw.material.clone(),
+                UI_DEPTH + i as f32,
+                draw.batch.clone().mesh(draw.size),
+                commands,
+                meshes,
+            ));
         }
     }
 
@@ -343,7 +334,9 @@ fn begin(world: &mut World, mut audio: Audio, final_hold: u32) -> Result<()> {
         audio.gain = f32::from(party.settings.preferences.volumes.music) / 127.;
         audio.mono = !party.settings.preferences.stereo;
     }
-    crate::field_audio::leave_field(world)?;
+    if !crate::field_audio::leave_field(world)? {
+        return Ok(());
+    }
     let audio = world.resource_mut::<Assets<Audio>>().add(audio);
     let audio = world.spawn(Player(audio)).id();
     operation.advance(0).map_err(anyhow::Error::msg)?;

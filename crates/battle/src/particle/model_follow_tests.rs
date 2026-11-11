@@ -21,7 +21,6 @@ fn definition() -> ParticleDefinition {
         panic!("fixture needs model particle")
     };
     ParticleDefinition {
-        resource: ResourceId(17),
         member: 1,
         model: Some(binding),
         data: template,
@@ -52,6 +51,7 @@ fn effects() -> Result<Effects> {
             ResourceId(17),
             [(0, model.clone()), (1, model)].into(),
             Default::default(),
+            &mut |_| Ok(None),
             &Default::default(),
         )?],
         None,
@@ -123,6 +123,7 @@ fn frame() -> BattleFrame {
 
 fn spawn(effects: &mut Effects) -> Result<ParticleId> {
     let particle = effects.spawn_particle(
+        ResourceId(17),
         Arc::new(definition()),
         ActorId(0),
         ActorId(1),
@@ -250,8 +251,14 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
     data.state.offset = [2., 3., 4.];
     data.state.angles = [0., 0., 90.];
     data.state.angular_velocity = [0., 10., 0.];
-    let id =
-        effects.spawn_particle(Arc::new(definition), ActorId(0), ActorId(1), [400.; 3], 90.)?;
+    let id = effects.spawn_particle(
+        ResourceId(17),
+        Arc::new(definition),
+        ActorId(0),
+        ActorId(1),
+        [400.; 3],
+        90.,
+    )?;
     assert_eq!(effects.particles[&id].frame.state.angles, [0., 0., 90.]);
     let mut frame = frame();
     let mut owner = crate::model::Model::new(
@@ -396,7 +403,7 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
         reverse: false,
     };
     let definition = Arc::new(crate::EffectDefinition {
-        events: vec![ScheduledEvent {
+        events: Arc::new(vec![ScheduledEvent {
             at: 0,
             operation: EffectOperation::Spawn {
                 particle: 0,
@@ -409,17 +416,15 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
                     ..Default::default()
                 }),
             },
-        }],
+        }]),
         particles: [(
             0,
             Arc::new(ParticleDefinition {
-                resource: ResourceId(17),
                 member: 0,
                 ..definition()
             }),
         )]
         .into(),
-        sounds: Default::default(),
     });
     let members = [(1, Arc::clone(&definition))].into();
     assert!(
@@ -427,6 +432,7 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
             ResourceId(17),
             [(0, models[&0].clone())].into(),
             members,
+            &mut |_| Ok(None),
             &resonance_content::diagnostics::Diagnostics::new(true)
         )
         .is_err()
@@ -437,6 +443,7 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
             ResourceId(17),
             models,
             [(1, definition)].into(),
+            &mut |_| Ok(None),
             &Default::default(),
         )?,
     );
@@ -481,7 +488,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         motions: source.motions,
         secondary_motion: vec![],
     }))?;
-    let mut particle = crate::tests::particle_definition(17, 0);
+    let mut particle = crate::tests::particle_definition(0);
     particle.data.lifetime = Some(180);
     particle.data.follow_origin = true;
     particle.data.follow_orientation = true;
@@ -508,7 +515,6 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     });
     let definition = Arc::new(crate::EffectDefinition {
         particles: [(0, Arc::new(particle))].into(),
-        sounds: Default::default(),
         events: [0, 5]
             .map(|at| ScheduledEvent {
                 at,
@@ -530,9 +536,10 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
                     }),
                 },
             })
+            .to_vec()
             .into(),
     });
-    let mut child = crate::tests::particle_definition(17, 1);
+    let mut child = crate::tests::particle_definition(1);
     child.data.lifetime = Some(16);
     child.data.state.offset = [0.; 3];
     child.data.state.velocity = [0.; 3];
@@ -540,8 +547,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     child.data.jerk = [0.; 3];
     let child_effect = Arc::new(crate::EffectDefinition {
         particles: [(1, Arc::new(child))].into(),
-        sounds: Default::default(),
-        events: vec![ScheduledEvent {
+        events: Arc::new(vec![ScheduledEvent {
             at: 0,
             operation: EffectOperation::Spawn {
                 particle: 1,
@@ -549,13 +555,14 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
                 palette: None,
                 birth: Default::default(),
             },
-        }],
+        }]),
     });
     assert!(
         EffectBank::new(
             ResourceId(17),
             [(0, model.clone())].into(),
             [(1, definition.clone())].into(),
+            &mut |_| Ok(None),
             &resonance_content::diagnostics::Diagnostics::new(true),
         )
         .is_err()
@@ -570,7 +577,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     binding.animation = Some(0);
     binding.repeat = true;
     binding.program_animation = false;
-    for (index, event) in held.events.iter_mut().enumerate() {
+    for (index, event) in Arc::make_mut(&mut held.events).iter_mut().enumerate() {
         let EffectOperation::Spawn { birth, .. } = &mut event.operation else {
             unreachable!()
         };
@@ -582,6 +589,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         ResourceId(17),
         [(0, model.clone())].into(),
         [(1, Arc::new(held.clone()))].into(),
+        &mut |_| Ok(None),
         &resonance_content::diagnostics::Diagnostics::new(true),
     )?;
     for unbound in 0..3 {
@@ -591,7 +599,9 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
                 .data
                 .owner_bone = None;
         } else {
-            let EffectOperation::Spawn { birth, .. } = &mut invalid.events[0].operation else {
+            let EffectOperation::Spawn { birth, .. } =
+                &mut Arc::make_mut(&mut invalid.events)[0].operation
+            else {
                 unreachable!()
             };
             let animation = birth.animation.as_mut().unwrap();
@@ -607,6 +617,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
                 ResourceId(17),
                 [(0, model.clone())].into(),
                 [(1, Arc::new(invalid))].into(),
+                &mut |_| Ok(None),
                 &resonance_content::diagnostics::Diagnostics::new(true),
             )
             .is_err()
@@ -631,6 +642,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
             (3, Arc::new(delayed_orientation)),
         ]
         .into(),
+        &mut |_| Ok(None),
         &Default::default(),
     )?;
     let mut effects = Effects::new(vec![bank], None, 7, Default::default())?;
@@ -735,6 +747,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     for (followed, frames) in [(true, [0., 0.5]), (false, [0.5, 1.])] {
         ordinary.data.follow_origin = followed;
         let ordinary = effects.spawn_particle(
+            ResourceId(17),
             Arc::new(ordinary.clone()),
             ActorId(0),
             ActorId(0),

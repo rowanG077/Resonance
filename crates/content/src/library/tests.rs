@@ -5,6 +5,87 @@ mod textures;
 mod victories;
 
 #[test]
+fn scenes_share_startup_inputs_but_cannot_retain_other_scenes() -> Result<()> {
+    use crate::{diagnostics::Diagnostics, prepared::Files};
+    let fixture = Fixture::new();
+    fixture.write("base/common.bin", b"common");
+    fixture.write("base/field-a.bin", b"field a");
+    let library = fixture.open(&[])?;
+    let mut snapshot = library.snapshot();
+    let common_bytes = snapshot.read("common.bin", 64)?;
+    let common = Files::from_snapshot(snapshot, || false, Diagnostics::default())?;
+
+    let mut snapshot = library.snapshot_with(&common)?;
+    assert!(Arc::ptr_eq(
+        &common_bytes,
+        &snapshot.read("common.bin", 64)?
+    ));
+    let field_bytes = snapshot.read("field-a.bin", 64)?;
+    let field_weak = Arc::downgrade(&field_bytes);
+    drop(field_bytes);
+    let first = Files::from_snapshot(snapshot, || false, Diagnostics::default())?;
+    assert!(
+        library.snapshot_with(&first).is_err(),
+        "scene inheritance would defeat eviction"
+    );
+    let second = Files::from_snapshot(
+        library.snapshot_with(&common)?,
+        || false,
+        Diagnostics::default(),
+    )?;
+    assert!(!second.contains_key("field-a.bin"));
+    drop(first);
+    assert!(
+        field_weak.upgrade().is_none(),
+        "another scene pinned evicted bytes"
+    );
+    assert!(Arc::ptr_eq(&common_bytes, &second.read("common.bin")?));
+
+    // Inherited bytes keep their limits and namespace; a fresh snapshot sees edits.
+    fixture.write("base/common.bin", b"edited");
+    let mut scene = library.snapshot_with(&common)?;
+    assert_eq!(&*scene.read("common.bin", 64)?, b"common");
+    assert!(scene.read("common.bin", 2).is_err());
+    assert_eq!(&*library.snapshot().read("common.bin", 64)?, b"edited");
+    fixture.write("mod/common.bin", b"mod");
+    assert!(fixture.open(&["mod"])?.snapshot_with(&common).is_err());
+    Ok(())
+}
+
+#[test]
+fn inherited_files_keep_ordered_unique_keys_and_local_editing() -> Result<()> {
+    use crate::{diagnostics::Diagnostics, prepared::Files};
+    let fixture = Fixture::new();
+    fixture.write("base/a.bin", b"a");
+    fixture.write("base/z.bin", b"z");
+    fixture.write("base/m.bin", b"m");
+    let library = fixture.open(&[])?;
+    let mut snapshot = library.snapshot();
+    snapshot.read("a.bin", 64)?;
+    snapshot.read("z.bin", 64)?;
+    let common = Files::from_snapshot(snapshot, || false, Diagnostics::default())?;
+    let mut snapshot = library.snapshot_with(&common)?;
+    snapshot.read("m.bin", 64)?;
+    let original = Files::from_snapshot(snapshot, || false, Diagnostics::default())?;
+    let mut edited = original.clone();
+    edited.insert("a.bin".into(), Arc::from(b"edited".as_slice()));
+    assert_eq!(
+        edited.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["a.bin", "m.bin", "z.bin"]
+    );
+    assert_eq!(edited.len(), 3);
+    edited.remove("z.bin");
+    assert!(!edited.contains_key("z.bin"));
+    assert!(original.contains_key("z.bin") && common.contains_key("z.bin"));
+    assert_eq!(&*edited.read("a.bin")?, b"edited");
+    assert_eq!(&*original.read("a.bin")?, b"a");
+    edited.clear();
+    assert!(edited.is_empty() && edited.keys().next().is_none());
+    assert!(!original.is_empty());
+    Ok(())
+}
+
+#[test]
 fn enemy_document_edits_keep_gameplay_required_and_artwork_optional() -> Result<()> {
     use crate::{battle_enemy::document as enemies, diagnostics::Diagnostics};
     use serde_json::json;
@@ -703,5 +784,42 @@ fn automatic_mods_require_six_digits_and_sort_by_priority_then_name() -> Result<
         assert!(discover_mods(&directory).is_err(), "accepted {name}");
         fs::remove_dir(path)?;
     }
+    Ok(())
+}
+
+#[test]
+fn runtime_reuse_copies_requested_bytes_without_retaining_a_scene() -> Result<()> {
+    use crate::{diagnostics::Diagnostics, prepared::Files};
+    let fixture = Fixture::new();
+    fixture.write("base/shared.bin", b"shared");
+    fixture.write("base/unique.bin", b"unique");
+    let library = fixture.open(&[])?;
+    let mut first = library.snapshot();
+    let shared = first.read("shared.bin", 64)?;
+    let unique = Arc::downgrade(&first.read("unique.bin", 64)?);
+    let first = Arc::new(Files::from_snapshot(
+        first,
+        || false,
+        Diagnostics::default(),
+    )?);
+    let owner = Arc::downgrade(&first);
+    let mut second = library.snapshot();
+    second.reuse(first.clone())?;
+    assert!(Arc::ptr_eq(&shared, &second.read("shared.bin", 64)?));
+    assert!(second.read("shared.bin", 1).is_err());
+    let second = Files::from_snapshot(second, || false, Diagnostics::default())?;
+    drop(first);
+    assert!(
+        owner.upgrade().is_none(),
+        "destination retained the source scene owner"
+    );
+    assert!(
+        unique.upgrade().is_none(),
+        "unrequested source data survived eviction"
+    );
+    assert!(!second.contains_key("unique.bin"));
+    fixture.write("base/shared.bin", b"edited");
+    assert_eq!(&*library.snapshot().read("shared.bin", 64)?, b"edited");
+    assert_eq!(&*second.read("shared.bin")?, b"shared");
     Ok(())
 }

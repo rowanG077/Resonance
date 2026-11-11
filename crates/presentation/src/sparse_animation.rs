@@ -17,7 +17,7 @@ impl Clip {
         bones: &[String],
         spec: &resonance_content::SceneClip,
     ) -> Result<Arc<Motion>> {
-        Ok(Arc::new(self.0.bind(bones, &spec.joints)?))
+        self.0.bind_shared(bones, &spec.joints)
     }
 }
 
@@ -53,6 +53,7 @@ pub(super) fn install(app: &mut App) {
 #[derive(Default)]
 pub(super) struct Binding(pub Vec<(Entity, Transform)>);
 impl Binding {
+    #[cfg(test)]
     pub fn new(
         root: Entity,
         bone_count: usize,
@@ -229,7 +230,7 @@ mod tests {
             duration_frames: 2.0,
             tracks: vec![Track {
                 bone: 0,
-                nodes: vec![NodeTrack {
+                nodes: vec![std::sync::Arc::new(NodeTrack {
                     bind: Default::default(),
                     translation: Some(Channel {
                         interpolation: Interpolation::CubicSpline,
@@ -245,7 +246,7 @@ mod tests {
                     }),
                     rotation: None,
                     scale: None,
-                }],
+                })],
             }],
         };
         motion.validate_bones(1).unwrap();

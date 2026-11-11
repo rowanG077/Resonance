@@ -266,6 +266,7 @@ impl Event {
         Ok(match self {
             Self::FieldReady => {
                 scene::phase(world)? == scene::Phase::Field
+                    && !world.contains_resource::<new_game::scene_fade::Fade>()
                     && session.is_some_and(|session| {
                         session.ready_for_field && session.field().player_has_control()
                     })
@@ -2294,7 +2295,6 @@ mod tests {
             .resource::<loading::Resident>()
             .active
             .store(true, Ordering::Release);
-        super::release_frame(app.world_mut());
         app.update();
         let _ = settle_cursor(app.world_mut());
         let cursor = app.world().resource::<ScenarioInput>();

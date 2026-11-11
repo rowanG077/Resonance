@@ -22,6 +22,30 @@ struct Active {
 }
 
 impl Artwork {
+    pub(crate) fn add_cutin(
+        &mut self,
+        catalogue: TechniqueId,
+        texture: &resonance_content::font::UiTexture,
+        materials: &mut Assets<Surface>,
+        server: &AssetServer,
+        required: bool,
+    ) {
+        let image = menu::menu_image(server, texture.path.clone(), false);
+        self.pending_images.push(PendingImage {
+            image: image.clone(),
+            required,
+        });
+        self.cutin.layers.insert(
+            catalogue,
+            HudLayer::load(
+                LayerDefinition::new(image.clone(), [texture.width, texture.height], Depth::Cutin),
+                &image,
+                materials,
+                &self.windows.resident().unwrap_or_default(),
+            ),
+        );
+    }
+
     pub(crate) fn load_cutins(
         &mut self,
         files: &resonance_content::prepared::Files,
@@ -34,23 +58,7 @@ impl Artwork {
             let Some(cutin) = scene.cutin else { continue };
             ensure!(cutin.images.len() == 1, "skill cut-in requires one image");
             let texture = &cutin.images[0];
-            let image = menu::menu_image(server, texture.path.clone(), false);
-            self.pending_images.push(PendingImage {
-                image: image.clone(),
-                required: true,
-            });
-            self.cutin.layers.insert(
-                TechniqueId(catalogue),
-                HudLayer::load(
-                    LayerDefinition::new(
-                        image.clone(),
-                        [texture.width, texture.height],
-                        Depth::Cutin,
-                    ),
-                    &image,
-                    materials,
-                ),
-            );
+            self.add_cutin(TechniqueId(catalogue), texture, materials, server, true);
         }
         Ok(())
     }

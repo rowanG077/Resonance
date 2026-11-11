@@ -65,3 +65,46 @@ impl SavePointText {
         }
     }
 }
+
+/// Minimal valid shared artwork for tests without an installed game library.
+#[cfg(any(test, feature = "test-support"))]
+pub fn test_fixture() -> Settings {
+    use crate::effect::{self, RefractionRecipe, SpriteRecipe};
+    let sprite: SpriteRecipe = SpriteRecipe {
+        texture: "effects/default.ktx2".into(),
+        uv: [0., 0., 1., 1.],
+        frames: Vec::new(),
+        repeat: false,
+        additive: false,
+    };
+    Settings {
+        effects: FieldEffects {
+            emote_texture: sprite.texture.clone(),
+            status_texture: sprite.texture.clone(),
+            sprites: effect::sprite::all()
+                .map(|id| (id, sprite.clone()))
+                .collect(),
+            palette: vec![[255; 4]; effect::FIELD_PALETTE_COLORS],
+            refraction: RefractionRecipe {
+                sprite: sprite.clone(),
+                displacement: [0.; 2],
+            },
+            air_refraction: sprite,
+            mouth_cycle: vec![0],
+            rising_light_destination: [0.; 3],
+        },
+        blink: BlinkCycle { frames: vec![0] },
+        contact_shadow: ContactShadow {
+            texture: "effects/default.ktx2".into(),
+            uv_size: [1.; 2],
+            half_size: 1.,
+            height_offset: 0.,
+            alpha: 128,
+            anchor_node: 0,
+        },
+        toon_ramp: "effects/default.ktx2".into(),
+        particles: BTreeMap::new(),
+        save_point: SavePointText::default(),
+        environment: EnvironmentDefaults::default(),
+    }
+}

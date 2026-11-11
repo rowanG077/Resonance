@@ -163,169 +163,221 @@ pub(super) fn decode(
     names: Option<&[String]>,
     world_space: bool,
 ) -> Result<Motion> {
-    let binary = glb
-        .blob
-        .as_deref()
-        .context("animation GLB has no keyframe buffer")?;
-    let mut parents = vec![None; glb.nodes().len()];
-    let mut by_name = BTreeMap::new();
-    let mut transforms = Vec::new();
-    for node in glb.nodes() {
-        if let Some(name) = node.name() {
+    Nodes::decode(glb)?.select(names, world_space)
+}
+
+/// Validated node curves; selecting another joint boundary never rereads channels.
+#[derive(Debug)]
+pub(super) struct Nodes {
+    parents: Vec<Option<usize>>,
+    by_name: BTreeMap<String, usize>,
+    transforms: Vec<std::sync::Arc<NodeTrack>>,
+    default_selection: Vec<usize>,
+    duration_frames: f32,
+}
+
+impl Nodes {
+    pub(super) fn decode(glb: &gltf::Gltf) -> Result<Self> {
+        let binary = glb
+            .blob
+            .as_deref()
+            .context("animation GLB has no keyframe buffer")?;
+        let mut parents = vec![None; glb.nodes().len()];
+        let mut by_name = BTreeMap::new();
+        let mut transforms = Vec::new();
+        for node in glb.nodes() {
+            if let Some(name) = node.name() {
+                ensure!(
+                    by_name.insert(name.to_owned(), node.index()).is_none(),
+                    "duplicate animation node name: {name}"
+                );
+            }
+            for child in node.children() {
+                ensure!(
+                    parents[child.index()].replace(node.index()).is_none(),
+                    "animation node has multiple parents"
+                );
+            }
+            let (translation, rotation, scale) = node.transform().decomposed();
+            let bind = Transform {
+                translation,
+                rotation,
+                scale,
+            };
+            bind.validate()?;
+            // glTF matrices are required to be decomposable; reject malformed shear
+            // instead of letting the reader's decomposition silently discard it.
+            let expected = node.transform().matrix();
+            let rebuilt = bind.matrix();
             ensure!(
-                by_name.insert(name, node.index()).is_none(),
-                "duplicate animation node name: {name}"
+                expected
+                    .iter()
+                    .flatten()
+                    .zip(rebuilt.iter().flatten())
+                    .all(|(a, b)| (a - b).abs() <= 0.0001 * (1. + a.abs())),
+                "animation node matrix cannot be represented by glTF TRS"
             );
+            transforms.push(NodeTrack::new(bind));
         }
-        for child in node.children() {
+        let mut end = 0_f32;
+        for channel in glb.animations().next().unwrap().channels() {
+            let target = channel.target();
             ensure!(
-                parents[child.index()].replace(node.index()).is_none(),
-                "animation node has multiple parents"
+                !matches!(
+                    target.node().transform(),
+                    gltf::scene::Transform::Matrix { .. }
+                ),
+                "animated node must use TRS"
             );
-        }
-        let (translation, rotation, scale) = node.transform().decomposed();
-        let bind = Transform {
-            translation,
-            rotation,
-            scale,
-        };
-        bind.validate()?;
-        // glTF matrices are required to be decomposable; reject malformed shear
-        // instead of letting the reader's decomposition silently discard it.
-        let expected = node.transform().matrix();
-        let rebuilt = bind.matrix();
-        ensure!(
-            expected
-                .iter()
-                .flatten()
-                .zip(rebuilt.iter().flatten())
-                .all(|(a, b)| (a - b).abs() <= 0.0001 * (1. + a.abs())),
-            "animation node matrix cannot be represented by glTF TRS"
-        );
-        transforms.push(NodeTrack::new(bind));
-    }
-    let selected: Vec<usize> = if let Some(names) = names {
-        ensure!(
-            names.iter().collect::<BTreeSet<_>>().len() == names.len(),
-            "model has duplicate joint names"
-        );
-        names
-            .iter()
-            .map(|name| {
-                by_name
-                    .get(name.as_str())
-                    .copied()
-                    .with_context(|| format!("animation lacks model joint {name}"))
-            })
-            .collect::<Result<_>>()?
-    } else if let Some(skin) = glb.skins().next() {
-        skin.joints().map(|node| node.index()).collect()
-    } else {
-        glb.nodes().map(|node| node.index()).collect()
-    };
-    ensure!(
-        selected.len() <= usize::from(u16::MAX),
-        "too many animation joints"
-    );
-    let selected_set: BTreeSet<_> = selected.iter().copied().collect();
-    let mut end = 0_f32;
-    for channel in glb.animations().next().unwrap().channels() {
-        let target = channel.target();
-        ensure!(
-            !matches!(
-                target.node().transform(),
-                gltf::scene::Transform::Matrix { .. }
-            ),
-            "animated node must use TRS"
-        );
-        let reader = channel.reader(|buffer| (buffer.index() == 0).then_some(binary));
-        let times: Vec<_> = reader
-            .read_inputs()
-            .context("missing animation input")?
-            .collect();
-        if let Some(&last) = times.last() {
-            end = end.max(last);
-        }
-        let interpolation = match channel.sampler().interpolation() {
-            gltf::animation::Interpolation::Step => Interpolation::Step,
-            gltf::animation::Interpolation::Linear => Interpolation::Linear,
-            gltf::animation::Interpolation::CubicSpline => Interpolation::CubicSpline,
-        };
-        let node = &mut transforms[target.node().index()];
-        match reader.read_outputs().context("missing animation output")? {
-            ReadOutputs::Translations(values) => {
-                ensure!(node.translation.is_none(), "duplicate translation channel");
-                let value = Channel {
-                    interpolation,
-                    times,
-                    values: values.collect(),
-                };
-                value.validate(false)?;
-                node.translation = Some(value);
-            }
-            ReadOutputs::Scales(values) => {
-                ensure!(node.scale.is_none(), "duplicate scale channel");
-                let value = Channel {
-                    interpolation,
-                    times,
-                    values: values.collect(),
-                };
-                value.validate(false)?;
-                node.scale = Some(value);
-            }
-            ReadOutputs::Rotations(values) => {
-                ensure!(node.rotation.is_none(), "duplicate rotation channel");
-                let value = Channel {
-                    interpolation,
-                    times,
-                    values: values.into_f32().collect(),
-                };
-                value.validate(true)?;
-                node.rotation = Some(value);
-            }
-            ReadOutputs::MorphTargetWeights(_) => {
-                bail!("skeletal clip cannot contain morph-weight channels")
-            }
-        }
-    }
-    let mut tracks = Vec::new();
-    for (bone, &index) in selected.iter().enumerate() {
-        let mut path = vec![index];
-        let mut cursor = parents[index];
-        while let Some(parent) = cursor {
-            ensure!(
-                path.len() <= parents.len(),
-                "cyclic animation node hierarchy"
-            );
-            if !world_space && selected_set.contains(&parent) {
-                break;
-            }
-            path.push(parent);
-            cursor = parents[parent];
-        }
-        path.reverse();
-        if world_space || path.iter().any(|&index| transforms[index].channels().any()) {
-            let nodes = path
-                .into_iter()
-                .filter(|&index| {
-                    index == selected[bone]
-                        || transforms[index].channels().any()
-                        || transforms[index].bind != Transform::default()
-                })
-                .map(|index| transforms[index].clone())
+            let reader = channel.reader(|buffer| (buffer.index() == 0).then_some(binary));
+            let times: Vec<_> = reader
+                .read_inputs()
+                .context("missing animation input")?
                 .collect();
-            tracks.push(Track {
-                bone: bone as u16,
-                nodes,
-            });
+            if let Some(&last) = times.last() {
+                end = end.max(last);
+            }
+            let interpolation = match channel.sampler().interpolation() {
+                gltf::animation::Interpolation::Step => Interpolation::Step,
+                gltf::animation::Interpolation::Linear => Interpolation::Linear,
+                gltf::animation::Interpolation::CubicSpline => Interpolation::CubicSpline,
+            };
+            let node = &mut transforms[target.node().index()];
+            match reader.read_outputs().context("missing animation output")? {
+                ReadOutputs::Translations(values) => {
+                    ensure!(node.translation.is_none(), "duplicate translation channel");
+                    let value = Channel {
+                        interpolation,
+                        times,
+                        values: values.collect(),
+                    };
+                    value.validate(false)?;
+                    node.translation = Some(value);
+                }
+                ReadOutputs::Scales(values) => {
+                    ensure!(node.scale.is_none(), "duplicate scale channel");
+                    let value = Channel {
+                        interpolation,
+                        times,
+                        values: values.collect(),
+                    };
+                    value.validate(false)?;
+                    node.scale = Some(value);
+                }
+                ReadOutputs::Rotations(values) => {
+                    ensure!(node.rotation.is_none(), "duplicate rotation channel");
+                    let value = Channel {
+                        interpolation,
+                        times,
+                        values: values.into_f32().collect(),
+                    };
+                    value.validate(true)?;
+                    node.rotation = Some(value);
+                }
+                ReadOutputs::MorphTargetWeights(_) => {
+                    bail!("skeletal clip cannot contain morph-weight channels")
+                }
+            }
         }
+        // Validate the complete graph once, including unselected editor nodes.
+        let mut visited = vec![0_u8; parents.len()];
+        for node in 0..parents.len() {
+            let mut path = Vec::new();
+            let mut cursor = Some(node);
+            while let Some(index) = cursor {
+                ensure!(visited[index] != 1, "cyclic animation node hierarchy");
+                if visited[index] == 2 {
+                    break;
+                }
+                visited[index] = 1;
+                path.push(index);
+                cursor = parents[index];
+            }
+            for index in path {
+                visited[index] = 2;
+            }
+        }
+        let default_selection = match glb.skins().next() {
+            Some(skin) => skin.joints().map(|node| node.index()).collect(),
+            None => glb.nodes().map(|node| node.index()).collect(),
+        };
+        let duration_frames = end * FRAME_HZ;
+        ensure!(duration_frames.is_finite(), "invalid animation duration");
+        Ok(Self {
+            parents,
+            by_name,
+            transforms: transforms.into_iter().map(std::sync::Arc::new).collect(),
+            default_selection,
+            duration_frames,
+        })
     }
-    let motion = Motion {
-        duration_frames: end * FRAME_HZ,
-        tracks,
-    };
-    motion.validate_bones(selected.len())?;
-    Ok(motion)
+
+    pub(super) fn select(&self, names: Option<&[String]>, world_space: bool) -> Result<Motion> {
+        let parents = &self.parents;
+        let transforms = &self.transforms;
+        let selected: Vec<usize> = if let Some(names) = names {
+            ensure!(
+                names.iter().collect::<BTreeSet<_>>().len() == names.len(),
+                "model has duplicate joint names"
+            );
+            names
+                .iter()
+                .map(|name| {
+                    self.by_name
+                        .get(name.as_str())
+                        .copied()
+                        .with_context(|| format!("animation lacks model joint {name}"))
+                })
+                .collect::<Result<_>>()?
+        } else {
+            self.default_selection.clone()
+        };
+        ensure!(
+            selected.len() <= usize::from(u16::MAX),
+            "too many animation joints"
+        );
+        let selected_set: BTreeSet<_> = selected.iter().copied().collect();
+        let mut tracks = Vec::new();
+        for (bone, &index) in selected.iter().enumerate() {
+            let mut path = vec![index];
+            let mut cursor = parents[index];
+            while let Some(parent) = cursor {
+                // Decode has already validated the complete hierarchy.
+                debug_assert!(
+                    path.len() <= parents.len(),
+                    "cyclic animation node hierarchy"
+                );
+                if !world_space && selected_set.contains(&parent) {
+                    break;
+                }
+                path.push(parent);
+                cursor = parents[parent];
+            }
+            path.reverse();
+            if world_space || path.iter().any(|&index| transforms[index].channels().any()) {
+                let nodes = path
+                    .into_iter()
+                    .filter(|&index| {
+                        index == selected[bone]
+                            || transforms[index].channels().any()
+                            || transforms[index].bind != Transform::default()
+                    })
+                    .map(|index| transforms[index].clone())
+                    .collect();
+                tracks.push(Track {
+                    bone: bone as u16,
+                    nodes,
+                });
+            }
+        }
+        let motion = Motion {
+            duration_frames: self.duration_frames,
+            tracks,
+        };
+        // Node curves and the complete hierarchy were validated during decode.
+        // Selection only shares those curves under unique, checked bone indices.
+        Ok(motion)
+    }
 }
 
 fn node(name: &str, mut transform: Transform) -> Value {

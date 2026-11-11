@@ -3,10 +3,6 @@ use super::*;
 use resonance_battle::ParticleFrame;
 use resonance_battle::ResourceId;
 
-// Optional components cannot appear in an immutable try_query: an entirely
-// rigid asset world has never registered SkinnedMesh, so that query is absent.
-type SourceMeshes = (Entity, &'static Mesh3d, &'static MaterialSlot);
-
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct Stats {
     pub templates: usize,
@@ -99,8 +95,8 @@ pub(super) struct Pool {
     joints: Vec<Entity>,
     free_draws: Vec<usize>,
     free_joints: Vec<usize>,
-    warm_draws: Vec<Entity>,
-    warm_joints: Vec<Entity>,
+    // The admission report stores IDs, so the scene must retain these bindings
+    // through asynchronous pipeline preparation and its completion fence.
     warm_materials: Vec<Handle<TitleSurface>>,
     held_pose: Vec<(Entity, GlobalTransform)>,
 }
@@ -164,14 +160,11 @@ impl Pool {
             .flat_map(|s| &mut s.textures)
     }
 
-    pub fn warm_draws(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.warm_draws.iter().copied()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
-        commands: &mut Commands,
+        view: Entity,
+        report: &mut gpu::Report,
         server: &AssetServer,
         assets: &mut AssetsForView,
         sampled: &mut crate::scene::SampledImages,
@@ -191,51 +184,23 @@ impl Pool {
                 None => TemplateState::Disabled,
                 Some(false) => continue,
                 Some(true) => {
-                    let joints: Vec<_> = template
-                        .joints
-                        .iter()
-                        .map(|pose| {
-                            let entity = commands
-                                .spawn((
-                                    Transform::default(),
-                                    GlobalTransform::from(bevy::math::Affine3A::from_mat4(
-                                        pose.suffix,
-                                    )),
-                                ))
-                                .id();
-                            self.warm_joints.push(entity);
-                            entity
-                        })
-                        .collect();
-                    // Every actual mesh/image/material binding is submitted, not merely
-                    // one representative of each pipeline's vertex layout.
+                    let mut variants = std::collections::HashMap::new();
                     for draw in &template.draws {
                         for surface in std::iter::once(&draw.base).chain(draw.styles.values()) {
-                            let material = assets.surfaces.add(surface.clone());
-                            let mut entity = commands.spawn((
-                                Mesh3d(draw.mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                Transform::default(),
-                                GlobalTransform::from(bevy::math::Affine3A::from_mat4(
-                                    draw.pose.suffix,
-                                )),
-                                Visibility::Inherited,
-                                NoFrustumCulling,
-                                RenderLayers::layer(WARM_LAYER),
-                                DrawOrder(Layer::Effects, 0, draw.order),
-                            ));
-                            if let Some(skin) = &draw.skin {
-                                entity.insert(SkinnedMesh {
-                                    inverse_bindposes: skin.inverse_bindposes.clone(),
-                                    joints: skin
-                                        .joints
-                                        .iter()
-                                        .map(|&joint| joints[joint])
-                                        .collect(),
+                            let material = variants
+                                .entry(crate::materials::SurfaceKey::from(surface))
+                                .or_insert_with(|| {
+                                    let material = assets.surfaces.add(surface.clone());
+                                    self.warm_materials.push(material.clone());
+                                    material
                                 });
-                            }
-                            self.warm_draws.push(entity.id());
-                            self.warm_materials.push(material);
+                            report.prepare(
+                                view,
+                                draw.mesh.id(),
+                                material.id().untyped(),
+                                false,
+                                None,
+                            );
                         }
                     }
                     TemplateState::Ready
@@ -246,13 +211,6 @@ impl Pool {
             .templates
             .values()
             .all(|template| template.state != TemplateState::Pending))
-    }
-
-    pub fn activate(&mut self, commands: &mut Commands) {
-        for entity in self.warm_draws.drain(..).chain(self.warm_joints.drain(..)) {
-            commands.entity(entity).despawn();
-        }
-        self.warm_materials.clear();
     }
 
     pub fn retain(
@@ -463,8 +421,6 @@ impl Pool {
             .into_iter()
             .map(|draw| draw.entity)
             .chain(self.joints)
-            .chain(self.warm_draws)
-            .chain(self.warm_joints)
         {
             commands.entity(entity).despawn();
         }
@@ -510,126 +466,79 @@ impl Template {
                 .scenes
                 .get(gltf.scenes.first().context("model particle has no scene")?)
                 .context("missing loaded particle scene")?;
-            let world = &scene.world;
-            let mut bone_indices = BTreeMap::new();
-            let mut bones = vec![false; source.spec.scene.bone_names.len()];
-            if let Some(mut query) = world.try_query::<(Entity, &bevy::gltf::GltfExtras)>() {
-                for (entity, extras) in query.iter(world) {
-                    let extras: serde_json::Value = serde_json::from_str(&extras.value)?;
-                    let Some(index) = extras.get("resonance_bone") else {
-                        continue;
-                    };
-                    let index = index.as_u64().context("invalid cooked bone index")? as usize;
-                    let present = bones
-                        .get_mut(index)
-                        .context("particle bone outside skeleton")?;
-                    ensure!(!*present, "duplicate particle bone index");
-                    *present = true;
-                    bone_indices.insert(entity, source.bone_offset + index);
-                }
-            }
+            let layout = crate::model_asset::prepared(scene)?;
             ensure!(
-                bones.iter().all(|present| *present),
-                "missing particle skeleton bone"
+                layout.bones.len() == source.spec.scene.bone_names.len(),
+                "particle skeleton differs from declared bones"
             );
-            let mut paths = BTreeMap::new();
+            let pose = |node: &crate::model_asset::Node| Pose {
+                bone: node.bone.map(|bone| source.bone_offset + bone),
+                suffix: node.suffix,
+            };
             let mut joint_indices = BTreeMap::new();
-            let mut source_draw_count = 0;
-            if let Some(mut query) = world.try_query::<SourceMeshes>() {
-                for (entity, mesh, material) in query.iter(world) {
-                    source_draw_count += 1;
-                    let skin = world.get::<SkinnedMesh>(entity);
-                    let index = material.index(materials.len())?;
-                    let pose = source_pose(
-                        entity,
-                        world,
-                        &bone_indices,
-                        &mut paths,
-                        &mut BTreeSet::new(),
-                    )?;
-                    let base = materials[index].clone();
-                    validate_draw_mesh(
-                        assets
-                            .meshes
-                            .get(&mesh.0)
-                            .context("missing particle mesh")?,
-                        &base,
-                        skin.is_some(),
-                    )?;
-                    if pose
-                        .bone
-                        .is_some_and(|bone| self.suppressed.contains(&bone))
-                    {
-                        continue;
-                    }
-                    let skin = skin
-                        .map(|skin| -> Result<Skin> {
-                            let binds = assets
+            for node in &layout.nodes {
+                let Some(draw) = &node.draw else { continue };
+                let index = draw.slot.index(materials.len())?;
+                let base = materials[index].clone();
+                validate_draw_mesh(
+                    assets
+                        .meshes
+                        .get(&draw.mesh)
+                        .context("missing particle mesh")?,
+                    &base,
+                    draw.skin.is_some(),
+                )?;
+                let draw_pose = pose(node);
+                if draw_pose
+                    .bone
+                    .is_some_and(|bone| self.suppressed.contains(&bone))
+                {
+                    continue;
+                }
+                let skin = draw
+                    .skin
+                    .as_ref()
+                    .map(|skin| -> Result<_> {
+                        ensure!(
+                            assets
                                 .inverse_bindposes
                                 .get(&skin.inverse_bindposes)
-                                .context("missing particle inverse bind poses")?;
-                            ensure!(
-                                binds.len() == skin.joints.len(),
-                                "particle skin binding count differs"
-                            );
-                            let mut indices = Vec::with_capacity(skin.joints.len());
-                            for &entity in &skin.joints {
-                                let index = if let Some(&index) = joint_indices.get(&entity) {
-                                    index
-                                } else {
-                                    let pose = source_pose(
-                                        entity,
-                                        world,
-                                        &bone_indices,
-                                        &mut paths,
-                                        &mut BTreeSet::new(),
-                                    )?;
+                                .context("missing particle inverse bind poses")?
+                                .len()
+                                == skin.joints.len(),
+                            "particle skin binding count differs"
+                        );
+                        let indices = skin
+                            .joints
+                            .iter()
+                            .map(|&node| {
+                                *joint_indices.entry(node).or_insert_with(|| {
                                     let index = joints.len();
-                                    joints.push(pose);
-                                    joint_indices.insert(entity, index);
+                                    joints.push(pose(&layout.nodes[node]));
                                     index
-                                };
-                                indices.push(index);
-                            }
-                            Ok(Skin {
-                                inverse_bindposes: skin.inverse_bindposes.clone(),
-                                joints: indices,
+                                })
                             })
+                            .collect();
+                        Ok(Skin {
+                            inverse_bindposes: skin.inverse_bindposes.clone(),
+                            joints: indices,
                         })
-                        .transpose()?;
-                    let variants = styles
+                    })
+                    .transpose()?;
+                draws.push(DrawRecipe {
+                    mesh: draw.mesh.clone(),
+                    pose: draw_pose,
+                    skin,
+                    base: base.clone(),
+                    styles: styles
                         .iter()
-                        .map(|&style| {
-                            let mut surface = base.clone();
-                            surface.toon_ramp =
-                                (style.lit && !surface.constant_color && surface.color.is_some())
-                                    .then(|| toon.clone());
-                            surface.blend = Some(style.blend);
-                            surface.depth_test = style.depth_test;
-                            surface.depth_write = style.depth_write;
-                            surface.depth_equal = true;
-                            if !surface.constant_color {
-                                surface.cull = if style.cull_back {
-                                    resonance_content::CullFace::Back
-                                } else {
-                                    resonance_content::CullFace::None
-                                };
-                            }
-                            (style, surface)
-                        })
-                        .collect();
-                    draws.push(DrawRecipe {
-                        mesh: mesh.0.clone(),
-                        pose,
-                        skin,
-                        base,
-                        styles: variants,
-                        order: source.spec.scene.materials[index].draw_order,
-                    });
-                }
+                        .map(|&style| (style, style.surface(base.clone(), toon)))
+                        .collect(),
+                    order: source.spec.scene.materials[index].draw_order,
+                });
             }
             ensure!(
-                source_draw_count > 0 || gltf.meshes.is_empty(),
+                layout.nodes.iter().any(|node| node.draw.is_some()) || gltf.meshes.is_empty(),
                 "particle scene has no declared mesh draws"
             );
         }
@@ -639,45 +548,6 @@ impl Template {
         self.joints = joints;
         Ok(true)
     }
-}
-
-fn source_pose(
-    entity: Entity,
-    world: &World,
-    bones: &BTreeMap<Entity, usize>,
-    paths: &mut BTreeMap<Entity, Pose>,
-    visiting: &mut BTreeSet<Entity>,
-) -> Result<Pose> {
-    if let Some(&pose) = paths.get(&entity) {
-        return Ok(pose);
-    }
-    ensure!(visiting.insert(entity), "cyclic model particle transforms");
-    let pose = if let Some(&bone) = bones.get(&entity) {
-        Pose {
-            bone: Some(bone),
-            suffix: Mat4::IDENTITY,
-        }
-    } else {
-        let local = world
-            .get::<Transform>(entity)
-            .context("particle node has no transform")?
-            .to_matrix();
-        let parent = world
-            .get::<ChildOf>(entity)
-            .map(|parent| source_pose(parent.parent(), world, bones, paths, visiting))
-            .transpose()?
-            .unwrap_or(Pose {
-                bone: None,
-                suffix: Mat4::IDENTITY,
-            });
-        Pose {
-            bone: parent.bone,
-            suffix: parent.suffix * local,
-        }
-    };
-    visiting.remove(&entity);
-    paths.insert(entity, pose);
-    Ok(pose)
 }
 
 fn appearance(
@@ -741,7 +611,6 @@ mod tests {
             serde_json::from_str(include_str!("fixtures/masked-particle.json"))?;
         let declaration: Declaration = serde_json::from_value(fixture["declaration"].clone())?;
         let particle = ParticleDefinition {
-            resource: ResourceId(1),
             member: 0,
             model: None,
             data: declaration.particle()?,
@@ -756,15 +625,15 @@ mod tests {
             },
         };
         let definition = EffectDefinition {
-            events: vec![birth; count],
+            events: vec![birth; count].into(),
             particles: [(0, Arc::new(particle))].into(),
-            sounds: BTreeMap::new(),
         };
         let diagnostics = Diagnostics::new(true);
         let bank = EffectBank::new(
             ResourceId(1),
             BTreeMap::new(),
             [(0, Arc::new(definition))].into(),
+            &mut |_| Ok(None),
             &diagnostics,
         )?;
         let mut effects = Effects::new(vec![bank], None, 1, diagnostics)?.with_ambient(Some((
@@ -994,59 +863,6 @@ mod tests {
             owned
                 .iter()
                 .all(|&entity| !world.entities().contains_spawned(entity))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn rigid_source_draws_do_not_require_a_registered_skin_component() {
-        let mut world = World::new();
-        let entity = world.spawn((Mesh3d::default(), MaterialSlot(0))).id();
-        assert!(world.components().component_id::<SkinnedMesh>().is_none());
-        let mut query = world.try_query::<SourceMeshes>().expect("rigid mesh query");
-        let draws: Vec<_> = query.iter(&world).map(|(entity, _, _)| entity).collect();
-        assert_eq!(draws, [entity]);
-        assert!(world.get::<SkinnedMesh>(entity).is_none());
-    }
-
-    #[test]
-    fn flat_pose_preserves_affine_bones_and_independent_child_draws() -> Result<()> {
-        let mut world = World::new();
-        let root = world.spawn(Transform::from_xyz(100., 0., 0.)).id();
-        let bone = world.spawn((Transform::default(), ChildOf(root))).id();
-        let suffix = Transform::from_xyz(2., 3., 4.);
-        let draw = world.spawn((suffix, ChildOf(bone))).id();
-        let child_bone = world.spawn((Transform::default(), ChildOf(draw))).id();
-        let child_draw = world
-            .spawn((Transform::default(), ChildOf(child_bone)))
-            .id();
-        let indices = [(bone, 0), (child_bone, 1)].into();
-        let mut paths = BTreeMap::new();
-        let pose = source_pose(draw, &world, &indices, &mut paths, &mut BTreeSet::new())?;
-        let child = source_pose(
-            child_draw,
-            &world,
-            &indices,
-            &mut paths,
-            &mut BTreeSet::new(),
-        )?;
-        assert_eq!(pose.bone, Some(0));
-        assert_eq!(child.bone, Some(1));
-        let affine = Mat4::from_cols(Vec4::ZERO, Vec4::new(0.5, 1., 0., 0.), Vec4::Z, Vec4::W);
-        let global = Mat4::from_translation(Vec3::new(8., 9., 10.));
-        let sampled = pose.sample(
-            global,
-            &[affine.to_cols_array_2d(), Mat4::IDENTITY.to_cols_array_2d()],
-        )?;
-        assert_eq!(sampled.to_matrix(), global * affine * suffix.to_matrix());
-        assert_eq!(
-            child
-                .sample(
-                    global,
-                    &[affine.to_cols_array_2d(), Mat4::IDENTITY.to_cols_array_2d()]
-                )?
-                .to_matrix(),
-            global
         );
         Ok(())
     }

@@ -31,7 +31,6 @@ impl FixtureParticle {
         let element_tint = template.element_tint;
         Ok(Self(Particle {
             definition: Arc::new(ParticleDefinition {
-                resource: crate::ResourceId(0),
                 member: 0,
                 model: None,
                 data: template,

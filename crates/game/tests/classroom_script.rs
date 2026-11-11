@@ -2971,6 +2971,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
             restored.events.resources().skits.clone().unwrap(),
             &files,
             restored.events.resources(),
+            &Default::default(),
         )
         .unwrap(),
     );
@@ -3250,6 +3251,7 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
             session_data: Some(data.clone()),
             ..Default::default()
         },
+        &Default::default(),
     )
     .unwrap();
     for (&id, paths) in &catalog.resources {

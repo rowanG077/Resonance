@@ -236,12 +236,12 @@ fn resolve_motion(
         .map(|(bone, reference)| {
             let mut nodes = tracks
                 .remove(&(bone as u16))
-                .unwrap_or_else(|| vec![NodeTrack::new(Transform::default())]);
+                .unwrap_or_else(|| vec![NodeTrack::new(Transform::default()).into()]);
             ensure!(
                 nodes.len() == 1 && nodes[0].bind == Transform::default(),
                 "relative motion must use flat identity nodes"
             );
-            let mut node = nodes.remove(0);
+            let mut node = std::sync::Arc::unwrap_or_clone(nodes.remove(0));
             node.bind = reference;
             node.translation = Some(offset_channel(node.translation, reference.translation));
             let rotation = glam::Quat::from_array(reference.rotation).normalize();
@@ -254,7 +254,7 @@ fn resolve_motion(
             node.scale = Some(offset_channel(node.scale, reference.scale));
             Ok(Track {
                 bone: bone as u16,
-                nodes: vec![node],
+                nodes: vec![node.into()],
             })
         })
         .collect::<Result<_>>()?;
@@ -306,7 +306,7 @@ mod tests {
             duration_frames: 30.,
             tracks: vec![Track {
                 bone: 0,
-                nodes: vec![NodeTrack {
+                nodes: vec![std::sync::Arc::new(NodeTrack {
                     rotation: Some(Channel {
                         interpolation: Interpolation::Linear,
                         times: vec![0., 1.],
@@ -316,14 +316,14 @@ mod tests {
                         ],
                     }),
                     ..NodeTrack::new(skeleton.bones[0].bind)
-                }],
+                })],
             }],
         };
         let relative = Motion {
             duration_frames: 30.,
             tracks: vec![Track {
                 bone: 0,
-                nodes: vec![NodeTrack {
+                nodes: vec![std::sync::Arc::new(NodeTrack {
                     bind: Transform::default(),
                     translation: Some(Channel {
                         interpolation: Interpolation::CubicSpline,
@@ -343,7 +343,7 @@ mod tests {
                         times: vec![0., 1.],
                         values: vec![[0.; 3], [1.; 3]],
                     }),
-                }],
+                })],
             }],
         };
         let mut flat = skeleton.clone();

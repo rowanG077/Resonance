@@ -3,21 +3,26 @@ use super::super::loading::Cache;
 use super::*;
 use resonance_content::prepared::Files;
 use std::collections::BTreeSet;
+mod preparation;
 #[cfg(test)]
 mod tests;
 
 pub(crate) fn available_fields(root: &Path) -> Result<std::collections::BTreeSet<u32>> {
     let mut snapshot = resonance_content::library::Library::open(root, &[])?.snapshot();
-    capture_fields(&mut snapshot)
+    let has_world = resonance_content::overworld::document::present(&mut snapshot)?;
+    capture_fields(&mut snapshot, has_world)
 }
 
-fn capture_fields(snapshot: &mut resonance_content::library::Snapshot) -> Result<BTreeSet<u32>> {
+pub(crate) fn capture_fields(
+    snapshot: &mut resonance_content::library::Snapshot,
+    has_world: bool,
+) -> Result<BTreeSet<u32>> {
     let mut fields: BTreeSet<_> = snapshot
         .mappings(resonance_content::library::FIELDS)?
         .iter()
         .map(|(id, _)| id)
         .collect();
-    if resonance_content::overworld::document::present(snapshot)? {
+    if has_world {
         fields.insert(3000);
     }
     Ok(fields)
@@ -25,10 +30,11 @@ fn capture_fields(snapshot: &mut resonance_content::library::Snapshot) -> Result
 
 #[derive(Clone)]
 pub(crate) struct FieldPackage {
+    pub graphics: crate::field_view::CachedGraphics,
     pub assets: FieldAssets,
     pub fields: BTreeSet<u32>,
     pub data: Arc<resonance_content::session::SessionData>,
-    pub script: Arc<[u8]>,
+    pub program: resonance_game::field::PreparedProgram,
     messages: Arc<[symphonia_script::message::Message]>,
     text: Arc<resonance_content::session::GameText>,
     pub skits: Arc<resonance_content::skit::SkitCatalog>,
@@ -37,21 +43,21 @@ pub(crate) struct FieldPackage {
     pub audio: Arc<super::super::field_audio::Assets>,
     pub files: Arc<Files>,
     authored: Option<resonance_game::authored::FieldEvent>,
-    services: Arc<resonance_game::authored::FieldServices>,
+    pub(crate) services: Arc<resonance_game::authored::FieldServices>,
     attachments: resonance_game::field::attachments::Attachments,
     movies: BTreeSet<u32>,
 }
 
-struct PreparedScripts {
-    authored: Option<resonance_game::authored::FieldEvent>,
-    services: Arc<resonance_game::authored::FieldServices>,
+pub(crate) struct PreparedScripts {
+    pub(crate) authored: Option<resonance_game::authored::FieldEvent>,
+    pub(crate) services: Arc<resonance_game::authored::FieldServices>,
 }
 impl FieldPackage {
     pub fn prepare(
         root: &Path,
         map: u32,
         cache: &mut Cache,
-        cancelled: impl Fn() -> bool,
+        cancelled: impl Fn() -> bool + Sync,
     ) -> Result<Self> {
         Self::prepare_with_diagnostics(
             root,
@@ -66,7 +72,7 @@ impl FieldPackage {
         root: &Path,
         map: u32,
         cache: &mut Cache,
-        cancelled: impl Fn() -> bool,
+        cancelled: impl Fn() -> bool + Sync,
         diagnostics: resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
         let library = resonance_content::library::Library::open(root, &[])?;
@@ -80,29 +86,104 @@ impl FieldPackage {
         library: &resonance_content::library::Library,
         map: u32,
         cache: &mut Cache,
-        cancelled: impl Fn() -> bool,
+        cancelled: impl Fn() -> bool + Sync,
         diagnostics: resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
+        Self::capture_publishing(library, map, cache, cancelled, diagnostics, &mut |_, _| {
+            Ok(())
+        })
+    }
+
+    /// `captured` receives the scene's graphics before CPU preparation ends.
+    pub(crate) fn capture_publishing(
+        library: &resonance_content::library::Library,
+        map: u32,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool + Sync,
+        diagnostics: resonance_content::diagnostics::Diagnostics,
+        captured: &mut dyn FnMut(&resonance_content::library::Snapshot, &FieldAssets) -> Result<()>,
+    ) -> Result<Self> {
         use resonance_content::{field::document, preparation, skit};
-        let mut snapshot = library.snapshot();
-        let (definition, assets) = document::capture_scene(&mut snapshot, map, &cancelled)?;
-        let sources = preparation::gameplay(&mut snapshot, &diagnostics, &cancelled)?;
-        preparation::ui(&mut snapshot, &diagnostics, &cancelled)?;
-        let skits = Arc::new(skit::document::capture(&mut snapshot, &cancelled)?);
-        resonance_game::screen_resources::capture(
-            &mut snapshot,
-            std::iter::once(assets.script.as_str())
-                .chain(skits.resources.values().map(|skit| skit.script.as_str())),
-            &diagnostics,
-            &cancelled,
-        )?;
-        let mut audio = cache.audio.capture_named(
-            &definition.audio,
-            &mut snapshot,
-            diagnostics.clone(),
-            &cancelled,
-        )?;
-        Arc::make_mut(&mut audio).capture_skits(&skits, &mut snapshot, &cancelled)?;
+        let common = cache
+            .common
+            .get()
+            .filter(|_| cache.scripts.is_none())
+            .cloned();
+        let mut snapshot = cache.snapshot(library)?;
+        // Adjacent fields share most inputs. The departing field still owns its
+        // captured bytes while its successor is prepared; nothing else keeps them.
+        // Edited files are therefore only guaranteed to be reread after a restart.
+        if let Some(files) = cache.previous.upgrade().filter(|files| {
+            cache.scripts.is_none()
+                && files
+                    .library()
+                    .is_some_and(|library| snapshot.uses_library(library))
+        }) {
+            snapshot.reuse(files)?;
+        }
+        let (mut snapshot, definition, assets, prepared) = if let Some(common) = &common {
+            let captured = self::preparation::capture(
+                snapshot,
+                map,
+                common,
+                &mut cache.audio,
+                &diagnostics,
+                &cancelled,
+                captured,
+            )?;
+            (
+                captured.snapshot,
+                captured.definition,
+                captured.assets,
+                Some((captured.audio, captured.program)),
+            )
+        } else {
+            let mut snapshot = snapshot;
+            let definition = document::Definition::read(&mut snapshot, map)?;
+            let assets =
+                definition.capture_scene(&mut snapshot, map, &cancelled, None, captured)?;
+            (snapshot, definition, assets, None)
+        };
+
+        let (sources, skits) = match &common {
+            Some(common) => (None, common.skits.clone()),
+            None => {
+                let sources = preparation::gameplay(&mut snapshot, &diagnostics, &cancelled)?;
+                preparation::ui(&mut snapshot, &diagnostics, &cancelled)?;
+                (
+                    Some(sources),
+                    Arc::new(skit::document::capture(&mut snapshot, &cancelled)?),
+                )
+            }
+        };
+        let mut programs = Default::default();
+        let (audio, program) = match prepared {
+            Some(prepared) => prepared,
+            None => {
+                let program = resonance_game::field::PreparedProgram::new(
+                    resonance_game::screen_resources::capture_program(
+                        &mut snapshot,
+                        &assets.script,
+                        &diagnostics,
+                        &cancelled,
+                    )?,
+                );
+                programs = resonance_game::screen_resources::capture(
+                    &mut snapshot,
+                    skits.resources.values().map(|skit| skit.script.as_str()),
+                    &diagnostics,
+                    &cancelled,
+                )?;
+                let mut audio = cache.audio.capture_named(
+                    &definition.audio,
+                    &mut snapshot,
+                    diagnostics.clone(),
+                    &cancelled,
+                )?;
+                Arc::make_mut(&mut audio).capture_skits(&skits, &mut snapshot, &cancelled)?;
+                (audio, program)
+            }
+        };
         for &id in &definition.movies {
             ensure!(!cancelled(), "field preparation cancelled");
             // Keep payloads streamable. Actual playback takes its own captured
@@ -112,36 +193,70 @@ impl FieldPackage {
                 resonance_content::movie::capture(&mut snapshot, id),
             )?;
         }
-        let PreparedScripts { authored, services } =
-            Self::prepare_from_sources(map, &sources, cache, |path| {
-                ensure!(!cancelled(), "field script preparation cancelled");
-                snapshot.read(path, preparation::ASSET_LIMIT)
-            })?;
-        let fields = capture_fields(&mut snapshot)?;
+
+        let (PreparedScripts { authored, services }, fields) = match &common {
+            Some(common) => (
+                PreparedScripts {
+                    authored: None,
+                    services: common.services.clone(),
+                },
+                common.fields.clone(),
+            ),
+            None => {
+                let has_world = resonance_content::overworld::document::present(&mut snapshot)?;
+                (
+                    Self::prepare_from_sources(map, sources.as_ref().unwrap(), cache, |path| {
+                        ensure!(!cancelled(), "field script preparation cancelled");
+                        snapshot.read(path, preparation::ASSET_LIMIT)
+                    })?,
+                    capture_fields(&mut snapshot, has_world)?,
+                )
+            }
+        };
         let files = Arc::new(Files::from_snapshot(snapshot, &cancelled, diagnostics)?);
-        let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
-        let text: Arc<resonance_content::session::GameText> =
-            Arc::new(resonance_content::session::GameText::load(&files)?);
-        let skit_programs = Arc::new(resonance_game::skit::Prepared::load(
-            skits.clone(),
-            &files,
-            &resonance_events::ResourceLibrary {
-                text: text.clone(),
-                session_data: Some(data.clone()),
-                ..Default::default()
-            },
-        )?);
-        let effects: resonance_content::effect::FieldEffects = files
-            .json::<resonance_content::field::settings::Settings>(&assets.effects)?
-            .effects;
-        effects.validate()?;
+        cache.previous = Arc::downgrade(&files);
+        let (data, text, skit_programs) = match &common {
+            Some(common) => (
+                common.data.clone(),
+                common.text.clone(),
+                common.skit_programs.clone(),
+            ),
+            None => {
+                let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
+                let text = Arc::new(resonance_content::session::GameText::load(&files)?);
+                let programs = Arc::new(resonance_game::skit::Prepared::load(
+                    skits.clone(),
+                    &files,
+                    &resonance_events::ResourceLibrary {
+                        text: text.clone(),
+                        session_data: Some(data.clone()),
+                        ..Default::default()
+                    },
+                    &programs,
+                )?);
+                (data, text, programs)
+            }
+        };
+
+        let settings = document::Common::settings(
+            &files.read(&assets.effects)?,
+            common.as_ref().and_then(|common| common.field.as_ref()),
+        )
+        .with_context(|| format!("decode {}", assets.effects))?;
+        let effects = settings.effects.clone();
+        document::Common::validate_effects(
+            &settings,
+            common.as_ref().and_then(|common| common.field.as_ref()),
+        )?;
         let attachments =
             resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
+
         ensure!(!cancelled(), "field preparation cancelled");
         Ok(Self {
+            graphics: Default::default(),
             fields,
             text,
-            script: files.read(&assets.script)?,
+            program,
             messages: files
                 .json_or_default::<Vec<_>>(assets.messages.as_deref())?
                 .into(),
@@ -159,7 +274,7 @@ impl FieldPackage {
         })
     }
 
-    fn prepare_from_sources(
+    pub(crate) fn prepare_from_sources(
         map: u32,
         sources: &std::collections::BTreeMap<String, String>,
         cache: &mut Cache,
@@ -256,8 +371,12 @@ impl FieldPackage {
         entry.attachments = self.attachments.clone();
         entry.available_movies = self.movies.clone();
         entry.menu_files = self.files.clone();
-        let mut field =
-            FieldSession::enter(&self.script, self.messages.to_vec(), &self.assets, entry)?;
+        let mut field = FieldSession::enter_prepared(
+            &self.program,
+            self.messages.to_vec(),
+            &self.assets,
+            entry,
+        )?;
         field.set_diagnostics(self.files.diagnostics().clone());
         field.events.world.voice_durations = self.audio.voice_durations();
         field.set_prepared_skits(self.skit_programs.clone());

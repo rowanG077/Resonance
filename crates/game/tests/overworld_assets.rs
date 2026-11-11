@@ -560,5 +560,11 @@ fn prepare_world(root: &std::path::Path) -> Result<resonance_game::overworld::Pr
         .map(|(id, _)| id)
         .collect();
     let files = std::sync::Arc::new(Files::from_snapshot(snapshot, || false, diagnostics)?);
-    resonance_game::overworld::Prepared::from_prepared(world, files, skits, fields)
+    resonance_game::overworld::Prepared::from_prepared(
+        world,
+        files,
+        skits,
+        fields,
+        &Default::default(),
+    )
 }

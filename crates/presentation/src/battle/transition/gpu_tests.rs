@@ -5,7 +5,7 @@ use resonance_content::menu_data::AntiAliasing;
 
 fn pipeline(app: &App, entity: Entity) -> CachedRenderPipelineId {
     let world = app.sub_app(RenderApp).world();
-    crate::field_warm::draws(world.resource(), world.resource())
+    crate::gpu_prepare::draws(world.resource(), world.resource())
         .find(|(draw, _)| *draw == entity.into())
         .expect("queued transition fragments")
         .1

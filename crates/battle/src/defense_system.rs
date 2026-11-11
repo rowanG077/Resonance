@@ -540,26 +540,25 @@ mod tests {
         let mut model = crate::tests::model_definition(7, [(0, 30.), (32, 60.)]);
         model.skeleton.bones[0].bind.translation = [185., 0., 400.];
         // Deployment moves the anchor; attachments retain the completed prior pose.
-        model
-            .motions
-            .get_mut(&32)
-            .unwrap()
+        std::sync::Arc::make_mut(model.motions.get_mut(&32).unwrap())
             .tracks
             .push(resonance_content::animation::Track {
                 bone: 0,
-                nodes: vec![resonance_content::animation::NodeTrack {
-                    bind: resonance_content::animation::Transform::default(),
-                    translation: Some(resonance_content::animation::Channel {
-                        times: (vec![0., 60.])
-                            .into_iter()
-                            .map(|frame| frame / 30.)
-                            .collect(),
-                        interpolation: resonance_content::animation::Interpolation::Linear,
-                        values: vec![[185., 0., 400.], [245., 0., 400.]],
-                    }),
-                    rotation: None,
-                    scale: None,
-                }],
+                nodes: vec![std::sync::Arc::new(
+                    resonance_content::animation::NodeTrack {
+                        bind: resonance_content::animation::Transform::default(),
+                        translation: Some(resonance_content::animation::Channel {
+                            times: (vec![0., 60.])
+                                .into_iter()
+                                .map(|frame| frame / 30.)
+                                .collect(),
+                            interpolation: resonance_content::animation::Interpolation::Linear,
+                            values: vec![[185., 0., 400.], [245., 0., 400.]],
+                        }),
+                        rotation: None,
+                        scale: None,
+                    },
+                )],
             });
         battle.set_models(crate::Models::new(
             battle.actors(),
@@ -655,26 +654,25 @@ mod tests {
             .finish()?;
         let mut host_model = crate::tests::model_definition(7, [(0, 30.)]);
         host_model.skeleton.bones[0].bind.translation = [50., 0., 100.];
-        host_model
-            .motions
-            .get_mut(&0)
-            .unwrap()
+        std::sync::Arc::make_mut(host_model.motions.get_mut(&0).unwrap())
             .tracks
             .push(resonance_content::animation::Track {
                 bone: 0,
-                nodes: vec![resonance_content::animation::NodeTrack {
-                    bind: resonance_content::animation::Transform::default(),
-                    translation: Some(resonance_content::animation::Channel {
-                        times: (vec![0., 30.])
-                            .into_iter()
-                            .map(|frame| frame / 30.)
-                            .collect(),
-                        interpolation: resonance_content::animation::Interpolation::Linear,
-                        values: vec![[50., 0., 100.], [50., 0., 130.]],
-                    }),
-                    rotation: None,
-                    scale: None,
-                }],
+                nodes: vec![std::sync::Arc::new(
+                    resonance_content::animation::NodeTrack {
+                        bind: resonance_content::animation::Transform::default(),
+                        translation: Some(resonance_content::animation::Channel {
+                            times: (vec![0., 30.])
+                                .into_iter()
+                                .map(|frame| frame / 30.)
+                                .collect(),
+                            interpolation: resonance_content::animation::Interpolation::Linear,
+                            values: vec![[50., 0., 100.], [50., 0., 130.]],
+                        }),
+                        rotation: None,
+                        scale: None,
+                    },
+                )],
             });
         battle.set_models(crate::Models::new(
             battle.actors(),

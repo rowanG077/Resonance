@@ -3,14 +3,82 @@ use super::{lifecycle::victory_selection::ColetteState, party::Character};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{ActorAvailability, ActorId, Battle, Cue, ModelDefinition, MotionBinding};
 use resonance_content::{
-    animation::Motion,
+    animation::{Motion, Skeleton},
     battle_victory::{Event, Performances},
     prepared::Files,
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 const FIRST_VICTORY_CLIP: u16 = 0x100;
 const WEAK_HP_PERCENT: u8 = 25;
+
+fn prepared_motion(files: &Files, path: &str, skeleton: &Skeleton) -> Result<Arc<Motion>> {
+    let bytes = files.read(path)?;
+    let motion = Arc::new(Motion::decode_for_skeleton(&bytes, skeleton)?);
+    motion.validate(skeleton)?;
+    Ok(motion)
+}
+
+/// Body-owned victory curves survive eviction from the general animation cache.
+/// Exact source bytes and joint order still govern reuse in fresh captures.
+pub(crate) struct PreparedMotions {
+    bones: Vec<String>,
+    motions: BTreeMap<String, (Arc<[u8]>, Arc<Motion>)>,
+}
+
+impl PreparedMotions {
+    fn get(&self, files: &Files, path: &str, skeleton: &Skeleton) -> Result<Option<Arc<Motion>>> {
+        let Some((source, motion)) = self.motions.get(path) else {
+            return Ok(None);
+        };
+        if !self
+            .bones
+            .iter()
+            .map(String::as_str)
+            .eq(skeleton.bones.iter().map(|bone| bone.name.as_str()))
+        {
+            return Ok(None);
+        }
+        let bytes = files.read(path)?;
+        Ok(resonance_content::same_bytes(source, &bytes).then(|| motion.clone()))
+    }
+}
+
+/// Default costumes prepare at startup; an alternate prepares with its selected body.
+pub(crate) fn prepare_motions(
+    files: &Files,
+    source: &Performances,
+    character: u8,
+    costume: u8,
+    skeleton: &Skeleton,
+    cancelled: &impl Fn() -> bool,
+) -> Result<PreparedMotions> {
+    let mut prepared = PreparedMotions {
+        bones: skeleton
+            .bones
+            .iter()
+            .map(|bone| bone.name.clone())
+            .collect(),
+        motions: BTreeMap::new(),
+    };
+    for row in source
+        .ordinary
+        .iter()
+        .filter(|row| row.character == character && row.costume == Some(costume))
+    {
+        ensure!(!cancelled(), "victory warmup cancelled");
+        if let Some(motion) = files.diagnostics().attempt(
+            "victory performance",
+            prepared_motion(files, &row.motion, skeleton),
+        )? {
+            prepared
+                .motions
+                .insert(row.motion.clone(), (files.read(&row.motion)?, motion));
+        }
+    }
+    ensure!(!cancelled(), "victory warmup cancelled");
+    Ok(prepared)
+}
 
 #[derive(Debug, Clone)]
 pub struct Performance {
@@ -197,6 +265,17 @@ pub fn prepare(
     costume: u8,
     model: &ModelDefinition,
 ) -> Result<(Arc<ModelDefinition>, Vec<Performance>)> {
+    prepare_with_motions(files, source, character, costume, model, None)
+}
+
+pub(crate) fn prepare_with_motions(
+    files: &Files,
+    source: &Performances,
+    character: Character,
+    costume: u8,
+    model: &ModelDefinition,
+    retained: Option<&PreparedMotions>,
+) -> Result<(Arc<ModelDefinition>, Vec<Performance>)> {
     let mut candidate = model.clone();
     let mut result = Vec::new();
     let matches = |row: &&resonance_content::battle_victory::Ordinary| {
@@ -215,9 +294,14 @@ pub fn prepare(
                     == 1,
                 "duplicate victory selector"
             );
-            let bytes = files.read(&row.motion)?;
-            let motion = Motion::decode_for_skeleton(&bytes, &candidate.skeleton)?;
-            motion.validate(&candidate.skeleton)?;
+            let motion = match retained
+                .map(|retained| retained.get(files, &row.motion, &candidate.skeleton))
+                .transpose()?
+                .flatten()
+            {
+                Some(motion) => motion,
+                None => prepared_motion(files, &row.motion, &candidate.skeleton)?,
+            };
             if let Some(events) = &row.timeline {
                 ensure!(
                     !events.is_empty() && events[0].0 == 0,
@@ -281,6 +365,102 @@ pub fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_content::animation::{Channel, Interpolation, NodeTrack, Track, Transform};
+
+    #[test]
+    fn cached_victory_curves_preserve_joint_binding_and_fresh_bytes() -> Result<()> {
+        let mut source = Skeleton::single("root");
+        for name in ["hand-b", "hand-a"] {
+            let mut bone = source.bones[0].clone();
+            bone.name = name.into();
+            bone.parent = Some(0);
+            source.bones.push(bone);
+        }
+        let mut target = source.clone();
+        target.bones.swap(1, 2);
+        let motion = |distance| Motion {
+            duration_frames: 12.,
+            tracks: vec![Track {
+                bone: 1,
+                nodes: vec![
+                    NodeTrack {
+                        translation: Some(Channel {
+                            interpolation: Interpolation::Linear,
+                            times: vec![0., 12.],
+                            values: vec![[0.; 3], [distance, 0., 0.]],
+                        }),
+                        ..NodeTrack::new(Transform::default())
+                    }
+                    .into(),
+                ],
+            }],
+        };
+        for skin in [false, true] {
+            let encoded = |distance| {
+                if skin {
+                    motion(distance).encode(&source)
+                } else {
+                    motion(distance).encode_nodes(&source)
+                }
+            };
+            let bytes = encoded(9.)?;
+            let mut files = Files::default();
+            files.insert("victory.glb".into(), bytes.clone().into());
+            let cached = prepared_motion(&files, "victory.glb", &target)?;
+            let again = prepared_motion(&files, "victory.glb", &target)?;
+            assert_eq!(*cached, *again);
+            let performances = Performances {
+                ordinary: vec![resonance_content::battle_victory::Ordinary {
+                    character: 1,
+                    costume: Some(0),
+                    selector: 0,
+                    motion: "victory.glb".into(),
+                    timeline: None,
+                    unsupported_reason: None,
+                }],
+                groups: vec![],
+            };
+            let resident = prepare_motions(&files, &performances, 1, 0, &target, &|| false)?;
+            let cached = resident.get(&files, "victory.glb", &target)?.unwrap();
+            assert!(Arc::ptr_eq(
+                &cached,
+                &resident.get(&files, "victory.glb", &target)?.unwrap()
+            ));
+            assert!(
+                resident.get(&files, "victory.glb", &source)?.is_none(),
+                "a different joint order must rebind the motion"
+            );
+            files.insert("victory.glb".into(), bytes.clone().into());
+            assert!(
+                Arc::ptr_eq(
+                    &cached,
+                    &resident.get(&files, "victory.glb", &target)?.unwrap()
+                ),
+                "equal bytes from a fresh capture may reuse the resident binding"
+            );
+            let direct = Motion::decode_for_skeleton(&bytes, &target)?;
+            assert_eq!(cached.duration_frames, direct.duration_frames);
+            for frame in [0., 6., 12.] {
+                assert_eq!(
+                    target.sample(&cached, frame)?.global,
+                    target.sample(&direct, frame)?.global
+                );
+            }
+            files.insert("victory.glb".into(), encoded(18.)?.into());
+            assert!(
+                resident.get(&files, "victory.glb", &target)?.is_none(),
+                "edited content must miss the resident binding"
+            );
+            let changed = prepared_motion(&files, "victory.glb", &target)?;
+            assert!(!Arc::ptr_eq(&cached, &changed));
+            assert_ne!(
+                target.sample(&cached, 12.)?.global,
+                target.sample(&changed, 12.)?.global
+            );
+        }
+        Ok(())
+    }
+
     use crate::battle::results::item_tests::native_fixture;
     use resonance_battle::{ActorAvailability, BattleInput, ModelRequest, PreparedBattle, Side};
 

@@ -222,7 +222,7 @@ mod tests {
                 duration_frames: 1.,
                 tracks: vec![Track {
                     bone: 0,
-                    nodes: vec![node],
+                    nodes: vec![node.into()],
                 }],
             },
             0.,
@@ -262,7 +262,7 @@ mod tests {
             duration_frames: 2.,
             tracks: vec![Track {
                 bone: 0,
-                nodes: vec![node],
+                nodes: vec![node.into()],
             }],
         };
         let pose = skeleton.sample(&motion, 0.25)?;

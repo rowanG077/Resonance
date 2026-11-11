@@ -19,7 +19,61 @@ pub(super) struct Artwork {
     material: Option<Handle<TitleSurface>>,
     instances: BTreeMap<i32, Entity>,
 }
+
+#[derive(Resource)]
+pub(crate) struct Shared(Artwork);
+
+impl Shared {
+    pub(crate) fn new(
+        spec: &ContactShadow,
+        server: &AssetServer,
+        meshes: &mut Assets<Mesh>,
+        surfaces: &mut Assets<TitleSurface>,
+    ) -> Self {
+        let mut art = Artwork::load(spec, server);
+        art.prepare(meshes, surfaces);
+        Self(art)
+    }
+
+    pub(crate) fn image(&self) -> &Handle<Image> {
+        &self.0.texture
+    }
+    pub(crate) fn binding(&self) -> (Handle<Mesh>, Handle<TitleSurface>) {
+        self.0.binding().unwrap()
+    }
+}
+
 impl Artwork {
+    pub(super) fn reuse(&mut self, shared: &Shared) {
+        if self.spec == shared.0.spec {
+            self.texture = shared.0.texture.clone();
+            self.mesh = shared.0.mesh.clone();
+            self.material = shared.0.material.clone();
+        }
+    }
+
+    fn prepare(&mut self, meshes: &mut Assets<Mesh>, surfaces: &mut Assets<TitleSurface>) {
+        if self.mesh.is_some() {
+            return;
+        }
+        let mut mesh = Mesh::from(Rectangle::from_size(Vec2::splat(self.spec.half_size * 2.)));
+        if let Some(VertexAttributeValues::Float32x2(uvs)) =
+            mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+        {
+            for uv in uvs {
+                *uv = std::array::from_fn(|i| uv[i] * self.spec.uv_size[i]);
+            }
+        }
+        self.mesh = Some(meshes.add(mesh));
+        self.material = Some(surfaces.add(TitleSurface {
+            field_fog: true,
+            tint: Vec4::new(0., 0., 0., f32::from(self.spec.alpha) / 255.),
+            blend: Some(Blend::Alpha),
+            depth_write: false,
+            cull: resonance_content::CullFace::None,
+            ..TitleSurface::textured(Some(self.texture.clone()))
+        }));
+    }
     pub(super) fn binding(&self) -> Option<(Handle<Mesh>, Handle<TitleSurface>)> {
         Some((self.mesh.clone()?, self.material.clone()?))
     }
@@ -42,6 +96,46 @@ impl Artwork {
         for entity in std::mem::take(&mut self.instances).into_values() {
             world.despawn(entity);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_defaults_share_geometry_and_local_settings_get_private_bindings() {
+        let spec = resonance_content::field::settings::test_fixture().contact_shadow;
+        let art = || Artwork {
+            spec: spec.clone(),
+            texture: Handle::default(),
+            mesh: None,
+            material: None,
+            instances: BTreeMap::new(),
+        };
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<TitleSurface>::default();
+        let mut shared = Shared(art());
+        shared.0.prepare(&mut meshes, &mut materials);
+        let mut first = art();
+        first.reuse(&shared);
+        first.prepare(&mut meshes, &mut materials);
+        let mut second = art();
+        second.reuse(&shared);
+        assert_eq!(first.binding(), second.binding());
+        assert_eq!(first.binding(), Some(shared.binding()));
+        assert_eq!((meshes.len(), materials.len()), (1, 1));
+        let mut local = art();
+        local.spec.half_size = 2.;
+        local.spec.alpha = 64;
+        local.reuse(&shared);
+        assert!(local.binding().is_none());
+        local.prepare(&mut meshes, &mut materials);
+        assert_ne!(local.binding(), Some(shared.binding()));
+        assert_eq!((meshes.len(), materials.len()), (2, 2));
+        assert_eq!(shared.0.spec.half_size, 1.);
+        assert_eq!(shared.0.spec.alpha, 128);
+        assert!(shared.0.instances.is_empty());
     }
 }
 #[derive(Component)]
@@ -99,27 +193,7 @@ pub(super) fn sync(
         return;
     }
     let shadows = &mut art.shadows;
-    if shadows.mesh.is_none() {
-        let mut mesh = Mesh::from(Rectangle::from_size(Vec2::splat(
-            shadows.spec.half_size * 2.,
-        )));
-        if let Some(VertexAttributeValues::Float32x2(uvs)) =
-            mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
-        {
-            for uv in uvs {
-                *uv = std::array::from_fn(|i| uv[i] * shadows.spec.uv_size[i]);
-            }
-        }
-        shadows.mesh = Some(meshes.add(mesh));
-        shadows.material = Some(surfaces.add(TitleSurface {
-            field_fog: true,
-            tint: Vec4::new(0., 0., 0., f32::from(shadows.spec.alpha) / 255.),
-            blend: Some(Blend::Alpha),
-            depth_write: false,
-            cull: resonance_content::CullFace::None,
-            ..TitleSurface::textured(Some(shadows.texture.clone()))
-        }));
-    }
+    shadows.prepare(&mut meshes, &mut surfaces);
     let removed: Vec<_> = shadows
         .instances
         .keys()

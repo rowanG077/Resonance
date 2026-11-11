@@ -2,11 +2,12 @@
 use super::*;
 use resonance_game::game_over::{Assets as Prepared, Screen};
 
+#[derive(Clone)]
 pub(crate) struct Artwork {
     data: Prepared,
     images: Vec<Handle<Image>>,
     surfaces: Vec<Handle<Surface>>,
-    layers: Vec<Layer>,
+    pub(super) layers: Vec<Layer>,
 }
 impl Artwork {
     pub fn load(
@@ -79,12 +80,14 @@ impl Artwork {
         &self,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
+        resident: &Resident,
     ) -> Result<MenuOverlay> {
         MenuOverlay::load_with(
             |path| Ok(self.data.files.read(path)?.to_vec()),
             server,
             materials,
             self.data.files.diagnostics(),
+            resident,
         )
     }
     pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
@@ -92,24 +95,12 @@ impl Artwork {
             return;
         }
         for (index, material) in self.surfaces.iter().enumerate() {
-            let mut batch = Batch::default();
-            batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-            let mesh = meshes.add(batch.mesh([1, 1]));
-            let entity = commands
-                .spawn((
-                    Mesh2d(mesh.clone()),
-                    MeshMaterial2d(material.clone()),
-                    Transform::from_xyz(0., 0., super::battle_ui::game_over_depth() + index as f32),
-                    Visibility::Hidden,
-                ))
-                .id();
-            self.layers.push(Layer {
-                entity,
-                mesh,
-                material: material.clone(),
-                uploaded: None,
-                visible: false,
-            });
+            self.layers.push(Layer::new(
+                material.clone(),
+                super::battle_ui::game_over_depth() + index as f32,
+                commands,
+                meshes,
+            ));
         }
     }
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
@@ -167,7 +158,7 @@ impl Artwork {
     }
     pub fn despawn(self, world: &mut World) {
         for layer in self.layers {
-            world.despawn(layer.entity);
+            resident::retire(world, layer.entity);
         }
     }
 }
