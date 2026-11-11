@@ -748,6 +748,8 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
         ("hit", 100.),
         ("hit", 120.),
         ("miss", 120.),
+        ("far", 500.),
+        ("far", 2000.),
         ("interrupt", 120.),
         ("cross_interrupt", 120.),
     ] {
@@ -825,6 +827,13 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
             }
         }
         assert_eq!(interrupted, matches!(mode, "interrupt" | "cross_interrupt"));
+        if mode == "far" {
+            let position = battle.actors()[owner.index()].position;
+            assert!(
+                position[0].hypot(position[2]) <= 200.001,
+                "an out-of-range Ghost Wolf must remain a bounded lunge: {position:?}"
+            );
+        }
         assert_eq!(battle.activity(owner), resonance_battle::Activity::Idle);
         let contacts = battle.take_fixture_contact_damage();
         let hits = contacts

@@ -784,6 +784,7 @@ fn petrification_stops_target_traversal_but_ordinary_hits_keep_recoil() -> Resul
                 AttackEvent::TraverseTarget {
                     duration: 9,
                     clearance: 70.,
+                    max_distance: 200.,
                 },
             ),
         ];

@@ -226,9 +226,11 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
         Event::TraverseTarget {
             duration,
             clearance,
+            max_distance,
         } => AttackEvent::TraverseTarget {
             duration: *duration,
             clearance: *clearance,
+            max_distance: *max_distance,
         },
         Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
         Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {

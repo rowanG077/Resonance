@@ -73,7 +73,8 @@
         {
           "traverse_target": {
             "duration": 9,
-            "clearance": 70.0
+            "clearance": 70.0,
+            "max_distance": 200.0
           }
         }
       ],
