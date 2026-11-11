@@ -12,6 +12,7 @@ pub(super) struct ColdEncounter {
     pub(super) menus: MenuData,
     pub(super) session: SessionData,
     story: i32,
+    colette_state: i32,
 }
 
 impl ColdEncounter {
@@ -31,6 +32,7 @@ impl ColdEncounter {
             menus,
             session,
             story: 2500,
+            colette_state: 0,
         })
     }
 
@@ -62,6 +64,7 @@ impl ColdEncounter {
                 &self.menus,
                 PrepareOptions {
                     story: self.story,
+                    colette_state: self.colette_state,
                     ..opening_options(0x2345)
                 },
                 &catalogue,
@@ -974,6 +977,44 @@ fn execute_combination(
         "damage={damage}, artwork={artwork}, animated={animated}"
     );
     anyhow::ensure!(!battle.is_diagnostic(), "battle diagnostics failed");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires cooked Colette body, wings and battle resources; CPU only"]
+fn colette_saved_wing_state_selects_floating_backstep() -> Result<()> {
+    let mut fixture = ColdEncounter::load()?;
+    let mut party = Party::new(&fixture.session, Default::default())?;
+    party.formation = vec![2, 1];
+    party.field_leader = 2;
+    party.settings.battle_controls[0] = 0;
+    let owner = resonance_battle::ActorId::from_index(0)?;
+    for state in [0, 1, 301, 1000] {
+        fixture.colette_state = state;
+        fixture.story = if state == 0 { 23_001_000 } else { 2500 };
+        let (_, prepared) = fixture.prepare_formation(&party, 399)?;
+        let mut battle = prepared.core;
+        enter_battle(&mut battle)?;
+        let guard = ControlInput {
+            guard: ButtonInput {
+                held: true,
+                ..Default::default()
+            },
+            ..ControlInput::neutral(owner)
+        };
+        battle.step(BattleInput::from(guard))?;
+        battle.step(BattleInput::from(ControlInput {
+            stick: [-70, 0],
+            horizontal_pressed: -1,
+            ..guard
+        }))?;
+        assert_eq!(battle.activity(owner), Activity::Evading);
+        assert_eq!(
+            battle.actors()[owner.index()].position[1],
+            if state == 0 { 12.5 } else { 0. }
+        );
+        assert!(!battle.is_diagnostic());
+    }
     Ok(())
 }
 

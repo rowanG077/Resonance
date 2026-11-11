@@ -80,6 +80,8 @@ pub struct ActionDefinition {
 #[derive(Debug, Clone, Default)]
 pub struct ActorSetup {
     pub techniques: Vec<crate::PreparedTechnique>,
+    /// Colette's acquired wings change backstep motion and recovery independently of flight.
+    pub floating_backstep: bool,
     /// Attached components can fight and receive hits without being selectable opponents.
     pub target_excluded: bool,
     /// Maximum normal-chain count before another arte needs Super Blast.

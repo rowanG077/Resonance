@@ -47,6 +47,7 @@ pub enum CommonPose {
     Idle,
     Jump,
     Backstep,
+    BackstepRecovery { floating: bool },
     Taunt,
     Breakfall,
     Falling,
@@ -952,6 +953,10 @@ impl Models {
                     }
                     CommonPose::Jump => motions.jump,
                     CommonPose::Backstep => motions.backstep,
+                    CommonPose::BackstepRecovery { floating: true } => {
+                        model.definition.idle_motions[0]
+                    }
+                    CommonPose::BackstepRecovery { floating: false } => motions.landing,
                     CommonPose::Taunt => motions.taunt,
                     CommonPose::Breakfall => motions.breakfall,
                     CommonPose::Falling => motions.airborne,
@@ -966,8 +971,12 @@ impl Models {
                 if pose == CommonPose::Idle && clip == Some(model.clip) {
                     model.loop_idle();
                 } else if let Some(clip) = clip
-                    && (!matches!(pose, CommonPose::Falling | CommonPose::Landing)
-                        || model.clip != clip)
+                    && (!matches!(
+                        pose,
+                        CommonPose::Falling
+                            | CommonPose::Landing
+                            | CommonPose::BackstepRecovery { .. }
+                    ) || model.clip != clip)
                     && (!matches!(pose, CommonPose::Idle | CommonPose::Stunned)
                         || model.clip != clip
                         || !model.animation.clock.repeat)
@@ -988,9 +997,14 @@ impl Models {
                         },
                         matches!(
                             pose,
-                            CommonPose::Idle | CommonPose::Returning | CommonPose::Stunned
+                            CommonPose::Idle
+                                | CommonPose::Returning
+                                | CommonPose::Stunned
+                                | CommonPose::BackstepRecovery { floating: true }
                         ) || pose == CommonPose::Chant && !motions.chant_once,
                         match pose {
+                            CommonPose::BackstepRecovery { floating: true } => 12,
+                            CommonPose::BackstepRecovery { floating: false } => 5,
                             CommonPose::Taunt => 10,
                             CommonPose::Idle
                             | CommonPose::Backstep

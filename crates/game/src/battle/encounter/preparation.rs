@@ -86,6 +86,7 @@ pub struct PrepareOptions {
     pub map: u16,
     pub world_music: i32,
     pub story: i32,
+    /// Saved script word 0x4C; the first seal changes zero to an acquired-wing state.
     pub colette_state: i32,
     pub victory_story_flags: [bool; 2],
     pub overlimit_boost: bool,
@@ -1118,6 +1119,8 @@ impl Assets {
                 source: model::ModelSource::Party(character),
                 model: member.model,
                 setup: resonance_battle::ActorSetup {
+                    floating_backstep: character == Character::Colette
+                        && options.colette_state != 0,
                     spell_charge,
                     aerial_spells: member.loadout.aerial_spells,
                     ..Default::default()
