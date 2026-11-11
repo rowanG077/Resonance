@@ -192,9 +192,11 @@ pub(crate) fn map_hits<H, T>(
         Event::TraverseTarget {
             duration,
             clearance,
+            max_distance,
         } => Event::TraverseTarget {
             duration,
             clearance,
+            max_distance,
         },
         Event::ReactionArmor(v) => Event::ReactionArmor(v),
         Event::SecondaryWind { enabled, duration } => Event::SecondaryWind { enabled, duration },

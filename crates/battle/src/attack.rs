@@ -190,6 +190,8 @@ pub enum AttackEvent {
     TraverseTarget {
         duration: u16,
         clearance: f32,
+        /// Maximum planar travel, including the clearance beyond the target.
+        max_distance: f32,
     },
     SetPosition([f32; 3]),
     PositionFromTarget {
@@ -576,8 +578,13 @@ impl PreparedAttack {
                 AttackEvent::TraverseTarget {
                     duration,
                     clearance,
+                    max_distance,
                 } => ensure!(
-                    *duration > 0 && clearance.is_finite() && *clearance > 0.,
+                    *duration > 0
+                        && clearance.is_finite()
+                        && *clearance > 0.
+                        && max_distance.is_finite()
+                        && *max_distance > 0.,
                     "invalid target traversal"
                 ),
                 AttackEvent::PositionFromTarget { height, retreat }
@@ -1528,6 +1535,7 @@ pub(crate) fn step(
             AttackEvent::TraverseTarget {
                 duration,
                 clearance,
+                max_distance,
             } => {
                 let start = battle.actors[index].position;
                 let target = battle.actors[sequence.target.index()].position;
@@ -1536,14 +1544,18 @@ pub(crate) fn step(
                     start,
                     battle.actors[index].facing_direction,
                 );
+                // Capture once: neither a distant target nor subsequent recoil may
+                // turn a short lunge into an arena-wide relocation.
+                let distance = ((target[0] - start[0]).hypot(target[2] - start[2]) + clearance)
+                    .min(*max_distance);
                 sequence.traversal = Some(Traversal {
                     started_at: sequence.age,
                     duration: *duration,
                     start,
                     end: [
-                        target[0] + direction[0] * clearance,
+                        start[0] + direction[0] * distance,
                         start[1],
-                        target[2] + direction[2] * clearance,
+                        start[2] + direction[2] * distance,
                     ],
                 });
             }
@@ -1915,6 +1927,7 @@ mod tests {
                 AttackEvent::TraverseTarget {
                     duration,
                     clearance: 70.,
+                    max_distance: 200.,
                 },
             )])?;
             for tick in 0..=at + duration {
@@ -1937,6 +1950,83 @@ mod tests {
     }
 
     #[test]
+    fn target_traversal_caps_travel_without_changing_close_range_passes() -> Result<()> {
+        for direction in [[1., 0., 0.], [-1., 0., 0.], [0.6, 0., 0.8]] {
+            for target_distance in [40., 120., 130., 131., 500., 2000.] {
+                let mut battle = movement_battle(vec![(
+                    0,
+                    AttackEvent::TraverseTarget {
+                        duration: 9,
+                        clearance: 70.,
+                        max_distance: 200.,
+                    },
+                )])?;
+                battle.actors[1].position = [
+                    direction[0] * target_distance,
+                    0.,
+                    direction[2] * target_distance,
+                ];
+                for tick in 0..10 {
+                    battle.step(if tick == 0 {
+                        movement_request()
+                    } else {
+                        BattleInput::default()
+                    })?;
+                    let position = battle.actors[0].position;
+                    assert!(position[0].hypot(position[2]) <= 200.001);
+                    // Nine-update smoothstep peaks below one sixth of its distance.
+                    assert!(battle.actors[0].movement.forward <= 34.);
+                }
+                let expected_distance = (target_distance + 70.).min(200.);
+                let position = battle.actors[0].position;
+                assert!((position[0] - direction[0] * expected_distance).abs() < 0.001);
+                assert!((position[2] - direction[2] * expected_distance).abs() < 0.001);
+                assert_eq!(battle.actors[0].movement.forward, 0.);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn target_traversal_captures_its_range_at_launch_and_does_not_chase() -> Result<()> {
+        let mut battle = movement_battle(vec![(
+            2,
+            AttackEvent::TraverseTarget {
+                duration: 9,
+                clearance: 70.,
+                max_distance: 200.,
+            },
+        )])?;
+        battle.step(movement_request())?;
+        battle.step(BattleInput::default())?;
+        // A target leaving range during the windup must not increase dash speed.
+        battle.actors[1].position[0] = 2000.;
+        battle.step(BattleInput::default())?;
+        // Nor may subsequent target motion drag the captured endpoint along.
+        battle.actors[1].position[0] = -2000.;
+        crate::tests::step_idle(&mut battle, 10)?;
+        assert!((battle.actors[0].position[0] - 200.).abs() < 0.001);
+        Ok(())
+    }
+
+    #[test]
+    fn target_traversal_requires_a_positive_finite_travel_limit() {
+        for max_distance in [0., -1., f32::INFINITY, f32::NAN] {
+            assert!(
+                movement_battle(vec![(
+                    0,
+                    AttackEvent::TraverseTarget {
+                        duration: 9,
+                        clearance: 70.,
+                        max_distance,
+                    },
+                )])
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn target_traversal_expiry_preserves_following_motion_after_hit_stop() -> Result<()> {
         let mut battle = movement_battle(vec![
             (
@@ -1944,6 +2034,7 @@ mod tests {
                 AttackEvent::TraverseTarget {
                     duration: 2,
                     clearance: 70.,
+                    max_distance: 200.,
                 },
             ),
             (
