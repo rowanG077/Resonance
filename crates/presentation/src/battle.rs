@@ -1309,6 +1309,7 @@ fn advance(
     playback: Option<ResMut<super::battle_audio::Playback>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
+    transition: Option<Res<transition::State>>,
 ) {
     let Some(mut owner) = owner else {
         controls.clear();
@@ -1407,7 +1408,10 @@ fn advance(
             );
         if scene.lifecycle.event().is_none() {
             let core_cues = frame.cues.len();
-            scene.feedback.resolve(&mut frame);
+            let entry_voice_ready = transition
+                .as_ref()
+                .is_none_or(|transition| transition.entry_voice_ready());
+            scene.feedback.resolve(&mut frame, entry_voice_ready);
             scene.core.record_voice_requests(&frame.cues[core_cues..]);
         }
         scene.core.advance_models(&mut frame, clock, settle)?;
