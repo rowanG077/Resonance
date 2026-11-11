@@ -1,25 +1,26 @@
-//! UI slices must join without holes or neighboring atlas pixels under MSAA.
+//! UI slices must join without holes or neighboring atlas pixels in every AA mode.
 use super::super::{Surface, TextureEffect, UiInterpolation};
 use super::*;
+use crate::anti_aliasing::{AntiAliasingCapabilities, AntiAliasingPlugin, AntiAliasingSettings};
 use bevy::{
-    camera::{RenderTarget, ScalingMode},
+    camera::{CameraOutputMode, RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
     render::{
         render_resource::{Extent3d, TextureDimension, TextureFormat},
-        renderer::{RenderAdapter, RenderDevice},
-        settings::WgpuFeatures,
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
 };
+use resonance_content::menu_data::AntiAliasing;
 
 #[derive(Resource, Default)]
 struct Captures(Vec<Image>);
 
 #[test]
-#[ignore = "requires a GPU; checks dialogue masks and tiled artwork at subpixel MSAA joins"]
-fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
+#[ignore = "requires a GPU; checks dialogue masks and scaled atlas joins with SMAA and MSAA"]
+fn dialogue_slices_have_no_aa_seams() -> Result<()> {
     let mut app = App::new();
     app.add_plugins(crate::test_support::render_plugins())
+        .add_plugins(AntiAliasingPlugin)
         .init_resource::<Captures>();
     super::super::install(&mut app);
     let began = std::time::Instant::now();
@@ -33,29 +34,15 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
     }
     app.finish();
     app.cleanup();
-    let adapter = app.world().resource::<RenderAdapter>();
-    let device = app.world().resource::<RenderDevice>();
-    let formats = [TextureFormat::Bgra8Unorm, TextureFormat::Depth32Float].map(|format| {
-        if device
-            .features()
-            .contains(WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
-        {
-            adapter.get_texture_format_features(format)
-        } else {
-            format.guaranteed_format_features(device.features())
-        }
-    });
-    let modes: Vec<_> = [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8]
-        .into_iter()
-        .filter(|mode| {
-            formats
-                .iter()
-                .all(|f| f.flags.sample_count_supported(mode.samples()))
-        })
-        .collect();
+    app.update();
+    let modes = app
+        .world()
+        .resource::<AntiAliasingCapabilities>()
+        .available_modes()
+        .to_vec();
     anyhow::ensure!(
-        modes.iter().any(|mode| mode.samples() > 1),
-        "this test requires native MSAA support"
+        modes.contains(&AntiAliasing::SmaaUltra),
+        "SMAA must be covered"
     );
     let white = app
         .world_mut()
@@ -96,7 +83,23 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
             TextureFormat::Bgra8Unorm,
             None,
         ));
-    let camera = app
+    // Use the production scene -> SMAA -> UI order. SMAA deliberately does
+    // not filter the UI; its one-sample atlas joins still have to be seamless.
+    let scene = app
+        .world_mut()
+        .spawn((
+            Camera3d::default(),
+            Tonemapping::Linear,
+            RenderTarget::Image(target.clone().into()),
+            RenderLayers::layer(1),
+            Camera {
+                clear_color: Color::BLACK.into(),
+                output_mode: CameraOutputMode::Skip,
+                ..default()
+            },
+        ))
+        .id();
+    let ui = app
         .world_mut()
         .spawn((
             Camera2d,
@@ -104,7 +107,9 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
             Tonemapping::Linear,
             RenderTarget::Image(target.clone().into()),
             Camera {
-                clear_color: Color::BLACK.into(),
+                order: 1,
+                clear_color: ClearColorConfig::None,
+                output_mode: crate::renderer::COMPOSITED_OUTPUT,
                 ..default()
             },
             Projection::Orthographic(OrthographicProjection {
@@ -200,20 +205,50 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
     }
     // Nearest-filtered tiles must not read colored or transparent neighbors
     // when a subpixel join puts the pixel center outside the covered primitive.
-    // Linear-filtered tiles must also retain clean pixel-aligned joins at native
-    // scale; evaluating their UVs at every MSAA sample introduces atlas bleed.
-    for (index, (width, sampler, [top, bottom], edges)) in [
+    // Linear-filtered cells must also stay isolated when magnification places
+    // a pixel center less than half a texel from a cell boundary. Native-scale
+    // testing alone misses this: single-sample UI has an exact texel-center hit.
+    for (index, (coordinates, physical, sampler, [top, bottom], edges, clipped)) in [
         (
-            3,
+            [3, 1],
+            [3, 1],
             bevy::image::ImageSampler::nearest(),
             [217., 219.],
             [292., 320.25, 348.],
+            false,
         ),
         (
-            26,
+            [26, 1],
+            [26, 1],
             bevy::image::ImageSampler::linear(),
             [219., 220.],
             [292., 316., 340.],
+            false,
+        ),
+        (
+            [26, 4],
+            [13, 2],
+            bevy::image::ImageSampler::linear(),
+            [254., 256.],
+            [292., 314., 336.],
+            false,
+        ),
+        (
+            [26, 4],
+            [52, 8],
+            bevy::image::ImageSampler::linear(),
+            [256., 258.],
+            [292., 314., 336.],
+            false,
+        ),
+        // The second strip is clipped; the first keeps the same source UVs.
+        (
+            [1, 4],
+            [1, 4],
+            bevy::image::ImageSampler::linear(),
+            [257., 261.],
+            [288., 290., 292.],
+            true,
         ),
     ]
     .into_iter()
@@ -221,8 +256,8 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
     {
         let mut tile = Image::new_fill(
             Extent3d {
-                width,
-                height: 1,
+                width: physical[0],
+                height: physical[1],
                 depth_or_array_layers: 1,
             },
             TextureDimension::D2,
@@ -230,28 +265,59 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
             TextureFormat::Rgba8Unorm,
             default(),
         );
+        let replacement = coordinates != physical;
+        let left = if clipped {
+            0.
+        } else if replacement {
+            2.
+        } else {
+            1.
+        };
+        let right = coordinates[0] as f32 - left;
+        let first = (left * physical[0] as f32 / coordinates[0] as f32) as u32;
+        let end = (right * physical[0] as f32 / coordinates[0] as f32) as u32;
         let pixels = tile.data.as_mut().unwrap();
-        pixels[..4].copy_from_slice(&[255, 0, 255, 255]);
-        *pixels.last_mut().unwrap() = 0;
+        for (i, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+            let x = i as u32 % physical[0];
+            if clipped {
+                pixel[..3].fill(if i < 2 { 0 } else { 255 });
+            } else if x < first {
+                pixel.copy_from_slice(&[255, 0, 255, 255]);
+            } else if x >= end {
+                pixel[3] = 0;
+            } else if physical[0] > coordinates[0] && (x == first || x == end - 1) {
+                // A doubled replacement must retain its first/last physical
+                // texel, rather than flattening an entire coordinate texel.
+                pixel.copy_from_slice(&[0, 0, 0, 255]);
+            }
+        }
         tile.sampler = sampler;
         let tile = app.world_mut().resource_mut::<Assets<Image>>().add(tile);
-        let surface = super::super::battle_ui::test_tiled_surface(tile, [width, 1]);
+        let surface = super::super::battle_ui::test_tiled_surface(tile, coordinates);
         let material = app
             .world_mut()
             .resource_mut::<Assets<Surface>>()
             .add(surface);
         let mut tiled = Batch::default();
-        for edge in edges.windows(2) {
+        for (index, edge) in edges.windows(2).enumerate() {
+            let [u0, u1] = if replacement && index == 1 {
+                [right, left]
+            } else {
+                [left, right]
+            };
             tiled.quad(
                 [edge[0], top, edge[1], bottom],
-                [1., 0., (width - 1) as f32, 1.],
+                [u0, 0., u1, coordinates[1] as f32],
                 [1.; 4],
             );
+        }
+        if clipped {
+            tiled.clip_vertical(4, 240. - (top + 1.25), 240. - bottom);
         }
         let mesh = app
             .world_mut()
             .resource_mut::<Assets<Mesh>>()
-            .add(tiled.mesh([width, 1]));
+            .add(tiled.mesh(coordinates));
         layers.push((mesh.clone(), material.clone()));
         app.world_mut().spawn((
             Mesh2d(mesh),
@@ -292,10 +358,25 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
             }
             let mut baseline = None;
             for &mode in &modes {
-                app.world_mut().entity_mut(camera).insert(mode);
+                app.world_mut().resource_mut::<AntiAliasingSettings>().0 = mode;
                 for _ in 0..40 {
                     app.update();
                     crate::playthrough::check_exit(&app)?;
+                }
+                for camera in [scene, ui] {
+                    anyhow::ensure!(
+                        app.world().get::<Msaa>(camera).unwrap().samples() == mode.samples(),
+                        "{mode:?}: camera did not use the requested sample count"
+                    );
+                }
+                while !crate::anti_aliasing::test_smaa_ready(&mut app, mode, size) {
+                    anyhow::ensure!(
+                        began.elapsed().as_secs() < 120,
+                        "{mode:?}, {size:?}: SMAA render resources were not prepared"
+                    );
+                    app.update();
+                    crate::playthrough::check_exit(&app)?;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 let count = app.world().resource::<Captures>().0.len();
                 app.world_mut()
@@ -323,8 +404,30 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                     .clone()
                     .try_into_dynamic()?
                     .to_rgba8();
+                if let Some(directory) = std::env::var_os("RESONANCE_AA_CAPTURE_DIR") {
+                    let directory = std::path::Path::new(&directory);
+                    std::fs::create_dir_all(directory)?;
+                    image.save(
+                        directory.join(format!("{mode:?}-{}x{}-{opacity}.png", size.x, size.y)),
+                    )?;
+                }
                 let scale = size.x as f32 / 64.;
                 let expected = (opacity * 255.).round() as u8;
+                // Clipping moves the quad's triangle diagonal. MSAA centroid
+                // UVs can therefore differ even in a fully covered quad pixel.
+                // Pixel-center equality isolates the source-bound regression.
+                if mode.samples() == 1 {
+                    let y = (42.25 * scale - 0.5).ceil() as u32;
+                    let reference = image.get_pixel(scale as u32, y).0;
+                    let clipped = image.get_pixel((3. * scale) as u32, y).0;
+                    anyhow::ensure!(
+                        clipped
+                            .iter()
+                            .zip(reference)
+                            .all(|(actual, expected)| actual.abs_diff(expected) <= 1),
+                        "{mode:?}, {size:?}, opacity={opacity}: clipping changed atlas sampling at row {y}: {clipped:?}, reference {reference:?}"
+                    );
+                }
                 for y in (6. * scale) as u32..(38. * scale) as u32 {
                     for x in (6. * scale) as u32..(58. * scale) as u32 {
                         let pixel = image.get_pixel(x, y).0;
@@ -343,16 +446,37 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                         );
                     }
                 }
-                if size.x == 64 {
-                    for x in 6..50 {
-                        let pixel = image.get_pixel(x, 3).0;
+                for x in (6. * scale) as u32..(50. * scale) as u32 {
+                    let pixel = image.get_pixel(x, (3.5 * scale) as u32).0;
+                    anyhow::ensure!(
+                        pixel[..3].iter().all(|v| v.abs_diff(expected) <= 1),
+                        "{mode:?}, opacity={opacity}: linear atlas bleed at {x} (scale {scale}): {pixel:?}, expected {expected}"
+                    );
+                }
+                if opacity == 1. {
+                    // Half-resolution replacements need a larger normalized
+                    // guard. Both ordinary and flipped cells must stay white.
+                    for x in (4. * scale) as u32..(48. * scale) as u32 {
+                        let pixel = image.get_pixel(x, (39. * scale) as u32).0;
                         anyhow::ensure!(
-                            pixel[..3].iter().all(|v| v.abs_diff(expected) <= 1),
-                            "{mode:?}, opacity={opacity}: linear atlas bleed at {x},3: {pixel:?}, expected {expected}"
+                            pixel[..3].iter().all(|v| *v >= 254),
+                            "{mode:?}, {size:?}: half-resolution atlas bleed at {x}: {pixel:?}"
                         );
                     }
+                    if size.x == 160 {
+                        // At 2.5x the first covered pixel lies before the
+                        // doubled image's first texel center, so it clamps to
+                        // the black edge texel, including with flipped UVs.
+                        for x in [4., 26.] {
+                            let pixel = image.get_pixel((x * scale) as u32, (41. * scale) as u32).0;
+                            anyhow::ensure!(
+                                pixel[..3].iter().all(|v| *v <= 1),
+                                "{mode:?}: doubled atlas lost its edge texel at {x}: {pixel:?}"
+                            );
+                        }
+                    }
                 }
-                if mode == Msaa::Off {
+                if mode == AntiAliasing::Off {
                     baseline = Some(image.clone());
                 } else {
                     let reference = baseline.as_ref().unwrap();
@@ -360,7 +484,7 @@ fn dialogue_slices_have_no_msaa_seams() -> Result<()> {
                         for x in (6. * scale) as u32..(58. * scale) as u32 {
                             anyhow::ensure!(
                                 image.get_pixel(x, y) == reference.get_pixel(x, y),
-                                "{mode:?}: MSAA changed pixel-center text sampling at {x},{y}"
+                                "{mode:?}: AA changed pixel-center text sampling at {x},{y}"
                             );
                         }
                     }

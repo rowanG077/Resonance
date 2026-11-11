@@ -97,7 +97,12 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
     );
     let ui_handle = assets.add(ui.clone());
     cache.set_shader(ui_handle.id(), ui);
-    for interpolation in [None, Some("CENTROID_UI"), Some("MULTISAMPLED_UI")] {
+    for interpolation in [
+        &[][..],
+        &["CLAMP_UI_ATLAS"][..],
+        &["CLAMP_UI_ATLAS", "CENTROID_UI"][..],
+        &["MULTISAMPLED_UI"][..],
+    ] {
         for effect in [
             None,
             Some("RED_CHANNEL"),
@@ -105,8 +110,8 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
             Some("OPAQUE_IMAGE"),
         ] {
             let mut defs = vec![ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2)];
-            if let Some(interpolation) = interpolation {
-                defs.push(interpolation.into());
+            for &definition in interpolation {
+                defs.push(definition.into());
             }
             if let Some(effect) = effect {
                 defs.push(effect.into());

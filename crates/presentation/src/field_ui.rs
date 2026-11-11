@@ -53,10 +53,10 @@ use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
-    mesh::{Indices, PrimitiveTopology},
+    mesh::{Indices, MeshVertexAttribute, PrimitiveTopology},
     prelude::*,
     render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, VertexFormat,
     },
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d},
@@ -162,7 +162,7 @@ pub(super) struct Surface {
 pub(super) enum UiInterpolation {
     /// Retain pixel-center lookups for bitmap text.
     Center,
-    /// Keep artwork lookups inside the primitive without supersampling texels.
+    /// Keep artwork lookups inside the primitive and its atlas cell.
     Centroid,
     /// Evaluate dialogue textures and clipping masks at matching MSAA samples.
     Sample,
@@ -236,13 +236,27 @@ impl Material2d for Surface {
         {
             fragment.shader_defs.push("RED_CHANNEL".into());
         }
-        if key.bind_group_data.2 == TextureEffect::GlyphPattern {
-            descriptor.vertex.buffers = vec![layout.0.get_layout(&[
+        let atlas = key.bind_group_data.3 == UiInterpolation::Centroid;
+        let pattern = key.bind_group_data.2 == TextureEffect::GlyphPattern;
+        if atlas || pattern {
+            let mut attributes = vec![
                 Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
                 Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
-                Mesh::ATTRIBUTE_UV_1.at_shader_location(3),
                 Mesh::ATTRIBUTE_COLOR.at_shader_location(4),
-            ])?];
+            ];
+            if pattern {
+                attributes.push(Mesh::ATTRIBUTE_UV_1.at_shader_location(3));
+            }
+            if atlas {
+                attributes.push(ATLAS_BOUNDS.at_shader_location(5));
+                descriptor.vertex.shader_defs.push("CLAMP_UI_ATLAS".into());
+                if let Some(fragment) = &mut descriptor.fragment {
+                    fragment.shader_defs.push("CLAMP_UI_ATLAS".into());
+                }
+            }
+            descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
+        }
+        if pattern {
             descriptor.vertex.shader_defs.push("GLYPH_PATTERN".into());
             if let Some(fragment) = &mut descriptor.fragment {
                 fragment.shader_defs.push("GLYPH_PATTERN".into());
@@ -1996,10 +2010,17 @@ fn body_advance(advance: u32) -> f32 {
     (advance as f32 * 0.84).trunc()
 }
 
+// Each quad owns its source rectangle; a texture sampler alone clamps only the
+// complete atlas. Keep this separate from glyph-pattern coordinates.
+const ATLAS_BOUNDS: MeshVertexAttribute =
+    MeshVertexAttribute::new("UiAtlasBounds", 0xF11D_0000, VertexFormat::Float32x4);
+
 #[derive(Default, Clone, PartialEq)]
 struct Batch {
     positions: Vec<[f32; 3]>,
     uv: Vec<[f32; 2]>,
+    /// Source cells before geometry clipping, keyed by the quad's first vertex.
+    clipped_bounds: BTreeMap<usize, [f32; 4]>,
     pattern_uv: Vec<[f32; 2]>,
     colors: Vec<[f32; 4]>,
     indices: Vec<u32>,
@@ -2012,6 +2033,11 @@ impl Batch {
             let y1 = self.positions[i + 2][1];
             if y0 <= y1 {
                 continue;
+            }
+            if y0 > top || y1 < bottom {
+                self.clipped_bounds
+                    .entry(i)
+                    .or_insert_with(|| Self::uv_bounds(&self.uv[i..i + 4]));
             }
             for (a, b) in [(0, 3), (1, 2)] {
                 let (uv0, uv1) = (self.uv[i + a], self.uv[i + b]);
@@ -2030,6 +2056,12 @@ impl Batch {
         let offset = self.positions.len() as u32;
         self.positions.extend(other.positions);
         self.uv.extend(other.uv);
+        self.clipped_bounds.extend(
+            other
+                .clipped_bounds
+                .into_iter()
+                .map(|(first, bounds)| (first + offset as usize, bounds)),
+        );
         self.pattern_uv.extend(other.pattern_uv);
         self.colors.extend(other.colors);
         self.indices
@@ -2053,7 +2085,41 @@ impl Batch {
         self.indices
             .extend([start, start + 2, start + 1, start, start + 3, start + 2]);
     }
+    fn uv_bounds(quad: &[[f32; 2]]) -> [f32; 4] {
+        let lower: [f32; 2] = std::array::from_fn(|axis| {
+            quad.iter().map(|uv| uv[axis]).fold(f32::INFINITY, f32::min)
+        });
+        let upper: [f32; 2] = std::array::from_fn(|axis| {
+            quad.iter()
+                .map(|uv| uv[axis])
+                .fold(f32::NEG_INFINITY, f32::max)
+        });
+        [lower[0], lower[1], upper[0], upper[1]]
+    }
     fn mesh(mut self, [width, height]: [u32; 2]) -> Mesh {
+        // Clamping in the fragment shader retains the original UV slope. Merely
+        // insetting the vertices would shrink every sprite's image, including at
+        // native resolution. Keep rectangle edges in normalized coordinates:
+        // replacement images can have a different physical texel size.
+        let bounds: Vec<[f32; 4]> = self
+            .uv
+            .chunks_exact(4)
+            .enumerate()
+            .flat_map(|(index, quad)| {
+                let [left, top, right, bottom] = self
+                    .clipped_bounds
+                    .get(&(index * 4))
+                    .copied()
+                    .unwrap_or_else(|| Self::uv_bounds(quad));
+                let bounds = [
+                    left / width as f32,
+                    top / height as f32,
+                    right / width as f32,
+                    bottom / height as f32,
+                ];
+                [bounds; 4]
+            })
+            .collect();
         for uv in &mut self.uv {
             uv[0] /= width as f32;
             uv[1] /= height as f32;
@@ -2065,6 +2131,7 @@ impl Batch {
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
+        .with_inserted_attribute(ATLAS_BOUNDS, bounds)
         .with_inserted_indices(Indices::U32(self.indices));
         if !self.pattern_uv.is_empty() {
             for uv in &mut self.pattern_uv {
@@ -2719,6 +2786,30 @@ mod tests {
                 .update_mesh(Batch::default(), [1, 1], &mut meshes)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn clipped_cells_retain_source_bounds_after_reclipping_and_append() {
+        use bevy::mesh::VertexAttributeValues;
+        let mut clipped = Batch::default();
+        clipped.quad([0., 0., 4., 4.], [4., 4., 0., 0.], [1.; 4]);
+        clipped.clip_vertical(0, 239., 237.);
+        clipped.clip_vertical(0, 238.5, 237.5);
+        assert_eq!(clipped.uv[0], [4., 2.5]);
+        assert_eq!(clipped.uv[2], [0., 1.5]);
+
+        let mut batch = Batch::default();
+        batch.quad([0., 0., 1., 1.], [0.5; 4], [1.; 4]);
+        batch.append(clipped);
+        batch.quad([0., 0., 1., 1.], [1., 1., 2., 2.], [1.; 4]);
+        let mesh = batch.mesh([4, 4]);
+        let Some(VertexAttributeValues::Float32x4(bounds)) = mesh.attribute(ATLAS_BOUNDS) else {
+            panic!("wrong atlas bounds format")
+        };
+        assert_eq!(bounds[..4], [[0.125; 4]; 4]);
+        assert_eq!(bounds[4..8], [[0., 0., 1., 1.]; 4]);
+        assert_eq!(bounds[8..], [[0.25, 0.25, 0.5, 0.5]; 4]);
+        assert_eq!(mesh.count_vertices(), 12);
     }
 
     #[test]

@@ -206,7 +206,7 @@ jobs:
           cargo test --locked --profile release-fast -p resonance-presentation --lib -- \
             --ignored --exact --test-threads=1 \
             anti_aliasing::compositing_tests::shared_targets_respect_clear_and_load_with_msaa \
-            field_ui::coverage::gpu_tests::dialogue_slices_have_no_msaa_seams \
+            field_ui::coverage::gpu_tests::dialogue_slices_have_no_aa_seams \
             field_ui::fade::gpu_tests::full_screen_fades_cover_aligned_viewport_with_msaa
 
       - name: Build release executables
