@@ -55,7 +55,7 @@
     {
       "update": 315,
       "keys": [
-        "next_page"
+        "page_down"
       ]
     },
     {
@@ -105,7 +105,7 @@
     {
       "update": 515,
       "keys": [
-        "next_page"
+        "page_down"
       ]
     },
     {
@@ -115,7 +115,7 @@
     {
       "update": 555,
       "keys": [
-        "previous_page"
+        "page_up"
       ]
     },
     {
@@ -145,7 +145,7 @@
     {
       "update": 675,
       "keys": [
-        "previous_page"
+        "page_up"
       ]
     },
     {
@@ -165,7 +165,7 @@
     {
       "update": 755,
       "keys": [
-        "next_page"
+        "page_down"
       ]
     },
     {

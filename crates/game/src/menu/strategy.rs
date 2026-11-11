@@ -364,22 +364,8 @@ impl Strategy {
             self.scroll = (self.first as i8 - first as i8).signum();
             return Ok((old != next).then_some(1));
         }
-        if focus.character()
-            && matches!(
-                action,
-                Some(
-                    MenuAction::PageDown
-                        | MenuAction::PageUp
-                        | MenuAction::PreviousTab
-                        | MenuAction::NextTab
-                )
-            )
-        {
-            let shift = if matches!(action, Some(MenuAction::PageDown | MenuAction::NextTab)) {
-                4.min(party.formation.len().saturating_sub(self.first + 4)) as isize
-            } else {
-                -(4.min(self.first) as isize)
-            };
+        if focus.character() {
+            let shift = super::party::page_shift(action, party.formation.len(), self.first);
             self.first = self.first.saturating_add_signed(shift);
             self.character = self.character.saturating_add_signed(shift);
             return Ok((shift != 0).then_some(38));

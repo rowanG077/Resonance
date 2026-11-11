@@ -1,7 +1,7 @@
 {
   "version": 1,
   "revision": 0,
-  "description": "Eight-member main-menu party controls: active/reserve exchanges, paging bounds, reserve-only swaps, cancellation and choosing a reserve field leader.",
+  "description": "Eight-member main-menu party controls: active/reserve exchanges, paging bounds, reserve-only swaps, cancellation and choosing a reserve field leader. Native paging uses the Page Up/Down inputs corresponding to Dolphin C-stick directions.",
   "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "party-reserves-keyboard.json",
-    "sha256": "6b99ef347a2be75da4c9115ee6dd9dd68dfc7c6c8474eb5365fdb125e4be9b5f"
+    "sha256": "9ec271c9f657f09cb0e2b0edc959a77beb0f790dc4ef5cb916a194015cca510a"
   },
   "dolphin": {
     "state": {
