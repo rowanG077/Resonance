@@ -113,6 +113,10 @@ impl Menu {
         if book.scroll != 0 {
             return None;
         }
+        if input == Some(Details) {
+            self.item_statistics = !self.item_statistics;
+            return Some(1);
+        }
         if input == Some(Cancel) {
             if book.categories {
                 book.page_closing = true;

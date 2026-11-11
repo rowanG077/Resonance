@@ -179,11 +179,11 @@ impl Drawing<'_> {
         self.offset = [0., bottom];
         self.opacity = 255 - state.description_opacity;
         if let Some(id) = state.description_previous {
-            self.item_description_data(data, id)?;
+            self.item_information_data(data, page.session, id, state.statistics)?;
         }
         self.opacity = crossfade_opacity(state.description_opacity, opacity);
         if let Some(id) = selected {
-            self.item_description_data(data, id)?;
+            self.item_information_data(data, page.session, id, state.statistics)?;
         }
         self.offset = [0.; 2];
         self.opacity = opacity;

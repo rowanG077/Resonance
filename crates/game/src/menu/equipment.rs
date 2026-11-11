@@ -33,6 +33,7 @@ pub struct Equipment {
     pub first: usize,
     pub scroll: i8,
     pub by_parameter: bool,
+    pub statistics: bool,
     pub description_previous: Option<u16>,
     pub description_fade: u8,
     pub description_opacity: u8,
@@ -47,6 +48,7 @@ impl Default for Equipment {
             first: 0,
             scroll: 0,
             by_parameter: false,
+            statistics: false,
             description_previous: None,
             description_fade: 0,
             description_opacity: 255,
@@ -140,6 +142,17 @@ impl Equipment {
             });
         }
         self.scroll = (self.scroll + self.scroll.signum()) % 5;
+
+        if action == Some(MenuAction::Details)
+            && transition == TransitionStatus::Ready
+            && self.scroll == 0
+        {
+            self.statistics = !self.statistics;
+            return Ok(Visit {
+                cue: Some(1),
+                ..Default::default()
+            });
+        }
 
         if action == Some(MenuAction::Cancel) {
             match self.focus {
@@ -474,6 +487,7 @@ impl Menu {
 
     pub(super) fn step_equipment(&mut self, input: Input) -> Option<i16> {
         let resources = self.resources.as_ref()?;
+        self.equipment.statistics = self.item_statistics;
         let result = self.equipment.step_shared(
             input,
             &mut self.checkpoint.as_mut()?.progress_mut().party,
@@ -481,6 +495,7 @@ impl Menu {
             &resources.data,
             &mut self.character,
         );
+        self.item_statistics = self.equipment.statistics;
         match result {
             Ok(visit) => {
                 self.party_changed |= visit.changed;

@@ -660,6 +660,7 @@ mod tests {
         assert!(closed, "inventory should finish its closing animation");
         let first_owner = super::super::Owner {
             item_memory: memory,
+            item_statistics: true,
             ..Default::default()
         };
         let retained = first_owner.memory().inventory;
@@ -673,8 +674,10 @@ mod tests {
         let mut next_owner = super::super::Owner::default();
         next_owner.restore_memory(super::super::Memory {
             inventory: retained,
+            item_statistics: first_owner.memory().item_statistics,
             ..Default::default()
         });
+        assert!(next_owner.memory().item_statistics);
         let reopened = List::open(&next_owner.item_memory, &inventory, &battle).unwrap();
         assert_eq!((reopened.row, reopened.first), (20, 4));
         assert!(reopened.rows[0].recent);

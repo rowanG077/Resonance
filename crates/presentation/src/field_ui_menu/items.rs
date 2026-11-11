@@ -113,7 +113,7 @@ impl MenuArtwork {
             },
             description_opacity: 255 - frame.description_blend,
         };
-        if let Some(anchor) = draw.inventory_list(&list, data)? {
+        if let Some(anchor) = draw.inventory_list(&list, data, None)? {
             draw.cursor(anchor, 255);
         }
         let trail = draw.trail;
@@ -145,6 +145,7 @@ impl Drawing<'_> {
         &mut self,
         list: &InventoryList<'_>,
         data: &resonance_content::menu_data::MenuData,
+        statistics: Option<&resonance_content::session::SessionData>,
     ) -> Result<Option<[f32; 2]>> {
         let layout = inventory_layout(list)?;
         let opacity = 255 - list.fade;
@@ -222,9 +223,9 @@ impl Drawing<'_> {
         self.offset = [0., layout.description_offset];
         if list.description != Description::None {
             self.opacity = 255 - list.description_opacity;
-            self.item_description_content_data(data, list.previous_description)?;
+            self.item_description_content_data(data, list.previous_description, statistics)?;
             self.opacity = crossfade_opacity(list.description_opacity, opacity);
-            self.item_description_content_data(data, list.description)?;
+            self.item_description_content_data(data, list.description, statistics)?;
         }
         self.offset = [0.; 2];
         self.opacity = opacity;
@@ -258,7 +259,11 @@ impl Drawing<'_> {
             description_opacity: inventory.description_opacity,
         };
         let mut anchor = self
-            .inventory_list(&list, data)?
+            .inventory_list(
+                &list,
+                data,
+                menu.item_statistics.then_some(&resources.session),
+            )?
             .unwrap_or([330. + inventory.category as f32 * 32. + list_offset, 68.]);
         self.offset = [list_offset, 0.];
         for index in 0..self.spec.sprites.group(Sprite::ItemTabs)?.len() {
@@ -373,17 +378,26 @@ impl Drawing<'_> {
         menu: &Menu,
         description: Description,
     ) -> Result<()> {
-        self.item_description_content_data(&menu.resources.as_ref().unwrap().data, description)
+        let resources = menu.resources.as_ref().unwrap();
+        self.item_description_content_data(
+            &resources.data,
+            description,
+            menu.item_statistics.then_some(&resources.session),
+        )
     }
 
     fn item_description_content_data(
         &mut self,
         data: &resonance_content::menu_data::MenuData,
         description: Description,
+        statistics: Option<&resonance_content::session::SessionData>,
     ) -> Result<()> {
         match description {
             Description::None => Ok(()),
-            Description::Item(id) => self.item_description_data(data, id),
+            Description::Item(id) => match statistics {
+                Some(session) => self.item_information_data(data, session, id, true),
+                None => self.item_description_data(data, id),
+            },
             Description::Category(category) => {
                 let label = data
                     .items_text()?
@@ -401,7 +415,34 @@ impl Drawing<'_> {
     }
 
     pub(super) fn item_description(&mut self, menu: &Menu, id: u16) -> Result<()> {
-        self.item_description_data(&menu.resources.as_ref().unwrap().data, id)
+        let resources = menu.resources.as_ref().unwrap();
+        self.item_information_data(
+            &resources.data,
+            &resources.session,
+            id,
+            menu.item_statistics,
+        )
+    }
+
+    /// Start switches equipment descriptions to raw item statistics;
+    /// other item families retain their text descriptions.
+    pub(super) fn item_information_data(
+        &mut self,
+        data: &resonance_content::menu_data::MenuData,
+        session: &resonance_content::session::SessionData,
+        id: u16,
+        statistics: bool,
+    ) -> Result<()> {
+        if statistics
+            && session
+                .items
+                .get(usize::from(id))
+                .is_some_and(|item| item.equipment_kind.is_some())
+        {
+            self.item_statistics_data(data, session, None, id)
+        } else {
+            self.item_description_data(data, id)
+        }
     }
 
     pub(super) fn item_description_data(

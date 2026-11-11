@@ -298,7 +298,7 @@ enum SceneState {
     Active,
 }
 
-/// Shared UI cursor slots, independent of Party and save data.
+/// Shared UI selections and information mode, independent of Party and save data.
 #[derive(Resource, Default)]
 pub(super) struct MenuMemory {
     pub(super) inventory: resonance_game::battle::command::InventoryMemory,
@@ -306,6 +306,7 @@ pub(super) struct MenuMemory {
     pub(super) character: usize,
     /// Shared Unison selection, clamped when the page opens.
     pub(super) unison_character: usize,
+    pub(super) item_statistics: bool,
 }
 
 /// Used by every field simulation and rendering pass, including standalone
@@ -958,6 +959,7 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         inventory: memory.inventory,
         unison_character: memory.unison_character,
         tech_character: memory.character,
+        item_statistics: memory.item_statistics,
     });
     let overlimit_anchors = prepared
         .feedback
@@ -1220,6 +1222,7 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
         retained.inventory = memory.inventory;
         retained.character = memory.tech_character;
         retained.unison_character = memory.unison_character;
+        retained.item_statistics = memory.item_statistics;
     }
     let _audio_owner = debug_span!(
         "battle_audio_owner",
