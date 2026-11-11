@@ -229,18 +229,8 @@ impl NativeHost<'_> {
                 } else {
                     let id = a[0] as u32;
                     let media = catalog.media.get(&id).ok_or("skit media is not cooked")?;
-                    scene.media = Some(Media {
-                        id,
-                        started: self.world.tick,
-                        frames: media.frames,
-                        sample_rate: media.sample_rate,
-                    });
-                    if media.voice.is_some() {
-                        self.world
-                            .audio_commands
-                            .push(crate::AudioCommand::voice(id));
-                    }
-                    return self.yield_update();
+                    scene.media = Some(Media::new(id, self.world.tick, media));
+                    return self.yield_command(14, 0);
                 }
             }
             NativeCall::WaitMediaPosition | NativeCall::YieldCommand => {

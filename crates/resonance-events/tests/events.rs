@@ -32,6 +32,138 @@ fn steps(events: &mut EventRuntime, count: u32) {
 }
 
 #[test]
+fn skit_media_ready_clock_audio_and_drain_have_separate_boundaries() {
+    let mut events = preparing_skit_voice();
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::StopVoice]
+    ));
+    for tick in 1..=10 {
+        events.step().unwrap();
+        assert!(
+            !events.main_finished(),
+            "PlayVoice must await playback readiness"
+        );
+        assert_eq!(
+            events.world.audio_commands.len(),
+            1,
+            "voice started before ready at {tick}"
+        );
+        assert_eq!(
+            events
+                .world
+                .skit
+                .as_ref()
+                .unwrap()
+                .media
+                .as_ref()
+                .unwrap()
+                .position(tick),
+            0
+        );
+    }
+    events.step().unwrap();
+    assert!(events.main_finished());
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [
+            AudioCommand::StopVoice,
+            AudioCommand::Voice { resource: 42, .. }
+        ]
+    ));
+    events.step().unwrap();
+    let media = events.world.skit.as_ref().unwrap().media.as_ref().unwrap();
+    assert_eq!(media.position(12), 1);
+    assert!(
+        !media.finished(71),
+        "nominal sample EOF must not release the buffered stream"
+    );
+    assert!(media.finished(82));
+    assert_eq!(
+        media.position(82),
+        100,
+        "the media position stops at the authored sample count"
+    );
+    assert_eq!(
+        events.world.audio_commands.len(),
+        2,
+        "audio starts only once"
+    );
+}
+
+fn preparing_skit_voice() -> EventRuntime {
+    let mut media = resonance_content::skit::SkitCatalog {
+        skits: vec![],
+        preview_order: vec![],
+        resources: Default::default(),
+        portraits: Default::default(),
+        portrait_recipes: Default::default(),
+        media: Default::default(),
+    };
+    media.media.insert(
+        42,
+        resonance_content::skit::SkitMedia {
+            voice: Some(resonance_content::field_audio::Voice {
+                path: "audio/speech/line.wav".into(),
+                frames: 32000,
+                sample_rate: 32000,
+                source_sample_rate: 32000,
+                channels: 1,
+            }),
+            frames: 32000,
+            sample_rate: 32000,
+        },
+    );
+    let mut world = GameWorld::default();
+    world.skit = Some(Default::default());
+    runtime(
+        program(&script(&[(Call::PlayVoice, &[42])]), &[0x20ff]),
+        ResourceLibrary {
+            skits: Some(Arc::new(media)),
+            ..Default::default()
+        },
+        world,
+    )
+}
+
+#[test]
+fn stopping_a_preparing_skit_track_cancels_its_pending_audio() {
+    // A background task can replace/stop media before the foreground PlayVoice
+    // wait resumes. A deferred voice must remain owned by that media instance.
+    let mut events = preparing_skit_voice();
+    steps(&mut events, 5);
+    events.world.skit.as_mut().unwrap().media = None;
+    steps(&mut events, 20);
+    assert!(events.main_finished());
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::StopVoice]
+    ));
+}
+
+#[test]
+fn cancelling_a_preparing_skit_does_not_start_audio_on_later_updates() {
+    let mut events = preparing_skit_voice();
+    steps(&mut events, 5);
+    assert!(events.world.skit.as_ref().unwrap().media.is_some());
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::StopVoice]
+    ));
+
+    events.cancel();
+    events.world.audio_commands.clear();
+    steps(&mut events, 6);
+
+    assert_eq!(events.tick(), 11);
+    assert!(
+        events.world.audio_commands.is_empty(),
+        "cancelled media must not emit its deferred voice on later updates"
+    );
+    assert!(events.world.skit.as_ref().unwrap().media.is_none());
+}
+
+#[test]
 fn carried_weapon_identity_survives_attach_and_throw_in_one_script_update() {
     for model in symphonia_constants::FieldEquipmentModelId::ALL {
         for character in 1..=9 {

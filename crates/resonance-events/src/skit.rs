@@ -26,17 +26,54 @@ pub struct Media {
     pub started: u32,
     pub frames: u32,
     pub sample_rate: u32,
+    voice_pending: bool,
 }
 impl Media {
+    // Header preparation and output-buffer priming take ten resident updates.
+    const PREPARE_UPDATES: u32 = 10;
+    const AHX_BLOCK_SAMPLES: u64 = 1152;
+    // Completion includes the final complete block and the mono output buffer.
+    const PCM_FIFO_SAMPLES: u64 = 4096;
+
+    pub(crate) fn new(id: u32, started: u32, media: &resonance_content::skit::SkitMedia) -> Self {
+        Self {
+            id,
+            started,
+            frames: media.frames,
+            sample_rate: media.sample_rate,
+            voice_pending: media.voice.is_some(),
+        }
+    }
+    pub fn ready(&self, tick: u32) -> bool {
+        tick.saturating_sub(self.started) >= Self::PREPARE_UPDATES
+    }
+
     fn samples(&self, tick: u32) -> u64 {
         // 60 gameplay updates per second; rendering never advances media.
-        u64::from(tick.saturating_sub(self.started)) * u64::from(self.sample_rate) / 60
+        // Playback begins after the ready acknowledgement, independently of the
+        // request/loaded ID used by a parallel subtitle task.
+        let elapsed = tick
+            .saturating_sub(self.started)
+            .saturating_sub(Self::PREPARE_UPDATES + 1);
+        u64::from(elapsed) * u64::from(self.sample_rate) / 60
     }
     pub fn finished(&self, tick: u32) -> bool {
-        self.samples(tick) >= u64::from(self.frames)
+        let end = u64::from(self.frames).div_ceil(Self::AHX_BLOCK_SAMPLES)
+            * Self::AHX_BLOCK_SAMPLES
+            + Self::PCM_FIFO_SAMPLES;
+        // Stop transfer and observe the drained output on separate updates;
+        // the script dispatcher still owns its subsequent service-wait resume.
+        self.samples(tick.saturating_sub(2)) >= end
     }
     pub fn position(&self, tick: u32) -> u32 {
-        (self.samples(tick) * 100 / u64::from(self.sample_rate)) as u32
+        (self.samples(tick).min(u64::from(self.frames)) * 100 / u64::from(self.sample_rate)) as u32
+    }
+    fn step(&mut self, tick: u32) -> Option<crate::AudioCommand> {
+        if self.voice_pending && tick.saturating_sub(self.started) > Self::PREPARE_UPDATES {
+            self.voice_pending = false;
+            return Some(crate::AudioCommand::voice(self.id));
+        }
+        None
     }
 }
 pub struct Portrait {
@@ -157,7 +194,11 @@ impl Portrait {
     }
 }
 impl Scene {
-    pub(crate) fn step(&mut self, catalog: &SkitCatalog) -> anyhow::Result<()> {
+    pub(crate) fn step(
+        &mut self,
+        catalog: &SkitCatalog,
+        tick: u32,
+    ) -> anyhow::Result<Option<crate::AudioCommand>> {
         for portrait in self.portraits.values_mut() {
             let asset = catalog
                 .portraits
@@ -174,7 +215,7 @@ impl Scene {
                 .transpose()?;
             portrait.step(asset, recipe)?;
         }
-        Ok(())
+        Ok(self.media.as_mut().and_then(|media| media.step(tick)))
     }
 }
 

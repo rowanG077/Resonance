@@ -96,9 +96,9 @@ impl NativeHost<'_> {
                     Wait::Ready(dialogue.operation.clone())
                 }
             }
-            // Portrait scenes have no actor motion or media preparation delay.
-            (ActorMotion | ActorExit | MediaReady, true) => return self.yield_update(),
-            (MediaComplete | MediaLoaded | MediaPosition, true) => Wait::SkitMedia {
+            (ActorMotion | ActorExit, true) => return self.yield_update(),
+            (MediaReady | MediaComplete | MediaLoaded | MediaPosition, true) => Wait::SkitMedia {
+                ready: command == MediaReady,
                 id: (command == MediaLoaded).then_some(value as u32),
                 position: (command == MediaPosition && value >= 0).then_some(value as u32),
             },
