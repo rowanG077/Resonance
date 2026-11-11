@@ -9,6 +9,8 @@ use resonance_game::menu::{Input as SharedMenuInput, MenuAction};
 
 // Battle movement uses signed controller units; navigation reads the same range.
 const STICK_RANGE: f32 = 70.;
+// Each axis reaches the full range at this tilt, leaving room to combine directions.
+const STICK_SATURATION: f32 = 0.7;
 const STICK_CENTER_TOLERANCE: i8 = 16;
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -622,7 +624,7 @@ impl Sample {
     }
 }
 fn quantize(stick: Vec2) -> [i8; 2] {
-    stick
+    (stick / STICK_SATURATION)
         .clamp(Vec2::NEG_ONE, Vec2::ONE)
         .to_array()
         .map(|value| {
