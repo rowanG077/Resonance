@@ -376,8 +376,7 @@ impl Artwork {
         if matches!(
             frame.recognized_result,
             None | Some(resonance_battle::BattleResult::Escaped)
-        ) && self.scan.is_none()
-        {
+        ) {
             for (side, message) in self.notices.messages.iter().enumerate() {
                 let Some(message) = message else { continue };
                 let newest = side == self.notices.newest;
