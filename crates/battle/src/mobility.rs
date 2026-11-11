@@ -12,6 +12,8 @@ const JUMP_SPEED: f32 = 20.5;
 const BACKSTEP_SPEED: f32 = 11.;
 const BACKSTEP_LIFT: f32 = 12.5;
 const BACKSTEP_GRAVITY: f32 = -1.5;
+const FLOATING_BACKSTEP_SPEED: f32 = 14.3;
+const BACKSTEP_RECOVERY_UPDATE: u8 = 12;
 const LANDING_TICKS: u8 = 16;
 const QUICK_LANDING_TICKS: u8 = 12;
 
@@ -41,7 +43,7 @@ impl JumpCharge {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mobility {
     Jump { launched: bool },
-    Backstep { launched: bool },
+    Backstep { launched: bool, updates: u8 },
     Breakfall,
     Landing { ticks: u8, breakfall: bool },
 }
@@ -50,7 +52,10 @@ impl Mobility {
         Self::Jump { launched: false }
     }
     pub(crate) const fn backstep() -> Self {
-        Self::Backstep { launched: false }
+        Self::Backstep {
+            launched: false,
+            updates: 0,
+        }
     }
 }
 
@@ -279,7 +284,9 @@ impl Battle {
                     self.consume_jump_command(actor, cues)?;
                 }
             }
-            Mobility::Backstep { launched: false } => {
+            Mobility::Backstep {
+                launched: false, ..
+            } => {
                 self.model_requests.push(ModelRequest::Common {
                     actor,
                     pose: CommonPose::Backstep,
@@ -292,9 +299,19 @@ impl Battle {
                 owner.movement.direction = owner.movement.target_direction;
                 owner.facing_direction = owner.movement.target_direction;
                 owner.reaction.direction = owner.movement.target_direction.map(|axis| -axis);
-                owner.movement.forward = BACKSTEP_SPEED;
-                owner.movement.vertical = BACKSTEP_LIFT;
-                owner.movement.gravity = BACKSTEP_GRAVITY;
+                // Acquired wings turn the backstep hop into a faster ground slide.
+                let floating = self.prepared.actor_setup[index].floating_backstep;
+                owner.movement.forward = if floating {
+                    FLOATING_BACKSTEP_SPEED
+                } else {
+                    BACKSTEP_SPEED
+                };
+                owner.movement.vertical = if floating { 0. } else { BACKSTEP_LIFT };
+                owner.movement.gravity = if floating {
+                    crate::movement::GRAVITY
+                } else {
+                    BACKSTEP_GRAVITY
+                };
                 owner.movement.acceleration = 0.;
                 owner.movement.turning_disabled = false;
                 if owner.equipment.backstep_guard {
@@ -302,14 +319,17 @@ impl Battle {
                 }
                 let direction = owner.facing_direction;
                 crate::control::snap_heading(owner, direction);
-                next = Mobility::Backstep { launched: true };
+                next = Mobility::Backstep {
+                    launched: true,
+                    updates: 0,
+                };
             }
             Mobility::Breakfall => {
                 if self.runtime[index].control.is_some() {
                     self.consume_jump_command(actor, cues)?;
                 }
             }
-            Mobility::Backstep { launched: true } | Mobility::Landing { .. } => {}
+            Mobility::Backstep { launched: true, .. } | Mobility::Landing { .. } => {}
         }
 
         // A queued attack can replace this task. Its controller owns further movement.
@@ -375,13 +395,20 @@ impl Battle {
                 };
                 false
             }
-            Mobility::Backstep { .. } => {
-                if landed {
+            Mobility::Backstep { updates, .. } => {
+                // Winged recovery blends to idle; ordinary backsteps use the landing pose.
+                if landed && updates >= BACKSTEP_RECOVERY_UPDATE {
                     self.model_requests.push(ModelRequest::Common {
                         actor,
-                        pose: CommonPose::Landing,
+                        pose: CommonPose::BackstepRecovery {
+                            floating: self.prepared.actor_setup[index].floating_backstep,
+                        },
                     });
                 }
+                next = Mobility::Backstep {
+                    launched: true,
+                    updates: updates.saturating_add(1),
+                };
                 landed && stopped
             }
             Mobility::Landing { ticks, breakfall } => {

@@ -107,6 +107,50 @@ fn backstep_starts_moving_with_optional_armor() {
 }
 
 #[test]
+fn backstep_forms_use_distinct_movement_and_recovery() {
+    let step = |battle: &mut Battle, input| {
+        let mut frame = battle.step(input).unwrap();
+        let clock = frame.clock;
+        battle.advance_models(&mut frame, clock, false).unwrap();
+        frame.models[0].clip
+    };
+    for (floating, speed, lift, recovery, delay) in
+        [(false, 11., 12.5, 2, 17), (true, 14.3, 0., 0, 12)]
+    {
+        let mut battle = guarding(true, Control::Manual);
+        battle.prepared.actor_setup[0].floating_backstep = floating;
+        let mut model = crate::tests::model_definition(1, [(0, 60.), (1, 60.), (2, 60.)]);
+        model.reactions.backstep = Some(1);
+        model.reactions.landing = Some(2);
+        model.idle_motions[0] = Some(0);
+        set_model(&mut battle, model);
+        let origin = battle.actors[0].position;
+        assert_eq!(step(&mut battle, input([-70, 0], true, -1)), 1);
+        crate::tests::assert_close(origin[0] - battle.actors[0].position[0], speed, 0.0001);
+        assert_eq!(battle.actors[0].position[1], lift);
+        for update in 1..=delay {
+            assert_eq!(
+                step(&mut battle, BattleInput::default()),
+                if update < delay { 1 } else { recovery }
+            );
+        }
+        let motion = battle
+            .models()
+            .unwrap()
+            .main_motion_observation(ActorId(0))
+            .unwrap();
+        assert_eq!(motion.repeat, floating);
+        assert!(battle.actors[0].movement.forward > 0.);
+        assert_eq!(battle.activity(ActorId(0)), Activity::Evading);
+        step_until(&mut battle, Activity::Idle, 30);
+        if floating {
+            assert!(battle.actors[0].reaction.protection.remaining > 0);
+        }
+        assert!(!battle.is_diagnostic());
+    }
+}
+
+#[test]
 fn backstep_guard_requires_the_actual_guard_away_edge_and_excludes_jump() {
     for (stick, edge, held, hit_stop, blocked) in [
         ([-70, 0], 0, true, 0, false),
