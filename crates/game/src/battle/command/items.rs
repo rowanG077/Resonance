@@ -156,7 +156,12 @@ impl Owner {
                         self.phase = Phase::Inventory(List::open(memory, inventory, battle)?);
                     }
                 }
-                Some(Effect::PartyRecover { .. } | Effect::AllDivide | Effect::Hourglass) => {
+                Some(
+                    Effect::PartyRecover { .. }
+                    | Effect::AllDivide
+                    | Effect::AllMultiply
+                    | Effect::Hourglass,
+                ) => {
                     let user = self.user.context("item inventory has no selected user")?;
                     battle.queue_item(Release {
                         user,

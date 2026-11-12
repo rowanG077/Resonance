@@ -138,6 +138,7 @@ pub(super) fn policies(items: &[Item]) -> BTreeMap<u16, item::Policy> {
                 BattleUse::Quartz { element } => item::Effect::Buff(Buff::Quartz(element)),
                 BattleUse::Scan => item::Effect::Scan,
                 BattleUse::AllDivide => item::Effect::AllDivide,
+                BattleUse::AllMultiply => item::Effect::AllMultiply,
                 BattleUse::Hourglass => item::Effect::Hourglass,
             };
             Some((

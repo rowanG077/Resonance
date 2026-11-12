@@ -503,6 +503,7 @@ library. A mod may describe itself in an optional `mod.json` at its root:
 {"layout": 108, "name": "Moon Berry", "version": "1.0", "description": "Adds a berry."}
 ```
 
+A `README.md` or `LICENSE` at the root is likewise ignored.
 `layout` is the cooked layout the mod was written for. A mod declaring another
 layout stops the game at startup with a message naming it, instead of failing
 later in whichever documents changed shape. `mod.json` is never content.
@@ -574,6 +575,7 @@ Battle uses, with percentages of the target's maximum:
 | `quartz` | `element` | The corresponding quartz effect. |
 | `scan` | | Reveal one enemy. |
 | `all_divide` | | Halve all damage until the battle ends. |
+| `all_multiply` | | Double all damage until the battle ends. Cancels `all_divide`. |
 | `hourglass` | | Stop every enemy briefly. |
 
 The original items use the same vocabulary, so changing Apple Gel's

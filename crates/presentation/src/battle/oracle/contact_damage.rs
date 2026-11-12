@@ -33,7 +33,10 @@ pub(super) fn observe(input: &ContactObservation, result: HitResult) -> Result<V
     let attack = &owner.equipment.damage;
     let defense = &target.equipment.damage;
     ensure!(
-        input.ordinary_mode && !input.all_divide && !target.overlimit.is_active(),
+        input.ordinary_mode
+            && !input.all_divide
+            && !input.all_multiply
+            && !target.overlimit.is_active(),
         "unsupported contact mode or global modifier"
     );
     ensure!(

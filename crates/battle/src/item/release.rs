@@ -266,6 +266,9 @@ impl Battle {
         if matches!(policy.effect, Effect::AllDivide) {
             self.items.all_divide = true;
         }
+        if matches!(policy.effect, Effect::AllMultiply) {
+            self.items.all_multiply = true;
+        }
         if matches!(policy.effect, Effect::Hourglass) {
             let user_side = self.actors[request.user.index()].side;
             for actor in &mut self.actors {

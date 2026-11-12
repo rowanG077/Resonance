@@ -26,6 +26,14 @@ pub const DESCRIPTOR: &str = "content.json";
 pub const BASE: &str = "base";
 /// Optional description at the root of a mod. It is not content.
 pub const MANIFEST: &str = "mod.json";
+/// Root files of a mod which describe it and are never content.
+const MOD_NOTES: [&str; 5] = [
+    MANIFEST,
+    "README.md",
+    "LICENSE",
+    "LICENSE.md",
+    "LICENSE.txt",
+];
 pub const FIELDS: &str = "fields/mappings.json";
 pub const MOVIES: &str = "movies/mappings.json";
 
@@ -297,9 +305,12 @@ impl Index {
                         .file_name()
                         .into_string()
                         .map_err(|_| anyhow::anyhow!("non-UTF-8 content name in {parent}"))?;
-                    // Version control and editor state beside a mod is not content,
-                    // and neither is the mod's description of itself.
-                    if name.starts_with('.') || parent.is_empty() && name == MANIFEST {
+                    // Version control and editor state beside a mod is not content.
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    // Nor is what a mod says about itself at its root.
+                    if parent.is_empty() && layer.name != BASE && MOD_NOTES.contains(&&*name) {
                         continue;
                     }
                     let path = if parent.is_empty() {
@@ -557,8 +568,9 @@ impl Library {
                 .into_iter()
                 .flatten()
                 .flatten()
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
                 .filter_map(|entry| entry.file_name().into_string().ok())
-                .filter(|name| !name.starts_with('.') && name != MANIFEST)
+                .filter(|name| !name.starts_with('.'))
                 .collect()
         };
         let base = entries(&self.layers[0]);

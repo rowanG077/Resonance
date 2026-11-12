@@ -136,6 +136,7 @@ pub enum Effect {
     Buff(crate::conditions::Buff),
     Scan,
     AllDivide,
+    AllMultiply,
     Hourglass,
 }
 
@@ -170,6 +171,8 @@ pub(crate) struct State {
     pub cooldown: u16,
     /// All-Divide remains active until the battle ends.
     pub all_divide: bool,
+    /// All-Multiply likewise; with All-Divide the two cancel.
+    pub all_multiply: bool,
     pub revealed: crate::ActorSet,
 }
 
@@ -213,6 +216,9 @@ impl Battle {
     }
     pub fn all_divide_active(&self) -> bool {
         self.items.all_divide
+    }
+    pub fn all_multiply_active(&self) -> bool {
+        self.items.all_multiply
     }
     /// Longest remaining actor freeze; no separate shared clock.
     pub fn hourglass_remaining(&self) -> u16 {

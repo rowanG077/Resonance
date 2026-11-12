@@ -13,6 +13,7 @@ pub struct ContactObservation {
     pub rule: HitRule,
     pub attack_power: u16,
     pub all_divide: bool,
+    pub all_multiply: bool,
     pub ordinary_mode: bool,
 }
 

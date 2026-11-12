@@ -829,10 +829,14 @@ fn a_mod_manifest_gates_its_layout_and_is_never_content() -> Result<()> {
         );
     }
     fixture.write("current/ui/logo.ktx2", b"mod");
+    for name in ["current", "other"] {
+        fixture.write(&format!("{name}/README.md"), name.as_bytes());
+    }
     fixture.write("current/sounds/extra.wav", b"unused");
     let library = fixture.open(&["current", "other"])?;
     let mut snapshot = library.snapshot();
     assert!(snapshot.read_optional(MANIFEST, 4096)?.is_none());
+    assert!(snapshot.read_optional("README.md", 4096)?.is_none());
     assert_eq!(library.conflicts().count(), 0);
     assert_eq!(
         library.unfamiliar_roots(),

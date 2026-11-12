@@ -1,0 +1,8 @@
+{
+  "battle_usable": true,
+  "battle_use": {
+    "kind": "all_multiply"
+  },
+  "category": "battle_item",
+  "price": 250
+}

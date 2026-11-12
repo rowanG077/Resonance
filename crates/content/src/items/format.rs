@@ -252,6 +252,8 @@ pub enum BattleUse {
     Scan,
     /// Halve all damage, both ways, until the battle ends.
     AllDivide,
+    /// Double all damage, both ways, until the battle ends.
+    AllMultiply,
     /// Stop every enemy for a short time.
     Hourglass,
 }

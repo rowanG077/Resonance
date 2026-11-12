@@ -500,6 +500,7 @@ pub(crate) fn resolve_with_condition(
         incoming,
         roll,
         all_divide,
+        false,
         available_counts,
         ContactMode::Ordinary,
     )
@@ -522,6 +523,7 @@ pub(crate) fn resolve_contact(
     incoming: [f32; 3],
     roll: &mut dyn FnMut(Draw) -> u16,
     all_divide: bool,
+    all_multiply: bool,
     available_counts: [u8; 2],
     mode: ContactMode,
 ) -> (HitResult, Option<crate::conditions::ConditionLabel>) {
@@ -553,6 +555,9 @@ pub(crate) fn resolve_contact(
     };
     if all_divide && !unison {
         amount /= 2;
+    }
+    if all_multiply && !unison {
+        amount *= 2;
     }
     let mut hit = HitResult {
         amount: 0,
@@ -677,6 +682,9 @@ pub(crate) fn resolve_contact(
     }
     if all_divide && unison {
         amount /= 2;
+    }
+    if all_multiply && unison {
+        amount *= 2;
     }
     hit.amount = amount.clamp(1, i64::from(i32::MAX)) as i32;
     let survives = rule.prevents_defeat
@@ -1177,6 +1185,7 @@ mod tests {
                         Draw::Critical => critical,
                         _ => neutral_roll(draw),
                     },
+                    false,
                     false,
                     [1, 1],
                     ContactMode::Ordinary,

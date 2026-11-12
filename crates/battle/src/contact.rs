@@ -445,6 +445,7 @@ impl Contact {
                 rule: self.rule,
                 attack_power: power,
                 all_divide: battle.items.all_divide,
+                all_multiply: battle.items.all_multiply,
                 ordinary_mode: mode == damage::ContactMode::Ordinary,
             });
         }
@@ -510,6 +511,7 @@ impl Contact {
                 battle.random.next_u16()
             },
             battle.items.all_divide,
+            battle.items.all_multiply,
             available_counts,
             mode,
         );
