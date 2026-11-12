@@ -11,6 +11,9 @@ impl Drawing<'_> {
         self.opacity = 255 - state.view.page_fade;
         self.offset = [0., -((fade * 76 / 256) as f32)];
         self.heading(menu_label(labels, "title")?)?;
+        // Keep rank and count controls above the model when it overlaps the page.
+        let page_plane = self.plane;
+        self.plane += 1;
         self.offset = [0., -((fade * 48 / 256) as f32)];
         self.framed([380., 20., 236., 32.], false)?;
         let rank = menu.preferences().unwrap().battle_rank;
@@ -28,6 +31,7 @@ impl Drawing<'_> {
             [16.; 2],
             WHITE,
         )?;
+        self.plane = page_plane;
         let left = -((fade * 344 / 256) as f32);
         self.offset = [left, 0.];
         self.framed([16., 60., 320., 368.], true)?;
@@ -216,7 +220,7 @@ impl Drawing<'_> {
     /// Preparation includes asset decoding and GPU readiness, with no fixed duration.
     pub(super) fn preview_loading(&mut self, menu: &Menu) -> Result<()> {
         let previous = (self.plane, self.opacity, self.offset);
-        self.plane = self.plane.max(1);
+        self.plane = self.plane.max(2);
         self.opacity = 255;
         self.offset = [0.; 2];
         let result = self.text_size(

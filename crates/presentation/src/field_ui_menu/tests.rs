@@ -2,6 +2,73 @@ use super::test_support::Fixture;
 use super::*;
 
 #[test]
+#[ignore = "requires cooked menus; verifies catalogue model and control draw ordering"]
+fn monster_preview_overlays_page_content_but_keeps_rank_cursor_and_loading_visible() -> Result<()> {
+    use resonance_content::{library::Library, model_preview::document, preparation};
+    let mut fixture = Fixture::load()?;
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?;
+    let mut snapshot = Library::open(std::path::Path::new(&root), &[])?.snapshot();
+    let catalogue = snapshot.json(
+        resonance_content::menu_data::MONSTER_BOOK_PATH,
+        preparation::JSON_LIMIT,
+    )?;
+    let (catalogue, _) =
+        document::expand_catalogue(catalogue, |p| snapshot.read(p, preparation::JSON_LIMIT))?;
+    std::sync::Arc::make_mut(&mut fixture.data)
+        .presentation
+        .monsters = Some(serde_json::from_value(catalogue)?);
+    let mut menu = fixture.field_menu();
+    menu.page = Page::Monsters;
+    menu.checkpoint
+        .as_mut()
+        .unwrap()
+        .progress_mut()
+        .party
+        .monsters = [(
+        187,
+        resonance_events::party::MonsterKnowledge {
+            seen: true,
+            scanned: true,
+            ..Default::default()
+        },
+    )]
+    .into();
+    menu.monsters.view.model_opacity = 255;
+    let preview = model_preview_depth();
+    for busy in [false, true] {
+        menu.busy = busy;
+        let mut drawing = fixture.drawing(0);
+        let anchor = drawing.monsters(&menu)?;
+        assert_eq!(drawing.plane, 1, "rank plane leaked into statistics");
+        drawing.plane = 2;
+        drawing.cursor(anchor, 255);
+        let (mut page, mut controls, mut loading, mut cursor) = (0, 0, 0, 0);
+        for ((plane, role, _), batch) in &drawing.batches {
+            let depth = DepthBand::Field.at(*plane, role.depth());
+            for quad in batch.positions.chunks_exact(4) {
+                let [x, y] = [quad[0][0] + 320., (240. - quad[0][1]) * 448. / 480.];
+                if *role == DrawRole::Cursor {
+                    assert!(depth > preview);
+                    cursor += 1;
+                } else if x < 350. {
+                    assert!(depth < preview, "page obscures the oversized model");
+                    page += 1;
+                } else if y < 84. {
+                    assert!(depth > preview, "model obscures rank/count controls");
+                    controls += 1;
+                } else if busy && (215. ..=245.).contains(&y) {
+                    assert!(depth > preview, "model obscures loading feedback");
+                    loading += 1;
+                }
+            }
+        }
+        assert!(page > 0 && controls > 0 && cursor > 0);
+        assert_eq!(loading > 0, busy);
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires cooked menus; verifies equipped costume markers and story defaults"]
 fn status_costume_selector_distinguishes_default_owned_and_unavailable_outfits() -> Result<()> {
     use resonance_game::menu::status::Focus;

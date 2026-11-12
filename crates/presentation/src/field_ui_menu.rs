@@ -62,7 +62,8 @@ const SCROLL_DOWN: usize = 16;
 const SCROLL_UP: usize = 17;
 const FONT: MaterialKey = MaterialKey::Font;
 pub(super) fn model_preview_depth() -> f32 {
-    DepthBand::Field.at(0, DrawRole::Text.depth() + 0.5)
+    // Catalogue models are drawn after the page's panel, text and item icons.
+    DepthBand::Field.at(1, DrawRole::Content.depth() + 0.5)
 }
 const ATLAS: MaterialKey = MaterialKey::Texture(MenuArt::ATLAS_TEXTURE);
 const PORTRAITS: usize = MenuArt::PORTRAIT_TEXTURES.start;

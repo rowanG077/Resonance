@@ -142,6 +142,39 @@ struct Record {
     id: PreviewId,
     preview: Arc<ModelPreview>,
 }
+
+/// Capture the requested preview and its submitted-draw preparation fence.
+pub(super) fn diagnostic(world: &World) -> Option<serde_json::Value> {
+    let viewer = world.get_resource::<Viewer>()?;
+    let record = viewer.record.as_ref()?;
+    let preview = world
+        .get_resource::<crate::new_game::Session>()?
+        .menu()?
+        .preview()?;
+    let shared = world.get_resource::<gpu::Shared>()?.0.lock().unwrap();
+    Some(serde_json::json!({
+        "requested_id": preview.id,
+        "retained_id": record.id,
+        "document": record.preview.document,
+        "status": format!("{:?}", viewer.status),
+        "animation_tick": preview.animation_tick,
+        "opacity": preview.opacity,
+        "page_fade": preview.page_fade,
+        "yaw": preview.yaw,
+        "distance": preview.distance,
+        "parts": viewer.parts.iter().map(|part| serde_json::json!({
+            "mesh": part.spec.scene.mesh, "ready": part.ready,
+            "materials": part.materials.len(), "animation_slot": part.spec.animation,
+            "animation_duration_ticks": part.clip.map(|i| part.spec.scene.clips[i].duration_ticks()),
+        })).collect::<Vec<_>>(),
+        "draws": {
+            "armed": shared.armed, "expected": shared.expected.len(),
+            "pending": shared.pending.len(), "submitted": shared.submitted,
+            "completed": shared.completed.load(Ordering::Acquire), "error": shared.error,
+        },
+    }))
+}
+
 #[derive(SystemParam)]
 pub(super) struct State<'w> {
     live: Option<ResMut<'w, crate::new_game::Session>>,
@@ -291,7 +324,9 @@ fn prepare(
             viewer.record = Some(record.clone());
             viewer.status = PreviewStatus::Loading;
             menu.busy = true;
-            record.preview.validate()?;
+            // Catalogue declarations have no GLB-derived bones yet. Preparation
+            // validates hidden geometry and attachments against the loaded model.
+            record.preview.validate_definition()?;
             viewer.behavior = None;
             viewer.behavior_tick = None;
             for part in &viewer.parts {
@@ -806,7 +841,8 @@ fn pose(
                 let mut transform =
                     transforms.get_mut(part.root.context("prepared preview root missing")?)?;
                 *transform = if part.spec.attached_to.is_some() {
-                    Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
+                    // Carried models share their parent bones' Z-up coordinates.
+                    Transform::IDENTITY
                 } else {
                     Transform::from_translation(preview_translation(
                         &viewer.overrides,
