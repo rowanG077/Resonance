@@ -1,4 +1,6 @@
 use super::*;
+#[path = "added_effects_tests.rs"]
+mod added_effects_tests;
 #[path = "all_divide_tests.rs"]
 mod all_divide_tests;
 use crate::{
@@ -158,6 +160,8 @@ fn policies() -> BTreeMap<u16, Policy> {
         (50, Effect::Buff(Buff::Quartz(Element::Darkness)), false),
         (51, Effect::Buff(Buff::Quartz(Element::Light)), false),
         (600, Recover { hp: 25, tp: 0 }, true),
+        (700, AllMultiply, false),
+        (701, UnisonGauge, false),
     ]
     .into_iter()
     .map(|(id, effect, records_gel_use)| {

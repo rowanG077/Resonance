@@ -256,6 +256,8 @@ pub enum BattleUse {
     AllMultiply,
     /// Stop every enemy for a short time.
     Hourglass,
+    /// Fill the party's Unison gauge.
+    UnisonGauge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

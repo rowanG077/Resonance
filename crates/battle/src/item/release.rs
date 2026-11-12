@@ -269,6 +269,9 @@ impl Battle {
         if matches!(policy.effect, Effect::AllMultiply) {
             self.items.all_multiply = true;
         }
+        if matches!(policy.effect, Effect::UnisonGauge) {
+            self.add_unison_gauge(crate::MAX_UNISON_GAUGE, cues);
+        }
         if matches!(policy.effect, Effect::Hourglass) {
             let user_side = self.actors[request.user.index()].side;
             for actor in &mut self.actors {

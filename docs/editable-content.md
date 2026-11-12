@@ -577,6 +577,7 @@ Battle uses, with percentages of the target's maximum:
 | `all_divide` | | Halve all damage until the battle ends. |
 | `all_multiply` | | Double all damage until the battle ends. Cancels `all_divide`. |
 | `hourglass` | | Stop every enemy briefly. |
+| `unison_gauge` | | Fill the Unison gauge. |
 
 The original items use the same vocabulary, so changing Apple Gel's
 `battle_use` changes it in battle. Use timing, cooldown, effect and sound are

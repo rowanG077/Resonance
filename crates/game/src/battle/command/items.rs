@@ -160,6 +160,7 @@ impl Owner {
                     Effect::PartyRecover { .. }
                     | Effect::AllDivide
                     | Effect::AllMultiply
+                    | Effect::UnisonGauge
                     | Effect::Hourglass,
                 ) => {
                     let user = self.user.context("item inventory has no selected user")?;

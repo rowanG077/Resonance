@@ -79,3 +79,33 @@ fn all_multiply_is_sold_in_iselia_dropped_by_fakes_and_usable_in_battle() -> Res
     );
     Ok(())
 }
+
+/// Stock of a shop by its library name.
+fn shop(loaded: &Loaded, name: &str) -> Result<Vec<u16>> {
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repository().join("local/all-assets"));
+    let library = Library::open_paths(&root, &[])?;
+    let document: serde_json::Value = library.snapshot().json(
+        resonance_content::menu_data::WORLD_MAP_PATH,
+        resonance_content::preparation::JSON_LIMIT,
+    )?;
+    let shops: resonance_content::library::Mappings =
+        serde_json::from_value(document["mappings"].clone())?;
+    Ok(loaded.menus.world_map.shops[shops.id(name)? as usize]
+        .items
+        .clone())
+}
+
+#[test]
+#[ignore = "requires cooked original assets; set RESONANCE_TEST_ASSETS or cook local/all-assets"]
+fn unison_force_is_sold_in_palmacosta_and_fills_the_gauge() -> Result<()> {
+    let loaded = Loaded::open(&["unison-force"])?;
+    let id = loaded.item("unison-force")?;
+    let item = &loaded.menus.items[usize::from(id)];
+    assert!(item.battle_usable);
+    assert_eq!(item.battle_use, Some(BattleUse::UnisonGauge));
+    assert_eq!(item.shop_price(ShopTrade::Buy, false), 1200);
+    assert_eq!(shop(&loaded, "marble-s")?.last(), Some(&id));
+    Ok(())
+}

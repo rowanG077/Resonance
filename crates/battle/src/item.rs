@@ -128,8 +128,14 @@ pub struct TargetDefinition {
 /// Behavior prepared by the game boundary. Item IDs remain inventory/notice keys only.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Effect {
-    Recover { hp: u8, tp: u8 },
-    PartyRecover { hp: u8, tp: u8 },
+    Recover {
+        hp: u8,
+        tp: u8,
+    },
+    PartyRecover {
+        hp: u8,
+        tp: u8,
+    },
     FullRecovery,
     Revive,
     Cure(crate::conditions::Cure),
@@ -138,6 +144,8 @@ pub enum Effect {
     AllDivide,
     AllMultiply,
     Hourglass,
+    /// Fill the Unison gauge; does nothing before Unison Attacks are available.
+    UnisonGauge,
 }
 
 #[derive(Clone, Copy, Debug)]
