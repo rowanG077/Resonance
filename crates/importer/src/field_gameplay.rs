@@ -27,10 +27,22 @@ pub(crate) fn prepare(id: usize, bytes: &[u8]) -> Result<Cow<'_, [u8]>> {
         .ok()
         .and_then(|id| FieldId::try_from(id).ok())
     {
+        Some(FieldId::Palmacosta0055) => |bytes| {
+            raise_boat_passengers(
+                bytes,
+                &[0x2676, 0x26c0, 0x2708, 0x274e, 0x2796, 0x27f2, 0x283c],
+            )
+        },
         Some(FieldId::TempleOfDarkness0126 | FieldId::TempleOfDarkness0127) => {
             anchor_shadow_followers
         }
         Some(FieldId::AltessasHouse0139) => depart_after_blackout,
+        Some(FieldId::Izoold0354) => |bytes| {
+            raise_boat_passengers(
+                bytes,
+                &[0x5b6c, 0x5e20, 0x5e64, 0x5ea8, 0x5f10, 0x5f84, 0x5fce],
+            )
+        },
         Some(FieldId::Meltokio0377) => place_castle_wood,
         Some(FieldId::ToizeValleyMine0413) => reset_boulder_attempt,
         Some(FieldId::Niflheim0524) => adjust_niflheim,
@@ -50,6 +62,31 @@ fn header(bytes: &[u8]) -> Result<symphonia_script::scenario::Header> {
         "invalid gameplay correction code range"
     );
     Ok(header)
+}
+
+/// Lift passengers three units so their feet and contact shadows clear the
+/// sailboat's deck during departure and arrival.
+fn raise_boat_passengers(bytes: &[u8], offsets: &[usize]) -> Result<Vec<u8>> {
+    let header = header(bytes)?;
+    let mut corrected = bytes.to_vec();
+    for &offset in offsets {
+        ensure!(
+            offset >= header.code_base() && offset + 8 <= header.auxiliary_offset(),
+            "boat passenger correction lies outside script code"
+        );
+        expect_words(
+            bytes,
+            offset,
+            &[
+                45,
+                0x3000,
+                0x4000,
+                0x2000 | symphonia_script::NativeCall::SetActorPosition as u16,
+            ],
+        )?;
+        corrected[offset..offset + 2].copy_from_slice(&48_u16.to_be_bytes());
+    }
+    Ok(corrected)
 }
 
 /// Keep Niflheim enemies visible at widescreen edges by replacing distance-based
