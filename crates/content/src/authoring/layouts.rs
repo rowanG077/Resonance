@@ -231,6 +231,10 @@ pub(super) fn for_document(path: &str) -> Option<Layout> {
                 ])),
             ),
         ]),
+        "battle/rewards.json" => object(vec![
+            ("formations", map(values())),
+            ("monsters", map(values())),
+        ]),
         "battle/formations.json" => object(vec![
             ("mappings", values()),
             ("formations", values()),

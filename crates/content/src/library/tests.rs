@@ -704,6 +704,174 @@ fn streams_use_mod_selection_and_metadata_cannot_be_overridden() -> Result<()> {
     Ok(())
 }
 
+/// Two mods add items without choosing numbers. Each gets its own ID after the
+/// original items, and neither can displace the other or an original prop.
+#[test]
+fn independent_mods_add_named_items_without_sharing_a_number() -> Result<()> {
+    use crate::battle_model::{Attachment, document};
+    let fixture = Fixture::new();
+    fixture.publish(
+        "base",
+        crate::items::PATH,
+        serde_json::json!({
+            "mappings": {"0":"no-item", "1":"apple-gel"},
+            "items": {
+                "no-item": {"category":"unclassified"},
+                "apple-gel": {"category":"gel"}
+            }
+        }),
+    );
+    // The original game binds props to numbers just past its item table.
+    fixture.publish(
+        "base",
+        document::EQUIPMENT,
+        serde_json::json!({"2":"prop","3":"prop"}),
+    );
+    for name in ["prop", "moon-blade"] {
+        fixture.write(
+            &format!("base/meshes/equipment/{name}/equipment.json"),
+            br#"{"kind":"weapon","parts":{}}"#,
+        );
+    }
+    fixture.write(
+        "blades/game/items/items/moon-blade/definition.json",
+        br#"{"category":"dual_blades","characters":["lloyd"],"equipment":"moon-blade"}"#,
+    );
+    fixture.write(
+        "snacks/game/items/items/berry/definition.json",
+        br#"{"category":"gel","field_usable":true}"#,
+    );
+    let ids = |mods: &[&str]| -> Result<crate::items::Prepared> {
+        fixture
+            .open(mods)?
+            .snapshot()
+            .json::<crate::items::Document>(crate::items::PATH, 1 << 20)?
+            .prepare()
+    };
+    let both = ids(&["blades", "snacks"])?;
+    assert_eq!(both.mappings.id("berry")?, 2);
+    assert_eq!(both.mappings.id("moon-blade")?, 3);
+    assert_eq!(
+        both.allocated,
+        BTreeMap::from([(2, "berry".to_owned()), (3, "moon-blade".to_owned())])
+    );
+    // Load order does not decide identity, and each mod works alone.
+    assert_eq!(ids(&["snacks", "blades"])?.mappings.id("moon-blade")?, 3);
+    assert_eq!(ids(&["blades"])?.mappings.id("moon-blade")?, 2);
+    assert!(ids(&[])?.allocated.is_empty());
+
+    let diagnostics = crate::diagnostics::Diagnostics::new(true);
+    let mut snapshot = fixture.open(&["blades", "snacks"])?.snapshot();
+    // The gel at ID 2 must not inherit the prop registered under that number.
+    assert!(matches!(
+        document::capture_equipment(&mut snapshot, 2, &diagnostics, &|| false)?,
+        Attachment::Nonvisual
+    ));
+    assert!(matches!(
+        document::capture_equipment(&mut snapshot, 3, &diagnostics, &|| false)?,
+        Attachment::Weapon(_)
+    ));
+    Ok(())
+}
+
+#[test]
+fn failures_name_the_mods_behind_a_document() -> Result<()> {
+    let fixture = Fixture::new();
+    fixture.publish(
+        "base",
+        crate::items::PATH,
+        serde_json::json!({
+            "mappings": {"0":"no-item"},
+            "items": {"no-item": {"category":"unclassified"}}
+        }),
+    );
+    fixture.write(
+        "typo/game/items/items/berry/definition.json",
+        br#"{"category":"gel","feild_usable":true}"#,
+    );
+    let library = fixture.open(&["typo"])?;
+    assert_eq!(
+        library.attribution(crate::items::PATH),
+        " (with content from typo)"
+    );
+    assert_eq!(fixture.open(&[])?.attribution(crate::items::PATH), "");
+    let mut snapshot = library.snapshot();
+    snapshot.read(crate::items::PATH, 1 << 20)?;
+    let files = crate::prepared::Files::from_snapshot(
+        snapshot,
+        || false,
+        crate::diagnostics::Diagnostics::new(true),
+    )?;
+    let error = format!("{:#}", crate::items::load(&files).err().unwrap());
+    assert!(
+        error.contains("with content from typo") && error.contains("feild_usable"),
+        "{error}"
+    );
+
+    fixture.write("broken/game/items/items/berry/definition.json", b"{");
+    let error = format!("{:#}", fixture.open(&["broken"]).unwrap_err());
+    assert!(
+        error.contains("with content from broken")
+            && error.contains("broken/game/items/items/berry/definition.json"),
+        "{error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_mod_manifest_gates_its_layout_and_is_never_content() -> Result<()> {
+    let fixture = Fixture::new();
+    fixture.write("base/ui/logo.ktx2", b"base");
+    for name in ["current", "other"] {
+        fixture.write(
+            &format!("{name}/mod.json"),
+            format!(r#"{{"layout":{VERSION},"name":"Example"}}"#).as_bytes(),
+        );
+    }
+    fixture.write("current/ui/logo.ktx2", b"mod");
+    fixture.write("current/sounds/extra.wav", b"unused");
+    let library = fixture.open(&["current", "other"])?;
+    let mut snapshot = library.snapshot();
+    assert!(snapshot.read_optional(MANIFEST, 4096)?.is_none());
+    assert_eq!(library.conflicts().count(), 0);
+    assert_eq!(
+        library.unfamiliar_roots(),
+        [("current".to_owned(), "sounds".to_owned())]
+    );
+
+    fixture.write("stale/mod.json", br#"{"layout":106}"#);
+    let error = fixture.open(&["stale"]).unwrap_err().to_string();
+    assert!(
+        error.contains("stale") && error.contains("layout 106") && error.contains("update"),
+        "{error}"
+    );
+    fixture.write("typo/mod.json", br#"{"layout":108,"nmae":"x"}"#);
+    assert!(fixture.open(&["typo"]).is_err());
+    Ok(())
+}
+
+#[test]
+fn files_supplied_by_two_mods_are_conflicts_and_base_replacements_are_not() -> Result<()> {
+    let fixture = Fixture::new();
+    fixture.write("base/ui/logo.ktx2", b"base");
+    fixture.write("first/ui/logo.ktx2", b"first");
+    fixture.write("first/ui/extra.ktx2", b"first");
+    fixture.write("last/ui/extra.ktx2", b"last");
+    let library = fixture.open(&["first", "last"])?;
+    assert_eq!(library.overrides().count(), 2);
+    let conflicts: Vec<_> = library.conflicts().collect();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(
+        (
+            &*conflicts[0].path,
+            &*conflicts[0].previous,
+            &*conflicts[0].replacement
+        ),
+        ("ui/extra.ktx2", "first", "last")
+    );
+    Ok(())
+}
+
 #[test]
 fn equipment_mapping_preserves_item_keys_and_nonvisual_choices() -> Result<()> {
     use crate::battle_model::{Attachment, document};

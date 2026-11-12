@@ -15,7 +15,7 @@ readers in the target design. Tests use the same named layout as the application
 
 ## Granular asset owners
 
-Layout 107 publishes independently editable source files. The engine resolves
+Layout 108 publishes independently editable source files. The engine resolves
 all source owners, mod priorities and ordered registrations when it opens the
 library at startup. It caches immutable document bytes shared by preparations;
 playback does not scan source directories, merge JSON or follow mod layers.
@@ -42,7 +42,7 @@ game/items/
   items/apple-gel/definition.json
   items/apple-gel/text.json
 game/techniques/
-  mappings/260.json
+  mappings/259.json
   techniques/ghost-wolf-lloyd/rules.json
   techniques/ghost-wolf-lloyd/text.json
   learning/lloyd/ghost-wolf-lloyd/entry.json
@@ -51,9 +51,19 @@ game/techniques/
 
 An item rules mod replaces only its `definition.json`; a translation replaces
 only `text.json`. Another mod can add a different item without replacing either.
-Keep a new item's numeric registration and definition together. Original numeric
-IDs remain stable; existing range/contiguity requirements still apply. Modders
-must coordinate new IDs when they address the same original gameplay namespace.
+
+A new item or arte needs **no number**. Add its named entry and leave `mappings`
+alone: when the game starts, every entry without a registration receives the
+next free ID after the original ones, in name order. Two mods can therefore each
+add items and artes without knowing about each other. Choose a name unlikely to
+clash, such as `mymod-moon-berry`; references everywhere use that name. The
+resolved view shows the result, with `allocated_from` marking the first
+allocated ID. These IDs follow the enabled mods, so a save records each such
+item and arte by name and loading moves the saved inventory, equipment, learned
+artes, shortcuts and use counts to the current IDs. Loading a save that holds an
+entry from a mod which is no longer enabled is an error naming that entry.
+Original IDs never change. A mod can still write its own `mappings/<id>.json`,
+but then it competes for that number with every other mod that does the same.
 
 Collections combine distinct keys. The last enabled mod wins for the same source
 file. `collection.json` declares a collection (including an empty one); it does
@@ -107,7 +117,7 @@ The JSON owns the coordinate dimensions. Texture bindings are prepared up front.
 
 ## Finding a resource
 
-A library starts with `content.json`: `{"version":107,"game":"tales-of-symphonia"}`.
+A library starts with `content.json`: `{"version":108,"game":"tales-of-symphonia"}`.
 It identifies the cooked format and semantic game, with no source platform,
 product code, revision, file inventory or checksums. A future Steam importer
 targets the same layout and resource contracts; actual gameplay determines save
@@ -487,7 +497,27 @@ cargo run -p resonance -- --mod mods/translation --mod mods/music
 ```
 
 Each mod contains only its changed source files, using the same paths as the base
-library. Granular collections combine independent entries. An ID namespace such as `fields/mappings.json` is one of them: each ID is its own owner (`fields/mappings/332.json`), so a mod adds or rebinds single IDs. Mods need no registration manifest
+library. A mod may describe itself in an optional `mod.json` at its root:
+
+```json
+{"layout": 108, "name": "Moon Berry", "version": "1.0", "description": "Adds a berry."}
+```
+
+`layout` is the cooked layout the mod was written for. A mod declaring another
+layout stops the game at startup with a message naming it, instead of failing
+later in whichever documents changed shape. `mod.json` is never content.
+
+Check a mod before playing:
+
+```sh
+resonance-import validate --assets local/all-assets --mod mods/my-mod
+```
+
+This admits every gameplay catalogue, item caption, item equipment and authored
+action or spell the way the game does, but strictly, and reports each problem
+with the entry and the mods involved. It also warns when two mods supply the
+same file (the game logs the same conflicts at startup) and when a mod has a
+top-level directory the base library lacks, which is usually a misspelling. Granular collections combine independent entries. An ID namespace such as `fields/mappings.json` is one of them: each ID is its own owner (`fields/mappings/332.json`), so a mod adds or rebinds single IDs. Mods need no registration manifest
 and must not contain `content.json`. Restart Resonance after changing mods.
 The selected directories also apply to save loading, captures, title-audio
 recording and the world playground.
@@ -514,12 +544,89 @@ Enemy rules use named attacks, projectiles and contacts within the same
 edit. The [cooked library guide](cooked-library.md#enemy-rules) describes the
 format and defaults. JSON formatting keeps short arrays and event rows inline.
 
+## Adding an item
+
+Add `game/items/items/<name>/definition.json` and `text.json`; the item needs no
+number. `field_use` is what it does from the menu and `battle_use` what it does
+from the battle Items command. They are independent: an item can have either,
+both, or neither.
+
+```json
+{
+  "category": "gel",
+  "price": 120,
+  "field_usable": true,
+  "field_use": {"kind": "recover", "hp": 45},
+  "battle_usable": true,
+  "battle_use": {"kind": "recover", "hp": 45, "gel": true}
+}
+```
+
+Battle uses, with percentages of the target's maximum:
+
+| `kind` | Fields | Effect |
+| --- | --- | --- |
+| `recover` | `hp`, `tp`, `party`, `gel` | Restore one ally, or every active member with `party`. `gel` counts toward the record of having used a gel. |
+| `full_recovery` | | Restore one ally's HP and TP completely. |
+| `revive` | | Revive a fallen ally. |
+| `cure` | `ailments`: `physical`, `magical`, `all` | Remove ailments. |
+| `buff` | `buff`: `flare`, `guard`, `acuity`, `physical_ailment_guard`, `magical_ailment_guard` | The corresponding bottle effect. |
+| `quartz` | `element` | The corresponding quartz effect. |
+| `scan` | | Reveal one enemy. |
+| `all_divide` | | Halve all damage until the battle ends. |
+| `hourglass` | | Stop every enemy briefly. |
+
+The original items use the same vocabulary, so changing Apple Gel's
+`battle_use` changes it in battle. Use timing, cooldown, effect and sound are
+shared by every item. A new kind of effect needs engine work.
+
+An equippable item shows a model when its definition names a directory under
+`meshes/equipment/`: `"equipment": "mymod-moon-blade"` selects
+`meshes/equipment/mymod-moon-blade/equipment.json`. Without it an added item
+has no visible attachment. Original items keep binding through
+`meshes/equipment/mappings`. Add the icon under
+`ui/menu/sprites/rects/item_images/<name>.json`, as described above.
+
+### Obtaining an item
+
+Sell it in an existing shop with one registration; each mod adds its own line:
+
+```text
+game/menu/world-map/shops/<shop>/items/<name>/entry.json   "mymod-moon-berry"
+game/menu/world-map/shops/<shop>/items/<name>/order.json   99999
+```
+
+Award it for winning a particular battle, or for defeating a particular
+monster wherever it appears, with one file per reward under `battle/rewards/`.
+The file name is yours to choose, so mods never replace each other's rewards:
+
+```text
+battle/rewards/formations/<formation id>/<name>.json
+battle/rewards/monsters/<monster list id>/<name>.json
+```
+
+```json
+{"item": "mymod-moon-berry", "chance": 25, "count": 1}
+```
+
+`chance` is a percentage (default 100) and `count` defaults to 1. A formation
+reward is rolled once per victory, for each formation of a combined battle; a
+monster reward once per defeated enemy. They are added to the original drops,
+which keep their own two slots, and are not affected by drop bonuses. Formation
+IDs are the keys of `battle/formations/formations/`; monster IDs are the keys of
+`game/menu/monster-book/records/`.
+
+Still requiring edits to original content: treasure chests and scripted gifts
+live in each field's scenario bytecode, new shops are limited to the original 52
+shop slots, and crafting vendors, cooking ingredient groups and foraging pools
+are each one ordered list that a mod replaces whole.
+
 ## Adding an asset-authored arte
 
 An entry in `game/techniques.json` can select a complete action using
-`rules.action`, a library-root path to an authored action JSON. Add a unique
-nonzero catalogue ID and name to `mappings`, and that name to the character's
-`learning` list. The ID does not need an engine dispatch entry. Ordinary family,
+`rules.action`, a library-root path to an authored action JSON. Add the named
+technique entry, and that name to the character's `learning` list; it needs no
+number and no engine dispatch entry. Ordinary family,
 range, TP, learning, menu text, AI enablement and combo assignment come from
 that technique entry. New games can know it through the character's
 `initial.techniques`; existing parties acquire it through normal learning.
@@ -588,3 +695,84 @@ the Blender setup, export and mod preparation steps.
 Encounter preparation captures the action's dependencies and audio before
 combat, including capacity for artes learned mid-battle; executing it does not
 read loose assets.
+
+## Adding an asset-authored spell
+
+A technique whose `capabilities.spell` is set can select its release with
+`rules.spell`, a library-root path to a spell JSON. The technique entry keeps
+the ordinary casting rules: TP, `cast_time_adjustment`, element, target kind,
+`casting.effects` (the chant glow) and `recovery_ticks`. The spell document
+describes what happens when the chant completes.
+
+```json
+{
+  "duration": 90,
+  "origin": {"kind": "target"},
+  "voice": 98,
+  "pulses": [
+    {"at": 11, "benefit": {"kind": "hp", "percent": 45}, "effect": 20}
+  ]
+}
+```
+
+```json
+{
+  "duration": 30,
+  "startup": 23,
+  "sound": 81,
+  "projectiles": [{
+    "at": 4,
+    "projectile": 3,
+    "hit": {"kind": "magic", "power": {"percent": 150}, "element": {"element": "fire"}, "arte": true},
+    "velocity": [0.0, 0.0, 0.5],
+    "launch": {"kind": "caster_above", "scale": 2.0, "offset": 50.0}
+  }],
+  "unison": {"native_id": 9001, "altitude": 0, "distance": 300, "duration": 30}
+}
+```
+
+- `duration` is how long the spell stays active after release, in gameplay
+  updates (60 per second). Every event must start within it.
+- `origin` places projectiles and scene effects: `caster` (default), `target`,
+  `target_ground`, or `ground` with `toward_caster`.
+- `pulses` apply a benefit at one moment. `benefit` is `hp` (`percent`), `tp`
+  (`amount`), `cure` (`ailments`), `resurrect` (`percent`) or `stat`
+  (`condition` such as `attack_up`, `percent`, `duration`). `targets` is
+  `target` (default), `caster`, `living_allies`, `living_opponents` or `area`
+  with a `radius` around the origin. `effect` is shown on each recipient.
+- `projectiles` launch at `at`. `projectile` is a member of the shared
+  `battle/projectiles/records`, or a complete definition in that format, whose
+  effects name bank 0 for the common bank, 1 for the shared technique bank and
+  2 for this spell's own. `hit` uses the same format as an arte contact.
+  `launch` is `live` (default), `caster_above` or `at_height`.
+- `visuals` are timed effect programs without gameplay, placed at `origin`
+  (with an `offset`), `caster_ground`, `caster_center` or `enemy_centers`.
+- `effects` selects the spell's own effect bank for every effect number above;
+  absent selects the shared technique bank. `startup` is the program started at
+  release and `sound` the release cue.
+- `voice` names an original spell whose chant and release lines the caster
+  reuses; absent uses the caster's default lines.
+- `unison` is required for an offensive spell, with a `native_id` no other
+  technique uses.
+
+This covers healing, support and projectile spells. The original spells with
+stored scenes, camera work, summons and caster gestures remain engine code, and
+enemies cannot cast an authored spell. `resonance-import validate` checks the
+document, and encounter preparation reports any effect or projectile it cannot
+bind before combat starts.
+
+## Authoring tools
+
+```sh
+# Artwork to a library texture and back. Sizes in multiples of four become BC7;
+# other sizes become lossless RGBA8, because padding would move every coordinate.
+resonance-import texture --input jacket.png --output jacket.ktx2
+resonance-import texture --input jacket.ktx2 --output jacket.png
+
+# What refers to a resource, and where identical copies of it live.
+resonance-import usage --assets local/all-assets --path meshes/characters/lloyd/textures/1.ktx2
+```
+
+Many original textures exist as several identical files, each referenced by a
+different model. `usage` lists those copies so a replacement can cover all of
+them.

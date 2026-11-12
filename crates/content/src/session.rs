@@ -13,6 +13,48 @@ pub struct SessionData {
     pub items: Vec<ItemDefinition>,
     pub characters: Vec<CharacterDefinition>,
     pub experience: Vec<u32>,
+    /// Entries of the enabled mods which saves identify by name.
+    #[serde(default, skip_serializing_if = "Identities::is_empty")]
+    pub identities: Identities,
+}
+
+/// Current IDs of the catalogue entries that have no fixed number. An ID here
+/// can change when the enabled mods change, so a save stores this table and
+/// loading renumbers the saved state by name.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Identities {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub items: BTreeMap<u16, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub techniques: BTreeMap<u16, String>,
+}
+
+impl Identities {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty() && self.techniques.is_empty()
+    }
+
+    /// Saved-to-current IDs for one catalogue, or `None` when nothing moved.
+    /// An entry whose mod is no longer enabled maps to `None`.
+    pub fn renumbering(
+        saved: &BTreeMap<u16, String>,
+        current: &BTreeMap<u16, String>,
+    ) -> Option<BTreeMap<u16, Option<u16>>> {
+        if saved == current {
+            return None;
+        }
+        let ids: BTreeMap<&str, u16> = current
+            .iter()
+            .map(|(&id, name)| (name.as_str(), id))
+            .collect();
+        Some(
+            saved
+                .iter()
+                .map(|(&id, name)| (id, ids.get(name.as_str()).copied()))
+                .collect(),
+        )
+    }
 }
 
 /// Localized labels are independent of gameplay statistics.
@@ -146,6 +188,10 @@ impl SessionData {
                 &ex,
             )?,
             experience: characters.experience_curve()?,
+            identities: Identities {
+                items: items.allocated.clone(),
+                techniques: techniques.allocated.clone(),
+            },
             items: items.inventory,
             rules: Some(std::sync::Arc::new(rules)),
             version: 1,

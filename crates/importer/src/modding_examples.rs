@@ -10,7 +10,10 @@ use std::{collections::BTreeMap, path::Path};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Example {
-    id: u16,
+    /// A fixed catalogue number. Leave it out: the game then gives the arte a
+    /// free number when it starts, and mods never compete for one.
+    #[serde(default)]
+    id: Option<u16>,
     name: String,
     character: String,
     initially_known: bool,
@@ -29,14 +32,15 @@ struct MotionReference {
 /// Admit only a new ID and name; a mod would otherwise silently replace an arte.
 fn check_addition(document: &arte::document::Document, example: &Example) -> Result<()> {
     document.characters.id(&example.character)?;
-    ensure!(
-        document
-            .mappings
-            .iter()
-            .all(|(id, _)| id != u32::from(example.id)),
-        "modding example catalogue ID {} is already used",
-        example.id
-    );
+    if let Some(fixed) = example.id {
+        ensure!(
+            document
+                .mappings
+                .iter()
+                .all(|(id, _)| id != u32::from(fixed)),
+            "modding example catalogue ID {fixed} is already used"
+        );
+    }
     ensure!(
         document
             .mappings
@@ -65,11 +69,13 @@ pub fn prepare_arte_mod(source: &Path, library: &Path, output: &Path) -> Result<
         .get(&example.character)
         .context("modding example character has no learning list")?
         .len();
-    let contribution = serde_json::json!({
-        "mappings": {(example.id.to_string()): example.name},
+    let mut contribution = serde_json::json!({
         "techniques": {(example.name.clone()): example.technique},
         "learning": {(example.character.clone()): [example.name]}
     });
+    if let Some(fixed) = example.id {
+        contribution["mappings"] = serde_json::json!({(fixed.to_string()): example.name});
+    }
     let mut files = contribution_files(
         arte::PATH,
         &contribution,
@@ -443,8 +449,16 @@ mod tests {
 
         prepare_arte_mod(&source, &base, &output)?;
         let files = crate::authoring::file_paths(&output)?;
-        assert!(files.contains("game/techniques/mappings/260.json"));
+        // The arte is identified by name; the game numbers it at startup.
+        assert!(files.contains("game/techniques/techniques/ghost-wolf-lloyd/rules.json"));
+        assert!(!files.iter().any(|path| path.contains("/mappings/")));
         assert!(!files.iter().any(|path| path.ends_with("collection.json")));
+        let allocated: arte::document::Document =
+            resonance_content::library::Library::open_paths(&base, std::slice::from_ref(&output))?
+                .snapshot()
+                .json(arte::PATH, resonance_content::preparation::JSON_LIMIT)?;
+        assert_eq!(allocated.mappings.id("ghost-wolf-lloyd")?, 2);
+        assert_eq!(allocated.allocated_from, Some(2));
 
         // Only a previously generated directory is replaced.
         crate::output::write(&output.join("stale"), b"")?;
@@ -461,17 +475,38 @@ mod tests {
 
     #[test]
     fn rejects_collisions_with_imported_techniques() -> Result<()> {
-        for mappings in [
-            json!({"1": "native-arte", "260": "future-native-arte"}),
-            json!({"1": "native-arte", "261": "ghost-wolf-lloyd"}),
-            json!({"1": "native-arte", "260": "ghost-wolf-lloyd"}),
+        let recipe: serde_json::Value =
+            serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))?;
+        let mut fixed = recipe.clone();
+        fixed["id"] = json!(260);
+        for (mappings, recipe, collides) in [
+            // A name is taken whatever its number; a number only when requested.
+            (
+                json!({"1": "native-arte", "261": "ghost-wolf-lloyd"}),
+                &recipe,
+                true,
+            ),
+            (
+                json!({"1": "native-arte", "260": "future-native-arte"}),
+                &recipe,
+                false,
+            ),
+            (
+                json!({"1": "native-arte", "260": "future-native-arte"}),
+                &fixed,
+                true,
+            ),
+            (json!({"1": "native-arte"}), &fixed, false),
         ] {
             let mut techniques = serde_json::to_value(native_techniques())?;
-            techniques["mappings"] = mappings;
+            techniques["mappings"] = mappings.clone();
             let techniques: arte::document::Document = serde_json::from_value(techniques)?;
-            let example =
-                serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))?;
-            assert!(check_addition(&techniques, &example).is_err());
+            let example = serde_json::from_value(recipe.clone())?;
+            assert_eq!(
+                check_addition(&techniques, &example).is_err(),
+                collides,
+                "{mappings}"
+            );
         }
         Ok(())
     }

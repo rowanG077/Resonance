@@ -187,7 +187,7 @@ only that request. No archive numbers or ID reconstruction rules are needed.
 
 ## Resolved views and source owners
 
-In layout 107, catalogue paths in this guide (for example `game/items.json`)
+In layout 108, catalogue paths in this guide (for example `game/items.json`)
 are resolved document views. The importer publishes independently editable owners
 under the corresponding directory, and the game assembles/caches them at startup.
 Use `resonance-import resolve --assets PATH --document game/items.json` to inspect
@@ -216,7 +216,10 @@ is not one of its owners (for example a misspelled name) is an error.
 Repeat `--mod` to enable more mods. Later mods win for the same file. An ID
 mapping such as `fields/mappings.json` has one owner per ID, so a mod rebinds
 ID 332 with `fields/mappings/332.json` and inherits the rest. Remove the corresponding `--mod` argument to disable a mod. Mods require
-no registration manifest and must not contain `content.json`.
+no registration manifest and must not contain `content.json`. An optional
+`mod.json` such as `{"layout": 108, "name": "My mod"}` lets the game refuse a mod
+written for another layout. Run `resonance-import validate --assets PATH --mod PATH`
+to check a mod before playing.
 
 The cooked library has no hash-based names, checksums or fingerprint files.
 It also contains no copy of the original archive tree. Native headers, skeleton

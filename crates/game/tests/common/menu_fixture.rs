@@ -15,6 +15,7 @@ pub const SPARE_WEAPON: u16 = 2;
 pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
     let catalogue = vec![2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     let session = Arc::new(SessionData {
+        identities: Default::default(),
         rules: None,
         version: 1,
         experience: vec![0, 0, 100],
@@ -54,6 +55,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
         ],
     });
     let data = MenuData {
+        battle_rewards: Default::default(),
         crafting: Default::default(),
         grade_shop: resonance_content::grade::Shop {
             options: vec![],
@@ -70,6 +72,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
                 price: 0,
                 transforms_to: 0,
                 field_use: None,
+                battle_use: None,
                 attention: None,
             })
             .collect(),

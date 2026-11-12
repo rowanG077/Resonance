@@ -166,7 +166,13 @@ impl Files {
                 .is_some_and(|bytes| bytes.contains_key(path))
     }
     pub fn json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
-        serde_json::from_slice(&self.read(path)?).with_context(|| format!("decode {path}"))
+        serde_json::from_slice(&self.read(path)?).with_context(|| {
+            let mods = self
+                .library()
+                .map(|library| library.attribution(path))
+                .unwrap_or_default();
+            format!("decode {path}{mods}")
+        })
     }
     /// An omitted declaration has its default value. A declared file must exist
     /// in this preparation and decode successfully.

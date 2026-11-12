@@ -52,6 +52,33 @@ enum Action {
         #[arg(long)]
         document: Option<String>,
     },
+    /// Check a library and its mods before playing: every gameplay catalogue,
+    /// authored action and mod conflict, with the mods behind each failure.
+    Validate {
+        #[arg(long)]
+        assets: PathBuf,
+        #[arg(long = "mod")]
+        mods: Vec<PathBuf>,
+    },
+    /// Convert a PNG to a library texture (BC7, or lossless RGBA8 when the size
+    /// is not a multiple of four), or a library texture back to a PNG.
+    Texture {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// List the documents that refer to a resource, and its identical copies
+    /// elsewhere in the library, before replacing it.
+    Usage {
+        #[arg(long)]
+        assets: PathBuf,
+        #[arg(long = "mod")]
+        mods: Vec<PathBuf>,
+        /// Library path, such as meshes/characters/lloyd/textures/0.ktx2.
+        #[arg(long)]
+        path: String,
+    },
     /// Split a logical document into independently owned mod source files.
     SplitDocument {
         #[arg(long)]
@@ -141,6 +168,57 @@ fn main() -> Result<()> {
                 serde_json::json!({"documents":documents})
             };
             println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        Action::Texture { input, output } => {
+            use resonance_importer::modding_tools as tools;
+            let extension = |path: &PathBuf| {
+                path.extension()
+                    .and_then(|extension| extension.to_str())
+                    .map(str::to_ascii_lowercase)
+            };
+            let bytes = fs::read(&input).with_context(|| input.display().to_string())?;
+            let converted = match (extension(&input).as_deref(), extension(&output).as_deref()) {
+                (Some("png"), Some("ktx2")) => {
+                    let (bytes, profile) = tools::png_to_ktx2(&bytes)?;
+                    if profile == tools::TextureProfile::Rgba8 {
+                        eprintln!(
+                            "Size is not a multiple of four: wrote lossless RGBA8, which uses more video memory than BC7"
+                        );
+                    }
+                    bytes
+                }
+                (Some("ktx2"), Some("png")) => tools::ktx2_to_png(&bytes)?,
+                _ => anyhow::bail!("convert .png to .ktx2 or .ktx2 to .png"),
+            };
+            fs::write(&output, converted).with_context(|| output.display().to_string())?;
+        }
+        Action::Usage { assets, mods, path } => {
+            let library = resonance_content::library::Library::open_paths(&assets, &mods)?;
+            let usage = resonance_importer::modding_tools::usage(&library, &path)?;
+            println!("Referenced by {} document(s):", usage.references.len());
+            for reference in &usage.references {
+                println!("  {reference}");
+            }
+            println!("Identical copies at {} other path(s):", usage.copies.len());
+            for copy in &usage.copies {
+                println!("  {copy}");
+            }
+        }
+        Action::Validate { assets, mods } => {
+            let library = resonance_content::library::Library::open_paths(&assets, &mods)?;
+            let report = resonance_content::validation::validate(&library);
+            for warning in &report.warnings {
+                println!("warning: {warning}");
+            }
+            for error in &report.errors {
+                println!("error: {error}");
+            }
+            println!(
+                "{} error(s), {} warning(s)",
+                report.errors.len(),
+                report.warnings.len()
+            );
+            anyhow::ensure!(report.errors.is_empty(), "content validation failed");
         }
         Action::SplitDocument {
             input,

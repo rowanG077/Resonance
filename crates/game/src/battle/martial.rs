@@ -166,6 +166,15 @@ impl Technique {
             sequence: Sequence::Asset,
         }
     }
+    /// A cast whose release comes from the technique's `spell` document.
+    /// Its own ID selects the caster's default voice lines.
+    pub(crate) fn authored_spell(character: Character, catalogue: u16) -> Self {
+        Self {
+            character,
+            catalogue,
+            sequence: Sequence::Spell(catalogue),
+        }
+    }
     pub(crate) fn is_special_guard(self) -> bool {
         self.sequence == Sequence::SpecialGuard
     }

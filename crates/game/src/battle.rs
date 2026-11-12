@@ -4,6 +4,7 @@ mod advanced_ground_spells;
 pub mod ai;
 mod aqua_laser;
 pub mod audio;
+mod authored_spell;
 mod colette_spells;
 pub mod command;
 pub mod companion;

@@ -120,6 +120,88 @@ fn field_use(id: usize, flags: u8) -> Option<Action> {
     }
 }
 
+/// The original battle item routine selects its effect by item number.
+fn battle_use(id: usize) -> Option<items::BattleUse> {
+    use items::{BattleBuff, BattleCure, BattleUse::*};
+    use resonance_content::menu_data::Element;
+    let gel = |hp, tp| Recover {
+        hp,
+        tp,
+        party: false,
+        gel: true,
+    };
+    let party = |hp, tp| Recover {
+        hp,
+        tp,
+        party: true,
+        gel: false,
+    };
+    Some(match id {
+        1 => gel(30, 0),
+        2 => gel(60, 0),
+        3 => gel(0, 30),
+        4 => gel(0, 60),
+        5 => gel(30, 30),
+        6 => gel(60, 60),
+        7 => FullRecovery,
+        8 => party(30, 0),
+        9 => party(0, 30),
+        10 => Cure {
+            ailments: BattleCure::Physical,
+        },
+        11 => Revive,
+        12 => Cure {
+            ailments: BattleCure::All,
+        },
+        13 => Cure {
+            ailments: BattleCure::Magical,
+        },
+        14 | 15 => Buff {
+            buff: BattleBuff::Flare,
+        },
+        16 => Buff {
+            buff: BattleBuff::Guard,
+        },
+        17 => Buff {
+            buff: BattleBuff::Acuity,
+        },
+        18 | 19 => Buff {
+            buff: BattleBuff::PhysicalAilmentGuard,
+        },
+        20 | 21 => Buff {
+            buff: BattleBuff::MagicalAilmentGuard,
+        },
+        37 => Scan,
+        38 => AllDivide,
+        39 => Hourglass,
+        44 => Quartz {
+            element: Element::Water,
+        },
+        45 => Quartz {
+            element: Element::Wind,
+        },
+        46 => Quartz {
+            element: Element::Fire,
+        },
+        47 => Quartz {
+            element: Element::Earth,
+        },
+        48 => Quartz {
+            element: Element::Ice,
+        },
+        49 => Quartz {
+            element: Element::Lightning,
+        },
+        50 => Quartz {
+            element: Element::Darkness,
+        },
+        51 => Quartz {
+            element: Element::Light,
+        },
+        _ => return None,
+    })
+}
+
 fn convert(exe: &[u8]) -> Result<items::Document> {
     let mappings = Mappings::new(
         ItemId::ALL
@@ -161,6 +243,7 @@ fn convert(exe: &[u8]) -> Result<items::Document> {
         let price = u32::try_from(dol::u32(row, 4)? as i32).context("negative item price")?;
         let entry = Entry {
             category,
+            equipment: None,
             characters: Characters::from_mask(mask)?,
             stack_limit: None,
             field_usable: row[0x17] & 1 != 0,
@@ -174,6 +257,7 @@ fn convert(exe: &[u8]) -> Result<items::Document> {
                 .transpose()?
                 .map(str::to_owned),
             field_use: field_use(id, row[0x17]),
+            battle_use: battle_use(id),
             attention: attention(id),
             text: serde_json::to_value(ItemText {
                 name: caption(exe, row, 0)?,
@@ -190,6 +274,7 @@ fn convert(exe: &[u8]) -> Result<items::Document> {
     }
     let equipment_descriptions = descriptions(exe, &used_descriptions)?;
     Ok(items::Document {
+        allocated_from: None,
         mappings,
         items: entries,
         equipment_descriptions,

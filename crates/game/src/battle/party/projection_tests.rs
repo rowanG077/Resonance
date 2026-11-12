@@ -11,6 +11,7 @@ use resonance_content::menu_data::{
 pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
     let (_, _, titles, mut party) = crate::battle::rewards::tests::reward_fixture();
     let mut menus = MenuData {
+        battle_rewards: Default::default(),
         crafting: Default::default(),
         grade_shop: resonance_content::grade::Shop {
             options: vec![],
@@ -27,6 +28,7 @@ pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
                 price: 0,
                 transforms_to: 0,
                 field_use: None,
+                battle_use: None,
                 attention: None,
             };
             7

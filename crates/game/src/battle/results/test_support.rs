@@ -109,6 +109,7 @@ pub(crate) fn native_fixture(
     enemy.control = Control::Enemy;
     actors.push(enemy);
     let mut setup = Setup {
+        formation_rewards: Vec::new(),
         devils_arms_unlocked: false,
         enemies: vec![PreparedEnemy {
             actor: enemy_id,
@@ -117,6 +118,7 @@ pub(crate) fn native_fixture(
             steal: None,
             steal_chance: 0,
             reward: rewards::EnemyReward {
+                extra: Vec::new(),
                 monster: 0,
                 experience: 0,
                 gald: 0,

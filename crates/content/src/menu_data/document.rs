@@ -91,6 +91,7 @@ impl Document {
             serde_json::json!({"names":self.world_map.names}),
         );
         Ok(MenuData {
+            battle_rewards: Default::default(),
             grade_shop: self.grade_shop,
             items: Default::default(),
             titles: Default::default(),

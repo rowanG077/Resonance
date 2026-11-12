@@ -455,7 +455,8 @@ impl super::encounter::resources::Resources<'_> {
                         }
                     }
                     EnemyEvent::UseItem { item, party } => {
-                        let policy = super::items::policies()
+                        let policy = self
+                            .items
                             .get(item)
                             .copied()
                             .context("enemy item has no prepared benefit")?;

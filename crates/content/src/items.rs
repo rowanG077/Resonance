@@ -24,6 +24,10 @@ pub struct Document {
     pub items: BTreeMap<String, Entry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub equipment_descriptions: BTreeMap<String, Description>,
+    /// First ID the library allocated to an entry without a `mappings`
+    /// registration. Derived when the library opens; never authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocated_from: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,7 +56,14 @@ pub struct Entry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field_use: Option<Action>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battle_use: Option<BattleUse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attention: Option<menu_data::ItemAttention>,
+    /// Directory under `meshes/equipment/` shown while this item is equipped.
+    /// Original items bind through `meshes/equipment/mappings` instead, which
+    /// an added item cannot use: it has no fixed number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub equipment: Option<String>,
     /// Caption failure remains independent of gameplay admission.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub text: Value,
@@ -60,6 +71,8 @@ pub struct Entry {
 
 pub struct Prepared {
     pub mappings: Mappings,
+    /// Names of the items saves identify by name, by their current ID.
+    pub allocated: BTreeMap<u16, String>,
     pub menu: Vec<Item>,
     pub inventory: Vec<ItemDefinition>,
     pub text: Vec<Value>,
@@ -153,7 +166,9 @@ impl Document {
                     Some(mappings.target(u32::from(item.transforms_to))?.into())
                 },
                 field_use: item.field_use.map(Action::try_from).transpose()?,
+                battle_use: item.battle_use,
                 attention: item.attention,
+                equipment: None,
                 text: text[index]
                     .as_ref()
                     .map(serde_json::to_value)
@@ -169,6 +184,7 @@ impl Document {
             mappings,
             items,
             equipment_descriptions,
+            allocated_from: None,
         };
         document.prepare()?;
         Ok(document)
@@ -189,6 +205,7 @@ impl Document {
         ensure!(!identities.is_empty(), "item catalogue is empty");
         let mut result = Prepared {
             mappings: self.mappings.clone(),
+            allocated: crate::authoring::allocated(&self.mappings, self.allocated_from)?,
             menu: Vec::new(),
             inventory: Vec::new(),
             text: Vec::new(),
@@ -211,6 +228,23 @@ impl Document {
                 .get(name)
                 .with_context(|| format!("missing item {name}"))?;
             let category = item.category.index();
+            if let Some(equipment) = &item.equipment {
+                crate::library::validate_path(equipment)
+                    .with_context(|| format!("equipment of item {name}"))?;
+                ensure!(
+                    item.category.equipment_kind().is_some(),
+                    "item {name} declares equipment but its category cannot be equipped"
+                );
+            }
+            if let Some(battle_use) = item.battle_use {
+                battle_use
+                    .validate()
+                    .with_context(|| format!("battle use of item {name}"))?;
+                ensure!(
+                    item.battle_usable,
+                    "item {name} has a battle use but is not battle_usable"
+                );
+            }
             let stack_limit = item
                 .stack_limit
                 .unwrap_or_else(|| crate::session::item_stack_limit(category));
@@ -242,6 +276,7 @@ impl Document {
                     .transpose()?
                     .unwrap_or(0),
                 field_use: item.field_use.map(ItemUse::try_from).transpose()?,
+                battle_use: item.battle_use,
                 attention: item.attention,
             });
             result.inventory.push(ItemDefinition {
@@ -253,6 +288,43 @@ impl Document {
         }
         Ok(result)
     }
+}
+
+/// The visible attachment an item names for itself: `Some(None)` for an added
+/// item without one, and `None` when the numeric equipment mapping decides.
+pub(crate) fn equipment(
+    snapshot: &mut crate::library::Snapshot,
+    item: u32,
+) -> Result<Option<Option<String>>> {
+    #[derive(Deserialize)]
+    struct Catalogue {
+        mappings: crate::library::MappingValues<String>,
+        #[serde(default)]
+        allocated_from: Option<u32>,
+        items: BTreeMap<String, Visual>,
+    }
+    #[derive(Deserialize)]
+    struct Visual {
+        #[serde(default)]
+        equipment: Option<String>,
+    }
+    let Some(bytes) = snapshot.read_optional(PATH, crate::preparation::JSON_LIMIT)? else {
+        return Ok(None);
+    };
+    let catalogue: Catalogue =
+        serde_json::from_slice(&bytes).with_context(|| format!("decode {PATH}"))?;
+    let declared = catalogue
+        .mappings
+        .0
+        .get(&item)
+        .and_then(|name| catalogue.items.get(name))
+        .and_then(|entry| entry.equipment.clone());
+    Ok(match declared {
+        Some(name) => Some(Some(name)),
+        // Numbers past the original items are shared with unrelated props.
+        None if catalogue.allocated_from.is_some_and(|from| item >= from) => Some(None),
+        None => None,
+    })
 }
 
 #[cfg(test)]

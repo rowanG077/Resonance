@@ -61,6 +61,8 @@ pub struct Assets {
     pub common_effects: Option<Arc<SourceBank>>,
     pub technique_effects: Option<Arc<SourceBank>>,
     pub authored_effects: BTreeMap<u16, Arc<SourceBank>>,
+    /// Asset-authored spell releases of the party's learnable techniques.
+    pub authored_spells: BTreeMap<u16, Arc<resonance_content::battle_spell::AuthoredSpell>>,
     pub stage_effects: Option<Arc<SourceBank>>,
     pub enemy_effects: BTreeMap<u8, Arc<SourceBank>>,
     pub spell_scenes: BTreeMap<u16, Arc<SourceBank>>,

@@ -11,8 +11,11 @@ use std::{
     path::Path,
 };
 
+mod allocate;
 mod json;
 mod layouts;
+pub(crate) use allocate::allocate;
+pub use allocate::allocated;
 pub(crate) use json::decode;
 #[cfg(test)]
 mod tests;

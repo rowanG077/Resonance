@@ -534,9 +534,7 @@ mod tests {
         ] {
             let mut list = ready(14);
             list.row = 12;
-            let (returned, cues) = list.step(Some(input), |item| {
-                crate::battle::items::policies().contains_key(&item)
-            });
+            let (returned, cues) = list.step(Some(input), |item| (1..=21).contains(&item));
             assert_eq!((returned, cues), (None, vec![cue]));
             let choice = (0..16).find_map(|_| list.step(InventoryInput::default(), |_| true).0);
             assert_eq!(choice, Some(expected));
@@ -566,15 +564,12 @@ mod tests {
     fn unsupported_rows_remain_visible_and_never_enter_a_close_or_queue() {
         let mut list = ready(23);
         list.row = 21;
-        let (returned, cues) = list.step(Some(MenuAction::Confirm), |item| {
-            crate::battle::items::policies().contains_key(&item)
-        });
+        let (returned, cues) =
+            list.step(Some(MenuAction::Confirm), |item| (1..=21).contains(&item));
         assert_eq!(list.selected(), Some(22));
         assert_eq!(cues, [4]);
         assert!(returned.is_none() && list.closing.is_none());
-        let (_, cues) = list.step(Some(MenuAction::Details), |item| {
-            crate::battle::items::policies().contains_key(&item)
-        });
+        let (_, cues) = list.step(Some(MenuAction::Details), |item| (1..=21).contains(&item));
         assert_eq!(cues, [1]);
     }
 
@@ -611,6 +606,7 @@ mod tests {
                 price: 0,
                 transforms_to: 0,
                 field_use: None,
+                battle_use: None,
                 attention: None,
             })
             .collect();

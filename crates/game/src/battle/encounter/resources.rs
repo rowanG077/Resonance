@@ -20,6 +20,7 @@ pub(crate) struct Resources<'a> {
     pub common: EffectResource,
     pub techniques: EffectResource,
     pub authored_effects: BTreeMap<u16, EffectResource>,
+    pub authored_spells: &'a BTreeMap<u16, Arc<resonance_content::battle_spell::AuthoredSpell>>,
     pub enemy_effects: BTreeMap<u8, EffectResource>,
     pub spell_scenes: BTreeMap<u16, EffectResource>,
     pub skill_scenes: BTreeMap<u16, EffectResource>,
@@ -28,6 +29,8 @@ pub(crate) struct Resources<'a> {
     pub prepared: ActionResources,
     pub feedback: &'a mut battle::feedback::Feedback,
     pub spells: BTreeMap<u16, Arc<resonance_battle::PreparedSpell>>,
+    /// Battle uses of the item catalogue, shared with the party's Items command.
+    pub items: Arc<BTreeMap<u16, resonance_battle::item::Policy>>,
     pub sound: &'a mut dyn FnMut(Sound) -> Result<Option<Sound>>,
 }
 
@@ -77,6 +80,12 @@ impl Resources<'_> {
                 })
                 .flatten();
             let action = if let Some(voice) = technique.casting_voice() {
+                // An authored spell borrows an original spell's voice lines.
+                let voice = self
+                    .authored_spells
+                    .get(&catalogue)
+                    .and_then(|spell| spell.voice)
+                    .unwrap_or(voice);
                 let cost = u16::from(descriptor.tp_cost);
                 let (mut cast, feedback) = self
                     .casting(source, catalogue, voice, None)
@@ -172,6 +181,31 @@ impl Resources<'_> {
             Arc::clone(spell)
         } else {
             let mut spell = match technique {
+                _ if self.authored_spells.contains_key(&technique) => {
+                    let authored = self.authored_spells[&technique].clone();
+                    let sound = authored
+                        .sound
+                        .map(|cue| (self.sound)(battle::voice::Sound::Cue(cue)))
+                        .transpose()?
+                        .flatten();
+                    battle::authored_spell::prepare(
+                        &authored,
+                        self.files,
+                        self.projectiles,
+                        self.recoil,
+                        battle::authored_spell::Banks {
+                            common: &self.common,
+                            techniques: &self.techniques,
+                            spell: self
+                                .authored_effects
+                                .get(&technique)
+                                .unwrap_or(&self.techniques),
+                        },
+                        &mut self.prepared,
+                        sound,
+                    )
+                    .with_context(|| format!("authored spell of technique {technique}"))?
+                }
                 battle::first_aid::CATALOGUE | battle::first_aid::KNIGHT_CATALOGUE => {
                     battle::first_aid::prepare(&self.techniques, &mut self.prepared)?
                 }
@@ -392,12 +426,11 @@ pub(super) fn party_techniques(
         .copied()
         .chain([guard.catalogue])
         .filter_map(|id| {
-            let technique = if catalogue
-                .definitions
-                .get(usize::from(id))
-                .is_some_and(|rule| rule.action.is_some())
-            {
+            let rule = catalogue.definitions.get(usize::from(id));
+            let technique = if rule.is_some_and(|rule| rule.action.is_some()) {
                 Some(battle::martial::Technique::asset(character, id))
+            } else if rule.is_some_and(|rule| rule.spell.is_some()) {
+                Some(battle::martial::Technique::authored_spell(character, id))
             } else {
                 battle::martial::technique(character, id)
             };

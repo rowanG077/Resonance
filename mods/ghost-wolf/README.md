@@ -28,9 +28,10 @@ attack. The combat learning check also requires level 6 and works at maximum
 level. Open **Artes** to assign its combo; it is also available through the
 battle Artes command and Unison loadout.
 
-`example.json` is the offline arte build recipe. The build writes only the ID
-registration, this arte's rules/text, and its learning registration as granular
-source files. It writes no `collection.json` markers for those shared
+`example.json` is the offline arte build recipe. The build writes only this
+arte's rules/text and its learning registration as granular source files. It
+registers no number: the game gives the arte a free ID at startup, and saves
+record it by name. It writes no `collection.json` markers for those shared
 catalogues; the base library owns them. Another mod can add a different arte or
 translate this one's `text.json` without copying any global catalogue. The base importer has no Ghost
 Wolf registration or embedded runtime payloads.
@@ -40,7 +41,7 @@ Wolf registration or embedded runtime payloads.
 | File | Purpose |
 | --- | --- |
 | `source/ghost-wolf.blend` | Authored animation adjustments, editing controls and studio, with links to the local character, rig and reference pose. |
-| `example.json` | Catalogue ID/name, owning character, local motion references, initial learning, and the single technique entry: text, TP, family, range and learning rules. |
+| `example.json` | Catalogue name, owning character, local motion references, initial learning, and the single technique entry: text, TP, family, range and learning rules. |
 | `battle/artes/ghost-wolf/action.json` | Motion binding, gameplay timing, movement, contacts, sounds, effects and Unison placement. |
 | `battle/artes/ghost-wolf/ghost-wolf.glb` | Exported motion deltas on named identity nodes; no native skeleton, bind matrices or idle pose. |
 | `battle/artes/ghost-wolf/effects.json` | Blue-white launch streaks, passing crescents, vapor, impact flashes and shards. |
@@ -50,8 +51,9 @@ The effect document references the existing cooked texture
 importing creates it from the user's game discs. The example does not
 bundle this game texture or copy it into its own asset directory.
 
-The mod adds catalogue ID **260**, named `ghost-wolf-lloyd`, to the native
-catalogue and Lloyd's learning list. `initially_known` controls whether new
+The mod adds the arte named `ghost-wolf-lloyd` to the native catalogue and
+Lloyd's learning list. With no other arte mod enabled it receives ID 260, the
+first number after the original artes. `initially_known` controls whether new
 parties start with it. The example supplies no full catalogue or character
 replacement. All costumes bind the same animation through native joint names.
 There is no Ghost Wolf-specific runtime dispatch: the game reads its authored

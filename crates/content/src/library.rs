@@ -18,10 +18,14 @@ pub use stream::StreamReader;
 mod capture;
 pub use capture::Capture;
 
-pub const VERSION: u32 = 107;
+pub const VERSION: u32 = 108;
 /// The game contract, independent of the release used to import its content.
 pub const GAME: &str = "tales-of-symphonia";
 pub const DESCRIPTOR: &str = "content.json";
+/// Layer name of the cooked game beneath every mod.
+pub const BASE: &str = "base";
+/// Optional description at the root of a mod. It is not content.
+pub const MANIFEST: &str = "mod.json";
 pub const FIELDS: &str = "fields/mappings.json";
 pub const MOVIES: &str = "movies/mappings.json";
 
@@ -46,6 +50,22 @@ impl Descriptor {
         );
         Ok(())
     }
+}
+
+/// What a mod says about itself. A mod works without one; declaring `layout`
+/// turns a stale mod into one clear startup error instead of scattered
+/// failures in whichever documents changed shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Manifest {
+    /// Cooked layout version the mod's files were written for.
+    pub layout: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// One gameplay lookup namespace. IDs use canonical unsigned decimal keys; bank
@@ -249,6 +269,8 @@ pub fn discover_mods(directory: &Path) -> Result<Vec<PathBuf>> {
 #[derive(Debug)]
 struct IndexedFile {
     physical: PathBuf,
+    /// Mods which supply this file, or any owner of this assembled document.
+    mods: BTreeSet<String>,
     overrides: Vec<Override>,
     /// Composed documents are resolved once at startup, shared by preparations.
     resolved: Option<Arc<[u8]>>,
@@ -275,8 +297,9 @@ impl Index {
                         .file_name()
                         .into_string()
                         .map_err(|_| anyhow::anyhow!("non-UTF-8 content name in {parent}"))?;
-                    // Version control and editor state beside a mod is not content.
-                    if name.starts_with('.') {
+                    // Version control and editor state beside a mod is not content,
+                    // and neither is the mod's description of itself.
+                    if name.starts_with('.') || parent.is_empty() && name == MANIFEST {
                         continue;
                     }
                     let path = if parent.is_empty() {
@@ -312,6 +335,7 @@ impl Index {
                         .entry(path.clone())
                         .or_insert_with(|| IndexedFile {
                             physical: physical.clone(),
+                            mods: BTreeSet::new(),
                             overrides: Vec::new(),
                             resolved: None,
                         });
@@ -323,6 +347,11 @@ impl Index {
                         });
                     }
                     selected.physical = physical;
+                    // Only the selected file can explain a later failure.
+                    selected.mods.clear();
+                    if layer.name != BASE {
+                        selected.mods.insert(layer.name.clone());
+                    }
                 }
             }
         }
@@ -370,18 +399,25 @@ impl Index {
             layout.document
         );
         let mut overrides = Vec::new();
+        let mut mods = BTreeSet::new();
         let mut read = |path: &str| -> Result<serde_json::Value> {
             let source = self
                 .files
                 .get(path)
                 .with_context(|| format!("missing authored input {path}"))?;
+            mods.extend(source.mods.iter().cloned());
             let bytes = read_limited(&source.physical, crate::preparation::JSON_LIMIT)?;
             let value = crate::authoring::decode(&bytes)
-                .with_context(|| format!("decode authored input {path}"))?;
+                .with_context(|| format!("decode authored input {}", source.physical.display()))?;
             overrides.extend(source.overrides.iter().cloned());
             Ok(value)
         };
-        let document = layout.assemble(paths, &mut read)?;
+        let assembled = layout.assemble(paths, &mut read).and_then(|mut document| {
+            crate::authoring::allocate(&layout.document, &mut document)?;
+            Ok(document)
+        });
+        let document = assembled
+            .with_context(|| format!("assemble {}{}", layout.document, contributed(&mods)))?;
         let bytes = serde_json::to_vec(&document)?;
         ensure!(
             bytes.len() <= crate::preparation::JSON_LIMIT,
@@ -391,9 +427,21 @@ impl Index {
         Ok(IndexedFile {
             // An assembled document is never opened as a file.
             physical: PathBuf::new(),
+            mods,
             overrides,
             resolved: Some(bytes.into()),
         })
+    }
+}
+
+/// Error suffix naming the mods behind a document, so a failure in a resolved
+/// view points at the directories a player can disable or fix.
+fn contributed(mods: &BTreeSet<String>) -> String {
+    if mods.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<_> = mods.iter().map(String::as_str).collect();
+        format!(" (with content from {})", names.join(", "))
     }
 }
 
@@ -424,14 +472,14 @@ impl Library {
     }
 
     pub fn open(root: &Path, mods: &[Mod]) -> Result<Self> {
-        let base = Layer::new("base".into(), root)?;
+        let base = Layer::new(BASE.into(), root)?;
         let descriptor_path = base
             .open(DESCRIPTOR)?
             .context("missing content.json; recook the original game")?;
         let descriptor: Descriptor = serde_json::from_slice(&read_opened(descriptor_path, 4096)?)
             .context("decode content.json")?;
         descriptor.validate()?;
-        let mut names = BTreeSet::from(["base".to_owned()]);
+        let mut names = BTreeSet::from([BASE.to_owned()]);
         let mut roots = BTreeSet::from([base.root.clone()]);
         let mut layers = vec![base];
         for modification in mods {
@@ -453,6 +501,16 @@ impl Library {
                 "mod {} cannot override content.json",
                 layer.name
             );
+            if let Some(path) = layer.path(MANIFEST)? {
+                let manifest: Manifest = serde_json::from_slice(&read_limited(&path, 65536)?)
+                    .with_context(|| format!("decode {}", path.display()))?;
+                ensure!(
+                    manifest.layout == VERSION,
+                    "{} was made for cooked layout {}, and this game uses layout {VERSION}; update or disable the mod",
+                    layer.name,
+                    manifest.layout
+                );
+            }
             layers.push(layer);
         }
         let index = Arc::new(Index::build(&layers)?);
@@ -472,6 +530,73 @@ impl Library {
                 self.index.files[path].resolved.as_ref().unwrap().clone(),
             )
         })
+    }
+
+    /// Error suffix naming the mods which supply `path`, or any owner of that
+    /// resolved document. Empty for content that comes from the base game alone.
+    pub fn attribution(&self, path: &str) -> String {
+        self.index
+            .files
+            .get(path)
+            .map(|file| contributed(&file.mods))
+            .unwrap_or_default()
+    }
+
+    /// Every file a later layer replaced, in path order. Replacing base content
+    /// is the purpose of a mod; one mod replacing another's file is a conflict
+    /// the player should know about.
+    pub fn overrides(&self) -> impl Iterator<Item = &Override> {
+        self.index.files.values().flat_map(|file| &file.overrides)
+    }
+
+    /// Top-level names in a mod which the base library lacks: usually a
+    /// misspelled category, which nothing would ever read.
+    pub fn unfamiliar_roots(&self) -> Vec<(String, String)> {
+        let entries = |layer: &Layer| -> BTreeSet<String> {
+            fs::read_dir(&layer.root)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .filter(|name| !name.starts_with('.') && name != MANIFEST)
+                .collect()
+        };
+        let base = entries(&self.layers[0]);
+        self.layers[1..]
+            .iter()
+            .flat_map(|layer| {
+                entries(layer)
+                    .into_iter()
+                    .filter(|name| !base.contains(name))
+                    .map(|name| (layer.name.clone(), name))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// Every logical path of the library: selected files and resolved documents.
+    pub fn paths(&self) -> impl Iterator<Item = &str> {
+        self.index.files.keys().map(String::as_str)
+    }
+
+    /// Stored size of a selected file, or the size of a resolved document.
+    pub fn size(&self, path: &str) -> Result<u64> {
+        let file = self
+            .index
+            .files
+            .get(path)
+            .with_context(|| format!("missing content {path}"))?;
+        Ok(match &file.resolved {
+            Some(bytes) => bytes.len() as u64,
+            None => fs::metadata(&file.physical)
+                .with_context(|| file.physical.display().to_string())?
+                .len(),
+        })
+    }
+
+    /// Files which two or more mods supply at the same path.
+    pub fn conflicts(&self) -> impl Iterator<Item = &Override> {
+        self.overrides().filter(|entry| entry.previous != BASE)
     }
 
     pub fn snapshot(&self) -> Snapshot {

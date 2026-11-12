@@ -38,6 +38,7 @@ pub fn prepare<'a>(
     tints: Option<&Tints>,
     actors: impl IntoIterator<Item = (ModelSource, Option<&'a ModelDefinition>, &'a Profile, bool)>,
     common_resource: resonance_battle::ResourceId,
+    policies: Arc<BTreeMap<u16, item::Policy>>,
     mut resolve: impl FnMut(voice::Sound) -> Result<Option<Sound>>,
 ) -> Result<(item::Definition, Feedback)> {
     let mut rows = Vec::new();
@@ -77,7 +78,7 @@ pub fn prepare<'a>(
     }
     Ok((
         item::Definition {
-            policies: Arc::new(policies()),
+            policies,
             actors: rows,
             targets,
         },
@@ -98,56 +99,57 @@ pub fn prepare<'a>(
     ))
 }
 
-/// Interpret the current game's inventory identities once, before battle starts.
-pub(super) fn policies() -> BTreeMap<u16, item::Policy> {
-    use item::Effect::*;
-    use resonance_battle::{
-        Element,
-        conditions::{Buff, Cure},
-    };
-    [
-        (1, Recover { hp: 30, tp: 0 }),
-        (2, Recover { hp: 60, tp: 0 }),
-        (3, Recover { hp: 0, tp: 30 }),
-        (4, Recover { hp: 0, tp: 60 }),
-        (5, Recover { hp: 30, tp: 30 }),
-        (6, Recover { hp: 60, tp: 60 }),
-        (7, FullRecovery),
-        (8, PartyRecover { hp: 30, tp: 0 }),
-        (9, PartyRecover { hp: 0, tp: 30 }),
-        (10, item::Effect::Cure(Cure::Physical)),
-        (11, Revive),
-        (12, item::Effect::Cure(Cure::All)),
-        (13, item::Effect::Cure(Cure::AntiMagic)),
-        (14, item::Effect::Buff(Buff::Flare)),
-        (15, item::Effect::Buff(Buff::Flare)),
-        (16, item::Effect::Buff(Buff::Guard)),
-        (17, item::Effect::Buff(Buff::Acuity)),
-        (18, item::Effect::Buff(Buff::PhysicalAilmentGuard)),
-        (19, item::Effect::Buff(Buff::PhysicalAilmentGuard)),
-        (20, item::Effect::Buff(Buff::MagicalAilmentGuard)),
-        (21, item::Effect::Buff(Buff::MagicalAilmentGuard)),
-        (37, Scan),
-        (38, AllDivide),
-        (39, Hourglass),
-        (44, item::Effect::Buff(Buff::Quartz(Element::Water))),
-        (45, item::Effect::Buff(Buff::Quartz(Element::Wind))),
-        (46, item::Effect::Buff(Buff::Quartz(Element::Fire))),
-        (47, item::Effect::Buff(Buff::Quartz(Element::Earth))),
-        (48, item::Effect::Buff(Buff::Quartz(Element::Ice))),
-        (49, item::Effect::Buff(Buff::Quartz(Element::Lightning))),
-        (50, item::Effect::Buff(Buff::Quartz(Element::Darkness))),
-        (51, item::Effect::Buff(Buff::Quartz(Element::Light))),
-    ]
-    .into_iter()
-    .map(|(id, effect)| {
-        (
-            id,
-            item::Policy {
-                effect,
-                records_gel_use: (1..=6).contains(&id),
-            },
-        )
-    })
-    .collect()
+/// Bind each item's authored battle use once, before battle starts. Item IDs
+/// stay inventory and notice keys; the simulation never interprets them.
+pub(super) fn policies(items: &[Item]) -> BTreeMap<u16, item::Policy> {
+    use resonance_battle::conditions::{Buff, Cure};
+    use resonance_content::items::{BattleBuff, BattleCure, BattleUse};
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(id, item)| {
+            let effect = match item.battle_use? {
+                BattleUse::Recover {
+                    hp,
+                    tp,
+                    party: false,
+                    ..
+                } => item::Effect::Recover { hp, tp },
+                BattleUse::Recover {
+                    hp,
+                    tp,
+                    party: true,
+                    ..
+                } => item::Effect::PartyRecover { hp, tp },
+                BattleUse::FullRecovery => item::Effect::FullRecovery,
+                BattleUse::Revive => item::Effect::Revive,
+                BattleUse::Cure { ailments } => item::Effect::Cure(match ailments {
+                    BattleCure::Physical => Cure::Physical,
+                    BattleCure::Magical => Cure::AntiMagic,
+                    BattleCure::All => Cure::All,
+                }),
+                BattleUse::Buff { buff } => item::Effect::Buff(match buff {
+                    BattleBuff::Flare => Buff::Flare,
+                    BattleBuff::Guard => Buff::Guard,
+                    BattleBuff::Acuity => Buff::Acuity,
+                    BattleBuff::PhysicalAilmentGuard => Buff::PhysicalAilmentGuard,
+                    BattleBuff::MagicalAilmentGuard => Buff::MagicalAilmentGuard,
+                }),
+                BattleUse::Quartz { element } => item::Effect::Buff(Buff::Quartz(element)),
+                BattleUse::Scan => item::Effect::Scan,
+                BattleUse::AllDivide => item::Effect::AllDivide,
+                BattleUse::Hourglass => item::Effect::Hourglass,
+            };
+            Some((
+                id as u16,
+                item::Policy {
+                    effect,
+                    records_gel_use: matches!(
+                        item.battle_use,
+                        Some(BattleUse::Recover { gel: true, .. })
+                    ),
+                },
+            ))
+        })
+        .collect()
 }

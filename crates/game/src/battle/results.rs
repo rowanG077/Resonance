@@ -98,6 +98,8 @@ pub struct Setup {
     /// Prepared capacity is shared by menus and live control; saved membership gates use.
     pub formation: u16,
     pub formation_count: usize,
+    /// Mod rewards for winning this encounter, across its combined formations.
+    pub formation_rewards: Vec<resonance_content::battle_rewards::Award>,
     pub hunting_symbol: Option<u32>,
     pub style: ResultStyle,
     pub story: u32,
@@ -814,6 +816,7 @@ impl Candidate {
             &self.menus.titles,
             super::rewards::RewardInput {
                 enemies: &enemies,
+                formation_rewards: &self.setup.formation_rewards,
                 formation_count: self.setup.formation_count,
                 maximum_combo,
                 technical_smash_bonus: battle.ledger().technical_smash_bonus,

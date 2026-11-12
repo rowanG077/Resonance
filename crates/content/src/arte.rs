@@ -22,6 +22,10 @@ pub struct Definition<I = u16, E = u8> {
     /// Complete asset-authored action, independent of the original arte IDs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
+    /// Complete asset-authored spell release, for a technique whose
+    /// capabilities mark it as a spell. Excludes `action`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spell: Option<String>,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub tp_cost: u8,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]

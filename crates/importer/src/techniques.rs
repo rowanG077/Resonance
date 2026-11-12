@@ -193,6 +193,7 @@ fn decode(
         range as f32
     };
     let rules = Definition {
+        spell: None,
         action: None,
         tp_cost: row[8],
         element,
@@ -356,6 +357,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
         );
     }
     Ok(Document {
+        allocated_from: None,
         mappings,
         characters,
         techniques,

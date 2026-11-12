@@ -299,6 +299,7 @@ fn battle_result_is_published_before_the_caller_runs_its_reward_once() {
     let resources = Arc::new(ResourceLibrary {
         session_data: Some(Arc::new(resonance_content::session::SessionData {
             rules: None,
+            identities: Default::default(),
             version: 1,
             items: Vec::new(),
             characters: Vec::new(),

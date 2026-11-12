@@ -408,9 +408,46 @@ impl Assets {
         // Capture action dependencies before freezing the encounter snapshot. Reserve
         // capacity for every learnable arte, including ones acquired during battle.
         let mut authored_effects = BTreeMap::new();
+        let mut authored_spells = BTreeMap::new();
         for input in &mut party_actors {
             for &id in catalogue.learned_by(input.character as u8)? {
-                let Some(path) = &catalogue.definition(usize::from(id))?.action else {
+                let definition = catalogue.definition(usize::from(id))?;
+                if let Some(path) = &definition.spell
+                    && !authored_spells.contains_key(&id)
+                {
+                    let spell: resonance_content::battle_spell::AuthoredSpell = snapshot
+                        .json(path, JSON_LIMIT)
+                        .and_then(|spell: resonance_content::battle_spell::AuthoredSpell| {
+                            spell.validate()?;
+                            Ok(spell)
+                        })
+                        .with_context(|| format!("authored spell {path}"))?;
+                    match spell.unison {
+                        Some(placement) => {
+                            rules.unison.placements.insert(id, placement);
+                        }
+                        None => ensure!(
+                            !definition.capabilities.offensive,
+                            "offensive spell {path} needs a unison placement"
+                        ),
+                    }
+                    if let Some(path) = &spell.effects {
+                        authored_effects.insert(
+                            id,
+                            match common.and_then(|common| common.banks.get(path)) {
+                                Some(bank) => bank.clone(),
+                                None => Arc::new(effects::capture(
+                                    snapshot,
+                                    path,
+                                    &diagnostics,
+                                    cancelled,
+                                )?),
+                            },
+                        );
+                    }
+                    authored_spells.insert(id, Arc::new(spell));
+                }
+                let Some(path) = &definition.action else {
                     continue;
                 };
                 let action = match common.and_then(|common| common.actions.get(&id)) {
@@ -592,6 +629,7 @@ impl Assets {
             common_effects,
             technique_effects,
             authored_effects,
+            authored_spells,
             stage_effects,
             enemy_effects,
             spell_scenes,

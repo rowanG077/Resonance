@@ -94,6 +94,9 @@ pub struct MenuData {
     pub ex_skills: ExSkillData,
     #[serde(default)]
     pub presentation: MenuPresentation,
+    /// Mod rewards for particular battles and enemies; bound after loading.
+    #[serde(skip)]
+    pub battle_rewards: crate::battle_rewards::Prepared,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -137,6 +140,8 @@ pub struct Item {
     pub price: u32,
     pub transforms_to: u16,
     pub field_use: Option<ItemUse>,
+    #[serde(default)]
+    pub battle_use: Option<crate::items::BattleUse>,
     pub attention: Option<ItemAttention>,
 }
 
@@ -268,6 +273,7 @@ impl MenuData {
         data.world_map.prepare_locations(files)?;
         data.presentation.techniques = Some(techniques.captions(files.diagnostics())?);
         data.techniques = techniques.menu.clone();
+        data.battle_rewards = crate::battle_rewards::load(files, &items.mappings)?;
         Ok(data)
     }
 

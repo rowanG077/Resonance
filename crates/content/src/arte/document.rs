@@ -17,6 +17,10 @@ pub struct Document {
     pub characters: Mappings,
     pub techniques: BTreeMap<String, Entry>,
     pub learning: BTreeMap<String, Vec<String>>,
+    /// First ID the library allocated to an entry without a `mappings`
+    /// registration. Derived when the library opens; never authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocated_from: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +53,8 @@ pub struct Menu {
 
 pub struct Prepared {
     pub mappings: Mappings,
+    /// Names of the techniques saves identify by name, by their current ID.
+    pub allocated: BTreeMap<u16, String>,
     pub catalogue: Catalogue,
     pub menu: Vec<Technique>,
     pub text: Vec<Value>,
@@ -134,6 +140,7 @@ fn convert<I, E, J, F>(
     let learning = value.learning;
     Ok(Definition {
         action: value.action,
+        spell: value.spell,
         tp_cost: value.tp_cost,
         element: element(value.element)?,
         learning: LearningRules {
@@ -259,6 +266,7 @@ impl Document {
             characters,
             techniques,
             learning,
+            allocated_from: None,
         })
     }
 
@@ -301,6 +309,14 @@ impl Document {
             ensure!(
                 entry.menu.rank <= 2 && entry.menu.forget_with.len() <= 4,
                 "invalid menu rules for {owner}"
+            );
+            ensure!(
+                rule.action.is_none() || rule.spell.is_none(),
+                "technique {owner} selects both an action and a spell"
+            );
+            ensure!(
+                rule.spell.is_none() || rule.capabilities.spell,
+                "technique {owner} selects a spell release but capabilities.spell is not set"
             );
             ensure!(
                 !entry.menu.event_only || rule.learning.route.is_none(),
@@ -353,6 +369,7 @@ impl Document {
         catalogue.validate()?;
         Ok(Prepared {
             mappings: self.mappings.clone(),
+            allocated: crate::authoring::allocated(&self.mappings, self.allocated_from)?,
             catalogue,
             menu,
             text,

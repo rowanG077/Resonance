@@ -126,10 +126,13 @@ pub fn equipment_mappings(snapshot: &mut Snapshot) -> Result<BTreeMap<u32, Optio
 }
 
 pub fn equipment_path(snapshot: &mut Snapshot, item: u32) -> Result<Option<String>> {
-    let mappings = equipment_mappings(snapshot)?;
-    let name = mappings
-        .get(&item)
-        .with_context(|| format!("unmapped equipment item {item}"))?;
+    let declared = crate::items::equipment(snapshot, item)?;
+    let name = match declared {
+        Some(name) => name,
+        None => equipment_mappings(snapshot)?
+            .remove(&item)
+            .with_context(|| format!("unmapped equipment item {item}"))?,
+    };
     name.as_ref()
         .map(|name| {
             crate::library::validate_path(name)?;

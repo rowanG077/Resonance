@@ -1142,3 +1142,362 @@ fn ghost_wolf_preserves_its_half_turn_when_the_arena_blocks_the_pass() -> Result
     assert!(!fixture.diagnostics.has_errors());
     Ok(())
 }
+
+/// Build a one-spell mod in a scratch directory, teach it to `caster`, who
+/// fights alone, and return the running battle with the spell's allocated ID.
+#[cfg(feature = "test-support")]
+fn mod_spell_battle(
+    caster: Character,
+    name: &str,
+    rules: serde_json::Value,
+    spell: serde_json::Value,
+) -> Result<(resonance_battle::Battle, u16)> {
+    use resonance_content::{diagnostics::Diagnostics, library::Library, session::SessionData};
+    use resonance_events::{
+        battle::{DefeatPolicy, Encounter, Setup},
+        party::Party,
+    };
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| repo.join("local/all-assets"));
+    let learner = ["lloyd", "colette", "genis", "raine"][caster as usize - 1];
+    let mod_root = tempfile::tempdir()?;
+    for (path, value) in [
+        (
+            format!("game/techniques/techniques/{name}/rules.json"),
+            rules,
+        ),
+        (
+            format!("game/techniques/techniques/{name}/text.json"),
+            serde_json::json!({"name": name, "description": "A mod spell."}),
+        ),
+        (
+            format!("game/techniques/learning/{learner}/{name}/entry.json"),
+            serde_json::json!(name),
+        ),
+        (
+            format!("game/techniques/learning/{learner}/{name}/order.json"),
+            serde_json::json!(999_999),
+        ),
+        (format!("battle/spells/{name}/spell.json"), spell),
+    ] {
+        let path = mod_root.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(path, serde_json::to_vec(&value)?)?;
+    }
+    let library = Library::open_paths(&root, &[mod_root.path().to_owned()])?;
+    let report = resonance_content::validation::validate(&library);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let diagnostics = Diagnostics::new(true);
+    let files =
+        resonance_content::preparation::capture(&library, &[], || false, diagnostics.clone())?;
+    let session = SessionData::load(&files)?;
+    let menus = MenuData::load(&files)?;
+    let (&spell, _) = session
+        .identities
+        .techniques
+        .iter()
+        .find(|(_, allocated)| *allocated == name)
+        .context("the mod spell received no ID")?;
+    let member = caster as usize - 1;
+    let mut party = Party::new(&session, Default::default())?;
+    party.formation = vec![caster as u8];
+    party.field_leader = caster as u8;
+    party.settings.battle_controls = [1; 4];
+    party.members[member].techniques.insert(spell);
+    party.members[member].hp /= 10;
+    party.validate(&session)?;
+    let inputs = Assets::capture(
+        &mut library.snapshot(),
+        &menus,
+        &session,
+        &party,
+        Setup {
+            route: [0; 5],
+            encounter: Encounter::Formation(1),
+            arena: 13,
+            music: None,
+            defeat: DefeatPolicy::ResumeEvent,
+        },
+        diagnostics,
+        &|| false,
+    )?;
+    assert!(inputs.authored_spells.contains_key(&spell));
+    let mut battle = inputs
+        .prepare(
+            &menus,
+            PrepareOptions {
+                hunting_symbol: None,
+                event_flags: Default::default(),
+                random_seed: 1234,
+                map: 332,
+                world_music: 0,
+                story: 2500,
+                colette_state: 0,
+                victory_story_flags: [false; 2],
+                devils_arms_unlocked: false,
+                overlimit_boost: false,
+            },
+            |sound| Ok(Some(sound)),
+        )?
+        .core;
+    battle.suppress_automatic_decisions();
+    for _ in 0..600 {
+        let frame = battle.step(Default::default())?;
+        if battle.phase() == resonance_battle::BattlePhase::Combat && !frame.clock.paused() {
+            return Ok((battle, spell));
+        }
+    }
+    anyhow::bail!("mod spell fixture did not reach active combat")
+}
+
+/// A mod adds a healing spell by name alone: no technique number, no engine
+/// entry. It is learned, cast through the ordinary chant, and heals.
+#[test]
+#[cfg(feature = "test-support")]
+#[ignore = "requires current cooked encounter assets; CPU only"]
+fn authored_spell_mod_is_allocated_cast_and_heals_its_target() -> Result<()> {
+    use resonance_battle::{ActionRequest, BattleInput};
+    let (mut battle, spell) = mod_spell_battle(
+        Character::Raine,
+        "moon-heal",
+        serde_json::json!({
+            "spell": "battle/spells/moon-heal/spell.json",
+            "action_range": 8000.0,
+            "capabilities": {"family":"basic","healing":true,"spell":true,"target":"ally"},
+            "cast_time_adjustment": 30,
+            "casting": {"effects":"healing"},
+            "recovery_ticks": 60,
+            "required_level": 1,
+            "tp_cost": 5
+        }),
+        serde_json::json!({
+            "duration": 90,
+            "origin": {"kind":"target"},
+            "voice": 98,
+            "pulses": [{"at":11,"benefit":{"kind":"hp","percent":45},"effect":20}]
+        }),
+    )?;
+    let user = battle.actor_ids().next().unwrap();
+    let (hp, tp) = (battle.actors()[0].hp, battle.actors()[0].tp);
+    let action = battle
+        .prepared_technique(user, TechniqueId(spell))
+        .context("authored spell unavailable")?
+        .action;
+    battle.step(BattleInput::from(ActionRequest {
+        actor: user,
+        target: user,
+        action,
+    }))?;
+    for _ in 0..900 {
+        if battle.actors()[0].hp != hp {
+            break;
+        }
+        battle.step(Default::default())?;
+    }
+    let healed = i64::from(battle.actors()[0].hp) - i64::from(hp);
+    let expected = i64::from(battle.actors()[0].equipment.max_hp) * 45 / 100;
+    assert!(
+        (healed - expected).abs() <= 1,
+        "healed {healed}, expected {expected}"
+    );
+    assert_eq!(battle.actors()[0].tp, tp - 5);
+    assert_eq!(battle.technique_uses(user, TechniqueId(spell)), Some(1));
+    Ok(())
+}
+
+/// An offensive mod spell launches a shared projectile with its own hit rule.
+#[test]
+#[cfg(feature = "test-support")]
+#[ignore = "requires current cooked encounter assets; CPU only"]
+fn authored_spell_mod_launches_a_projectile_that_damages_its_target() -> Result<()> {
+    use resonance_battle::{ActionRequest, BattleInput};
+    let (mut battle, spell) = mod_spell_battle(
+        Character::Genis,
+        "ember",
+        serde_json::json!({
+            "spell": "battle/spells/ember/spell.json",
+            "action_range": 8000.0,
+            "capabilities": {"family":"basic","offensive":true,"spell":true},
+            "cast_time_adjustment": 30,
+            "casting": {"effects":"offensive"},
+            "element": "fire",
+            "recovery_ticks": 60,
+            "required_level": 1,
+            "tp_cost": 4
+        }),
+        serde_json::json!({
+            "duration": 30,
+            "startup": 23,
+            "sound": 81,
+            "projectiles": [{
+                "at": 4,
+                "projectile": 3,
+                "hit": {"arte":true,"element":{"element":"fire"},"guard_pressure":0,
+                    "kind":"magic","power":{"percent":150}},
+                "velocity": [0.0, 0.0, 0.5],
+                "launch": {"kind":"caster_above","scale":2.0,"offset":50.0}
+            }],
+            "unison": {"native_id": 9001, "altitude": 0, "distance": 300, "duration": 30}
+        }),
+    )?;
+    let user = battle.actor_ids().next().unwrap();
+    let target = battle.target(user).context("missing opponent")?;
+    let hp = battle.actors()[target.index()].hp;
+    let action = battle
+        .prepared_technique(user, TechniqueId(spell))
+        .context("authored spell unavailable")?
+        .action;
+    battle.step(BattleInput::from(ActionRequest {
+        actor: user,
+        target,
+        action,
+    }))?;
+    for _ in 0..900 {
+        if battle.actors()[target.index()].hp != hp {
+            break;
+        }
+        battle.step(Default::default())?;
+    }
+    assert!(
+        battle.actors()[target.index()].hp < hp,
+        "the projectile never damaged its target"
+    );
+    Ok(())
+}
+
+/// A mod item without a number is usable from the battle Items command, and
+/// the mod awards it for one formation and for one monster.
+#[test]
+#[cfg(feature = "test-support")]
+#[ignore = "requires current cooked encounter assets; CPU only"]
+fn mod_item_binds_its_battle_use_and_its_formation_and_monster_rewards() -> Result<()> {
+    use resonance_content::{
+        battle_rewards::Award, diagnostics::Diagnostics, library::Library, session::SessionData,
+    };
+    use resonance_events::{
+        battle::{DefeatPolicy, Encounter, Setup},
+        party::Party,
+    };
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| repo.join("local/all-assets"));
+    let mod_root = tempfile::tempdir()?;
+    let write = |path: &str, value: serde_json::Value| -> Result<()> {
+        let path = mod_root.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        Ok(std::fs::write(path, serde_json::to_vec(&value)?)?)
+    };
+    write(
+        "game/items/items/moon-berry/definition.json",
+        serde_json::json!({
+            "category": "gel", "price": 120, "battle_usable": true,
+            "battle_use": {"kind": "recover", "hp": 45, "gel": true}
+        }),
+    )?;
+    write(
+        "game/items/items/moon-berry/text.json",
+        serde_json::json!({"name": "Moon Berry", "description": "", "details": ""}),
+    )?;
+    write(
+        "battle/rewards/formations/1/berry.json",
+        serde_json::json!({"item": "moon-berry", "count": 2}),
+    )?;
+    let prepare = || -> Result<(Prepared, u16)> {
+        let library = Library::open_paths(&root, &[mod_root.path().to_owned()])?;
+        let report = resonance_content::validation::validate(&library);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        let diagnostics = Diagnostics::new(true);
+        let files =
+            resonance_content::preparation::capture(&library, &[], || false, diagnostics.clone())?;
+        let session = SessionData::load(&files)?;
+        let menus = MenuData::load(&files)?;
+        let (&berry, _) = session
+            .identities
+            .items
+            .iter()
+            .find(|(_, name)| *name == "moon-berry")
+            .context("the mod item received no ID")?;
+        let mut party = Party::new(&session, Default::default())?;
+        party.formation = vec![Character::Lloyd as u8];
+        party.items.insert(berry, 3);
+        party.validate(&session)?;
+        let inputs = Assets::capture(
+            &mut library.snapshot(),
+            &menus,
+            &session,
+            &party,
+            Setup {
+                route: [0; 5],
+                encounter: Encounter::Formation(1),
+                arena: 13,
+                music: None,
+                defeat: DefeatPolicy::ResumeEvent,
+            },
+            diagnostics,
+            &|| false,
+        )?;
+        let prepared = inputs.prepare(
+            &menus,
+            PrepareOptions {
+                hunting_symbol: None,
+                event_flags: Default::default(),
+                random_seed: 1234,
+                map: 332,
+                world_music: 0,
+                story: 2500,
+                colette_state: 0,
+                victory_story_flags: [false; 2],
+                devils_arms_unlocked: false,
+                overlimit_boost: false,
+            },
+            |sound| Ok(Some(sound)),
+        )?;
+        Ok((prepared, berry))
+    };
+    let (prepared, berry) = prepare()?;
+    assert_eq!(
+        prepared.core.item_policy(berry).map(|policy| policy.effect),
+        Some(resonance_battle::item::Effect::Recover { hp: 45, tp: 0 })
+    );
+    // The original gel still comes from its own definition.
+    assert_eq!(
+        prepared.core.item_policy(1).map(|policy| policy.effect),
+        Some(resonance_battle::item::Effect::Recover { hp: 30, tp: 0 })
+    );
+    let award = |chance, count| Award {
+        item: berry,
+        chance,
+        count,
+    };
+    assert_eq!(prepared.results.formation_rewards, [award(100, 2)]);
+    assert!(
+        prepared
+            .results
+            .enemies
+            .iter()
+            .all(|enemy| enemy.reward.extra.is_empty())
+    );
+
+    let monster = prepared.results.enemies[0].reward.monster;
+    write(
+        &format!("battle/rewards/monsters/{monster}/berry.json"),
+        serde_json::json!({"item": "moon-berry", "chance": 25}),
+    )?;
+    let (prepared, berry) = prepare()?;
+    for enemy in &prepared.results.enemies {
+        let expected: &[Award] = if enemy.reward.monster == monster {
+            &[Award {
+                item: berry,
+                chance: 25,
+                count: 1,
+            }]
+        } else {
+            &[]
+        };
+        assert_eq!(enemy.reward.extra, expected);
+    }
+    Ok(())
+}

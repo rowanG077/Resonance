@@ -22,8 +22,10 @@ pub mod battle_normal;
 pub mod battle_profile;
 pub mod battle_projectile;
 pub mod battle_recoil;
+pub mod battle_rewards;
 pub mod battle_rules;
 pub mod battle_scene;
+pub mod battle_spell;
 pub mod battle_stage;
 pub mod battle_ui;
 pub mod battle_unison;
@@ -72,6 +74,7 @@ pub mod texture;
 mod texture_timeline;
 pub mod titles;
 mod ui_art;
+pub mod validation;
 
 pub const CONTENT_VERSION: u32 = 6;
 pub const WIDTH: u32 = 640;

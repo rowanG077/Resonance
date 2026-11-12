@@ -4,7 +4,8 @@ use super::party::Character;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::ActorAvailability;
 use resonance_content::{
-    arte::Catalogue, grade::Benefit, menu_data::Title, monster::Monster, session::SessionData,
+    arte::Catalogue, battle_rewards::Award, grade::Benefit, menu_data::Title, monster::Monster,
+    session::SessionData,
 };
 use resonance_events::{
     GameplayRandom,
@@ -23,6 +24,8 @@ pub struct EnemyReward {
     pub gald: u32,
     pub drops: [Option<u16>; 2],
     pub drop_chances: [u8; 2],
+    /// Mod rewards for this monster, rolled after its original drops.
+    pub extra: Vec<Award>,
 }
 
 impl EnemyReward {
@@ -37,6 +40,7 @@ impl EnemyReward {
             gald: stats.gald,
             drops: monster.drops,
             drop_chances: monster.drop_chances,
+            extra: Vec::new(),
         })
     }
 }
@@ -104,6 +108,8 @@ pub struct MaximumVitalAward {
 
 pub struct RewardInput<'a> {
     pub enemies: &'a [EnemyReward],
+    /// Mod rewards for winning this encounter's formations.
+    pub formation_rewards: &'a [Award],
     pub formation_count: usize,
     pub maximum_combo: u16,
     pub technical_smash_bonus: u8,
@@ -236,9 +242,29 @@ pub(super) fn experience_bonus_percent(increase: bool, tough: bool, hp: i32, max
 }
 
 impl Rewards {
+    /// Mod rewards use their authored chance alone, and draw nothing when
+    /// there are none, so an unmodified game keeps its original random sequence.
+    fn add_extra(&mut self, extra: &[Award], random: &mut GameplayRandom) {
+        for award in extra {
+            if !succeeds(u32::from(award.chance), 100, || random.next_u32()) {
+                continue;
+            }
+            let count = u16::from(award.count);
+            match self.items.iter_mut().find(|held| held.item == award.item) {
+                Some(held) => held.count = held.count.saturating_add(count),
+                None => self.items.push(ItemAward {
+                    item: award.item,
+                    count,
+                    discoveries: Vec::new(),
+                }),
+            }
+        }
+    }
+
     fn calculate(input: &RewardInput<'_>, random: &mut GameplayRandom) -> Result<Self> {
         let RewardInput {
             enemies,
+            formation_rewards,
             formation_count,
             maximum_combo: _,
             technical_smash_bonus,
@@ -308,6 +334,7 @@ impl Rewards {
                     award.discoveries.push((enemy.monster, slot));
                 }
             }
+            reward.add_extra(&enemy.extra, random);
             reward.experience = reward
                 .experience
                 .checked_add(enemy.experience)
@@ -317,6 +344,7 @@ impl Rewards {
                 .checked_add(enemy.gald)
                 .context("victory gald overflow")?;
         }
+        reward.add_extra(formation_rewards, random);
         for (value, double) in [
             (&mut reward.experience, modifiers.floor_experience_double),
             (&mut reward.gald, modifiers.floor_gald_double),
@@ -602,6 +630,7 @@ pub(super) mod tests {
     use resonance_content::session::{CharacterDefinition, ItemDefinition, StatGrowth};
     pub(in crate::battle) fn reward_fixture() -> (SessionData, Catalogue, Vec<Vec<Title>>, Party) {
         let session = SessionData {
+            identities: Default::default(),
             rules: None,
             version: 1,
             experience: vec![0, 0, 10, 30],
@@ -658,6 +687,7 @@ pub(super) mod tests {
 
     fn input(enemies: &[EnemyReward]) -> RewardInput<'_> {
         RewardInput {
+            formation_rewards: &[],
             enemies,
             formation_count: 1,
             maximum_combo: 0,
@@ -669,6 +699,7 @@ pub(super) mod tests {
 
     fn enemy(experience: u32, gald: u32) -> EnemyReward {
         EnemyReward {
+            extra: Vec::new(),
             monster: 36,
             experience,
             gald,
@@ -751,6 +782,60 @@ pub(super) mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(awarded.random, random);
+    }
+
+    #[test]
+    fn mod_rewards_join_original_drops_without_spending_unneeded_random_draws() {
+        let berry = |chance, count| Award {
+            item: 600,
+            chance,
+            count,
+        };
+        // Certain rewards draw nothing; the same item from two sources stacks.
+        let mut wolf = enemy(10, 0);
+        wolf.extra = vec![berry(100, 2)];
+        let enemies = [wolf.clone(), wolf];
+        let mut request = input(&enemies);
+        let formation = [
+            berry(100, 1),
+            Award {
+                item: 601,
+                chance: 100,
+                count: 1,
+            },
+        ];
+        request.formation_rewards = &formation;
+        let mut random = GameplayRandom::new(1);
+        let reward = Rewards::calculate(&request, &mut random).unwrap();
+        assert_eq!(
+            reward.items,
+            [
+                ItemAward {
+                    item: 600,
+                    count: 5,
+                    discoveries: vec![]
+                },
+                ItemAward {
+                    item: 601,
+                    count: 1,
+                    discoveries: vec![]
+                },
+            ]
+        );
+        assert_eq!(random.next_u32(), GameplayRandom::new(1).next_u32());
+
+        // An uncertain reward follows the shared roll, one draw each.
+        let uncertain = [berry(50, 1); 64];
+        let enemies = [enemy(10, 0)];
+        let mut request = input(&enemies);
+        request.formation_rewards = &uncertain;
+        let mut random = GameplayRandom::new(1);
+        let reward = Rewards::calculate(&request, &mut random).unwrap();
+        let mut expected = GameplayRandom::new(1);
+        let wins = (0..64).filter(|_| expected.next_u32() % 100 < 50).count() as u16;
+        assert!((1..64).contains(&wins));
+        assert_eq!(reward.items[0].count, wins);
+        assert_eq!(random.next_u32(), expected.next_u32());
     }
 
     #[test]

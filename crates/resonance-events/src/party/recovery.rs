@@ -11,6 +11,7 @@ impl Party {
     /// This never substitutes unknown characters, equipment, skills or locations.
     pub fn recover(&mut self, data: &SessionData) -> anyhow::Result<()> {
         self.bind_rules(data);
+        self.renumber(data)?;
         self.gald = self.gald.min(MAX_GALD);
         self.grade_hundredths = self.grade_hundredths.min(MAX_GRADE);
         self.unison_gauge = self.unison_gauge.min(MAX_UNISON_GAUGE);

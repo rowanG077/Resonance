@@ -365,6 +365,7 @@ pub struct EnemyContactRecovery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActionPose {
     #[serde(with = "crate::battle_motion")]
     pub clip: u16,
@@ -529,6 +530,7 @@ pub enum EnemyEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActionHit {
     pub kind: crate::battle_projectile::DamageKind,
     /// Additional contact program in the attacking enemy's effect bank.

@@ -1,6 +1,7 @@
 //! Direct conversion from original files to editable library assets.
 mod all;
 mod authoring;
+pub mod modding_tools;
 pub use authoring::{cook_incremental, publish_document};
 mod diagnostics;
 pub use diagnostics::{bind_fixture_motion, inspect_effect_templates};

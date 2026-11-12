@@ -11,6 +11,7 @@ mod cooking;
 mod crafting;
 pub use crafting::CraftError;
 mod ex_skills;
+mod identities;
 pub use bestiary::MonsterKnowledge;
 mod items;
 pub mod new_game_plus;
@@ -166,6 +167,7 @@ pub(crate) mod tests {
     pub(crate) fn data() -> SessionData {
         SessionData {
             rules: None,
+            identities: Default::default(),
             version: 1,
             experience: vec![0, 0, 10, 30, 60],
             items: (0..4)
@@ -1260,6 +1262,12 @@ pub struct Party {
     #[serde(deserialize_with = "recovery::number")]
     pub spent_gald: u32,
     pub settings: Settings,
+    /// Names of the saved mod items and artes, whose IDs follow the enabled mods.
+    #[serde(
+        default,
+        skip_serializing_if = "resonance_content::session::Identities::is_empty"
+    )]
+    pub identities: resonance_content::session::Identities,
 }
 impl Party {
     fn validate_battle_flags(flags: u16) -> anyhow::Result<()> {
@@ -1467,6 +1475,7 @@ impl Party {
     pub fn new(data: &SessionData, settings: Settings) -> anyhow::Result<Self> {
         data.validate()?;
         Ok(Self {
+            identities: data.identities.clone(),
             new_game_plus: Default::default(),
             game_clears: 0,
             unison_gauge: 0,

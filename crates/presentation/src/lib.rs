@@ -329,6 +329,12 @@ fn build_app(
     );
     let library = resonance_content::library::Library::open_paths(&assets, &options.mods)
         .with_context(|| format!("opening content library {}", assets.display()))?;
+    for conflict in library.conflicts() {
+        warn!(
+            "Mod conflict: {} from {} replaces the one from {}",
+            conflict.path, conflict.replacement, conflict.previous
+        );
+    }
     info!("Preparing title and startup media");
     let title_field::Prepared {
         scene,

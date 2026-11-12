@@ -1448,7 +1448,15 @@ impl Assets {
                 grade: monster.grade,
                 steal: monster.steal,
                 steal_chance: monster.steal_chance,
-                reward: battle::rewards::EnemyReward::from_monster(monster, spawn.variant)?,
+                reward: battle::rewards::EnemyReward {
+                    extra: menus
+                        .battle_rewards
+                        .monsters
+                        .get(&monster.id)
+                        .cloned()
+                        .unwrap_or_default(),
+                    ..battle::rewards::EnemyReward::from_monster(monster, spawn.variant)?
+                },
             });
             for (effect, idle_only) in source
                 .profile
@@ -1549,7 +1557,9 @@ impl Assets {
                 .iter()
                 .map(|(&id, enemy)| (id, &enemy.profile)),
         );
+        let item_policies = Arc::new(battle::items::policies(&menus.items));
         let mut resources = Resources {
+            items: item_policies.clone(),
             files: &self.files,
             recoil: &self.recoil,
             catalogue,
@@ -1575,6 +1585,7 @@ impl Assets {
                 models: technique_models,
             },
             authored_effects,
+            authored_spells: &self.authored_spells,
             enemy_effects: enemy_banks,
             spell_scenes,
             skill_scenes,
@@ -2177,6 +2188,7 @@ impl Assets {
                 )
             }),
             common_id,
+            item_policies,
             &mut sound,
         )?;
         if items_forbidden {
@@ -2424,6 +2436,14 @@ impl Assets {
             actors: party_roster,
             formation: self.setup.formation()?,
             formation_count: self.setup.formations()?.len(),
+            formation_rewards: self
+                .setup
+                .formations()?
+                .iter()
+                .filter_map(|formation| menus.battle_rewards.formations.get(formation))
+                .flatten()
+                .copied()
+                .collect(),
             hunting_symbol: options.hunting_symbol,
             style,
             story: options

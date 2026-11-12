@@ -217,6 +217,76 @@ pub enum Action {
         aura: EncounterAura,
     },
 }
+/// What an item does when a party member uses it from the battle Items
+/// command. Percentages are of the target's maximum. An item without one can
+/// be listed in battle but not used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BattleUse {
+    Recover {
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+        hp: u8,
+        #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
+        tp: u8,
+        /// Every active party member rather than one chosen ally.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        party: bool,
+        /// Counts toward the battle record of having used a gel.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        gel: bool,
+    },
+    /// Restore one ally's HP and TP completely.
+    FullRecovery,
+    Revive,
+    Cure {
+        ailments: BattleCure,
+    },
+    Buff {
+        buff: BattleBuff,
+    },
+    /// Give the user's attacks an element until the battle ends.
+    Quartz {
+        element: crate::menu_data::Element,
+    },
+    /// Reveal one enemy's statistics.
+    Scan,
+    /// Halve all damage, both ways, until the battle ends.
+    AllDivide,
+    /// Stop every enemy for a short time.
+    Hourglass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BattleCure {
+    Physical,
+    Magical,
+    All,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BattleBuff {
+    Flare,
+    Guard,
+    Acuity,
+    PhysicalAilmentGuard,
+    MagicalAilmentGuard,
+}
+
+impl BattleUse {
+    pub fn validate(self) -> Result<()> {
+        if let Self::Recover { hp, tp, party, gel } = self {
+            ensure!(
+                (hp != 0 || tp != 0) && hp <= 100 && tp <= 100,
+                "battle recovery restores 1-100% of HP, TP or both"
+            );
+            ensure!(!(party && gel), "a gel restores one ally");
+        }
+        Ok(())
+    }
+}
+
 impl TryFrom<ItemUse> for Action {
     type Error = anyhow::Error;
     fn try_from(action: ItemUse) -> Result<Self> {

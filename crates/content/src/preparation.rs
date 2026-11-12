@@ -64,6 +64,7 @@ pub fn gameplay(
         ensure!(!cancelled(), "gameplay preparation cancelled");
         snapshot.read(path, JSON_LIMIT)?;
     }
+    snapshot.read_optional(crate::battle_rewards::PATH, JSON_LIMIT)?;
     catalogue_models(snapshot, diagnostics, cancelled)?;
     scripts(snapshot, cancelled)
 }
