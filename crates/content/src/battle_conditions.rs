@@ -49,6 +49,8 @@ pub enum Condition {
     TpHalf,
     TpThird,
     Weak,
+    /// Actions, casting and movement run faster by the effect's magnitude in percent.
+    Haste,
 }
 
 const ALL: &[Condition] = &[
@@ -96,6 +98,7 @@ const ALL: &[Condition] = &[
     Condition::TpHalf,
     Condition::TpThird,
     Condition::Weak,
+    Condition::Haste,
 ];
 
 /// Compact storage with a named, order-independent asset representation.

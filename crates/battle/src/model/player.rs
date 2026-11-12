@@ -689,14 +689,14 @@ impl Models {
                     && !resuming
                     && actor.time_stop == 0;
                 if releasing {
-                    model.sample_main(true)?;
+                    model.sample_main(true, 1.)?;
                     for weapon in &mut model.weapons {
                         weapon.advance_pose()?;
                     }
                 }
                 // Cinematic pose requests precede this update's animation visit.
                 if cinematic && advance_pose && model.animation.pending_sample {
-                    model.sample_main(false)?;
+                    model.sample_main(false, 1.)?;
                     for weapon in &mut model.weapons {
                         weapon.advance_body_pose()?;
                     }

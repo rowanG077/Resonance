@@ -124,7 +124,13 @@ pub enum Benefit {
     Resurrect {
         percent: u8,
     },
-    /// A timed statistic change, such as `attack_up` or `defense_down`.
+    /// Speed up the recipient's actions, casting and movement by `percent`.
+    Haste {
+        percent: u8,
+        /// Gameplay updates; 60 per second.
+        duration: u16,
+    },
+    /// A timed statistic change: `attack_up` or `defense_up`.
     Stat {
         condition: Condition,
         percent: u8,
@@ -209,10 +215,18 @@ impl AuthoredSpell {
                 }
                 Benefit::Tp { amount } => ensure!(amount > 0, "a TP pulse restores TP"),
                 Benefit::Stat {
-                    percent, duration, ..
+                    condition,
+                    percent,
+                    duration,
                 } => ensure!(
-                    percent > 0 && duration > 0,
-                    "a stat pulse needs a percent and a duration"
+                    matches!(condition, Condition::AttackUp | Condition::DefenseUp)
+                        && percent > 0
+                        && duration > 0,
+                    "a stat pulse raises attack_up or defense_up by a percent for a duration"
+                ),
+                Benefit::Haste { percent, duration } => ensure!(
+                    (1..=100).contains(&percent) && duration > 0,
+                    "a haste pulse needs a percent of 1-100 and a duration"
                 ),
                 Benefit::Cure { .. } => {}
             }

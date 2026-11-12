@@ -748,8 +748,10 @@ describes what happens when the chant completes.
 - `origin` places projectiles and scene effects: `caster` (default), `target`,
   `target_ground`, or `ground` with `toward_caster`.
 - `pulses` apply a benefit at one moment. `benefit` is `hp` (`percent`), `tp`
-  (`amount`), `cure` (`ailments`), `resurrect` (`percent`) or `stat`
-  (`condition` such as `attack_up`, `percent`, `duration`). `targets` is
+  (`amount`), `cure` (`ailments`), `resurrect` (`percent`), `stat`
+  (`condition` of `attack_up` or `defense_up`, `percent`, `duration`) or `haste`
+  (`percent`, `duration`), which speeds up the recipient's actions, casting
+  and movement. `targets` is
   `target` (default), `caster`, `living_allies`, `living_opponents` or `area`
   with a `radius` around the origin. `effect` is shown on each recipient.
 - `projectiles` launch at `at`. `projectile` is a member of the shared

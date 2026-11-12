@@ -1501,3 +1501,330 @@ fn mod_item_binds_its_battle_use_and_its_formation_and_monster_rewards() -> Resu
     }
     Ok(())
 }
+
+/// The Haste example mod, from its files in `mods/haste`: Raine learns it at
+/// level 12, casts it through the ordinary chant, and the recipient's next
+/// cast finishes a fifth sooner while the clock effect plays from its own bank.
+#[test]
+#[cfg(feature = "test-support")]
+#[ignore = "requires current cooked encounter assets; CPU only"]
+fn haste_mod_is_learned_cast_and_speeds_up_the_recipients_actions() -> Result<()> {
+    use resonance_battle::{ActionRequest, BattleInput, Cue, conditions::Condition};
+    use resonance_content::{diagnostics::Diagnostics, library::Library, session::SessionData};
+    use resonance_events::{
+        battle::{DefeatPolicy, Encounter, Setup},
+        party::Party,
+    };
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| repo.join("local/all-assets"));
+    let library = Library::open_paths(&root, &[repo.join("mods/haste")])?;
+    let report = resonance_content::validation::validate(&library);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let diagnostics = Diagnostics::new(true);
+    let files =
+        resonance_content::preparation::capture(&library, &[], || false, diagnostics.clone())?;
+    let session = SessionData::load(&files)?;
+    let menus = MenuData::load(&files)?;
+    let (&haste, _) = session
+        .identities
+        .techniques
+        .iter()
+        .find(|(_, name)| *name == "haste")
+        .context("Haste received no ID")?;
+    const FIRST_AID: u16 = 98;
+    let raine = Character::Raine as usize - 1;
+    let mut party = Party::new(&session, Default::default())?;
+    party.formation = vec![Character::Raine as u8];
+    party.field_leader = Character::Raine as u8;
+    party.settings.battle_controls = [1; 4];
+    assert!(!party.members[raine].techniques.contains(&haste));
+    party
+        .raise_level(&session, raine, 11, None, || 0)
+        .map_err(anyhow::Error::msg)?;
+    assert!(!party.members[raine].techniques.contains(&haste));
+    party
+        .raise_level(&session, raine, 12, None, || 0)
+        .map_err(anyhow::Error::msg)?;
+    assert!(party.members[raine].techniques.contains(&haste));
+    party.validate(&session)?;
+    let inputs = Assets::capture(
+        &mut library.snapshot(),
+        &menus,
+        &session,
+        &party,
+        Setup {
+            route: [0; 5],
+            encounter: Encounter::Formation(1),
+            arena: 13,
+            music: None,
+            defeat: DefeatPolicy::ResumeEvent,
+        },
+        diagnostics,
+        &|| false,
+    )?;
+    // The clock is the spell's own effect bank, not the shared technique bank.
+    assert!(inputs.authored_effects.contains_key(&haste));
+    let prepared = inputs.prepare(
+        &menus,
+        PrepareOptions {
+            hunting_symbol: None,
+            event_flags: Default::default(),
+            random_seed: 1234,
+            map: 332,
+            world_music: 0,
+            story: 2500,
+            colette_state: 0,
+            victory_story_flags: [false; 2],
+            devils_arms_unlocked: false,
+            overlimit_boost: false,
+        },
+        |sound| Ok(Some(sound)),
+    )?;
+    // The effect player the scene uses, run here without a renderer.
+    let mut effects =
+        resonance_battle::Effects::new(prepared.effect_banks, None, 1, Diagnostics::new(true))?;
+    let mut battle = prepared.core;
+    battle.suppress_automatic_decisions();
+    for _ in 0..600 {
+        let frame = battle.step(Default::default())?;
+        if battle.phase() == resonance_battle::BattlePhase::Combat && !frame.clock.paused() {
+            break;
+        }
+    }
+    let user = battle.actor_ids().next().unwrap();
+    // Updates from requesting a spell on Raine herself until she is idle again.
+    let cast = |battle: &mut resonance_battle::Battle, technique: u16| -> Result<(u32, Vec<Cue>)> {
+        let action = battle
+            .prepared_technique(user, TechniqueId(technique))
+            .context("spell unavailable")?
+            .action;
+        let mut cues = battle
+            .step(BattleInput::from(ActionRequest {
+                actor: user,
+                target: user,
+                action,
+            }))?
+            .cues;
+        for updates in 1..2000 {
+            if battle.activity(user) == resonance_battle::Activity::Idle {
+                // A released spell holds its caster's spell slot for a while,
+                // and the next chant does not count down until it is free.
+                for _ in 0..200 {
+                    battle.step(Default::default())?;
+                }
+                return Ok((updates, cues));
+            }
+            cues.extend(battle.step(Default::default())?.cues);
+        }
+        anyhow::bail!("the cast never finished")
+    };
+    let (ordinary, _) = cast(&mut battle, FIRST_AID)?;
+    assert_eq!(battle.actors()[0].conditions.haste_percent(), 0);
+
+    let tp = battle.actors()[0].tp;
+    // Play Haste through the effect player: the clock is five sprites on the
+    // recipient, and each reading of its counter comes with one tick sound.
+    let action = battle
+        .prepared_technique(user, TechniqueId(haste))
+        .context("Haste unavailable")?
+        .action;
+    let mut frame = battle.step(BattleInput::from(ActionRequest {
+        actor: user,
+        target: user,
+        action,
+    }))?;
+    let mut cues = Vec::new();
+    let mut clock = None;
+    let mut ticks = Vec::new();
+    let mut sprites = 0;
+    for update in 0..600 {
+        let sounds = effects.advance(&frame, false)?;
+        if clock.is_none() {
+            clock = effects
+                .started_programs()
+                .iter()
+                .find(|request| request.owner == user && request.follow.is_some())
+                .filter(|_| battle.actors()[0].conditions.haste_percent() != 0)
+                .map(|request| request.appearance.resource);
+        }
+        if let Some(bank) = clock {
+            ticks.extend(
+                sounds
+                    .iter()
+                    .filter(|cue| matches!(cue, Cue::Sound { .. } | Cue::GlobalSound { .. }))
+                    .map(|_| update),
+            );
+            sprites = sprites.max(
+                effects
+                    .live_particles()
+                    .filter(|&(owner, resource, _)| owner == user && resource == bank)
+                    .count(),
+            );
+        }
+        cues.append(&mut frame.cues);
+        frame = battle.step(Default::default())?;
+    }
+    let bank = clock.context("the Haste clock never started")?;
+    assert_eq!(sprites, 5, "face, hand, counter plate and two digits");
+    assert_eq!(
+        effects
+            .live_particles()
+            .filter(|&(_, resource, _)| resource == bank)
+            .count(),
+        0,
+        "the clock outlived its program"
+    );
+    // It ticks 23 times, never slower than before, from four a second to thirty.
+    let intervals: Vec<u32> = ticks.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    assert_eq!(ticks.len(), 23, "{ticks:?}");
+    assert!(
+        intervals.windows(2).all(|pair| pair[1] <= pair[0]),
+        "{intervals:?}"
+    );
+    assert_eq!((intervals[0], *intervals.last().unwrap()), (15, 2));
+    assert_eq!(battle.actors()[0].tp, tp - 14);
+    assert_eq!(battle.actors()[0].conditions.haste_percent(), 20);
+    assert!(
+        battle.actors()[0]
+            .conditions
+            .effective()
+            .contains(Condition::Haste)
+    );
+    assert!(cues.iter().any(|cue| matches!(
+        cue,
+        Cue::ConditionLabel {
+            kind: resonance_battle::conditions::ConditionLabel::StatUp(Condition::Haste),
+            ..
+        }
+    )));
+
+    let (hastened, _) = cast(&mut battle, FIRST_AID)?;
+    let expected = ordinary as f32 / 1.2;
+    assert!(
+        (hastened as f32 - expected).abs() <= 3.,
+        "hastened cast took {hastened} updates, expected about {expected} of {ordinary}"
+    );
+    assert!(!battle.is_diagnostic());
+
+    // The effect lasts thirty seconds and then the clock runs normally again.
+    for _ in 0..1200 {
+        battle.step(Default::default())?;
+    }
+    assert_eq!(battle.actors()[0].conditions.haste_percent(), 0);
+    let (after, _) = cast(&mut battle, FIRST_AID)?;
+    assert!(after.abs_diff(ordinary) <= 1, "{after} against {ordinary}");
+    Ok(())
+}
+
+/// A hastened arte runs through the real models, contacts and projectile of
+/// Demon Fang: it still hits, for the same damage, in about a fifth less time.
+#[test]
+#[cfg(feature = "test-support")]
+#[ignore = "requires current cooked encounter assets; CPU only"]
+fn a_hastened_arte_keeps_its_hits_and_finishes_sooner() -> Result<()> {
+    use resonance_battle::{ActionRequest, BattleInput};
+    use resonance_content::{diagnostics::Diagnostics, library::Library, session::SessionData};
+    use resonance_events::{
+        battle::{DefeatPolicy, Encounter, Setup},
+        party::Party,
+    };
+    const DEMON_FANG: u16 = 1;
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| repo.join("local/all-assets"));
+    let library = Library::open_paths(&root, &[])?;
+    let diagnostics = Diagnostics::new(true);
+    let files =
+        resonance_content::preparation::capture(&library, &[], || false, diagnostics.clone())?;
+    let session = SessionData::load(&files)?;
+    let menus = MenuData::load(&files)?;
+    let mut party = Party::new(&session, Default::default())?;
+    party.formation = vec![Character::Lloyd as u8];
+    party.settings.battle_controls = [1; 4];
+    party.members[0].techniques.insert(DEMON_FANG);
+    party.validate(&session)?;
+    let inputs = Assets::capture(
+        &mut library.snapshot(),
+        &menus,
+        &session,
+        &party,
+        Setup {
+            route: [0; 5],
+            encounter: Encounter::Formation(1),
+            arena: 13,
+            music: None,
+            defeat: DefeatPolicy::ResumeEvent,
+        },
+        diagnostics,
+        &|| false,
+    )?;
+    // The same seed and placement, with and without Haste.
+    let run = |percent: u8| -> Result<(u32, i32)> {
+        let mut battle = inputs
+            .prepare(
+                &menus,
+                PrepareOptions {
+                    hunting_symbol: None,
+                    event_flags: Default::default(),
+                    random_seed: 1234,
+                    map: 332,
+                    world_music: 0,
+                    story: 2500,
+                    colette_state: 0,
+                    victory_story_flags: [false; 2],
+                    devils_arms_unlocked: false,
+                    overlimit_boost: false,
+                },
+                |sound| Ok(Some(sound)),
+            )?
+            .core;
+        battle.suppress_automatic_decisions();
+        for _ in 0..600 {
+            let frame = battle.step(Default::default())?;
+            if battle.phase() == resonance_battle::BattlePhase::Combat && !frame.clock.paused() {
+                break;
+            }
+        }
+        let user = battle.actor_ids().next().unwrap();
+        let target = battle.target(user).context("missing opponent")?;
+        if percent != 0 {
+            battle.restore_fixture_haste(user, percent, 10_000)?;
+        }
+        let hp = battle.actors()[target.index()].hp;
+        let action = battle
+            .prepared_technique(user, TechniqueId(DEMON_FANG))
+            .context("Demon Fang unavailable")?
+            .action;
+        battle.step(BattleInput::from(ActionRequest {
+            actor: user,
+            target,
+            action,
+        }))?;
+        let mut updates = 1;
+        while battle.activity(user) != resonance_battle::Activity::Idle {
+            battle.step(Default::default())?;
+            updates += 1;
+            anyhow::ensure!(updates < 2000, "Demon Fang never finished");
+        }
+        // Let the projectile land before reading the damage.
+        for _ in 0..120 {
+            battle.step(Default::default())?;
+        }
+        assert!(!battle.is_diagnostic());
+        Ok((updates, hp - battle.actors()[target.index()].hp))
+    };
+    let (ordinary, damage) = run(0)?;
+    assert!(damage > 0, "Demon Fang missed without Haste");
+    let (hastened, hastened_damage) = run(20)?;
+    assert!(hastened_damage > 0, "Demon Fang missed under Haste");
+    let expected = ordinary as f32 / 1.2;
+    assert!(
+        (hastened as f32 - expected).abs() <= 3.,
+        "hastened arte took {hastened} updates, expected about {expected} of {ordinary}"
+    );
+    Ok(())
+}

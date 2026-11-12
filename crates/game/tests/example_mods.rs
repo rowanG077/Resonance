@@ -123,17 +123,50 @@ fn unlock_limit_is_sold_in_meltokio_and_grants_over_limit() -> Result<()> {
     Ok(())
 }
 
-/// Independent item mods receive distinct IDs and keep their own shop lines.
+/// Every example mod at once: independent additions never share an ID, and
+/// each keeps its own shop line, drop and learning registration.
 #[test]
 #[ignore = "requires cooked original assets; set RESONANCE_TEST_ASSETS or cook local/all-assets"]
-fn the_item_mods_load_together_without_sharing_an_id() -> Result<()> {
-    let loaded = Loaded::open(&["all-multiply", "unison-force", "unlock-limit"])?;
-    let ids =
-        ["all-multiply", "unison-force", "unlock-limit"].map(|name| loaded.item(name).unwrap());
-    assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2]);
-    assert_eq!(shop(&loaded, "halo")?.last(), Some(&ids[0]));
-    assert_eq!(shop(&loaded, "marble-s")?.last(), Some(&ids[1]));
-    assert_eq!(shop(&loaded, "belteon")?.last(), Some(&ids[2]));
+fn the_example_mods_load_together_without_sharing_an_id() -> Result<()> {
+    let items = [
+        "all-multiply",
+        "unison-force",
+        "unlock-limit",
+        "momentum-ring",
+        "echo-charm",
+    ];
+    let mut mods = items.to_vec();
+    mods.push("haste");
+    let loaded = Loaded::open(&mods)?;
+    let ids: std::collections::BTreeSet<u16> = items
+        .iter()
+        .map(|name| loaded.item(name).unwrap())
+        .collect();
+    assert_eq!(ids.len(), items.len());
+    for (name, store) in items.iter().zip([
+        "halo",
+        "marble-s",
+        "belteon",
+        "fighting-spirit",
+        "snow-white",
+    ]) {
+        assert_eq!(shop(&loaded, store)?.last(), Some(&loaded.item(name)?));
+    }
+    assert_eq!(loaded.menus.battle_rewards.monsters[&FAKE].len(), 1);
+    let haste = loaded
+        .session
+        .identities
+        .techniques
+        .iter()
+        .find_map(|(&id, name)| (name == "haste").then_some(id))
+        .context("Haste received no ID")?;
+    const RAINE: usize = 3;
+    assert!(
+        loaded.session.characters[RAINE]
+            .allowed_techniques
+            .contains(&haste)
+    );
+    assert!(loaded.session.characters[RAINE].level_techniques[&12].contains(&haste));
     Ok(())
 }
 

@@ -1,0 +1,1579 @@
+{
+  "templates": {
+    "clock-face": {
+      "kind": "particle",
+      "template": {
+        "follow_origin": true,
+        "state": {
+          "offset": [
+            0,
+            95,
+            0
+          ],
+          "colors": [
+            [
+              255,
+              255,
+              255,
+              255
+            ],
+            [
+              255,
+              255,
+              255,
+              255
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                56,
+                56,
+                0
+              ],
+              "velocity": [
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "uv": [
+            0,
+            0,
+            128,
+            128
+          ]
+        },
+        "lifetime": 134,
+        "fade": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "fade_from": 126
+      },
+      "visual": {
+        "blend": "alpha",
+        "depth_test": false,
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "clock-hand": {
+      "kind": "particle",
+      "template": {
+        "follow_origin": true,
+        "state": {
+          "offset": [
+            0,
+            95,
+            0.5
+          ],
+          "colors": [
+            [
+              255,
+              255,
+              255,
+              255
+            ],
+            [
+              255,
+              255,
+              255,
+              255
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                56,
+                56,
+                0
+              ],
+              "velocity": [
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "uv": [
+            128,
+            0,
+            128,
+            128
+          ]
+        }
+      },
+      "visual": {
+        "blend": "alpha",
+        "depth_test": false,
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "counter-plate": {
+      "kind": "particle",
+      "template": {
+        "follow_origin": true,
+        "state": {
+          "offset": [
+            0,
+            51,
+            0
+          ],
+          "colors": [
+            [
+              255,
+              255,
+              255,
+              255
+            ],
+            [
+              255,
+              255,
+              255,
+              255
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                26,
+                34,
+                0
+              ],
+              "velocity": [
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "uv": [
+            0,
+            180,
+            68,
+            52
+          ]
+        },
+        "lifetime": 134,
+        "fade": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "fade_from": 126
+      },
+      "visual": {
+        "blend": "alpha",
+        "depth_test": false,
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    },
+    "counter-digit": {
+      "kind": "particle",
+      "template": {
+        "follow_origin": true,
+        "state": {
+          "offset": [
+            0,
+            51,
+            0.5
+          ],
+          "colors": [
+            [
+              255,
+              255,
+              255,
+              255
+            ],
+            [
+              255,
+              255,
+              255,
+              255
+            ]
+          ],
+          "geometry": {
+            "Size": {
+              "value": [
+                20,
+                12,
+                0
+              ],
+              "velocity": [
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "uv": [
+            0,
+            132,
+            24,
+            40
+          ]
+        }
+      },
+      "visual": {
+        "blend": "alpha",
+        "depth_test": false,
+        "geometry": {
+          "kind": "quad"
+        },
+        "orientation": "billboard",
+        "texture": {
+          "kind": "atlas",
+          "slot": "bank-0"
+        }
+      }
+    }
+  },
+  "programs": [
+    [
+      {
+        "kind": "spawn",
+        "particle": "clock-face"
+      },
+      {
+        "kind": "spawn",
+        "particle": "counter-plate"
+      },
+      {
+        "at": 0,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 14,
+          "angles": [
+            null,
+            null,
+            0
+          ]
+        }
+      },
+      {
+        "at": 0,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 14,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 0,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 14,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 0,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 15,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 13,
+          "angles": [
+            null,
+            null,
+            -30
+          ]
+        }
+      },
+      {
+        "at": 15,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 13,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 15,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 13,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 15,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 28,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 11,
+          "angles": [
+            null,
+            null,
+            -60
+          ]
+        }
+      },
+      {
+        "at": 28,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 11,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 28,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 11,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            50,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 28,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 39,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 10,
+          "angles": [
+            null,
+            null,
+            -90
+          ]
+        }
+      },
+      {
+        "at": 39,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 10,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 39,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 10,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            75,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 39,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 49,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 9,
+          "angles": [
+            null,
+            null,
+            -120
+          ]
+        }
+      },
+      {
+        "at": 49,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 9,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 49,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 9,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            100,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 49,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 58,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 8,
+          "angles": [
+            null,
+            null,
+            -150
+          ]
+        }
+      },
+      {
+        "at": 58,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 8,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 58,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 8,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            125,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 58,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 66,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 7,
+          "angles": [
+            null,
+            null,
+            -180
+          ]
+        }
+      },
+      {
+        "at": 66,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 7,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 66,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 7,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            150,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 66,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 73,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 6,
+          "angles": [
+            null,
+            null,
+            -210
+          ]
+        }
+      },
+      {
+        "at": 73,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 6,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 73,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 6,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            175,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 73,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 79,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 5,
+          "angles": [
+            null,
+            null,
+            -240
+          ]
+        }
+      },
+      {
+        "at": 79,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 5,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 79,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 5,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            200,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 79,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 84,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 5,
+          "angles": [
+            null,
+            null,
+            -270
+          ]
+        }
+      },
+      {
+        "at": 84,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 5,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 84,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 5,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            225,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 84,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 89,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 4,
+          "angles": [
+            null,
+            null,
+            -300
+          ]
+        }
+      },
+      {
+        "at": 89,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 4,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 89,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 4,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 89,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 93,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 4,
+          "angles": [
+            null,
+            null,
+            -330
+          ]
+        }
+      },
+      {
+        "at": 93,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 4,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 93,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 4,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 93,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 97,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 3,
+          "angles": [
+            null,
+            null,
+            -360
+          ]
+        }
+      },
+      {
+        "at": 97,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 3,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 97,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 3,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            50,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 97,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 100,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 3,
+          "angles": [
+            null,
+            null,
+            -390
+          ]
+        }
+      },
+      {
+        "at": 100,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 3,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 100,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 3,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            75,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 100,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 103,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 3,
+          "angles": [
+            null,
+            null,
+            -420
+          ]
+        }
+      },
+      {
+        "at": 103,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 3,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 103,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 3,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            100,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 103,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 106,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -450
+          ]
+        }
+      },
+      {
+        "at": 106,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 106,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            125,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 106,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 108,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -480
+          ]
+        }
+      },
+      {
+        "at": 108,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 108,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            150,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 108,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 110,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -510
+          ]
+        }
+      },
+      {
+        "at": 110,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 110,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            175,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 110,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 112,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -540
+          ]
+        }
+      },
+      {
+        "at": 112,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 112,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            200,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 112,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 114,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -570
+          ]
+        }
+      },
+      {
+        "at": 114,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 114,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            225,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 114,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 116,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -600
+          ]
+        }
+      },
+      {
+        "at": 116,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            50,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 116,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            0,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 116,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 118,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 2,
+          "angles": [
+            null,
+            null,
+            -630
+          ]
+        }
+      },
+      {
+        "at": 118,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            50,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 118,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 2,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            25,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 118,
+        "kind": "sound",
+        "id": 1
+      },
+      {
+        "at": 120,
+        "kind": "spawn",
+        "particle": "clock-hand",
+        "birth": {
+          "lifetime": 14,
+          "angles": [
+            null,
+            null,
+            -660
+          ]
+        }
+      },
+      {
+        "at": 120,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 14,
+          "offset": [
+            -7,
+            null,
+            null
+          ],
+          "uv": [
+            50,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 120,
+        "kind": "spawn",
+        "particle": "counter-digit",
+        "birth": {
+          "lifetime": 14,
+          "offset": [
+            7,
+            null,
+            null
+          ],
+          "uv": [
+            50,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      {
+        "at": 120,
+        "kind": "sound",
+        "id": 1
+      }
+    ]
+  ],
+  "artwork": {
+    "textures": {
+      "bank-0": [
+        {
+          "images": [
+            {
+              "image": "battle/spells/haste/textures/clock.ktx2",
+              "size": [
+                256,
+                256
+              ]
+            }
+          ],
+          "sampler": {
+            "wrap": [
+              "clamp",
+              "clamp"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

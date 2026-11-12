@@ -512,6 +512,7 @@ fn condition_benefit_needed(
                     && !actor.conditions.effective().contains(condition)
             }
             (None, SpellBenefit::Buff(buff)) => actor.conditions.needs_buff(buff),
+            (None, SpellBenefit::Haste { .. }) => actor.conditions.haste_percent() == 0,
             _ => false,
         }
 }

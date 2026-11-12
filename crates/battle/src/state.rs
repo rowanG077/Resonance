@@ -898,6 +898,8 @@ pub(crate) const TARGET_SETTLE_UPDATES: u16 = 120;
 /// State owned by one actor throughout the battle. Public actor values and model
 /// poses stay separate so gameplay and animation can borrow them independently.
 pub(crate) struct ActorRuntime {
+    /// Hundredths of an extra action tick accumulated under Haste.
+    pub(crate) haste_phase: u8,
     pub(crate) combo: crate::action_selection::Combo,
     pub(crate) control: Option<crate::control::Controller>,
     pub(crate) target: ActorId,
@@ -1173,6 +1175,7 @@ impl Battle {
                     let actor = &actors[index];
                     let target = prepared.targets[index];
                     Ok(ActorRuntime {
+                        haste_phase: 0,
                         combo: Default::default(),
                         control: crate::control::Controller::from_setup(
                             ActorId(index as u8),
@@ -2443,6 +2446,9 @@ impl Battle {
             }
             next = Some((id, transition));
         }
+        if facing_ready && self.haste_tick_due(index) {
+            next = self.advance_hastened_sequence(index, next, contacts, items, cues)?;
+        }
         // Explicit traversal starts moving on its authored tick, including admission.
         // Other attacks retain their entry hold, and other movement gates still apply.
         movement_handled |= entering_attack
@@ -2543,6 +2549,59 @@ impl Battle {
             }
         }
         Ok(true)
+    }
+
+    /// Haste runs an actor's action clock faster than the battle's: every
+    /// `100 / percent` visits owe one extra tick. Without Haste nothing accrues.
+    pub(crate) fn haste_tick_due(&mut self, index: usize) -> bool {
+        let percent = self.actors[index].conditions.haste_percent();
+        let phase = &mut self.runtime[index].haste_phase;
+        if percent == 0 {
+            *phase = 0;
+            return false;
+        }
+        *phase += percent;
+        if *phase < 100 {
+            return false;
+        }
+        *phase -= 100;
+        true
+    }
+
+    /// Run the extra tick a hastened actor is owed, in the same visit. An
+    /// attack's pending advance is committed first, so the second step runs
+    /// the next tick's events; chaining and recovery keep their place at the
+    /// end of the update, with the transition this returns.
+    fn advance_hastened_sequence(
+        &mut self,
+        index: usize,
+        pending: Option<(ActionId, ActionTransition)>,
+        contacts: &mut Contacts,
+        items: &mut dyn crate::item::Provider,
+        cues: &mut Vec<Cue>,
+    ) -> Result<Option<(ActionId, ActionTransition)>> {
+        let Some((&id, sequence)) = self.runtime[index].task.action() else {
+            return Ok(pending);
+        };
+        let attack = matches!(
+            &sequence.definition.execution,
+            crate::ActionExecution::Attack(_)
+        );
+        let recovering = matches!(sequence.execution, Execution::Recovering { .. });
+        match pending {
+            Some((_, ActionTransition::Advance)) if !sequence.events_complete() => {
+                let mut sequence = self.take_sequence(&id).unwrap();
+                sequence.age += 1;
+                self.put_sequence(id, sequence);
+            }
+            // Casting and recovery count down inside the step itself. An
+            // attack that did not advance is held by a hit or by learning.
+            None if !attack || recovering => {}
+            _ => return Ok(pending),
+        }
+        Ok(self
+            .advance_sequence(id, contacts, items, cues)?
+            .map(|transition| (id, transition)))
     }
 
     fn advance_sequence(

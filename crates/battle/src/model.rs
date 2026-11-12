@@ -1766,7 +1766,7 @@ impl Model {
         if advance_presentation {
             self.shown.texture_tick += 1;
         }
-        self.sample_pose(advance_pose)?;
+        self.sample_pose(advance_pose, actor.haste_scale())?;
         self.present(
             actor,
             advance_presentation,
@@ -1777,16 +1777,22 @@ impl Model {
 
     fn sample_for_geometry(&mut self, actor: &Actor, advance: bool) -> Result<()> {
         // Secondary chains retain their history until final placement is known.
-        self.sample_pose(advance)?;
+        self.sample_pose(advance, actor.haste_scale())?;
         self.present_body(actor, None)
     }
 
-    fn sample_pose(&mut self, advance: bool) -> Result<()> {
-        self.sample_main(advance)?;
+    /// `rate` scales this update's playback step: a hastened actor's clips
+    /// keep pace with its faster action clock.
+    fn sample_pose(&mut self, advance: bool, rate: f32) -> Result<()> {
+        self.sample_main(advance, rate)?;
         for part in &mut self.parts {
             let motion = self.definition.motion(part.bound_clip)?;
             if advance {
-                part.animation.advance(&self.definition.skeleton, motion)?;
+                let authored = part.animation.clock.rate;
+                part.animation.clock.rate = authored * rate;
+                let advanced = part.animation.advance(&self.definition.skeleton, motion);
+                part.animation.clock.rate = authored;
+                advanced?;
             } else {
                 part.animation
                     .sample_pending(&self.definition.skeleton, motion)?;
@@ -1799,15 +1805,19 @@ impl Model {
     /// The caller shares one allowance across requests and respects paused clocks.
     fn advance_outgoing(&mut self, advance: &mut bool) -> Result<()> {
         if std::mem::take(advance) {
-            self.sample_main(true)?;
+            self.sample_main(true, 1.)?;
         }
         Ok(())
     }
 
-    fn sample_main(&mut self, advance: bool) -> Result<()> {
+    fn sample_main(&mut self, advance: bool, rate: f32) -> Result<()> {
         let motion = self.definition.motion(self.bound_clip)?;
         let weight = if advance {
-            Some(self.animation.advance(&self.definition.skeleton, motion)?)
+            let authored = self.animation.clock.rate;
+            self.animation.clock.rate = authored * rate;
+            let advanced = self.animation.advance(&self.definition.skeleton, motion);
+            self.animation.clock.rate = authored;
+            Some(advanced?)
         } else {
             self.animation
                 .sample_pending(&self.definition.skeleton, motion)?

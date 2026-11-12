@@ -237,6 +237,11 @@ pub enum SpellBenefit {
         percent: u8,
         duration: u16,
     },
+    /// Speed up the recipient's actions, casting and movement.
+    Haste {
+        percent: u8,
+        duration: u16,
+    },
     DefenseDown {
         /// Retain an existing stronger reduction; positive input cannot raise defense.
         amount: i16,
@@ -259,6 +264,7 @@ impl SpellBenefit {
             Self::Tp(amount) => amount > 0,
             Self::Cure(_) | Self::Buff(_) | Self::Sacrifice(_) | Self::DefenseDown { .. } => true,
             Self::Resurrect(percent) => percent <= 100,
+            Self::Haste { percent, duration } => (1..=100).contains(&percent) && duration > 0,
             Self::Stat {
                 condition,
                 percent,
@@ -345,6 +351,18 @@ impl SpellBenefit {
                     cues.push(Cue::ConditionLabel {
                         actor: target,
                         kind: crate::conditions::ConditionLabel::StatUp(condition),
+                        position: actor.condition_label_origin(),
+                    });
+                }
+            }
+            Self::Haste { percent, duration } => {
+                let actor = &mut battle.actors[target.index()];
+                if actor.conditions.hasten(percent, u32::from(duration)) {
+                    cues.push(Cue::ConditionLabel {
+                        actor: target,
+                        kind: crate::conditions::ConditionLabel::StatUp(
+                            crate::conditions::Condition::Haste,
+                        ),
                         position: actor.condition_label_origin(),
                     });
                 }

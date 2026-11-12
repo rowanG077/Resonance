@@ -488,6 +488,25 @@ impl Conditions {
         }
     }
 
+    /// Speed the actor's actions up by `percent` for `duration` updates. A
+    /// new application replaces the current one.
+    pub(crate) fn hasten(&mut self, percent: u8, duration: u32) -> bool {
+        if self.immunity().contains(Haste) {
+            return false;
+        }
+        self.set_effect(ActiveEffect {
+            condition: Haste,
+            remaining: Some(duration),
+            magnitude: i16::from(percent.min(100)),
+        });
+        true
+    }
+
+    /// Percent by which Haste currently speeds the actor up; zero without it.
+    pub fn haste_percent(&self) -> u8 {
+        self.magnitude(Haste).clamp(0, 100) as u8
+    }
+
     pub(crate) fn bless_speed(&mut self) {
         if !self.immunity().contains(MovementBoost) {
             self.set_effect(ActiveEffect {

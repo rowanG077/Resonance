@@ -71,6 +71,9 @@ pub(crate) fn prepare(
                         BattleCure::All => Cure::All,
                     }),
                     Benefit::Resurrect { percent } => SpellBenefit::Resurrect(percent),
+                    Benefit::Haste { percent, duration } => {
+                        SpellBenefit::Haste { percent, duration }
+                    }
                     Benefit::Stat {
                         condition,
                         percent,

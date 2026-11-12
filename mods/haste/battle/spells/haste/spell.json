@@ -1,0 +1,19 @@
+{
+  "duration": 134,
+  "effects": "battle/spells/haste/effects.json",
+  "origin": {
+    "kind": "target"
+  },
+  "pulses": [
+    {
+      "at": 12,
+      "benefit": {
+        "duration": 1800,
+        "kind": "haste",
+        "percent": 20
+      },
+      "effect": 0
+    }
+  ],
+  "voice": 107
+}

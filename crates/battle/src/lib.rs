@@ -190,6 +190,8 @@ pub use voice::VoicePriority;
 pub use weapon_flight::WeaponFlightDefinition;
 
 #[cfg(test)]
+mod haste_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(feature = "test-support")]

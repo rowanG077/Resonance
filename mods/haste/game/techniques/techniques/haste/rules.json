@@ -1,0 +1,17 @@
+{
+  "action_range": 8000.0,
+  "capabilities": {
+    "family": "basic",
+    "spell": true,
+    "target": "ally"
+  },
+  "cast_time_adjustment": 60,
+  "casting": {
+    "effects": "healing"
+  },
+  "learn_on_level_up": true,
+  "recovery_ticks": 120,
+  "required_level": 12,
+  "spell": "battle/spells/haste/spell.json",
+  "tp_cost": 14
+}

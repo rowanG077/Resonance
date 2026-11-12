@@ -169,6 +169,11 @@ impl Battle {
 }
 
 impl crate::Actor {
+    /// Rate of the actor's clocks under Haste; exactly one without it.
+    pub(crate) fn haste_scale(&self) -> f32 {
+        1. + f32::from(self.conditions.haste_percent()) / 100.
+    }
+
     /// Halve walk speed before body scale and strength.
     pub(crate) fn walk_speed(&self, profile: f32, scale: f32, conditions: ConditionSet) -> f32 {
         let profile = if conditions.contains(Condition::Heavy) {
@@ -177,13 +182,16 @@ impl crate::Actor {
             profile
         };
         let bonus = f32::from(u8::from(conditions.contains(Condition::MovementBoost)));
-        (profile * scale) * 0.1_f32.mul_add(bonus, self.equipment.speed_multiplier)
+        (profile * scale)
+            * 0.1_f32.mul_add(bonus, self.equipment.speed_multiplier)
+            * self.haste_scale()
     }
 
     /// Keep acceleration at 0.5 while scaling only the live speed ceiling.
     pub(crate) fn run_limit(&self, profile: f32, conditions: ConditionSet) -> f32 {
         let bonus = f32::from(u8::from(conditions.contains(Condition::MovementBoost)));
-        let speed = profile * 0.2_f32.mul_add(bonus, self.equipment.speed_multiplier);
+        let speed =
+            profile * 0.2_f32.mul_add(bonus, self.equipment.speed_multiplier) * self.haste_scale();
         if conditions.contains(Condition::Heavy) {
             speed * 0.5
         } else {

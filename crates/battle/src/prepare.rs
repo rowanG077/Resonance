@@ -479,6 +479,23 @@ impl crate::Battle {
         Ok(())
     }
 
+    /// Apply Haste directly, as a spell's pulse would.
+    pub fn restore_fixture_haste(
+        &mut self,
+        actor: ActorId,
+        percent: u8,
+        duration: u32,
+    ) -> Result<()> {
+        self.actor(actor)?;
+        ensure!(
+            self.actors[actor.index()]
+                .conditions
+                .hasten(percent, duration),
+            "actor is immune to Haste"
+        );
+        Ok(())
+    }
+
     /// Restore carried motion at the observed ready boundary before an action begins.
     pub fn restore_fixture_forward_speed(&mut self, actor: ActorId, speed: f32) -> Result<()> {
         self.actor(actor)?;
