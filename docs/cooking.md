@@ -145,11 +145,12 @@ documents carry source/disc ownership, content fingerprints or source inventorie
 Diagnostics and independent comparison evidence stay outside the library.
 
 Native bytecode keeps its machine IDs. Resource requests resolve through mappings.
-The explicitly maintained gameplay corrections (Shadow following, Gnomette fade,
-wood cleanup, boulder retries and Niflheim bookkeeping/visibility) are preserved as
-small authored corrections after native extraction. These corrections do not
-rewrite resource IDs or modify modded cooked scripts at runtime. The two obsolete
-checked-VM workarounds are replaced by source-neutral VM semantics.
+The explicitly maintained gameplay corrections (boat passenger heights, Shadow
+following, Gnomette fade, wood cleanup, boulder retries and Niflheim
+bookkeeping/visibility) are preserved as small authored corrections after native
+extraction. These corrections do not rewrite resource IDs or modify modded cooked
+scripts at runtime. The two obsolete checked-VM workarounds are replaced by
+source-neutral VM semantics.
 
 The runtime reads current cooked formats directly. Original-format asset readers
 and compatibility adapters are not runtime fallbacks. Later numbered mod layers

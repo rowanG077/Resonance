@@ -232,7 +232,7 @@ pub(super) fn sync(
 pub(super) fn pose(
     art: Res<Art>,
     state: State,
-    actors: Query<&ActorPart>,
+    actors: Query<(Entity, &ActorPart)>,
     mut transforms: ParamSet<(
         TransformHelper,
         Query<(
@@ -249,23 +249,33 @@ pub(super) fn pose(
     // Animation has run, but propagation has not. Compute this tick's joint
     // transforms explicitly so moving characters do not leave a delayed shadow.
     let helper = transforms.p0();
-    for part in actors
+    for (_, part) in actors
         .iter()
-        .filter(|part| part.part == 0 && !part.prepared)
+        .filter(|(_, part)| part.part == 0 && !part.prepared)
     {
         applied.loading(Request::Shadow(part.actor));
     }
     let anchors: BTreeMap<_, _> = actors
         .iter()
-        .filter(|part| part.part == 0)
-        .filter_map(|part| {
-            Some((
-                part.actor,
+        .filter(|(_, part)| part.part == 0)
+        .filter_map(|(root, part)| {
+            let actor = state.get().events.world.actors.get(&part.actor)?;
+            let anchor = helper
+                .compute_global_transform(part.shadow_anchor?)
+                .ok()?
+                .translation();
+            // Attached script positions are local to the parent's animated bone.
+            // Query the floor from the world origin, below the animated hips.
+            let ground_point = if actor.attachment.is_some() {
                 helper
-                    .compute_global_transform(part.shadow_anchor?)
+                    .compute_global_transform(root)
                     .ok()?
-                    .translation(),
-            ))
+                    .translation()
+                    .to_array()
+            } else {
+                actor.position
+            };
+            Some((part.actor, (anchor, ground_point)))
         })
         .collect();
     let collision = state.get().collision();
@@ -296,25 +306,127 @@ pub(super) fn pose(
             && state.get().events.world.tick >= actor.visible_from
             && !actor.appearance.model_hidden
             && actor.casts_shadow
-            && let Some(anchor) = anchor
+            && let Some((anchor, ground_point)) = anchor
         {
-            let surface = collision.ground_surface(actor.position);
-            // A missing floor keeps the actor's height and last floor tilt.
-            // A replacement actor starts with a horizontal shadow.
-            transform.translation = Vec3::new(
-                anchor.x,
-                anchor.y,
-                surface.map_or(actor.position[2], |s| s.height) + art.shadows.spec.height_offset,
+            place(
+                &mut transform,
+                *anchor,
+                *ground_point,
+                &collision,
+                art.shadows.spec.height_offset,
+                shadow.1 != actor.instance,
             );
-            if let Some(surface) = surface {
-                transform.rotation =
-                    Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal));
-            } else if shadow.1 != actor.instance {
-                transform.rotation = Quat::IDENTITY;
-            }
             shadow.1 = actor.instance;
             *visibility = Visibility::Inherited;
             applied.ack(Request::Shadow(shadow.0));
         }
+    }
+}
+
+fn place(
+    transform: &mut Transform,
+    anchor: Vec3,
+    ground_point: [f32; 3],
+    collision: &resonance_game::field::navigation::WalkMesh,
+    height_offset: f32,
+    replacement: bool,
+) {
+    let surface = collision.ground_surface(ground_point);
+    // A missing floor keeps the actor's height and last floor tilt.
+    // A replacement actor starts with a horizontal shadow.
+    transform.translation = Vec3::new(
+        anchor.x,
+        anchor.y,
+        surface.map_or(ground_point[2], |s| s.height) + height_offset,
+    );
+    if let Some(surface) = surface {
+        transform.rotation = Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal));
+    } else if replacement {
+        transform.rotation = Quat::IDENTITY;
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    use resonance_content::field::CollisionGroup;
+    use resonance_game::field::navigation::WalkMesh;
+
+    fn floor(origin: [f32; 3], slope: f32) -> CollisionGroup {
+        CollisionGroup {
+            surface: 0,
+            vertices: [[-100., -100.], [100., -100.], [0., 100.]]
+                .map(|[x, y]| [origin[0] + x, origin[1] + y, origin[2] + x * slope])
+                .into(),
+            triangles: vec![[0, 1, 2]],
+        }
+    }
+
+    #[test]
+    fn attached_shadows_query_world_floor_and_follow_the_boat_without_a_floor() {
+        let collision = WalkMesh::new(&[
+            floor([0., -460., 45.], 0.),
+            floor([1733., 3499., -109.], 0.1),
+        ])
+        .unwrap();
+        // Palmacosta passengers retain Z=45 in boat coordinates, while the
+        // animated boat places their feet at world Z=-109. The shadow's
+        // horizontal anchor is an animated hip node, 85 units above the feet.
+        let mut transform = Transform::default();
+        place(
+            &mut transform,
+            Vec3::new(1743., 3499., -24.),
+            [1733., 3499., -109.],
+            &collision,
+            2.,
+            true,
+        );
+        assert_eq!(transform.translation, Vec3::new(1743., 3499., -107.));
+        let normal = Vec3::new(-0.1, 0., 1.).normalize();
+        assert!((transform.rotation * Vec3::Z).abs_diff_eq(normal, 0.00001));
+
+        // The boat leaves the floor: keep its current world height and last
+        // tilt instead of emitting the original overhead quad at Z=47.
+        let tilt = transform.rotation;
+        place(
+            &mut transform,
+            Vec3::new(2000., 4000., -21.),
+            [2000., 4000., -106.],
+            &collision,
+            2.,
+            false,
+        );
+        assert_eq!(transform.translation, Vec3::new(2000., 4000., -104.));
+        assert_eq!(transform.rotation, tilt);
+        place(
+            &mut transform,
+            Vec3::new(2000., 4000., -21.),
+            [2000., 4000., -106.],
+            &collision,
+            2.,
+            true,
+        );
+        assert_eq!(transform.rotation, Quat::IDENTITY);
+    }
+
+    #[test]
+    fn ordinary_shadows_keep_the_actor_floor_query_and_animated_horizontal_anchor() {
+        let collision = WalkMesh::new(&[floor([0., 0., 10.], 0.1)]).unwrap();
+        let mut transform = Transform::default();
+        // A walking pose can move the shadow node above or outside the floor.
+        // Its original floor lookup still belongs to the unparented actor.
+        place(
+            &mut transform,
+            Vec3::new(150., 0., 100.),
+            [0., 0., 10.],
+            &collision,
+            2.,
+            true,
+        );
+        assert_eq!(transform.translation, Vec3::new(150., 0., 12.));
+        assert!(
+            (transform.rotation * Vec3::Z)
+                .abs_diff_eq(Vec3::new(-0.1, 0., 1.).normalize(), 0.00001)
+        );
     }
 }
