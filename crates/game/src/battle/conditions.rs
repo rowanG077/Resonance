@@ -18,6 +18,8 @@ pub(super) struct GearEffects {
     pub physical_damage_boost: bool,
     pub physical_damage_reduction: bool,
     pub magic_damage_boost: bool,
+    /// Percent per earlier combo hit and its total limit; the best piece counts.
+    pub combo_damage: (u8, u8),
     pub experience_percent: u8,
     pub gald_one_and_a_half: bool,
     pub gald_double: bool,
@@ -95,6 +97,10 @@ impl GearEffects {
         self.physical_damage_boost |= properties.physical_damage_boost;
         self.physical_damage_reduction |= properties.physical_damage_reduction;
         self.magic_damage_boost |= properties.magic_damage_boost;
+        self.combo_damage = self.combo_damage.max((
+            properties.combo_damage.per_hit,
+            properties.combo_damage.limit,
+        ));
         self.gald_one_and_a_half |= properties.gald_one_and_a_half;
         self.gald_double |= properties.gald_double;
         self.unsupported_modifier |= properties.unsupported_modifier;
@@ -501,5 +507,21 @@ mod tests {
         assert_eq!(removed.layers().intrinsic, KillTpRecovery.into());
         assert_eq!(removed.active_effects(), live.active_effects());
         assert!(removed.periodic_effects().is_empty());
+    }
+
+    #[test]
+    fn the_strongest_combo_damage_piece_counts_once() {
+        use resonance_content::menu_data::ComboDamage;
+        let ring = |per_hit, limit| EquipmentProperties {
+            combo_damage: ComboDamage { per_hit, limit },
+            ..Default::default()
+        };
+        let mut gear = GearEffects::from_properties(&ring(1, 20));
+        assert_eq!(gear.combo_damage, (1, 20));
+        gear.contribute(&ring(1, 20));
+        assert_eq!(gear.combo_damage, (1, 20));
+        gear.contribute(&ring(2, 10));
+        assert_eq!(gear.combo_damage, (2, 10));
+        assert_eq!(GearEffects::default().combo_damage, (0, 0));
     }
 }

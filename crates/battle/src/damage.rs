@@ -124,6 +124,10 @@ pub struct DamageTraits {
     pub physical_damage_reduction: bool,
     /// Magic Ring increases magical damage.
     pub magic_damage_boost: bool,
+    /// Percent of extra damage for every earlier hit of the combo on the
+    /// target, and the most that can add up to.
+    pub combo_damage_percent: u8,
+    pub combo_damage_limit: u8,
     /// Reduce incoming damage by 10%.
     pub damage_reduction: bool,
     /// Halve incoming ailment chance and label resisted applications.
@@ -553,6 +557,13 @@ pub(crate) fn resolve_contact(
         Affinity::Resistant => amount / 2,
         _ => amount,
     };
+    if !unison {
+        let traits = &owner.equipment.damage;
+        let hits = i64::from(target.reaction.combo_hits.max(0));
+        let bonus = (hits * i64::from(traits.combo_damage_percent))
+            .min(i64::from(traits.combo_damage_limit));
+        amount += amount * bonus / 100;
+    }
     if all_divide && !unison {
         amount /= 2;
     }

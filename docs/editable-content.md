@@ -584,6 +584,13 @@ The original items use the same vocabulary, so changing Apple Gel's
 `battle_use` changes it in battle. Use timing, cooldown, effect and sound are
 shared by every item. A new kind of effect needs engine work.
 
+Equipment `properties` add to the original set (element, resistances, immunities,
+regeneration and so on, as the original items use them):
+
+| Property | Effect |
+| --- | --- |
+| `combo_damage`: `{"per_hit": 1, "limit": 20}` | Each hit already in the combo on a target raises the wearer's damage to it by `per_hit` percent, up to `limit`. |
+
 An equippable item shows a model when its definition names a directory under
 `meshes/equipment/`: `"equipment": "mymod-moon-blade"` selects
 `meshes/equipment/mymod-moon-blade/equipment.json`. Without it an added item

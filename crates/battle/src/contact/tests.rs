@@ -3,6 +3,8 @@ use crate::conditions::ConditionSet;
 use resonance_content::battle_action::Condition as HitAilment;
 #[path = "all_divide_tests.rs"]
 mod all_divide_tests;
+#[path = "combo_damage_tests.rs"]
+mod combo_damage_tests;
 #[path = "damage_modifier_tests.rs"]
 mod damage_modifier_tests;
 #[path = "kill_recovery_tests.rs"]

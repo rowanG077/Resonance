@@ -1,0 +1,12 @@
+{
+  "category": "ring",
+  "characters": "all",
+  "price": 3000,
+  "properties": {
+    "combo_damage": {
+      "limit": 20,
+      "per_hit": 1
+    },
+    "descriptions": ["momentum-combo-damage"]
+  }
+}

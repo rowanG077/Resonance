@@ -64,6 +64,15 @@ pub enum EquipmentRescue {
     Consumable,
 }
 
+/// Damage that grows with the combo on the target: `per_hit` percent for
+/// every earlier hit of that combo, up to `limit` percent in total.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComboDamage {
+    pub per_hit: u8,
+    pub limit: u8,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EquipmentProperties {
@@ -113,6 +122,9 @@ pub struct EquipmentProperties {
     pub physical_damage_reduction: bool,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub magic_damage_boost: bool,
+    /// The wearer's damage rises through a combo and resets when it ends.
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub combo_damage: ComboDamage,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub gald_one_and_a_half: bool,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]

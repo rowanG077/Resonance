@@ -269,6 +269,8 @@ pub fn loadout(menus: &MenuData, member: &Member, character: Character) -> Resul
                 physical_damage_boost: gear.physical_damage_boost,
                 physical_damage_reduction: gear.physical_damage_reduction,
                 magic_damage_boost: gear.magic_damage_boost,
+                combo_damage_percent: gear.combo_damage.0,
+                combo_damage_limit: gear.combo_damage.1,
                 damage_reduction: member.ex_skills.contains(&ex::DAMAGE_REDUCTION),
                 ailment_resistance: member.ex_skills.contains(&ex::AILMENT_RESISTANCE),
                 physical_counter: compound(ex::PHYSICAL_COUNTER),

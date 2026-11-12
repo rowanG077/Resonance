@@ -136,3 +136,34 @@ fn the_item_mods_load_together_without_sharing_an_id() -> Result<()> {
     assert_eq!(shop(&loaded, "belteon")?.last(), Some(&ids[2]));
     Ok(())
 }
+
+#[test]
+#[ignore = "requires cooked original assets; set RESONANCE_TEST_ASSETS or cook local/all-assets"]
+fn momentum_ring_is_an_accessory_sold_in_luin_with_combo_damage() -> Result<()> {
+    let loaded = Loaded::open(&["momentum-ring"])?;
+    let id = loaded.item("momentum-ring")?;
+    let item = &loaded.menus.items[usize::from(id)];
+    assert_eq!(
+        (
+            item.properties.combo_damage.per_hit,
+            item.properties.combo_damage.limit
+        ),
+        (1, 20)
+    );
+    assert_eq!(item.shop_price(ShopTrade::Buy, false), 6000);
+    assert_eq!(shop(&loaded, "fighting-spirit")?.last(), Some(&id));
+    // Every character can wear it in either accessory slot, and only there.
+    let definition = &loaded.session.items[usize::from(id)];
+    for character in 0..9 {
+        assert!(definition.fits_slot(character, 3) && definition.fits_slot(character, 4));
+        assert!(!definition.fits_slot(character, 0));
+    }
+    assert!(
+        loaded
+            .menus
+            .status
+            .equipment_effects
+            .contains_key("momentum-combo-damage")
+    );
+    Ok(())
+}
