@@ -590,6 +590,7 @@ regeneration and so on, as the original items use them):
 | Property | Effect |
 | --- | --- |
 | `combo_damage`: `{"per_hit": 1, "limit": 20}` | Each hit already in the combo on a target raises the wearer's damage to it by `per_hit` percent, up to `limit`. |
+| `free_arte_chance`: `20` | Each time the wearer pays for an arte or spell, this percent chance makes the next one cost 0 TP. |
 
 An equippable item shows a model when its definition names a directory under
 `meshes/equipment/`: `"equipment": "mymod-moon-blade"` selects

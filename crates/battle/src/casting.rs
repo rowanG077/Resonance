@@ -119,6 +119,8 @@ pub struct CastingState {
     pub(crate) previous_spell: Option<crate::ActionKey>,
     /// Prepared action and remaining ticks retained for Spell Save.
     pub(crate) interrupted: Option<(crate::ActionKey, u32)>,
+    /// The next arte or spell costs no TP; see `free_arte_chance`.
+    pub(crate) free_arte: bool,
 }
 
 /// The global input visit precedes every actor callback. In particular, an
@@ -584,6 +586,7 @@ impl CastRun {
                 let (amount, lucky) =
                     crate::tp::commit_spell_cost(owner, quote, || battle.random.next_u16() % 100);
                 battle.actors[actor.index()].tp -= amount as u16;
+                battle.settle_arte_payment(actor, cues);
                 // Storage retains the requested spell and its existing payment order.
                 if store {
                     let _ = battle.commit_cast_use(actor, requested)?;

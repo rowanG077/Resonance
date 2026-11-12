@@ -125,6 +125,10 @@ pub struct EquipmentProperties {
     /// The wearer's damage rises through a combo and resets when it ends.
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub combo_damage: ComboDamage,
+    /// Percent chance, each time the wearer pays for an arte or spell, that
+    /// the next one costs no TP.
+    #[serde(skip_serializing_if = "crate::defaults::is_default")]
+    pub free_arte_chance: u8,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]
     pub gald_one_and_a_half: bool,
     #[serde(skip_serializing_if = "crate::defaults::is_default")]

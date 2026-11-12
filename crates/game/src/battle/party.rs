@@ -354,6 +354,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: Character) -> Resul
             backstep_guard: compound(ex::BACKSTEP_GUARD),
             normal_guard: compound(ex::NORMAL_GUARD),
             tp_cost_reduction: compound(ex::TP_COST_REDUCTION),
+            free_arte_chance: gear.free_arte_chance.min(100),
             taunt_enabled: member.ex_skills.contains(&ex::TAUNT),
             speed_multiplier: 1.0
                 + (gear.movement_bonus + i32::from(member.ex_skills.contains(&ex::DASH))) as f32

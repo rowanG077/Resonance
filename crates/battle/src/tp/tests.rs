@@ -255,3 +255,62 @@ fn native_payment_uses_current_modifiers_at_admission() {
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.actors[0].tp, 20);
 }
+
+#[test]
+fn a_free_arte_costs_nothing_once_and_only_a_paid_use_can_grant_the_next() {
+    // A certain echo: the paid use arms the next one and says so.
+    let mut battle = battle(false, Side::Party, 40);
+    battle.actors[0].equipment.free_arte_chance = 100;
+    assert!(!battle.free_arte_pending(ActorId(0)));
+    let frame = battle.step(request()).unwrap();
+    assert_eq!(battle.actors[0].tp, 12);
+    assert!(battle.free_arte_pending(ActorId(0)));
+    assert!(frame.cues.iter().any(|cue| matches!(
+        cue,
+        Cue::ConditionLabel {
+            kind: crate::conditions::ConditionLabel::EquipmentEffect,
+            ..
+        }
+    )));
+
+    // The free use is admitted with no TP at all, and is spent by it.
+    let mut battle = battle_with_pending_free_arte(0);
+    assert_eq!(
+        battle.technique_tp_cost(ActorId(0), crate::ActionKey(0)),
+        Some(0)
+    );
+    let frame = battle.step(request()).unwrap();
+    assert_eq!(frame.actions.len(), 1);
+    assert_eq!(battle.actors[0].tp, 0);
+    assert!(!battle.free_arte_pending(ActorId(0)));
+    assert_eq!(
+        battle.technique_tp_cost(ActorId(0), crate::ActionKey(0)),
+        Some(28)
+    );
+}
+
+fn battle_with_pending_free_arte(tp: u16) -> Battle {
+    let mut battle = battle(false, Side::Party, tp);
+    battle.actors[0].casting_state.free_arte = true;
+    battle
+}
+
+#[test]
+fn the_free_arte_chance_follows_its_percentage_and_draws_nothing_without_it() {
+    let mut battle = battle(false, Side::Party, 40);
+    let untouched = battle.random_state();
+    let mut cues = Vec::new();
+    battle.settle_arte_payment(ActorId(0), &mut cues);
+    assert_eq!(battle.random_state(), untouched);
+    assert!(cues.is_empty() && !battle.free_arte_pending(ActorId(0)));
+
+    battle.actors[0].equipment.free_arte_chance = 20;
+    let granted = (0..2000)
+        .filter(|_| {
+            battle.settle_arte_payment(ActorId(0), &mut cues);
+            battle.free_arte_pending(ActorId(0))
+        })
+        .count();
+    assert!((330..=470).contains(&granted), "{granted} of 2000");
+    assert_eq!(cues.len(), granted);
+}

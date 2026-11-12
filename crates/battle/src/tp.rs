@@ -1,5 +1,30 @@
 use crate::conditions::Condition;
-use crate::{ActionDefinition, Actor, Side};
+use crate::{ActionDefinition, Actor, ActorId, Battle, Cue, Side};
+
+impl Battle {
+    /// An arte or spell has just been paid for. Spend a pending free use, then
+    /// roll whether this use makes the next one free. Actors without the
+    /// property draw nothing, so their battles keep the original random sequence.
+    pub(crate) fn settle_arte_payment(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
+        let index = actor.index();
+        self.actors[index].casting_state.free_arte = false;
+        let chance = self.actors[index].equipment.free_arte_chance;
+        if chance != 0 && self.random.next_u16() % 100 < u16::from(chance) {
+            let owner = &mut self.actors[index];
+            owner.casting_state.free_arte = true;
+            cues.push(Cue::ConditionLabel {
+                actor,
+                kind: crate::conditions::ConditionLabel::EquipmentEffect,
+                position: owner.condition_label_origin(),
+            });
+        }
+    }
+
+    /// Whether the actor's next arte or spell costs no TP.
+    pub fn free_arte_pending(&self, actor: ActorId) -> bool {
+        self.actors[actor.index()].casting_state.free_arte
+    }
+}
 
 fn technical(cost: u32) -> u32 {
     cost - cost / 8
@@ -37,6 +62,9 @@ pub(crate) fn catalogue_quote(owner: &Actor, raw: u16) -> u32 {
 }
 
 pub(crate) fn action_quote(owner: &Actor, key: crate::ActionKey, action: &ActionDefinition) -> u32 {
+    if owner.casting_state.free_arte {
+        return 0;
+    }
     match &action.execution {
         crate::ActionExecution::LeaveArena => 0,
         crate::ActionExecution::Attack(_) => catalogue_quote(owner, action.tp_cost),

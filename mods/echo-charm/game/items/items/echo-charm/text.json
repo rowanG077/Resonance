@@ -1,0 +1,5 @@
+{
+  "description": "A charm that hums after each arte. \n",
+  "details": "Using an arte has a 20% chance \nto make the next one cost 0 TP.",
+  "name": "Echo Charm"
+}

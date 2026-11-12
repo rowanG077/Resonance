@@ -20,6 +20,8 @@ pub(super) struct GearEffects {
     pub magic_damage_boost: bool,
     /// Percent per earlier combo hit and its total limit; the best piece counts.
     pub combo_damage: (u8, u8),
+    /// Chance that paying for an arte makes the next one free; the best piece counts.
+    pub free_arte_chance: u8,
     pub experience_percent: u8,
     pub gald_one_and_a_half: bool,
     pub gald_double: bool,
@@ -97,6 +99,7 @@ impl GearEffects {
         self.physical_damage_boost |= properties.physical_damage_boost;
         self.physical_damage_reduction |= properties.physical_damage_reduction;
         self.magic_damage_boost |= properties.magic_damage_boost;
+        self.free_arte_chance = self.free_arte_chance.max(properties.free_arte_chance);
         self.combo_damage = self.combo_damage.max((
             properties.combo_damage.per_hit,
             properties.combo_damage.limit,

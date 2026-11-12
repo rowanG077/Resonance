@@ -47,6 +47,7 @@ impl Battle {
             self.random.next_u16() % 100
         });
         self.actors[index].tp -= cost as u16;
+        self.settle_arte_payment(actor, cues);
         self.record_immediate_spell_use(actor, action)?;
         if lucky {
             let owner = &self.actors[index];

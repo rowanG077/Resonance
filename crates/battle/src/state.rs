@@ -1028,6 +1028,8 @@ pub struct EquipmentAttributes {
     pub reaction_ex: crate::ContactEx,
     pub stun_ex_bonus: bool,
     pub spell_revenge: bool,
+    /// Percent chance, on paying for an arte, that the next arte is free.
+    pub free_arte_chance: u8,
 }
 
 impl EquipmentAttributes {
@@ -1049,6 +1051,7 @@ impl EquipmentAttributes {
             normal_guard: false,
             stun_ex_bonus: false,
             spell_revenge: false,
+            free_arte_chance: 0,
             control_ex: Default::default(),
             casting: Default::default(),
             contact: Default::default(),
@@ -3028,6 +3031,16 @@ impl Battle {
         }
         let index = request.actor.index();
         self.actors[index].tp -= debit as u16;
+        // Normal attacks and an arte being learned are not paid uses.
+        if sequence.definition.normal.is_none()
+            && !learning
+            && matches!(
+                &sequence.definition.execution,
+                crate::ActionExecution::Attack(_)
+            )
+        {
+            self.settle_arte_payment(request.actor, cues);
+        }
         {
             self.set_task(index, ActorTask::None);
             let actor = &mut self.actors[index];

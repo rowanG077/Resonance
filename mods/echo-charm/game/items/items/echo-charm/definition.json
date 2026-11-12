@@ -1,0 +1,9 @@
+{
+  "category": "charm",
+  "characters": "all",
+  "price": 4000,
+  "properties": {
+    "descriptions": ["echo-free-arte"],
+    "free_arte_chance": 20
+  }
+}

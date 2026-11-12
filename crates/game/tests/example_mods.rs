@@ -167,3 +167,26 @@ fn momentum_ring_is_an_accessory_sold_in_luin_with_combo_damage() -> Result<()> 
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires cooked original assets; set RESONANCE_TEST_ASSETS or cook local/all-assets"]
+fn echo_charm_is_an_accessory_sold_in_flanoir_with_a_free_arte_chance() -> Result<()> {
+    let loaded = Loaded::open(&["echo-charm"])?;
+    let id = loaded.item("echo-charm")?;
+    let item = &loaded.menus.items[usize::from(id)];
+    assert_eq!(item.properties.free_arte_chance, 20);
+    assert_eq!(item.shop_price(ShopTrade::Buy, false), 8000);
+    assert_eq!(shop(&loaded, "snow-white")?.last(), Some(&id));
+    let definition = &loaded.session.items[usize::from(id)];
+    for character in 0..9 {
+        assert!(definition.fits_slot(character, 3) && definition.fits_slot(character, 4));
+    }
+    assert!(
+        loaded
+            .menus
+            .status
+            .equipment_effects
+            .contains_key("echo-free-arte")
+    );
+    Ok(())
+}
