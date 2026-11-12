@@ -269,6 +269,9 @@ impl Battle {
         if matches!(policy.effect, Effect::AllMultiply) {
             self.items.all_multiply = true;
         }
+        if matches!(policy.effect, Effect::OverLimit) {
+            self.force_overlimit(request.target, cues);
+        }
         if matches!(policy.effect, Effect::UnisonGauge) {
             self.add_unison_gauge(crate::MAX_UNISON_GAUGE, cues);
         }

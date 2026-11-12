@@ -146,6 +146,8 @@ pub enum Effect {
     Hourglass,
     /// Fill the Unison gauge; does nothing before Unison Attacks are available.
     UnisonGauge,
+    /// Put the target into Over Limit.
+    OverLimit,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -279,6 +281,9 @@ impl Battle {
             }
             Effect::Revive => {
                 actor.side == Side::Party && actor.availability == crate::ActorAvailability::Dead
+            }
+            Effect::OverLimit => {
+                actor.side == Side::Party && actor.available() && !actor.overlimit.is_active()
             }
             _ => actor.side == Side::Party && actor.available(),
         })

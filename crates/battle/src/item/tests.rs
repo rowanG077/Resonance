@@ -162,6 +162,7 @@ fn policies() -> BTreeMap<u16, Policy> {
         (600, Recover { hp: 25, tp: 0 }, true),
         (700, AllMultiply, false),
         (701, UnisonGauge, false),
+        (702, OverLimit, false),
     ]
     .into_iter()
     .map(|(id, effect, records_gel_use)| {

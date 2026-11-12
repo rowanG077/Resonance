@@ -126,6 +126,42 @@ impl Battle {
         }
     }
 
+    fn enter_overlimit(&mut self, index: usize, cues: &mut Vec<Cue>) {
+        let position = self.actors[index].condition_label_origin();
+        self.actors[index].overlimit = OverLimit {
+            charge: 0,
+            remaining: if self.prepared.actor_setup[index].extended_overlimit {
+                EXTENDED_DURATION
+            } else {
+                ACTIVE_DURATION
+            },
+        };
+        self.request_timed_hold(45, None);
+        cues.push(Cue::OverLimitEntered {
+            actor: ActorId(index as u8),
+            position,
+        });
+    }
+
+    /// Put an actor into Over Limit at once, as a full charge would on its
+    /// next visit. Only one actor per side is in Over Limit at a time, so
+    /// while an ally is, the actor is left fully charged and follows after.
+    pub(crate) fn force_overlimit(&mut self, id: ActorId, cues: &mut Vec<Cue>) {
+        let actor = &self.actors[id.index()];
+        if actor.overlimit.is_active() {
+            return;
+        }
+        if self
+            .actors
+            .iter()
+            .any(|other| other.side == actor.side && other.overlimit.is_active())
+        {
+            self.actors[id.index()].overlimit.charge = MAX_CHARGE;
+        } else {
+            self.enter_overlimit(id.index(), cues);
+        }
+    }
+
     pub(crate) fn advance_overlimit(&mut self, index: usize, cues: &mut Vec<Cue>) {
         if self.phase() != crate::BattlePhase::Combat
             || self
@@ -148,22 +184,8 @@ impl Battle {
             return;
         }
         let id = ActorId(index as u8);
-        let position = actor.condition_label_origin();
         if entering {
-            let actor = &mut self.actors[index];
-            actor.overlimit = OverLimit {
-                charge: 0,
-                remaining: if self.prepared.actor_setup[index].extended_overlimit {
-                    EXTENDED_DURATION
-                } else {
-                    ACTIVE_DURATION
-                },
-            };
-            self.request_timed_hold(45, None);
-            cues.push(Cue::OverLimitEntered {
-                actor: id,
-                position,
-            });
+            self.enter_overlimit(index, cues);
         } else {
             let actor = &mut self.actors[index];
             actor.overlimit.drain(2);

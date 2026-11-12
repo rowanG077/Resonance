@@ -258,6 +258,8 @@ pub enum BattleUse {
     Hourglass,
     /// Fill the party's Unison gauge.
     UnisonGauge,
+    /// Put one ally into Over Limit.
+    OverLimit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

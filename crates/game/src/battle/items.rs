@@ -141,6 +141,7 @@ pub(super) fn policies(items: &[Item]) -> BTreeMap<u16, item::Policy> {
                 BattleUse::AllMultiply => item::Effect::AllMultiply,
                 BattleUse::Hourglass => item::Effect::Hourglass,
                 BattleUse::UnisonGauge => item::Effect::UnisonGauge,
+                BattleUse::OverLimit => item::Effect::OverLimit,
             };
             Some((
                 id as u16,

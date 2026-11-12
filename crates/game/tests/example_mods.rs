@@ -109,3 +109,30 @@ fn unison_force_is_sold_in_palmacosta_and_fills_the_gauge() -> Result<()> {
     assert_eq!(shop(&loaded, "marble-s")?.last(), Some(&id));
     Ok(())
 }
+
+#[test]
+#[ignore = "requires cooked original assets; set RESONANCE_TEST_ASSETS or cook local/all-assets"]
+fn unlock_limit_is_sold_in_meltokio_and_grants_over_limit() -> Result<()> {
+    let loaded = Loaded::open(&["unlock-limit"])?;
+    let id = loaded.item("unlock-limit")?;
+    let item = &loaded.menus.items[usize::from(id)];
+    assert!(item.battle_usable);
+    assert_eq!(item.battle_use, Some(BattleUse::OverLimit));
+    assert_eq!(item.shop_price(ShopTrade::Buy, false), 3000);
+    assert_eq!(shop(&loaded, "belteon")?.last(), Some(&id));
+    Ok(())
+}
+
+/// Independent item mods receive distinct IDs and keep their own shop lines.
+#[test]
+#[ignore = "requires cooked original assets; set RESONANCE_TEST_ASSETS or cook local/all-assets"]
+fn the_item_mods_load_together_without_sharing_an_id() -> Result<()> {
+    let loaded = Loaded::open(&["all-multiply", "unison-force", "unlock-limit"])?;
+    let ids =
+        ["all-multiply", "unison-force", "unlock-limit"].map(|name| loaded.item(name).unwrap());
+    assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2]);
+    assert_eq!(shop(&loaded, "halo")?.last(), Some(&ids[0]));
+    assert_eq!(shop(&loaded, "marble-s")?.last(), Some(&ids[1]));
+    assert_eq!(shop(&loaded, "belteon")?.last(), Some(&ids[2]));
+    Ok(())
+}
