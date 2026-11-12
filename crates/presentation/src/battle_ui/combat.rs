@@ -150,6 +150,8 @@ impl Hud {
         command: Option<&resonance_game::battle::command::Frame>,
         marker_anchors: &[ActorMarkers],
     ) -> Result<()> {
+        use resonance_game::battle::command::View;
+
         // Selection keeps its own ornaments moving while gameplay waits.
         let elapsed = if command.is_some() || frame.target_selector.is_some() {
             self.ui_steps
@@ -160,15 +162,12 @@ impl Hud {
         self.motion_steps = 0;
         self.motion_tick = ((u32::from(self.motion_tick) + elapsed) % 360) as u16;
         meters::draw(frame, art, &mut batch[METERS..METERS + meters::COUNT])?;
-        let selection = command.and_then(|command| {
-            use resonance_game::battle::command::View;
-            match command.view {
-                View::Enemy { target } => Some((command.actor, target)),
-                View::TechTarget {
-                    target: Some(target),
-                } => Some((command.actor, target)),
-                _ => None,
-            }
+        let selection = command.and_then(|command| match command.view {
+            View::Enemy { target } => Some((command.actor, target)),
+            View::TechTarget {
+                target: Some(target),
+            } => Some((command.actor, target)),
+            _ => None,
         });
         draw_enemies(
             &self.enemies,
@@ -196,8 +195,19 @@ impl Hud {
             self.combos
                 .draw(&art.font, &art.combo, &mut left[COMBO_PANEL], &mut right[0])?;
         }
-        self.technical_smash
-            .draw(&art.font, &mut batch[TECHNICAL_SMASH])?;
+        if !command.is_some_and(|command| {
+            matches!(
+                command.view,
+                View::Inventory(_)
+                    | View::Tech(_)
+                    | View::Strategy(_)
+                    | View::Unison(_)
+                    | View::Equipment(_)
+            )
+        }) {
+            self.technical_smash
+                .draw(&art.font, &mut batch[TECHNICAL_SMASH])?;
+        }
         Ok(())
     }
 }
