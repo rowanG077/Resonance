@@ -37,6 +37,7 @@ pub(crate) fn prepare(id: usize, bytes: &[u8]) -> Result<Cow<'_, [u8]>> {
             anchor_shadow_followers
         }
         Some(FieldId::AltessasHouse0139) => depart_after_blackout,
+        Some(FieldId::Iselia0341) => release_banishment_villagers,
         Some(FieldId::Izoold0354) => |bytes| {
             raise_boat_passengers(
                 bytes,
@@ -62,6 +63,33 @@ fn header(bytes: &[u8]) -> Result<symphonia_script::scenario::Header> {
         "invalid gameplay correction code range"
     );
     Ok(header)
+}
+
+/// Release every departing villager's scripted reaction after Lloyd's banishment.
+/// The original scene addresses actors 23 and 24 instead of 27 and 28, leaving
+/// those two sliding away in their reaction poses rather than walking.
+fn release_banishment_villagers(bytes: &[u8]) -> Result<Vec<u8>> {
+    use symphonia_script::NativeCall;
+
+    let header = header(bytes)?;
+    ensure!(
+        header.code_base() <= 0x6f0a && header.auxiliary_offset() >= 0x6f4a,
+        "banishment correction lies outside script code"
+    );
+    let mut corrected = bytes.to_vec();
+    let release = 0x2000 | NativeCall::ConfigureActorAnimation as u16;
+    for (offset, original, departing) in [(0x6f0a, 23, 27_u16), (0x6f2a, 24, 28_u16)] {
+        expect_words(
+            bytes,
+            offset,
+            &[
+                original, 0x3000, 0x4000, 0, 0x3000, 0x4000, 0, 0x3000, 0x4000, 0, 0x3000, 0x4000,
+                0, 0x3000, 0x4000, release,
+            ],
+        )?;
+        corrected[offset..offset + 2].copy_from_slice(&departing.to_be_bytes());
+    }
+    Ok(corrected)
 }
 
 /// Lift passengers three units so their feet and contact shadows clear the
