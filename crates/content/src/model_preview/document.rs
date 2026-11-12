@@ -94,8 +94,10 @@ mod tests {
         let definition = serde_json::to_vec(&serde_json::json!({
              "scale": 1, "elevation": 0,
             "hidden_geometry": ["root"], "behavior": null,
-            "parts": [{"animation": null, "attached_to": null, "additive": false,
-                "resource": 0, "mesh": "body.glb", "textures": [], "materials": []}]
+            "parts": [
+                {"mesh": "body.glb"},
+                {"mesh": "carried.glb", "attached_to": "hand"}
+            ]
         }))?;
         let catalogue = serde_json::json!({"records": [{"preview": "model.json"}]});
         let (expanded, _) = expand_catalogue(catalogue, |path| {
@@ -106,6 +108,7 @@ mod tests {
             serde_json::from_value(expanded["records"][0]["preview"].clone())?;
         declaration.validate_definition()?;
         assert!(declaration.parts[0].scene.bone_names.is_empty());
+        assert!(declaration.validate().is_err());
 
         // Rigid and skinned models have the same game-node interface. Node order
         // may change in an editor without changing gameplay indices.
@@ -123,7 +126,7 @@ mod tests {
             let mut model = declaration.clone();
             let bytes = resonance_asset_writer::gltf::pack_glb(&gltf, &[])?;
             prepare(&mut model, |path| {
-                assert_eq!(path, "body.glb");
+                assert!(["body.glb", "carried.glb"].contains(&path));
                 Ok(bytes.clone().into())
             })?;
             assert_eq!(model.parts[0].scene.bone_names, ["root", "hand"]);
@@ -133,7 +136,19 @@ mod tests {
                     .is_none()
             );
 
+            for attachment in [false, true] {
+                let mut invalid = declaration.clone();
+                if attachment {
+                    invalid.parts[1].attached_to = Some("absent".into());
+                } else {
+                    invalid.hidden_geometry = vec!["absent".into()];
+                }
+                invalid.validate_definition()?;
+                assert!(prepare(&mut invalid, |_| Ok(bytes.clone().into())).is_err());
+            }
+
             gltf["nodes"][0]["name"] = "finger".into();
+            model.parts[1].attached_to = Some("finger".into());
             let edited = resonance_asset_writer::gltf::pack_glb(&gltf, &[])?;
             prepare(&mut model, |_| Ok(edited.clone().into()))?;
             assert_eq!(model.parts[0].scene.bone_names, ["root", "finger"]);

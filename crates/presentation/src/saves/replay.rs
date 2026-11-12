@@ -1364,6 +1364,7 @@ fn observe(
         "asset_reads":world.resource::<loading::Resident>().memory_reads.load(Ordering::Acquire),
         "scene":recording_scene(world)?, "presentation_counter":world.resource::<Clock>().0.tick(),
         "battle":world.get_resource::<crate::battle::Owner>().and_then(|owner|owner.diagnostic())});
+    capture["model_preview"] = serde_json::to_value(crate::model_preview::diagnostic(world))?;
     if let Some(session) = world
         .get_resource::<new_game::Session>()
         .filter(|s| s.is_field())
