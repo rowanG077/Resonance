@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.5.0 - *13 Nov, 2026*
+
+### Added:
+- Load mods as ordered layers over the base game: later layers override matching files, while independent named content combines across mods. Numbered directories in `local/mods` load automatically; explicit `--mod` directories take precedence. Restart the game after changing mods.
+  [P76](https://github.com/rowanG077/Resonance/pull/76)
+- Added event skipping. Press F8 to fast-forward scripted scenes while preserving
+  story progress. Skipping stops at choices and battles, leaving encounters to be
+  played normally. Reassign or clear Skip Event in Customize → Controls for
+  keyboard and controller input.
+  [P99](https://github.com/rowanG077/Resonance/pull/99)
+- F1 now toggles fullscreen, returning to the last fullscreen mode used this
+  session and preserving the selected resolution. The shortcut can be reassigned
+  or cleared in Customize → Controls and does not change saved display preferences.
+  [P99](https://github.com/rowanG077/Resonance/pull/99)
+- Customize → Controls now exposes Performance Overlay (F3), Save Performance
+  Snapshot (F4), Double Speed (F6), and Pause / Resume (F7).
+  These controls can be reassigned or cleared for keyboard and controller input.
+  Pause shows an animated prompt for the configured resume control.
+  [P99](https://github.com/rowanG077/Resonance/pull/99)
+
+### Changed:
+- Textures now use BC7 for direct GPU upload. **Recook the complete asset library before running this version.** Devices without BC7 support decode textures to RGBA.
+  [P76](https://github.com/rowanG077/Resonance/pull/76)
+- Precache shared resources during startup and reuse them across fields, the
+  overworld, and battles to reduce loading pauses.
+  [P78](https://github.com/rowanG077/Resonance/pull/78)
+
+### Fixed:
+- Fixed seams in scaled menu and battle artwork with SMAA and other antialiasing modes.
+  [P82](https://github.com/rowanG077/Resonance/pull/82)
+- Battle stick directions now register at moderate tilts, so jumping while moving no longer needs a precise full diagonal.
+  [P87](https://github.com/rowanG077/Resonance/pull/87)
+- Successful escapes now let active attacks and jumps finish before characters run away, while preventing further attack chains.
+  [P85](https://github.com/rowanG077/Resonance/pull/85)
+- Successful escapes now show the Escaped banner with the party leader's portrait.
+  [P86](https://github.com/rowanG077/Resonance/pull/86)
+- Limited Ghost Wolf's dash distance to prevent Lloyd from crossing the entire arena toward distant enemies.
+  [P79](https://github.com/rowanG077/Resonance/pull/79)
+- Restored item statistics in Equip, Items, Collector's Book, and World Map shop lists.
+  [P81](https://github.com/rowanG077/Resonance/pull/81)
+- Field and overworld movement now follows the analog stick linearly, and walk
+  and run animations keep pace with the ground instead of sliding.
+  [P80](https://github.com/rowanG077/Resonance/pull/80)
+- Page Up and Page Down now scroll the main-menu party list, Display Change, Exchange and character selection, including while choosing an exchange target.
+  [P88](https://github.com/rowanG077/Resonance/pull/88)
+- Enemies stunned by the Sorcerer's Ring now keep animating while their movement is paused.
+  [P83](https://github.com/rowanG077/Resonance/pull/83)
+- Fixed a false missing-model warning when using the Sorcerer's Ring.
+  [P83](https://github.com/rowanG077/Resonance/pull/83)
+- Fixed Sword Dancer's face lighting.
+  [P84](https://github.com/rowanG077/Resonance/pull/84)
+- Fixed Colette's backstep movement and recovery after she acquires her wings.
+  [P93](https://github.com/rowanG077/Resonance/pull/93)
+- Fixed villagers sliding away in their reaction poses after Lloyd's banishment from Iselia.
+  [P96](https://github.com/rowanG077/Resonance/pull/96)
+- Party and enemy action notices now remain visible while the Magic Lens panel is open.
+  [P89](https://github.com/rowanG077/Resonance/pull/89)
+- Fixed missing Monster List models, sideways carried objects, and models hidden behind menu artwork.
+  [P94](https://github.com/rowanG077/Resonance/pull/94)
+- Noishe now dismounts automatically when entering a region where riding has not been unlocked.
+  [P92](https://github.com/rowanG077/Resonance/pull/92)
+- Fixed floating character shadows during the boat's arrival in Palmacosta.
+  [P95](https://github.com/rowanG077/Resonance/pull/95)
+- Technical Smash notices no longer overlap battle menu pages.
+  [P97](https://github.com/rowanG077/Resonance/pull/97)
+- Fixed field models loading another room's data, including Tower of Mana chests appearing as mirrors.
+  [P98](https://github.com/rowanG077/Resonance/pull/98)
+
+### Removed:
+- Removed the development dungeon menu and quicksave shortcuts.
+  [P99](https://github.com/rowanG077/Resonance/pull/99)
+
 ## 0.4.0 - *07 Nov, 2026*
 
 ### Fixed:
