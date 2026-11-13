@@ -156,9 +156,36 @@ pub enum StandardAction {
     #[serde(alias = "run")]
     Walk,
     Perspective,
+    Fullscreen,
+    PerformanceOverlay,
+    PerformanceSnapshot,
+    SpeedToggle,
+    Pause,
+    SkipEvent,
 }
 impl StandardAction {
-    pub const ALL: [Self; 22] = [
+    fn required_for_navigation(self) -> bool {
+        matches!(
+            self,
+            Self::Confirm
+                | Self::Cancel
+                | Self::Menu
+                | Self::MoveLeft
+                | Self::MoveRight
+                | Self::MoveDown
+                | Self::MoveUp
+        )
+    }
+
+    pub const HOST: [Self; 6] = [
+        Self::Fullscreen,
+        Self::PerformanceOverlay,
+        Self::PerformanceSnapshot,
+        Self::SpeedToggle,
+        Self::Pause,
+        Self::SkipEvent,
+    ];
+    pub const ALL: [Self; 28] = [
         Self::Confirm,
         Self::Cancel,
         Self::Alternate,
@@ -181,6 +208,12 @@ impl StandardAction {
         Self::CameraUp,
         Self::Walk,
         Self::Perspective,
+        Self::Fullscreen,
+        Self::PerformanceOverlay,
+        Self::PerformanceSnapshot,
+        Self::SpeedToggle,
+        Self::Pause,
+        Self::SkipEvent,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -206,10 +239,16 @@ impl StandardAction {
             Self::CameraUp => "Camera / Page Up",
             Self::Walk => "Walk",
             Self::Perspective => "Change Perspective",
+            Self::Fullscreen => "Toggle Fullscreen",
+            Self::PerformanceOverlay => "Performance Overlay",
+            Self::PerformanceSnapshot => "Save Performance Snapshot",
+            Self::SpeedToggle => "Toggle Double Speed",
+            Self::Pause => "Pause / Resume Game",
+            Self::SkipEvent => "Skip Event",
         }
     }
-    /// Actions owned by ordinary combat. Cancel, field/camera actions and
-    /// menu navigation retain their meanings only in their respective contexts.
+    /// Protected combat and host controls. Contextual field/camera actions
+    /// remain available for arte bindings.
     pub fn combat_action(self) -> Option<&'static str> {
         Some(match self {
             Self::Confirm => "Attack",
@@ -227,6 +266,7 @@ impl StandardAction {
             Self::OrderRight => "Quick Order Right",
             Self::OrderCancel => "Cancel Orders",
             Self::OrderUp => "Quick Order Up",
+            host if Self::HOST.contains(&host) => host.label(),
             _ => return None,
         })
     }
@@ -235,6 +275,7 @@ impl StandardAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keymap {
     /// Alternatives for each standard action. Keyboard and controller bindings coexist.
+    #[serde(deserialize_with = "Keymap::load_bindings")]
     pub bindings: Vec<Vec<PhysicalInput>>,
 }
 impl Default for Keymap {
@@ -265,6 +306,12 @@ impl Default for Keymap {
             keys(&["PageUp"]),
             keys(&["ShiftLeft", "ShiftRight"]),
             keys(&["KeyC"]),
+            keys(&["F1"]),
+            keys(&["F3"]),
+            keys(&["F4"]),
+            keys(&["F6"]),
+            keys(&["F7"]),
+            keys(&["F8"]),
         ];
         for (row, button) in [
             "South",
@@ -307,6 +354,21 @@ impl Default for Keymap {
     }
 }
 impl Keymap {
+    /// Preserve older keymaps, leaving newly introduced actions unbound.
+    fn load_bindings<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<Vec<PhysicalInput>>, D::Error> {
+        let mut bindings = Vec::<Vec<PhysicalInput>>::deserialize(deserializer)?;
+        // The original 22 actions are required; only trailing host actions may
+        // be absent in an older map. Validation still rejects malformed maps.
+        if (StandardAction::Fullscreen as usize..StandardAction::ALL.len())
+            .contains(&bindings.len())
+        {
+            bindings.resize_with(StandardAction::ALL.len(), Vec::new);
+        }
+        Ok(bindings)
+    }
+
     /// Physical directions and remapped movement keys share one classification.
     pub fn direction(&self, input: &PhysicalInput) -> Option<ArteDirection> {
         use DirectionSlot::*;
@@ -399,17 +461,25 @@ impl Keymap {
         row.retain(|old| old.keyboard() != input.keyboard());
         row.push(input);
     }
+    /// An empty row cannot exchange a binding back to an essential
+    /// action. Keep navigation usable when recording a newly added shortcut.
+    pub fn can_assign(&self, action: StandardAction, input: &PhysicalInput) -> Result<(), String> {
+        if !self
+            .get(action)
+            .iter()
+            .any(|bound| bound.keyboard() == input.keyboard())
+            && StandardAction::ALL.into_iter().any(|other| {
+                other != action
+                    && other.required_for_navigation()
+                    && self.get(other).contains(input)
+            })
+        {
+            return Err("This input is needed for navigation. Assign a free input to this action first so the bindings can be exchanged.".into());
+        }
+        Ok(())
+    }
     pub fn clear(&mut self, action: StandardAction) -> Result<(), String> {
-        if matches!(
-            action,
-            StandardAction::Confirm
-                | StandardAction::Cancel
-                | StandardAction::Menu
-                | StandardAction::MoveLeft
-                | StandardAction::MoveRight
-                | StandardAction::MoveDown
-                | StandardAction::MoveUp
-        ) {
+        if action.required_for_navigation() {
             return Err(
                 "This action is needed for navigation. Assign another input instead.".into(),
             );
@@ -530,6 +600,18 @@ impl InputChord {
     }
     pub fn validate(&self, keymap: &Keymap) -> Result<(), String> {
         self.validate_shape()?;
+        if let Some(action) = StandardAction::HOST.into_iter().find(|&action| {
+            keymap.get(action).iter().any(|bound| {
+                self.0
+                    .iter()
+                    .any(|input| keymap.same_arte_input(input, bound))
+            })
+        }) {
+            return Err(format!(
+                "This input is used for {}. Rebind that control or choose another input.",
+                action.label()
+            ));
+        }
         if !self.single_direction_per_source(keymap) {
             return Err("Choose one direction per input source: left/right, up, or down.".into());
         }
@@ -610,6 +692,108 @@ pub struct ArteBinding {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arte_chords_yield_to_the_current_pause_binding_and_allow_its_old_key_after_remapping() {
+        let mut map = Keymap::default();
+        let pause = PhysicalInput::Key("F7".into());
+        for chord in [
+            InputChord(vec![pause.clone()]),
+            InputChord(vec![pause.clone(), PhysicalInput::Button("East".into())]),
+        ] {
+            chord.validate_shape().unwrap();
+            assert!(chord.validate(&map).unwrap_err().contains("Pause"));
+        }
+        map.clear(StandardAction::Pause).unwrap();
+        InputChord(vec![pause.clone()]).validate(&map).unwrap();
+        map.assign(StandardAction::Pause, PhysicalInput::Key("F2".into()));
+        InputChord(vec![pause, PhysicalInput::Button("East".into())])
+            .validate(&map)
+            .unwrap();
+        assert!(
+            InputChord(vec![PhysicalInput::Key("F2".into())])
+                .validate(&map)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn missing_host_actions_stay_unbound_and_preserve_existing_bindings() {
+        let mut legacy = Keymap::default();
+        legacy.assign(StandardAction::Confirm, PhysicalInput::Key("F1".into()));
+        legacy.assign(StandardAction::Skit, PhysicalInput::Key("F7".into()));
+        legacy
+            .bindings
+            .truncate(StandardAction::Fullscreen as usize);
+        let loaded: Keymap =
+            serde_json::from_value(serde_json::to_value(&legacy).unwrap()).unwrap();
+        loaded.validate().unwrap();
+        assert_eq!(
+            &loaded.bindings[..legacy.bindings.len()],
+            legacy.bindings.as_slice()
+        );
+        for action in StandardAction::HOST {
+            assert!(loaded.get(action).is_empty());
+        }
+        let mut explicit = loaded.clone();
+        explicit.clear(StandardAction::PerformanceOverlay).unwrap();
+        let again: Keymap =
+            serde_json::from_value(serde_json::to_value(&explicit).unwrap()).unwrap();
+        assert_eq!(again, explicit);
+        assert!(
+            again
+                .can_assign(StandardAction::Fullscreen, &PhysicalInput::Key("F1".into()))
+                .is_err()
+        );
+        let mut rebound = again;
+        rebound.assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
+        rebound
+            .can_assign(StandardAction::Fullscreen, &PhysicalInput::Key("F1".into()))
+            .unwrap();
+        rebound.assign(StandardAction::Fullscreen, PhysicalInput::Key("F1".into()));
+        assert!(
+            rebound
+                .get(StandardAction::Confirm)
+                .contains(&PhysicalInput::Key("F2".into()))
+        );
+        let defaults = Keymap::default();
+        assert_eq!(
+            serde_json::from_value::<Keymap>(serde_json::to_value(&defaults).unwrap()).unwrap(),
+            defaults
+        );
+        let f1 = InputChord(vec![PhysicalInput::Key("F1".into())]);
+        f1.validate_shape().unwrap();
+        assert!(f1.validate(&loaded).is_err()); // It is the existing Confirm input.
+        let mut free = defaults;
+        free.assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
+        f1.validate(&free).unwrap();
+    }
+
+    #[test]
+    fn legacy_keymaps_preserve_arte_shortcuts_and_only_pad_missing_host_actions() {
+        let defaults = Keymap::default();
+        let arte = InputChord(vec![PhysicalInput::Key("F1".into())]);
+        for count in StandardAction::Fullscreen as usize..=StandardAction::ALL.len() {
+            let mut legacy = defaults.clone();
+            legacy.bindings.truncate(count);
+            let loaded: Keymap =
+                serde_json::from_value(serde_json::to_value(&legacy).unwrap()).unwrap();
+            loaded.validate().unwrap();
+            assert_eq!(&loaded.bindings[..count], &legacy.bindings);
+            assert!(loaded.bindings[count..].iter().all(Vec::is_empty));
+            if count == StandardAction::Fullscreen as usize {
+                arte.validate(&loaded).unwrap();
+            }
+        }
+        for count in [21, StandardAction::ALL.len() + 1] {
+            let mut malformed = defaults.clone();
+            malformed.bindings.resize_with(count, Vec::new);
+            let loaded: Keymap =
+                serde_json::from_value(serde_json::to_value(&malformed).unwrap()).unwrap();
+            assert!(loaded.validate().is_err());
+        }
+    }
+
     #[test]
     fn keyboard_and_dpad_share_horizontal_slots_and_reject_combined_directions() {
         let mut map = Keymap::default();

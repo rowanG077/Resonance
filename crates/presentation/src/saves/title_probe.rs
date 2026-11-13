@@ -9,7 +9,7 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
     else {
         anyhow::bail!("probe requires a field save");
     };
-    let app = probe::app_with_saves(
+    let app = harness::app_with_saves(
         root,
         output,
         SaveOptions {
@@ -56,8 +56,8 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
     let banks = capture_from(&report, "title-load-banks")?;
     let held = capture_from(&report, "title-load-held")?;
     ensure!(
-        banks["quicksave_available"] == false,
-        "title Load allowed quicksave"
+        banks["checkpoint_available"] == false,
+        "title Load allowed a field checkpoint"
     );
     ensure!(
         banks["scene"]["title"] == held["scene"]["title"],

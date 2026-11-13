@@ -146,6 +146,10 @@ pub(super) struct Owner {
     publish_field: bool,
 }
 impl Owner {
+    pub(super) fn capturing_arte_binding(&self) -> bool {
+        matches!(&self.phase, Phase::Scene(scene) if scene.lifecycle.capturing_arte_binding())
+    }
+
     pub(super) fn crash_context(&self) -> String {
         let mut text = String::new();
         let _ = self.write_crash_context(&mut text);
@@ -363,6 +367,7 @@ pub(super) fn install(app: &mut App) {
             PreUpdate,
             input::gather
                 .after(bevy::input::InputSystems)
+                .after(crate::input::HostActions)
                 .run_if(not(resource_exists::<super::saves::ScenarioInput>)),
         )
         .add_systems(
@@ -1305,7 +1310,6 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
 fn advance(
     owner: Option<ResMut<Owner>>,
     mut controls: ResMut<input::Controls>,
-    testing: Option<Res<super::testing::Controls>>,
     playback: Option<ResMut<super::battle_audio::Playback>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
@@ -1334,9 +1338,6 @@ fn advance(
         controls.discard();
         return;
     }
-    scene
-        .core
-        .set_instant_kill(testing.is_some_and(|testing| testing.instant_kill));
     let _audio_owner = debug_span!(
         "battle_audio_owner",
         request,

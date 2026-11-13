@@ -31,7 +31,6 @@ pub(super) fn install(app: &mut App) {
         .add_systems(
             FixedUpdate,
             advance
-                .run_if(crate::dungeons::running)
                 .before(field_view::advance_live)
                 .before(crate::advance),
         )

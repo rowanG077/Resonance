@@ -10,7 +10,11 @@ use bevy::{
     },
 };
 
+use crate::input::MenuOwner;
+#[cfg(test)]
+use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use raw_window_handle::RawDisplayHandle;
+use resonance_content::menu_data::DisplayMode;
 use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
 
 #[cfg(test)]
@@ -122,6 +126,46 @@ pub(super) struct InteractiveDisplay {
     monitor: Option<Entity>,
     preview: Option<GraphicsPreview>,
     confirmation: Option<(MenuOwner, u64, std::time::Instant)>,
+    fullscreen_mode: Option<DisplayMode>,
+    /// Confirmed session override; pending display modes live in `preview`.
+    shortcut_mode: Option<DisplayMode>,
+    menu: Option<MenuOwner>,
+}
+
+/// Apply host display changes before fixed updates and camera target preparation.
+pub(super) fn install(app: &mut App) {
+    app.add_systems(
+        PreUpdate,
+        (toggle_fullscreen, preview_preferences, apply_preferences)
+            .chain()
+            .in_set(crate::input::HostActions)
+            .run_if(resource_exists::<InteractiveDisplay>),
+    )
+    .add_systems(
+        PreUpdate,
+        (
+            crate::field_ui::pause::resize
+                .run_if(resource_exists::<crate::field_ui::pause::Target>),
+            initialize,
+        )
+            .chain()
+            .after(crate::input::HostActions)
+            .run_if(resource_changed::<Display>),
+    );
+}
+
+impl InteractiveDisplay {
+    fn enter_customize(
+        &mut self,
+        owner: MenuOwner,
+        customize: &mut resonance_game::menu::customize::Customize,
+    ) {
+        // Customize owns explicit choices and rollback while it is open.
+        if self.menu != Some(owner) {
+            customize.display_mode_override = self.shortcut_mode;
+            self.menu = Some(owner);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -143,10 +187,50 @@ impl From<&resonance_content::menu_data::CustomizeSettings> for GraphicsPreview 
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MenuOwner {
-    Title,
-    Session,
+/// The configured fullscreen shortcut changes only this interactive session. The normal display
+/// application path still owns monitor selection, geometry and Wayland fallback.
+pub(super) fn toggle_fullscreen(
+    input: Res<crate::input::HostInput>,
+    preferences: Res<crate::config::Preferences>,
+    mut display: ResMut<InteractiveDisplay>,
+    mut session: Option<ResMut<crate::new_game::Session>>,
+    mut title: Option<ResMut<crate::saves::title::TitleMenu>>,
+) {
+    if !input.pressed(resonance_content::input::StandardAction::Fullscreen) {
+        return;
+    }
+    let mut menu = crate::input::active_menu(
+        session
+            .as_deref_mut()
+            .and_then(|session| session.menu_mut()),
+        title.as_deref_mut().map(|title| &mut title.0),
+    )
+    .filter(|(_, menu)| menu.page == resonance_game::menu::Page::Customize);
+    let current = if let Some((owner, menu)) = menu.as_mut() {
+        display.enter_customize(*owner, &mut menu.customize);
+        menu.customize.display_mode()
+    } else {
+        display
+            .shortcut_mode
+            .unwrap_or(preferences.settings.display_mode)
+    };
+    let next = if current == DisplayMode::Windowed {
+        display.fullscreen_mode.unwrap_or(DisplayMode::Borderless)
+    } else {
+        DisplayMode::Windowed
+    };
+    if let Some((_, menu)) = menu {
+        // Derive intent before cancelling: F1 must exit a fullscreen preview,
+        // rather than re-enter it after restoring its windowed baseline.
+        menu.customize.revert_display_change();
+        menu.customize.display_mode_override = Some(next);
+        display.confirmation = None;
+    }
+    // Remember the visible variant before cancelling the preview.
+    if current != DisplayMode::Windowed {
+        display.fullscreen_mode = Some(current);
+    }
+    display.shortcut_mode = Some(next);
 }
 
 fn monitor_resolutions(
@@ -179,7 +263,8 @@ fn monitor_resolutions(
 }
 
 /// Preview accepted graphics choices; dropdown highlights never change the draft.
-/// Preferences stay untouched until Customize exits; abandoned menus fall back to them.
+/// Preferences stay untouched until Customize exits; abandoned menus fall back to
+/// them with the confirmed session override.
 /// Instant keeps the timeout independent of gameplay speed, pause and fixed ticks.
 pub(super) fn preview_preferences(
     mut display: ResMut<InteractiveDisplay>,
@@ -189,25 +274,21 @@ pub(super) fn preview_preferences(
     windows: Query<Option<&OnMonitor>, With<PrimaryWindow>>,
     monitors: Query<&Monitor>,
 ) {
-    use resonance_game::menu::{Menu, Page, customize::Focus};
-    let active = |menu: &&mut Menu| menu.page == Page::Customize && !menu.closed;
-    let menu = session
-        .as_mut()
-        .and_then(|session| session.menu_mut())
-        .filter(active)
-        .map(|menu| (MenuOwner::Session, menu))
-        .or_else(|| {
-            title
-                .as_mut()
-                .map(|title| &mut title.0)
-                .filter(active)
-                .map(|menu| (MenuOwner::Title, menu))
-        });
+    use resonance_game::menu::customize::Focus;
+    let menu = crate::input::active_menu(
+        session
+            .as_deref_mut()
+            .and_then(|session| session.menu_mut()),
+        title.as_deref_mut().map(|title| &mut title.0),
+    )
+    .filter(|(_, menu)| menu.page == resonance_game::menu::Page::Customize);
     let Some((owner, menu)) = menu else {
         display.preview = None;
         display.confirmation = None;
+        display.menu = None;
         return;
     };
+    display.enter_customize(owner, &mut menu.customize);
     let monitor = windows
         .single()
         .ok()
@@ -255,7 +336,14 @@ pub(super) fn preview_preferences(
     } else {
         display.confirmation = None;
     }
-    display.preview = Some(GraphicsPreview::from(&menu.customize.draft));
+    display.shortcut_mode = match menu.customize.focus {
+        Focus::DisplayConfirmation { previous, .. } => previous.mode_override,
+        _ => menu.customize.display_mode_override,
+    };
+    display.preview = Some(GraphicsPreview {
+        display_mode: menu.customize.display_mode(),
+        ..GraphicsPreview::from(&menu.customize.draft)
+    });
 }
 
 fn mode(
@@ -310,9 +398,12 @@ pub(super) fn apply_preferences(
         return;
     };
     let monitor_entity = on_monitor.map(|m| m.0);
-    let settings = applied
-        .preview
-        .unwrap_or_else(|| GraphicsPreview::from(&preferences.settings));
+    let settings = applied.preview.unwrap_or_else(|| GraphicsPreview {
+        display_mode: applied
+            .shortcut_mode
+            .unwrap_or(preferences.settings.display_mode),
+        ..GraphicsPreview::from(&preferences.settings)
+    });
     aa.set_if_neq(crate::anti_aliasing::AntiAliasingSettings(
         settings.anti_aliasing,
     ));
@@ -325,6 +416,9 @@ pub(super) fn apply_preferences(
         window.present_mode = present_mode;
     }
     let desired = (settings.display_mode, settings.resolution);
+    if settings.display_mode != DisplayMode::Windowed {
+        applied.fullscreen_mode = Some(settings.display_mode);
+    }
     // Monitor information can arrive after the first window frame. Re-select
     // the exclusive video mode when it becomes available or the window moves.
     if applied.applied == Some(desired) && applied.monitor == monitor_entity {
@@ -401,6 +495,10 @@ pub(super) struct OutputQuad;
 #[derive(Component)]
 pub(super) struct OutputCamera;
 
+/// Full-screen UI uses authored framing even when it has its own render target.
+#[derive(Component)]
+pub(super) struct UiCamera;
+
 /// Reframe on startup and after a render-size change. Only the final window
 /// camera fits the compositor surface; previews retain their authored framing.
 pub(super) fn initialize(
@@ -411,12 +509,13 @@ pub(super) fn initialize(
         &mut Projection,
         Has<OutputCamera>,
         Has<super::FieldCamera>,
+        Has<UiCamera>,
     )>,
     mut output: Query<&mut Transform, With<OutputQuad>>,
 ) {
     let desired = display.0;
     let size = desired.ui_size();
-    for (target, mut projection, output_camera, field_camera) in &mut cameras {
+    for (target, mut projection, output_camera, field_camera, ui_camera) in &mut cameras {
         // Offscreen previews have their own authored framing.
         if field_camera
             && let Projection::Custom(p) = &mut *projection
@@ -428,7 +527,7 @@ pub(super) fn initialize(
             RenderTarget::Image(image) => targets.as_ref().is_none_or(|t| image.handle == t.source),
             _ => false,
         };
-        if (output_camera || game_target)
+        if (output_camera || game_target || ui_camera)
             && let Projection::Orthographic(p) = &mut *projection
         {
             p.scaling_mode = if output_camera && matches!(target, RenderTarget::Window(_)) {
@@ -462,16 +561,15 @@ mod tests {
 
     fn preview_app() -> (App, Handle<Image>) {
         let mut app = App::new();
-        app.init_resource::<crate::config::Preferences>()
+        app.add_plugins(bevy::input::InputPlugin)
+            .init_resource::<crate::config::Preferences>()
             .init_resource::<InteractiveDisplay>()
             .init_resource::<crate::anti_aliasing::AntiAliasingSettings>()
             .init_resource::<Display>()
             .init_resource::<Assets<Image>>()
-            .init_resource::<Assets<crate::materials::TitleOutput>>()
-            .add_systems(
-                Update,
-                (preview_preferences, apply_preferences, initialize).chain(),
-            );
+            .init_resource::<Assets<crate::materials::TitleOutput>>();
+        crate::input::install(&mut app);
+        install(&mut app);
         let source =
             app.world_mut()
                 .resource_mut::<Assets<Image>>()
@@ -496,14 +594,606 @@ mod tests {
         (app, source)
     }
 
+    fn shortcut_app() -> (App, Entity, Entity) {
+        let (mut app, _) = preview_app();
+        let monitor = app
+            .world_mut()
+            .spawn(monitor([1920, 1080], &[[640, 480], [800, 600]]))
+            .id();
+        let window = app
+            .world_mut()
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(window)
+            .insert(OnMonitor(monitor));
+        (app, window, monitor)
+    }
+
+    fn key(app: &mut App, window: Entity, key_code: KeyCode, state: ButtonState, repeat: bool) {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key: bevy::input::keyboard::Key::Character("test".into()),
+            state,
+            text: None,
+            repeat,
+            window,
+        });
+        app.update();
+    }
+
+    #[test]
+    fn fullscreen_and_resolution_changes_apply_before_fixed_updates() {
+        #[derive(Resource, Default)]
+        struct Observed(Vec<(WindowMode, Resolution)>);
+
+        let (mut app, window, monitor) = shortcut_app();
+        app.add_plugins(bevy::time::TimePlugin)
+            .init_resource::<Observed>()
+            .insert_resource(Time::<Fixed>::from_duration(
+                resonance_game::clock::UPDATE_STEP,
+            ))
+            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                resonance_game::clock::UPDATE_STEP * 2,
+            ))
+            .add_systems(
+                FixedUpdate,
+                |window: Single<&Window, With<PrimaryWindow>>,
+                 display: Res<Display>,
+                 mut observed: ResMut<Observed>| {
+                    observed.0.push((window.mode, display.0));
+                },
+            );
+        app.update(); // Initialize the real clock before advancing fixed time.
+        assert!(app.world().resource::<Observed>().0.is_empty());
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .draft
+            .resolution = [800, 600];
+
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+
+        assert_eq!(
+            app.world().resource::<Observed>().0,
+            vec![
+                (
+                    WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor)),
+                    Resolution {
+                        width: 800,
+                        height: 600,
+                    },
+                );
+                2
+            ]
+        );
+    }
+
+    #[test]
+    fn fullscreen_follows_its_binding_and_stays_idle_during_controls_capture() {
+        use resonance_content::input::{PhysicalInput, StandardAction};
+        let (mut app, window, monitor) = shortcut_app();
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .draft
+            .keymap
+            .assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        key(&mut app, window, KeyCode::F2, ButtonState::Pressed, false);
+        let fullscreen = WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor));
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, fullscreen);
+        key(&mut app, window, KeyCode::F2, ButtonState::Released, false);
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .focus = Focus::Controls;
+        key(&mut app, window, KeyCode::F2, ButtonState::Pressed, false);
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, fullscreen);
+        key(&mut app, window, KeyCode::F2, ButtonState::Released, false);
+        {
+            let mut title = app
+                .world_mut()
+                .resource_mut::<crate::saves::title::TitleMenu>();
+            title.0.customize.focus = Focus::Options;
+            title
+                .0
+                .customize
+                .draft
+                .keymap
+                .clear(StandardAction::Fullscreen)
+                .unwrap();
+        }
+        key(&mut app, window, KeyCode::F2, ButtonState::Pressed, false);
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, fullscreen);
+    }
+
+    fn customize_menu(settings: resonance_content::menu_data::CustomizeSettings) -> Menu {
+        use resonance_content::{menu_data::*, options};
+        let defaults = CustomizeSettings::default();
+        let data = CustomizeData {
+            options: options::OPTIONS
+                .iter()
+                .map(|name| CustomizeOption {
+                    name: (*name).into(),
+                    description: String::new(),
+                })
+                .collect(),
+            difficulties: options::DIFFICULTIES.map(String::from),
+            actions: options::ACTIONS.map(String::from),
+            color_groups: options::COLOR_GROUPS.map(String::from),
+            volume_channels: options::VOLUME_CHANNELS.map(String::from),
+            themes: std::array::from_fn(|_| defaults.colors.clone()),
+            defaults,
+            control_buttons: options::control_buttons(),
+            labels: [
+                "cancel",
+                "default",
+                "cancel_help",
+                "default_help",
+                "on",
+                "off",
+                "stereo",
+                "mono",
+                "color",
+                "volume",
+            ]
+            .map(|key| (key.into(), key.into()))
+            .into(),
+            confirmations: options::CONFIRMATIONS
+                .map(|key| (key.into(), key.into()))
+                .into(),
+        };
+        let mut menu = Menu::title_customize(settings, data).unwrap();
+        menu.customize.transition = default();
+        menu
+    }
+
+    fn menu_press(app: &mut App, input: resonance_game::field::FieldInput) {
+        {
+            let mut title = app
+                .world_mut()
+                .resource_mut::<crate::saves::title::TitleMenu>();
+            title.0.step(input);
+            for _ in 0..40 {
+                title.0.step(default());
+            }
+        }
+        app.update();
+    }
+
+    #[test]
+    fn kept_display_choice_replaces_the_shortcut_and_persists_on_exit() {
+        use resonance_content::menu_data::DISPLAY_MODE_OPTION;
+        use resonance_events::input::Button;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.toml");
+        let preferences = crate::config::Preferences::load(path.clone()).unwrap();
+        let mut expected = preferences.settings.clone();
+        let menu = customize_menu(expected.clone());
+        let (mut app, window, monitor) = shortcut_app();
+        app.insert_resource(preferences);
+        app.insert_resource(crate::saves::title::TitleMenu(menu));
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .row = DISPLAY_MODE_OPTION;
+        menu_press(
+            &mut app,
+            resonance_game::field::FieldInput {
+                direction: [1., 0.],
+                ..default()
+            },
+        );
+        menu_press(
+            &mut app,
+            resonance_game::field::FieldInput {
+                pressed_buttons: [Button::Accept].into(),
+                ..default()
+            },
+        );
+        let title = &app.world().resource::<crate::saves::title::TitleMenu>().0;
+        assert_eq!(title.customize.focus, Focus::Options);
+        expected.display_mode = DisplayMode::Fullscreen;
+        assert_eq!(title.customize.draft, expected);
+        assert_eq!(title.customize.display_mode_override, None);
+        assert!(matches!(app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Fullscreen(MonitorSelection::Entity(entity), _) if entity == monitor));
+
+        menu_press(
+            &mut app,
+            resonance_game::field::FieldInput {
+                pressed_buttons: [Button::Cancel].into(),
+                ..default()
+            },
+        );
+        let title = app
+            .world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>()
+            .unwrap();
+        assert!(title.0.closed);
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .commit(title.0.customize.draft)
+            .unwrap();
+        app.update();
+        assert_eq!(
+            crate::config::Preferences::load(path).unwrap().settings,
+            expected
+        );
+        assert_eq!(
+            app.world().resource::<InteractiveDisplay>().shortcut_mode,
+            None
+        );
+        assert!(matches!(app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Fullscreen(MonitorSelection::Entity(entity), _) if entity == monitor));
+    }
+
+    #[test]
+    fn legacy_f1_config_load_preserves_keyboard_confirm_without_toggling_fullscreen() {
+        use resonance_content::input::{PhysicalInput, StandardAction};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.toml");
+        let mut legacy = resonance_content::menu_data::CustomizeSettings::default();
+        legacy
+            .keymap
+            .assign(StandardAction::Confirm, PhysicalInput::Key("F1".into()));
+        legacy
+            .keymap
+            .assign(StandardAction::Skit, PhysicalInput::Key("KeyJ".into()));
+        legacy
+            .keymap
+            .bindings
+            .truncate(StandardAction::Fullscreen as usize);
+        std::fs::write(&path, toml::to_string_pretty(&legacy).unwrap()).unwrap();
+        let loaded = crate::config::Preferences::load(path.clone()).unwrap();
+        let mut expected = legacy.clone();
+        expected
+            .keymap
+            .bindings
+            .resize_with(StandardAction::ALL.len(), Vec::new);
+        assert_eq!(loaded.settings, expected);
+        assert!(
+            loaded
+                .settings
+                .keymap
+                .get(StandardAction::Fullscreen)
+                .is_empty()
+        );
+        let menu = customize_menu(loaded.settings.clone());
+        let (mut app, window, _) = shortcut_app();
+        app.insert_resource(loaded);
+        app.insert_resource(crate::saves::title::TitleMenu(menu));
+        app.init_resource::<crate::field_view::Controls>()
+            .add_systems(PreUpdate, crate::field_view::gather_controls);
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .row = 6;
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        let input = app
+            .world_mut()
+            .resource_mut::<crate::field_view::Controls>()
+            .consume();
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .step(input);
+        assert_eq!(
+            app.world()
+                .resource::<crate::saves::title::TitleMenu>()
+                .0
+                .customize
+                .focus,
+            Focus::Controls
+        );
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .commit(expected.clone())
+            .unwrap();
+        assert_eq!(
+            crate::config::Preferences::load(path).unwrap().settings,
+            expected
+        );
+    }
+
+    #[test]
+    fn f1_toggles_once_per_physical_press_and_preserves_display_preferences() {
+        for selected in DisplayMode::ALL {
+            let (mut app, window, monitor) = shortcut_app();
+            app.world_mut()
+                .remove_resource::<crate::saves::title::TitleMenu>();
+            let settings = resonance_content::menu_data::CustomizeSettings {
+                display_mode: selected,
+                resolution: [800, 600],
+                ..default()
+            };
+            app.world_mut()
+                .resource_mut::<crate::config::Preferences>()
+                .settings = settings.clone();
+            app.world_mut().get_mut::<Window>(window).unwrap().position =
+                bevy::window::WindowPosition::At(IVec2::new(37, 51));
+            app.update();
+            let initial = app.world().get::<Window>(window).unwrap().mode;
+            let fullscreen = if selected == DisplayMode::Windowed {
+                WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor))
+            } else {
+                initial
+            };
+            let toggled = if selected == DisplayMode::Windowed {
+                fullscreen
+            } else {
+                WindowMode::Windowed
+            };
+            key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+            assert_eq!(app.world().get::<Window>(window).unwrap().mode, toggled);
+            for _ in 0..4 {
+                app.update();
+            }
+            // Repeated OS events and duplicate down events are not new presses.
+            for repeat in [true, false, true] {
+                key(&mut app, window, KeyCode::F1, ButtonState::Pressed, repeat);
+                assert_eq!(app.world().get::<Window>(window).unwrap().mode, toggled);
+            }
+            key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+            assert_eq!(app.world().get::<Window>(window).unwrap().mode, toggled);
+            // Even if a repeat arrives after cached state was released, ignore it.
+            key(&mut app, window, KeyCode::F1, ButtonState::Pressed, true);
+            assert_eq!(app.world().get::<Window>(window).unwrap().mode, toggled);
+            key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+            key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+            assert_eq!(app.world().get::<Window>(window).unwrap().mode, initial);
+            let restored = app.world().get::<Window>(window).unwrap();
+            assert_eq!(
+                restored.position,
+                bevy::window::WindowPosition::At(IVec2::new(37, 51))
+            );
+            assert_eq!(restored.resolution.physical_size(), UVec2::new(800, 600));
+            assert_eq!(app.world().get::<OnMonitor>(window).unwrap().0, monitor);
+            assert_eq!(
+                app.world()
+                    .resource::<crate::config::Preferences>()
+                    .settings,
+                settings
+            );
+        }
+    }
+
+    #[test]
+    fn f1_waits_for_the_window_monitor_and_can_cancel_a_pending_request() {
+        let (mut app, window, monitor) = shortcut_app();
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        app.world_mut().entity_mut(window).remove::<OnMonitor>();
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+        app.world_mut()
+            .entity_mut(window)
+            .insert(OnMonitor(monitor));
+        app.update();
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor))
+        );
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        app.world_mut().entity_mut(window).remove::<OnMonitor>();
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        app.world_mut()
+            .entity_mut(window)
+            .insert(OnMonitor(monitor));
+        app.update();
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+    }
+
+    #[test]
+    fn f1_restores_exclusive_fullscreen_when_the_render_size_has_no_video_mode() {
+        let (mut app, window, monitor) = shortcut_app();
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        {
+            let mut preferences = app.world_mut().resource_mut::<crate::config::Preferences>();
+            preferences.settings.display_mode = DisplayMode::Fullscreen;
+            preferences.settings.resolution = [1279, 719];
+        }
+        app.update();
+        let fullscreen = WindowMode::Fullscreen(
+            MonitorSelection::Entity(monitor),
+            VideoModeSelection::Current,
+        );
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, fullscreen);
+        let source = app.world().resource::<Targets>().source.clone();
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+        assert_eq!(
+            app.world()
+                .get::<Window>(window)
+                .unwrap()
+                .resolution
+                .physical_size(),
+            UVec2::new(1279, 719)
+        );
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, fullscreen);
+        assert_eq!(app.world().resource::<Targets>().source, source);
+        assert_eq!(
+            app.world().resource::<Display>().0,
+            Resolution {
+                width: 1279,
+                height: 719
+            }
+        );
+    }
+
+    #[test]
+    fn resolution_previews_keep_the_f1_override_without_adopting_it_into_saved_settings() {
+        let (mut app, window, monitor) = shortcut_app();
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        preview(&mut app, DisplayMode::Windowed, [800, 600], 1);
+        app.update();
+        let expected = WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor));
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, expected);
+        assert_eq!(app.world().resource::<Display>().0.width, 800);
+        age_confirmation(&mut app, 15);
+        app.update();
+        let customize = &app
+            .world()
+            .resource::<crate::saves::title::TitleMenu>()
+            .0
+            .customize;
+        assert_eq!(customize.display_mode(), DisplayMode::Borderless);
+        assert_eq!(customize.draft.display_mode, DisplayMode::Windowed);
+        assert_eq!(customize.draft.resolution, [640, 480]);
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, expected);
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        app.update();
+        assert_eq!(app.world().get::<Window>(window).unwrap().mode, expected);
+        assert_eq!(
+            app.world()
+                .resource::<crate::config::Preferences>()
+                .settings
+                .display_mode,
+            DisplayMode::Windowed
+        );
+    }
+
+    #[test]
+    fn f1_exits_unconfirmed_fullscreen_and_restores_the_confirmed_resolution() {
+        let (mut app, window, _) = shortcut_app();
+        preview(&mut app, DisplayMode::Fullscreen, [800, 600], 1);
+        app.update();
+        assert_eq!(app.world().resource::<Display>().0.width, 800);
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        let customize = &app
+            .world()
+            .resource::<crate::saves::title::TitleMenu>()
+            .0
+            .customize;
+        assert_eq!(customize.focus, Focus::Options);
+        assert_eq!(customize.display_mode(), DisplayMode::Windowed);
+        assert_eq!(customize.draft.resolution, [640, 480]);
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+        assert_eq!(app.world().resource::<Display>().0, Resolution::default());
+        assert!(
+            app.world()
+                .resource::<InteractiveDisplay>()
+                .confirmation
+                .is_none()
+        );
+        // Leaving the menu keeps F1's session choice; saved preferences are intact.
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        app.update();
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Windowed
+        );
+        key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        assert!(matches!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Fullscreen(..)
+        ));
+        assert_eq!(
+            app.world()
+                .resource::<crate::config::Preferences>()
+                .settings
+                .display_mode,
+            DisplayMode::Windowed
+        );
+    }
+
+    #[test]
+    fn f1_remembers_the_visible_fullscreen_variant_after_cancelling_a_preview() {
+        for baseline in [DisplayMode::Fullscreen, DisplayMode::Borderless] {
+            let (mut app, window, _) = shortcut_app();
+            app.world_mut()
+                .resource_mut::<crate::config::Preferences>()
+                .settings
+                .display_mode = baseline;
+            app.world_mut()
+                .resource_mut::<crate::saves::title::TitleMenu>()
+                .0
+                .customize
+                .draft
+                .display_mode = baseline;
+            app.update();
+            let pending = if baseline == DisplayMode::Fullscreen {
+                DisplayMode::Borderless
+            } else {
+                DisplayMode::Fullscreen
+            };
+            preview(&mut app, pending, [800, 600], 1);
+            app.update();
+            key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+            assert_eq!(
+                app.world().get::<Window>(window).unwrap().mode,
+                WindowMode::Windowed
+            );
+            assert_eq!(app.world().resource::<Display>().0, Resolution::default());
+            for _ in 0..3 {
+                app.update();
+            }
+            key(&mut app, window, KeyCode::F1, ButtonState::Released, false);
+            key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+            let customize = &app
+                .world()
+                .resource::<crate::saves::title::TitleMenu>()
+                .0
+                .customize;
+            assert_eq!(customize.display_mode(), pending);
+            assert_eq!(customize.draft.display_mode, baseline);
+            assert_eq!(
+                app.world().resource::<InteractiveDisplay>().applied,
+                Some((pending, [640, 480]))
+            );
+        }
+    }
+
     fn preview(app: &mut App, mode: DisplayMode, size: [u32; 2], revision: u64) {
         let mut title = app
             .world_mut()
             .resource_mut::<crate::saves::title::TitleMenu>();
         let state = &mut title.0.customize;
         state.focus = Focus::DisplayConfirmation {
-            previous_mode: state.draft.display_mode,
-            previous_resolution: state.draft.resolution,
+            previous: state.display_state(),
             remaining_secs: 15,
             keep: true,
             revision,
@@ -1150,6 +1840,35 @@ mod tests {
             .remove_resource::<crate::saves::title::TitleMenu>();
         app.update();
         assert_eq!(app.world().resource::<Display>().0, Resolution::default());
+
+        // An unconfirmed explicit mode must not replace an existing F1 choice
+        // if the menu is discarded before Keep, Revert or timeout.
+        let (mut app, window, monitor) = shortcut_app();
+        app.insert_resource(crate::saves::title::TitleMenu(customize_menu(default())));
+        key(&mut app, window, KeyCode::F1, ButtonState::Pressed, false);
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .row = resonance_content::menu_data::DISPLAY_MODE_OPTION;
+        menu_press(
+            &mut app,
+            resonance_game::field::FieldInput {
+                direction: [1., 0.],
+                ..default()
+            },
+        );
+        assert!(matches!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::Fullscreen(..)
+        ));
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
+        app.update();
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor))
+        );
     }
 
     #[test]
@@ -1165,37 +1884,11 @@ mod tests {
 
     #[test]
     fn committed_display_settings_resize_targets_and_switch_window_modes() {
-        use bevy::render::render_resource::TextureFormat;
         use bevy::window::VideoMode;
         use resonance_content::menu_data::DisplayMode;
-        let mut app = App::new();
-        app.init_resource::<crate::config::Preferences>()
-            .init_resource::<InteractiveDisplay>()
-            .init_resource::<crate::anti_aliasing::AntiAliasingSettings>()
-            .init_resource::<Display>()
-            .init_resource::<Assets<Image>>()
-            .init_resource::<Assets<crate::materials::TitleOutput>>()
-            .add_systems(
-                Update,
-                (
-                    apply_preferences,
-                    initialize.run_if(resource_changed::<Display>),
-                )
-                    .chain(),
-            );
-        let source =
-            app.world_mut()
-                .resource_mut::<Assets<Image>>()
-                .add(Image::new_target_texture(
-                    640,
-                    448,
-                    TextureFormat::Bgra8Unorm,
-                    None,
-                ));
-        app.insert_resource(Targets {
-            source: source.clone(),
-            output: None,
-        });
+        let (mut app, source) = preview_app();
+        app.world_mut()
+            .remove_resource::<crate::saves::title::TitleMenu>();
         let monitor = app
             .world_mut()
             .spawn(Monitor {
@@ -1216,12 +1909,12 @@ mod tests {
             .id();
         let window_id = app
             .world_mut()
-            .spawn((
-                window(Resolution::default()),
-                PrimaryWindow,
-                OnMonitor(monitor),
-            ))
-            .id();
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(window_id)
+            .insert(OnMonitor(monitor));
         let camera = app
             .world_mut()
             .spawn((

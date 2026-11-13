@@ -166,8 +166,7 @@ impl Plugin for FieldPlugin {
                 (advance_live, recover)
                     .chain()
                     .before(super::new_game::advance)
-                    .run_if(super::battle::field_running)
-                    .run_if(super::dungeons::running),
+                    .run_if(super::battle::field_running),
             )
             .add_systems(
                 Update,
@@ -184,8 +183,7 @@ impl Plugin for FieldPlugin {
                         recover,
                     )
                         .chain()
-                        .run_if(super::battle::field_running)
-                        .run_if(super::dungeons::running),
+                        .run_if(super::battle::field_running),
                     scene_systems()
                         .run_if(resource_exists::<Art>)
                         .run_if(has_session)
@@ -797,7 +795,6 @@ pub(super) fn gather_controls(
     input: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
-    dungeons: Option<Res<super::dungeons::Menu>>,
     testing: Option<Res<super::testing::Controls>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     mut title: Option<ResMut<super::saves::title::TitleMenu>>,
@@ -810,35 +807,33 @@ pub(super) fn gather_controls(
         physical.merge(&crate::input::PhysicalState::gamepad(pad));
     }
     physical.track_edges(&mut previous_inputs);
-    if dungeons.is_some_and(|menu| menu.blocked())
-        || testing.is_some_and(|c| c.paused || c.skipping)
-    {
+    if testing.is_some_and(|c| c.paused || c.skipping) {
         *controls = Controls::default();
         return;
     }
-    let capture_map = title
-        .as_ref()
-        .and_then(|menu| menu.0.preferences())
-        .map(|settings| settings.keymap.clone())
-        .unwrap_or_else(|| {
-            crate::input::settings(session.as_deref(), preferences.as_deref()).keymap
-        });
-    let captured = if let Some(menu) = title.as_mut() {
-        menu.0
-            .capture_physical(&physical.capture_inputs(&capture_map))
-    } else if let Some(menu) = session.as_mut().and_then(|s| s.menu_mut()) {
-        menu.capture_physical(&physical.capture_inputs(&capture_map))
-    } else {
-        false
-    };
+    let capture_map = crate::input::active_menu(
+        session.as_ref().and_then(|session| session.menu()),
+        title.as_ref().map(|title| &title.0),
+    )
+    .and_then(|(_, menu)| menu.preferences())
+    .map(|settings| settings.keymap.clone())
+    .unwrap_or_else(|| crate::input::settings(session.as_deref(), preferences.as_deref()).keymap);
+    let captured = crate::input::active_menu(
+        session
+            .as_deref_mut()
+            .and_then(|session| session.menu_mut()),
+        title.as_deref_mut().map(|title| &mut title.0),
+    )
+    .is_some_and(|(_, menu)| menu.capture_physical(&physical.capture_inputs(&capture_map)));
     if captured {
         *controls = Controls::default();
         return;
     }
-    let menu = title
-        .as_ref()
-        .map(|title| &title.0)
-        .or_else(|| session.as_ref().and_then(|session| session.menu()));
+    let menu = crate::input::active_menu(
+        session.as_ref().and_then(|session| session.menu()),
+        title.as_ref().map(|title| &title.0),
+    )
+    .map(|(_, menu)| menu);
     let party = session
         .as_ref()
         .and_then(|session| session.events().world.party.as_ref());
@@ -1028,7 +1023,6 @@ pub(super) fn advance_live(
     resident: Res<super::loading::Resident>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
     testing: Option<Res<super::testing::Controls>>,
-    quickload: Option<Res<super::saves::Quickload>>,
 ) {
     if testing.is_some_and(|c| c.skipping) {
         return;
@@ -1037,8 +1031,7 @@ pub(super) fn advance_live(
         controls.clear_actions();
         return;
     };
-    if quickload.is_some()
-        || !resident.active.load(std::sync::atomic::Ordering::Acquire)
+    if !resident.active.load(std::sync::atomic::Ordering::Acquire)
         || session.overworld().is_some()
         || !session.ready_for_field
         || session.audio.is_some()
@@ -2721,6 +2714,7 @@ fn setup(
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
         MeshMaterial2d(outputs.add(TitleOutput {
+            overlay: None,
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
         })),

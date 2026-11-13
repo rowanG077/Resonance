@@ -10,6 +10,14 @@ pub const VISIBLE_OPTIONS: usize = 9;
 pub const VISIBLE_KEYMAP_ACTIONS: usize = 9;
 pub const DISPLAY_CONFIRMATION_SECONDS: u8 = 15;
 
+/// Display settings and the session override captured together for preview rollback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct DisplayState {
+    pub mode: DisplayMode,
+    pub resolution: [u32; 2],
+    pub mode_override: Option<DisplayMode>,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
     #[default]
@@ -24,8 +32,7 @@ pub enum Focus {
         choice: [u32; 2],
     },
     DisplayConfirmation {
-        previous_mode: DisplayMode,
-        previous_resolution: [u32; 2],
+        previous: DisplayState,
         remaining_secs: u8,
         keep: bool,
         revision: u64,
@@ -43,6 +50,9 @@ pub struct Customize {
     #[serde(flatten)]
     pub transition: super::Transition,
     pub draft: CustomizeSettings,
+    /// Session-only host shortcut, shown and cycled without changing saved settings.
+    #[serde(skip)]
+    pub display_mode_override: Option<DisplayMode>,
     #[serde(skip)]
     anti_aliasing_choices: Vec<AntiAliasing>,
     #[serde(skip)]
@@ -80,12 +90,24 @@ pub struct Customize {
     pub preview_opacity: u8,
 }
 impl Customize {
-    fn preview_display_change(&mut self, previous: (DisplayMode, [u32; 2])) {
-        if previous != (self.draft.display_mode, self.draft.resolution) {
+    pub fn display_mode(&self) -> DisplayMode {
+        self.display_mode_override
+            .unwrap_or(self.draft.display_mode)
+    }
+
+    pub fn display_state(&self) -> DisplayState {
+        DisplayState {
+            mode: self.draft.display_mode,
+            resolution: self.draft.resolution,
+            mode_override: self.display_mode_override,
+        }
+    }
+
+    fn preview_display_change(&mut self, previous: DisplayState) {
+        if previous != self.display_state() {
             self.display_revision = self.display_revision.wrapping_add(1);
             self.focus = Focus::DisplayConfirmation {
-                previous_mode: previous.0,
-                previous_resolution: previous.1,
+                previous,
                 remaining_secs: DISPLAY_CONFIRMATION_SECONDS,
                 keep: true,
                 revision: self.display_revision,
@@ -95,14 +117,10 @@ impl Customize {
 
     /// Also called by the host's wall-clock timeout, independently of game ticks.
     pub fn revert_display_change(&mut self) {
-        if let Focus::DisplayConfirmation {
-            previous_mode,
-            previous_resolution,
-            ..
-        } = self.focus
-        {
-            self.draft.display_mode = previous_mode;
-            self.draft.resolution = previous_resolution;
+        if let Focus::DisplayConfirmation { previous, .. } = self.focus {
+            self.draft.display_mode = previous.mode;
+            self.draft.resolution = previous.resolution;
+            self.display_mode_override = previous.mode_override;
             self.focus = Focus::Options;
             self.display_input_blocked = true;
         }
@@ -210,7 +228,15 @@ impl Customize {
             let error = if chord.0.len() != 1 {
                 Some("Choose one key, button or stick direction for a standard action.".to_string())
             } else {
-                chord.validate_shape().err()
+                chord
+                    .validate_shape()
+                    .and_then(|()| {
+                        self.draft.keymap.can_assign(
+                            resonance_content::input::StandardAction::ALL[self.button],
+                            &chord.0[0],
+                        )
+                    })
+                    .err()
             };
             if let Some(error) = error {
                 self.binding_message = Some(error.clone());
@@ -431,7 +457,8 @@ impl Menu {
                         return Some(1);
                     }
                     if input == Some(Confirm) {
-                        let previous_display = (state.draft.display_mode, state.draft.resolution);
+                        let previous_display = state.display_state();
+                        state.display_mode_override = None;
                         state.draft = if state.defaults {
                             data.defaults.clone()
                         } else {
@@ -479,7 +506,11 @@ impl Menu {
                     if state.display_input_blocked && state.row == DISPLAY_MODE_OPTION {
                         return None;
                     }
-                    let previous_display = (state.draft.display_mode, state.draft.resolution);
+                    let previous_display = state.display_state();
+                    if state.row == DISPLAY_MODE_OPTION {
+                        state.draft.display_mode = state.display_mode();
+                        state.display_mode_override = None;
+                    }
                     let draft = &mut state.draft;
                     match state.row {
                         0 => {
@@ -551,7 +582,7 @@ impl Menu {
                     return Some(1);
                 }
                 if input == Some(Confirm) {
-                    let previous = (state.draft.display_mode, state.draft.resolution);
+                    let previous = state.display_state();
                     state.draft.resolution = choice;
                     state.focus = Focus::Options;
                     state.preview_display_change(previous);

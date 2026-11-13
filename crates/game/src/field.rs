@@ -164,6 +164,7 @@ impl FieldSession {
     pub fn can_skip_event(&self) -> bool {
         (!self.player_has_control() || self.events.world.blocked_by_movie())
             && !self.menu_is_open()
+            && !self.events.battle_pending()
             && !self
                 .dialogue_scene()
                 .0
@@ -183,10 +184,6 @@ impl FieldSession {
         {
             movie.operation.complete(None).map_err(anyhow::Error::msg)?;
         }
-        self.events
-            .world
-            .skip_battle_as_victory()
-            .map_err(anyhow::Error::msg)?;
         self.step(FieldInput {
             skip_dialogue: true,
             ..Default::default()
@@ -218,7 +215,7 @@ impl FieldSession {
     }
 
     /// Preserve ambient clocks across field changes, dismissing the skit title.
-    /// Quickloads restart ambient services through ordinary field initialization.
+    /// Saved checkpoints restart ambient services through ordinary field initialization.
     pub fn continue_ambient(&mut self, previous: &Self) {
         self.unison_character = previous.unison_character();
         self.item_statistics = previous.item_statistics();

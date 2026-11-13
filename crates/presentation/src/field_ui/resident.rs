@@ -237,6 +237,7 @@ impl Warm {
             )
         })?;
         field.subtitles = subtitle_cues(&common.files)?;
+        super::pause::prepare(world, &field);
         let battle = world.resource_scope(|world, mut materials: Mut<Assets<Surface>>| {
             let mut hud = BattleHud::load(
                 common.battle_ui.clone(),

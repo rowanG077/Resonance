@@ -1,4 +1,5 @@
 //! Prepared bitmap menu layers. Coordinates use the authored 640×448 canvas.
+use super::bitmap_text::{LINE_SPACING, Spacing};
 use super::*;
 use GaugeLayout::{Compact, Full, Stacked, Unlabelled};
 use bevy::camera::visibility::RenderLayers;
@@ -115,7 +116,6 @@ impl DepthBand {
 const WHITE: usize = 9;
 const GOLD: usize = 8;
 const DISABLED: usize = 7;
-const LINE_SPACING: f32 = 2.;
 const TICKS_PER_MINUTE: u64 = 60 * 60;
 
 pub(super) enum Source<'a> {
@@ -152,16 +152,6 @@ fn blink_opacity(tick: u32, period: u32, duration: u32) -> f32 {
         fade = 511 - fade;
     }
     (255 - fade) as f32 / 255.
-}
-
-fn glyph_advance(character: char, advance: u32, width: f32) -> f32 {
-    // Menus space full-width characters by one cell; Latin and half-width kana
-    // retain the font's proportional advances.
-    if resonance_content::font::is_single_byte(character) {
-        (advance as f32 * width / 24.).trunc()
-    } else {
-        width
-    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -2148,19 +2138,7 @@ impl Drawing<'_> {
         Ok(lines)
     }
     fn text_width(&self, text: &str, width: f32) -> Result<f32> {
-        text.chars()
-            .map(|c| {
-                if c == ' ' {
-                    Ok((width / 2.).trunc())
-                } else {
-                    self.font
-                        .glyphs
-                        .get(&c)
-                        .with_context(|| format!("uncooked menu glyph {c:?}"))
-                        .map(|g| glyph_advance(c, g.advance, width))
-                }
-            })
-            .sum()
+        bitmap_text::width(self.font, text, width, Spacing::Menu)
     }
     fn number(
         &mut self,
@@ -2418,8 +2396,8 @@ impl Drawing<'_> {
     fn text_size(
         &mut self,
         text: &str,
-        [left, mut y]: [f32; 2],
-        [width, height]: [f32; 2],
+        position: [f32; 2],
+        size: [f32; 2],
         color: usize,
     ) -> Result<()> {
         let color = rgba(
@@ -2429,28 +2407,14 @@ impl Drawing<'_> {
                 .get(color)
                 .context("unknown menu text color")?,
         );
-        let mut x = left;
-        for character in text.chars() {
-            match character {
-                '\n' => {
-                    x = left;
-                    y += height + LINE_SPACING;
-                }
-                ' ' => x += (width / 2.).trunc(),
-                _ => {
-                    let glyph = self
-                        .font
-                        .glyphs
-                        .get(&character)
-                        .with_context(|| format!("uncooked menu glyph {character:?}"))?;
-                    let uv = glyph_uv(glyph.rect);
-                    let advance = glyph_advance(character, glyph.advance, width);
-                    self.quad(FONT, [x, y, x + width, y + height], uv, color);
-                    x += advance;
-                }
-            }
-        }
-        Ok(())
+        bitmap_text::draw(
+            self.font,
+            text,
+            position,
+            size,
+            Spacing::Menu,
+            |rect, uv| self.quad(FONT, rect, uv, color),
+        )
     }
     fn highlight(&mut self, [x, y, width, height]: [f32; 4], alpha: u8) {
         let selected = self

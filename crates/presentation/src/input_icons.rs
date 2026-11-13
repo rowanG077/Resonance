@@ -202,10 +202,11 @@ pub(crate) fn track_device(
                 .as_ref()
                 .and_then(|session| session.events().world.party.as_ref())
         });
-    let menu = title
-        .as_ref()
-        .map(|title| &title.0)
-        .or_else(|| session.as_ref().and_then(|session| session.menu()));
+    let menu = crate::input::active_menu(
+        session.as_ref().and_then(|session| session.menu()),
+        title.as_ref().map(|title| &title.0),
+    )
+    .map(|(_, menu)| menu);
     let map = crate::input::active_keymap(menu, party, preferences.as_deref());
     let chords = party
         .into_iter()

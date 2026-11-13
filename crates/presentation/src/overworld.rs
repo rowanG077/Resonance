@@ -236,7 +236,6 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 FixedUpdate,
                 advance
-                    .run_if(super::dungeons::running)
                     .run_if(super::battle::field_running)
                     .before(super::new_game::advance)
                     .before(super::field_view::advance_live),
@@ -274,15 +273,10 @@ pub(super) fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
-    dungeons: Option<Res<super::dungeons::Menu>>,
     session: Option<Res<super::new_game::Session>>,
     preferences: Option<Res<super::config::Preferences>>,
     mut previous_inputs: Local<std::collections::BTreeSet<resonance_content::input::PhysicalInput>>,
 ) {
-    if dungeons.is_some_and(|menu| menu.blocked()) {
-        *controls = Controls::default();
-        return;
-    }
     use resonance_content::input::StandardAction as A;
     let settings = crate::input::settings(session.as_deref(), preferences.as_deref());
     let map = &settings.keymap;
@@ -319,7 +313,6 @@ fn advance(
     mut owner: Option<ResMut<super::new_game::Session>>,
     art: Option<Res<Art>>,
     resident: Res<super::loading::Resident>,
-    loading_save: Option<Res<super::saves::Quickload>>,
     mut controls: ResMut<Controls>,
     mut menu_controls: ResMut<super::field_view::Controls>,
     mut menu_memory: Option<ResMut<super::battle::MenuMemory>>,
@@ -338,7 +331,7 @@ fn advance(
     controls.0.travel.vehicle = false;
     controls.0.travel.toggle_perspective = false;
     controls.0.travel.cycle_map = false;
-    if loading_save.is_some() || owner.as_ref().is_some_and(|s| s.audio.is_some()) {
+    if owner.as_ref().is_some_and(|s| s.audio.is_some()) {
         return;
     }
     let Some(scene) = owner.as_mut().and_then(|s| s.overworld_mut()) else {

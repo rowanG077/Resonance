@@ -114,8 +114,7 @@ pub(crate) fn update(world: &mut World) {
         })
         || world.contains_resource::<crate::battle::Owner>()
         || world.contains_resource::<super::TransitionFailure>()
-        || world.contains_resource::<crate::loading::Pending>()
-        || world.contains_resource::<crate::saves::Quickload>();
+        || world.contains_resource::<crate::loading::Pending>();
     if cancelled {
         return;
     }

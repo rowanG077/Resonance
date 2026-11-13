@@ -1,4 +1,4 @@
-//! Shared JSON files and independent slots for player saves and field quicksaves.
+//! Shared JSON files and independent slots for player saves and legacy save data.
 mod slots;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -9,6 +9,7 @@ pub const MAX_FILE_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Save,
+    /// Legacy data directory retained for compatibility; the player has no quicksave controls.
     Quicksave,
 }
 impl Kind {

@@ -301,7 +301,6 @@ pub(crate) fn install(app: &mut App) {
     app.init_asset::<Audio>().add_systems(
         FixedUpdate,
         advance
-            .run_if(crate::dungeons::running)
             .after(crate::timing::advance_clock)
             .before(crate::field_view::advance_live),
     );

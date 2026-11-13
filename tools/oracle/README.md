@@ -159,7 +159,7 @@ Input changes use one-based game updates and hold keys until the next change;
 capture zero is the initialized field. Preparation/readbacks consume no game or
 audio time. `recording.json` retains pose, progression, identity and audio commands.
 An optional final `WIDTHxHEIGHT` tests other display layouts; paired Dolphin
-acceptance remains at native resolution. Quicksaves restart field animations and
+acceptance remains at native resolution. Save restores restart field animations and
 music, so register source animation/audio origins separately.
 
 Other device-free tools:
@@ -169,7 +169,6 @@ Other device-free tools:
 | `field_events MAP STORY OUTPUT.json [COOKED_ROOT]` | Sweep entry choices and each registered actor/trigger branch through real field services and offline audio |
 | `field_sequence CASE.json OUTPUT [COOKED_ROOT]` | Consecutive animation, movement and effect frames; optional checkpoint and explicit pose origins |
 | `classroom_probe CASE.json OUTPUT.png [COOKED_ROOT]` | Registered static scene/pose capture |
-| `quicksave_probe SAVE OUTPUT` | Repeated live save/load cycles with timings and rejected-save checks |
 | `menu_probe SAVE OUTPUT` | Memory-circle Save and field-menu Load in isolated slots |
 | `title_load_probe SLOTS OUTPUT` | Load in a new process, including cancel/reopen and subsequent exploration |
 | `new_game_capture OUTPUT COOKED_ROOT exploration REPLAY.json` | Continuous New Game through the supported exploration/save route |

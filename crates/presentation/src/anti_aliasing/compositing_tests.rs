@@ -2,7 +2,10 @@ use super::*;
 use bevy::{
     camera::{CameraOutputMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
-    render::view::screenshot::{Screenshot, ScreenshotCaptured},
+    render::{
+        render_resource::{Extent3d, TextureDimension, TextureUsages},
+        view::screenshot::{Screenshot, ScreenshotCaptured},
+    },
 };
 
 #[test]
@@ -57,6 +60,155 @@ fn automatic_writeback_respects_clears_and_explicit_choices() {
 
 #[derive(Resource, Default)]
 struct Capture(Option<Image>);
+
+#[test]
+#[ignore = "requires a GPU; verifies encoded alpha blending before final display conversion"]
+fn output_overlay_preserves_translucency_and_draws_over_scene_fades() -> anyhow::Result<()> {
+    use crate::materials::TitleOutput;
+    let mut app = App::new();
+    app.add_plugins(crate::test_support::render_plugins())
+        .add_plugins(crate::materials::install_output_materials)
+        .init_resource::<Capture>();
+    let began = std::time::Instant::now();
+    while app.plugins_state() == bevy::app::PluginsState::Adding {
+        anyhow::ensure!(began.elapsed().as_secs() < 120, "GPU setup timed out");
+        bevy::tasks::tick_global_task_pools_on_main_thread();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    app.finish();
+    app.cleanup();
+    let mut pixel = || {
+        app.world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::new_fill(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                &[0; 4],
+                TextureFormat::Rgba8Unorm,
+                default(),
+            ))
+    };
+    let source = pixel();
+    let overlay = pixel();
+    let mut image = Image::new_target_texture(32, 32, TextureFormat::Bgra8UnormSrgb, None);
+    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let target = app.world_mut().resource_mut::<Assets<Image>>().add(image);
+    let material = app
+        .world_mut()
+        .resource_mut::<Assets<TitleOutput>>()
+        .add(TitleOutput {
+            source: source.clone(),
+            overlay: None,
+            brightness: Vec4::X,
+        });
+    let mesh = app
+        .world_mut()
+        .resource_mut::<Assets<Mesh>>()
+        .add(Rectangle::new(64., 64.));
+    app.world_mut().spawn((
+        Mesh2d(mesh),
+        MeshMaterial2d(material.clone()),
+        Transform::default(),
+    ));
+    app.world_mut().spawn((
+        Camera2d,
+        Msaa::Off,
+        Tonemapping::Linear,
+        RenderTarget::Image(target.clone().into()),
+        Camera {
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+    ));
+    // Overlay RGB is premultiplied by alpha by the ordinary UI render pass.
+    for (background, ui, brightness, expected) in [
+        (
+            [0, 0, 0, 255],
+            Some([128, 128, 128, 128]),
+            Vec4::X,
+            [128, 128, 128, 255],
+        ),
+        (
+            [255; 4],
+            Some([0, 0, 0, 128]),
+            Vec4::X,
+            [127, 127, 127, 255],
+        ),
+        (
+            [64, 128, 192, 255],
+            Some([128; 4]),
+            Vec4::X,
+            [160, 192, 224, 255],
+        ),
+        ([255; 4], Some([128; 4]), Vec4::Z, [128, 128, 128, 255]),
+        (
+            [0, 0, 0, 255],
+            Some([0, 0, 0, 128]),
+            Vec4::Y,
+            [127, 127, 127, 255],
+        ),
+        ([64, 128, 192, 255], None, Vec4::X, [64, 128, 192, 255]),
+    ] {
+        app.world_mut()
+            .resource_mut::<Assets<Image>>()
+            .get_mut(&source)
+            .unwrap()
+            .data = Some(background.to_vec());
+        app.world_mut()
+            .resource_mut::<Assets<Image>>()
+            .get_mut(&overlay)
+            .unwrap()
+            .data = Some(ui.unwrap_or([0; 4]).to_vec());
+        {
+            let mut outputs = app.world_mut().resource_mut::<Assets<TitleOutput>>();
+            let mut output = outputs.get_mut(&material).unwrap();
+            output.brightness = brightness;
+            output.overlay = ui.map(|_| overlay.clone());
+        }
+        for _ in 0..10 {
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        app.world_mut().resource_mut::<Capture>().0 = None;
+        app.world_mut()
+            .spawn(Screenshot::image(target.clone()))
+            .observe(
+                |shot: On<ScreenshotCaptured>, mut capture: ResMut<Capture>| {
+                    capture.0 = Some(shot.image.clone());
+                },
+            );
+        while app.world().resource::<Capture>().0.is_none() {
+            anyhow::ensure!(
+                began.elapsed().as_secs() < 120,
+                "overlay readback timed out"
+            );
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let pixels = app
+            .world_mut()
+            .resource_mut::<Capture>()
+            .0
+            .take()
+            .unwrap()
+            .try_into_dynamic()?
+            .to_rgba8();
+        assert!(
+            pixels.pixels().all(|pixel| pixel
+                .0
+                .iter()
+                .zip(expected)
+                .all(|(&actual, expected)| actual.abs_diff(expected) <= 1)),
+            "background={background:?}, overlay={ui:?}, brightness={brightness:?}: expected {expected:?}, got {:?}",
+            pixels.get_pixel(16, 16).0
+        );
+    }
+    Ok(())
+}
 
 #[test]
 #[ignore = "requires a GPU; checks replacement screens and overlays with MSAA"]

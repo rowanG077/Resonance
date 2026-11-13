@@ -111,12 +111,31 @@ pub(super) fn install(app: &mut App) {
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[uniform(2, OutputUniform)]
 pub struct TitleOutput {
     #[texture(0)]
     #[sampler(1)]
     pub source: Handle<Image>,
-    #[uniform(2)]
     pub brightness: Vec4,
+    /// Premultiplied, encoded UI composited after scene fades and before display conversion.
+    #[texture(3)]
+    #[sampler(4)]
+    pub overlay: Option<Handle<Image>>,
+}
+
+#[derive(Clone, ShaderType)]
+pub struct OutputUniform {
+    brightness: Vec4,
+    overlay_enabled: u32,
+}
+
+impl From<&TitleOutput> for OutputUniform {
+    fn from(output: &TitleOutput) -> Self {
+        Self {
+            brightness: output.brightness,
+            overlay_enabled: u32::from(output.overlay.is_some()),
+        }
+    }
 }
 impl TitleOutput {
     /// Assets::iter_mut marks every visited material as modified, even if its

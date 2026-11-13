@@ -92,10 +92,6 @@ fn failed(world: &mut World, error: anyhow::Error) {
 }
 fn start(world: &mut World, command: Command) -> Result<()> {
     let persistence = world.resource::<Persistence>();
-    ensure!(
-        !persistence.is_writing(),
-        "quicksave is still being written"
-    );
     let store = persistence.store.clone();
     match command {
         Command::ReadSlots => {
@@ -274,17 +270,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn title_default_only_checks_player_slot_existence() -> Result<()> {
+    fn title_default_ignores_and_preserves_legacy_save_data() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let store = Store::new(directory.path());
         assert!(!has_save_data(&store)?);
         for kind in [Kind::Save, Kind::Quicksave] {
             std::fs::create_dir(directory.path().join(kind.directory()))?;
         }
-        std::fs::write(
-            store.path(Kind::Quicksave, &SlotId::new("quick")?),
-            b"broken",
-        )?;
+        let legacy = store.path(Kind::Quicksave, &SlotId::new("quick")?);
+        std::fs::write(&legacy, b"broken")?;
         std::fs::write(store.path(Kind::Save, &SlotId::new("other")?), b"broken")?;
         assert!(!has_save_data(&store)?);
         for index in [0, SLOTS_PER_BANK * 2 - 1] {
@@ -294,6 +288,7 @@ mod tests {
             std::fs::remove_file(path)?;
             assert!(!has_save_data(&store)?);
         }
+        assert_eq!(std::fs::read(legacy)?, b"broken");
         Ok(())
     }
 }

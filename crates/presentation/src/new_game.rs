@@ -33,7 +33,7 @@ fn transition_failed(world: &mut World, error: anyhow::Error) {
         .active
         .store(true, std::sync::atomic::Ordering::Release);
     for mut window in world.query::<&mut Window>().iter_mut(world) {
-        window.title = format!("Resonance — {error:#} — Enter: Retry / F9: Load quicksave");
+        window.title = format!("Resonance — {error:#} — Enter: Retry");
     }
 }
 
@@ -70,7 +70,6 @@ pub(super) struct FieldScene {
 pub(super) enum Start<'a> {
     NewGame,
     Saved(&'a FieldCheckpoint),
-    Dungeon(super::dungeons::Destination),
 }
 
 impl Session {
@@ -111,7 +110,6 @@ impl Session {
         let map = match &start {
             Start::NewGame => 5,
             Start::Saved(checkpoint) => checkpoint.map_id,
-            Start::Dungeon(destination) => destination.map,
         };
         let new_game = matches!(start, Start::NewGame);
         ensure!(
@@ -123,25 +121,21 @@ impl Session {
         let (field, restored_checkpoint) = if let Start::Saved(checkpoint) = &start {
             initial.restore(checkpoint, available_fields.clone())?
         } else {
-            let entry = if let Start::Dungeon(destination) = &start {
-                destination.entry(data.clone(), available_fields.clone())?
-            } else {
-                FieldEntry {
-                    persistent: resonance_events::PersistentState {
-                        party: Some(resonance_events::party::Party::new(
-                            data,
-                            resonance_events::party::Settings {
-                                preferences: initial_preferences.unwrap_or_default(),
-                                ..Default::default()
-                            },
-                        )?),
-                        ..Default::default()
-                    },
-                    available_fields: available_fields.clone(),
-                    position: [-719., -371., 0.],
-                    idle_animation: Some(116),
+            let entry = FieldEntry {
+                persistent: resonance_events::PersistentState {
+                    party: Some(resonance_events::party::Party::new(
+                        data,
+                        resonance_events::party::Settings {
+                            preferences: initial_preferences.unwrap_or_default(),
+                            ..Default::default()
+                        },
+                    )?),
                     ..Default::default()
-                }
+                },
+                available_fields: available_fields.clone(),
+                position: [-719., -371., 0.],
+                idle_animation: Some(116),
+                ..Default::default()
             };
             let mut field = initial.enter(entry)?;
             initial.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
@@ -727,9 +721,6 @@ pub(super) fn skip_test_battles(options: Res<RunOptions>, session: Option<ResMut
 /// The VM requests a field; the scene owner replaces it after validating its
 /// cooked package. Outstanding callbacks are cancelled before actors retire.
 pub(super) fn transition(world: &mut World) {
-    if world.contains_resource::<super::saves::Quickload>() {
-        return;
-    }
     if world.contains_resource::<TransitionFailure>() {
         let retry = world
             .resource::<ButtonInput<KeyCode>>()

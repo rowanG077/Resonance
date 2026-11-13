@@ -556,8 +556,6 @@ pub enum Key {
     RotateLeft,
     RotateRight,
     Start,
-    Quicksave,
-    Quickload,
     Order1,
     Order2,
     Order3,
@@ -584,8 +582,6 @@ impl Key {
             Self::RotateLeft => (KeyCode::BracketLeft, Logical::Character("[".into())),
             Self::RotateRight => (KeyCode::BracketRight, Logical::Character("]".into())),
             Self::Start => (KeyCode::Home, Logical::Home),
-            Self::Quicksave => (KeyCode::F5, Logical::F5),
-            Self::Quickload => (KeyCode::F9, Logical::F9),
             Self::Order1 => (KeyCode::Digit1, Logical::Character("1".into())),
             Self::Order2 => (KeyCode::Digit2, Logical::Character("2".into())),
             Self::Order3 => (KeyCode::Digit3, Logical::Character("3".into())),
@@ -915,7 +911,7 @@ pub fn record_battle(
     options: CheckpointRecordingOptions<'_>,
 ) -> Result<()> {
     spec.validate()?;
-    let mut app = probe::app_with_saves_mode(
+    let mut app = harness::app_with_saves_mode(
         root,
         output,
         SaveOptions {
@@ -924,7 +920,6 @@ pub fn record_battle(
                     .save_directory
                     .map_or_else(|| output.join("slots"), Path::to_path_buf),
             ),
-            quick_slot: Some("probe".into()),
             load: Some(save.into()),
         },
         options.resolution,
@@ -968,7 +963,7 @@ pub fn record_checkpoint_window(
         !options.gamepad,
         "window replay currently uses keyboard input"
     );
-    let mut app = probe::app_with_target(
+    let mut app = harness::app_with_target(
         root,
         output,
         SaveOptions {
@@ -977,7 +972,6 @@ pub fn record_checkpoint_window(
                     .save_directory
                     .map_or_else(|| output.join("slots"), Path::to_path_buf),
             ),
-            quick_slot: Some("probe".into()),
             load: Some(save.into()),
         },
         options.resolution,
@@ -1072,7 +1066,7 @@ fn record(
             );
         }
     }
-    let app = probe::app_with_saves_mode(
+    let app = harness::app_with_saves_mode(
         root,
         output,
         SaveOptions {
@@ -1081,7 +1075,6 @@ fn record(
                     .save_directory
                     .map_or_else(|| output.join("slots"), Path::to_path_buf),
             ),
-            quick_slot: Some("probe".into()),
             load: save.map(Path::to_path_buf),
         },
         options.resolution,
@@ -1358,9 +1351,9 @@ fn observe(
     update: u32,
     audio_frame: u64,
 ) -> Result<serde_json::Value> {
-    let quicksave_available = checkpoint(world).is_ok();
+    let checkpoint_available = checkpoint(world).is_ok();
     let mut capture = serde_json::json!({"name":name, "update":update, "audio_frame":audio_frame,
-        "quicksave_available":quicksave_available,
+        "checkpoint_available":checkpoint_available,
         "asset_reads":world.resource::<loading::Resident>().memory_reads.load(Ordering::Acquire),
         "scene":recording_scene(world)?, "presentation_counter":world.resource::<Clock>().0.tick(),
         "battle":world.get_resource::<crate::battle::Owner>().and_then(|owner|owner.diagnostic())});
@@ -1505,7 +1498,7 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
         else {
             return Ok(());
         };
-        if scene::ready(world, phase) && !world.resource::<Persistence>().is_writing() {
+        if scene::ready(world, phase) {
             *timed_out = false;
             return Ok(());
         }
@@ -1614,8 +1607,6 @@ mod tests {
         .insert_resource(Clock::default())
         .insert_resource(Persistence {
             store: Store::new(std::env::temp_dir()),
-            slot: SlotId::new("unused").unwrap(),
-            writing: Mutex::default(),
         })
         .insert_resource(pending)
         .add_systems(Update, move |world: &mut World| {
@@ -1649,8 +1640,6 @@ mod tests {
         .insert_resource(boot)
         .insert_resource(Persistence {
             store: Store::new(std::env::temp_dir()),
-            slot: SlotId::new("unused").unwrap(),
-            writing: Mutex::default(),
         })
         .add_systems(Update, || panic!("ready scene received an extra update"));
         let mut timed_out = true;
@@ -2133,179 +2122,6 @@ mod tests {
         assert_eq!(regular.world().resource::<Consumed>().0, expected);
         assert_eq!(uneven.world().resource::<Consumed>().0, expected);
         assert_eq!(controller.world().resource::<Consumed>().0, expected);
-    }
-
-    #[test]
-    #[ignore = "requires current prepared opening field; no GPU or audio device"]
-    fn quickload_restore_does_not_erase_consumed_scenario_input() {
-        let directory = Output::new();
-        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
-            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
-            PathBuf::from,
-        );
-        let mut cache = loading::Cache::default();
-        let package = new_game::FieldPackage::prepare(&root, 332, &mut cache, || false).unwrap();
-        let saved = crate::test_support::field_checkpoint(&package.files).unwrap();
-        let mut session = new_game::Session::load_prepared(
-            std::sync::Arc::new(package),
-            Some(saved.clone()),
-            None,
-        )
-        .unwrap();
-        // Save the initialized field, including its camera bounds.
-        let saved = session.field().checkpoint().unwrap();
-        session.audio = None;
-        // Restore the saved party while acknowledging the quickload input once.
-        session
-            .field_mut()
-            .events
-            .world
-            .party
-            .as_mut()
-            .unwrap()
-            .gald += 1;
-        let store = Store::new(directory.0.clone());
-        let slot = SlotId::new("scenario").unwrap();
-        store
-            .write_async(
-                Kind::Quicksave,
-                slot.clone(),
-                resonance_persistence::encode(
-                    &Header {
-                        version: resonance_persistence::VERSION,
-                        label: "Scenario".into(),
-                        location: "Opening".into(),
-                        played_ticks: saved.played_ticks,
-                        saved_unix_seconds: 0,
-                    },
-                    &SceneCheckpoint::Field(saved.clone()),
-                )
-                .unwrap(),
-            )
-            .unwrap()
-            .wait()
-            .unwrap();
-
-        let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins,
-            AssetPlugin::default(),
-            bevy::input::InputPlugin,
-        ))
-        .init_asset::<Image>()
-        .init_resource::<Clock>()
-        .init_resource::<crate::timing::Ready>()
-        .init_resource::<crate::boot::Playback>()
-        .init_resource::<field_view::Controls>()
-        .init_resource::<loading::Resident>()
-        .init_resource::<crate::movie::Playback>()
-        .insert_resource(crate::display::Targets {
-            source: Handle::default(),
-            output: None,
-        })
-        .insert_resource(crate::test_support::run_options(root))
-        .insert_resource(Persistence {
-            store,
-            slot,
-            writing: Mutex::default(),
-        })
-        .insert_resource(Time::<Fixed>::from_duration(
-            resonance_game::clock::UPDATE_STEP,
-        ))
-        .insert_resource(TimeUpdateStrategy::ManualDuration(
-            std::time::Duration::ZERO,
-        ))
-        .add_systems(
-            FixedPreUpdate,
-            field_view::gather_controls.after(bevy::input::InputSystems),
-        )
-        .add_systems(
-            FixedUpdate,
-            (
-                crate::timing::advance_clock,
-                |mut session: ResMut<new_game::Session>,
-                 mut controls: ResMut<field_view::Controls>,
-                 mut scenario: ResMut<ScenarioInput>| {
-                    if session.audio.is_some() {
-                        return;
-                    }
-                    session.field_mut().step(controls.consume()).unwrap();
-                    scenario.acknowledge_input();
-                },
-            )
-                .chain(),
-        )
-        .add_systems(FixedPostUpdate, super::shortcuts.before(scenario_consumed));
-        // Renderer readiness is injected; persistence and field restoration are real.
-        let art = field_view::prepared_test_art(
-            session.field_assets(),
-            app.world().resource::<AssetServer>(),
-        );
-        app.insert_resource(art).insert_resource(session);
-        crate::field_weapons::without_models_for_test(app.world_mut());
-        app.world()
-            .resource::<loading::Resident>()
-            .active
-            .store(true, Ordering::Release);
-        install_cursor(
-            &mut app,
-            vec![
-                Step::Hold {
-                    keys: vec![Key::Quickload],
-                    updates: 1,
-                },
-                Step::Hold {
-                    keys: vec![],
-                    updates: 1,
-                },
-                Step::capture("loaded"),
-            ],
-            None,
-        );
-        app.update();
-        assert!(
-            checkpoint(app.world_mut()).is_ok(),
-            "real quickload admission must succeed"
-        );
-        app.insert_resource(TimeUpdateStrategy::ManualDuration(
-            resonance_game::clock::UPDATE_STEP,
-        ));
-        app.update();
-        assert!(app.world().contains_resource::<super::Quickload>());
-        let began = Instant::now();
-        while app.world().contains_resource::<super::Quickload>() {
-            assert!(
-                began.elapsed().as_secs() < 30,
-                "quickload preparation stalled"
-            );
-            super::update(app.world_mut());
-            std::thread::yield_now();
-        }
-        let restored = app.world().resource::<new_game::Session>();
-        assert_eq!(
-            restored.field().events.world.party.as_ref().unwrap().gald,
-            saved.progress.party.gald
-        );
-        assert_checkpoint(restored.restored_checkpoint.as_ref().unwrap(), &saved).unwrap();
-        assert_eq!(app.world().resource::<ScenarioInput>().elapsed, 1);
-        assert_eq!(app.world().resource::<ScenarioInput>().updates, 1);
-        assert_eq!(app.world().resource::<Clock>().0.tick(), 1);
-        // Publication would prepare these assets before the next native update.
-        app.world_mut().resource_mut::<new_game::Session>().audio = None;
-        app.world()
-            .resource::<loading::Resident>()
-            .active
-            .store(true, Ordering::Release);
-        app.update();
-        let _ = settle_cursor(app.world_mut());
-        let cursor = app.world().resource::<ScenarioInput>();
-        assert_eq!(cursor.capture(), Some("loaded"));
-        assert_eq!(cursor.consumed, 2);
-        assert!(
-            !app.world()
-                .resource::<ButtonInput<KeyCode>>()
-                .pressed(KeyCode::F9)
-        );
     }
 
     #[test]

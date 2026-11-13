@@ -1,78 +1,18 @@
-//! Device-free scene regressions using fresh progression fixtures.
+//! Device-free gameplay regressions using test-only progression fixtures.
+//! Runtime menus and destination shortcuts do not participate in these tests.
 use resonance_events::input::Button;
-#[path = "crafting_tests.rs"]
 mod crafting;
-#[path = "exploration_tests.rs"]
 mod exploration;
-#[path = "fog_tests.rs"]
+mod fixtures;
 mod fog;
-#[path = "iselia_tests.rs"]
 mod iselia;
-#[path = "movement_tests.rs"]
 mod movement;
-use super::{destinations::*, new_game};
 use crate::field_test::{SCENE_TIMEOUT, Scene, dialogue_input};
+use crate::new_game;
 use anyhow::{Context as ContextExt, Result};
+use fixtures::*;
 use resonance_game::field::{FieldInput, FieldSession};
 use std::{path::PathBuf, sync::Arc};
-
-#[test]
-fn location_menu_pages_and_shortcuts_select_visible_rows() {
-    use super::{DESTINATIONS, Menu, PAGE_SIZE};
-    let mut menu = Menu::default();
-    menu.turn_page(true);
-    assert_eq!(menu.selected, PAGE_SIZE);
-    assert!(menu.select_row(2));
-    assert_eq!(menu.selected, PAGE_SIZE + 2);
-    menu.turn_page(false);
-    assert_eq!(menu.selected, 2);
-    menu.turn_page(false);
-    assert_eq!(
-        menu.page_start(),
-        (DESTINATIONS.len() - 1) / PAGE_SIZE * PAGE_SIZE
-    );
-    assert!(!menu.select_row(PAGE_SIZE));
-    let remaining = DESTINATIONS.len() - menu.page_start();
-    assert!(menu.select_row(remaining - 1));
-    assert!(!menu.select_row(remaining));
-    menu.turn_page(true);
-    assert_eq!(menu.page_start(), 0);
-
-    use bevy::prelude::*;
-    let mut world = World::new();
-    menu.state = super::State::AwaitRelease;
-    world.insert_resource(menu);
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::KeyW);
-    keys.press(KeyCode::Enter);
-    keys.clear();
-    world.insert_resource(keys);
-    super::controls(&mut world);
-    assert!(world.resource::<Menu>().blocked());
-    world
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .release(KeyCode::Enter);
-    super::controls(&mut world);
-    assert!(!world.resource::<Menu>().blocked());
-
-    world.init_resource::<crate::testing::Controls>();
-    world.resource_mut::<Menu>().state = super::State::Selecting;
-    for expected in [true, false] {
-        world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
-        world
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::KeyK);
-        super::controls(&mut world);
-        assert_eq!(
-            world.resource::<crate::testing::Controls>().instant_kill,
-            expected
-        );
-        assert!(world.resource::<Menu>().open());
-    }
-    world.resource_mut::<Menu>().state = super::State::Closed;
-    super::controls(&mut world);
-    assert!(!world.resource::<crate::testing::Controls>().instant_kill);
-}
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
@@ -105,191 +45,13 @@ fn fixed_camera_save_rebuilds_the_room_view() -> Result<()> {
     Ok(())
 }
 
-#[test]
-#[ignore = "requires locally cooked fields; no devices"]
-fn location_menu_checkpoints_are_playable() -> Result<()> {
-    let root = assets_root()?;
-    let mut cache = Default::default();
-    let mut failures = Vec::new();
-    for &destination in super::DESTINATIONS {
-        let result = (|| -> Result<()> {
-            let package =
-                new_game::FieldPackage::prepare(&root, destination.map, &mut cache, || false)?;
-            let entry = destination.entry(
-                Arc::new(resonance_content::session::SessionData::load(
-                    &package.files,
-                )?),
-                new_game::available_fields(&root)?,
-            )?;
-            let mut field = Scene::enter(&package, entry)?;
-            field.replay_to_control(&root)?;
-            anyhow::ensure!(
-                field
-                    .events
-                    .world
-                    .fade
-                    .as_ref()
-                    .is_none_or(|fade| fade.alpha(field.events.tick()) == 0.),
-                "checkpoint returned control behind a fade"
-            );
-            Ok(())
-        })();
-        if let Err(error) = result {
-            failures.push(format!("{}: {error:#}", destination.name));
-        }
-    }
-    anyhow::ensure!(failures.is_empty(), "{}", failures.join("\n"));
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires locally cooked fields; no devices"]
-fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()> {
-    let root = assets_root()?;
-    let mut cache = Default::default();
-    for (destination, portal, final_room) in [
-        (OSSA_END, [150., 0.], 350),
-        (MARTEL_END, [0., 2775.], 309),
-        (TRIET_END, [-2131., -154.], 221),
-        (THODA_END, [-2555., -611.], 10),
-        (BALACRUF_END, [11., 2000.], 510),
-        (MANA_END, [-852., 2321.], 369),
-        (BASE_END, [-1000., 950.], 276),
-        (PALMACOSTA_END, [0., 875.], 207),
-        (ASGARD_END, [0., 1060.], 217),
-        (ISELIA_END, [2065., 6100.], 197),
-        (REMOTE_ISLAND_END, [600., -2.], 232),
-        (SALVATION_END, [0., 4860.], 535),
-    ] {
-        let map = destination.map;
-        let package = new_game::FieldPackage::prepare(&root, map, &mut cache, || false)?;
-        let entry = destination.entry(
-            Arc::new(resonance_content::session::SessionData::load(
-                &package.files,
-            )?),
-            new_game::available_fields(&root)?,
-        )?;
-        let mut field = Scene::enter(&package, entry)?;
-        field.advance_until(FieldSession::player_has_control)?;
-        if map == 366 {
-            const LIT_RECEIVER: u32 = (-1_179_642_i32) as u32;
-            assert_eq!(
-                field
-                    .events
-                    .world
-                    .actors
-                    .values()
-                    .filter(|a| a.visible && a.resource == LIT_RECEIVER)
-                    .count(),
-                3,
-                "all three receivers must be lit in the solved mirror room"
-            );
-        }
-        anyhow::ensure!(
-            field.events.world.field_transition.is_none(),
-            "{} started inside its exit",
-            destination.name
-        );
-        for tick in 0..SCENE_TIMEOUT {
-            let player = field.actor(field.events.world.controlled_actor).position;
-            let delta = [portal[0] - player[0], portal[1] - player[1]];
-            let length = delta[0].hypot(delta[1]).max(4.);
-            field.step(FieldInput {
-                pressed_buttons: field
-                    .walking(delta.map(|v| v / length))
-                    .pressed_buttons
-                    .with(Button::Ring, map == 206 && tick == 0)
-                    .with(Button::Accept, tick % 2 == 0),
-                held_buttons: field
-                    .walking(delta.map(|v| v / length))
-                    .held_buttons
-                    .with(Button::Accept, true),
-                ..field.walking(delta.map(|v| v / length))
-            })?;
-            if map == final_room && field.events.world.battle_request.is_some() {
-                break;
-            }
-            skip_battle(&mut field)?;
-            if field.events.world.field_transition.is_some() {
-                break;
-            }
-        }
-        if map == final_room {
-            anyhow::ensure!(
-                field.events.world.battle_request.is_some(),
-                "{} cannot reach its final encounter; position={:?}, waits={:?}",
-                destination.name,
-                field.actor(field.events.world.controlled_actor).position,
-                field.events.pending_operations()
-            );
-            continue;
-        }
-        anyhow::ensure!(
-            field.events.world.field_transition.as_ref().map(|t| t.map) == Some(final_room),
-            "{} cannot reach the final room; position={:?}, waits={:?}",
-            destination.name,
-            field.actor(field.events.world.controlled_actor).position,
-            field.events.pending_operations()
-        );
-        if matches!(final_room, 221 | 10 | 510 | 369) {
-            field.follow_transition(&root)?;
-            field
-                .until(dialogue_input(), |f| {
-                    if let Some(movie) = &f.events.world.movie {
-                        movie.operation.complete(None).map_err(anyhow::Error::msg)?;
-                    }
-                    Ok(f.events.world.battle_request.is_some())
-                })
-                .with_context(|| format!("{} final encounter", destination.name))?;
-            skip_battle(&mut field)?;
-            let mut saw_wings = false;
-            field
-                .advance_until(|field| {
-                    saw_wings |= field.events.world.actors.values().any(|actor| {
-                        actor.visible
-                            && actor.wings.is_some()
-                            && actor.attachment.as_ref().is_some_and(|a| a.actor == 2)
-                    });
-                    field.player_has_control()
-                })
-                .with_context(|| format!("{} seal scene", destination.name))?;
-            assert!(
-                saw_wings,
-                "{} blessing never showed wings",
-                destination.name
-            );
-            match final_room {
-                221 => assert_eq!(field.story_progress()?, 1_303_000),
-                10 => assert_eq!(mission(&field, 0xc4), 21_000),
-                _ => {}
-            }
-            let (flag, angel) = match final_room {
-                221 => (200, 1),
-                10 => (201, 1),
-                510 => (202, 101),
-                369 => (203, 201),
-                _ => unreachable!(),
-            };
-            assert!(field.events.world.event_flags.contains(&flag));
-            assert_eq!(
-                field
-                    .events
-                    .memory()
-                    .read(0x4c, symphonia_script::Width::S32)?,
-                angel
-            );
-        }
-    }
-    Ok(())
-}
-
 fn assets_root() -> Result<PathBuf> {
     Ok(PathBuf::from(
         std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
     ))
 }
 fn configured(
-    destination: Destination,
+    fixture: StoryFixture,
     map: u32,
     configure: impl FnOnce(&mut resonance_game::field::FieldEntry) -> Result<()>,
 ) -> Result<Scene> {
@@ -298,12 +60,12 @@ fn configured(
     let data = Arc::new(resonance_content::session::SessionData::load(
         &package.files,
     )?);
-    let mut entry = destination.entry(data, new_game::available_fields(&root)?)?;
+    let mut entry = fixture.entry(data, new_game::available_fields(&root)?)?;
     configure(&mut entry)?;
     Scene::enter(&package, entry)
 }
-fn enter(destination: Destination, map: u32, story: Option<i32>) -> Result<Scene> {
-    configured(destination, map, |entry| {
+fn enter(fixture: StoryFixture, map: u32, story: Option<i32>) -> Result<Scene> {
+    configured(fixture, map, |entry| {
         if let Some(story) = story {
             entry
                 .persistent
@@ -413,7 +175,7 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
     field.until(FieldInput::default(), |field| {
         Ok(field.events.world.battle_request.is_some())
     })?;
-    // The resumed patrol can reach Lloyd. The dungeon selector grants this
+    // The resumed patrol can reach Lloyd. The fixture supplies this
     // encounter as a victory, after which exploration must remain usable.
     assert!(skip_battle(&mut field)?);
     field.advance_until(FieldSession::player_has_control)?;
@@ -792,7 +554,7 @@ fn palmacosta_teleport_lands_before_the_arrival_fade_reveals_the_player() -> Res
 fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
     let mut field = configured(PALMACOSTA_RANCH, 198, |entry| {
         // The defeated Magnius scene writes 6100 before its ChangeField to 198.
-        // Keep the selector's story stage so this catches its skipped cutscene.
+        // Keep the fixture's story stage so this catches its skipped cutscene.
         entry
             .persistent
             .memory
@@ -1215,7 +977,7 @@ fn iselia_first_tutorial_skips_both_battles_and_enters_the_overworld() -> Result
 
 #[test]
 #[ignore = "requires locally cooked Martel fields; no devices"]
-fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()> {
+fn martel_golem_scene_precedes_the_ring_pickup() -> Result<()> {
     let mut field = enter(MARTEL_START, 308, None)?;
     field.advance_until(FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 104_000);
@@ -1345,6 +1107,16 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
             Ok(!f.player_has_control() || f.events.world.blocked_by_movie())
         })?;
         for tick in 0..SCENE_TIMEOUT {
+            if field.events.battle_pending() {
+                // Event skipping leaves encounters to the player. Complete them
+                // explicitly in this fixture, after checking that skip preserves them.
+                let event_tick = field.events.tick();
+                assert!(!field.can_skip_event());
+                assert!(field.skip_event_step()?);
+                assert!(field.events.battle_pending());
+                assert_eq!(field.events.tick(), event_tick);
+                assert!(skip_battle(&mut field)?);
+            }
             let choosing = field
                 .events
                 .world

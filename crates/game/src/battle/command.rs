@@ -300,6 +300,10 @@ pub struct Owner {
     escape_requested: bool,
 }
 impl Owner {
+    pub(super) fn capturing_arte_binding(&self) -> bool {
+        matches!(self.session.as_ref().map(|session| &session.page), Some(Page::Tech(page)) if page.state.capture.is_some())
+    }
+
     pub(in crate::battle) fn capture_arte_binding(
         &mut self,
         candidate: &mut super::results::Candidate,

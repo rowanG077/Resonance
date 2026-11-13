@@ -2944,7 +2944,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
     assert_eq!(restored.story_progress().unwrap(), 2000);
     assert!(
         restored.skit_prompt().is_none(),
-        "quickload should restart the notification timer"
+        "save restore should restart the notification timer"
     );
     advance_to(&mut restored, |s| s.skit_prompt().is_some(), |_, _| false);
     let open = Skit.input();
@@ -4182,7 +4182,7 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
     );
     assert!(
         field.checkpoint().unwrap().camera.is_none(),
-        "a quicksave leaves this fixed camera for field setup to rebuild"
+        "a checkpoint leaves this fixed camera for field setup to rebuild"
     );
     press(&mut field, OpenMenu);
     assert!(field.menu.is_some());

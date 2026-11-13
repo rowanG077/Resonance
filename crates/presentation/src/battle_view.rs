@@ -48,7 +48,6 @@ use std::{
     sync::{Arc, Mutex, atomic::Ordering},
 };
 
-// Layer 28 belongs to the live Shift+Tab overlay.
 pub(super) const LAYER: usize = 26;
 pub(super) const WARM_LAYER: usize = 27;
 // Scene cloning runs after these commands, so budget queued roots rather than enqueue time.

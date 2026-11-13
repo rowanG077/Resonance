@@ -53,7 +53,6 @@ mod camera;
 mod config;
 mod debug_font;
 mod display;
-mod dungeons;
 mod field_warm;
 mod gpu_prepare;
 mod input;
@@ -72,6 +71,8 @@ mod draw_order;
 mod field_ambient;
 mod field_animation;
 mod field_audio;
+#[cfg(test)]
+mod field_regressions;
 #[cfg(test)]
 mod field_test;
 pub(crate) use field_audio::battle as battle_audio;
@@ -111,8 +112,7 @@ mod saves;
 pub use saves::{
     CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
     prepare_overworld_test_fixture, record_battle, record_checkpoint, record_checkpoint_window,
-    record_new_game, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
-    run_title_load_probe,
+    record_new_game, run_menu_probe, run_overworld_field_probe, run_title_load_probe,
 };
 mod new_game_capture;
 mod performance;
@@ -504,22 +504,11 @@ fn build_app(
         )
         .add_systems(
             FixedPostUpdate,
-            (saves::shortcuts, movie::controls)
-                .chain()
+            movie::controls
                 .before(saves::scenario_consumed)
                 .run_if(resource_exists::<saves::ScenarioInput>),
         )
         .add_systems(Startup, (setup, glow::setup, display::initialize).chain())
-        .add_systems(
-            PreUpdate,
-            (
-                display::preview_preferences,
-                display::apply_preferences,
-                display::initialize.run_if(resource_changed::<display::Display>),
-            )
-                .chain()
-                .run_if(resource_exists::<display::InteractiveDisplay>),
-        )
         .add_systems(
             PostUpdate,
             (loading::black_hold, new_game::scene_fade::update).chain(),
@@ -530,23 +519,19 @@ fn build_app(
             (
                 timing::advance_clock,
                 boot::advance,
-                advance.run_if(dungeons::running),
-                new_game::advance
-                    .run_if(dungeons::running)
-                    .run_if(battle::field_running),
+                advance,
+                new_game::advance.run_if(battle::field_running),
             )
                 .chain(),
         )
         .add_systems(
             Update,
             (
-                saves::update.run_if(dungeons::running),
+                saves::update,
                 new_game::enter,
-                new_game::skip_test_battles.run_if(dungeons::running),
+                new_game::skip_test_battles,
                 (
-                    new_game::transition
-                        .run_if(dungeons::running)
-                        .run_if(battle::field_running),
+                    new_game::transition.run_if(battle::field_running),
                     session_screen::update,
                 )
                     .chain(),
@@ -571,9 +556,10 @@ fn build_app(
         Update,
         field_ui::transition_failure.after(new_game::transition),
     );
-    dungeons::install(&mut app, capture_only);
     session_screen::install(&mut app);
     credits::install(&mut app);
+    input::install(&mut app);
+    display::install(&mut app);
     testing::install(&mut app);
     if !capture_only {
         audio_output::install(&mut app, silent).context("initializing audio output")?;
@@ -675,6 +661,7 @@ fn setup(
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
         MeshMaterial2d(outputs.add(TitleOutput {
+            overlay: None,
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
         })),
@@ -859,13 +846,8 @@ fn gather_input(
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
     replay: Option<Res<Replay>>,
-    dungeons: Option<Res<dungeons::Menu>>,
     preferences: Option<Res<config::Preferences>>,
 ) {
-    if dungeons.is_some_and(|menu| menu.blocked()) {
-        *pending = PendingInput::default();
-        return;
-    }
     if replay.is_some_and(|r| r.0.is_some()) {
         return;
     }
