@@ -1,6 +1,7 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
 #[path = "battle_ui.rs"]
 mod battle_ui;
+mod bitmap_text;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
 #[path = "credits.rs"]
@@ -43,6 +44,8 @@ mod overlay;
 pub(super) fn model_preview_depth() -> f32 {
     menu::model_preview_depth()
 }
+#[path = "field_ui_pause.rs"]
+pub(crate) mod pause;
 #[path = "field_ui_prompt.rs"]
 mod prompt;
 #[path = "field_ui_skit.rs"]

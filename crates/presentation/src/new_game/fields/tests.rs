@@ -301,7 +301,7 @@ fn named_mod_layers_survive_worker_preparation_and_restore() -> Result<()> {
     *resident.files.write().unwrap() = Some(fresh.files.clone());
     assert_eq!(fresh.messages.to_vec(), current);
     assert_eq!(first.messages.to_vec(), selected);
-    // No departed field is retained: a revisit or quickload prepares a new
+    // No departed field is retained: a revisit or save restore prepares a new
     // package. It reuses bytes captured by the field it leaves, so edits are
     // only guaranteed to be picked up after restarting, as above.
     write_message(&mods[1], "Edit for the next application restart")?;

@@ -210,7 +210,15 @@ impl Customize {
             let error = if chord.0.len() != 1 {
                 Some("Choose one key, button or stick direction for a standard action.".to_string())
             } else {
-                chord.validate_shape().err()
+                chord
+                    .validate_shape()
+                    .and_then(|()| {
+                        self.draft.keymap.can_assign(
+                            resonance_content::input::StandardAction::ALL[self.button],
+                            &chord.0[0],
+                        )
+                    })
+                    .err()
             };
             if let Some(error) = error {
                 self.binding_message = Some(error.clone());

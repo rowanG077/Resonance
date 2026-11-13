@@ -32,7 +32,6 @@ pub(crate) fn update(world: &mut World) {
         for (text, y, size) in [
             ("Unable to enter this area.", 181., 23.),
             ("Enter / A: Retry", 225., 19.),
-            ("F9: Load quicksave", 257., 19.),
         ] {
             skit::centered(&mut batch, &font, text, y, size, 1., false)?;
         }

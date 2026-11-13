@@ -9,7 +9,7 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     else {
         anyhow::bail!("probe requires a field save");
     };
-    let app = probe::app(root, save, output, crate::Resolution::default())?;
+    let app = harness::app(root, save, output, crate::Resolution::default())?;
     let mut steps = vec![
         title_probe::field(expected.map_id),
         Step::wait(Event::SavePoint, 1),
@@ -89,8 +89,8 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
         "menu probe requires an activated memory circle"
     );
     ensure!(
-        capture_from(&report, "save-empty")?["quicksave_available"] == false,
-        "quicksave accepted an open menu"
+        capture_from(&report, "save-empty")?["checkpoint_available"] == false,
+        "checkpoint accepted an open menu"
     );
     ensure!(
         capture_from(&report, "save-success")?["menu"]["slots"][0] == "saved"
@@ -124,7 +124,7 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
         output.join("result.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "saved":persisted, "restored":restored, "checkpoint":continued, "audio_device":false,
-            "unprepared_reads":report["unprepared_reads"], "save_load":true, "quicksave_rejected_in_menu":true
+            "unprepared_reads":report["unprepared_reads"], "save_load":true, "checkpoint_rejected_in_menu":true
         }))?,
     )?;
     Ok(())

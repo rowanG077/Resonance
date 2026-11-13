@@ -24,7 +24,6 @@ pub(crate) fn install(app: &mut App) {
     app.add_systems(
         FixedUpdate,
         advance
-            .run_if(crate::dungeons::running)
             .before(crate::advance)
             .before(crate::field_view::advance_live),
     );
@@ -357,6 +356,7 @@ mod tests {
         let output = world
             .resource_mut::<Assets<TitleOutput>>()
             .add(TitleOutput {
+                overlay: None,
                 source: Handle::default(),
                 brightness: Vec4::X,
             });

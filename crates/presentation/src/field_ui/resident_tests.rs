@@ -2,6 +2,185 @@ use super::scenario::Scenario;
 use super::*;
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS and a GPU; checks pause font, animation and resolution scaling"]
+fn pause_feedback_animates_while_game_time_is_stopped_at_two_resolutions() -> Result<()> {
+    use resonance_content::input::{PhysicalInput, StandardAction};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    let directory = tempfile::tempdir()?;
+    let output = std::env::var_os("RESONANCE_PAUSE_CAPTURE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| directory.path().into());
+    std::fs::create_dir_all(&output)?;
+    for [width, height] in [[640, 480], [1280, 960]] {
+        let mut scenario = Scenario::boot(crate::Resolution { width, height }, |_| {})?;
+        let samples = Arc::new(std::sync::Mutex::new(None));
+        let feedback = samples.clone();
+        scenario.app.add_observer(
+            move |shot: On<bevy::render::view::screenshot::ScreenshotCaptured>| {
+                let pixels = shot.image.clone().try_into_dynamic().unwrap().to_rgba8();
+                *feedback.lock().unwrap() = Some(pixels);
+            },
+        );
+        scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .assign(StandardAction::Pause, PhysicalInput::Key("F2".into()));
+        scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::testing::Controls>()
+            .paused = true;
+        scenario
+            .app
+            .world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .pause();
+        let paused_at = scenario.app.world().resource::<Time<Virtual>>().elapsed();
+        let target = scenario
+            .app
+            .world_mut()
+            .query_filtered::<&bevy::camera::RenderTarget, With<super::super::pause::PauseCamera>>()
+            .single(scenario.app.world())?
+            .clone();
+        let bevy::camera::RenderTarget::Image(target) = target else {
+            panic!("pause UI must render offscreen")
+        };
+        let initial = crate::Resolution { width, height };
+        let resized = if width == 640 {
+            crate::Resolution {
+                width: 1280,
+                height: 960,
+            }
+        } else {
+            crate::Resolution::default()
+        };
+        for size in [initial, resized] {
+            scenario
+                .app
+                .world_mut()
+                .resource_mut::<crate::display::Display>()
+                .0 = size;
+            scenario
+                .app
+                .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                    resonance_game::clock::UPDATE_STEP,
+                ));
+            // Stay away from blink boundaries while settling the initial or resized view.
+            for _ in 0..12 {
+                scenario.update()?;
+            }
+            let mut cameras = scenario
+                .app
+                .world_mut()
+                .query_filtered::<&Camera, With<super::super::pause::PauseCamera>>();
+            assert_eq!(
+                cameras.single(scenario.app.world())?.physical_target_size(),
+                Some(UVec2::new(size.width, size.height))
+            );
+            assert_eq!(
+                scenario
+                    .app
+                    .world()
+                    .resource::<Assets<Image>>()
+                    .get(&target.handle)
+                    .unwrap()
+                    .size(),
+                UVec2::new(size.width, size.height)
+            );
+            let mut captures = Vec::new();
+            for frame in 0..2 {
+                if frame != 0 {
+                    scenario
+                        .app
+                        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                            resonance_game::clock::UPDATE_STEP,
+                        ));
+                    for _ in 0..20 {
+                        scenario.update()?;
+                    }
+                }
+                let path = output.join(format!(
+                    "pause-{width}x{height}-render-{}x{}-{frame}.png",
+                    size.width, size.height
+                ));
+                let failed = Arc::new(AtomicBool::new(false));
+                let written = Arc::new(AtomicU32::new(0));
+                crate::new_game_capture::screenshot_held(
+                    &mut scenario.app,
+                    path,
+                    failed.clone(),
+                    written.clone(),
+                )?;
+                assert!(!failed.load(Ordering::Acquire));
+                assert_eq!(written.load(Ordering::Acquire), 1);
+                let pixels = samples
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .context("pause capture missing")?;
+                assert_eq!(pixels.dimensions(), (width, height));
+                // The title is held black. Its translucent card must keep the
+                // encoded UI colors without accumulating opacity.
+                let pixel = pixels.get_pixel(180 * width / 640, 180 * height / 480).0;
+                assert!(
+                    pixel
+                        .iter()
+                        .zip([7, 12, 21, 255])
+                        .all(|(&actual, expected)| actual.abs_diff(expected) <= 1),
+                    "pause card: {pixel:?}"
+                );
+                captures.push(pixels);
+            }
+            // Compare animation at one render resolution, including after a resize.
+            // Only the prompt may change; resizing or unrelated pixels cannot pass this check.
+            let mut animated = false;
+            for (x, y, before) in captures[0].enumerate_pixels() {
+                if before != captures[1].get_pixel(x, y) {
+                    assert!(
+                        (152 * width / 640..488 * width / 640).contains(&x)
+                            && (240 * height / 480..284 * height / 480).contains(&y),
+                        "pause artwork changed outside the prompt at ({x}, {y})"
+                    );
+                    animated = true;
+                }
+            }
+            assert!(animated, "pause feedback did not animate at {size:?}");
+        }
+        assert_eq!(
+            scenario.app.world().resource::<Time<Virtual>>().elapsed(),
+            paused_at
+        );
+        scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::testing::Controls>()
+            .paused = false;
+        scenario.update()?;
+        let mut cameras = scenario
+            .app
+            .world_mut()
+            .query_filtered::<&Camera, With<super::super::pause::PauseCamera>>();
+        assert!(!cameras.single(scenario.app.world())?.is_active);
+        let output = scenario.app.world_mut().query_filtered::<&MeshMaterial2d<crate::materials::TitleOutput>, With<crate::display::OutputQuad>>()
+            .single(scenario.app.world())?.0.clone();
+        assert!(
+            scenario
+                .app
+                .world()
+                .resource::<Assets<crate::materials::TitleOutput>>()
+                .get(&output)
+                .unwrap()
+                .overlay
+                .is_none()
+        );
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires installed assets and RESONANCE_TEST_LOAD_WORLD/FIELD save copies; run serially"]
 fn save_installation_renders_overworld_and_field_replacements() -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};

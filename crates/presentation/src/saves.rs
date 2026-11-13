@@ -1,9 +1,9 @@
-//! Development quicksave controls. Player menus use the same checkpoint and store.
+//! Player save menus, shared checkpoint diagnostics, and scene restoration.
 mod fixture;
+mod harness;
 mod menu;
 mod menu_probe;
 mod overworld_test;
-mod probe;
 mod replay;
 pub use fixture::prepare_checkpoint_fixture;
 pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_probe};
@@ -23,55 +23,25 @@ use super::{field_view, loading, new_game};
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::prelude::*;
 pub use menu_probe::run_menu_probe;
-pub use probe::run_quicksave_probe;
 use resonance_game::field::FieldCheckpoint;
-use resonance_persistence::{Header, Kind, SlotId, Store, WriteTask};
+use resonance_persistence::{Header, Kind, SlotId, Store};
 use std::{
     path::PathBuf,
-    sync::Mutex,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 pub use title_probe::run_title_load_probe;
 
 pub(super) use resonance_game::Checkpoint as SceneCheckpoint;
 
-#[derive(Resource)]
-pub(super) struct Quickload(loading::Pending);
-
 #[derive(Default)]
 pub struct SaveOptions {
     pub directory: Option<PathBuf>,
-    pub quick_slot: Option<String>,
     pub load: Option<PathBuf>,
 }
 
 #[derive(Resource)]
 struct Persistence {
     store: Store,
-    slot: SlotId,
-    writing: Mutex<Option<WriteTask>>,
-}
-
-impl Persistence {
-    fn is_writing(&self) -> bool {
-        self.writing.lock().unwrap().is_some()
-    }
-    fn poll_write(&self) -> Option<Result<()>> {
-        let mut writing = self.writing.lock().unwrap();
-        let result = writing.as_ref()?.poll()?;
-        writing.take();
-        Some(result)
-    }
-}
-
-impl Drop for Persistence {
-    fn drop(&mut self) {
-        if let Some(task) = self.writing.get_mut().unwrap().take()
-            && let Err(error) = task.wait()
-        {
-            error!("Save did not complete: {error:#}");
-        }
-    }
 }
 
 pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -> Result<()> {
@@ -79,11 +49,9 @@ pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -
         .directory
         .clone()
         .map_or_else(resonance_persistence::default_directory, Ok)?;
-    let slot = SlotId::new(options.quick_slot.as_deref().unwrap_or("quick"))?;
     info!(
-        "Save directory: {}; quick slot: {}; initial save: {:?}",
+        "Save directory: {}; initial save: {:?}",
         directory.display(),
-        slot.as_str(),
         options.load
     );
     if let Some(path) = &options.load {
@@ -99,8 +67,6 @@ pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -
     }
     app.insert_resource(Persistence {
         store: Store::new(directory),
-        slot,
-        writing: Mutex::default(),
     });
     title::install(app);
     Ok(())
@@ -128,28 +94,28 @@ pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
 fn scene_checkpoint(world: &mut World) -> Result<SceneCheckpoint> {
     ensure!(
         !world.resource::<Time<Virtual>>().is_paused(),
-        "quicksave unavailable while the game is paused"
+        "checkpoint unavailable while the game is paused"
     );
     ensure!(
         scene_prepared(world),
-        "quicksave unavailable while preparing the scene"
+        "checkpoint unavailable while preparing the scene"
     );
     ensure!(
         !world.resource::<super::movie::Playback>().active,
-        "quicksave unavailable during a movie"
+        "checkpoint unavailable during a movie"
     );
     let session = world
         .get_resource::<new_game::Session>()
-        .context("quicksave requires an active scene")?;
+        .context("checkpoint requires an active scene")?;
     ensure!(
         session.audio.is_none(),
-        "quicksave unavailable during audio preparation"
+        "checkpoint unavailable during audio preparation"
     );
     match &session.scene {
         new_game::Scene::Field(field) => {
             ensure!(
                 session.ready_for_field,
-                "quicksave unavailable during a scene presentation"
+                "checkpoint unavailable during a scene presentation"
             );
             field.session.checkpoint().map(SceneCheckpoint::Field)
         }
@@ -161,61 +127,11 @@ pub(crate) fn scene_prepared(world: &mut World) -> bool {
     !world.contains_resource::<loading::Pending>()
         && !world.contains_resource::<loading::FieldPending>()
         && !world.contains_resource::<loading::WorldPending>()
-        && !world.contains_resource::<Quickload>()
         && world
             .resource::<loading::Resident>()
             .active
             .load(std::sync::atomic::Ordering::Acquire)
         && new_game::scene_ready(world)
-}
-
-fn save(world: &mut World) -> Result<String> {
-    let started = Instant::now();
-    let state = scene_checkpoint(world)?;
-    let persistence = world.resource::<Persistence>();
-    let mut writing = persistence.writing.lock().unwrap();
-    ensure!(writing.is_none(), "previous save is still being written");
-    let header = Header {
-        version: resonance_persistence::VERSION,
-        label: format!("Quicksave {}", persistence.slot.as_str()),
-        location: state.location(),
-        played_ticks: state.played_ticks(),
-        saved_unix_seconds: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
-    };
-    let bytes = resonance_persistence::encode(&header, &state)?;
-    let size = bytes.len();
-    *writing = Some(persistence.store.write_async(
-        Kind::Quicksave,
-        persistence.slot.clone(),
-        bytes,
-    )?);
-    Ok(format!(
-        "Writing quicksave {} ({size} bytes, capture {:.2} ms)",
-        persistence.slot.as_str(),
-        started.elapsed().as_secs_f64() * 1000.
-    ))
-}
-
-fn load(world: &mut World) -> Result<String> {
-    let recovering = world.contains_resource::<new_game::TransitionFailure>();
-    if !recovering {
-        scene_checkpoint(world)?;
-    }
-    let persistence = world.resource::<Persistence>();
-    ensure!(
-        !persistence.is_writing(),
-        "quicksave is still being written"
-    );
-    let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-    let pending = loading::Pending::start(
-        world.resource::<super::RunOptions>().assets.clone(),
-        world.resource::<super::RunOptions>().script_root.clone(),
-        Some(bytes),
-        None,
-        world.resource::<loading::Resident>(),
-    )?;
-    world.insert_resource(Quickload(pending));
-    Ok("Loading quicksave".into())
 }
 
 pub(super) fn reset_scene(world: &mut World) {
@@ -248,42 +164,7 @@ pub(crate) fn install_loaded(world: &mut World, candidate: new_game::Session) {
 
 pub(super) fn update(world: &mut World) {
     crate::config::update(world);
-    if let Some(pending) = world.get_resource::<Quickload>() {
-        let result = match pending.0.poll() {
-            Ok(None) => return,
-            Ok(Some(result)) => result,
-            Err(error) => Err(error),
-        };
-        world.remove_resource::<Quickload>();
-        match result {
-            Ok(candidate) => {
-                install_loaded(world, candidate);
-                report(world, Ok("Quicksave loaded".into()));
-            }
-            Err(error) => report(world, Err(error.context("Quicksave preparation failed"))),
-        }
-    }
     menu::update(world);
-    if let Some(result) = world.resource::<Persistence>().poll_write() {
-        report(world, result.map(|()| "Quicksave written".into()));
-    }
-    if !world.contains_resource::<ScenarioInput>() {
-        shortcuts(world);
-    }
-}
-
-pub(super) fn shortcuts(world: &mut World) {
-    let input = world.resource::<ButtonInput<KeyCode>>();
-    let save_pressed = input.just_pressed(KeyCode::F5);
-    let load_pressed = input.just_pressed(KeyCode::F9);
-    if save_pressed || load_pressed {
-        let result = if save_pressed {
-            save(world)
-        } else {
-            load(world)
-        };
-        report(world, result);
-    }
 }
 
 pub(crate) fn report(world: &mut World, result: Result<String>) {
@@ -310,20 +191,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unavailable_quicksave_does_not_queue_a_write() {
+    fn checkpoint_rejects_paused_or_unprepared_scene() {
         let mut world = World::new();
         world.init_resource::<Time<Virtual>>();
         world.init_resource::<loading::Resident>();
-        world.insert_resource(Persistence {
-            store: Store::new(std::env::temp_dir()),
-            slot: SlotId::new("unused").unwrap(),
-            writing: Mutex::default(),
-        });
         world.resource_mut::<Time<Virtual>>().pause();
-        assert!(save(&mut world).is_err());
+        assert_eq!(
+            checkpoint(&mut world).unwrap_err().to_string(),
+            "checkpoint unavailable while the game is paused"
+        );
         world.resource_mut::<Time<Virtual>>().unpause();
-        assert!(save(&mut world).is_err());
-        assert!(!world.resource::<Persistence>().is_writing());
-        assert!(world.resource::<Persistence>().poll_write().is_none());
+        assert_eq!(
+            checkpoint(&mut world).unwrap_err().to_string(),
+            "checkpoint unavailable while preparing the scene"
+        );
     }
 }

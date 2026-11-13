@@ -261,7 +261,7 @@ impl CameraRig {
             || !camera.anchor_to_actor
             || camera.actor != actor
         {
-            return Err("quicksave requires the ordinary player-follow camera".into());
+            return Err("checkpoint requires the ordinary player-follow camera".into());
         }
         Ok(CameraSettings {
             fog: camera.fog.clone(),

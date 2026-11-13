@@ -1,5 +1,7 @@
 //! Live testing controls. Event skipping executes scripts and keeps their progress.
+use crate::field_ui::pause as overlay;
 use bevy::prelude::*;
+use resonance_content::input::StandardAction;
 
 const SKIP_UPDATES_PER_FRAME: usize = 64;
 
@@ -8,62 +10,73 @@ pub(super) struct Controls {
     pub paused: bool,
     pub skipping: bool,
     pub double_speed: bool,
-    pub instant_kill: bool,
 }
 
 pub(super) fn install(app: &mut App) {
     app.init_resource::<Controls>()
+        .add_systems(PreUpdate, controls.in_set(crate::input::HostActions))
         .add_systems(
-            PreUpdate,
-            controls
-                .after(bevy::input::InputSystems)
-                .after(super::dungeons::controls)
-                .before(super::field_view::gather_controls),
+            Startup,
+            overlay::setup
+                .after(crate::setup)
+                .before(crate::display::initialize),
         )
-        .add_systems(Update, advance.before(super::new_game::skip_test_battles));
+        .add_systems(Last, overlay::composite)
+        .add_systems(
+            Update,
+            (
+                advance.before(super::new_game::skip_test_battles),
+                overlay::update,
+            ),
+        );
 }
 
-fn controls(world: &mut World) {
-    for (index, key) in [KeyCode::F6, KeyCode::F7, KeyCode::F8]
-        .into_iter()
-        .enumerate()
-    {
-        if world.resource::<ButtonInput<KeyCode>>().just_pressed(key) {
-            press(world, index);
+pub(super) fn controls(
+    input: Res<crate::input::HostInput>,
+    session: Option<Res<super::new_game::Session>>,
+    mut controls: ResMut<Controls>,
+    mut time: ResMut<Time<Virtual>>,
+) {
+    use StandardAction::*;
+    let Some(session) = session else {
+        return;
+    };
+    let can_skip = session.is_field() && session.field().can_skip_event();
+    for action in [SpeedToggle, Pause, SkipEvent] {
+        if input.pressed(action) {
+            toggle(&mut controls, &mut time, action, can_skip);
         }
     }
 }
 
-pub(super) fn press(world: &mut World, index: usize) {
-    let Some(session) = world.get_resource::<super::new_game::Session>() else {
-        return;
-    };
-    let can_skip = session.is_field() && session.field().can_skip_event();
-    world.resource_scope(|world, mut controls: Mut<Controls>| {
-        let mut time = world.resource_mut::<Time<Virtual>>();
-        match index {
-            0 => {
-                controls.double_speed = !controls.double_speed;
-                time.set_relative_speed(if controls.double_speed { 2. } else { 1. });
-            }
-            1 => {
-                controls.paused = !controls.paused;
-                if controls.paused {
-                    time.pause();
-                } else {
-                    time.unpause();
-                }
-            }
-            2 => controls.skipping = !controls.skipping && can_skip,
-            _ => unreachable!(),
+fn toggle(
+    controls: &mut Controls,
+    time: &mut Time<Virtual>,
+    action: StandardAction,
+    can_skip: bool,
+) {
+    match action {
+        StandardAction::SpeedToggle => {
+            controls.double_speed = !controls.double_speed;
+            time.set_relative_speed(if controls.double_speed { 2. } else { 1. });
         }
-        info!(
-            "Testing: {}x, {}, skip={}",
-            if controls.double_speed { 2 } else { 1 },
-            if controls.paused { "paused" } else { "playing" },
-            controls.skipping
-        );
-    });
+        StandardAction::Pause => {
+            controls.paused = !controls.paused;
+            if controls.paused {
+                time.pause();
+            } else {
+                time.unpause();
+            }
+        }
+        StandardAction::SkipEvent => controls.skipping = !controls.skipping && can_skip,
+        _ => unreachable!(),
+    }
+    info!(
+        "Testing: {}x, {}, skip={}",
+        if controls.double_speed { 2 } else { 1 },
+        if controls.paused { "paused" } else { "playing" },
+        controls.skipping
+    );
 }
 
 pub(super) fn audio(world: &mut World) {
@@ -76,24 +89,23 @@ pub(super) fn audio(world: &mut World) {
 }
 
 fn advance(world: &mut World) {
-    let skipping = world.resource::<Controls>().skipping;
+    let controls = world.resource::<Controls>();
+    let skipping = controls.skipping && !controls.paused;
     let result = (|| -> anyhow::Result<()> {
         if let Some(audio) = world.get_resource::<super::field_audio::Control>() {
             audio.set_skipping(skipping)?;
         }
-        if !skipping
-            || world.resource::<Time<Real>>().delta().is_zero()
-            || world
-                .get_resource::<super::dungeons::Menu>()
-                .is_some_and(|menu| menu.blocked())
-        {
+        if !skipping || world.resource::<Time<Real>>().delta().is_zero() {
             return Ok(());
         }
         let Some(session) = world.get_resource::<super::new_game::Session>() else {
             world.resource_mut::<Controls>().skipping = false;
             return Ok(());
         };
-        if session.overworld().is_some() {
+        if session.overworld().is_some()
+            || session.events().battle_pending()
+            || world.contains_resource::<super::battle::Owner>()
+        {
             world.resource_mut::<Controls>().skipping = false;
             return Ok(());
         }
@@ -107,7 +119,7 @@ fn advance(world: &mut World) {
         {
             return Ok(());
         }
-        // Bound work per rendered frame, including when virtual time is paused.
+        // Bound work per rendered frame.
         for _ in 0..SKIP_UPDATES_PER_FRAME {
             let mut session = world.resource_mut::<super::new_game::Session>();
             if session.field().events.world.field_transition.is_some()
@@ -128,5 +140,30 @@ fn advance(world: &mut World) {
         error!("Event skip failed: {error:#}");
         world.resource_mut::<Controls>().skipping = false;
         world.write_message(AppExit::error());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pause_resumes_virtual_time_without_losing_the_selected_speed() {
+        use StandardAction::*;
+        let mut controls = Controls::default();
+        let mut time = Time::<Virtual>::default();
+        toggle(&mut controls, &mut time, SpeedToggle, false);
+        assert_eq!(time.relative_speed(), 2.);
+        toggle(&mut controls, &mut time, Pause, false);
+        assert!(controls.paused && time.is_paused());
+        toggle(&mut controls, &mut time, SpeedToggle, false);
+        assert!(time.is_paused());
+        assert_eq!(time.relative_speed(), 1.);
+        toggle(&mut controls, &mut time, Pause, false);
+        assert!(!controls.paused && !time.is_paused());
+        toggle(&mut controls, &mut time, SkipEvent, false);
+        assert!(!controls.skipping);
+        toggle(&mut controls, &mut time, SkipEvent, true);
+        assert!(controls.skipping);
     }
 }

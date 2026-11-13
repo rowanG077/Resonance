@@ -106,7 +106,7 @@ pub(super) fn update(
 
 fn pixels(monitor: &Monitor) -> Vec<u8> {
     let mut rgba = [12, 17, 25, 235].repeat((WIDTH * HEIGHT) as usize);
-    let mut lines = vec!["PERFORMANCE  F3 HIDE  F4 SAVE".to_owned()];
+    let mut lines = vec!["PERFORMANCE".to_owned()];
     if let Some(s) = monitor.history.summary() {
         let current = monitor.history.0.back().unwrap();
         lines.extend([

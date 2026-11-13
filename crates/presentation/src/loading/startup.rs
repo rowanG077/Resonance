@@ -550,6 +550,7 @@ mod tests {
             .world_mut()
             .resource_mut::<Assets<crate::materials::TitleOutput>>()
             .add(crate::materials::TitleOutput {
+                overlay: None,
                 source: Handle::default(),
                 brightness: Vec4::new(1., 1., 0., 0.),
             });

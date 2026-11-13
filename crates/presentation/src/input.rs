@@ -1,5 +1,10 @@
 //! Translate physical devices once, then apply the user's standard action bindings.
-use bevy::prelude::*;
+use bevy::{
+    ecs::system::SystemParam,
+    input::{ButtonState, keyboard::KeyboardInput},
+    prelude::*,
+    window::PrimaryWindow,
+};
 use resonance_content::input::{AxisDirection, Keymap, PhysicalInput, StandardAction};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -176,6 +181,155 @@ impl PhysicalState {
     }
 }
 
+/// Host shortcuts share physical bindings with gameplay, including controllers,
+/// while keyboard repeats and events for other windows never create new edges.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct HostActions;
+
+/// Resolve host shortcuts once, before any input recorder can finish this frame.
+#[derive(Resource, Default)]
+pub(super) struct HostInput(Vec<StandardAction>);
+
+impl HostInput {
+    pub fn pressed(&self, action: StandardAction) -> bool {
+        self.0.contains(&action)
+    }
+}
+
+pub(super) fn install(app: &mut App) {
+    app.init_resource::<HostInput>()
+        // Every host action runs before a field recorder can finish this frame.
+        .configure_sets(
+            PreUpdate,
+            HostActions.before(crate::field_view::gather_controls),
+        )
+        .add_systems(
+            PreUpdate,
+            gather_host_input
+                .after(bevy::input::InputSystems)
+                .before(HostActions),
+        );
+}
+
+/// Stick shortcuts latch until the direction is released well below the press
+/// threshold. Each controller owns its latches before its edges are merged.
+#[derive(Default)]
+struct HostAxes(BTreeSet<PhysicalInput>);
+
+impl HostAxes {
+    fn sample(&mut self, physical: &mut PhysicalState) {
+        const PRESS: f32 = 0.65;
+        const RELEASE: f32 = 0.35;
+        self.0.retain(|input| {
+            physical
+                .values
+                .get(input)
+                .is_some_and(|value| *value > RELEASE)
+        });
+        for (input, value) in &physical.values {
+            if matches!(input, PhysicalInput::Axis(_))
+                && *value > PRESS
+                && self.0.insert(input.clone())
+            {
+                physical.pressed.insert(input.clone());
+            }
+        }
+    }
+}
+
+#[derive(SystemParam)]
+struct HostDevices<'w, 's> {
+    keys: Res<'w, ButtonInput<KeyCode>>,
+    keyboard: MessageReader<'w, 's, KeyboardInput>,
+    windows: Query<'w, 's, Entity, With<PrimaryWindow>>,
+    pads: Query<'w, 's, (Entity, &'static Gamepad)>,
+    axes: Local<'s, BTreeMap<Entity, HostAxes>>,
+}
+impl HostDevices<'_, '_> {
+    fn sample(&mut self) -> PhysicalState {
+        let mut physical = PhysicalState::keyboard(&self.keys);
+        let primary = self.windows.single().ok();
+        let presses: BTreeSet<_> = self
+            .keyboard
+            .read()
+            .filter(|event| {
+                Some(event.window) == primary
+                    && event.state == ButtonState::Pressed
+                    && !event.repeat
+            })
+            .map(|event| PhysicalInput::Key(format!("{:?}", event.key_code)))
+            .collect();
+        physical.pressed.retain(|input| presses.contains(input));
+        self.axes.retain(|entity, _| self.pads.contains(*entity));
+        for (entity, pad) in &self.pads {
+            let mut state = PhysicalState::gamepad(pad);
+            self.axes.entry(entity).or_default().sample(&mut state);
+            physical.merge(&state);
+        }
+        physical
+    }
+}
+
+fn gather_host_input(
+    mut devices: HostDevices,
+    session: Option<Res<crate::new_game::Session>>,
+    title: Option<Res<crate::saves::title::TitleMenu>>,
+    preferences: Option<Res<crate::config::Preferences>>,
+    battle: Option<Res<crate::battle::Owner>>,
+    mut input: ResMut<HostInput>,
+) {
+    // Consume device edges even while recording so held inputs cannot leak on exit.
+    let physical = devices.sample();
+    input.0.clear();
+    if battle.is_some_and(|battle| battle.capturing_arte_binding()) {
+        return;
+    }
+    let menu = active_menu(
+        session.as_ref().and_then(|session| session.menu()),
+        title.as_ref().map(|title| &title.0),
+    )
+    .map(|(_, menu)| menu);
+    if menu.is_some_and(|menu| {
+        menu.page == resonance_game::menu::Page::Customize
+            && (menu.customize.focus == resonance_game::menu::customize::Focus::Controls
+                || menu.customize.capture.is_some())
+            || menu.tech.capture.is_some()
+    }) {
+        return;
+    }
+    let party = session
+        .as_ref()
+        .and_then(|session| session.events().world.party.as_ref());
+    let map = active_keymap(menu, party, preferences.as_deref());
+    input.0.extend(
+        StandardAction::HOST
+            .into_iter()
+            .filter(|&action| physical.edge(&map, action)),
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MenuOwner {
+    Title,
+    Session,
+}
+
+/// The visible title/load menu owns input and previews over a retained session
+/// menu. Accept shared or mutable references so both paths use the same policy.
+pub(crate) fn active_menu<M>(session: Option<M>, title: Option<M>) -> Option<(MenuOwner, M)>
+where
+    M: std::ops::Deref<Target = resonance_game::menu::Menu>,
+{
+    title
+        .filter(|menu| !menu.closed)
+        .map(|menu| (MenuOwner::Title, menu))
+        .or_else(|| {
+            session
+                .filter(|menu| !menu.closed)
+                .map(|menu| (MenuOwner::Session, menu))
+        })
+}
+
 /// Navigation and prompt eligibility must resolve the same map, including the
 /// title's unsaved draft and the keymap editor's fixed escape/navigation keys.
 pub(crate) fn active_keymap(
@@ -306,6 +460,261 @@ mod tests {
     use super::*;
     use resonance_battle::{ActorId, Control, ControllerPort, Side};
     use resonance_content::input::{ArteBinding, InputChord};
+
+    #[test]
+    fn title_menu_owns_bindings_and_edits_until_it_closes() {
+        use resonance_game::menu::{Menu, Page};
+        let mut session = Menu::new(Page::Customize, None, false);
+        let mut title = Menu::new(Page::Customize, None, false);
+        session.customize.draft.keymap.assign(
+            StandardAction::PerformanceOverlay,
+            PhysicalInput::Key("F2".into()),
+        );
+        title.customize.draft.keymap.assign(
+            StandardAction::PerformanceOverlay,
+            PhysicalInput::Key("F10".into()),
+        );
+        let (owner, menu) = active_menu(Some(&session), Some(&title)).unwrap();
+        assert_eq!(owner, MenuOwner::Title);
+        let map = active_keymap(Some(menu), None, None);
+        assert_eq!(
+            map.get(StandardAction::PerformanceOverlay),
+            &[PhysicalInput::Key("F10".into())]
+        );
+        active_menu(Some(&mut session), Some(&mut title))
+            .unwrap()
+            .1
+            .customize
+            .draft
+            .display_mode = resonance_content::menu_data::DisplayMode::Borderless;
+        assert_eq!(
+            session.customize.draft.display_mode,
+            resonance_content::menu_data::DisplayMode::Windowed
+        );
+        assert_eq!(
+            title.customize.draft.display_mode,
+            resonance_content::menu_data::DisplayMode::Borderless
+        );
+
+        // A load menu still owns the screen over a retained Customize page.
+        title.page = Page::Slots(resonance_game::menu::Mode::Load);
+        assert_eq!(
+            active_menu(Some(&session), Some(&title)).unwrap().0,
+            MenuOwner::Title
+        );
+        title.closed = true;
+        let (owner, menu) = active_menu(Some(&session), Some(&title)).unwrap();
+        assert_eq!(owner, MenuOwner::Session);
+        assert_eq!(
+            active_keymap(Some(menu), None, None).get(StandardAction::PerformanceOverlay),
+            &[PhysicalInput::Key("F2".into())]
+        );
+    }
+
+    #[test]
+    fn host_shortcuts_sample_primary_nonrepeat_keys_controller_buttons_and_axes_once() {
+        use bevy::input::gamepad::{
+            RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent,
+        };
+        #[derive(Resource, Default)]
+        struct Edges([usize; 3]);
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin)
+            .init_resource::<crate::config::Preferences>()
+            .init_resource::<Edges>()
+            .add_systems(Update, |input: Res<HostInput>, mut edges: ResMut<Edges>| {
+                for (index, action) in [
+                    StandardAction::PerformanceOverlay,
+                    StandardAction::Pause,
+                    StandardAction::SpeedToggle,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    edges.0[index] += usize::from(input.pressed(action));
+                }
+            });
+        install(&mut app);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let other = app.world_mut().spawn_empty().id();
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        {
+            let mut preferences = app.world_mut().resource_mut::<crate::config::Preferences>();
+            preferences.settings.keymap.assign(
+                StandardAction::PerformanceOverlay,
+                PhysicalInput::Key("F2".into()),
+            );
+            preferences.settings.keymap.assign(
+                StandardAction::Pause,
+                PhysicalInput::Button("Other(9)".into()),
+            );
+            preferences.settings.keymap.assign(
+                StandardAction::SpeedToggle,
+                PhysicalInput::Axis(AxisDirection::RightRight),
+            );
+        }
+        for (target, state, repeat) in [
+            (window, ButtonState::Pressed, false),
+            (window, ButtonState::Released, false),
+            (window, ButtonState::Pressed, true),
+            (window, ButtonState::Released, false),
+            (other, ButtonState::Pressed, false),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::F2,
+                logical_key: bevy::input::keyboard::Key::F2,
+                state,
+                text: None,
+                repeat,
+                window: target,
+            });
+            app.update();
+        }
+        app.world_mut()
+            .write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(
+                pad,
+                GamepadButton::Other(9),
+                1.,
+            )));
+        app.update();
+        app.update();
+        for value in [0.9, 0.9, 0., 0.9] {
+            app.world_mut()
+                .write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(
+                    pad,
+                    GamepadAxis::RightStickX,
+                    value,
+                )));
+            app.update();
+        }
+        assert_eq!(app.world().resource::<Edges>().0, [1, 1, 2]);
+    }
+
+    fn host_axis_app(direction: AxisDirection) -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin)
+            .init_resource::<crate::config::Preferences>();
+        install(&mut app);
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .assign(StandardAction::Pause, PhysicalInput::Axis(direction));
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        (app, pad)
+    }
+
+    fn pause_axis_frame(app: &mut App, changes: &[(Entity, GamepadAxis, f32)]) -> bool {
+        use bevy::input::gamepad::{RawGamepadAxisChangedEvent, RawGamepadEvent};
+        for &(pad, axis, value) in changes {
+            app.world_mut()
+                .write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(
+                    pad, axis, value,
+                )));
+        }
+        app.update();
+        app.world()
+            .resource::<HostInput>()
+            .pressed(StandardAction::Pause)
+    }
+
+    #[test]
+    fn host_axis_shortcuts_require_release_before_repeating() {
+        use AxisDirection::*;
+        for (axis, direction, sign) in [
+            (GamepadAxis::LeftStickX, LeftLeft, -1.),
+            (GamepadAxis::LeftStickX, LeftRight, 1.),
+            (GamepadAxis::LeftStickY, LeftDown, -1.),
+            (GamepadAxis::LeftStickY, LeftUp, 1.),
+            (GamepadAxis::RightStickX, RightLeft, -1.),
+            (GamepadAxis::RightStickX, RightRight, 1.),
+            (GamepadAxis::RightStickY, RightDown, -1.),
+            (GamepadAxis::RightStickY, RightUp, 1.),
+        ] {
+            let (mut app, pad) = host_axis_app(direction);
+            for (value, pressed) in [
+                (0.9, true),
+                (0.71, false),
+                (0.73, false),
+                (0.71, false),
+                (0.73, false),
+                (0.55, false), // Still tilted: stay latched even well below the press threshold.
+                (0.9, false),
+                (0.4, false), // Release enough to rearm without requiring exact zero.
+                (0.71, false),
+                (0.9, true),
+                (0., false),
+                (0.9, true),
+            ] {
+                assert_eq!(
+                    pause_axis_frame(&mut app, &[(pad, axis, value * sign)]),
+                    pressed,
+                    "{direction:?} at {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn host_axis_shortcuts_keep_controllers_independent() {
+        let (mut app, a) = host_axis_app(AxisDirection::RightRight);
+        let b = app.world_mut().spawn(Gamepad::default()).id();
+        let axis = GamepadAxis::RightStickX;
+        assert!(pause_axis_frame(&mut app, &[(a, axis, 0.9)]));
+        assert!(pause_axis_frame(&mut app, &[(b, axis, 0.9)]));
+        assert!(!pause_axis_frame(&mut app, &[]));
+        for pad in [b, a] {
+            assert!(!pause_axis_frame(&mut app, &[(pad, axis, 0.)]));
+            assert!(pause_axis_frame(&mut app, &[(pad, axis, 0.9)]));
+        }
+        assert!(!pause_axis_frame(&mut app, &[(a, axis, 0.), (b, axis, 0.)]));
+        // Simultaneous presses still resolve to one host action in this frame.
+        assert!(pause_axis_frame(
+            &mut app,
+            &[(a, axis, 0.9), (b, axis, 0.9)]
+        ));
+        assert!(!pause_axis_frame(&mut app, &[]));
+    }
+
+    #[test]
+    fn host_axis_shortcuts_consume_tilts_while_controls_owns_input() {
+        use resonance_game::menu::{Menu, Page, customize::Focus};
+        let (mut app, pad) = host_axis_app(AxisDirection::RightRight);
+        let mut menu = Menu::new(Page::Customize, None, false);
+        menu.customize.draft = app
+            .world()
+            .resource::<crate::config::Preferences>()
+            .settings
+            .clone();
+        menu.customize.focus = Focus::Controls;
+        app.insert_resource(crate::saves::title::TitleMenu(menu));
+        let axis = GamepadAxis::RightStickX;
+        assert!(!pause_axis_frame(&mut app, &[(pad, axis, 0.9)]));
+        app.world_mut()
+            .resource_mut::<crate::saves::title::TitleMenu>()
+            .0
+            .customize
+            .focus = Focus::Options;
+        for value in [0.71, 0.73, 0.9, 0.] {
+            assert!(!pause_axis_frame(&mut app, &[(pad, axis, value)]));
+        }
+        assert!(pause_axis_frame(&mut app, &[(pad, axis, 0.9)]));
+    }
+
+    #[test]
+    fn host_axis_shortcuts_forget_disconnected_controllers() {
+        let (mut app, pad) = host_axis_app(AxisDirection::RightRight);
+        let axis = GamepadAxis::RightStickX;
+        assert!(pause_axis_frame(&mut app, &[(pad, axis, 0.9)]));
+        app.world_mut().entity_mut(pad).remove::<Gamepad>();
+        assert!(!pause_axis_frame(&mut app, &[]));
+        app.world_mut().entity_mut(pad).insert(Gamepad::default());
+        assert!(pause_axis_frame(&mut app, &[(pad, axis, 0.9)]));
+    }
 
     #[test]
     fn digital_directions_use_vertical_priority_and_follow_remapped_movement() {

@@ -1,6 +1,6 @@
 //! Scene completion and visible speakers, independent of dialogue wording.
-use super::super::destinations::*;
 use super::enter;
+use super::fixtures::*;
 use anyhow::Result;
 
 #[test]

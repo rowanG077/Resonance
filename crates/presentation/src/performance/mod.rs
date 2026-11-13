@@ -21,7 +21,7 @@ use std::{
 
 #[derive(Default)]
 pub struct PerformanceOptions {
-    /// Initially show the live overlay. F3 toggles it while playing.
+    /// Initially show the live overlay. Its Controls binding defaults to F3.
     pub overlay: bool,
     /// Continuously record frame samples and periodic rolling summaries as JSONL.
     pub dump: Option<PathBuf>,
@@ -124,7 +124,7 @@ pub(super) fn install(app: &mut App, options: PerformanceOptions, headless: bool
     .add_systems(Last, end_frame);
     if !headless {
         app.add_systems(Startup, overlay::setup)
-            .add_systems(PreUpdate, controls.after(bevy::input::InputSystems))
+            .add_systems(PreUpdate, controls.in_set(crate::input::HostActions))
             .add_systems(Update, overlay::update);
     }
     Ok(())
@@ -249,11 +249,12 @@ impl Monitor {
     }
 }
 
-fn controls(keys: Res<ButtonInput<KeyCode>>, mut monitor: ResMut<Monitor>) {
-    if keys.just_pressed(KeyCode::F3) {
+fn controls(input: Res<crate::input::HostInput>, mut monitor: ResMut<Monitor>) {
+    use resonance_content::input::StandardAction as A;
+    if input.pressed(A::PerformanceOverlay) {
         monitor.shown = !monitor.shown;
     }
-    if keys.just_pressed(KeyCode::F4) {
+    if input.pressed(A::PerformanceSnapshot) {
         match monitor.snapshot() {
             Ok(path) => {
                 info!("Performance snapshot saved: {}", path.display());
@@ -271,6 +272,71 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, mut monitor: ResMut<Monitor>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn key(app: &mut App, window: Entity, key_code: KeyCode, state: bevy::input::ButtonState) {
+        app.world_mut()
+            .write_message(bevy::input::keyboard::KeyboardInput {
+                key_code,
+                logical_key: bevy::input::keyboard::Key::Character("test".into()),
+                state,
+                text: None,
+                repeat: false,
+                window,
+            });
+        app.update();
+    }
+
+    #[test]
+    fn performance_controls_follow_remaps_and_explicit_unbindings() {
+        use resonance_content::input::{PhysicalInput, StandardAction as A};
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .add_plugins(bevy::input::InputPlugin)
+            .init_resource::<crate::config::Preferences>();
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), bevy::window::PrimaryWindow))
+            .id();
+        crate::input::install(&mut app);
+        install(&mut app, PerformanceOptions::default(), false).unwrap();
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .assign(A::PerformanceOverlay, PhysicalInput::Key("KeyP".into()));
+        key(
+            &mut app,
+            window,
+            KeyCode::F3,
+            bevy::input::ButtonState::Pressed,
+        );
+        assert!(!app.world().resource::<Monitor>().shown);
+        key(
+            &mut app,
+            window,
+            KeyCode::KeyP,
+            bevy::input::ButtonState::Pressed,
+        );
+        assert!(app.world().resource::<Monitor>().shown);
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .clear(A::PerformanceOverlay)
+            .unwrap();
+        key(
+            &mut app,
+            window,
+            KeyCode::KeyP,
+            bevy::input::ButtonState::Released,
+        );
+        key(
+            &mut app,
+            window,
+            KeyCode::KeyP,
+            bevy::input::ButtonState::Pressed,
+        );
+        assert!(app.world().resource::<Monitor>().shown);
+    }
 
     #[test]
     fn hotkeys_toggle_the_overlay_and_save_a_readable_snapshot_without_devices() {
@@ -284,15 +350,23 @@ mod tests {
         ));
         let mut app = App::new();
         app.init_resource::<Assets<Image>>()
-            .init_resource::<ButtonInput<KeyCode>>();
+            .add_plugins(bevy::input::InputPlugin)
+            .init_resource::<crate::config::Preferences>();
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), bevy::window::PrimaryWindow))
+            .id();
+        crate::input::install(&mut app);
         install(&mut app, PerformanceOptions::default(), false).unwrap();
         app.world_mut().resource_mut::<Monitor>().dump_directory = directory.clone();
         app.update();
         assert!(!app.world().resource::<Monitor>().shown);
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::F3);
-        app.update();
+        key(
+            &mut app,
+            window,
+            KeyCode::F3,
+            bevy::input::ButtonState::Pressed,
+        );
         assert!(app.world().resource::<Monitor>().shown);
         let camera = app
             .world_mut()
@@ -300,10 +374,12 @@ mod tests {
             .single(app.world())
             .unwrap();
         assert!(camera.is_active);
-        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-        keys.reset_all();
-        keys.press(KeyCode::F4);
-        app.update();
+        key(
+            &mut app,
+            window,
+            KeyCode::F4,
+            bevy::input::ButtonState::Pressed,
+        );
         let path = fs::read_dir(&directory)
             .unwrap()
             .next()
@@ -319,10 +395,21 @@ mod tests {
             app.world().resource::<Monitor>().shown,
             "saving must not toggle visibility"
         );
-        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-        keys.reset_all();
-        keys.press(KeyCode::F3);
-        app.update();
+        app.world_mut()
+            .write_message(bevy::input::keyboard::KeyboardInput {
+                key_code: KeyCode::F3,
+                logical_key: bevy::input::keyboard::Key::F3,
+                state: bevy::input::ButtonState::Released,
+                text: None,
+                repeat: false,
+                window,
+            });
+        key(
+            &mut app,
+            window,
+            KeyCode::F3,
+            bevy::input::ButtonState::Pressed,
+        );
         assert!(!app.world().resource::<Monitor>().shown);
         fs::remove_file(path).unwrap();
         fs::remove_dir(directory).unwrap();

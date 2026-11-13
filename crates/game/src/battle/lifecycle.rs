@@ -314,6 +314,11 @@ impl Lifecycle {
         }
     }
 
+    /// Host shortcuts yield to the live battle recorder without cloning its view.
+    pub fn capturing_arte_binding(&self) -> bool {
+        self.command.capturing_arte_binding()
+    }
+
     /// Pending and visible command visits keep the admitted controller slot.
     pub fn capture_arte_binding(
         &mut self,

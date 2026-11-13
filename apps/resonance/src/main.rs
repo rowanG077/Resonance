@@ -22,12 +22,9 @@ struct Args {
     /// Editable SymphoniaScript project with fields.json entry bindings.
     #[arg(long)]
     scripts: Option<PathBuf>,
-    /// Directory for normal saves and development quicksave slots.
+    /// Directory for player saves.
     #[arg(long)]
     save_directory: Option<PathBuf>,
-    /// Development slot used by F5 (save) and F9 (load).
-    #[arg(long)]
-    quick_slot: Option<String>,
     /// Start from a free-exploration save, without replaying the opening.
     #[arg(long, conflicts_with_all = ["record_music", "record_playthrough"])]
     load: Option<PathBuf>,
@@ -190,7 +187,6 @@ fn run(mut args: Args) -> anyhow::Result<()> {
         resonance_presentation::RunOptions {
             saves: resonance_presentation::SaveOptions {
                 directory: args.save_directory,
-                quick_slot: args.quick_slot,
                 load: args.load,
             },
             assets: args.assets,

@@ -401,6 +401,10 @@ pub(super) struct OutputQuad;
 #[derive(Component)]
 pub(super) struct OutputCamera;
 
+/// Full-screen UI uses authored framing even when it has its own render target.
+#[derive(Component)]
+pub(super) struct UiCamera;
+
 /// Reframe on startup and after a render-size change. Only the final window
 /// camera fits the compositor surface; previews retain their authored framing.
 pub(super) fn initialize(
@@ -411,12 +415,13 @@ pub(super) fn initialize(
         &mut Projection,
         Has<OutputCamera>,
         Has<super::FieldCamera>,
+        Has<UiCamera>,
     )>,
     mut output: Query<&mut Transform, With<OutputQuad>>,
 ) {
     let desired = display.0;
     let size = desired.ui_size();
-    for (target, mut projection, output_camera, field_camera) in &mut cameras {
+    for (target, mut projection, output_camera, field_camera, ui_camera) in &mut cameras {
         // Offscreen previews have their own authored framing.
         if field_camera
             && let Projection::Custom(p) = &mut *projection
@@ -428,7 +433,7 @@ pub(super) fn initialize(
             RenderTarget::Image(image) => targets.as_ref().is_none_or(|t| image.handle == t.source),
             _ => false,
         };
-        if (output_camera || game_target)
+        if (output_camera || game_target || ui_camera)
             && let Projection::Orthographic(p) = &mut *projection
         {
             p.scaling_mode = if output_camera && matches!(target, RenderTarget::Window(_)) {

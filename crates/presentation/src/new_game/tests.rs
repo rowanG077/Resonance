@@ -586,7 +586,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
         matches!(
             error.root_cause().to_string().as_str(),
             "saved progression restarts a foreground event"
-                | "quicksave unavailable during a scripted event"
+                | "checkpoint unavailable during a scripted event"
         ),
         "the doorway scene must reject loading while it owns control: {error:#}"
     );
@@ -664,7 +664,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
         assert!(!session.movie_owns_audio());
         if key == 1000 {
             // Enter the memory circle before its first-use notice has been seen.
-            // Quicksave must reject the notice, then preserve its completion
+            // Checkpoint must reject the notice, then preserve its completion
             // without serializing a dialogue operation or VM stack.
             let player = session.field().events.world.controlled_actor;
             session

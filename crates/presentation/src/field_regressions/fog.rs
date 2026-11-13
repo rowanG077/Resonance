@@ -1,5 +1,5 @@
 //! Fog updates the camera without invalidating scene materials.
-use super::super::destinations::*;
+use super::fixtures::*;
 use super::{configured, enter, mission, skip_battle};
 use crate::{field_view, materials::TitleSurface};
 use anyhow::Result;

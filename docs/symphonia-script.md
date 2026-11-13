@@ -328,7 +328,7 @@ after presentation is ready. The event owns foreground control while it runs,
 and saves are unavailable while it is queued or active.
 
 Field preparation rereads bindings and sources, including field revisits and
-quickloads. Unchanged programs reuse the compiler cache; active tasks retain
+save restores. Unchanged programs reuse the compiler cache; active tasks retain
 their original immutable generation. Compilation or missing-glyph errors block
 the replacement rather than falling back to old scripts. Message literals and
 typed substitutions are checked against the field's prepared font. Substitution

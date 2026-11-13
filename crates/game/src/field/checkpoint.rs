@@ -2,7 +2,8 @@ use super::*;
 use anyhow::Context;
 use resonance_events::SavedProgress;
 
-/// A normal field restart at the player's saved location, shared by both save UIs.
+/// A normal field restart at the player's saved location, shared by player saves
+/// and replay fixtures.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldCheckpoint {
@@ -43,19 +44,19 @@ impl FieldSession {
     pub(super) fn player_menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         ensure!(
             !self.events.battle_pending(),
-            "quicksave unavailable during battle"
+            "checkpoint unavailable during battle"
         );
         ensure!(
             self.authored_entry.is_none(),
-            "quicksave unavailable before an authored entry event"
+            "checkpoint unavailable before an authored entry event"
         );
         ensure!(
             self.active_skit.is_none() && self.events.world.skit_request.is_none(),
-            "quicksave unavailable during skit playback"
+            "checkpoint unavailable during skit playback"
         );
         ensure!(
             !self.menu_is_open() && self.events.world.menu_request.is_none(),
-            "quicksave unavailable while a menu is open"
+            "checkpoint unavailable while a menu is open"
         );
         let world = &self.events.world;
         ensure!(
@@ -63,47 +64,47 @@ impl FieldSession {
                 .actors
                 .get(&world.controlled_actor)
                 .is_none_or(|actor| { !self.player_movement.sliding(actor) }),
-            "quicksave unavailable while sliding"
+            "checkpoint unavailable while sliding"
         );
         ensure!(
             !world.menu_blocked(),
-            "quicksave unavailable while a field effect owns the menu"
+            "checkpoint unavailable while a field effect owns the menu"
         );
         ensure!(
             world.field_transition.is_none() && world.world_transition.is_none(),
-            "quicksave unavailable during a field transition"
+            "checkpoint unavailable during a field transition"
         );
         ensure!(
             !world.blocked_by_movie(),
-            "quicksave unavailable during a movie"
+            "checkpoint unavailable during a movie"
         );
         ensure!(
             self.events.player_has_control(),
-            "quicksave unavailable during a scripted event"
+            "checkpoint unavailable during a scripted event"
         );
         ensure!(
             !self.events.control_handoff_pending(),
-            "quicksave unavailable during a control handoff"
+            "checkpoint unavailable during a control handoff"
         );
         ensure!(
             world.dialogue.values().all(|d| {
                 !d.operation.is_pending()
                     || d.flags & resonance_events::dialogue::flags::NON_MODAL != 0
             }) && world.choices.values().all(|c| !c.operation.is_pending()),
-            "quicksave unavailable during dialogue or a choice"
+            "checkpoint unavailable during dialogue or a choice"
         );
         ensure!(
             world
                 .fade
                 .as_ref()
                 .is_none_or(|fade| world.tick >= fade.start_tick.saturating_add(fade.duration)),
-            "quicksave unavailable during a scene fade"
+            "checkpoint unavailable during a scene fade"
         );
         self.menu_checkpoint()
     }
 
     /// Script-opened menus can edit party progress while an event owns the field.
-    /// The player menu and quicksave apply their additional restrictions above.
+    /// The player menu applies its additional restrictions above.
     pub(super) fn menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         let world = &self.events.world;
         let actor = world

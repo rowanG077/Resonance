@@ -86,6 +86,11 @@ Use `--help` with either executable to see all command-line options.
 Move with WASD or the arrow keys, confirm with Enter, and open the field menu
 with Tab. Gamepads are supported. Movement runs by default; hold Shift or L2,
 or tilt the movement stick halfway or less, to walk.
+The Controls keymap can reassign or clear Performance Overlay (F3),
+Save Performance Snapshot (F4), Double Speed (F6), Pause / Resume (F7), and Skip Event (F8).
+Pause displays a visible panel and resumes with the same configured control.
+Existing keymaps keep their assignments; newly added actions remain unbound
+until assigned in Controls.
 
 Use **Customize** in the game to change display mode, resolution, graphics
 backend, anti-aliasing and controls. Saves and `config.toml` normally live in:

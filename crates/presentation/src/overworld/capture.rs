@@ -365,6 +365,7 @@ fn setup(
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
         MeshMaterial2d(outputs.add(TitleOutput {
+            overlay: None,
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
         })),

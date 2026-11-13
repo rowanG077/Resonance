@@ -223,7 +223,7 @@ pub fn run_overworld_field_probe(
     let temporary = tempfile::tempdir()?;
     let checkpoint = temporary.path().join("world.json");
     prepare_overworld_test_fixture(root, &[], None, &checkpoint)?;
-    let mut app = super::probe::app(root, &checkpoint, output, crate::Resolution::default())?;
+    let mut app = super::harness::app(root, &checkpoint, output, crate::Resolution::default())?;
     app.world_mut()
         .resource_mut::<crate::RunOptions>()
         .skip_battles = true;

@@ -430,6 +430,7 @@ fn setup(
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(128., 96.))),
         MeshMaterial2d(output_materials.add(TitleOutput {
+            overlay: None,
             source: movie_source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
         })),

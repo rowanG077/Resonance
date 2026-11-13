@@ -346,33 +346,6 @@ pub(super) struct Task<T: Send + 'static> {
     name: String,
 }
 impl Pending {
-    pub fn dungeon(
-        root: PathBuf,
-        script_root: Option<PathBuf>,
-        destination: super::dungeons::Destination,
-        resident: &Resident,
-    ) -> Result<Self> {
-        let library = resident.library(&root)?;
-        let cache = resident.cache.clone();
-        let diagnostics = resident.diagnostics.clone();
-        Self::spawn(format!("dungeon field {}", destination.map), move |stop| {
-            let mut cache = cache.lock().unwrap();
-            cache.configure_scripts(script_root);
-            let package = Arc::new(super::new_game::FieldPackage::capture(
-                &library,
-                destination.map,
-                &mut cache,
-                || stop.load(Ordering::Relaxed),
-                diagnostics,
-            )?);
-            super::new_game::Session::load_start(
-                package,
-                super::new_game::Start::Dungeon(destination),
-                None,
-            )
-        })
-    }
-
     pub fn start(
         root: PathBuf,
         script_root: Option<PathBuf>,

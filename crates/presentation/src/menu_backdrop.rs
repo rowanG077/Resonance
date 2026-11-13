@@ -300,6 +300,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<Assets<TitleOutput>>()
             .add(TitleOutput {
+                overlay: None,
                 source: source.clone(),
                 brightness: Vec4::ONE,
             });

@@ -617,3 +617,51 @@ fn backend_choices_handle_moved_configs_and_default_and_cancel_actions() -> anyh
     assert_eq!(menu.customize.focus, Focus::Options);
     Ok(())
 }
+
+#[test]
+fn empty_host_action_cannot_steal_confirm_but_can_record_a_free_function_key() -> anyhow::Result<()>
+{
+    use resonance_content::input::{PhysicalInput, StandardAction};
+    let mut settings = CustomizeSettings::default();
+    settings
+        .keymap
+        .assign(StandardAction::Confirm, PhysicalInput::Key("F3".into()));
+    settings.keymap.bindings[StandardAction::PerformanceOverlay as usize].clear();
+    let mut menu = Menu::title_customize(settings, data())?;
+    press(&mut menu, Idle);
+    menu.customize.focus = Focus::Controls;
+    menu.customize.button = StandardAction::PerformanceOverlay as usize;
+    press(&mut menu, Accept);
+    menu.capture_physical(&Default::default());
+    menu.capture_physical(&[PhysicalInput::Key("F3".into())].into());
+    menu.capture_physical(&Default::default());
+    assert!(menu.notice.as_ref().unwrap().contains("navigation"));
+    assert!(
+        menu.customize
+            .draft
+            .keymap
+            .get(StandardAction::Confirm)
+            .contains(&PhysicalInput::Key("F3".into()))
+    );
+    assert!(
+        menu.customize
+            .draft
+            .keymap
+            .get(StandardAction::PerformanceOverlay)
+            .is_empty()
+    );
+    menu.notice = None;
+    menu.popup = None;
+    press(&mut menu, Accept);
+    menu.capture_physical(&Default::default());
+    menu.capture_physical(&[PhysicalInput::Key("F2".into())].into());
+    menu.capture_physical(&Default::default());
+    assert_eq!(
+        menu.customize
+            .draft
+            .keymap
+            .get(StandardAction::PerformanceOverlay),
+        &[PhysicalInput::Key("F2".into())]
+    );
+    Ok(())
+}
