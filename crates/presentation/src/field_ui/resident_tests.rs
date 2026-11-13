@@ -2,6 +2,130 @@ use super::scenario::Scenario;
 use super::*;
 
 #[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS and a native GPU; run serially"]
+fn first_menu_open_reuses_startup_pipelines_and_canvases() -> Result<()> {
+    use bevy::{
+        core_pipeline::core_2d::Transparent2d,
+        render::{
+            Render, RenderApp, RenderSystems, render_phase::ViewSortedRenderPhases,
+            render_resource::PipelineCache,
+        },
+        time::TimeUpdateStrategy,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let pipelines = Arc::new(AtomicUsize::new(0));
+    let draws = Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let observed = pipelines.clone();
+    let observed_draws = draws.clone();
+    let assets = std::env::var_os("RESONANCE_TEST_ASSETS").context("assets required")?;
+    let mut options = crate::test_support::run_options(std::path::PathBuf::from(assets));
+    if let Some(mods) = std::env::var_os("RESONANCE_TEST_MOD_ASSETS") {
+        options.mods.push(mods.into());
+    }
+    let mut scenario = Scenario::boot_with_options(options, "1920x1080".parse().unwrap(), |app| {
+        app.sub_app_mut(RenderApp).add_systems(
+            Render,
+            (move |cache: Res<PipelineCache>,
+                   phases: Res<ViewSortedRenderPhases<Transparent2d>>| {
+                observed.store(cache.pipelines().count(), Ordering::Release);
+                observed_draws.lock().unwrap().extend(
+                    phases
+                        .0
+                        .values()
+                        .flat_map(|phase| phase.items.values())
+                        .map(|item| item.entity.1.id()),
+                );
+            })
+            .in_set(RenderSystems::Cleanup),
+        );
+    })?;
+    let startup = pipelines.load(Ordering::Acquire);
+    let resident = scenario.app.world().resource::<Resident>().clone();
+    for (&(band, _, _, _), layer) in &resident.0.lock().unwrap().menus {
+        if band == menu::DepthBand::Field as u8 {
+            assert!(
+                draws.lock().unwrap().contains(&layer.entity),
+                "menu canvas was never drawn during startup"
+            );
+        }
+        assert_eq!(
+            scenario.app.world().get::<Visibility>(layer.entity),
+            Some(&Visibility::Hidden)
+        );
+    }
+    scenario.enter(332)?;
+    scenario
+        .app
+        .insert_resource(TimeUpdateStrategy::ManualDuration(
+            resonance_game::clock::UPDATE_STEP,
+        ));
+    scenario.wait("field did not release control", |app| {
+        app.world()
+            .resource::<crate::new_game::Session>()
+            .field()
+            .player_has_control()
+    })?;
+    let entities: std::collections::HashSet<_> = resident.entities().into_iter().collect();
+    for _ in 0..2 {
+        scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::new_game::Session>()
+            .field_mut()
+            .step(resonance_game::field::FieldInput {
+                pressed_buttons: [resonance_events::input::Button::Menu].into(),
+                ..default()
+            })?;
+        assert!(
+            scenario
+                .app
+                .world()
+                .resource::<crate::new_game::Session>()
+                .menu()
+                .is_some()
+        );
+        scenario.wait("menu did not finish opening", |app| {
+            let world = app.world();
+            let menu = &world.resource::<Artwork>().menu;
+            assert!(
+                menu.layers
+                    .values()
+                    .all(|layer| entities.contains(&layer.entity))
+            );
+            if let Some(draws) = world.get_resource::<MenuDraws>() {
+                for id in &draws.0.lock().unwrap().pipelines {
+                    assert!(id.id() < startup, "menu compiled a new pipeline: {id:?}");
+                }
+            }
+            world
+                .resource::<crate::new_game::Session>()
+                .menu()
+                .is_some_and(|m| {
+                    !m.main_animating() && menu.ready(world.resource::<Assets<Image>>())
+                })
+        })?;
+        scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::new_game::Session>()
+            .field_mut()
+            .step(resonance_game::field::FieldInput {
+                pressed_buttons: [resonance_events::input::Button::Cancel].into(),
+                ..default()
+            })?;
+        scenario.wait("menu did not finish closing", |app| {
+            app.world()
+                .resource::<crate::new_game::Session>()
+                .menu()
+                .is_none()
+        })?;
+        scenario.update()?;
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_TEST_ASSETS and a GPU; checks pause font, animation and resolution scaling"]
 fn pause_feedback_animates_while_game_time_is_stopped_at_two_resolutions() -> Result<()> {
     use resonance_content::input::{PhysicalInput, StandardAction};
