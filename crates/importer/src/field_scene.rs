@@ -230,12 +230,18 @@ fn water(id: u32) -> Option<Value> {
     }))
 }
 
+/// These resources receive images from their native effect callers. The GPL
+/// stores geometry; its texture input is supplied by the caller's draw contract.
+pub(crate) fn caller_textured_model(id: u32, section: usize) -> bool {
+    section == 16 && matches!(id, 125 | 499)
+}
+
 fn unbound_geometry(
     archive: &[u8],
     id: u32,
     root: &str,
 ) -> Result<Option<(Value, Vec<(String, Vec<u8>)>)>> {
-    if !matches!(id, 125 | 499) {
+    if !caller_textured_model(id, 16) {
         return Ok(None);
     }
     let section = field_core::optional_section(archive, 16)?

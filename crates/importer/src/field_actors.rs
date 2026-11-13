@@ -508,11 +508,7 @@ pub(crate) fn cook_from_source(
     }
     let local_models = crate::field_local_models::local_models(id, archive)?;
     let has_local = !local_models.is_empty();
-    let mut shared_owners = BTreeMap::new();
     for (_, actor) in &local_models {
-        if actor.model.starts_with("meshes/") {
-            shared_owners.insert(actor.resource, actor.model.clone());
-        }
         actors.models.push(ModelBinding::Local(actor.clone()));
     }
     let local_motion_indices = crate::field_local_models::local_motion_sections(archive)?;
@@ -566,20 +562,6 @@ pub(crate) fn cook_from_source(
             "field {id} actors require {path}"
         );
     }
-    for (&resource, path) in &shared_owners {
-        crate::field_local_models::cook_shared_owner(
-            extracted,
-            library,
-            id,
-            resource,
-            path,
-            &selected_banks,
-        )?;
-        ensure!(
-            library.join(path).is_file(),
-            "field {id} actors require canonical local model {path}"
-        );
-    }
     for (&resource, target) in &models.0 {
         if !((1..=9).contains(&resource)
             || resource >> 24 == 0x23
@@ -615,7 +597,6 @@ pub(crate) fn cook_from_source(
             extracted,
             library,
             id,
-            exe,
             archive,
             &selected_banks,
         )?;

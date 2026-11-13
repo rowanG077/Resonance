@@ -618,16 +618,17 @@ unambiguous joint names in your GLB. Hiding a joint's geometry keeps its transfo
 and skeletal children active. The same named setting lives in `model.json` for
 shared defaults; runtime script node indices are resolved during preparation.
 Local model definitions and geometry sit directly in the field's `models/`
-folder, for example `models/dark-dragon.json` and `models/dark-dragon.glb`.
-Their images sit beside them; clips use the field's `animations/` folder with
-that model's name as a prefix. Unidentified local models use `unidentified-N`,
-with the request ID kept in `actors.json`. Do not infer identity from that number.
+folder, for example `models/unidentified-1.json` and `models/unidentified-1.glb`.
+Their images, collision and embedded clips sit beside them, using the model's
+name as a prefix, such as `models/unidentified-1-idle.glb`. Cooked local models
+use `unidentified-N`, with the request ID kept in `actors.json`. Do not infer
+identity from that number.
 
-Identical complete models used by several fields have one owner under `meshes/`.
-Each local actor still keeps its own field-scoped request ID and direct model
-path. Editing that shared model affects its users; point one local declaration
-at another JSON file to make an independent variant. Matching appearance alone
-does not merge models with different clips, visibility or collision.
+Field-local packages are imported independently even when another field uses
+identical data. Their generated paths and contents do not depend on field order
+or previously cooked files. Shared catalogue models live under `meshes/`.
+Editing a shared model affects its users; point one local declaration at another
+JSON file to make an independent variant.
 
 `local_animations` retains the field's bank IDs and named actor/GLB targets.
 The remaining 214 banks have no established single action name; inventing a verb
@@ -659,7 +660,7 @@ use this same `clips` format. This is separate from actor-targeted animation-ban
 definition files, whose rows select named actors and parts.
 
 Embedded animation files sit directly inside their owner's `animations/` folder;
-field-local models share their field's animation folder.
+field-local model clips sit beside their model definitions in `models/`.
 Known field request roles use names such as `idle`, `walk`, `run` and
 `field-service-open-door`. Other files use their animation-bank names or neutral
 `motion-N`/`field-motion-N` labels. Non-primary parts add `part-N-`; genuinely

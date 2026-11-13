@@ -211,9 +211,8 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     heading("Shared animation bindings");
     crate::cook_shared_animation_bindings(root, library, None)
         .context("shared animation bindings")?;
-    // Field props reuse figurine/enemy media and keep canonical actor publication ordered.
     heading("Field scenery and actors");
-    fields.sort_by_key(|id| (!matches!(id, 268 | 279 | 479), *id));
+    fields.sort_unstable();
     crate::cook_fields(root, library, &fields).context("field scenery and actors")?;
 
     heading("Local animation rigs");

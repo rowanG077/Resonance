@@ -131,8 +131,8 @@ The [asset guide](cooked-library.md) describes the editable contract:
 - `content.json` carries the format version and semantic game name.
 - Category `mappings.json` files connect machine IDs to named resources.
 - `fields/` contains named field definitions, scenery, actors, collision,
-  messages and scenario bytecode. Shared meshes and animation GLBs live once
-  under their natural owners; fields select and bind them.
+  messages, scenario bytecode and field-local model media. Shared meshes and
+  animation GLBs live under their natural owners; fields select and bind them.
 - `audio/music/` contains shared WAVs with exact loop boundaries. Speech uses
   named WAVs; effects use WAVs or compact programmable definitions.
 - `movies/mappings.json` points directly to named MKVs.
@@ -143,6 +143,13 @@ The [asset guide](cooked-library.md) describes the editable contract:
 References inside documents are relative to the library root. Neither paths nor
 documents carry source/disc ownership, content fingerprints or source inventories.
 Diagnostics and independent comparison evidence stay outside the library.
+
+Field-local models are decoded from that field's original MAP slots, including
+their own animation slots, textures and collision. Their media use fixed paths
+beside the field-owned model definitions. Identical textures and embedded clips
+within a field reuse the first matching output in native slot order. Field order
+and previously cooked files cannot change the generated paths or data. No shared
+model source or naming catalogue redirects a model to another field's package.
 
 Native bytecode keeps its machine IDs. Resource requests resolve through mappings.
 The explicitly maintained gameplay corrections (boat passenger heights, Shadow
