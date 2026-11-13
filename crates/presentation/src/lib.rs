@@ -510,20 +510,6 @@ fn build_app(
         )
         .add_systems(Startup, (setup, glow::setup, display::initialize).chain())
         .add_systems(
-            PreUpdate,
-            (display::preview_preferences, display::apply_preferences)
-                .chain()
-                .in_set(input::HostActions)
-                .run_if(resource_exists::<display::InteractiveDisplay>),
-        )
-        .add_systems(
-            PreUpdate,
-            (field_ui::pause::resize, display::initialize)
-                .chain()
-                .after(input::HostActions)
-                .run_if(resource_changed::<display::Display>),
-        )
-        .add_systems(
             PostUpdate,
             (loading::black_hold, new_game::scene_fade::update).chain(),
         )
@@ -573,6 +559,7 @@ fn build_app(
     session_screen::install(&mut app);
     credits::install(&mut app);
     input::install(&mut app);
+    display::install(&mut app);
     testing::install(&mut app);
     if !capture_only {
         audio_output::install(&mut app, silent).context("initializing audio output")?;

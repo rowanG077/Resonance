@@ -246,7 +246,7 @@ impl Drawing<'_> {
                 }
                 DISPLAY_MODE_OPTION => {
                     self.text(
-                        &format!("< {} >", settings.display_mode.label()),
+                        &format!("< {} >", state.display_mode().label()),
                         [x, y],
                         20.,
                         WHITE,
@@ -592,7 +592,7 @@ impl Drawing<'_> {
         {
             cursor = self.popup_layout(
                 &format!("Keep these display settings?\n{}: {} x {}\nReverting in {remaining_secs} seconds.",
-                    settings.display_mode.label(), settings.resolution[0], settings.resolution[1]),
+                    state.display_mode().label(), settings.resolution[0], settings.resolution[1]),
                 Some(keep), 255, None, Some(["Keep", "Revert"]),
             )?.context("display confirmation has no choices")?;
         }

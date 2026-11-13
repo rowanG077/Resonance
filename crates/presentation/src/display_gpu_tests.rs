@@ -231,8 +231,7 @@ fn live_resolution_preview_recovers_in_an_open_field_menu() -> Result<()> {
         assert_eq!(state.native_resolution(), Some(native));
         assert!(state.resolution_choices().contains(&native));
         state.focus = Focus::DisplayConfirmation {
-            previous_mode: state.draft.display_mode,
-            previous_resolution: state.draft.resolution,
+            previous: state.display_state(),
             remaining_secs: resonance_game::menu::customize::DISPLAY_CONFIRMATION_SECONDS,
             keep: true,
             revision: 3,

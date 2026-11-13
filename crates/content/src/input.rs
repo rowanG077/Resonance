@@ -156,6 +156,7 @@ pub enum StandardAction {
     #[serde(alias = "run")]
     Walk,
     Perspective,
+    Fullscreen,
     PerformanceOverlay,
     PerformanceSnapshot,
     SpeedToggle,
@@ -176,14 +177,15 @@ impl StandardAction {
         )
     }
 
-    pub const HOST: [Self; 5] = [
+    pub const HOST: [Self; 6] = [
+        Self::Fullscreen,
         Self::PerformanceOverlay,
         Self::PerformanceSnapshot,
         Self::SpeedToggle,
         Self::Pause,
         Self::SkipEvent,
     ];
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::Confirm,
         Self::Cancel,
         Self::Alternate,
@@ -206,6 +208,7 @@ impl StandardAction {
         Self::CameraUp,
         Self::Walk,
         Self::Perspective,
+        Self::Fullscreen,
         Self::PerformanceOverlay,
         Self::PerformanceSnapshot,
         Self::SpeedToggle,
@@ -236,6 +239,7 @@ impl StandardAction {
             Self::CameraUp => "Camera / Page Up",
             Self::Walk => "Walk",
             Self::Perspective => "Change Perspective",
+            Self::Fullscreen => "Toggle Fullscreen",
             Self::PerformanceOverlay => "Performance Overlay",
             Self::PerformanceSnapshot => "Save Performance Snapshot",
             Self::SpeedToggle => "Toggle Double Speed",
@@ -302,6 +306,7 @@ impl Default for Keymap {
             keys(&["PageUp"]),
             keys(&["ShiftLeft", "ShiftRight"]),
             keys(&["KeyC"]),
+            keys(&["F1"]),
             keys(&["F3"]),
             keys(&["F4"]),
             keys(&["F6"]),
@@ -356,7 +361,7 @@ impl Keymap {
         let mut bindings = Vec::<Vec<PhysicalInput>>::deserialize(deserializer)?;
         // The original 22 actions are required; only trailing host actions may
         // be absent in an older map. Validation still rejects malformed maps.
-        if (StandardAction::PerformanceOverlay as usize..StandardAction::ALL.len())
+        if (StandardAction::Fullscreen as usize..StandardAction::ALL.len())
             .contains(&bindings.len())
         {
             bindings.resize_with(StandardAction::ALL.len(), Vec::new);
@@ -715,11 +720,11 @@ mod tests {
     #[test]
     fn missing_host_actions_stay_unbound_and_preserve_existing_bindings() {
         let mut legacy = Keymap::default();
-        legacy.assign(StandardAction::Confirm, PhysicalInput::Key("F3".into()));
+        legacy.assign(StandardAction::Confirm, PhysicalInput::Key("F1".into()));
         legacy.assign(StandardAction::Skit, PhysicalInput::Key("F7".into()));
         legacy
             .bindings
-            .truncate(StandardAction::PerformanceOverlay as usize);
+            .truncate(StandardAction::Fullscreen as usize);
         let loaded: Keymap =
             serde_json::from_value(serde_json::to_value(&legacy).unwrap()).unwrap();
         loaded.validate().unwrap();
@@ -737,27 +742,15 @@ mod tests {
         assert_eq!(again, explicit);
         assert!(
             again
-                .can_assign(
-                    StandardAction::PerformanceOverlay,
-                    &PhysicalInput::Key("F3".into())
-                )
+                .can_assign(StandardAction::Fullscreen, &PhysicalInput::Key("F1".into()))
                 .is_err()
         );
         let mut rebound = again;
-        rebound.assign(
-            StandardAction::PerformanceOverlay,
-            PhysicalInput::Key("F2".into()),
-        );
+        rebound.assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
         rebound
-            .can_assign(
-                StandardAction::PerformanceOverlay,
-                &PhysicalInput::Key("F3".into()),
-            )
+            .can_assign(StandardAction::Fullscreen, &PhysicalInput::Key("F1".into()))
             .unwrap();
-        rebound.assign(
-            StandardAction::PerformanceOverlay,
-            PhysicalInput::Key("F3".into()),
-        );
+        rebound.assign(StandardAction::Fullscreen, PhysicalInput::Key("F1".into()));
         assert!(
             rebound
                 .get(StandardAction::Confirm)
@@ -768,22 +761,19 @@ mod tests {
             serde_json::from_value::<Keymap>(serde_json::to_value(&defaults).unwrap()).unwrap(),
             defaults
         );
-        let f3 = InputChord(vec![PhysicalInput::Key("F3".into())]);
-        f3.validate_shape().unwrap();
-        assert!(f3.validate(&loaded).is_err()); // It is the existing Confirm input.
+        let f1 = InputChord(vec![PhysicalInput::Key("F1".into())]);
+        f1.validate_shape().unwrap();
+        assert!(f1.validate(&loaded).is_err()); // It is the existing Confirm input.
         let mut free = defaults;
-        free.assign(
-            StandardAction::PerformanceOverlay,
-            PhysicalInput::Key("F2".into()),
-        );
-        f3.validate(&free).unwrap();
+        free.assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
+        f1.validate(&free).unwrap();
     }
 
     #[test]
     fn legacy_keymaps_preserve_arte_shortcuts_and_only_pad_missing_host_actions() {
         let defaults = Keymap::default();
-        let arte = InputChord(vec![PhysicalInput::Key("F3".into())]);
-        for count in StandardAction::PerformanceOverlay as usize..=StandardAction::ALL.len() {
+        let arte = InputChord(vec![PhysicalInput::Key("F1".into())]);
+        for count in StandardAction::Fullscreen as usize..=StandardAction::ALL.len() {
             let mut legacy = defaults.clone();
             legacy.bindings.truncate(count);
             let loaded: Keymap =
@@ -791,7 +781,7 @@ mod tests {
             loaded.validate().unwrap();
             assert_eq!(&loaded.bindings[..count], &legacy.bindings);
             assert!(loaded.bindings[count..].iter().all(Vec::is_empty));
-            if count == StandardAction::PerformanceOverlay as usize {
+            if count == StandardAction::Fullscreen as usize {
                 arte.validate(&loaded).unwrap();
             }
         }

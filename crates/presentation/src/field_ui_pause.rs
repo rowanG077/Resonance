@@ -299,14 +299,9 @@ mod tests {
                 limit_bucket: None,
             }))
             .add_systems(Startup, (setup, crate::display::initialize).chain())
-            .add_systems(
-                PreUpdate,
-                (resize, crate::display::initialize)
-                    .chain()
-                    .run_if(resource_changed::<crate::display::Display>),
-            )
             .add_systems(PostUpdate, bevy::render::camera::camera_system)
             .add_systems(Last, composite);
+        crate::display::install(&mut app);
         let output = app
             .world_mut()
             .resource_mut::<Assets<crate::materials::TitleOutput>>()

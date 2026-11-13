@@ -2,7 +2,10 @@
 mod action;
 use action::Action::{self, *};
 use resonance_content::{menu_data::*, options};
-use resonance_game::menu::{Menu, customize::Focus};
+use resonance_game::menu::{
+    Menu,
+    customize::{DisplayState, Focus},
+};
 
 fn data() -> CustomizeData {
     let defaults = CustomizeSettings::default();
@@ -66,6 +69,113 @@ fn select_resolution(menu: &mut Menu, value: [u32; 2]) {
     }
     assert_eq!(menu.customize.focus, Focus::Resolution { choice: value });
     press(menu, Accept);
+}
+
+#[test]
+fn resolution_preview_preserves_the_session_override_and_saved_mode() -> anyhow::Result<()> {
+    let original = CustomizeSettings {
+        display_mode: DisplayMode::Fullscreen,
+        ..Default::default()
+    };
+    let mut menu = Menu::title_customize(original.clone(), data())?;
+    press(&mut menu, Idle);
+    menu.customize.display_mode_override = Some(DisplayMode::Windowed);
+    menu.customize.row = RESOLUTION_OPTION;
+    select_resolution(&mut menu, [800, 600]);
+    assert_eq!(menu.customize.display_mode(), DisplayMode::Windowed);
+    assert_eq!(menu.customize.draft.display_mode, DisplayMode::Fullscreen);
+    assert!(matches!(
+        menu.customize.focus,
+        Focus::DisplayConfirmation {
+            previous: DisplayState {
+                mode: DisplayMode::Fullscreen,
+                mode_override: Some(DisplayMode::Windowed),
+                ..
+            },
+            ..
+        }
+    ));
+    press(&mut menu, Cancel);
+    assert_eq!(menu.customize.draft, original);
+    assert_eq!(menu.customize.display_mode(), DisplayMode::Windowed);
+    press(&mut menu, Cancel);
+    assert!(menu.closed);
+    assert_eq!(menu.customize.draft, original);
+    Ok(())
+}
+
+#[test]
+fn rejected_display_choices_restore_raw_settings_and_session_override_before_exit()
+-> anyhow::Result<()> {
+    for reset in [None, Some(false), Some(true)] {
+        for revert_choice in [false, true] {
+            let original = CustomizeSettings::default();
+            let mut menu = Menu::title_customize(original.clone(), data())?;
+            press(&mut menu, Idle);
+            menu.customize.display_mode_override = Some(DisplayMode::Borderless);
+            menu.customize.row = if reset.is_some() {
+                CUSTOMIZE_OPTIONS
+            } else {
+                DISPLAY_MODE_OPTION
+            };
+            if let Some(defaults) = reset {
+                menu.customize.defaults = defaults;
+                press(&mut menu, Accept);
+            } else {
+                press(&mut menu, Right);
+            }
+            assert!(matches!(
+                menu.customize.focus,
+                Focus::DisplayConfirmation { .. }
+            ));
+            if revert_choice {
+                press(&mut menu, Down);
+                press(&mut menu, Accept);
+            } else {
+                press(&mut menu, Cancel);
+            }
+            assert_eq!(menu.customize.draft, original);
+            assert_eq!(
+                menu.customize.display_mode_override,
+                Some(DisplayMode::Borderless)
+            );
+            press(&mut menu, Cancel);
+            assert!(menu.closed);
+            assert_eq!(menu.customize.draft, original);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn only_kept_display_choices_adopt_the_session_mode() -> anyhow::Result<()> {
+    for reset in [None, Some(false), Some(true)] {
+        let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
+        press(&mut menu, Idle);
+        menu.customize.display_mode_override = Some(DisplayMode::Borderless);
+        menu.customize.row = if reset.is_some() {
+            CUSTOMIZE_OPTIONS
+        } else {
+            DISPLAY_MODE_OPTION
+        };
+        if let Some(defaults) = reset {
+            menu.customize.defaults = defaults;
+            press(&mut menu, Accept);
+        } else {
+            press(&mut menu, Right);
+        }
+        keep_display(&mut menu);
+        assert_eq!(menu.customize.display_mode_override, None);
+        assert_eq!(
+            menu.customize.draft.display_mode,
+            if reset.is_some() {
+                DisplayMode::Windowed
+            } else {
+                DisplayMode::Fullscreen
+            }
+        );
+    }
+    Ok(())
 }
 
 #[test]
@@ -187,7 +297,10 @@ fn accepting_the_current_custom_resolution_does_not_resize_or_open_confirmation(
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation {
-            previous_resolution: [1279, 719],
+            previous: DisplayState {
+                resolution: [1279, 719],
+                ..
+            },
             ..
         }
     ));
@@ -237,7 +350,10 @@ fn resolution_changes_require_confirmation_and_revert_to_the_last_kept_size() ->
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation {
-            previous_resolution: [640, 480],
+            previous: DisplayState {
+                resolution: [640, 480],
+                ..
+            },
             remaining_secs: 15,
             keep: true,
             ..
@@ -256,7 +372,10 @@ fn resolution_changes_require_confirmation_and_revert_to_the_last_kept_size() ->
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation {
-            previous_resolution: [800, 600],
+            previous: DisplayState {
+                resolution: [800, 600],
+                ..
+            },
             ..
         }
     ));
@@ -302,8 +421,11 @@ fn native_and_monitor_resolutions_join_the_presets_and_keep_confirmation() -> an
     assert!(matches!(
         menu.customize.focus,
         Focus::DisplayConfirmation {
-            previous_mode: DisplayMode::Fullscreen,
-            previous_resolution: [2560, 1600],
+            previous: DisplayState {
+                mode: DisplayMode::Fullscreen,
+                resolution: [2560, 1600],
+                ..
+            },
             ..
         }
     ));
@@ -625,15 +747,15 @@ fn empty_host_action_cannot_steal_confirm_but_can_record_a_free_function_key() -
     let mut settings = CustomizeSettings::default();
     settings
         .keymap
-        .assign(StandardAction::Confirm, PhysicalInput::Key("F3".into()));
-    settings.keymap.bindings[StandardAction::PerformanceOverlay as usize].clear();
+        .assign(StandardAction::Confirm, PhysicalInput::Key("F1".into()));
+    settings.keymap.bindings[StandardAction::Fullscreen as usize].clear();
     let mut menu = Menu::title_customize(settings, data())?;
     press(&mut menu, Idle);
     menu.customize.focus = Focus::Controls;
-    menu.customize.button = StandardAction::PerformanceOverlay as usize;
+    menu.customize.button = StandardAction::Fullscreen as usize;
     press(&mut menu, Accept);
     menu.capture_physical(&Default::default());
-    menu.capture_physical(&[PhysicalInput::Key("F3".into())].into());
+    menu.capture_physical(&[PhysicalInput::Key("F1".into())].into());
     menu.capture_physical(&Default::default());
     assert!(menu.notice.as_ref().unwrap().contains("navigation"));
     assert!(
@@ -641,13 +763,13 @@ fn empty_host_action_cannot_steal_confirm_but_can_record_a_free_function_key() -
             .draft
             .keymap
             .get(StandardAction::Confirm)
-            .contains(&PhysicalInput::Key("F3".into()))
+            .contains(&PhysicalInput::Key("F1".into()))
     );
     assert!(
         menu.customize
             .draft
             .keymap
-            .get(StandardAction::PerformanceOverlay)
+            .get(StandardAction::Fullscreen)
             .is_empty()
     );
     menu.notice = None;
@@ -657,10 +779,7 @@ fn empty_host_action_cannot_steal_confirm_but_can_record_a_free_function_key() -
     menu.capture_physical(&[PhysicalInput::Key("F2".into())].into());
     menu.capture_physical(&Default::default());
     assert_eq!(
-        menu.customize
-            .draft
-            .keymap
-            .get(StandardAction::PerformanceOverlay),
+        menu.customize.draft.keymap.get(StandardAction::Fullscreen),
         &[PhysicalInput::Key("F2".into())]
     );
     Ok(())

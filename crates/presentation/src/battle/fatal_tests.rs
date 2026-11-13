@@ -908,6 +908,7 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
         );
     crate::input::install(&mut fixture.app);
     for (index, key_code) in [
+        KeyCode::F1,
         KeyCode::F3,
         KeyCode::F4,
         KeyCode::F6,

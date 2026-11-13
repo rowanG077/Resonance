@@ -466,34 +466,32 @@ mod tests {
         use resonance_game::menu::{Menu, Page};
         let mut session = Menu::new(Page::Customize, None, false);
         let mut title = Menu::new(Page::Customize, None, false);
-        session.customize.draft.keymap.assign(
-            StandardAction::PerformanceOverlay,
-            PhysicalInput::Key("F2".into()),
-        );
-        title.customize.draft.keymap.assign(
-            StandardAction::PerformanceOverlay,
-            PhysicalInput::Key("F10".into()),
-        );
+        session
+            .customize
+            .draft
+            .keymap
+            .assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
+        title
+            .customize
+            .draft
+            .keymap
+            .assign(StandardAction::Fullscreen, PhysicalInput::Key("F10".into()));
         let (owner, menu) = active_menu(Some(&session), Some(&title)).unwrap();
         assert_eq!(owner, MenuOwner::Title);
         let map = active_keymap(Some(menu), None, None);
         assert_eq!(
-            map.get(StandardAction::PerformanceOverlay),
+            map.get(StandardAction::Fullscreen),
             &[PhysicalInput::Key("F10".into())]
         );
         active_menu(Some(&mut session), Some(&mut title))
             .unwrap()
             .1
             .customize
-            .draft
-            .display_mode = resonance_content::menu_data::DisplayMode::Borderless;
+            .display_mode_override = Some(resonance_content::menu_data::DisplayMode::Borderless);
+        assert!(session.customize.display_mode_override.is_none());
         assert_eq!(
-            session.customize.draft.display_mode,
-            resonance_content::menu_data::DisplayMode::Windowed
-        );
-        assert_eq!(
-            title.customize.draft.display_mode,
-            resonance_content::menu_data::DisplayMode::Borderless
+            title.customize.display_mode_override,
+            Some(resonance_content::menu_data::DisplayMode::Borderless)
         );
 
         // A load menu still owns the screen over a retained Customize page.
@@ -506,7 +504,7 @@ mod tests {
         let (owner, menu) = active_menu(Some(&session), Some(&title)).unwrap();
         assert_eq!(owner, MenuOwner::Session);
         assert_eq!(
-            active_keymap(Some(menu), None, None).get(StandardAction::PerformanceOverlay),
+            active_keymap(Some(menu), None, None).get(StandardAction::Fullscreen),
             &[PhysicalInput::Key("F2".into())]
         );
     }
@@ -524,7 +522,7 @@ mod tests {
             .init_resource::<Edges>()
             .add_systems(Update, |input: Res<HostInput>, mut edges: ResMut<Edges>| {
                 for (index, action) in [
-                    StandardAction::PerformanceOverlay,
+                    StandardAction::Fullscreen,
                     StandardAction::Pause,
                     StandardAction::SpeedToggle,
                 ]
@@ -543,10 +541,10 @@ mod tests {
         let pad = app.world_mut().spawn(Gamepad::default()).id();
         {
             let mut preferences = app.world_mut().resource_mut::<crate::config::Preferences>();
-            preferences.settings.keymap.assign(
-                StandardAction::PerformanceOverlay,
-                PhysicalInput::Key("F2".into()),
-            );
+            preferences
+                .settings
+                .keymap
+                .assign(StandardAction::Fullscreen, PhysicalInput::Key("F2".into()));
             preferences.settings.keymap.assign(
                 StandardAction::Pause,
                 PhysicalInput::Button("Other(9)".into()),
