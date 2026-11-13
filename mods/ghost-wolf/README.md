@@ -160,8 +160,12 @@ cuts are checked at starting distances from 40 to 120 units. Lloyd retains the
 completed half-turn even when he cannot get behind the target; a follow-up arte may therefore face away from
 an enemy trapped at the boundary. This is intentional.
 
-The action lasts **83 updates**, including the three-update entry blend, with
-**10 updates** of recovery. A higher-level arte can chain at update **48**. With
+The action lasts **56 updates**, including the three-update entry blend, with
+**six updates** of recovery. Gameplay plays the clip through native frame **26.5**
+(Blender frame 106), after the finishing half-turn, then blends back to idle.
+This removes the long settling tail without changing either hit or the pass.
+The editable source retains its full 0–160 frame performance.
+A higher-level arte can chain at update **48**. With
 Ability Plus equipped, three forward normal attacks can lead into Ghost Wolf,
 Lightning Tiger, and Sword Rain: Alpha. A miss still completes the movement and
 recovery; interruption stops the pass and clears its collision override.

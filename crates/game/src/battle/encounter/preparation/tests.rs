@@ -506,6 +506,9 @@ impl GhostWolfFixture {
             .raise_level(&session, 0, 6, None, || 0)
             .map_err(anyhow::Error::msg)?;
         assert!(party.members[0].techniques.contains(&260), "{imported}");
+        // A follow-up normal should test input recovery, without pausing to
+        // acquire the native Demon Fang arte on that first normal attack.
+        party.members[0].techniques.insert(1);
         if ability_plus {
             // Already learned, so the opening cannot acquire Demon Fang.
             party.members[0].techniques.extend([1, 14, 254]);
@@ -835,6 +838,15 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
             );
         }
         assert_eq!(battle.activity(owner), resonance_battle::Activity::Idle);
+        let running_updates = frames
+            .iter()
+            .filter(|frame| !frame.clock.paused() && frame.actors[owner.index()].hit_stop == 0)
+            .count();
+        eprintln!("Ghost Wolf {mode}: control returned after {running_updates} running updates");
+        assert!(
+            running_updates <= 70,
+            "Ghost Wolf kept Lloyd locked for {running_updates} running updates"
+        );
         let contacts = battle.take_fixture_contact_damage();
         let hits = contacts
             .iter()
@@ -940,6 +952,37 @@ fn ghost_wolf_executes_from_assets_with_hits_misses_and_interrupts() -> Result<(
         );
         assert!(!fixture.diagnostics.has_errors());
         assert!(!battle.is_diagnostic());
+        if mode == "hit" {
+            let mut control = resonance_battle::ControlInput::neutral(owner);
+            control.attack = resonance_battle::ButtonInput {
+                pressed: true,
+                held: true,
+                released: false,
+            };
+            battle.step(BattleInput::from(control))?;
+            assert_eq!(
+                battle.activity(owner),
+                resonance_battle::Activity::Approaching,
+                "a normal attack must be selected as soon as recovery ends"
+            );
+            // Ground input selects first; the following actor visit admits it.
+            let next = battle.step(Default::default())?;
+            assert!(next.cues.iter().any(|cue| matches!(cue,
+                Cue::Started { actor, definition: Some(next), .. } if *actor == owner && *next != action)),
+                "the selected normal attack must start on the next visit: {:?}", next.cues);
+        } else if mode == "miss" {
+            let before = battle.actors()[owner.index()].position;
+            for _ in 0..8 {
+                let mut control = resonance_battle::ControlInput::neutral(owner);
+                control.stick = [80, 0];
+                battle.step(BattleInput::from(control))?;
+            }
+            assert_ne!(
+                battle.actors()[owner.index()].position,
+                before,
+                "movement must resume when a missed Ghost Wolf finishes recovery"
+            );
+        }
     }
     assert!(
         missed_close_passes.is_empty(),

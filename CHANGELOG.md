@@ -21,6 +21,7 @@
   [P99](https://github.com/rowanG077/Resonance/pull/99)
 
 ### Changed:
+- Shortened Ghost Wolf's recovery so Lloyd can move and attack again sooner.
 - Textures now use BC7 for direct GPU upload. **Recook the complete asset library before running this version.** Devices without BC7 support decode textures to RGBA.
   [P76](https://github.com/rowanG077/Resonance/pull/76)
 - Precache shared resources during startup and reuse them across fields, the

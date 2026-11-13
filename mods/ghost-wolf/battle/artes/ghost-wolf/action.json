@@ -7,11 +7,11 @@
     "native_id": 1000,
     "altitude": 0,
     "distance": 80,
-    "duration": 93
+    "duration": 62
   },
   "attack": {
-    "duration": 83,
-    "recovery": 10,
+    "duration": 56,
+    "recovery": 6,
     "chain_at": 48,
     "events": [
       [
@@ -19,6 +19,7 @@
         {
           "pose": {
             "clip": "slot-110",
+            "end": 26.5,
             "rate": 0.5,
             "blend": 3
           }
@@ -35,7 +36,7 @@
         {
           "camera_distance": {
             "distance": 1700.0,
-            "duration": 60
+            "duration": 56
           }
         }
       ],
