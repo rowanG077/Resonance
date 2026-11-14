@@ -1,5 +1,5 @@
 //! Direct native conversion followed by granular source publication.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeSet, fs, path::Path};
 
 /// Run one category and overwrite its generated source owners on success.
@@ -98,9 +98,15 @@ pub(crate) fn file_paths(root: &Path) -> Result<BTreeSet<String>> {
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(&directory)? {
             let entry = entry?;
-            if entry.file_type()?.is_dir() {
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
                 pending.push(entry.path());
             } else {
+                ensure!(
+                    kind.is_file(),
+                    "authored assets must be regular files: {}",
+                    entry.path().display()
+                );
                 paths.insert(
                     entry
                         .path()
@@ -115,18 +121,21 @@ pub(crate) fn file_paths(root: &Path) -> Result<BTreeSet<String>> {
     Ok(paths)
 }
 
+/// A full cook owns the entire output directory. Existing files must never
+/// suppress conversion or survive after their native owner is removed.
 pub(crate) fn clear_previous(library: &Path) -> Result<()> {
-    let paths = json_paths(library)?;
-    let owned = resonance_content::authoring::owned_sources(&paths);
-    // Retire owners and flat documents alike: a fresh cook must not revive an orphan.
-    let mut retired: BTreeSet<_> = owned.values().flatten().collect();
-    retired.extend(
-        paths
-            .iter()
-            .filter(|path| resonance_content::authoring::supports(path)),
-    );
-    for path in retired {
-        fs::remove_file(library.join(path))?;
+    let entries = match fs::read_dir(library) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            fs::remove_dir_all(entry.path())?;
+        } else {
+            fs::remove_file(entry.path())?;
+        }
     }
     Ok(())
 }
@@ -135,6 +144,35 @@ pub(crate) fn clear_previous(library: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn full_cook_clears_prior_documents_media_and_obsolete_outputs() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let root = directory.path();
+        for path in [
+            "content.json",
+            "game/items/items/gel/definition.json",
+            "meshes/characters/cached/model.json",
+            "meshes/characters/cached/textures/body.ktx2",
+            "textures/unidentified-bank-0-image-0.ktx2",
+            "animations/previous.glb",
+            "audio/previous.wav",
+            "movies/previous.mkv",
+            "obsolete/unused.bin",
+        ] {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap())?;
+            fs::write(path, b"previous output")?;
+        }
+
+        clear_previous(root)?;
+
+        assert!(root.is_dir());
+        assert!(fs::read_dir(root)?.next().is_none());
+        clear_previous(root)?;
+        clear_previous(&root.join("not-created-yet"))?;
+        Ok(())
+    }
 
     #[test]
     fn republication_retires_stale_owners_and_preserves_other_banks_and_media() -> Result<()> {

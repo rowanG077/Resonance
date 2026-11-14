@@ -102,7 +102,7 @@ pub fn prepare_arte_mod(source: &Path, library: &Path, output: &Path) -> Result<
     let (scope, _) = action
         .rsplit_once('/')
         .context("arte assets need their own directory")?;
-    // A directory alias is not a file and fails to read; a file alias must stay inside.
+    // Only regular authored files are collected from the arte's source directory.
     for path in crate::authoring::file_paths(&source.join(scope))? {
         let logical = format!("{scope}/{path}");
         let physical = std::fs::canonicalize(source.join(&logical))?;

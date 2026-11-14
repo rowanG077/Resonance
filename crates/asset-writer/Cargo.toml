@@ -15,12 +15,12 @@ hound = "3.5"
 image.workspace = true
 ruzstd = "=0.9.1"
 bcdec_rs = "=0.2.1"
-intel_tex_2 = { version = "=0.5.0", optional = true }
+texture-compressor = { git = "https://github.com/rowanG077/texture-compressor", rev = "c4ae055c45a9460ce2433669cd1ac0e76fb4487d", optional = true }
 sha2.workspace = true
 
 [features]
-# BC7 cooking links native encoder kernels; the game only decodes.
-encode = ["dep:intel_tex_2"]
+# Pure-Rust BC7 cooking; the game only decodes.
+encode = ["dep:texture-compressor"]
 
 [dev-dependencies]
 # Tests cover the encoder too.

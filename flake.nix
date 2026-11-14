@@ -185,6 +185,7 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes."ffv1-0.0.0" = "sha256-/ENsKVXIivMPsubqzfKUdGE/4rz8jev3LO/L+/4EVjY=";
+              outputHashes."texture-compressor-0.2.4" = "sha256-tE5N/hFVKwD8PJxaPM/Ozj1LgPBb4UfM2CIi1X/TaTg=";
             };
             nativeBuildInputs = [
               pkgs.pkg-config

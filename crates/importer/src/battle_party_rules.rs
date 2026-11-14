@@ -367,7 +367,9 @@ mod tests {
     fn native_strategy_tables_survive_named_rules_and_mod_edits() -> Result<()> {
         let root = std::env::var_os("RESONANCE_TEST_EXTRACTED")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted"));
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted-discs")
+            });
         let module = Rel::read(fs::read(root.join("disc1/files/US_r_Top2Btl.rel"))?)?;
         let table = read(
             &module,

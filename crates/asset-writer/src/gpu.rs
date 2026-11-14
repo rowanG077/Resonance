@@ -3,8 +3,6 @@ use anyhow::{Result, ensure};
 use ktx2::{Format, Reader};
 
 #[cfg(feature = "encode")]
-mod blocks;
-#[cfg(feature = "encode")]
 mod cache;
 #[cfg(all(test, feature = "encode"))]
 mod tests;
@@ -70,27 +68,17 @@ pub fn encode(levels: &[crate::texture::Pixels]) -> Result<Vec<u8>> {
 
 #[cfg(feature = "encode")]
 fn encode_uncached(levels: &[crate::texture::Pixels]) -> Result<Vec<u8>> {
+    use texture_compressor::{AlphaPolicy, Effort, Format, ImageView, Settings};
     let mut blocks = Vec::with_capacity(levels.len());
     for level in levels {
+        let mut settings = Settings::new(Format::Bc7, Effort::Quality);
+        if level.rgba.chunks_exact(4).any(|pixel| pixel[3] == 0) {
+            settings = settings.with_alpha(AlphaPolicy::PreserveZeroAlpha);
+        }
         let (w, h) = (level.width, level.height);
-        let rgba = &level.rgba;
-        // Mips below one block repeat their edge pixels.
-        let (bw, bh) = (w.next_multiple_of(4), h.next_multiple_of(4));
-        let padded;
-        let data = if (bw, bh) == (w, h) {
-            rgba.as_slice()
-        } else {
-            padded = (0..bh)
-                .flat_map(|y| {
-                    (0..bw).flat_map(move |x| {
-                        let at = ((y.min(h - 1) * w + x.min(w - 1)) * 4) as usize;
-                        rgba[at..at + 4].iter().copied()
-                    })
-                })
-                .collect::<Vec<_>>();
-            &padded
-        };
-        blocks.push(blocks::encode(data, bw, bh));
+        // The encoder repeats edge pixels for partial mip blocks.
+        let image = ImageView::rgba8(&level.rgba, w, h, w as usize * 4)?;
+        blocks.push(texture_compressor::encode(image, &settings)?);
     }
     let refs = blocks.iter().map(Vec::as_slice).collect::<Vec<_>>();
     Ok(crate::ktx2::encode_bc7(

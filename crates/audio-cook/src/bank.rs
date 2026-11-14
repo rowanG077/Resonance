@@ -773,7 +773,7 @@ mod tests {
     #[ignore = "requires locally extracted GQSEAF sound banks; no audio device"]
     fn event_cue_425_uses_the_resident_common_sample() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../local/extracted/disc1/files/S");
+            .join("../../local/extracted-discs/disc1/files/S");
         let common_bytes = std::fs::read(root.join("se.snd")).unwrap();
         let instrument_bytes = std::fs::read(root.join("inst.snd")).unwrap();
         let event_bytes = std::fs::read(root.join("se_ev00.snd")).unwrap();

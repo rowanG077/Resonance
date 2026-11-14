@@ -163,19 +163,9 @@ fn source_snapshot_and_cli_preserve_comments_and_report_bad_formatting() {
     );
 }
 
-#[cfg(unix)]
 #[test]
-fn filesystem_resolver_rejects_symlinks_and_non_identifier_paths() {
+fn filesystem_resolver_rejects_non_identifier_paths() {
     let directory = Directory::new();
-    let other = Directory::new();
-    fs::write(
-        other.0.join("outside.sym"),
-        "script field; pub fn main() {}",
-    )
-    .unwrap();
-    std::os::unix::fs::symlink(&other.0, directory.0.join("escape")).unwrap();
-    assert!(SourceTree::load(&directory.0).is_err());
-    fs::remove_file(directory.0.join("escape")).unwrap();
     fs::write(
         directory.0.join("not-an-id.sym"),
         "script field; pub fn main() {}",

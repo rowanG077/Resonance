@@ -29,11 +29,17 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     let executable = root.join("disc1/sys/main.dol");
     ensure!(
         executable.is_file(),
-        "missing extracted GameCube input {}; extract disc 1 first with resonance-import extract --disc <disc-1-image> --output {}",
-        executable.display(),
-        root.join("disc1").display()
+        "missing extracted GameCube input {}; run resonance-import <disc-1-image> <disc-2-image> to extract both discs first",
+        executable.display()
     );
-    crate::authoring::clear_previous(library).context("replace previous granular publication")?;
+    std::fs::create_dir_all(library)?;
+    let source = root.canonicalize()?;
+    let output = library.canonicalize()?;
+    ensure!(
+        !source.starts_with(&output) && !output.starts_with(&source),
+        "asset output and extracted source must be separate directories"
+    );
+    crate::authoring::clear_previous(library).context("clear previous cooked output")?;
     let started = std::time::Instant::now();
     eprintln!("Writing asset library to {}", library.display());
     let mut pass = 0;
@@ -288,4 +294,29 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
         library.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_cook_rejects_output_overlapping_its_source_before_cleanup() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let extracted = directory.path().join("extracted");
+        let executable = extracted.join("disc1/sys/main.dol");
+        std::fs::create_dir_all(executable.parent().unwrap())?;
+        std::fs::write(&executable, b"native input")?;
+        for library in [
+            directory.path().to_path_buf(),
+            extracted.clone(),
+            executable.parent().unwrap().to_path_buf(),
+            extracted.join("new-library"),
+        ] {
+            let error = cook_all(&extracted, &library).unwrap_err();
+            assert!(error.to_string().contains("must be separate directories"));
+            assert_eq!(std::fs::read(&executable)?, b"native input");
+        }
+        Ok(())
+    }
 }

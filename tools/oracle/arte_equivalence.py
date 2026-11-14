@@ -5141,9 +5141,9 @@ def main():
     parser.add_argument("--resume-enemy-idle", type=Path,
                         help="reuse an idle enemy encounter with its actual positions, vitals and clocks")
     parser.add_argument("--packages", type=Path, default=ROOT / "local/battle-actions-recovery-20261011/input")
-    parser.add_argument("--extracted", type=Path, default=ROOT / "local/extracted/disc1",
+    parser.add_argument("--extracted", type=Path, default=ROOT / "local/extracted-discs/disc1",
                         help="authored party bodies for observed external entry motions")
-    parser.add_argument("--usual", type=Path, default=ROOT / "local/extracted/disc1/files/BTL/BTLusual.dat")
+    parser.add_argument("--usual", type=Path, default=ROOT / "local/extracted-discs/disc1/files/BTL/BTLusual.dat")
     args = parser.parse_args()
     if args.list:
         print(json.dumps([c["id"] for c in selected_cases(args)]))

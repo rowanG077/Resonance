@@ -3192,15 +3192,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "intel_tex_2"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7980d359170e7da4bc2421aa74c49d338a3153313e006d732a3430f1af375a60"
-dependencies = [
- "ispc_rt",
-]
-
-[[package]]
 name = "inventory"
 version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3214,16 +3205,6 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
-
-[[package]]
-name = "ispc_rt"
-version = "2.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a396f76fd253fab9945bb4c6080f515d0c4036bc30219462d199b58886fd37b4"
-dependencies = [
- "libc",
- "num_cpus",
-]
 
 [[package]]
 name = "itertools"
@@ -3972,16 +3953,6 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
  "libm",
-]
-
-[[package]]
-name = "num_cpus"
-version = "1.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
-dependencies = [
- "hermit-abi",
- "libc",
 ]
 
 [[package]]
@@ -4838,7 +4809,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "resonance"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4861,13 +4832,12 @@ dependencies = [
 
 [[package]]
 name = "resonance-asset-writer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bcdec_rs",
  "hound",
  "image",
- "intel_tex_2",
  "ktx2",
  "resonance-asset-writer",
  "ruzstd",
@@ -4875,12 +4845,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "structured-zstd",
+ "texture-compressor",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "resonance-audio"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "hound",
@@ -4893,7 +4864,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-audio-cook"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "resonance-audio",
@@ -4904,7 +4875,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-audio-device"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -4913,7 +4884,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-battle"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "glam 0.34.1",
@@ -4925,7 +4896,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-content"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "glam 0.34.1",
@@ -4942,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-events"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "resonance-content",
@@ -4958,7 +4929,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-game"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "resonance-asset-writer",
@@ -4979,7 +4950,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-import-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4992,7 +4963,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-importer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ahx-rs",
  "anyhow",
@@ -5017,7 +4988,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-media"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "codec_ffv1",
@@ -5037,7 +5008,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-model-behavior"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "resonance-content",
@@ -5049,7 +5020,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-oracle"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5065,7 +5036,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-persistence"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -5075,7 +5046,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-playback"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "crossbeam-queue",
@@ -5083,7 +5054,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-presentation"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bevy",
@@ -5116,7 +5087,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-script"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5135,7 +5106,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-script-content"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "symphonia-constants",
  "symphonia-script-compiler",
@@ -5588,7 +5559,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-constants"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
 ]
@@ -5622,7 +5593,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "encoding_rs",
  "serde",
@@ -5633,7 +5604,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script-compiler"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "symphonia-script",
  "symphonia-script-vm",
@@ -5642,7 +5613,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script-tools"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "symphonia-script",
  "symphonia-script-compiler",
@@ -5652,7 +5623,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script-vm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde_json",
  "symphonia-script",
@@ -5692,6 +5663,14 @@ dependencies = [
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "texture-compressor"
+version = "0.2.4"
+source = "git+https://github.com/rowanG077/texture-compressor?rev=c4ae055c45a9460ce2433669cd1ac0e76fb4487d#c4ae055c45a9460ce2433669cd1ac0e76fb4487d"
+dependencies = [
+ "libm",
 ]
 
 [[package]]

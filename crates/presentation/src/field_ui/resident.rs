@@ -290,6 +290,11 @@ impl Warm {
                 }
             }
             resident.check(world)?;
+            // These canvases were drawn under the startup black hold. Retain
+            // their bindings, but retire the representative geometry before play.
+            for layer in resident.0.lock().unwrap().menus.values() {
+                world.entity_mut(layer.entity).insert(Visibility::Hidden);
+            }
             return Ok(true);
         }
         let field = self.field.as_mut().unwrap();
@@ -391,12 +396,25 @@ impl Warm {
         }
         // The inventory's HUD layers own the meshes, materials and images.
         self.battle = None;
+        let menus: std::collections::HashSet<_> = resident
+            .0
+            .lock()
+            .unwrap()
+            .menus
+            .iter()
+            .filter(|((band, _, _, _), _)| *band == menu::DepthBand::Field as u8)
+            .map(|(_, layer)| layer.entity)
+            .collect();
         let mut bindings = Vec::new();
         for (entity, layers) in resident.canvases() {
             world.entity_mut(entity).insert((
                 Canvas,
                 layers,
-                Visibility::Hidden,
+                if menus.contains(&entity) {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                },
                 bevy::camera::visibility::NoFrustumCulling,
             ));
             bindings.push((
@@ -420,6 +438,10 @@ impl Warm {
         let mut report = self.shared.0.lock().unwrap();
         *report = crate::gpu_prepare::Report {
             armed: true,
+            // Specialization alone leaves the first menu's render extraction,
+            // batching and draw submission cold. Exercise the retained field
+            // menu canvases on the permanent UI view while startup holds black.
+            expected: menus.into_iter().map(Into::into).collect(),
             ..Default::default()
         };
         for (mesh, material) in bindings {

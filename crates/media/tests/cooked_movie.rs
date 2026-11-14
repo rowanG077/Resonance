@@ -53,7 +53,7 @@ fn check_movie(id: u32) {
     let extracted = std::env::var_os("RESONANCE_EXTRACTED_TEST_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1")
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted-discs/disc1")
         });
     let original = extracted.join("files/MOV").join(match id {
         0 => "op.h4m",

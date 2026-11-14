@@ -428,7 +428,7 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--assets", type=Path, default=capture.ROOT / "local/all-assets")
     parser.add_argument("--usual", type=Path,
-                        default=capture.ROOT / "local/extracted/disc1/files/BTL/BTLusual.dat")
+                        default=capture.ROOT / "local/extracted-discs/disc1/files/BTL/BTLusual.dat")
     parser.add_argument("--packages", type=Path,
                         default=capture.ROOT / "local/battle-actions-recovery-20261011/input")
     args = parser.parse_args()

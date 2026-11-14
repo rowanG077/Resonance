@@ -644,7 +644,7 @@ mod tests {
         let mut terminal_songs = 0;
         for disc in [1, 2] {
             let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join(format!("../../local/extracted/disc{disc}/files/S"));
+                .join(format!("../../local/extracted-discs/disc{disc}/files/S"));
             for path in fs::read_dir(root)? {
                 let path = path?.path();
                 if !path

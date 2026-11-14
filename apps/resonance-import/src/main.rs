@@ -14,15 +14,14 @@ use std::{
 #[command(
     name = "resonance-import",
     version,
-    about = "Import Symphonia disc images into the editable asset library",
-    subcommand_negates_reqs = true
+    about = "Cook the editable asset library, optionally extracting both disc images first"
 )]
 struct Args {
     /// Original GameCube disc 1 image (RVZ, ISO or GCM).
-    #[arg(value_name = "DISC_1", required = true)]
+    #[arg(value_name = "DISC_1", requires = "disc2")]
     disc1: Option<PathBuf>,
     /// Original GameCube disc 2 image; only its nine additional files are read.
-    #[arg(value_name = "DISC_2", required = true)]
+    #[arg(value_name = "DISC_2", requires = "disc1")]
     disc2: Option<PathBuf>,
     /// Output library to overwrite, also the engine's default asset directory.
     #[arg(long, default_value = "local/all-assets")]
@@ -81,7 +80,7 @@ enum Action {
     },
     /// Convert the extracted GameCube source into the editable asset library.
     CookAll {
-        #[arg(long, default_value = "local/extracted")]
+        #[arg(long, default_value = EXTRACTED_DISCS)]
         extracted: PathBuf,
         #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
@@ -90,23 +89,41 @@ enum Action {
     Extract {
         #[arg(long)]
         disc: PathBuf,
+        /// Destination for this disc (default: local/extracted-discs/disc1 or disc2).
         #[arg(long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
     },
 }
+
+const EXTRACTED_DISCS: &str = "local/extracted-discs";
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let Some(command) = args.command else {
-        let disc1 = args.disc1.context("missing disc 1 image")?;
-        let disc2 = args.disc2.context("missing disc 2 image")?;
-        let scratch = tempfile::tempdir()?;
-        eprintln!("Reading disc 1: {}", disc1.display());
-        extract(&disc1, &scratch.path().join("disc1"), Some(0))?;
-        eprintln!("Reading disc 2 supplement: {}", disc2.display());
-        extract(&disc2, &scratch.path().join("disc2"), Some(1))?;
+        let extracted = Path::new(EXTRACTED_DISCS);
+        if let (Some(disc1), Some(disc2)) = (&args.disc1, &args.disc2) {
+            if extracted.exists() {
+                let extraction = extracted.canonicalize()?;
+                for disc in [disc1, disc2] {
+                    let source = disc
+                        .canonicalize()
+                        .with_context(|| format!("open disc image {}", disc.display()))?;
+                    ensure!(
+                        !source.starts_with(&extraction),
+                        "disc image {} must be outside extraction directory {}",
+                        disc.display(),
+                        extracted.display()
+                    );
+                }
+                fs::remove_dir_all(extracted)?;
+            }
+            eprintln!("Reading disc 1: {}", disc1.display());
+            extract(disc1, None, Some(0))?;
+            eprintln!("Reading disc 2 supplement: {}", disc2.display());
+            extract(disc2, None, Some(1))?;
+        }
         eprintln!("Cooking asset library: {}", args.output.display());
-        resonance_importer::cook_all(scratch.path(), &args.output)?;
+        resonance_importer::cook_all(extracted, &args.output)?;
         println!("Cooked assets: {}", args.output.display());
         return Ok(());
     };
@@ -179,7 +196,7 @@ fn main() -> Result<()> {
             resonance_importer::cook_all(&extracted, &output)?;
             println!("Cooked assets: {}", output.display());
         }
-        Action::Extract { disc, output } => extract(&disc, &output, None)?,
+        Action::Extract { disc, output } => extract(&disc, output.as_deref(), None)?,
     }
     Ok(())
 }
@@ -196,7 +213,7 @@ const SUPPLEMENT: [&str; 9] = [
     "MOV/s10.h4m",
 ];
 
-fn extract(disc_path: &Path, output: &Path, expected_disc: Option<u8>) -> Result<()> {
+fn extract(disc_path: &Path, output: Option<&Path>, expected_disc: Option<u8>) -> Result<()> {
     let disc = DiscReader::new(disc_path, &DiscOptions::default())
         .with_context(|| format!("open disc image {}", disc_path.display()))?;
     let header = disc.header();
@@ -213,6 +230,9 @@ fn extract(disc_path: &Path, output: &Path, expected_disc: Option<u8>) -> Result
             header.disc_num + 1
         );
     }
+    let output = output.map(Path::to_path_buf).unwrap_or_else(|| {
+        Path::new(EXTRACTED_DISCS).join(format!("disc{}", u16::from(header.disc_num) + 1))
+    });
     let supplement_only = expected_disc == Some(1);
     let mut partition =
         disc.open_partition_kind(PartitionKind::Data, &PartitionOptions::default())?;
