@@ -4809,7 +4809,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "resonance"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4832,7 +4832,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-asset-writer"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "bcdec_rs",
@@ -4851,7 +4851,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-audio"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "hound",
@@ -4864,7 +4864,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-audio-cook"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "resonance-audio",
@@ -4875,7 +4875,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-audio-device"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "cpal",
@@ -4884,7 +4884,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-battle"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "glam 0.34.1",
@@ -4896,7 +4896,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-content"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "glam 0.34.1",
@@ -4913,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-events"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "resonance-content",
@@ -4929,7 +4929,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-game"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "resonance-asset-writer",
@@ -4950,7 +4950,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-import-cli"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -4963,7 +4963,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-importer"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "ahx-rs",
  "anyhow",
@@ -4988,7 +4988,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-media"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "codec_ffv1",
@@ -5008,7 +5008,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-model-behavior"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "resonance-content",
@@ -5020,7 +5020,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-oracle"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -5036,7 +5036,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-persistence"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -5046,7 +5046,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-playback"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "crossbeam-queue",
@@ -5054,7 +5054,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-presentation"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "bevy",
@@ -5087,7 +5087,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-script"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -5106,7 +5106,7 @@ dependencies = [
 
 [[package]]
 name = "resonance-script-content"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "symphonia-constants",
  "symphonia-script-compiler",
@@ -5559,7 +5559,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-constants"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "serde",
 ]
@@ -5593,7 +5593,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "encoding_rs",
  "serde",
@@ -5604,7 +5604,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script-compiler"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "symphonia-script",
  "symphonia-script-vm",
@@ -5613,7 +5613,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script-tools"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "symphonia-script",
  "symphonia-script-compiler",
@@ -5623,7 +5623,7 @@ dependencies = [
 
 [[package]]
 name = "symphonia-script-vm"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "serde_json",
  "symphonia-script",
