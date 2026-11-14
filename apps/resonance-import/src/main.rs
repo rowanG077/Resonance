@@ -26,6 +26,9 @@ struct Args {
     /// Output library to overwrite, also the engine's default asset directory.
     #[arg(long, default_value = "local/all-assets")]
     output: PathBuf,
+    /// Automatic mods directory, matching the game's --mods-directory option.
+    #[arg(long, global = true, default_value = "local/mods")]
+    mods_directory: PathBuf,
     #[command(subcommand)]
     command: Option<Action>,
 }
@@ -123,8 +126,7 @@ fn main() -> Result<()> {
             extract(disc2, None, Some(1))?;
         }
         eprintln!("Cooking asset library: {}", args.output.display());
-        resonance_importer::cook_all(extracted, &args.output)?;
-        println!("Cooked assets: {}", args.output.display());
+        cook(extracted, &args.output, &args.mods_directory)?;
         return Ok(());
     };
     match command {
@@ -193,11 +195,26 @@ fn main() -> Result<()> {
             );
         }
         Action::CookAll { extracted, output } => {
-            resonance_importer::cook_all(&extracted, &output)?;
-            println!("Cooked assets: {}", output.display());
+            cook(&extracted, &output, &args.mods_directory)?;
         }
         Action::Extract { disc, output } => extract(&disc, output.as_deref(), None)?,
     }
+    Ok(())
+}
+
+fn cook(extracted: &Path, output: &Path, mods: &Path) -> Result<()> {
+    resonance_importer::cook_all(extracted, output)?;
+    install_ghost_wolf(output, mods)?;
+    println!("Cooked assets: {}", output.display());
+    Ok(())
+}
+
+fn install_ghost_wolf(assets: &Path, mods: &Path) -> Result<()> {
+    let output = mods.join("000100-ghost-wolf");
+    eprintln!("Installing Ghost Wolf: {}", output.display());
+    resonance_importer::install_ghost_wolf(assets, &output)
+        .context("install bundled Ghost Wolf mod")?;
+    println!("Installed Ghost Wolf: {}", output.display());
     Ok(())
 }
 

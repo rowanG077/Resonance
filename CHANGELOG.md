@@ -2,11 +2,14 @@
 
 ## 0.5.1 - *14 Nov, 2026*
 
+**Recook assets with the updated importer before playing.**
+
 ### Fixed:
+- Install Ghost Wolf automatically when importing assets, preserving the arte in older saves.
+  [P102](https://github.com/rowanG077/Resonance/pull/102)
 - Make save loading more lenient for hand-edited saves and changed content.
   [P101](https://github.com/rowanG077/Resonance/pull/101)
-- Fix Windows asset paths. Re-import assets with the updated importer to apply
-  the fix.
+- Fix Windows asset paths.
   [P101](https://github.com/rowanG077/Resonance/pull/101)
 
 ## 0.5.0 - *13 Nov, 2026*

@@ -6,7 +6,9 @@ locally imported poses. Blender is needed to edit/export the animation. Building
 the mod resolves that reference pose against your existing cooked library; it
 does not need the discs or a fresh base-game import.
 
-After an ordinary base import, build the mod into a separate generated directory:
+Full imports install Ghost Wolf automatically in `local/mods/000100-ghost-wolf`.
+
+After editing its authored sources, rebuild the mod into the generated directory:
 
 ```sh
 cargo run --release -p resonance-import-cli -- prepare-arte-mod \
@@ -32,8 +34,8 @@ battle Artes command and Unison loadout.
 registration, this arte's rules/text, and its learning registration as granular
 source files. It writes no `collection.json` markers for those shared
 catalogues; the base library owns them. Another mod can add a different arte or
-translate this one's `text.json` without copying any global catalogue. The base importer has no Ghost
-Wolf registration or embedded runtime payloads.
+translate this one's `text.json` without copying any global catalogue. The importer
+bundles these authored files and prepares them as a separate mod after cooking.
 
 ## Files to edit
 

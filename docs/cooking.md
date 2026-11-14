@@ -21,6 +21,8 @@ directory before writing the generated library, including prior media and obsole
 files. It leaves `local/extracted-discs` and the original disc images alone.
 Keep authored mods outside the output directory.
 
+v0.5.1 requires a full recook with the updated importer.
+
 Disc 1 is primary. Only five additional event-speech archives and four story
 movies are read from disc 2. Shared assets cook once and the
 disc-1 opening wins. Disc order and the supported edition are checked.
@@ -49,11 +51,10 @@ Cooking does not preserve source formatting or roll back failed writes. After an
 interrupted cook, rerun the category to overwrite its output, or run `cook-all` to
 replace the entire generated library. Keep authored mods outside the cook output.
 
-The [Ghost Wolf modding example](../mods/ghost-wolf/README.md) is prepared separately
-with `resonance-import prepare-arte-mod` after cooking the base library. The command
-resolves its relative animation against the locally cooked pose and publishes an
-additive mod. The example guide covers preparing the mod, editing its Blender
-source and exporting the runtime animation.
+Full imports also install the bundled [Ghost Wolf mod](../mods/ghost-wolf/README.md)
+in `local/mods/000100-ghost-wolf`, which the game loads automatically. Use
+`--mods-directory DIRECTORY` on both executables to choose another mods directory.
+Custom authored versions can still be built with `prepare-arte-mod`.
 
 Progress is always written to stderr, with a numbered asset-type heading,
 indented `i/N jobs` lines and further-indented counters within each job:
