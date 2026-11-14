@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 - *14 Nov, 2026*
+
+### Fixed:
+- Make save loading more lenient for hand-edited saves and changed content.
+  [P101](https://github.com/rowanG077/Resonance/pull/101)
+- Fix Windows asset paths. Re-import assets with the updated importer to apply
+  the fix.
+  [P101](https://github.com/rowanG077/Resonance/pull/101)
+
 ## 0.5.0 - *13 Nov, 2026*
 
 ### Added:
