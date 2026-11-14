@@ -55,6 +55,10 @@ impl SavedProgress {
         self.party.cook(data, || self.gameplay_random.next_u32())
     }
 
+    /// Load saves leniently, including hand-edited saves. Preserve usable state
+    /// and repair or clear inconsistent values instead of rejecting the whole save.
+    /// Validation should enforce what is needed to load safely, not whether normal
+    /// gameplay could have produced the saved state.
     pub fn into_state(
         mut self,
         data: &resonance_content::session::SessionData,
@@ -64,15 +68,16 @@ impl SavedProgress {
             "invalid persistent script globals"
         );
         self.party.recover(data)?;
-        ensure!(
-            self.event_records.iter().all(|(id, r)| *id <= 200
-                && r.tick <= self.tick
-                && r.level
-                    .is_none_or(|v| v > 0 && usize::from(v) < data.experience.len())
-                && r.recorded_at
-                    .is_none_or(|v| (0..=253402300799).contains(&v))),
-            "invalid saved event record"
-        );
+        self.event_records.retain(|id, record| {
+            record.tick = record.tick.min(self.tick);
+            record.level = record
+                .level
+                .filter(|&level| level > 0 && usize::from(level) < data.experience.len());
+            record.recorded_at = record
+                .recorded_at
+                .filter(|time| (0..=253402300799).contains(time));
+            *id <= 200
+        });
         let mut memory = Memory::default();
         for (index, value) in self
             .script_globals

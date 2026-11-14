@@ -11,6 +11,16 @@ use std::{
 /// among them into owners without searching the library for them.
 static DOCUMENTS: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
 
+/// Convert a relative filesystem path into the portable spelling used in assets.
+pub(crate) fn asset_path(path: &Path) -> Result<String> {
+    let logical = path
+        .to_str()
+        .context("non-UTF-8 asset path")?
+        .replace('\\', "/");
+    resonance_content::library::validate_path(&logical)?;
+    Ok(logical)
+}
+
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::create_dir_all(path.parent().context("asset output has no parent")?)?;
     fs::write(path, bytes).with_context(|| format!("write asset {}", path.display()))?;
@@ -65,5 +75,34 @@ pub(crate) fn redirect_paths(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filesystem_asset_paths_use_portable_separators_and_stay_relative() -> Result<()> {
+        for path in [
+            "meshes/monsters/assassin/animations/motion-23.glb",
+            r"meshes/monsters\assassin\animations\motion-23.glb",
+            r"meshes\monsters\assassin\animations\motion-23.glb",
+        ] {
+            assert_eq!(
+                asset_path(Path::new(path))?,
+                "meshes/monsters/assassin/animations/motion-23.glb"
+            );
+        }
+        for path in [
+            "",
+            "../outside.glb",
+            r"..\outside.glb",
+            "/absolute.glb",
+            r"C:\asset.glb",
+        ] {
+            assert!(asset_path(Path::new(path)).is_err(), "{path}");
+        }
+        Ok(())
     }
 }

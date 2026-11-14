@@ -8,10 +8,11 @@ The cooker also includes a short `README.md` in each library, maintained as
 [the standalone library guide](cooked-library.md), so the first editing steps
 are available beside the resources.
 
-Backwards compatibility is deliberately unsupported. Use the current cooked
-layout and save schema. An obsolete library needs a fresh cook; an unsupported save-format version requires a new game. There are no compatibility
-fallbacks, path aliases, save migration tools or test-only old cooked-format
-readers in the target design. Tests use the same named layout as the application.
+Cooked content uses the current named layout. An obsolete library needs a fresh
+cook; there are no path aliases or old cooked-format readers. Save loading
+preserves usable progress when content changes and repairs values with safe
+fallbacks. Unsupported save-format versions still produce errors; there is no
+save migration tool. Tests use the same named layout as the application.
 
 ## Granular asset owners
 
@@ -504,10 +505,16 @@ produce direct errors. Loading repairs edited amounts with clear limits: HP/TP
 are capped at the character's current maxima (including equipment and EX skills),
 EXP (9,999,999), currency, gauges, stats, cooking mastery and battle counters are
 capped at their gameplay limits, and item stacks respect the current item and
-New Game Plus limits. Negative unsigned amounts become zero; empty stacks and expired encounter
-modifiers are removed. Unknown resource IDs, malformed data and inconsistent
-progression still produce errors. Recovery happens in memory; the file changes
-only when you save again. There is no save version migration tool.
+New Game Plus limits. Negative unsigned amounts become zero; empty stacks and
+expired encounter modifiers are removed. Unavailable artes and inventory entries
+are skipped. Invalid equipment and EX skills are unequipped, unusable arte and
+Unison assignments are cleared, and conflicting combos keep their first usable
+binding. Available unequipped items return to inventory within stack limits.
+Invalid titles, formation entries, menu selections and optional history
+are repaired while preserving usable values. Invalid optional camera settings
+fall back to the field camera. Required save structure, missing location resources
+and invalid player positions still produce errors. Recovery happens in memory;
+the file changes only when you save again. There is no save version migration tool.
 
 Enemy rules use named attacks, projectiles and contacts within the same
 `rules.json`. Change a shared definition once; every timeline reference uses the

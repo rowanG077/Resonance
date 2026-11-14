@@ -504,9 +504,9 @@ pub(super) fn initialize_checkpoint(
     {
         field.events.set_global(index as u16, *value)?;
     }
-    let mut party = checkpoint.progress.party.clone();
-    // Setup and final restoration admit the same saved values through recovery.
-    party.recover(data)?;
+    // Restore the same recovered progress used for setup, including event history.
+    let persistent = checkpoint.progress.clone().into_state(data)?;
+    let party = persistent.party.context("saved party is missing")?;
     let world = &mut field.events.world;
     ensure!(
         world.controlled_actor == i32::from(party.field_leader),
@@ -516,9 +516,7 @@ pub(super) fn initialize_checkpoint(
     world
         .event_flags
         .clone_from(&checkpoint.progress.event_flags);
-    world
-        .event_records
-        .clone_from(&checkpoint.progress.event_records);
+    world.event_records = persistent.event_records;
     world.random_state = checkpoint.progress.random_state;
     world
         .gameplay_random

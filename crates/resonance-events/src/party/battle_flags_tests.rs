@@ -159,7 +159,12 @@ fn battle_flags_survive_field_transfer_and_saved_progress() {
         invalid["party"]["battle_rules"]["modifiers"] = unsupported.into();
         let invalid: SavedProgress = serde_json::from_value(invalid).unwrap();
         let (world, _) = invalid.into_state(&data).unwrap().into_world();
-        assert!(world.party.unwrap().initial_unison_full().is_err());
+        let party = world.party.unwrap();
+        assert_eq!(
+            party.battle_rules.modifiers,
+            unsupported & crate::battle::Rules::SUPPORTED_MODIFIERS
+        );
+        assert_eq!(party.initial_unison_full().unwrap(), unsupported & 8 != 0);
     }
     for outside_u16 in [-1, 65536] {
         let mut invalid = value.clone();

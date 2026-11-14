@@ -17,6 +17,109 @@ fn load(value: Value, data: &SessionData) -> anyhow::Result<Party> {
 }
 
 #[test]
+fn unavailable_artes_and_their_references_are_ignored_on_load() -> anyhow::Result<()> {
+    use resonance_content::input::{ArteBinding, InputChord, PhysicalInput};
+    let data = super::super::tests::data();
+    for (owner, id) in [(0, 260), (1, 999)] {
+        let assistant = (owner + 1) % data.characters.len();
+        let mut modded = data.clone();
+        modded.characters[owner].allowed_techniques.push(id);
+        let mut party = Party::new(&modded, Default::default())?;
+        let member = &mut party.members[owner];
+        member.techniques.extend([10, id]);
+        member.shortcuts = [id, 10, 0, 0];
+        member.unison_arte = Some(id);
+        member.disabled_techniques.insert(id);
+        member.technique_uses = [(10, 6), (id, 9)].into();
+        member.arte_bindings.push(ArteBinding {
+            technique: id,
+            chord: InputChord(vec![PhysicalInput::Key("F11".into())]),
+        });
+        party.members[assistant].assist_shortcuts = [id, 10].map(|technique| {
+            Some(TechniqueShortcut {
+                character: owner,
+                technique,
+            })
+        });
+        party.validate(&modded)?;
+        let original = serde_json::to_value(SavedProgress::new(party.clone()))?;
+        assert_eq!(
+            serde_json::to_value(load(original.clone(), &modded)?)?,
+            original["party"]
+        );
+
+        party.remove_technique(owner, id);
+        party.members[owner].technique_uses.remove(&id);
+        let expected = serde_json::to_value(&party)?;
+        let mut restored = load(original.clone(), &data)?;
+        assert_eq!(serde_json::to_value(&restored)?, expected);
+        restored.recover(&data)?;
+        assert_eq!(serde_json::to_value(restored)?, expected);
+
+        // Historical uses and orphaned assignments must not prevent loading.
+        let mut forgotten = original.clone();
+        forgotten["party"]["members"][owner]["techniques"] = json!([10]);
+        assert_eq!(
+            serde_json::to_value(load(forgotten.clone(), &data)?)?,
+            expected
+        );
+        forgotten["party"]["members"][owner]["technique_uses"] = json!({"10": 6});
+        assert_eq!(serde_json::to_value(load(forgotten, &data)?)?, expected);
+
+        // Another character's catalogue cannot preserve this owner's removed arte.
+        let mut reassigned = data.clone();
+        reassigned.characters[assistant].allowed_techniques.push(id);
+        assert_eq!(
+            serde_json::to_value(load(original, &reassigned)?)?,
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn unlearned_arte_assignments_are_cleared_without_changing_learning() -> anyhow::Result<()> {
+    use resonance_content::input::{ArteBinding, InputChord, PhysicalInput};
+    let data = super::super::tests::data();
+    for owner in [0, 8] {
+        let assistant = (owner + 1) % data.characters.len();
+        let mut party = Party::new(&data, Default::default())?;
+        party.members[assistant].techniques.insert(10);
+        party.members[assistant].shortcuts[0] = 10;
+        party.members[assistant].assist_shortcuts[1] = Some(TechniqueShortcut {
+            character: assistant,
+            technique: 10,
+        });
+        // A forgotten arte's historical uses do not mean it is still learned.
+        party.members[owner].technique_uses.insert(10, 9);
+        let expected = serde_json::to_value(&party)?;
+
+        let member = &mut party.members[owner];
+        member.shortcuts[0] = 10;
+        member.unison_arte = Some(10);
+        member.disabled_techniques.insert(10);
+        member.arte_bindings.push(ArteBinding {
+            technique: 10,
+            chord: InputChord(vec![PhysicalInput::Key("F11".into())]),
+        });
+        party.members[assistant].assist_shortcuts[0] = Some(TechniqueShortcut {
+            character: owner,
+            technique: 10,
+        });
+        party.members[owner].assist_shortcuts[0] = Some(TechniqueShortcut {
+            character: 99,
+            technique: 10,
+        });
+        let original = serde_json::to_value(SavedProgress::new(party))?;
+        let mut restored = load(original, &data)?;
+        assert_eq!(serde_json::to_value(&restored)?, expected);
+        restored.recover(&data)?;
+        assert_eq!(serde_json::to_value(restored)?, expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn old_horizontal_assignments_migrate_with_the_first_saved_owner() -> anyhow::Result<()> {
     use resonance_content::input::{ArteBinding, AxisDirection::*, InputChord, PhysicalInput};
     let mut data = super::super::tests::data();
@@ -76,32 +179,52 @@ fn old_horizontal_assignments_migrate_with_the_first_saved_owner() -> anyhow::Re
 }
 
 #[test]
-fn horizontal_migration_does_not_hide_invalid_assignments() -> anyhow::Result<()> {
+fn conflicting_and_malformed_assignments_keep_the_first_usable_binding() -> anyhow::Result<()> {
     use resonance_content::input::{ArteBinding, AxisDirection::*, InputChord, PhysicalInput};
     let mut data = super::super::tests::data();
     data.characters[0].allowed_techniques = vec![10, 11];
-    for (technique, axis) in [(999, LeftRight), (10, LeftRight), (11, LeftLeft)] {
-        let mut party = Party::new(&data, Default::default())?;
-        party.members[0].techniques.extend([10, 11]);
-        let chord = |axis| {
-            InputChord(vec![
-                PhysicalInput::Button("East".into()),
-                PhysicalInput::Axis(axis),
-            ])
-        };
-        party.members[0].arte_bindings = vec![
-            ArteBinding {
-                technique: 10,
-                chord: chord(LeftLeft),
-            },
-            ArteBinding {
-                technique,
-                chord: chord(axis),
-            },
-        ];
-        let value = serde_json::to_value(SavedProgress::new(party))?;
-        assert!(load(value, &data).is_err());
-    }
+    let mut party = Party::new(&data, Default::default())?;
+    party.members[0].techniques.extend([10, 11]);
+    let chord = |axis| {
+        InputChord(vec![
+            PhysicalInput::Button("East".into()),
+            PhysicalInput::Axis(axis),
+        ])
+    };
+    let first = ArteBinding {
+        technique: 10,
+        chord: chord(LeftLeft),
+    };
+    let last = ArteBinding {
+        technique: 11,
+        chord: InputChord(vec![PhysicalInput::Key("F11".into())]),
+    };
+    party.members[0].arte_bindings = vec![
+        ArteBinding {
+            technique: 11,
+            chord: InputChord(vec![]),
+        },
+        first.clone(),
+        ArteBinding {
+            technique: 10,
+            chord: InputChord(vec![PhysicalInput::Key("F10".into())]),
+        },
+        ArteBinding {
+            technique: 11,
+            chord: chord(LeftRight),
+        },
+        last.clone(),
+    ];
+    let expected = vec![
+        ArteBinding {
+            chord: first.chord.normalized(&party.settings.preferences.keymap),
+            ..first
+        },
+        last,
+    ];
+    let value = serde_json::to_value(SavedProgress::new(party))?;
+    let restored = load(value, &data)?;
+    assert_eq!(restored.members[0].arte_bindings, expected);
     Ok(())
 }
 
@@ -329,18 +452,12 @@ fn recovery_uses_equipment_and_ex_skill_vital_bonuses() -> anyhow::Result<()> {
 }
 
 #[test]
-fn valid_saves_are_unchanged_and_unknown_references_still_fail() -> anyhow::Result<()> {
+fn valid_saves_are_unchanged_and_structurally_invalid_saves_still_fail() -> anyhow::Result<()> {
     let data = super::super::tests::data();
     let original = saved(&data);
     let party = load(original.clone(), &data)?;
     assert_eq!(serde_json::to_value(party)?, original["party"]);
     for (path, invalid) in [
-        ("/party/members/0/equipment/0", json!(999)),
-        ("/party/members/0/ex_skills/0", json!(99)),
-        ("/party/members/0/title", json!(99)),
-        ("/party/members/0/techniques", json!([999])),
-        ("/party/items", json!({"999": 999})),
-        ("/party/formation", json!([99])),
         ("/party/members", json!([])),
         ("/script_globals", json!([])),
         ("/party/gald", json!("999999999")),
@@ -352,5 +469,133 @@ fn valid_saves_are_unchanged_and_unknown_references_still_fail() -> anyhow::Resu
         *edited.pointer_mut(path).unwrap() = invalid;
         assert!(load(edited, &data).is_err(), "{path}");
     }
+    Ok(())
+}
+
+#[test]
+fn stale_selections_and_history_recover_without_discarding_valid_edits() -> anyhow::Result<()> {
+    let data = super::super::tests::data();
+    let mut value = saved(&data);
+    let party = &mut value["party"];
+    party["formation"] = json!([0, 3, 3, 99, 2]);
+    party["field_leader"] = json!(99);
+    party["items"] = json!({"1": 7, "999": 8});
+    party["found_items"] = json!([1, 999]);
+    party["recent_items"] = json!([999, 1, 2]);
+    party["figurines"] = json!([1, 999]);
+    party["viewed_skits"] = json!([0, 4, 999]);
+    party["monsters"] = json!({"1": {"seen":true,"scanned":false,"drops":[false,false],"steal":false,"location":false,"variant":99}, "255": {"seen":true,"scanned":false,"drops":[false,false],"steal":false,"location":false,"variant":0}});
+    party["encounter_modifier"] = json!({"rate": 99, "remaining": 500});
+    party["cooking"]["chef"] = json!(99);
+    party["cooking"]["recipe"] = json!(99);
+    party["travel"]["saved_formation"] = json!([2, 0, 2, 99, 1]);
+    party["travel"]["current_location"] = json!(999);
+    party["travel"]["visited_locations"] = json!([1, 999]);
+    party["travel"]["visited_shops"] = json!([1, 99]);
+    party["travel"]["opened_treasures"] = json!([1, 1024]);
+    party["settings"]["battle_rank"] = json!(99);
+    party["settings"]["battle_controls"] = json!([99, 0, 1, 2]);
+    party["strategy_presets"] = json!(
+        (0..3)
+            .map(|_| json!({"name":"\n", "members": ([[99, 1, 99]; 9])}))
+            .collect::<Vec<_>>()
+    );
+    let member = &mut party["members"][0];
+    member["name"] = json!("Edited\nLloyd name");
+    member["costume"] = json!(99);
+    member["title"] = json!(99);
+    member["titles"] = json!([1, 99]);
+    member["strategy"] = json!([99, 2, 99]);
+    let mut restored = load(value, &data)?;
+    assert_eq!(restored.formation, [3, 2]);
+    assert_eq!(restored.field_leader, 3);
+    assert_eq!(restored.items, [(1, 7)].into());
+    assert_eq!(restored.found_items, [1].into());
+    assert_eq!(restored.recent_items, [1, 2]);
+    assert_eq!(restored.figurines, [1].into());
+    assert_eq!(restored.viewed_skits, [4].into());
+    assert_eq!(restored.monsters.len(), 1);
+    assert_eq!(restored.monsters[&1].variant, 0);
+    assert!(restored.encounter_modifier.is_none());
+    assert_eq!((restored.cooking.recipe, restored.cooking.chef), (0, 2));
+    assert_eq!(restored.travel.saved_formation, [2, 1]);
+    assert_eq!(restored.travel.current_location, None);
+    assert_eq!(restored.travel.visited_locations, [1].into());
+    assert_eq!(restored.travel.visited_shops, [1].into());
+    assert_eq!(restored.travel.opened_treasures, [1].into());
+    assert_eq!(restored.settings.preferences.battle_rank, 0);
+    assert_eq!(restored.settings.battle_controls, [1, 0, 1, 2]);
+    let member = &restored.members[0];
+    assert_eq!(member.name.as_deref(), Some("EditedLloyd "));
+    assert_eq!((member.costume, member.title), (0, 1));
+    assert_eq!(member.titles, [1].into());
+    assert_eq!(member.strategy, [0, 2, 0]);
+    for preset in restored.strategy_presets.as_ref().unwrap() {
+        assert_eq!(preset.name, "Custom");
+        assert_eq!(preset.members, [[0, 1, 0]; 9]);
+    }
+    let expected = serde_json::to_value(&restored)?;
+    restored.recover(&data)?;
+    assert_eq!(serde_json::to_value(restored)?, expected);
+    let mut value = saved(&data);
+    value["party"]["formation"] = json!([99]);
+    assert_eq!(load(value.clone(), &data)?.formation, [1]);
+    value["party"]["field_leader"] = json!(5);
+    assert_eq!(load(value, &data)?.formation, [5]);
+    Ok(())
+}
+
+#[test]
+fn unusable_loadout_entries_are_cleared_before_recovering_vitals() -> anyhow::Result<()> {
+    let mut data = super::super::tests::data();
+    let mut menu = super::super::tests::technique_menu();
+    menu.ex_skills.characters[0]
+        .compounds
+        .push(resonance_content::menu_data::CompoundExSkill {
+            skill: 31,
+            required: vec![31],
+        });
+    menu.techniques.resize(11, Default::default());
+    data.rules = Some(std::sync::Arc::new(menu));
+    let mut value = saved(&data);
+    value["party"]["items"] = json!({"1": 18, "2": 20});
+    let member = &mut value["party"]["members"][0];
+    member["equipment"] = json!([999, 1, 1, 2, 0, 0]);
+    member["ex_gems"] = json!([99, 1, 0, 1]);
+    member["ex_skills"] = json!([31, 31, 31, 99]);
+    member["compound_ex_skills"] = json!([0, 99]);
+    member["recent_compound_ex_skills"] = json!([0, 1]);
+    member["techniques"] = json!([10]);
+    member["unison_arte"] = json!(10);
+    member["hp"] = json!(9999);
+    let mut restored = load(value, &data)?;
+    assert_eq!(restored.items, [(1, 20), (2, 20)].into());
+    let member = &restored.members[0];
+    assert_eq!(member.equipment, [0; 6]);
+    assert_eq!(member.ex_gems, [5, 1, 0, 1]);
+    assert_eq!(member.ex_skills, [31, 0, 0, 0]);
+    assert_eq!(member.compound_ex_skills, [0].into());
+    assert_eq!(member.recent_compound_ex_skills, [0].into());
+    assert_eq!(member.unison_arte, None);
+    assert_eq!(member.techniques, [10].into());
+    assert_eq!(member.hp, 100);
+    let expected = serde_json::to_value(&restored)?;
+    restored.recover(&data)?;
+    assert_eq!(serde_json::to_value(restored)?, expected);
+    Ok(())
+}
+
+#[test]
+fn optional_event_record_metadata_cannot_block_save_loading() -> anyhow::Result<()> {
+    let data = super::super::tests::data();
+    let mut value = saved(&data);
+    value["tick"] = json!(50);
+    value["event_records"] = json!({"12":{"value":2,"extra":3,"tick":99,"level":99,"recorded_at":-1},"201":{"value":1,"extra":0,"tick":1}});
+    let progress: SavedProgress = serde_json::from_slice(&serde_json::to_vec(&value)?)?;
+    let state = progress.into_state(&data)?;
+    assert_eq!(state.event_records.len(), 1);
+    let record = &state.event_records[&12];
+    assert_eq!((record.value, record.extra, record.tick), (2, 3, 50));
+    assert_eq!((record.level, record.recorded_at), (None, None));
     Ok(())
 }

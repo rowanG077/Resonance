@@ -142,13 +142,9 @@ pub fn cook_battle_victory_group(root: &Path, library: &Path, characters: &[u8])
                 enemy_motions
                     .entry(entry.metadata()?.len())
                     .or_default()
-                    .push(
-                        entry
-                            .path()
-                            .strip_prefix(library)?
-                            .to_string_lossy()
-                            .into_owned(),
-                    );
+                    .push(crate::output::asset_path(
+                        entry.path().strip_prefix(library)?,
+                    )?);
             }
         }
     }
