@@ -627,7 +627,7 @@ fn matching_equipment_file(library: &Path, file: &str, bytes: &[u8]) -> Result<O
         let path = Path::new("meshes/equipment").join(name).join(file);
         let full = library.join(&path);
         if full.is_file() && fs::read(full)? == bytes {
-            return Ok(Some(path.to_string_lossy().into_owned()));
+            return Ok(Some(crate::output::asset_path(&path)?));
         }
     }
     Ok(None)
@@ -655,7 +655,7 @@ fn matching_equipment_texture(library: &Path, mesh: &str, bytes: &[u8]) -> Resul
         }
         let path = directory.join(name);
         if fs::read(library.join(&path))? == bytes {
-            return Ok(Some(path.to_string_lossy().into_owned()));
+            return Ok(Some(crate::output::asset_path(&path)?));
         }
     }
     Ok(None)
@@ -1180,4 +1180,28 @@ pub fn cook_battle_enemy_media_group(root: &Path, library: &Path, ids: &[u8]) ->
 /// Convert one enemy in isolation, for a focused cook or inspection.
 pub fn cook_battle_enemy_media(root: &Path, library: &Path, id: u8) -> Result<()> {
     cook_battle_enemy_media_group(root, library, &[id])
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    #[test]
+    fn reused_equipment_meshes_and_textures_keep_portable_references() -> Result<()> {
+        let work = tempfile::tempdir()?;
+        let owner = work.path().join("meshes/equipment/sword");
+        fs::create_dir_all(&owner)?;
+        fs::write(owner.join("part-0-layer-0.glb"), b"mesh")?;
+        fs::write(owner.join("part-0-layer-0-texture-0.ktx2"), b"image")?;
+        let mesh = matching_equipment_file(work.path(), "part-0-layer-0.glb", b"mesh")?.unwrap();
+        assert_eq!(mesh, "meshes/equipment/sword/part-0-layer-0.glb");
+        let texture = matching_equipment_texture(work.path(), &mesh, b"image")?.unwrap();
+        assert_eq!(
+            texture,
+            "meshes/equipment/sword/part-0-layer-0-texture-0.ktx2"
+        );
+        resonance_content::library::validate_path(&mesh)?;
+        resonance_content::library::validate_path(&texture)?;
+        Ok(())
+    }
 }

@@ -17,6 +17,48 @@ fn skill_allowed(choices: &[[u8; 4]; 4], level: u8, skill: u8) -> bool {
 }
 
 impl Member {
+    /// Return cleared equipment so available items can be kept in inventory.
+    pub(super) fn recover_loadout(&mut self, data: &SessionData, character: usize) -> [u16; 6] {
+        let mut unequipped = [0; 6];
+        for (slot, id) in self.equipment.iter_mut().enumerate() {
+            if *id != 0
+                && !data.items.get(usize::from(*id)).is_some_and(|item| {
+                    item.fits_slot(character, slot)
+                        && data
+                            .rules
+                            .as_ref()
+                            .is_none_or(|rules| rules.items.get(usize::from(*id)).is_some())
+                })
+            {
+                unequipped[slot] = std::mem::take(id);
+            }
+        }
+        let Some(ex) = data.rules.as_ref().map(|rules| &rules.ex_skills) else {
+            self.ex_skills = [0; 4];
+            self.ex_gems = [0; 4];
+            self.compound_ex_skills.clear();
+            self.recent_compound_ex_skills.clear();
+            return unequipped;
+        };
+        let choices = &ex.characters[character];
+        let mut selected = BTreeSet::new();
+        for (level, skill) in self.ex_gems.iter_mut().zip(&mut self.ex_skills) {
+            *level = (*level).min(5);
+            if *skill != 0
+                && (!ex.skills.contains_key(skill)
+                    || !skill_allowed(&choices.levels, *level, *skill)
+                    || !selected.insert(*skill))
+            {
+                *skill = 0;
+            }
+        }
+        self.compound_ex_skills
+            .retain(|&id| usize::from(id) < choices.compounds.len());
+        self.recent_compound_ex_skills
+            .retain(|id| self.compound_ex_skills.contains(id));
+        unequipped
+    }
+
     pub fn active_compound_ex(&self, data: &ExSkillData, character: usize) -> Vec<u8> {
         data.characters[character]
             .equipped_compounds(&self.ex_skills)

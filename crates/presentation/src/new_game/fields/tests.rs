@@ -8,7 +8,9 @@ use std::fs;
 
 #[test]
 #[ignore = "requires current named content at RESONANCE_TEST_ASSETS; no output devices"]
-fn edited_save_amounts_survive_field_setup_and_progress_restoration() -> Result<()> {
+fn recovered_save_progress_survives_field_setup_and_restoration() -> Result<()> {
+    use resonance_content::input::{ArteBinding, InputChord, PhysicalInput};
+    use resonance_events::party::TechniqueShortcut;
     let root = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map(std::path::PathBuf::from)
         .context("set RESONANCE_TEST_ASSETS to current named content")?;
@@ -19,24 +21,109 @@ fn edited_save_amounts_survive_field_setup_and_progress_restoration() -> Result<
         || false,
     )?);
     let mut checkpoint = crate::test_support::field_checkpoint(&package.files)?;
+    checkpoint.progress.tick = 50;
+    checkpoint.progress.event_records = serde_json::from_value(serde_json::json!({
+        "12": {"value": 2, "extra": 3, "tick": 99, "level": 0, "recorded_at": -1},
+        "13": {"value": 1, "extra": 4, "tick": 25, "level": 1, "recorded_at": 1234567890},
+        "201": {"value": 1, "extra": 0, "tick": 1}
+    }))?;
+    let unavailable = u16::MAX;
+    assert!(
+        !package.data.characters[0]
+            .allowed_techniques
+            .contains(&unavailable)
+    );
     let party = &mut checkpoint.progress.party;
     party.gald = u32::MAX;
+    party.formation = vec![0, 3, 3, 99, 2];
+    party.field_leader = 99;
+    party.items.insert(unavailable, 8);
     party.members[0].hp = u16::MAX;
     party.members[0].tp = u16::MAX;
     party.members[0].overlimit = u8::MAX;
+    let member = &mut party.members[0];
+    member.equipment[0] = unavailable;
+    member.ex_skills[0] = u8::MAX;
+    member.techniques.insert(unavailable);
+    member.technique_uses.insert(unavailable, 9);
+    member.disabled_techniques.insert(unavailable);
+    member.shortcuts[0] = unavailable;
+    member.unison_arte = Some(unavailable);
+    member.arte_bindings.push(ArteBinding {
+        technique: unavailable,
+        chord: InputChord(vec![PhysicalInput::Key("F11".into())]),
+    });
+    party.members[1].assist_shortcuts[0] = Some(TechniqueShortcut {
+        character: 0,
+        technique: unavailable,
+    });
+    let entry = checkpoint.clone().entry(
+        &package.assets,
+        package.data.clone(),
+        package.fields.clone(),
+    )?;
+    assert_eq!(entry.camera.as_ref().unwrap().camera.actor, 3);
+    checkpoint.camera.as_mut().unwrap().fov_degrees = 0.;
+    assert!(
+        checkpoint
+            .clone()
+            .entry(
+                &package.assets,
+                package.data.clone(),
+                package.fields.clone()
+            )?
+            .camera
+            .is_none()
+    );
+    let mut invalid_location = checkpoint.clone();
+    invalid_location.position = [f32::MAX; 3];
+    assert!(
+        invalid_location
+            .entry(
+                &package.assets,
+                package.data.clone(),
+                package.fields.clone()
+            )
+            .is_err()
+    );
     let session = super::super::Session::load_prepared(package, Some(checkpoint), None)?;
     let live = session.field().checkpoint()?;
     let party = &live.progress.party;
     assert_eq!(party.gald, 99_999_999);
+    assert_eq!(party.formation, [3, 2]);
+    assert_eq!(party.field_leader, 3);
+    assert!(!party.items.contains_key(&unavailable));
+    assert_eq!(party.members[0].equipment[0], 0);
+    assert_eq!(party.members[0].ex_skills[0], 0);
+    assert_eq!(live.progress.script_globals[16], 2500);
+    assert!(live.progress.event_flags.is_superset(&[31, 520].into()));
     assert_eq!(
         [party.members[0].hp, party.members[0].tp],
         party.members[0].maximum_vitals()
     );
     assert_eq!(party.members[0].overlimit, 100);
+    let member = &party.members[0];
+    assert!(!member.techniques.contains(&unavailable));
+    assert!(!member.technique_uses.contains_key(&unavailable));
+    assert!(!member.disabled_techniques.contains(&unavailable));
+    assert_eq!(member.shortcuts[0], 0);
+    assert_eq!(member.unison_arte, None);
+    assert!(member.arte_bindings.is_empty());
+    assert_eq!(party.members[1].assist_shortcuts[0], None);
     assert_eq!(
         serde_json::to_value(&party)?,
         serde_json::to_value(&session.restored_checkpoint.as_ref().unwrap().progress.party)?
     );
+    let expected_records = serde_json::json!({
+        "12": {"value": 2, "extra": 3, "tick": 50},
+        "13": {"value": 1, "extra": 4, "tick": 25, "level": 1, "recorded_at": 1234567890}
+    });
+    for checkpoint in [&live, session.restored_checkpoint.as_ref().unwrap()] {
+        assert_eq!(
+            serde_json::to_value(&checkpoint.progress.event_records)?,
+            expected_records
+        );
+    }
     Ok(())
 }
 

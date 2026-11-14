@@ -162,7 +162,14 @@ impl FieldCheckpoint {
                 "saved player position is outside the field ground"
             );
         }
-        let leader = i32::from(self.progress.party.field_leader);
+        let persistent = self.progress.into_state(&data)?;
+        let leader = i32::from(
+            persistent
+                .party
+                .as_ref()
+                .context("saved party is missing")?
+                .field_leader,
+        );
         Ok(FieldEntry {
             effect_palette: Default::default(),
             rising_light_destination: None,
@@ -175,7 +182,7 @@ impl FieldCheckpoint {
                 super::EntryKind::Restore
             },
             play_time: crate::clock::PlayTime::resume(self.played_ticks),
-            persistent: self.progress.into_state(&data)?,
+            persistent,
             data: Some(data),
             menu_data: None,
             menu_files: Default::default(),
@@ -186,11 +193,9 @@ impl FieldCheckpoint {
             position: self.position,
             heading: self.heading,
             idle_animation: None,
-            camera: self
-                .camera
-                .map(|camera| camera.entry(leader))
-                .transpose()
-                .map_err(anyhow::Error::msg)?,
+            // Saved orbit settings are optional; field setup supplies the camera
+            // when they cannot be reused.
+            camera: self.camera.and_then(|camera| camera.entry(leader).ok()),
         })
     }
 }

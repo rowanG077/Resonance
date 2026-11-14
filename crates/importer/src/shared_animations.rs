@@ -363,23 +363,22 @@ fn existing_motions(library: &Path) -> Result<BTreeMap<Vec<u8>, String>> {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 directories.push(entry.path());
-            } else {
+            } else if entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "glb")
+            {
                 let path = entry.path();
-                let relative = path
-                    .strip_prefix(library)?
-                    .to_str()
-                    .context("non-UTF8 motion path")?;
-                if relative.ends_with(".glb")
-                    && (relative.starts_with("animations/") || relative.contains("/animations/"))
-                {
+                let relative = crate::output::asset_path(path.strip_prefix(library)?)?;
+                if relative.starts_with("animations/") || relative.contains("/animations/") {
                     motions
                         .entry(fs::read(&path)?)
                         .and_modify(|existing: &mut String| {
-                            if relative < existing.as_str() {
-                                *existing = relative.to_owned();
+                            if relative.as_str() < existing.as_str() {
+                                *existing = relative.clone();
                             }
                         })
-                        .or_insert_with(|| relative.to_owned());
+                        .or_insert(relative);
                 }
             }
         }
@@ -707,4 +706,30 @@ pub fn cook_shared_animation_bindings(
     }
     let path = library.join("animations/bindings.json");
     crate::output::write(&path, &resonance_asset_writer::json::encode(&definitions)?)
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    #[test]
+    fn reused_motion_inventory_finds_nested_paths_on_every_platform() -> Result<()> {
+        let work = tempfile::tempdir()?;
+        for path in [
+            "meshes/characters/hero/animations/idle.glb",
+            "animations/shared.glb",
+        ] {
+            let physical = work.path().join(path);
+            fs::create_dir_all(physical.parent().unwrap())?;
+            fs::write(physical, b"identical motion")?;
+        }
+        fs::write(work.path().join("body.glb"), b"not an animation owner")?;
+        let inventory = existing_motions(work.path())?;
+        assert_eq!(inventory.len(), 1);
+        assert_eq!(
+            inventory[b"identical motion".as_slice()],
+            "animations/shared.glb"
+        );
+        Ok(())
+    }
 }
