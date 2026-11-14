@@ -169,38 +169,41 @@ pub fn cook_shared_texture_banks(extracted: &Path, library: &Path) -> Result<()>
         for index in 0..dol::u32(&tpl, 4)? as usize {
             let (width, height, rgba) = menu_sprites::decode_image(&tpl, index)?;
             let key = (width, height, rgba);
-            let path = if let Some(path) = unique.get(&key) {
-                path.clone()
+            let (path, write_image) = if let Some(path) = unique.get(&key) {
+                (path.clone(), false)
             } else {
-                let path =
-                    image_owner(id, index, &portraits).unwrap_or_else(|| match (id, index) {
-                        (35, 16 | 17) => format!("ui/title/disc-{}.ktx2", index - 15),
-                        (68864..=68887, 0) => format!(
-                            "ui/location-titles/japanese/title-{:02}-frame-line.ktx2",
-                            id - 68863
-                        ),
-                        (68864, 1) => "ui/location-titles/japanese/frame-ornaments.ktx2".into(),
-                        (68864..=68887, 1) => format!(
-                            "ui/location-titles/japanese/title-{:02}-frame-ornaments.ktx2",
-                            id - 68863
-                        ),
-                        (68864..=68887, _) => format!(
-                            "ui/location-titles/japanese/title-{:02}-glyph-{index:02}.ktx2",
-                            id - 68863
-                        ),
-                        _ => format!("textures/{name}-image-{index}.ktx2"),
-                    });
+                let owner = image_owner(id, index, &portraits);
+                let owns_image = owner.is_none();
+                let path = owner.unwrap_or_else(|| match (id, index) {
+                    (35, 16 | 17) => format!("ui/title/disc-{}.ktx2", index - 15),
+                    (68864..=68887, 0) => format!(
+                        "ui/location-titles/japanese/title-{:02}-frame-line.ktx2",
+                        id - 68863
+                    ),
+                    (68864, 1) => "ui/location-titles/japanese/frame-ornaments.ktx2".into(),
+                    (68864..=68887, 1) => format!(
+                        "ui/location-titles/japanese/title-{:02}-frame-ornaments.ktx2",
+                        id - 68863
+                    ),
+                    (68864..=68887, _) => format!(
+                        "ui/location-titles/japanese/title-{:02}-glyph-{index:02}.ktx2",
+                        id - 68863
+                    ),
+                    _ => format!("textures/{name}-image-{index}.ktx2"),
+                });
+                let write_image = owns_image || !library.join(&path).is_file();
                 unique.insert(key, path.clone());
-                path
+                (path, write_image)
             };
             let sampler = world_texture::sampler(
                 &tpl,
                 dol::u32(&tpl, dol::u32(&tpl, 8)? as usize + index * 8)? as usize,
             )?;
-            // Another owner may already have stored this image, padded alike.
+            // Reuse other categories' artwork and images emitted in this pass.
+            // Bank-owned images always replace output from an earlier cook.
             let (ktx, size) = world_texture::tpl_interface_texture(&tpl, index, sampler.wrap)
                 .with_context(|| path.clone())?;
-            if !library.join(&path).is_file() {
+            if write_image {
                 crate::output::write(&library.join(&path), &ktx)?;
             }
             catalogue.textures.push(Some(TextureImage {
@@ -222,4 +225,114 @@ pub fn cook_shared_texture_banks(extracted: &Path, library: &Path) -> Result<()>
     banks.extend(extra_artwork(extracted, library)?);
     crate::output::json(&library.join("textures/mappings.json"), &mappings)?;
     crate::output::json(&library.join("textures/banks.json"), &banks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn word(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_be_bytes());
+    }
+
+    fn image(red: u8) -> Vec<u8> {
+        let mut tpl = vec![0; 128];
+        for (at, value) in [
+            (0, 0x0020_af30),
+            (4, 1),
+            (8, 12),
+            (12, 20),
+            (24, 6),
+            (28, 64),
+        ] {
+            word(&mut tpl, at, value);
+        }
+        // One clamped 4x4 RGBA8 image in the console's tiled channel layout.
+        tpl[20..24].copy_from_slice(&[0, 4, 0, 4]);
+        for pixel in 0..16 {
+            tpl[64 + pixel * 2] = if pixel % 3 == 0 { 0 } else { 255 };
+            tpl[65 + pixel * 2] = red;
+            tpl[96 + pixel * 2] = 80;
+            tpl[97 + pixel * 2] = 40;
+        }
+        tpl
+    }
+
+    #[test]
+    fn recook_overwrites_bank_images_and_preserves_shared_artwork() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let extracted = directory.path().join("extracted");
+        let files = extracted.join("disc1/files");
+        let library = directory.path().join("library");
+        fs::create_dir_all(&files)?;
+        fs::create_dir_all(extracted.join("disc1/sys"))?;
+        fs::create_dir_all(library.join("skits"))?;
+        fs::write(
+            library.join(portraits::PATH),
+            serde_json::to_vec(&Portraits::default())?,
+        )?;
+
+        // A minimal executable names two identical bank-owned images and one
+        // image supplied by the ordinary artwork categories.
+        let base = 0x801f_8000;
+        let mut exe = vec![0; 0x1100];
+        word(&mut exe, 0, 0x100);
+        word(&mut exe, 0x48, base);
+        word(&mut exe, 0x90, 0x1000);
+        for (pointer, address, name) in [
+            (0x801f_85e4, 0x801f_8800, "owned.tpl"),
+            (0x801f_85e8, 0x801f_8820, "duplicate.tpl"),
+            (0x801f_8674, 0x801f_8840, "shared.tpl"),
+            (0x801f_86b8, 0x801f_8860, "group1.bin"),
+            (0x801f_8748, 0x801f_8880, "group13.bin"),
+        ] {
+            word(&mut exe, 0x100 + (pointer - base) as usize, address);
+            let at = 0x100 + (address - base) as usize;
+            exe[at..at + name.len()].copy_from_slice(name.as_bytes());
+        }
+        fs::write(extracted.join("disc1/sys/main.dol"), exe)?;
+        for name in ["owned.tpl", "duplicate.tpl"] {
+            fs::write(files.join(name), image(200))?;
+        }
+        fs::write(files.join("shared.tpl"), image(100))?;
+        for name in ["group1.bin", "group13.bin"] {
+            fs::write(files.join(name), 0u32.to_be_bytes())?;
+        }
+        for name in ["change_disc.tpl", "end_roll_wall.tpl"] {
+            let mut tpl = vec![0; 12];
+            word(&mut tpl, 0, 0x0020_af30);
+            word(&mut tpl, 8, 12);
+            fs::write(files.join(name), tpl)?;
+        }
+        let shared = library.join("ui/location-titles/iselia-japanese-caption.ktx2");
+        crate::output::write(&shared, b"artwork from another category")?;
+        let cook = || {
+            crate::authoring::cook_incremental(&library, || {
+                cook_shared_texture_banks(&extracted, &library)
+            })
+        };
+        cook()?;
+        let texture = library.join("textures/unidentified-bank-0-image-0.ktx2");
+        let expected = fs::read(&texture)?;
+        assert!(resonance_asset_writer::gpu::is_native_compressed(
+            &expected
+        )?);
+        let banks: BTreeMap<String, TextureCatalogue> =
+            crate::authoring::read_json(&library, "textures/banks.json")?;
+        assert_eq!(
+            banks["unidentified-bank-0"].textures[0]
+                .as_ref()
+                .unwrap()
+                .images,
+            banks["unidentified-bank-1"].textures[0]
+                .as_ref()
+                .unwrap()
+                .images
+        );
+        fs::write(&texture, b"stale output")?;
+        cook()?;
+        assert_eq!(fs::read(texture)?, expected);
+        assert_eq!(fs::read(shared)?, b"artwork from another category");
+        Ok(())
+    }
 }

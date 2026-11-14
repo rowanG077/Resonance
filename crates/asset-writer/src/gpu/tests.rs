@@ -2,6 +2,122 @@ use super::*;
 use crate::texture::Pixels;
 
 #[test]
+fn mips_without_zero_alpha_keep_the_ordinary_encoding() -> Result<()> {
+    use texture_compressor::{Effort, Format as BcFormat, ImageView, Settings};
+    let mut levels = [(128, 64), (64, 32), (32, 16)]
+        .into_iter()
+        .map(|(width, height)| Pixels {
+            width,
+            height,
+            rgba: (0..width * height)
+                .flat_map(|i| {
+                    [
+                        (i * 37) as u8,
+                        (i * 71 + 19) as u8,
+                        (i * 13 + 23) as u8,
+                        if i / width < height / 2 {
+                            255
+                        } else {
+                            (i % 254 + 1) as u8
+                        },
+                    ]
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    for transparent_mip in [false, true] {
+        if transparent_mip {
+            for pixel in levels[1].rgba.chunks_exact_mut(4).step_by(3) {
+                pixel[3] = 0;
+            }
+        }
+        let actual = encode(&levels)?;
+        for (index, (source, actual)) in levels
+            .iter()
+            .zip(Reader::new(actual.as_slice())?.levels())
+            .enumerate()
+        {
+            if transparent_mip && index == 1 {
+                continue;
+            }
+            let expected = texture_compressor::encode(
+                ImageView::rgba8(
+                    &source.rgba,
+                    source.width,
+                    source.height,
+                    source.width as usize * 4,
+                )?,
+                &Settings::new(BcFormat::Bc7, Effort::Quality),
+            )?;
+            assert_eq!(actual.data, expected, "mip {index}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn bc7_keeps_zero_alpha_and_fully_opaque_textures_in_every_mip() -> Result<()> {
+    let mut levels = [(64, 64), (32, 32), (16, 16), (8, 8), (4, 4), (2, 2), (1, 1)]
+        .into_iter()
+        .map(|(width, height)| Pixels {
+            width,
+            height,
+            rgba: (0..width * height)
+                .flat_map(|i| {
+                    // Invisible RGB still affects the encoder's shared endpoints.
+                    // Include flat transparent blocks, cutouts, and soft edges.
+                    let alpha = match (i / 16) % 3 {
+                        0 => 0,
+                        1 => {
+                            if i % 3 == 0 {
+                                0
+                            } else {
+                                255
+                            }
+                        }
+                        _ => [0, 1, 4, 31, 100, 170, 254, 255][i as usize % 8],
+                    };
+                    [
+                        (i * 37) as u8,
+                        (i * 71 + 19) as u8,
+                        (i * 13 + 23) as u8,
+                        alpha,
+                    ]
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    for opaque in [false, true] {
+        if opaque {
+            for level in &mut levels {
+                for pixel in level.rgba.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
+            }
+        }
+        let encoded = encode(&levels)?;
+        assert!(is_native_compressed(&encoded)?);
+        for (source, decoded) in levels.iter().zip(crate::texture::ktx2(&encoded)?) {
+            for (pixel, (expected, actual)) in source
+                .rgba
+                .chunks_exact(4)
+                .zip(decoded.rgba.chunks_exact(4))
+                .enumerate()
+            {
+                if expected[3] == 0 || opaque {
+                    assert_eq!(
+                        actual[3], expected[3],
+                        "{}x{}, pixel {pixel}: alpha endpoint changed",
+                        source.width, source.height
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn native_bc7_keeps_authored_mips_and_rgba_fallback() -> Result<()> {
     // Distinct quadrants per level expose a swapped axis or a wrong crop.
     let levels = [(12, 8), (6, 4), (3, 2), (1, 1)]
@@ -33,8 +149,24 @@ fn native_bc7_keeps_authored_mips_and_rgba_fallback() -> Result<()> {
     let decoded = crate::texture::ktx2(&bytes)?;
     for (decoded, level) in decoded.iter().zip(&levels) {
         assert_eq!((decoded.width, decoded.height), (level.width, level.height));
-        for (actual, expected) in decoded.rgba.iter().zip(&level.rgba) {
-            assert!(actual.abs_diff(*expected) <= 8, "{actual} != {expected}");
+        for (pixel, (actual, expected)) in decoded
+            .rgba
+            .chunks_exact(4)
+            .zip(level.rgba.chunks_exact(4))
+            .enumerate()
+        {
+            for (channel, (&actual, &value)) in actual.iter().zip(expected).enumerate() {
+                // Bound visible color error and alpha independently; hidden
+                // RGB does not contribute to this visual error bound.
+                if channel == 3 || expected[3] != 0 {
+                    assert!(
+                        actual.abs_diff(value) <= 8,
+                        "{}x{} pixel {pixel}, channel {channel}: {actual} != {value}; expected {expected:?}",
+                        level.width,
+                        level.height
+                    );
+                }
+            }
         }
     }
     assert_eq!(crate::texture::ktx2(&rgba8(&bytes)?)?, decoded);

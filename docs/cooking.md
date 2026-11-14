@@ -9,9 +9,9 @@ cargo run --release -p resonance-import-cli -- /path/to/Disc1.rvz /path/to/Disc2
 ```
 
 Output defaults to `local/all-assets`, matching the engine's default asset path.
-Use `--output DIRECTORY` for another destination. Cooking writes directly into
-the target directory and overwrites existing output. There is no prerequisite
-`local/extracted` directory.
+Use `--output DIRECTORY` for another destination. A full cook clears the target
+directory before writing the generated library, including prior media and obsolete
+files. Keep authored mods outside the output directory.
 
 Disc 1 is primary. Only five additional event-speech archives and four story
 movies are read from disc 2. Shared assets cook once and the
@@ -37,7 +37,7 @@ without reading disc images again. They read existing granular documents as need
 overwrite generated output, and publish it back to source owners when finished.
 Cooking does not preserve source formatting or roll back failed writes. After an
 interrupted cook, rerun the category to overwrite its output, or run `cook-all` to
-replace the generated library documents. Keep authored mods outside the cook output.
+replace the entire generated library. Keep authored mods outside the cook output.
 
 The [Ghost Wolf modding example](../mods/ghost-wolf/README.md) is prepared separately
 with `resonance-import prepare-arte-mod` after cooking the base library. The command
@@ -209,6 +209,7 @@ entry bindings. Battle-specific programs and preparation remain separate.
 Geometry remains GLB. Published textures use KTX2, including their authored mip levels. Animation clips use standard glTF 2.0
 animation in GLB, with named rigs and one action per file. The publisher shares
 converted clips through direct readable paths; fields keep their own selections.
+BC7 textures use the encoder's Quality preset and preserve source zero alpha exactly.
 Generic animation banks contain target bindings and GLB paths, not native curves.
 
 Source-specific curve decoding, easing and time conversion stay in the importer.

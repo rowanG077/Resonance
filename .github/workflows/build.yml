@@ -133,6 +133,7 @@ jobs:
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
+          cargo test --locked --profile release-fast -p resonance-asset-writer
           cargo test --locked --profile release-fast -p resonance-importer --lib
           cargo test --locked --profile release-fast -p resonance-audio-cook --lib interpolation::tests::
           cargo test --locked --profile release-fast -p resonance-import-cli
