@@ -1002,7 +1002,7 @@ mod tests {
     #[ignore = "requires original se.snd; command and sound-route checks only, no samples or playback"]
     fn looping_sounds_repeat_their_existing_interpolation_selection() -> Result<()> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../local/extracted/disc1/files/S/se.snd");
+            .join("../../local/extracted-discs/disc1/files/S/se.snd");
         let bytes = std::fs::read(path)?;
         let bank = Bank::parse(&bytes)?;
         for (sound, program, selection, loop_at) in [
@@ -1067,7 +1067,8 @@ mod tests {
     #[test]
     #[ignore = "requires both original disc sound banks; command lowering only, no samples or audio output"]
     fn signed_vibratos_lower_on_their_sound_entry_routes() -> Result<()> {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted-discs");
         for disc in [1, 2] {
             for (file, sound, program, period, depth, reverse, scaled) in [
                 ("se_ev07.snd", 500, 281, 200, 25, true, true),
@@ -1113,7 +1114,7 @@ mod tests {
     #[ignore = "requires original se.snd; parses commands without samples or audio output"]
     fn volume_curve_program_lowers_completely() -> Result<()> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../local/extracted/disc1/files/S/se.snd");
+            .join("../../local/extracted-discs/disc1/files/S/se.snd");
         let bytes = std::fs::read(path)?;
         let bank = Bank::parse(&bytes)?;
         for id in [178, 387] {

@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -33,6 +34,27 @@ def stop(process):
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+
+
+class UserDirectory:
+    """Use a short real directory while running; retain the profile afterward."""
+
+    def __init__(self, destination):
+        self.destination = Path(destination)
+        # An interrupted capture must leave its real profile available.
+        self.temporary = Path(tempfile.mkdtemp(prefix="dolphin-"))
+        self.path = self.temporary / "user"
+        shutil.move(str(self.destination), str(self.path))
+
+    def restore(self):
+        if not self.path.exists():
+            return
+        # A closed Unix socket cannot be copied across filesystems.
+        socket_path = self.path / "MemoryWatcher" / "MemoryWatcher"
+        if socket_path.exists() and stat.S_ISSOCK(socket_path.stat().st_mode):
+            socket_path.unlink()
+        shutil.move(str(self.path), str(self.destination))
+        self.temporary.rmdir()
 
 
 def audio_evidence(root):
@@ -469,7 +491,7 @@ def main():
         metadata["dolphin_wrapped_binary_sha256"] = sha256(wrapped)
     manifest = output / "capture.json"
     manifest.write_text(json.dumps(metadata, indent=2) + "\n")
-    display = process = watch_directory = watcher = None
+    display = process = user_directory = watcher = None
     env = os.environ.copy()
     try:
         if args.xvfb:
@@ -493,11 +515,9 @@ def main():
         if args.watch_state:
             from memory_watch import Watcher
             # Dolphin derives the Unix socket path from its user directory.
-            # A short alias avoids the AF_UNIX pathname limit without moving
-            # the evidence/profile outside the capture directory.
-            watch_directory = tempfile.TemporaryDirectory(prefix="resonance-watch-")
-            user_path = Path(watch_directory.name) / "user"
-            user_path.symlink_to(output / "user", target_is_directory=True)
+            user_directory = UserDirectory(user_path)
+            user_path = user_directory.path
+            config = user_path / "Config"
             watcher = Watcher(user_path, output / "memory.jsonl", actor_locations)
         command = [executable, "-b", "-u", str(user_path), "-e", str(disc),
                    "-m", str(output / "input.dtm"), "-v", args.backend,
@@ -531,7 +551,7 @@ def main():
         metadata["command"] = command
         with (output / "dolphin.log").open("w") as log:
             process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-        frame = (output / "user" / "Dump" / "Frames" / f"framedump_{args.frame}.png"
+        frame = (user_path / "Dump" / "Frames" / f"framedump_{args.frame}.png"
                  if args.frame is not None else None)
         deadline = time.monotonic() + args.timeout
         while not (frame.is_file() if frame is not None else watcher.rows >= args.watch_vis):
@@ -562,7 +582,7 @@ def main():
             press_key(env, "F10")
             time.sleep(0.2)
             press_key(env, "F8")
-            state = output / "user" / "StateSaves" / "GQSEAF.s01"
+            state = user_path / "StateSaves" / "GQSEAF.s01"
             state_deadline = time.monotonic() + 10
             while not state.is_file() and time.monotonic() < state_deadline:
                 time.sleep(0.1)
@@ -570,7 +590,7 @@ def main():
                 raise RuntimeError("Dolphin did not save the requested checkpoint")
             # The checkpoint follows the requested frame; it is not claimed to
             # be the exact same tick as reference.png.
-            metadata["nearby_checkpoint"] = str(state.relative_to(output))
+            metadata["nearby_checkpoint"] = str(Path("user") / state.relative_to(user_path))
             # Retain the last complete dumped image as a nearby visual guide.
             # It can trail the saved CPU/actor pose by a render update. Do not
             # call it an exact pose match; inspect the first resumed scene
@@ -610,8 +630,9 @@ def main():
             if not metadata["presentation"]["gecko_verified"]:
                 metadata["complete"] = False
                 metadata["presentation"]["error"] = "no-blur Gecko instructions were not observed"
-        if watch_directory is not None:
-            watch_directory.cleanup()
+        if user_directory is not None:
+            user_directory.restore()
+            config = output / "user" / "Config"
         metadata["audio"]["recordings"] = audio_evidence(output)
         if args.video:
             metadata["video"] = [{"path": str(path.relative_to(output)), "sha256": sha256(path)}

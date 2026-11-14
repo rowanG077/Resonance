@@ -1,5 +1,5 @@
 //! Direct native conversion followed by granular source publication.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeSet, fs, path::Path};
 
 /// Run one category and overwrite its generated source owners on success.
@@ -98,9 +98,15 @@ pub(crate) fn file_paths(root: &Path) -> Result<BTreeSet<String>> {
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(&directory)? {
             let entry = entry?;
-            if entry.file_type()?.is_dir() {
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
                 pending.push(entry.path());
             } else {
+                ensure!(
+                    kind.is_file(),
+                    "authored assets must be regular files: {}",
+                    entry.path().display()
+                );
                 paths.insert(
                     entry
                         .path()

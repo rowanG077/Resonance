@@ -6,10 +6,9 @@ import re
 import select
 import shutil
 import subprocess
-import tempfile
 import time
 
-from capture import press_key, stop
+from capture import UserDirectory, press_key, stop
 from state import State, digest
 from memory_watch import Watcher
 from battle_state import presentation_locations
@@ -63,7 +62,7 @@ class DolphinFixture:
         self.output = Path(output).resolve()
         self.output.mkdir(parents=True)
         self.process = self.display = None
-        self.watcher = self.alias = None
+        self.watcher = self.profile = None
         self.env = dict(os.environ)
         self.env.update(renderer_environment())
         self.user = self.output/'user'
@@ -96,11 +95,13 @@ class DolphinFixture:
                 raise RuntimeError('Xvfb did not allocate a display')
             self.env.update(DISPLAY=':'+number, QT_QPA_PLATFORM='xcb')
             executable = Path(os.environ.get('RESONANCE_DOLPHIN') or shutil.which('dolphin-emu')).resolve()
-            self.alias = tempfile.TemporaryDirectory(prefix='effect-oracle-')
-            user_alias = Path(self.alias.name)/'user'
-            user_alias.symlink_to(self.user, target_is_directory=True)
+            self.profile = UserDirectory(self.user)
+            self.user = self.profile.path
+            self.frames = self.user/'Dump/Frames'
+            self.slot = self.user/'StateSaves/GQSEAF.s01'
+            config = self.user/'Config'
             self.marker = marker_address
-            self.watcher = Watcher(user_alias, self.output/'memory.jsonl', {
+            self.watcher = Watcher(self.user, self.output/'memory.jsonl', {
                 '80023c10': 'focus_patch_word', '8003efa4': 'secondary_blur_patch_word',
                 f'{self.marker:08x}': 'case_marker', **presentation_locations(), **(locations or {})}, mem1=True)
             boot_movie = self.output/'input.dtm'
@@ -108,7 +109,7 @@ class DolphinFixture:
             shutil.copyfile(initial_state, str(boot_movie)+'.sav')
             shutil.copyfile(str(initial_state)+'.dtm', str(boot_movie)+'.sav.dtm')
             set_movie_backend(str(boot_movie)+'.sav.dtm')
-            command = [str(executable), '-b', '-u', str(user_alias), '-e', str(Path(disc).resolve()),
+            command = [str(executable), '-b', '-u', str(self.user), '-e', str(Path(disc).resolve()),
                        '-m', str(boot_movie), '-s', str(boot_movie)+'.sav'] + DOLPHIN_OPTIONS
             if not capture_images:
                 command += ['-C', 'Dolphin.Movie.DumpFrames=False']
@@ -382,8 +383,6 @@ class DolphinFixture:
         if self.watcher:
             self.metadata['memory_watch'] = self.watcher.finish()
             self.metadata['complete'] &= self.metadata['memory_watch']['complete']
-        if self.alias:
-            self.alias.cleanup()
         (self.output/'session.json').write_text(json.dumps(self.metadata, indent=2)+'\n')
         # Failed registration may leave the only image evidence in the raw dump.
         directories = [self.user/'StateSaves']
@@ -392,6 +391,10 @@ class DolphinFixture:
         for directory in directories:
             if directory.exists():
                 shutil.rmtree(directory)
+        if self.profile:
+            self.profile.restore()
+            self.user = self.output/'user'
+            self.frames = self.user/'Dump/Frames'
         for suffix in ('input.dtm.sav', 'input.dtm.sav.dtm'):
             (self.output/suffix).unlink(missing_ok=True)
 

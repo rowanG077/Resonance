@@ -1,37 +1,47 @@
 # Asset cooking
 
-`resonance-import DISC_1 DISC_2` converts the supported North American
-GameCube GQSEAF revision 0 disc images into one editable asset library. The
-command uses `crates/importer`; it has no legacy fallback.
+`resonance-import DISC_1 DISC_2` extracts the supported North American
+GameCube GQSEAF revision 0 disc images to `local/extracted-discs`, then cooks
+one editable asset library. Supplying both discs replaces the previous extraction.
+The command uses `crates/importer`; it has no legacy fallback.
 
 ```sh
 cargo run --release -p resonance-import-cli -- /path/to/Disc1.rvz /path/to/Disc2.rvz
 ```
 
+Run without disc arguments to cook again from the retained extraction:
+
+```sh
+cargo run --release -p resonance-import-cli
+```
+
 Output defaults to `local/all-assets`, matching the engine's default asset path.
 Use `--output DIRECTORY` for another destination. A full cook clears the target
 directory before writing the generated library, including prior media and obsolete
-files. Keep authored mods outside the output directory.
+files. It leaves `local/extracted-discs` and the original disc images alone.
+Keep authored mods outside the output directory.
 
 Disc 1 is primary. Only five additional event-speech archives and four story
 movies are read from disc 2. Shared assets cook once and the
 disc-1 opening wins. Disc order and the supported edition are checked.
 
-The command temporarily extracts native files because the current decoders use
-ordinary file paths, with seekable archives for speech and movies. This is source
-input, not an intermediate cooked format. A temporary directory owns these
-files and removes them on success or failure; nothing is retained under
-`local/extracted` and no extraction cache or freshness check is introduced.
+The decoders read native files from `local/extracted-discs`, with seekable archives
+for speech and movies. Extraction is retained after cooking, including a failed
+cook. It is deleted and redone only when both disc images are supplied again.
 
 For focused development work, explicit extraction and `cook-all` remain available:
 
 ```sh
-target/release/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
-target/release/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
+target/release/resonance-import extract --disc /path/to/Disc1.rvz
+target/release/resonance-import extract --disc /path/to/Disc2.rvz
 target/release/resonance-import cook-all
 ```
 
-`cook-all` uses `--extracted local/extracted` and `--output local/all-assets` by
+`extract` reads the disc number from the image and defaults to
+`local/extracted-discs/disc1` or `local/extracted-discs/disc2`. Use `--output`
+to choose another directory.
+
+`cook-all` uses `--extracted local/extracted-discs` and `--output local/all-assets` by
 default. Category commands in `resonance-importer` can reuse that extraction
 without reading disc images again. They read existing granular documents as needed,
 overwrite generated output, and publish it back to source owners when finished.
@@ -111,7 +121,7 @@ until the cook succeeds.
 Focused development conversions use the replacement owner's CLI:
 
 ```sh
-cargo run -p resonance-importer -- field-core local/extracted local/field-review 330
+cargo run -p resonance-importer -- field-core local/extracted-discs local/field-review 330
 ```
 
 That writes one field's script, messages and collision. It needs the appropriate
@@ -291,7 +301,7 @@ accidental reuse.
 To add just these files to an existing library:
 
 ```sh
-cargo run -p resonance-importer -- input-prompts local/extracted local/all-assets
+cargo run -p resonance-importer -- input-prompts local/extracted-discs local/all-assets
 ```
 
 Like other cooking steps, this overwrites existing output. Edit the KTX2

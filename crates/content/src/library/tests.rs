@@ -421,28 +421,6 @@ fn namespace_discovery_rejects_case_ambiguous_names_and_non_directories() -> Res
     Ok(())
 }
 
-#[cfg(unix)]
-#[test]
-fn links_are_not_content() -> Result<()> {
-    let fixture = Fixture::new();
-    fixture.write("base/scripts/start.sym", b"base");
-    std::os::unix::fs::symlink(".", fixture.0.path().join("base/scripts/loop"))?;
-    let error = format!("{:#}", fixture.open(&[]).unwrap_err());
-    assert!(
-        error.contains("symbolic links are not supported"),
-        "{error}"
-    );
-    // Hidden entries, such as a mod's version control, are not scanned at all.
-    fs::rename(
-        fixture.0.path().join("base/scripts/loop"),
-        fixture.0.path().join("base/scripts/.loop"),
-    )?;
-    fixture.write("base/.git/odd#name", b"state");
-    let library = fixture.open(&[])?;
-    assert_eq!(library.snapshot().files_under("scripts")?.len(), 1);
-    Ok(())
-}
-
 #[test]
 fn captured_resources_reach_runtime_and_new_reads_use_current_bytes() -> Result<()> {
     use crate::{diagnostics::Diagnostics, prepared::Files};

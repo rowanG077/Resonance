@@ -38,7 +38,7 @@ class LifecycleComparison(unittest.TestCase):
                 raw = worker.user/'Dump/Frames/frame.png'
                 raw.parent.mkdir(parents=True)
                 raw.write_bytes(b'capture evidence')
-                worker.process = worker.display = worker.watcher = worker.alias = None
+                worker.process = worker.display = worker.watcher = worker.profile = None
                 worker.metadata = {'complete': complete}
                 worker.close(complete=complete)
                 self.assertEqual(raw.exists(), not complete)

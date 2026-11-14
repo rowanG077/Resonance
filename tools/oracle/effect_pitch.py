@@ -1015,7 +1015,7 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path)
     parser.add_argument("--assets", type=Path, default=capture.ROOT / "local/all-assets")
     parser.add_argument("--usual", type=Path,
-                        default=capture.ROOT / "local/extracted/disc1/files/BTL/BTLusual.dat")
+                        default=capture.ROOT / "local/extracted-discs/disc1/files/BTL/BTLusual.dat")
     parser.add_argument("--axis", choices=("pitch", "yaw", "retained"), default="pitch")
     parser.add_argument("--packages", type=Path, help="original enemy packages for retained bank binding")
     args = parser.parse_args()

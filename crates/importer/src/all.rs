@@ -29,9 +29,8 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     let executable = root.join("disc1/sys/main.dol");
     ensure!(
         executable.is_file(),
-        "missing extracted GameCube input {}; extract disc 1 first with resonance-import extract --disc <disc-1-image> --output {}",
-        executable.display(),
-        root.join("disc1").display()
+        "missing extracted GameCube input {}; run resonance-import <disc-1-image> <disc-2-image> to extract both discs first",
+        executable.display()
     );
     std::fs::create_dir_all(library)?;
     let source = root.canonicalize()?;
