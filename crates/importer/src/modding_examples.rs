@@ -49,6 +49,37 @@ fn check_addition(document: &arte::document::Document, example: &Example) -> Res
     Ok(())
 }
 
+/// Install the bundled Ghost Wolf mod without requiring a source checkout.
+pub fn install_ghost_wolf(library: &Path, output: &Path) -> Result<()> {
+    let source = tempfile::tempdir()?;
+    for (path, bytes) in [
+        (
+            "example.json",
+            include_bytes!("../../../mods/ghost-wolf/example.json").as_slice(),
+        ),
+        (
+            "battle/artes/ghost-wolf/action.json",
+            include_bytes!("../../../mods/ghost-wolf/battle/artes/ghost-wolf/action.json")
+                .as_slice(),
+        ),
+        (
+            "battle/artes/ghost-wolf/effects.json",
+            include_bytes!("../../../mods/ghost-wolf/battle/artes/ghost-wolf/effects.json")
+                .as_slice(),
+        ),
+        (
+            "battle/artes/ghost-wolf/ghost-wolf.glb",
+            include_bytes!("../../../mods/ghost-wolf/battle/artes/ghost-wolf/ghost-wolf.glb")
+                .as_slice(),
+        ),
+    ] {
+        let path = source.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(path, bytes)?;
+    }
+    prepare_arte_mod(source.path(), library, output)
+}
+
 /// Resolve reference-relative authored motion and publish only this mod's entries.
 /// This needs the cooked library, never original discs or a fresh game import.
 pub fn prepare_arte_mod(source: &Path, library: &Path, output: &Path) -> Result<()> {
@@ -405,7 +436,7 @@ mod tests {
     fn prepared_mods_ship_no_shared_markers_and_guard_their_output_directory() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let [source, base, output] =
-            ["source", "base", "mods/wolf"].map(|name| directory.path().join(name));
+            ["source", "base", "mods/000100-ghost-wolf"].map(|name| directory.path().join(name));
         crate::output::json(
             &base.join("content.json"),
             &resonance_content::library::Descriptor {
@@ -415,21 +446,22 @@ mod tests {
         )?;
         let techniques = serde_json::to_value(native_techniques())?;
         resonance_content::authoring::publish(&base, arte::PATH, &techniques)?;
-        let skeleton = Skeleton::single("root");
+        let recipe: serde_json::Value =
+            serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))?;
+        let skeleton = Skeleton::single("obj_kosi_ken_L");
         let still = Motion {
             duration_frames: 1.,
             tracks: Vec::new(),
         };
-        let rig = json!({"asset": {"version": "2.0"}, "nodes": [{"name": "root", "extras": {"resonance_bone": 0}}]});
+        let rig = json!({"asset": {"version": "2.0"}, "nodes": [{"name": "obj_kosi_ken_L", "extras": {"resonance_bone": 0}}]});
         crate::output::write(
-            &base.join("rig.glb"),
+            &base.join(recipe["motion_reference"]["skeleton"].as_str().unwrap()),
             &resonance_asset_writer::gltf::pack_glb(&rig, &[])?,
         )?;
-        crate::output::write(&base.join("idle.glb"), &still.encode(&skeleton)?)?;
-        let mut recipe: serde_json::Value =
-            serde_json::from_str(include_str!("../../../mods/ghost-wolf/example.json"))?;
-        recipe["motion_reference"] =
-            json!({"skeleton": "rig.glb", "motion": "idle.glb", "frame": 0.});
+        crate::output::write(
+            &base.join(recipe["motion_reference"]["motion"].as_str().unwrap()),
+            &still.encode(&skeleton)?,
+        )?;
         crate::output::json(&source.join("example.json"), &recipe)?;
         let scope = source.join("battle/artes/ghost-wolf");
         crate::output::json(
@@ -456,6 +488,40 @@ mod tests {
             assert!(prepare_arte_mod(&source, &base, &refused).is_err());
         }
         assert!(base.join("content.json").is_file() && scope.join("action.json").is_file());
+
+        // The distributed importer carries the real recipe, action, effects and
+        // relative motion; installing it needs no working-directory sources.
+        install_ghost_wolf(&base, &output)?;
+        let mods = resonance_content::library::discover_mods(output.parent().unwrap())?;
+        assert_eq!(mods, [output.clone()]);
+        let library = resonance_content::library::Library::open_paths(&base, &mods)?;
+        let techniques: arte::document::Document = library
+            .snapshot()
+            .json(arte::PATH, resonance_content::preparation::JSON_LIMIT)?;
+        assert_eq!(techniques.mappings.target(260)?, "ghost-wolf-lloyd");
+        assert!(
+            techniques
+                .prepare()?
+                .catalogue
+                .learned_by(1)?
+                .contains(&260)
+        );
+        let effects: serde_json::Value = library.snapshot().json(
+            "battle/artes/ghost-wolf/effects.json",
+            resonance_content::preparation::JSON_LIMIT,
+        )?;
+        assert_eq!(
+            effects,
+            serde_json::from_str::<serde_json::Value>(include_str!(
+                "../../../mods/ghost-wolf/battle/artes/ghost-wolf/effects.json"
+            ))?
+        );
+        let motion = Motion::decode_for_skeleton(
+            &std::fs::read(output.join("battle/artes/ghost-wolf/ghost-wolf.glb"))?,
+            &skeleton,
+        )?;
+        assert!(motion.duration_frames > 1.);
+        install_ghost_wolf(&base, &output)?;
         Ok(())
     }
 

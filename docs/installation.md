@@ -63,7 +63,10 @@ cd resonance-vX.X.X-PLATFORM
 Replace the example version, platform and disc paths with your actual filenames.
 The importer reads both discs and creates `local/all-assets`. Importing can take
 some time and requires free disk space for temporary extraction and cooked assets.
-The game reads `local/all-assets` by default. Import once before starting it.
+The game reads `local/all-assets` by default. v0.5.1 requires a full recook with
+the updated importer, including existing libraries.
+The importer also installs Ghost Wolf in `local/mods/000100-ghost-wolf`, preserving
+the arte in older saves.
 Cooking writes directly to its output and overwrites existing files; use a fresh
 output directory to avoid mixing asset versions or overwriting your edits.
 

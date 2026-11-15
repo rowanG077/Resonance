@@ -91,7 +91,7 @@ mod menu_ui_labels;
 mod menu_world_map;
 mod mesh_mappings;
 mod modding_examples;
-pub use modding_examples::prepare_arte_mod;
+pub use modding_examples::{install_ghost_wolf, prepare_arte_mod};
 mod movies;
 mod native_archive;
 mod options;
