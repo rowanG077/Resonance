@@ -554,9 +554,6 @@ impl Battle {
         {
             return Ok(());
         }
-        if u32::from(self.actors[actor.index()].tp) < self.action_quote(actor, binding) {
-            return Ok(());
-        }
         if self.queue_technique_from(actor, binding, owner)? {
             self.runtime[actor.index()]
                 .control
