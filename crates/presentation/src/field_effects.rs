@@ -104,7 +104,7 @@ impl Artwork {
     pub(super) fn diagnostic(&self, world: &resonance_events::GameWorld) -> serde_json::Value {
         serde_json::json!({
             "emotes": world.emotes.iter().filter(|(id, _)| self.drawn(&Request::Emote(**id), world.tick))
-                .map(|(id, emote)| serde_json::json!({"id":id,"actor":emote.actor,"kind":emote.kind})).collect::<Vec<_>>(),
+                .map(|(instance, emote)| serde_json::json!({"instance":instance,"id":emote.id,"actor":emote.actor,"kind":emote.kind})).collect::<Vec<_>>(),
             "billboards": world.billboards.iter().filter(|(id, _)| self.drawn(&Request::Billboard(**id), world.tick))
                 .map(|(id, effect)| serde_json::json!({"id":id,"recipe":effect.recipe})).collect::<Vec<_>>()
         })
@@ -533,9 +533,7 @@ pub(super) fn render(
         .filter(|(p, _)| p.part == 0)
         .map(|(p, rig)| (p.actor, (p, rig)))
         .collect();
-    let mut emotes: Vec<_> = world.emotes.iter().collect();
-    emotes.sort_unstable_by_key(|(_, emote)| emote.draw_order);
-    let emotes = emotes.into_iter().map(|(&id, emote)| {
+    let emotes = world.emotes.iter().map(|(&id, emote)| {
         (
             Request::Emote(id),
             emote.actor,

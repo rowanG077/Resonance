@@ -209,7 +209,13 @@ fn triet_hole_examination_shows_lloyds_reaction() -> Result<()> {
         ..Default::default()
     })?;
     for _ in 0..10 {
-        if let Some(emote) = field.events.world.emotes.get(&-100) {
+        if let Some(emote) = field
+            .events
+            .world
+            .emotes
+            .values()
+            .find(|emote| emote.id == -100)
+        {
             ensure!(
                 emote.actor == id
                     && emote.kind == resonance_events::emote::Kind::Sweat

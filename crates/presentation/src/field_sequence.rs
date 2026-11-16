@@ -528,7 +528,7 @@ fn capture(
             })
         }).collect::<Vec<_>>(),
         "model_particles":world.model_particles.iter().map(|(id,p)|serde_json::json!({"id":id,"resource":p.resource,"position":p.position,"rotation":p.rotation,"scale":p.scale,"rgba":p.rgba})).collect::<Vec<_>>(),
-        "emotes":world.emotes.iter().map(|(id,e)|serde_json::json!({"id":id,"kind":e.kind,"start_tick":e.start_tick,"phase":e.phase})).collect::<Vec<_>>(),
+        "emotes":world.emotes.iter().map(|(id,e)|serde_json::json!({"instance":id,"id":e.id,"actor":e.actor,"kind":e.kind,"start_tick":e.start_tick,"phase":e.phase})).collect::<Vec<_>>(),
         "billboards":world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"draw_order":p.draw_order,"recipe":p.recipe,"born":p.born,"lifetime":p.lifetime,"position":p.position,"rotation":p.rotation,"size":p.size,"rgba":p.rgba,"alpha":p.alpha(world.tick),"velocity":p.velocity,"size_delta":p.size_delta,"blend":p.blend})).collect::<Vec<_>>(),
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
         "refractions":world.refractions.iter().map(|(id,p)| {

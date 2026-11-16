@@ -1,6 +1,8 @@
 //! Head symbols with individual entrances and repeating gestures.
 use resonance_content::effect::{Sprite, VerticalAnchor};
 
+pub(crate) const SCRIPT_IDS: std::ops::RangeInclusive<i32> = -299..=-100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {

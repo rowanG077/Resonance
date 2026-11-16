@@ -24,7 +24,7 @@ pub(super) enum Request {
     Eyes(i32),
     SecondaryMotion(i32, usize),
     Shadow(i32),
-    Emote(i32),
+    Emote(usize),
     FieldDamage,
     Paralysis,
     Billboard(i32),
@@ -252,9 +252,9 @@ mod tests {
             .actors
             .insert(1, resonance_events::Actor::new(1, [0.; 3]));
         world.emotes.insert(
-            -100,
+            0,
             resonance_events::Emote {
-                draw_order: 0,
+                id: -100,
                 phase: 0,
                 actor: 1,
                 kind: resonance_events::emote::Kind::Blush,
@@ -272,9 +272,9 @@ mod tests {
             validate(0, &applied, Instant::now())
                 .unwrap_err()
                 .to_string()
-                .contains("Emote(-100)")
+                .contains("Emote(0)")
         );
-        applied.requests.insert(Request::Emote(-100));
+        applied.requests.insert(Request::Emote(0));
         validate(0, &applied, Instant::now()).unwrap();
         world.save_points.push(resonance_events::SavePoint {
             actor: 0,

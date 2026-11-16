@@ -1427,23 +1427,22 @@ impl NativeHost<'_> {
                     } else {
                         a[5]
                     };
-                    if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&target) {
+                    if crate::emote::SCRIPT_IDS.contains(&a[0])
+                        && self.world.actors.contains_key(&target)
+                    {
+                        // Negative script IDs label pooled objects; they do not replace
+                        // earlier reactions, even on the same actor.
+                        let Some(instance) =
+                            (0..200).find(|slot| !self.world.emotes.contains_key(slot))
+                        else {
+                            return Ok(NativeResult::Continue(None));
+                        };
                         let kind = crate::emote::Kind::try_from(a[4])?;
-                        let draw_order = self.world.emotes.get(&a[0]).map_or_else(
-                            || {
-                                (0..200)
-                                    .find(|order| {
-                                        self.world.emotes.values().all(|e| e.draw_order != *order)
-                                    })
-                                    .ok_or("emote limit exceeded")
-                            },
-                            |previous| Ok(previous.draw_order),
-                        )?;
                         let phase = kind.phase(self.world.effect_tick, self.world.random());
                         self.world.emotes.insert(
-                            a[0],
+                            instance,
                             Emote {
-                                draw_order,
+                                id: a[0],
                                 phase,
                                 actor: target,
                                 kind,
