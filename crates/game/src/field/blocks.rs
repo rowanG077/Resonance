@@ -90,39 +90,22 @@ impl Blocks {
         let player = world.actors.get(&world.controlled_actor)?;
         world.actor_order().iter().copied().find(|id| {
             world.actors.get(id).is_some_and(|block| {
-                block.pushable && block.visible && super::within_interaction_reach(player, block)
+                // Visibility only controls drawing; radar-hidden blocks still
+                // accept the same grab controls as visible blocks.
+                block.pushable && super::within_interaction_reach(player, block)
             })
         })
     }
     pub fn step(&mut self, events: &mut EventRuntime, mesh: &WalkMesh, input: FieldInput) {
-        if !self.active() && (!events.player_has_control() || !input.pressed(Button::Accept)) {
-            return;
-        }
-        let mesh = &mesh.with_actors(events.world.actors.values());
-        let service_clips = [HOLD_CLIP, PUSH_CLIP, PULL_CLIP].map(|slot| {
-            let duration = events
-                .world
-                .actors
-                .get(&events.world.controlled_actor)
-                .and_then(|a| {
-                    events.resources().animations.get(
-                        &(resonance_content::field::FIELD_SERVICE_MOTION_RESOURCE_BASE
-                            + a.resource),
-                    )
-                })
-                .and_then(|clips| clips.get(&slot))
-                .map(|clip| clip.duration_ticks);
-            (slot, duration)
-        });
-        let world = &mut events.world;
-        if self.grip.is_none() {
-            if !world.input_enabled || world.mapped_input_disabled || !input.pressed(Button::Accept)
-            {
+        let Some(grip) = self.grip.as_mut() else {
+            if !input.pressed(Button::Accept) || !events.player_has_control() {
                 return;
             }
+            let world = &mut events.world;
             let Some(id) = Self::target(world) else {
                 return;
             };
+            let mesh = mesh.with_actors(world.actors.values());
             if !mesh.block_supported(&world.actors[&id]) {
                 return;
             }
@@ -150,8 +133,23 @@ impl Blocks {
             world.grabbed_block = Some(id);
             world.input_enabled = false;
             return;
-        }
-        let grip = self.grip.as_mut().unwrap();
+        };
+        let service_clips = [HOLD_CLIP, PUSH_CLIP, PULL_CLIP].map(|slot| {
+            let duration = events
+                .world
+                .actors
+                .get(&events.world.controlled_actor)
+                .and_then(|a| {
+                    events.resources().animations.get(
+                        &(resonance_content::field::FIELD_SERVICE_MOTION_RESOURCE_BASE
+                            + a.resource),
+                    )
+                })
+                .and_then(|clips| clips.get(&slot))
+                .map(|clip| clip.duration_ticks);
+            (slot, duration)
+        });
+        let world = &mut events.world;
         let valid = world.controlled_actor == grip.player
             && world
                 .actors
@@ -161,12 +159,16 @@ impl Blocks {
                 .actors
                 .get(&grip.player)
                 .is_some_and(|a| a.instance == grip.player_instance);
+        let holding = matches!(grip.phase, Phase::Holding);
         let release = !valid
             || world.mapped_input_disabled
-            || (matches!(grip.phase, Phase::Holding)
-                && (!world.input.held.contains(Button::Accept)
-                    || !mesh.block_supported(&world.actors[&grip.block])));
-        if release {
+            || (holding && !world.input.held.contains(Button::Accept));
+        let holding_mesh = (holding && !release).then(|| mesh.with_actors(world.actors.values()));
+        if release
+            || holding_mesh
+                .as_ref()
+                .is_some_and(|mesh| !mesh.block_supported(&world.actors[&grip.block]))
+        {
             if let Some(player) = world
                 .actors
                 .get_mut(&grip.player)
@@ -190,7 +192,7 @@ impl Blocks {
         }
         world.input_enabled = false;
         let mut clip = HOLD_CLIP;
-        if matches!(grip.phase, Phase::Holding) {
+        if let Some(mesh) = holding_mesh {
             let forward = world.field_camera.as_ref().map_or([0., 1.], |c| {
                 [c.target[0] - c.position[0], c.target[1] - c.position[1]]
             });
@@ -414,18 +416,21 @@ mod tests {
     }
     #[test]
     fn property_enabled_block_can_be_grabbed_moved_and_disabled() {
-        let (mut events, mesh, mut blocks) = room();
-        let block = events.world.actors.get_mut(&2).unwrap();
-        block.role = ActorRole::Ordinary;
-        block.pushable = true;
-        grab(&mut events, &mesh, &mut blocks);
-        assert_eq!(events.world.grabbed_block, Some(2));
-        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
-        assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
-        events.world.actors.get_mut(&2).unwrap().pushable = false;
-        step(&mut events, &mesh, &mut blocks, held([0.; 2]));
-        assert_eq!(events.world.grabbed_block, None);
-        assert!(events.player_has_control());
+        for visible in [true, false] {
+            let (mut events, mesh, mut blocks) = room();
+            let block = events.world.actors.get_mut(&2).unwrap();
+            block.role = ActorRole::Ordinary;
+            block.pushable = true;
+            block.visible = visible;
+            grab(&mut events, &mesh, &mut blocks);
+            assert_eq!(events.world.grabbed_block, Some(2));
+            hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+            assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
+            events.world.actors.get_mut(&2).unwrap().pushable = false;
+            step(&mut events, &mesh, &mut blocks, held([0.; 2]));
+            assert_eq!(events.world.grabbed_block, None);
+            assert!(events.player_has_control());
+        }
     }
 
     #[test]
