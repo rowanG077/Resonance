@@ -32,6 +32,8 @@ mod command_strip;
 mod cutin;
 #[path = "battle_ui/equipment.rs"]
 mod equipment;
+#[path = "battle_ui/fatal_strike.rs"]
+mod fatal_strike;
 #[cfg(test)]
 #[path = "battle_ui/fixtures.rs"]
 mod fixtures;
@@ -320,8 +322,15 @@ impl Artwork {
             rhythm_prompt: palette.layer(rhythm_prompt, materials),
             unison,
         };
-        let combat =
-            combat::Hud::load(&art, enemies, stack_enemies, &palette, materials, &mut load)?;
+        let combat = combat::Hud::load(
+            &art,
+            enemies,
+            stack_enemies,
+            &palette,
+            &inputs,
+            materials,
+            &mut load,
+        )?;
         let windows = menu::MenuArtwork::load(
             &read,
             session.experience.clone().into(),
@@ -524,6 +533,16 @@ impl Artwork {
                 .is_some_and(|scene| scene.hide_hud)
         {
             self.hide_for_event(commands);
+            return Ok(());
+        }
+        if frame
+            .fatal_strikes
+            .as_ref()
+            .is_some_and(|fatal| fatal.scene.is_some())
+        {
+            self.hide_for_event(commands);
+            self.render_combat(frame, None, marker_anchors, commands, meshes)?;
+            self.render_numbers(frame, commands, meshes)?;
             return Ok(());
         }
         self.render_party(frame, party, commands, meshes)?;

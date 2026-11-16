@@ -257,6 +257,7 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
     files.insert(
         "battle/enemies/test-enemy/rules.json".to_owned(),
         serde_json::to_vec(&resonance_content::battle_enemy::document::Rules {
+            fatal_strike: None,
             null_motions: Default::default(),
             profile,
             weapon_visibility: Default::default(),

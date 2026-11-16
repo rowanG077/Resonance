@@ -131,6 +131,7 @@ fn convert(exe: &[u8]) -> Result<Document> {
         rumble: enabled(4),
         flexible_battle_party: false,
         combined_battles: false,
+        fatal_strikes: false,
         learn_elemental_artes: false,
         learn_both_arte_paths: false,
         graphics_backend: Default::default(),

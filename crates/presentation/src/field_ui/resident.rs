@@ -5,7 +5,7 @@ use super::*;
 mod probe;
 #[cfg(test)]
 #[path = "resident_scenario.rs"]
-mod scenario;
+pub(crate) mod scenario;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, Weak},

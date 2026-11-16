@@ -191,6 +191,7 @@ pub(crate) fn scene_hit(row: &[u8], recoil: u8) -> Result<ActionHit> {
         _ => anyhow::bail!("invalid spell element {}", row[2]),
     };
     Ok(ActionHit {
+        fatal_damage: None,
         kind: DamageKind::Magic,
         effect: (row[22] != 0).then_some(u16::from(row[22])),
         effect_on_guard: false,

@@ -305,6 +305,19 @@ impl Owner {
             "paused": frame.clock.paused(),
             "timed_hold_remaining": scene.core.timed_hold_remaining(),
         });
+        diagnostic["fatal_strikes"] = json!(frame.fatal_strikes.as_ref().map(|fatal| json!({
+            "targets": fatal.targets.iter().map(|target| json!({
+                "actor": target.actor.index(), "remaining": target.remaining, "capacity": target.capacity,
+                "chain": target.chain, "opening": target.opening.map(|opening| json!({
+                    "color": format!("{:?}", opening.color), "remaining": opening.remaining, "chain": opening.chain,
+                })),
+            })).collect::<Vec<_>>(),
+            "scene": fatal.scene.map(|scene| json!({
+                "performer": scene.performer.index(), "target": scene.target.index(), "color": format!("{:?}", scene.color),
+                "chain": scene.chain, "age": scene.age, "impact_at": scene.impact_at, "duration": scene.duration,
+                "style": format!("{:?}", scene.style), "emitter": scene.emitter,
+            })),
+        })));
         diagnostic["unison_gauge"] = json!(scene.core.unison_gauge());
         diagnostic["unison"] = json!(frame.unison.as_ref().map(|unison| json!({
             "generation": unison.generation,

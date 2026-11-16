@@ -77,6 +77,7 @@ fn opening_hit(rules: &[u8], contact: &[u8]) -> Result<ActionHit> {
     );
     let cue = dol::u16(rules, 16)?;
     Ok(ActionHit {
+        fatal_damage: None,
         kind: DamageKind::Slash,
         effect: None,
         effect_on_guard: flags & 0x800 != 0,

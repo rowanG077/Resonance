@@ -21,6 +21,22 @@ struct Shake {
     offset: f32,
 }
 
+fn finisher_impact(
+    frame: &BattleFrame,
+    victim: resonance_battle::ActorId,
+    owner: Option<resonance_battle::ActorId>,
+) -> bool {
+    frame
+        .fatal_strikes
+        .as_ref()
+        .and_then(|fatal| fatal.scene.as_ref())
+        .is_some()
+        && frame.cues.iter().any(|cue| {
+            matches!(cue, Cue::FatalImpact(success)
+            if success.target==victim && owner.is_none_or(|owner| owner==success.performer))
+        })
+}
+
 impl Feedback {
     pub fn new(resources: Resources, seed: u64) -> Self {
         Self {
@@ -424,7 +440,7 @@ impl Feedback {
                         }));
                     }
                 }
-                Cue::UnisonReady => cues.extend(
+                Cue::UnisonReady | Cue::FatalOpening { .. } => cues.extend(
                     self.resources
                         .unison_ready
                         .map(|sound| Cue::GlobalSound { sound, priority: 1 }),
@@ -586,11 +602,13 @@ impl Feedback {
                         if target.side == Side::Enemy {
                             // Confirmed defeats are contact feedback. Their first
                             // particles appear after the current particle visit.
-                            cues.push(Cue::DeferredEffect(attached_effect(
-                                actor,
-                                target,
-                                death.appearance,
-                            )));
+                            if !finisher_impact(frame, actor, None) {
+                                cues.push(Cue::DeferredEffect(attached_effect(
+                                    actor,
+                                    target,
+                                    death.appearance,
+                                )));
+                            }
                             if let Some(sound) = death.sound {
                                 cues.push(Cue::Sound {
                                     actor,
@@ -710,7 +728,8 @@ impl Feedback {
                 continue;
             };
             let target = &frame.actors[actor.index()];
-            if let Some(art) = &self.resources.contact_art {
+            let authored_cast = finisher_impact(frame, actor, Some(owner));
+            if !authored_cast && let Some(art) = &self.resources.contact_art {
                 let tint = art.elements[element.map_or(0, |element| element as usize + 1)];
                 let mut emit = |effect_owner, appearance| {
                     cues.push(Cue::DeferredEffect(EffectRequest {
@@ -1121,6 +1140,42 @@ mod tests {
             if request.owner == actor && request.appearance == appearance
             && request.follow == Some(resonance_battle::EffectFollow::Center(actor))));
         assert_eq!(frame.actors, actors);
+        let performer = resonance_battle::ActorId::from_index(0)?;
+        let mut frame = battle.snapshot();
+        frame.fatal_strikes = Some(resonance_battle::FatalStrikeFrame {
+            targets: Vec::new(),
+            scene: Some(resonance_battle::FatalSceneFrame {
+                contact: None,
+                performer,
+                target: actor,
+                color: resonance_battle::FatalColor::Blue,
+                style: resonance_battle::FatalStyle::Arcane,
+                emitter: None,
+                chain: 1,
+                age: 56,
+                impact_at: 56,
+                duration: 112,
+            }),
+        });
+        frame.cues = vec![
+            Cue::Defeated { actor },
+            Cue::FatalImpact(resonance_battle::FatalSuccess {
+                performer,
+                target: actor,
+                color: resonance_battle::FatalColor::Blue,
+                chain: 1,
+                defeated: true,
+                damage: 100,
+            }),
+        ];
+        feedback.resolve(&mut frame, true);
+        assert!(
+            !frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Effect(_) | Cue::DeferredEffect(_))),
+            "native death burst obscured the authored caster strike"
+        );
         Ok(())
     }
 

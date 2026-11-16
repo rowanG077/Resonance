@@ -879,7 +879,10 @@ impl Effects {
             let Some(origin) = follow.position(frame) else {
                 continue;
             };
-            if effect.weapon.is_some() && frame.paused_actors.contains(&effect.actor) {
+            if (effect.weapon.is_some()
+                || matches!(frame.clock, crate::BattleClock::FatalStrike(_)))
+                && frame.paused_actors.contains(&effect.actor)
+            {
                 continue;
             }
             if passive.remaining == 0 {
@@ -1309,6 +1312,8 @@ impl Effects {
                     if active.after_particles != after_particles
                         || (only_pause_effects && !active.during_pause)
                         || (transition && (active.passive || active.ambient))
+                        || (matches!(frame.clock, crate::BattleClock::FatalStrike(_))
+                            && frame.paused_actors.contains(&active.actor))
                         || (frame.clock == crate::BattleClock::SpellTransition
                             && active.paused_by_spell)
                     {

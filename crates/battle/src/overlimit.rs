@@ -67,6 +67,7 @@ impl Battle {
 
     pub fn is_paused(&self) -> bool {
         self.summon_entry.active()
+            || self.fatal_strikes.active()
             || self.enemy_presentation.holding()
             || self.target_selector_active()
             || self.timed_hold.is_some()

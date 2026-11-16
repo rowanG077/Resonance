@@ -134,6 +134,10 @@ impl State {
     }
 
     fn apply_tint(&mut self, request: StageTint, step: u8) {
+        if request.duration == 0 {
+            self.scene = None;
+            return;
+        }
         self.scene_step = step;
         self.scene = Some(self.scene.map_or(request, |current| StageTint {
             color: std::array::from_fn(|axis| current.color[axis].min(request.color[axis])),
@@ -155,6 +159,32 @@ fn approach(color: &mut [u8], target: [u8; 3], step: u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_duration_releases_a_scene_tint_without_underflow() {
+        let mut state = State::new([64; 4]);
+        state.advance(
+            BattleClock::Running,
+            &[Cue::StageTint(StageTint {
+                color: [16; 3],
+                duration: 100,
+            })],
+        );
+        for _ in 0..12 {
+            state.advance(BattleClock::Running, &[]);
+        }
+        state.advance(
+            BattleClock::Running,
+            &[Cue::StageTint(StageTint {
+                color: [255; 3],
+                duration: 0,
+            })],
+        );
+        for _ in 0..30 {
+            state.advance(BattleClock::Running, &[]);
+        }
+        assert_eq!(state.color(), [64; 4]);
+    }
 
     #[test]
     fn prelude_tint_holds_then_restores_prepared_scenery_color() {

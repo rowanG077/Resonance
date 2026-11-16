@@ -100,6 +100,7 @@ pub struct ControlInput {
     /// Fresh vertical direction edge: down -1, neutral 0, up 1.
     pub vertical_pressed: i8,
     pub attack: ButtonInput,
+    pub fatal_strike: ButtonInput,
     pub technique: ButtonInput,
     /// A physical arte assignment, independent of the legacy direction slots.
     pub assigned_arte: Option<TechniqueId>,
@@ -122,6 +123,7 @@ impl ControlInput {
             horizontal_pressed: 0,
             vertical_pressed: 0,
             attack: Default::default(),
+            fatal_strike: Default::default(),
             technique: Default::default(),
             assigned_arte: None,
             delay_spell: Default::default(),

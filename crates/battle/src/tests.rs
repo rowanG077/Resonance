@@ -818,6 +818,7 @@ fn clash_battle(
 /// Neutral physical hit; each scenario specifies only the properties it exercises.
 pub(crate) fn hit() -> HitRule {
     HitRule {
+        fatal_damage: None,
         sound: None,
         effect_on_guard: false,
         effect: None,

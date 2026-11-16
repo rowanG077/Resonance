@@ -568,6 +568,58 @@ fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Re
 }
 
 #[test]
+fn fatal_strike_holds_other_actors_released_effects_and_resumes_them() -> Result<()> {
+    let mut effects = effects(births([0, 1, 4]), false);
+    let mut frame = frame();
+    frame.cues.push(Cue::Effect(request()));
+    effects.advance(&frame, false)?;
+    frame.cues.clear();
+    effects.advance(&frame, false)?;
+    let before = effects
+        .particles
+        .values()
+        .map(|particle| particle.age)
+        .collect::<Vec<_>>();
+    let emitters = effects
+        .emitters
+        .iter()
+        .map(|emitter| emitter.age)
+        .collect::<Vec<_>>();
+    assert!(!before.is_empty());
+    frame.clock = crate::BattleClock::FatalStrike(ActorId(1));
+    frame.paused_actors.push(ActorId(0));
+    for _ in 0..90 {
+        effects.advance(&frame, false)?;
+    }
+    assert_eq!(
+        effects
+            .particles
+            .values()
+            .map(|particle| particle.age)
+            .collect::<Vec<_>>(),
+        before
+    );
+    assert_eq!(
+        effects
+            .emitters
+            .iter()
+            .map(|emitter| emitter.age)
+            .collect::<Vec<_>>(),
+        emitters
+    );
+    frame.clock = crate::BattleClock::Running;
+    frame.paused_actors.clear();
+    effects.advance(&frame, false)?;
+    assert!(
+        effects
+            .particles
+            .values()
+            .any(|particle| particle.age > before[0])
+    );
+    Ok(())
+}
+
+#[test]
 fn action_emission_matches_recorded_hit_stop_delays() -> Result<()> {
     let mut effects = effects(births([28, 33, 38, 43]), false);
     let mut frame = frame();

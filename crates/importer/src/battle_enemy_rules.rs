@@ -1128,6 +1128,7 @@ pub(crate) fn hit_rule(
         other => anyhow::bail!("enemy hit condition {other:#x} needs a decoder"),
     };
     Ok(ActionHit {
+        fatal_damage: None,
         kind,
         effect: (hit[22] != 0).then_some(u16::from(hit[22])),
         effect_on_guard: flags & 0x800 != 0,

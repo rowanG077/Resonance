@@ -1,8 +1,8 @@
 use super::*;
 use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, DISPLAY_MODE_OPTION,
-    FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION,
-    LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
+    FATAL_STRIKES_OPTION, FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION,
+    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
 };
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
@@ -265,6 +265,7 @@ impl Drawing<'_> {
                 7..=12
                 | VSYNC_OPTION
                 | FLEXIBLE_BATTLE_PARTY_OPTION
+                | FATAL_STRIKES_OPTION
                 | COMBINED_BATTLES_OPTION
                 | LEARN_ELEMENTAL_ARTES_OPTION
                 | LEARN_BOTH_ARTE_PATHS_OPTION => {
@@ -278,6 +279,7 @@ impl Drawing<'_> {
                         VSYNC_OPTION => settings.vsync,
                         FLEXIBLE_BATTLE_PARTY_OPTION => settings.flexible_battle_party,
                         COMBINED_BATTLES_OPTION => settings.combined_battles,
+                        FATAL_STRIKES_OPTION => settings.fatal_strikes,
                         LEARN_ELEMENTAL_ARTES_OPTION => settings.learn_elemental_artes,
                         LEARN_BOTH_ARTE_PATHS_OPTION => settings.learn_both_arte_paths,
                         _ => unreachable!(),

@@ -26,6 +26,30 @@ pub struct EnemyReward {
 }
 
 impl EnemyReward {
+    /// Apply the best chain of each color once per enemy instance. LP is adapted
+    /// to Gald because Symphonia does not learn equipment skills through LP.
+    pub fn apply_fatal_bonus(
+        &mut self,
+        color: resonance_battle::FatalColor,
+        chain: u8,
+    ) -> Result<()> {
+        let percent = u32::from(20 + chain.clamp(1, 9).saturating_sub(1) * 10);
+        let increase = |value: u32| -> Result<u32> {
+            u32::try_from(u64::from(value) * u64::from(100 + percent) / 100)
+                .context("Fatal Strike reward overflow")
+        };
+        match color {
+            resonance_battle::FatalColor::Blue => self.experience = increase(self.experience)?,
+            resonance_battle::FatalColor::Red => self.gald = increase(self.gald)?,
+            resonance_battle::FatalColor::Green => {
+                for chance in &mut self.drop_chances {
+                    *chance = increase(u32::from(*chance))?.min(100) as u8;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn from_monster(monster: &Monster, variant: usize) -> Result<Self> {
         let stats = monster
             .statistics
@@ -599,6 +623,26 @@ pub fn recover_tp_for_actor(
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    #[test]
+    fn fatal_colors_apply_independent_bounded_chain_rewards_without_random_draws() -> Result<()> {
+        let mut reward = EnemyReward {
+            monster: 1,
+            experience: 100,
+            gald: 100,
+            drops: [Some(1), Some(2)],
+            drop_chances: [50, 90],
+        };
+        reward.apply_fatal_bonus(resonance_battle::FatalColor::Blue, 1)?;
+        assert_eq!(
+            (reward.experience, reward.gald, reward.drop_chances),
+            (120, 100, [50, 90])
+        );
+        reward.apply_fatal_bonus(resonance_battle::FatalColor::Red, 3)?;
+        assert_eq!(reward.gald, 140);
+        reward.apply_fatal_bonus(resonance_battle::FatalColor::Green, 9)?;
+        assert_eq!(reward.drop_chances, [100, 100]);
+        Ok(())
+    }
     use resonance_content::session::{CharacterDefinition, ItemDefinition, StatGrowth};
     pub(in crate::battle) fn reward_fixture() -> (SessionData, Catalogue, Vec<Vec<Title>>, Party) {
         let session = SessionData {

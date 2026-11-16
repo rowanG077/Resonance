@@ -35,6 +35,10 @@
     "anti_aliasing": {
       "name": "Anti-Aliasing",
       "description": "Enter opens the anti-aliasing list.\nUp/Down highlights; Enter applies.\nSmooth edges without temporal blur.\nMSAA and SMAA S2x depend on GPU support."
+    },
+    "fatal_strikes": {
+      "name": "Fatal Strikes",
+      "description": "Break colored enemy gauges to unleash\na cinematic finishing strike."
     }
   },
   "confirmations": {

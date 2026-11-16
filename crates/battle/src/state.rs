@@ -348,6 +348,11 @@ pub enum Rejection {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cue {
+    FatalImpact(crate::FatalSuccess),
+    FatalOpening {
+        actor: ActorId,
+        opening: crate::FatalOpening,
+    },
     TechnicalSmash {
         bonuses: crate::TechnicalSmash,
         total_percent: u8,
@@ -752,6 +757,8 @@ pub enum BattleClock {
     SpellTransition,
     /// Summon staging holds gameplay while actor poses and cinematic feedback advance.
     SummonTransition,
+    /// A finishing performance holds combat while its actors and camera animate.
+    FatalStrike(ActorId),
 }
 
 impl BattleClock {
@@ -767,6 +774,7 @@ impl BattleClock {
 /// One coherent state for drawing. No renderer can mutate simulation actors.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BattleFrame {
+    pub fatal_strikes: Option<crate::FatalStrikeFrame>,
     pub clock: BattleClock,
     pub combat_active: bool,
     /// Actor clocks held during this update, before contacts could start a new hold.
@@ -959,6 +967,7 @@ impl ActorRuntime {
 }
 
 pub struct Battle {
+    pub(crate) fatal_strikes: crate::fatal_strike::State,
     pub(crate) runtime: Vec<ActorRuntime>,
     #[cfg(feature = "test-support")]
     pub(crate) contact_observations: Option<Vec<crate::contact_observation::ContactObservation>>,
@@ -1006,7 +1015,7 @@ pub struct Battle {
     pub(crate) timed_hold: Option<crate::overlimit::Hold>,
     pub(crate) event_boss: Option<ActorId>,
     pub(crate) clock: BattleClock,
-    paused_actors: Vec<ActorId>,
+    pub(crate) paused_actors: Vec<ActorId>,
     pub(crate) next_action: u64,
     pub(crate) pending_cues: Vec<Cue>,
     pub(crate) next_projectile: u64,
@@ -1224,6 +1233,7 @@ impl Battle {
             diagnostics: resonance_content::diagnostics::Diagnostics::new(true),
             diagnostic: false,
             instant_kill: false,
+            fatal_strikes: Default::default(),
             ledger: {
                 let mut ledger = crate::Ledger::new(actor_count, prepared.resources.grade_rank);
                 for (facts, actor) in ledger.achievements.iter_mut().zip(&actors) {
@@ -1382,6 +1392,7 @@ impl Battle {
         self.phase() == crate::BattlePhase::Combat
             && !self.target_selector_active()
             && !self.unison.active()
+            && !self.fatal_strikes.active()
             && !self.summon_entry.active()
             && !self.enemy_presentation.holding()
     }
@@ -1628,9 +1639,27 @@ impl Battle {
         }
         self.sample_cast_inputs(&input.controllers);
         self.sample_target_holds(&input.controllers);
+        if !input.paused && !self.fatal_strikes.active() {
+            for control in &input.controllers {
+                if control.fatal_strike.pressed && self.request_fatal_strike(control.actor)? {
+                    break;
+                }
+            }
+        }
+        if !input.paused && !self.fatal_strikes.active() {
+            self.admit_companion_fatal_strike()?;
+        }
         self.clock = BattleClock::Held;
         let result = if input.paused {
             Ok(Vec::new())
+        } else if self.fatal_strikes.active() {
+            self.clock =
+                BattleClock::FatalStrike(self.fatal_strikes.scene.as_ref().unwrap().performer);
+            let mut cues = Vec::new();
+            self.advance_fatal_scene(&mut cues)?;
+            self.ledger.advance(false);
+            self.update += 1;
+            Ok(cues)
         } else if self.summon_entry.active() {
             self.clock = BattleClock::SummonTransition;
             self.advance(input, items)
@@ -1762,6 +1791,7 @@ impl Battle {
         cues: &mut Vec<Cue>,
         items: &mut dyn crate::item::Provider,
     ) -> Result<()> {
+        self.advance_fatal_gauges();
         self.advance_enemy_conversations(input.voice_busy, cues);
         for actor in &mut self.actors {
             actor.time_stop = actor.time_stop.saturating_sub(1);
@@ -2711,6 +2741,7 @@ impl Battle {
 
     pub(crate) fn frame(&self, cues: Vec<Cue>, outcome: Option<BattleOutcome>) -> BattleFrame {
         BattleFrame {
+            fatal_strikes: self.fatal_strikes.frame(&self.actors),
             clock: self.clock,
             combat_active: self.phase() == crate::BattlePhase::Combat,
             paused_actors: self.paused_actors.clone(),
@@ -2816,13 +2847,14 @@ impl Battle {
                 .values()
                 .filter_map(Projectile::shadow_frame)
                 .collect(),
-            camera: self
-                .enemy_presentation
-                .camera()
-                .or_else(|| self.summon_entry.camera())
-                .or_else(|| self.unison.camera())
-                .or_else(|| self.camera.as_ref().map(|camera| camera.frame())),
-            camera_fov_degrees: None,
+            camera: self.fatal_strikes.camera().or_else(|| {
+                self.enemy_presentation
+                    .camera()
+                    .or_else(|| self.summon_entry.camera())
+                    .or_else(|| self.unison.camera())
+                    .or_else(|| self.camera.as_ref().map(|camera| camera.frame()))
+            }),
+            camera_fov_degrees: self.fatal_strikes.fov(),
             event_fade: None,
             event_dissolve: 0,
             projectiles: self.projectiles.values().map(|p| p.frame.clone()).collect(),

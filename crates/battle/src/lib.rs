@@ -200,3 +200,9 @@ pub use effect::{
 };
 
 pub use weapon_flight::WeaponFlightFrame;
+
+mod fatal_strike;
+pub use fatal_strike::{
+    FatalColor, FatalEnemyRules, FatalOpening, FatalOutcome, FatalPerformance, FatalSceneFrame,
+    FatalStrikeFrame, FatalStyle, FatalSuccess, FatalTargetFrame,
+};

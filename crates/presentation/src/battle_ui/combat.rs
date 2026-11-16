@@ -25,6 +25,10 @@ pub(super) struct Hud {
     roster_marker_layers: [Option<usize>; TARGET_ORNAMENTS],
     combos: combo::Combos,
     technical_smash: technical_smash::Notice,
+    fatal_layers: [usize; 3],
+    fatal_prompt: String,
+    fatal_prompt_icon: Option<[u32; 4]>,
+    fatal_bounds: [f32; 4],
     markers: markers::Markers,
     motion_tick: u16,
     motion_steps: u32,
@@ -50,6 +54,7 @@ impl Hud {
         enemies: &[EnemyHud],
         stack_enemies: bool,
         palette: &Palette,
+        inputs: &crate::input_icons::Prepared,
         materials: &mut Assets<Surface>,
         mut load: impl FnMut(&resonance_content::font::UiTexture, bool, bool) -> Handle<Image>,
     ) -> Result<Self> {
@@ -119,7 +124,34 @@ impl Hud {
         );
         paralysis.depth += markers::PARALYSIS as f32;
         layers.push(paralysis);
+        let fatal_layers = [layers.len(), layers.len() + 1, layers.len() + 2];
+        layers.push(
+            palette
+                .solid
+                .clone()
+                .at(Depth::TechnicalSmash)
+                .offset_depth(30.),
+        );
+        layers.push(
+            palette
+                .font
+                .clone()
+                .at(Depth::TechnicalSmash)
+                .offset_depth(31.),
+        );
+        layers.push(
+            LayerDefinition::new(
+                inputs.image.clone(),
+                inputs.atlas.size,
+                Depth::TechnicalSmash,
+            )
+            .offset_depth(32.),
+        );
         Ok(Self {
+            fatal_layers,
+            fatal_prompt: "FS".into(),
+            fatal_prompt_icon: None,
+            fatal_bounds: [0., 0., 640., 480.],
             layers: palette.layers(layers, materials),
             enemies: enemies.to_vec(),
             stack_enemies,
@@ -159,6 +191,29 @@ impl Hud {
         self.ui_steps = 0;
         self.motion_steps = 0;
         self.motion_tick = ((u32::from(self.motion_tick) + elapsed) % 360) as u16;
+        let [solid, labels, _] = self.fatal_layers;
+        let (left, right) = batch.split_at_mut(labels);
+        let (labels, icons) = right.split_at_mut(1);
+        super::fatal_strike::draw(
+            frame,
+            marker_anchors,
+            super::fatal_strike::Prompt {
+                label: &self.fatal_prompt,
+                icon: self.fatal_prompt_icon,
+                batch: &mut icons[0],
+            },
+            self.fatal_bounds,
+            &art.font,
+            &mut left[solid],
+            &mut labels[0],
+        )?;
+        if frame
+            .fatal_strikes
+            .as_ref()
+            .is_some_and(|fatal| fatal.scene.is_some())
+        {
+            return Ok(());
+        }
         meters::draw(frame, art, &mut batch[METERS..METERS + meters::COUNT])?;
         let selection = command.and_then(|command| {
             use resonance_game::battle::command::View;
@@ -404,6 +459,17 @@ impl Artwork {
         let mut batches: Vec<_> = (0..self.combat.layers.len())
             .map(|_| Batch::default())
             .collect();
+        self.combat.fatal_bounds = self.resolution.ui_rect();
+        let input = crate::input_icons::action_input(
+            &self.settings.keymap,
+            resonance_content::input::StandardAction::FatalStrike,
+            self.windows.prompt_device(),
+        );
+        self.combat.fatal_prompt_icon = input
+            .map(|input| crate::input_icons::rect_state(self.windows.input_atlas(), input, false));
+        self.combat.fatal_prompt = input
+            .map(crate::input_icons::short_label)
+            .unwrap_or_else(|| "UNBOUND".into());
         self.combat
             .draw(frame, &self.art, &mut batches, command, marker_anchors)?;
         for (layer, batch) in self.combat.layers.iter_mut().zip(batches) {
@@ -416,6 +482,81 @@ impl Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires current HUD assets; composes the Fatal Strike formula and cinematic layers"]
+    fn fatal_formula_and_cinematic_layers_render_from_simulation_state() -> Result<()> {
+        let (mut hud, _, _app) = test_artwork()?;
+        let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        let mut enemy = frame.actors[0].clone();
+        enemy.side = Side::Enemy;
+        frame.actors.push(enemy);
+        let target = ActorId::from_index(1)?;
+        frame.targets = vec![Some(target), None];
+        frame.fatal_strikes = Some(resonance_battle::FatalStrikeFrame {
+            targets: vec![resonance_battle::FatalTargetFrame {
+                actor: target,
+                remaining: [90, 0, 90],
+                capacity: [90; 3],
+                chain: 2,
+                opening: Some(resonance_battle::FatalOpening {
+                    color: resonance_battle::FatalColor::Red,
+                    remaining: 60,
+                    chain: 2,
+                    generation: 1,
+                }),
+            }],
+            scene: None,
+        });
+        let anchors = vec![
+            ActorMarkers::default(),
+            ActorMarkers {
+                head: Some([0., 40., 0.]),
+                ..Default::default()
+            },
+        ];
+        let mut batches = vec![Batch::default(); hud.combat.layers.len()];
+        hud.combat
+            .draw(&frame, &hud.art, &mut batches, None, &anchors)?;
+        let [solid, labels, _] = hud.combat.fatal_layers;
+        assert!(!batches[solid].indices.is_empty());
+        assert!(!batches[labels].indices.is_empty());
+        assert!(
+            batches[solid]
+                .positions
+                .iter()
+                .flatten()
+                .all(|value| value.is_finite())
+        );
+        frame.fatal_strikes.as_mut().unwrap().scene = Some(resonance_battle::FatalSceneFrame {
+            contact: None,
+            style: resonance_battle::FatalStyle::TwinBlades,
+            emitter: None,
+            performer: ActorId::from_index(0)?,
+            target,
+            color: resonance_battle::FatalColor::Red,
+            chain: 2,
+            age: 56,
+            impact_at: 56,
+            duration: 112,
+        });
+        let mut batches = vec![Batch::default(); hud.combat.layers.len()];
+        hud.combat
+            .draw(&frame, &hud.art, &mut batches, None, &anchors)?;
+        assert!(!batches[solid].indices.is_empty());
+        assert!(!batches[labels].indices.is_empty());
+        assert!(
+            batches[METERS].indices.is_empty(),
+            "ordinary meters yield to the cinematic"
+        );
+        frame.fatal_strikes = None;
+        let mut batches = vec![Batch::default(); hud.combat.layers.len()];
+        hud.combat
+            .draw(&frame, &hud.art, &mut batches, None, &anchors)?;
+        assert!(batches[solid].indices.is_empty());
+        assert!(batches[labels].indices.is_empty());
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires current HUD assets; CPU layer composition only"]

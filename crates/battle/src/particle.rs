@@ -618,7 +618,11 @@ impl Effects {
         let mut ids = std::mem::take(&mut self.particle_visits);
         ids.extend(self.particles.keys().copied());
         while let Some(id) = ids.pop_front() {
-            let frozen = only_pause_effects && !self.particles[&id].definition.data.during_pause;
+            let frozen = only_pause_effects && !self.particles[&id].definition.data.during_pause
+                || matches!(frame.clock, crate::BattleClock::FatalStrike(_))
+                    && frame
+                        .paused_actors
+                        .contains(&self.particles[&id].frame.owner);
             if frozen && self.particles[&id].age == 0 {
                 continue;
             }

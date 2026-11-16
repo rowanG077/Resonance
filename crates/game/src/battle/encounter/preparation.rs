@@ -2277,6 +2277,30 @@ impl Assets {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        let fatal_performances = if party.settings.preferences.fatal_strikes {
+            rows.iter_mut()
+                .take(self.party_actors.len())
+                .enumerate()
+                .filter_map(|(index, row)| {
+                    let model::ModelSource::Party(character) = row.source else {
+                        return None;
+                    };
+                    row.model.as_mut().map(|model| {
+                        battle::fatal_strike::performances(
+                            model,
+                            &row.setup,
+                            &bindings,
+                            character,
+                            &feedback,
+                            head_anchors[index],
+                        )
+                        .map(|performances| (ids[index], performances))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
         let model_definitions = rows.iter().map(|row| row.model.clone()).collect();
         let participants = rows.into_iter().map(|row| (row.actor, row.setup)).collect();
         let mut core =
@@ -2444,6 +2468,27 @@ impl Assets {
             victory_voices,
         };
         let mut core = core.finish()?;
+        core.set_fatal_strikes(party.settings.preferences.fatal_strikes);
+        if party.settings.preferences.fatal_strikes && self.enemies.settings.escape_restricted {
+            for actor in ids.iter().copied().skip(self.party_actors.len()) {
+                core.configure_fatal_enemy(
+                    actor,
+                    resonance_battle::FatalEnemyRules {
+                        capacity: [180; 3],
+                        outcome: resonance_battle::FatalOutcome::Damage,
+                        ..Default::default()
+                    },
+                )?;
+            }
+        }
+        if party.settings.preferences.fatal_strikes {
+            for (index, spawn) in self.enemies.spawns.iter().enumerate() {
+                let enemy = self.enemies.resources[spawn.resource].monster.id;
+                if let Some(rules) = self.enemy_definitions[&enemy].fatal_strike {
+                    core.configure_fatal_enemy(ids[self.party_actors.len() + index], rules)?;
+                }
+            }
+        }
         core.set_diagnostics(self.files.diagnostics().clone());
         let model_player = resonance_battle::Models::new(
             core.actors(),
@@ -2452,6 +2497,9 @@ impl Assets {
             self.files.diagnostics().clone(),
         )?;
         core.set_models(model_player);
+        for (actor, performances) in fatal_performances {
+            core.configure_fatal_performances(actor, performances)?;
+        }
         if let Some(plan) = &self.events {
             let event_bosses = self
                 .enemies

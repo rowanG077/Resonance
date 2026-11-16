@@ -5,6 +5,7 @@ pub(super) fn authored(
     recoil: &super::recoil::Parameters,
 ) -> anyhow::Result<resonance_battle::HitRule> {
     Ok(resonance_battle::HitRule {
+        fatal_damage: source.fatal_damage,
         kind: source.kind,
         arte: source.arte,
         effect: None,

@@ -6,6 +6,7 @@ mod effects;
 mod model_particles;
 pub(super) use model_particles::Stats as ModelParticleStats;
 mod accessories;
+mod fatal;
 mod resident_models;
 mod scene_sample;
 mod shadows;
@@ -423,6 +424,7 @@ pub(super) struct View {
     accessories: Vec<accessories::State>,
     effects: effects::Effects,
     trails: trails::Trails,
+    fatal: fatal::FatalEffects,
     toon: Handle<Image>,
     sampled: crate::scene::SampledImages,
     camera: Option<Entity>,
@@ -626,6 +628,7 @@ impl View {
                 .collect(),
             effects,
             trails: trails::Trails::load(trail_assets, server, diagnostics.clone())?,
+            fatal: fatal::FatalEffects::default(),
             diagnostics,
             toon,
             sampled,
@@ -808,6 +811,12 @@ impl View {
             &mut self.sampled,
             (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
         )?;
+        self.fatal.prepare(
+            commands,
+            assets,
+            self.camera.unwrap(),
+            &mut warmup.0.lock().unwrap().draws,
+        );
 
         if !self.scenery.iter().all(|(_, p)| p.bound)
             || !self
@@ -1269,6 +1278,7 @@ impl View {
         if let Err(error) = result {
             self.diagnostics.report("battle trails", error)?;
         }
+        self.fatal.apply(frame, commands, meshes)?;
         self.held_pose.clear();
         let parts = self.scenery.iter().map(|(_, part)| part).chain(
             self.models
@@ -1465,6 +1475,7 @@ impl View {
         self.model_particles.despawn(commands);
         self.effects.despawn(commands);
         self.trails.despawn(commands);
+        self.fatal.despawn(commands);
     }
 }
 

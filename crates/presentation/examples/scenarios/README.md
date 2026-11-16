@@ -97,3 +97,74 @@ resizing, the confirmation dialog, Keep and rollback while Customize remains ope
 including a 3024×1964 native fullscreen preview, with a frozen gameplay clock.
 The timeout is advanced in the test without waiting
 15 seconds. Set `RESONANCE_DISPLAY_CAPTURE_DIR` to retain the screenshots.
+
+Fatal Strike choreography can be reviewed through the actual renderer:
+
+```sh
+RESONANCE_TEST_ASSETS="$PWD/local/all-assets" \
+RESONANCE_FATAL_CAPTURE="$PWD/local/fatal-strike-review" \
+RESONANCE_FATAL_CHARACTER=1 RESONANCE_FATAL_COLOR=blue \
+cargo test -p resonance-presentation --features preparation-trace --lib \
+  capture_fatal_strike_filmstrip -- --ignored --nocapture
+```
+
+This records ordinary attack or spell input, the opening formula, Fatal Strike activation, the
+finisher, enemy death and disappearance, recovery and victory. Character IDs are
+1–9; colors are `blue`, `red`, and `green`. It checks that the victim actually
+dies and that the opening was visible before activation. `audio.wav` contains
+the production stereo mix, including effects, voices and music. Its native-rate
+sample count is synchronized to the 60 fps simulation, independently of GPU
+readback time. `flow.json` records event frames and the emitted sound cues.
+
+Set `RESONANCE_FATAL_CAPTURE_EVERY_FRAME=1` for a complete 60 fps image sequence;
+otherwise every twelfth frame is retained. Use an absolute output path because
+Cargo runs this test from the presentation crate. To encode a complete sequence:
+
+```sh
+ffmpeg -framerate 60 -i local/fatal-strike-review/frame.%04d.png \
+  -i local/fatal-strike-review/audio.wav -c:v libx264 -crf 17 \
+  -pix_fmt yuv420p -c:a aac -ar 48000 -b:a 192k -movflags +faststart \
+  local/fatal-strike-review.mp4
+```
+
+To record all nine characters in all three colors, use the streaming capture:
+
+```sh
+RESONANCE_TEST_ASSETS="$PWD/local/all-assets" \
+RESONANCE_FATAL_CAPTURE="$PWD/local/fatal-strikes-all-27" \
+cargo test -p resonance-presentation --features preparation-trace --lib \
+  capture_all_fatal_strike_variations -- --ignored --nocapture
+```
+
+This writes a separate `video-silent.mp4`, synchronized `audio.wav` and verified
+`flow.json` for each variation, plus `catalogue.json`. Each clip includes the
+opening, activation, lethal impact, enemy disappearance and recovery. Completed
+clips are reused when resuming an interrupted run. FFmpeg must be on `PATH`, or
+set `RESONANCE_FATAL_FFMPEG` to its executable path. On software Mesa, select
+`WGPU_BACKEND=gl` if the Vulkan adapter lacks the renderer's required features.
+
+Set `RESONANCE_FATAL_CHARACTERS=3,4` to review just the six mage performances.
+Capture files carry a source revision, so changes to choreography, camera or
+effects invalidate the corresponding cached recordings. Assemble the clips with
+their native sound, labels and chapters using:
+
+```sh
+python3 tools/fatal_strike_showcase.py local/fatal-strikes-all-27
+```
+
+For a focused review, pass the same `--characters 3,4` selection. The tool accepts
+`--ffmpeg`, `--font` and `--output` paths. It checks opening color, lethal impact,
+enemy disappearance, frame counts and exact source PCM duration before encoding.
+
+The asset-backed choreography checks sample every authored pose to measure
+support-foot drift, compare anticipation/contact/recovery silhouettes, and
+execute all 27 performances. The physical contact check reads the actual
+equipped weapon markers at the gameplay impact; Colette's thrown equipment
+uses that same clock. To retain the rig and world-space landmark evidence:
+
+```sh
+RESONANCE_TEST_ASSETS="$PWD/local/all-assets" \
+RESONANCE_FATAL_MOTION_AUDIT="$PWD/local/fatal-motion-audit" \
+cargo test -p resonance-game --features test-support --test battle_preparation \
+  fatal_ -- --ignored --nocapture
+```

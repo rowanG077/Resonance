@@ -154,6 +154,8 @@ pub use resonance_content::battle_projectile::DamageKind;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HitRule {
+    /// Explicit blue, red and green gauge damage; None derives a contribution from this hit.
+    pub fatal_damage: Option<[u16; 3]>,
     pub kind: DamageKind,
     /// Additional artwork emitted at the accepted contact point.
     pub effect: Option<crate::EffectAppearance>,

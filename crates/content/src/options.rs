@@ -32,6 +32,7 @@ pub const OPTIONS: [&str; CUSTOMIZE_OPTIONS] = [
     "combined_battles",
     "learn_elemental_artes",
     "learn_both_arte_paths",
+    "fatal_strikes",
 ];
 pub const DIFFICULTIES: [&str; 3] = ["normal", "hard", "mania"];
 pub const WINDOWS: [&str; 3] = ["plain", "ornate", "gold"];
@@ -113,6 +114,8 @@ pub struct Defaults {
     pub rumble: bool,
     pub flexible_battle_party: bool,
     pub combined_battles: bool,
+    #[serde(default)]
+    pub fatal_strikes: bool,
     pub learn_elemental_artes: bool,
     pub learn_both_arte_paths: bool,
     #[serde(default)]
@@ -190,6 +193,7 @@ impl Defaults {
             rumble: self.rumble,
             flexible_battle_party: self.flexible_battle_party,
             combined_battles: self.combined_battles,
+            fatal_strikes: self.fatal_strikes,
             learn_elemental_artes: self.learn_elemental_artes,
             learn_both_arte_paths: self.learn_both_arte_paths,
             graphics_backend: self.graphics_backend,
@@ -226,6 +230,7 @@ impl Defaults {
             rumble: settings.rumble,
             flexible_battle_party: settings.flexible_battle_party,
             combined_battles: settings.combined_battles,
+            fatal_strikes: settings.fatal_strikes,
             learn_elemental_artes: settings.learn_elemental_artes,
             learn_both_arte_paths: settings.learn_both_arte_paths,
             graphics_backend: settings.graphics_backend,
@@ -254,6 +259,13 @@ impl Document {
             .or_insert_with(|| CustomizeOption {
                 name: "VSync".into(),
                 description: "Synchronize frames with the display.\nHelps prevent screen tearing."
+                    .into(),
+            });
+        options
+            .entry("fatal_strikes".into())
+            .or_insert_with(|| CustomizeOption {
+                name: "Fatal Strikes".into(),
+                description: "Break colored enemy gauges to unleash\na cinematic finishing strike."
                     .into(),
             });
         let data = CustomizeData {

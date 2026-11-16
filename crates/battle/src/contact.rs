@@ -375,6 +375,17 @@ impl Contact {
         point: geometry::HurtPoint,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
+        self.apply_inner(battle, actor_index, point, cues, None)
+    }
+
+    fn apply_inner(
+        &self,
+        battle: &mut crate::Battle,
+        actor_index: usize,
+        point: geometry::HurtPoint,
+        cues: &mut Vec<Cue>,
+        fatal_amount: Option<i32>,
+    ) -> Result<()> {
         let combat = battle.phase() == crate::BattlePhase::Combat;
         let position = self.position(battle)?;
         let actor = ActorId(actor_index as u8);
@@ -454,65 +465,88 @@ impl Contact {
             .unwrap();
         #[cfg(any(test, feature = "test-support"))]
         let mut input_error = None;
-        let (mut result, condition_label) = damage::resolve_contact(
-            owner,
-            target,
-            activity,
-            self.rule,
-            power,
-            incoming,
-            &mut |_draw| {
-                #[cfg(any(test, feature = "test-support"))]
-                if let Some(inputs) = &mut battle.random_inputs
-                    && inputs.owns_action(source_action)
-                    && inputs.observes_damage(_draw)
-                {
-                    let observed = (|| -> Result<_> {
-                        let contact = match self.source {
-                            ContactSource::Melee { .. } => crate::random_inputs::Contact::Attached,
-                            ContactSource::Projectile(projectile) => {
-                                crate::random_inputs::Contact::Projectile(projectile.0)
+        let (mut result, condition_label) = if let Some(amount) = fatal_amount {
+            let before = target.hp;
+            target.hp = target.hp.saturating_sub(amount).max(0);
+            target.guard.active = false;
+            (
+                crate::HitResult {
+                    amount,
+                    hp_change: target.hp - before,
+                    critical: false,
+                    boosted: true,
+                    affinity: crate::Affinity::Normal,
+                    guard: crate::GuardResult::None,
+                    protection: crate::HitProtection::None,
+                    reaction_suppressed: false,
+                    reaction_forced: true,
+                },
+                None,
+            )
+        } else {
+            damage::resolve_contact(
+                owner,
+                target,
+                activity,
+                self.rule,
+                power,
+                incoming,
+                &mut |_draw| {
+                    #[cfg(any(test, feature = "test-support"))]
+                    if let Some(inputs) = &mut battle.random_inputs
+                        && inputs.owns_action(source_action)
+                        && inputs.observes_damage(_draw)
+                    {
+                        let observed =
+                            (|| -> Result<_> {
+                                let contact = match self.source {
+                                    ContactSource::Melee { .. } => {
+                                        crate::random_inputs::Contact::Attached
+                                    }
+                                    ContactSource::Projectile(projectile) => {
+                                        crate::random_inputs::Contact::Projectile(projectile.0)
+                                    }
+                                    ContactSource::Weapon { .. } => {
+                                        anyhow::bail!(
+                                            "damage input requested by a detached weapon contact"
+                                        )
+                                    }
+                                };
+                                let key = crate::random_inputs::Key {
+                                    clock: battle.ledger.elapsed_ticks,
+                                    owner: self.owner,
+                                    target: actor,
+                                    action: source_action.0,
+                                    contact,
+                                };
+                                match _draw {
+                                    damage::Draw::CriticalChance => inputs
+                                        .critical(key, crate::random_inputs::CriticalRole::Chance),
+                                    damage::Draw::Critical => inputs
+                                        .critical(key, crate::random_inputs::CriticalRole::Roll),
+                                    _ => inputs.ailment(
+                                        key,
+                                        self.rule.condition,
+                                        matches!(_draw, damage::Draw::AilmentResistance),
+                                    ),
+                                }
+                            })();
+                        match observed {
+                            Ok(Some(value)) => return value,
+                            Ok(None) => {}
+                            Err(error) => {
+                                input_error = Some(error);
+                                return 0;
                             }
-                            ContactSource::Weapon { .. } => {
-                                anyhow::bail!("damage input requested by a detached weapon contact")
-                            }
-                        };
-                        let key = crate::random_inputs::Key {
-                            clock: battle.ledger.elapsed_ticks,
-                            owner: self.owner,
-                            target: actor,
-                            action: source_action.0,
-                            contact,
-                        };
-                        match _draw {
-                            damage::Draw::CriticalChance => {
-                                inputs.critical(key, crate::random_inputs::CriticalRole::Chance)
-                            }
-                            damage::Draw::Critical => {
-                                inputs.critical(key, crate::random_inputs::CriticalRole::Roll)
-                            }
-                            _ => inputs.ailment(
-                                key,
-                                self.rule.condition,
-                                matches!(_draw, damage::Draw::AilmentResistance),
-                            ),
-                        }
-                    })();
-                    match observed {
-                        Ok(Some(value)) => return value,
-                        Ok(None) => {}
-                        Err(error) => {
-                            input_error = Some(error);
-                            return 0;
                         }
                     }
-                }
-                battle.random.next_u16()
-            },
-            battle.items.all_divide,
-            available_counts,
-            mode,
-        );
+                    battle.random.next_u16()
+                },
+                battle.items.all_divide,
+                available_counts,
+                mode,
+            )
+        };
         #[cfg(any(test, feature = "test-support"))]
         if let Some(error) = input_error {
             return Err(error);
@@ -589,6 +623,7 @@ impl Contact {
                 }
             }
         }
+        battle.record_fatal_contact(self.owner, actor, self.rule, result, cues);
         battle.contact_retaliation(self.owner, actor, result, cues)?;
         let effective_hit = result.amount > 0
             && !matches!(
@@ -873,4 +908,61 @@ impl Contact {
         }
         Ok(())
     }
+}
+
+/// A claimed cinematic impact uses the ordinary contact accounting and defeat pipeline.
+pub(crate) fn fatal_impact(
+    battle: &mut crate::Battle,
+    owner: ActorId,
+    target: ActorId,
+    action: ActionId,
+    amount: i32,
+    kind: crate::DamageKind,
+    cues: &mut Vec<Cue>,
+) -> Result<()> {
+    let origin = battle.actors[owner.index()].position;
+    let center = battle.actors[target.index()].effect_origin();
+    let contact = Contact {
+        source: ContactSource::Melee {
+            actor: owner,
+            action,
+        },
+        owner,
+        origin: Origin::World(origin),
+        radius: 0.,
+        height: 0.,
+        shape: HitShape::Sphere,
+        rule: HitRule {
+            fatal_damage: Some([0; 3]),
+            kind,
+            effect: None,
+            effect_on_guard: false,
+            sound: None,
+            arte: true,
+            overlimit_pause: false,
+            power: crate::Power::Fixed(0),
+            element: crate::HitElement::Neutral,
+            prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
+            guard: crate::GuardRule {
+                enabled: false,
+                ..Default::default()
+            },
+            reaction: crate::ReactionRule {
+                force: true,
+                ..Default::default()
+            },
+            condition: None,
+        },
+        clashes: false,
+        struck: Vec::new(),
+    };
+    contact.apply_inner(
+        battle,
+        target.index(),
+        geometry::HurtPoint { center, radius: 0. },
+        cues,
+        Some(amount),
+    )
 }

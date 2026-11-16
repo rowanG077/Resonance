@@ -123,6 +123,17 @@ Controllers claim battle ports in order of first button press or deliberate stic
 movement, then keep their ports until disconnected. Idle HID devices exposed as
 gamepads do not reserve a port. Keyboard input shares the first battle port.
 
+Customize → Fatal Strikes enables an optional finishing system, off by default.
+Rising attacks break blue gauges, downward attacks break red, and thrusts break
+green; spells contribute to all three. When a colored formula appears over the
+selected enemy, press Fatal Strike (F or the right trigger by default) within
+1.5 seconds. The action can be reassigned in Keymap. Letting a formula expire
+and breaking another gauge within five seconds increases its chain, up to nine.
+Finishers defeat ordinary enemies; escape-restricted encounters use damage
+finishers, and scripted HP protection remains active. Blue increases that enemy's
+EXP reward, red increases Gald, and green increases its item-drop chances.
+Companions can finish openings that human players have not selected.
+
 In battle, open the command menu with Tab (Y on GameCube), then press Z
 (Unison / Taunt) to cycle player one's character through the Auto slots.
 Other players stay put; the new party order persists after battle, with control modes tied to slots.

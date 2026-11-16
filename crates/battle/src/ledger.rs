@@ -10,6 +10,8 @@ const FINISHER_GRADE_BONUS: i64 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ledger {
+    /// Successful cinematic impacts, retained per target instance for victory rewards.
+    pub fatal_strikes: Vec<crate::FatalSuccess>,
     pub achievements: Vec<ActorAchievements>,
     pub damage_outside_unison: bool,
     pub escape_cancellations: u8,
@@ -49,6 +51,7 @@ pub struct Ledger {
 impl Ledger {
     pub(crate) fn new(actors: usize, rank: Difficulty) -> Self {
         Self {
+            fatal_strikes: Vec::new(),
             achievements: vec![ActorAchievements::default(); actors],
             damage_outside_unison: false,
             escape_cancellations: 0,

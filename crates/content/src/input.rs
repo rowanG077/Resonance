@@ -156,9 +156,10 @@ pub enum StandardAction {
     #[serde(alias = "run")]
     Walk,
     Perspective,
+    FatalStrike,
 }
 impl StandardAction {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Confirm,
         Self::Cancel,
         Self::Alternate,
@@ -181,6 +182,7 @@ impl StandardAction {
         Self::CameraUp,
         Self::Walk,
         Self::Perspective,
+        Self::FatalStrike,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -206,6 +208,7 @@ impl StandardAction {
             Self::CameraUp => "Camera / Page Up",
             Self::Walk => "Walk",
             Self::Perspective => "Change Perspective",
+            Self::FatalStrike => "Fatal Strike",
         }
     }
     /// Actions owned by ordinary combat. Cancel, field/camera actions and
@@ -219,6 +222,7 @@ impl StandardAction {
             Self::Next => "Target",
             Self::Skit => "Unison / Taunt",
             Self::Start => "Pause",
+            Self::FatalStrike => "Fatal Strike",
             Self::MoveLeft => "Move Left",
             Self::MoveRight => "Move Right",
             Self::MoveDown => "Move Down",
@@ -233,9 +237,31 @@ impl StandardAction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "SavedKeymap")]
 pub struct Keymap {
     /// Alternatives for each standard action. Keyboard and controller bindings coexist.
     pub bindings: Vec<Vec<PhysicalInput>>,
+}
+#[derive(Deserialize)]
+struct SavedKeymap {
+    bindings: Vec<Vec<PhysicalInput>>,
+}
+impl From<SavedKeymap> for Keymap {
+    fn from(mut saved: SavedKeymap) -> Self {
+        // Preserve existing assignments when introducing a new standard action.
+        if saved.bindings.len() == 22 {
+            let defaults = Keymap::default();
+            let available = defaults.bindings[22]
+                .iter()
+                .filter(|input| !saved.bindings.iter().any(|row| row.contains(input)))
+                .cloned()
+                .collect();
+            saved.bindings.push(available);
+        }
+        Self {
+            bindings: saved.bindings,
+        }
+    }
 }
 impl Default for Keymap {
     fn default() -> Self {
@@ -265,6 +291,7 @@ impl Default for Keymap {
             keys(&["PageUp"]),
             keys(&["ShiftLeft", "ShiftRight"]),
             keys(&["KeyC"]),
+            keys(&["KeyF"]),
         ];
         for (row, button) in [
             "South",
@@ -303,6 +330,7 @@ impl Default for Keymap {
         }
         bindings[20].push(Button("LeftTrigger2".into()));
         bindings[21].push(Button("RightThumb".into()));
+        bindings[22].push(Button("RightTrigger2".into()));
         Self { bindings }
     }
 }
@@ -610,6 +638,48 @@ pub struct ArteBinding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn existing_keymaps_gain_an_unoccupied_fatal_strike_binding() {
+        let mut old = Keymap::default();
+        old.bindings.pop();
+        let decoded: Keymap = serde_json::from_value(serde_json::to_value(&old).unwrap()).unwrap();
+        decoded.validate().unwrap();
+        assert_eq!(
+            decoded.get(StandardAction::FatalStrike),
+            Keymap::default().get(StandardAction::FatalStrike)
+        );
+        old.bindings[0].push(PhysicalInput::Key("KeyF".into()));
+        let decoded: Keymap = serde_json::from_value(serde_json::to_value(&old).unwrap()).unwrap();
+        assert!(
+            !decoded
+                .get(StandardAction::FatalStrike)
+                .contains(&PhysicalInput::Key("KeyF".into()))
+        );
+        assert!(
+            decoded
+                .get(StandardAction::Confirm)
+                .contains(&PhysicalInput::Key("KeyF".into()))
+        );
+        decoded.validate().unwrap();
+    }
+
+    #[test]
+    fn fatal_strike_binding_is_reserved_from_single_arte_shortcuts_and_can_be_remapped() {
+        let mut map = Keymap::default();
+        assert_eq!(
+            map.combat_action(&PhysicalInput::Key("KeyF".into())),
+            Some("Fatal Strike")
+        );
+        map.assign(
+            StandardAction::FatalStrike,
+            PhysicalInput::Key("KeyV".into()),
+        );
+        assert_eq!(map.combat_action(&PhysicalInput::Key("KeyF".into())), None);
+        assert_eq!(
+            map.combat_action(&PhysicalInput::Key("KeyV".into())),
+            Some("Fatal Strike")
+        );
+    }
     #[test]
     fn keyboard_and_dpad_share_horizontal_slots_and_reject_combined_directions() {
         let mut map = Keymap::default();

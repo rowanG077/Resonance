@@ -145,6 +145,19 @@ impl Markers {
             if frame.recognized_result.is_some() {
                 continue;
             }
+            // The opening formula becomes this target's marker. Keeping the
+            // ordinary ornament behind it obscures the directional glyph.
+            if selection.is_none()
+                && frame.target_selector.is_none()
+                && frame.fatal_strikes.as_ref().is_some_and(|fatal| {
+                    fatal
+                        .targets
+                        .iter()
+                        .any(|opening| opening.actor.index() == target && opening.opening.is_some())
+                })
+            {
+                continue;
+            }
             let Some(anchor) = markers.target else {
                 continue;
             };
@@ -279,6 +292,27 @@ mod tests {
         assert_eq!(all[0].positions.len(), 16, "four target owners");
         assert!(all[1..5].iter().all(|batch| batch.positions.len() == 4));
         assert_eq!(all[LABELS].positions.len(), 16, "shared-target labels");
+        let mut formula = frame.clone();
+        formula.fatal_strikes = Some(resonance_battle::FatalStrikeFrame {
+            targets: vec![resonance_battle::FatalTargetFrame {
+                actor: ActorId::from_index(4)?,
+                remaining: [0, 90, 90],
+                capacity: [90; 3],
+                chain: 1,
+                opening: Some(resonance_battle::FatalOpening {
+                    color: resonance_battle::FatalColor::Blue,
+                    remaining: 90,
+                    chain: 1,
+                    generation: 1,
+                }),
+            }],
+            scene: None,
+        });
+        let opening = Markers::default().draw(&formula, None, &anchors, 1)?;
+        assert!(
+            opening[0].indices.is_empty(),
+            "formula replaces the ordinary target ornament"
+        );
         assert_eq!(all[1].positions, all[2].positions, "markers overlap");
         frame.actors[1].hp = 0;
         frame.actors[1].availability = ActorAvailability::Dead;

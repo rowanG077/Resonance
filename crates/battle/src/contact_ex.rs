@@ -22,6 +22,7 @@ fn hammer() -> Arc<crate::ProjectileDefinition> {
         velocity: [0., -6., 0.],
         contact: Some(crate::ProjectileContact {
             hit: crate::HitRule {
+                fatal_damage: None,
                 sound: None,
                 kind: crate::DamageKind::Thrust,
                 arte: true,

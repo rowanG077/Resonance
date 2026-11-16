@@ -11,6 +11,7 @@ symphonia-constants.workspace = true
 resonance-battle.workspace = true
 serde.workspace = true
 anyhow.workspace = true
+glam.workspace = true
 sha2.workspace = true
 resonance-events.workspace = true
 resonance-content.workspace = true

@@ -514,6 +514,33 @@ Enemy rules use named attacks, projectiles and contacts within the same
 edit. The [cooked library guide](cooked-library.md#enemy-rules) describes the
 format and defaults. JSON formatting keeps short arrays and event rows inline.
 
+Optional Fatal Strikes accept `fatal_strike` in an enemy's `enemy/rules.json`:
+
+```json
+"fatal_strike": {
+  "capacity": [90, 90, 90],
+  "vulnerability": [100, 65, 140],
+  "outcome": "damage"
+}
+```
+
+Arrays use blue, red, green order. Capacities must be positive; vulnerability
+is a percentage from 0 to 1000. Outcomes are `defeat`, `damage`, and `disabled`.
+Without an override, regular enemies use 90-point gauges and species-based
+vulnerabilities. Escape-restricted encounters use 180-point gauges and damage
+finishers. Script-protected and excluded participants retain their protection.
+Any authored contact hit can supply `fatal_damage: [12, 0, 0]` to choose its
+contribution explicitly; `[0, 0, 0]` excludes a hit. Defaults classify normals
+by direction, martial hits by launch/knockdown reaction, and magic across all
+three gauges. Guard quarters the contribution and armor halves it. These
+rules apply only while Customize → Fatal Strikes is enabled.
+
+The native finisher director uses each prepared character and costume's own
+Symphonia rig, guarded stance, attack motion and recovery. It adds its own
+timing, root trajectory, color geometry, weapon trails and camera shots; no
+Vesperia animation or effect resource is required. Battle time waits during a
+finisher, and menus pause its independent clock as well.
+
 ## Adding an asset-authored arte
 
 An entry in `game/techniques.json` can select a complete action using

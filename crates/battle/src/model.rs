@@ -1,4 +1,5 @@
 //! Scene-owned model playback with animation curves shared by the field renderer.
+mod fatal;
 mod player;
 pub(crate) use player::UpdatePhase;
 pub use player::{CommonPose, ModelRequest, Models, Pose};

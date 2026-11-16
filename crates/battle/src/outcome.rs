@@ -88,7 +88,7 @@ impl Battle {
         }
         // Only an active spell transition postpones recognition; a released spell slot alone
         // does not.
-        if self.target_selector_active() || self.unison.active() {
+        if self.target_selector_active() || self.unison.active() || self.fatal_strikes.active() {
             return None;
         }
         if self.enemy_presentation.delays_result(&self.actors) {

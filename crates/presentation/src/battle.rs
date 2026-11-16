@@ -4,6 +4,8 @@ use resonance_battle::TechniqueId;
 pub(crate) mod appearance;
 mod capture;
 mod event_models;
+#[cfg(all(test, feature = "preparation-trace"))]
+mod fatal_preview;
 mod feedback;
 mod input;
 #[cfg(test)]

@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rules {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fatal_strike: Option<crate::fatal_strike::EnemyRules>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub null_motions: BTreeSet<u16>,
     pub profile: Profile,
@@ -93,6 +95,7 @@ impl TryFrom<Definition> for Rules {
     type Error = anyhow::Error;
     fn try_from(value: Definition) -> Result<Self> {
         let mut result = Self {
+            fatal_strike: value.fatal_strike,
             null_motions: value.null_motions,
             profile: value.profile,
             weapon_visibility: value.weapon_visibility,
@@ -270,7 +273,11 @@ impl Rules {
                 })
             })
             .collect::<Result<_>>()?;
+        if let Some(rules) = self.fatal_strike {
+            rules.validate()?;
+        }
         Ok(Definition {
+            fatal_strike: self.fatal_strike,
             null_motions: self.null_motions,
             profile: self.profile,
             weapon_visibility: self.weapon_visibility,

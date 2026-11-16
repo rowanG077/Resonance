@@ -530,6 +530,9 @@ pub enum EnemyEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionHit {
+    /// Blue, red and green gauge damage. None uses the action's launch/knockdown classification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fatal_damage: Option<[u16; 3]>,
     pub kind: crate::battle_projectile::DamageKind,
     /// Additional contact program in the attacking enemy's effect bank.
     #[serde(skip_serializing_if = "Option::is_none")]

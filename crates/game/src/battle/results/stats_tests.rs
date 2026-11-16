@@ -44,6 +44,7 @@ fn current_stats_stay_live_after_a_kill_and_preview_matches_equipment_commit() -
                         },
                         trail: None,
                         hit: HitRule {
+                            fatal_damage: None,
                             kind: DamageKind::Magic,
                             effect: None,
                             effect_on_guard: false,

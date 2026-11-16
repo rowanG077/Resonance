@@ -91,7 +91,13 @@ pub fn prepare_resources(
                     }
                     AttackEvent::Contact {
                         definition: Arc::new(resonance_battle::MeleeDefinition {
-                            hit: super::hit::authored(&contact.hit, actor.recoil)?,
+                            hit: {
+                                let mut hit = super::hit::authored(&contact.hit, actor.recoil)?;
+                                hit.fatal_damage = hit
+                                    .fatal_damage
+                                    .or_else(|| Some(normal_fatal_damage(index)));
+                                hit
+                            },
                             volume: resonance_battle::MeleeVolume::Attached {
                                 anchors: actor
                                     .model
@@ -117,6 +123,9 @@ pub fn prepare_resources(
                 } => {
                     let mut hit = super::hit::authored(hit, actor.recoil)?;
                     hit.overlimit_pause = false;
+                    hit.fatal_damage = hit
+                        .fatal_damage
+                        .or_else(|| Some(normal_fatal_damage(index)));
                     AttackEvent::Throw(Arc::new(flight(*slot, *profile, *radius, hit)))
                 }
                 Event::Sound(cue) => AttackEvent::Sound(sound(Sound::Cue(*cue))?),
@@ -266,6 +275,30 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
             anyhow::bail!("attack event requires actor resources")
         }
     })
+}
+
+/// Normal directions intentionally choose the matching gauge even when the native
+/// reaction does not physically launch or knock down this particular opponent.
+fn normal_fatal_damage(index: usize) -> [u16; 3] {
+    use resonance_battle::NormalAttack;
+    let mut damage = [0; 3];
+    let color = match index {
+        n if n == NormalAttack::Rising as usize => 0,
+        n if n == NormalAttack::Low as usize
+            || n == NormalAttack::Finisher as usize
+            || n == NormalAttack::AerialSlash as usize
+            || n == NormalAttack::AerialThrust as usize =>
+        {
+            1
+        }
+        _ => 2,
+    };
+    damage[color] = if index == NormalAttack::Finisher as usize {
+        12
+    } else {
+        8
+    };
+    damage
 }
 
 #[cfg(test)]

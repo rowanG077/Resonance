@@ -4,6 +4,8 @@ use resonance_content::prepared::Files;
 use resonance_game::battle::{self, ActionDefinition, ActionResources, EffectResource};
 use std::sync::Arc;
 mod common;
+#[path = "battle_preparation/fatal_strike.rs"]
+mod fatal_strike;
 
 #[path = "battle_preparation/companion_normals.rs"]
 mod companion_normals;
@@ -334,6 +336,7 @@ fn fixture_effect(files: &Files, members: Vec<u16>) -> Result<EffectResource> {
 fn fixture_hit() -> resonance_battle::HitRule {
     use resonance_battle::{DamageKind, HitElement, HitRule, Power};
     HitRule {
+        fatal_damage: None,
         sound: None,
         kind: DamageKind::Slash,
         arte: false,

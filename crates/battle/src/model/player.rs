@@ -248,6 +248,25 @@ struct SavedWeapons {
 }
 
 impl Models {
+    pub(crate) fn primary_weapon_visibility(&self, actor: ActorId) -> Vec<(WeaponSlot, bool)> {
+        let Some(model) = self.models.get(actor.index()).and_then(Option::as_ref) else {
+            return Vec::new();
+        };
+        let weapons = self
+            .weapon_overrides
+            .get(&actor)
+            .map_or(&model.weapons, |saved| &saved.ordinary);
+        weapons
+            .iter()
+            .filter_map(|weapon| {
+                weapon
+                    .slot()
+                    .filter(|slot| slot.is_primary())
+                    .map(|slot| (slot, weapon.visible))
+            })
+            .collect()
+    }
+
     pub fn new(
         actors: &[Actor],
         definitions: Vec<Option<Arc<ModelDefinition>>>,
@@ -548,6 +567,10 @@ impl Models {
         let pose_only = phase == UpdatePhase::PoseOnly;
         // Unison charge scenes own the final pose until the attack takes over.
         let settle = settle
+            && frame
+                .fatal_strikes
+                .as_ref()
+                .is_none_or(|fatal| fatal.scene.is_none())
             && !frame.unison.as_ref().is_some_and(|scene| {
                 matches!(
                     scene.phase,
@@ -587,19 +610,35 @@ impl Models {
             let ticking = !already_advanced
                 && (clock == BattleClock::Running
                     || clock == BattleClock::SummonTransition
+                    || matches!(clock, BattleClock::FatalStrike(_))
                     || clock == BattleClock::Rescue(ActorId(index as u8))
                     || clock == BattleClock::Learning(ActorId(index as u8)))
                 && frame
                     .unison
                     .as_ref()
                     .is_none_or(|scene| scene.animates(ActorId(index as u8)));
-            let paused = frame.paused_actors.contains(&ActorId(index as u8));
+            let paused = frame.paused_actors.contains(&ActorId(index as u8))
+                || frame
+                    .fatal_strikes
+                    .as_ref()
+                    .and_then(|fatal| fatal.scene.as_ref())
+                    .is_some_and(|scene| {
+                        scene.performer.index() != index
+                            && (scene.target.index() != index || scene.age < scene.impact_at)
+                    });
             let cinematic = frame
                 .summon
                 .as_ref()
                 .is_some_and(|scene| scene.owner.is_some());
             // Playback resumes one update after the actor leaves hit-stop.
-            let resuming = self.hit_stopped[index];
+            let performing_fatal = frame
+                .fatal_strikes
+                .as_ref()
+                .and_then(|fatal| fatal.scene.as_ref())
+                .is_some_and(|scene| scene.performer.index() == index);
+            // The scene owns the performer's clock from its first visit, even
+            // when admission interrupts an ordinary contact's hit-stop.
+            let resuming = self.hit_stopped[index] && !performing_fatal;
             if ticking && !pose_only {
                 self.hit_stopped[index] = !cinematic && paused && actor.time_stop == 0;
             }
@@ -722,6 +761,7 @@ impl Models {
                     ticking,
                     advance || releasing,
                 )?;
+                model.fatal_equipment(frame)?;
                 let mut tint = model.definition.tint;
                 if let Some(flash) = &mut model.tint_flash {
                     for (channel, target) in flash.iter_mut().zip(tint) {

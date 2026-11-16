@@ -1,7 +1,7 @@
 use super::*;
 use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, AntiAliasing, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS,
-    CustomizeSettings, DISPLAY_MODE_OPTION, DISPLAY_RESOLUTIONS, DisplayMode,
+    CustomizeSettings, DISPLAY_MODE_OPTION, DISPLAY_RESOLUTIONS, DisplayMode, FATAL_STRIKES_OPTION,
     FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, GraphicsBackend,
     LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
 };
@@ -513,6 +513,7 @@ impl Menu {
                         }
                         FLEXIBLE_BATTLE_PARTY_OPTION => draft.flexible_battle_party = left,
                         COMBINED_BATTLES_OPTION => draft.combined_battles = left,
+                        FATAL_STRIKES_OPTION => draft.fatal_strikes = left,
                         LEARN_ELEMENTAL_ARTES_OPTION => draft.learn_elemental_artes = left,
                         LEARN_BOTH_ARTE_PATHS_OPTION => draft.learn_both_arte_paths = left,
                         _ => return None,

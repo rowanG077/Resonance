@@ -538,3 +538,5 @@ pub mod strategy;
 
 #[cfg(test)]
 mod battle_authoring_tests;
+
+pub mod fatal_strike;

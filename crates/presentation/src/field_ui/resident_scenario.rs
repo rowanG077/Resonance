@@ -4,7 +4,7 @@ use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{prelude::*, time::TimeUpdateStrategy};
 use std::time::{Duration, Instant};
 
-pub(super) struct Scenario {
+pub(crate) struct Scenario {
     pub app: App,
     #[cfg(feature = "preparation-trace")]
     pub boot_ms: f64,
@@ -83,6 +83,30 @@ impl Scenario {
     }
 
     pub fn update(&mut self) -> Result<()> {
+        self.update_scene()?;
+        for _ in 0..1600 {
+            self.audio.next().context("offline audio stopped")?;
+        }
+        Ok(())
+    }
+
+    /// One video update and exactly its native-rate stereo PCM interval. GPU
+    /// readback waits consume neither simulation time nor additional samples.
+    #[cfg(feature = "preparation-trace")]
+    pub fn update_recorded(&mut self, pcm: &mut Vec<f32>, video_frame: u64) -> Result<()> {
+        self.update_scene()?;
+        let rate = u64::from(resonance_playback::SOURCE_RATE);
+        let start = video_frame * rate / 60;
+        let end = (video_frame + 1) * rate / 60;
+        for _ in start..end {
+            for _ in 0..2 {
+                pcm.push(self.audio.next().context("offline recording stopped")?);
+            }
+        }
+        Ok(())
+    }
+
+    fn update_scene(&mut self) -> Result<()> {
         let held = self
             .app
             .world()
@@ -103,9 +127,6 @@ impl Scenario {
             self.app.world_mut(),
             &self.mixer,
         )?;
-        for _ in 0..1600 {
-            self.audio.next().context("offline audio stopped")?;
-        }
         Ok(())
     }
 

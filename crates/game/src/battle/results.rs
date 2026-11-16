@@ -797,8 +797,27 @@ impl Candidate {
             .enemies
             .iter()
             .filter(|enemy| battle.ledger().reward_eligible(enemy.actor))
-            .map(|enemy| enemy.reward.clone())
-            .collect();
+            .map(|enemy| {
+                let mut reward = enemy.reward.clone();
+                for color in resonance_battle::FatalColor::ALL {
+                    if let Some(chain) = battle
+                        .ledger()
+                        .fatal_strikes
+                        .iter()
+                        .filter(|success| {
+                            success.target == enemy.actor
+                                && success.color == color
+                                && success.damage > 0
+                        })
+                        .map(|success| success.chain)
+                        .max()
+                    {
+                        reward.apply_fatal_bonus(color, chain)?;
+                    }
+                }
+                Ok(reward)
+            })
+            .collect::<Result<_>>()?;
         let super::rewards::Awarded {
             mut party,
             random,

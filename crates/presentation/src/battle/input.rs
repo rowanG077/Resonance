@@ -80,6 +80,7 @@ fn direction(value: i8) -> i8 {
 #[derive(Clone, Default)]
 struct LocalControls {
     buttons: [BattleButton; 7],
+    fatal_strike: BattleButton,
     // D-pad left/right/down/up and Start are independent of battle remapping.
     extra: [BattleButton; 5],
     stick: [i8; 2],
@@ -88,7 +89,12 @@ struct LocalControls {
 }
 impl LocalControls {
     fn clear(&mut self) {
-        for button in self.buttons.iter_mut().chain(&mut self.extra) {
+        for button in self
+            .buttons
+            .iter_mut()
+            .chain(&mut self.extra)
+            .chain(std::iter::once(&mut self.fatal_strike))
+        {
             button.pressed = false;
             button.released = false;
         }
@@ -129,6 +135,7 @@ impl LocalControls {
             delay_spell: action(Action::DelaySpell),
             target: action(Action::Target),
             unison: action(Action::Unison),
+            fatal_strike: self.fatal_strike,
             selection: self.buttons[..4].try_into().unwrap(),
             confirm,
             cancel,
@@ -164,10 +171,12 @@ impl LocalControls {
     fn disconnected(&mut self, keyboard: Option<&Self>) {
         let previous = self.buttons;
         let previous_extra = self.extra;
+        let previous_fatal = self.fatal_strike;
         *self = keyboard.cloned().unwrap_or_default();
         for (button, previous) in self.buttons.iter_mut().zip(previous) {
             button.released |= previous.held && !button.held;
         }
+        self.fatal_strike.released |= previous_fatal.held && !self.fatal_strike.held;
         for (button, previous) in self.extra.iter_mut().zip(previous_extra) {
             button.released |= previous.held && !button.held;
         }
@@ -188,6 +197,10 @@ impl LocalControls {
             button.released |= !down && button.held;
             button.held = down;
         }
+        self.fatal_strike.pressed |=
+            sample.fatal_held && !self.fatal_strike.held || sample.fatal_pressed;
+        self.fatal_strike.released |= !sample.fatal_held && self.fatal_strike.held;
+        self.fatal_strike.held = sample.fatal_held;
         self.stick = quantize(sample.stick);
         self.c_stick = quantize(sample.c_stick);
     }
@@ -240,6 +253,7 @@ struct ControllerSample {
     delay_spell: BattleButton,
     target: BattleButton,
     unison: BattleButton,
+    fatal_strike: BattleButton,
     selection: [BattleButton; 4],
     confirm: BattleButton,
     cancel: BattleButton,
@@ -264,6 +278,7 @@ impl ControllerSample {
         }
         if actor.control != Control::Auto {
             return Some(ControlInput {
+                fatal_strike: self.fatal_strike,
                 actor: id,
                 stick: self.stick,
                 horizontal_pressed: self.pressed_direction[0],
@@ -511,6 +526,15 @@ impl Controls {
             }
         }
         let mut filtered = physical.without(consumed);
+        if map
+            .get(StandardAction::FatalStrike)
+            .iter()
+            .any(|input| consumed.contains(input))
+            && !filtered.down(map, StandardAction::FatalStrike)
+            && !filtered.edge(map, StandardAction::FatalStrike)
+        {
+            self.slots[port].fatal_strike.pressed = false;
+        }
         for action in [
             StandardAction::MoveLeft,
             StandardAction::MoveRight,
@@ -585,6 +609,8 @@ impl Controls {
 #[derive(Clone, Copy, Default)]
 struct Sample {
     held: [bool; 7],
+    fatal_held: bool,
+    fatal_pressed: bool,
     pressed: [bool; 7],
     extra_held: [bool; 5],
     extra_pressed: [bool; 5],
@@ -615,6 +641,8 @@ impl Sample {
         ];
         Sample {
             held: actions.map(|a| physical.down(map, a)),
+            fatal_held: physical.down(map, A::FatalStrike),
+            fatal_pressed: physical.edge(map, A::FatalStrike),
             pressed: actions.map(|a| physical.edge(map, a)),
             extra_held: extra.map(|a| physical.down(map, a)),
             extra_pressed: extra.map(|a| physical.edge(map, a)),
@@ -743,10 +771,13 @@ pub(super) fn gather(
                 && scene.state == super::SceneState::Active
                 && scene.core.phase() == resonance_battle::BattlePhase::Combat
                 && !scene.core.is_paused()
-                && scene
-                    .frame
-                    .as_ref()
-                    .is_none_or(|frame| frame.unison.is_none());
+                && scene.frame.as_ref().is_none_or(|frame| {
+                    frame.unison.is_none()
+                        && frame
+                            .fatal_strikes
+                            .as_ref()
+                            .is_none_or(|fatal| fatal.scene.is_none())
+                });
             physical = controls.route_artes(index, physical, map, resolution, accepting);
         }
         controls.slots[index].gather(Sample::physical(&physical, map));

@@ -9,7 +9,8 @@ pub const RESOLUTION_OPTION: usize = 14;
 pub const ANTI_ALIASING_OPTION: usize = 15;
 pub const GRAPHICS_BACKEND_OPTION: usize = 16;
 pub const VSYNC_OPTION: usize = 17;
-pub const CUSTOMIZE_OPTIONS: usize = 22;
+pub const FATAL_STRIKES_OPTION: usize = 22;
+pub const CUSTOMIZE_OPTIONS: usize = 23;
 
 /// Portable saved preference; Automatic follows the host platform's default.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -236,6 +237,7 @@ pub struct CustomizeSettings {
     pub rumble: bool,
     pub flexible_battle_party: bool,
     pub combined_battles: bool,
+    pub fatal_strikes: bool,
     pub learn_elemental_artes: bool,
     pub learn_both_arte_paths: bool,
     pub graphics_backend: GraphicsBackend,
@@ -278,6 +280,7 @@ impl Default for CustomizeSettings {
             rumble: true,
             flexible_battle_party: false,
             combined_battles: false,
+            fatal_strikes: false,
             learn_elemental_artes: false,
             learn_both_arte_paths: false,
             graphics_backend: Default::default(),

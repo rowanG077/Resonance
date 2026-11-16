@@ -92,6 +92,11 @@ impl WeaponDefinition {
         self.layers[0].resource
     }
 
+    /// Read the admitted attachment geometry when authoring a body performance.
+    pub fn primary_layer(&self) -> &WeaponLayerDefinition {
+        &self.layers[0]
+    }
+
     pub fn bone_count(&self) -> usize {
         self.layers[0].skeleton.bones.len()
     }

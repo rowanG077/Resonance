@@ -19,6 +19,8 @@ pub enum EntryRow {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fatal_strike: Option<crate::fatal_strike::EnemyRules>,
     /// Empty visual slots in the authored body motion table.
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub null_motions: std::collections::BTreeSet<u16>,
