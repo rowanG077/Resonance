@@ -666,13 +666,13 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
     assert_eq!(effects.frames().len(), 1);
     effects.advance(&frame, false)?;
     assert!(effects.frames().is_empty());
-    let mut other_bank = effects.banks[&ResourceId(77)].clone();
+    let mut other_bank = EffectBank::clone(&effects.banks[&ResourceId(77)]);
     other_bank.resource = ResourceId(78);
     assert!(Arc::ptr_eq(
         &other_bank.members[&1],
         &effects.banks[&ResourceId(77)].members[&1]
     ));
-    effects.banks.insert(ResourceId(78), other_bank);
+    effects.banks.insert(ResourceId(78), Arc::new(other_bank));
     let mut other_owner = request();
     other_owner.owner = ActorId(1);
     let mut other_resource = request();
@@ -724,7 +724,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         };
         let mut effects = effects(vec![emit(1, birth)], false);
         effects.diagnostics = Diagnostics::new(true);
-        let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
+        let bank = Arc::make_mut(effects.banks.get_mut(&ResourceId(77)).unwrap());
         if static_model {
             bank.models.insert(
                 0,
@@ -820,7 +820,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
     }
     for following in [false, true] {
         let mut effects = effects(births([0, 0]), false);
-        let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
+        let bank = Arc::make_mut(effects.banks.get_mut(&ResourceId(77)).unwrap());
         let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
         let EffectOperation::Spawn { birth, .. } =
             &mut Arc::make_mut(&mut effect.events)[1].operation
@@ -916,7 +916,7 @@ fn projectile_retirement_removes_attachments_but_finishes_independent_bursts() -
     for (followed, attached) in [(false, true), (true, true), (false, false)] {
         let mut effects = effects(births([0, 2, 7]), followed);
         if followed {
-            let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
+            let bank = Arc::make_mut(effects.banks.get_mut(&ResourceId(77)).unwrap());
             let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
             let particle = Arc::make_mut(effect.particles.get_mut(&0).unwrap());
             particle.data.follow_orientation = true;

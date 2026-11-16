@@ -1,4 +1,6 @@
-import bevy_sprite_render::mesh2d::functions;
+import resonance_presentation::native_frame::{
+    get_world_from_local, mesh2d_position_local_to_world, mesh2d_position_world_to_clip,
+};
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
@@ -50,9 +52,9 @@ struct VertexOutput {
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    out.world_position = functions::mesh2d_position_local_to_world(
-        functions::get_world_from_local(vertex.instance_index), vec4(vertex.position, 1.0));
-    out.position = functions::mesh2d_position_world_to_clip(out.world_position);
+    out.world_position = mesh2d_position_local_to_world(
+        get_world_from_local(vertex.instance_index), vec4(vertex.position, 1.0));
+    out.position = mesh2d_position_world_to_clip(out.world_position);
     out.uv = vertex.uv;
     @if(GLYPH_PATTERN)
     out.pattern_uv = vertex.pattern_uv;

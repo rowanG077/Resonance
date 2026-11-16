@@ -45,6 +45,9 @@ struct WeaponModel {
     weapon_slot: crate::WeaponSlot,
     model_slot: u8,
     variants: BTreeMap<ResourceId, crate::PreparedEffectModel>,
+    /// The variant last installed in `model_slot`. Installing it again would
+    /// store an identical copy: nothing else writes the slot.
+    installed: Option<ResourceId>,
 }
 
 impl EffectBank {
@@ -178,6 +181,7 @@ impl EffectBank {
             weapon_slot,
             model_slot,
             variants,
+            installed: None,
         });
         Ok(())
     }
@@ -295,7 +299,8 @@ impl Active {
 /// Cosmetic animation owned by the scene, independent of mutable gameplay state.
 #[derive(Clone)]
 pub struct Effects {
-    pub(crate) banks: BTreeMap<ResourceId, EffectBank>,
+    /// Shared with prediction snapshots; a bank is copied only when written.
+    pub(crate) banks: BTreeMap<ResourceId, Arc<EffectBank>>,
     poison: Option<EffectAppearance>,
     holy_song: Option<EffectAppearance>,
     overlimit_aura: Option<OverLimitAura>,
@@ -495,7 +500,7 @@ impl Effects {
         let mut prepared = BTreeMap::new();
         for bank in banks {
             ensure!(
-                prepared.insert(bank.resource, bank).is_none(),
+                prepared.insert(bank.resource, Arc::new(bank)).is_none(),
                 "duplicate battle effect bank"
             );
         }
@@ -561,11 +566,11 @@ impl Effects {
                 && frame.cues.is_empty(),
             "ambient fixture is not an isolated prelude"
         );
-        let bank = self
-            .banks
-            .get(&appearance.resource)
-            .context("observed ambient bank is not prepared")?
-            .clone();
+        let bank = EffectBank::clone(
+            self.banks
+                .get(&appearance.resource)
+                .context("observed ambient bank is not prepared")?,
+        );
         let mut restored = Self::new(
             vec![bank],
             None,
@@ -1123,7 +1128,15 @@ impl Effects {
                 .variants
                 .get(&weapon.resource)
                 .context("equipped effect weapon was not prepared")?;
-            bank.models.insert(binding.model_slot, model.clone());
+            if binding.installed == Some(weapon.resource) {
+                continue;
+            }
+            let (slot, model) = (binding.model_slot, model.clone());
+            let bank = Arc::make_mut(bank);
+            bank.models.insert(slot, model);
+            if let Some(binding) = &mut bank.weapon_model {
+                binding.installed = Some(weapon.resource);
+            }
         }
         let mut cues = Vec::new();
         for cue in &frame.cues {

@@ -91,9 +91,12 @@ impl Warm {
             .map_or(1, Msaa::samples);
         for (mesh, material) in &self.bindings {
             report.prepare(
-                gpu_prepare::View::Field,
+                crate::gpu_prepare::View::Field,
                 mesh.id(),
-                material.id().untyped(),
+                world
+                    .resource::<Assets<TitleSurface>>()
+                    .get(material)
+                    .expect("prepared field material"),
                 false,
                 Some(samples),
             );

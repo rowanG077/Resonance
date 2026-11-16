@@ -175,7 +175,6 @@ impl Artwork {
         party: PartyHudInput<'_>,
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut batches = (0..self.ui.unison.len())
             .map(|_| Batch::default())
@@ -271,7 +270,7 @@ impl Artwork {
             }
         }
         for (layer, batch) in self.ui.unison.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }

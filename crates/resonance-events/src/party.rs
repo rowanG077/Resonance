@@ -1409,57 +1409,109 @@ impl Party {
                     rules.titles.get(index).map_or(0, Vec::len)
                 });
             let [max_hp, max_tp] = member.vitals_with_rules(data.rules.as_deref(), index);
-            ensure!(
-                member.level > 0
-                    && member
-                        .strategy
-                        .iter()
-                        .zip(resonance_content::menu_data::STRATEGY_COUNTS)
-                        .all(|(v, count)| usize::from(*v) < count)
-                    && member.title != 0
-                    && usize::from(member.title) <= title_count
-                    && member
-                        .titles
-                        .iter()
-                        .all(|&id| id != 0 && usize::from(id) <= title_count)
-                    && (-MAX_TECHNIQUE_BALANCE..=MAX_TECHNIQUE_BALANCE)
-                        .contains(&member.technique_balance)
-                    && usize::from(member.level) < data.experience.len()
-                    && member.experience <= MAX_EXPERIENCE
-                    && member.hp <= max_hp
-                    && member.tp <= max_tp
-                    && member
-                        .base_stats
-                        .iter()
-                        .zip(BASE_STAT_LIMITS)
-                        .all(|(stat, limit)| *stat <= limit)
-                    && member
-                        .techniques
-                        .iter()
-                        .all(|id| definition.allowed_techniques.contains(id))
-                    && member
-                        .shortcuts
-                        .iter()
-                        .all(|id| *id == 0 || member.techniques.contains(id))
-                    && member.disabled_techniques.is_subset(&member.techniques)
-                    && member
-                        .unison_arte
-                        .is_none_or(|id| member.techniques.contains(&id)
-                            && data.rules.as_ref().is_none_or(|rules| rules
-                                .techniques
-                                .get(usize::from(id))
-                                .is_some_and(|t| t.unison_usable)))
-                    && member
-                        .technique_uses
-                        .iter()
-                        .all(|(id, count)| definition.allowed_techniques.contains(id)
-                            && *count <= resonance_content::arte::MAX_USES)
-                    && member.assist_shortcuts.iter().flatten().all(|shortcut| self
-                        .members
-                        .get(shortcut.character)
-                        .is_some_and(|m| m.techniques.contains(&shortcut.technique))),
-                "invalid saved party member"
-            );
+            // Name the member and the first failed condition, so a save that
+            // no longer matches the content says why.
+            let technique = |id: &u16| definition.allowed_techniques.contains(id);
+            let problem = if member.level == 0 {
+                Some("level is zero".to_owned())
+            } else if !member
+                .strategy
+                .iter()
+                .zip(resonance_content::menu_data::STRATEGY_COUNTS)
+                .all(|(v, count)| usize::from(*v) < count)
+            {
+                Some(format!("strategy {:?} is out of range", member.strategy))
+            } else if member.title == 0 || usize::from(member.title) > title_count {
+                Some(format!(
+                    "title {} is not one of {title_count}",
+                    member.title
+                ))
+            } else if let Some(id) = member
+                .titles
+                .iter()
+                .find(|&&id| id == 0 || usize::from(id) > title_count)
+            {
+                Some(format!("earned title {id} is not one of {title_count}"))
+            } else if !(-MAX_TECHNIQUE_BALANCE..=MAX_TECHNIQUE_BALANCE)
+                .contains(&member.technique_balance)
+            {
+                Some(format!(
+                    "technique balance {} is out of range",
+                    member.technique_balance
+                ))
+            } else if usize::from(member.level) >= data.experience.len() {
+                Some(format!(
+                    "level {} has no experience table entry",
+                    member.level
+                ))
+            } else if member.experience > MAX_EXPERIENCE {
+                Some(format!("experience {} is out of range", member.experience))
+            } else if member.hp > max_hp || member.tp > max_tp {
+                Some(format!(
+                    "HP/TP {}/{} exceed {max_hp}/{max_tp}",
+                    member.hp, member.tp
+                ))
+            } else if !member
+                .base_stats
+                .iter()
+                .zip(BASE_STAT_LIMITS)
+                .all(|(stat, limit)| *stat <= limit)
+            {
+                Some(format!(
+                    "base stats {:?} exceed their limits",
+                    member.base_stats
+                ))
+            } else if let Some(id) = member.techniques.iter().find(|id| !technique(id)) {
+                Some(format!(
+                    "technique {id} is not one this character can learn"
+                ))
+            } else if let Some(id) = member
+                .shortcuts
+                .iter()
+                .find(|id| **id != 0 && !member.techniques.contains(id))
+            {
+                Some(format!("shortcut {id} is not a learned technique"))
+            } else if !member.disabled_techniques.is_subset(&member.techniques) {
+                Some("a disabled technique is not learned".to_owned())
+            } else if let Some(id) = member.unison_arte.filter(|id| {
+                !(member.techniques.contains(id)
+                    && data.rules.as_ref().is_none_or(|rules| {
+                        rules
+                            .techniques
+                            .get(usize::from(*id))
+                            .is_some_and(|t| t.unison_usable)
+                    }))
+            }) {
+                Some(format!(
+                    "unison arte {id} is not a usable learned technique"
+                ))
+            } else if let Some((id, count)) = member
+                .technique_uses
+                .iter()
+                .find(|(id, count)| !technique(id) || **count > resonance_content::arte::MAX_USES)
+            {
+                Some(format!("technique use {id} x{count} is not allowed"))
+            } else {
+                member
+                    .assist_shortcuts
+                    .iter()
+                    .flatten()
+                    .find(|shortcut| {
+                        !self
+                            .members
+                            .get(shortcut.character)
+                            .is_some_and(|m| m.techniques.contains(&shortcut.technique))
+                    })
+                    .map(|shortcut| {
+                        format!(
+                            "assist shortcut to member {} technique {} is not learned",
+                            shortcut.character, shortcut.technique
+                        )
+                    })
+            };
+            if let Some(problem) = problem {
+                anyhow::bail!("invalid saved party member {index}: {problem}");
+            }
         }
         Ok(())
     }

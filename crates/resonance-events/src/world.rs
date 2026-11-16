@@ -340,19 +340,27 @@ impl Actor {
     }
 
     pub fn world_point(&self, point: [f32; 3]) -> [f32; 3] {
-        let vector = self.local_vector(point, self.tilt.map(|angle| angle as f32), self.heading);
+        let transform_vector =
+            self.local_transform(self.tilt.map(|angle| angle as f32), self.heading);
+        let vector = transform_vector(point);
         std::array::from_fn(|i| vector[i] + self.position[i])
     }
 
-    fn local_vector(&self, point: [f32; 3], [tilt_x, tilt_y]: [f32; 2], heading: f32) -> [f32; 3] {
+    fn local_transform(
+        &self,
+        [tilt_x, tilt_y]: [f32; 2],
+        heading: f32,
+    ) -> impl Fn([f32; 3]) -> [f32; 3] {
         let scale = self.model_scale_percent();
-        let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
         let (sx, cx) = tilt_x.to_radians().sin_cos();
         let (sy, cy) = tilt_y.to_radians().sin_cos();
         let (sz, cz) = heading.to_radians().sin_cos();
-        let (y, z) = (cx * y - sx * z, sx * y + cx * z);
-        let (x, z) = (cy * x + sy * z, -sy * x + cy * z);
-        [cz * x - sz * y, sz * x + cz * y, z]
+        move |point| {
+            let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
+            let (y, z) = (cx * y - sx * z, sx * y + cx * z);
+            let (x, z) = (cy * x + sy * z, -sy * x + cy * z);
+            [cz * x - sz * y, sz * x + cz * y, z]
+        }
     }
 
     pub fn contains_solid(
@@ -389,10 +397,11 @@ impl Actor {
         &'a self,
         group: &'a resonance_content::field::CollisionGroup,
     ) -> impl Iterator<Item = [[f32; 3]; 3]> + 'a {
+        let transform = self.collision_transform();
         group
             .triangles
             .iter()
-            .map(|triangle| triangle.map(|i| self.collision_point(group.vertices[usize::from(i)])))
+            .map(move |triangle| triangle.map(|i| transform(group.vertices[usize::from(i)])))
     }
 
     pub fn collision_bounds(&self) -> ([f32; 3], [f32; 3]) {
@@ -409,8 +418,13 @@ impl Actor {
                     &mesh.solids
                 }
             })
-            .flat_map(|group| &group.vertices)
-            .map(|p| self.collision_point(*p));
+            .flat_map(|group| {
+                group
+                    .vertices
+                    .iter()
+                    .copied()
+                    .map(self.collision_transform())
+            });
         let mut bounds = None;
         for point in points {
             let (low, high) = bounds.get_or_insert((point, point));
@@ -434,8 +448,9 @@ impl Actor {
         }
         let [low, high] = self.model_bounds?;
         let mut bounds = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+        let transform = self.collision_transform();
         for corner in 0..8 {
-            let point = self.collision_point(std::array::from_fn(|axis| {
+            let point = transform(std::array::from_fn(|axis| {
                 if corner & (1 << axis) == 0 {
                     low[axis]
                 } else {
@@ -451,24 +466,32 @@ impl Actor {
     }
 
     pub fn collision_point(&self, point: [f32; 3]) -> [f32; 3] {
+        self.collision_transform()(point)
+    }
+
+    fn collision_transform(&self) -> impl Fn([f32; 3]) -> [f32; 3] {
         // Physical model surfaces follow the displayed pose, even when the
         // actor's travel heading turns independently of the model.
-        let vector = self.local_vector(point, self.tilt_degrees(), self.model_heading());
-        let point = std::array::from_fn(|axis| vector[axis] + self.position[axis]);
-        self.collision_parent.map_or(point, |parent| {
-            resonance_content::animation::transform_point(parent, point)
-        })
+        let transform_vector = self.local_transform(self.tilt_degrees(), self.model_heading());
+        move |point| {
+            let vector = transform_vector(point);
+            let point = std::array::from_fn(|axis| vector[axis] + self.position[axis]);
+            self.collision_parent.map_or(point, |parent| {
+                resonance_content::animation::transform_point(parent, point)
+            })
+        }
     }
 
     /// Local model frame, including a visual heading lock when present.
     pub(crate) fn local_matrix(&self) -> resonance_content::animation::Matrix {
+        let transform_vector = self.local_transform(self.tilt_degrees(), self.model_heading());
         std::array::from_fn(|column| {
             if column == 3 {
                 return [self.position[0], self.position[1], self.position[2], 1.];
             }
             let mut axis = [0.; 3];
             axis[column] = 1.;
-            let point = self.local_vector(axis, self.tilt_degrees(), self.model_heading());
+            let point = transform_vector(axis);
             [point[0], point[1], point[2], 0.]
         })
     }

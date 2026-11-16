@@ -1,34 +1,23 @@
 //! Retain the last field image on the GPU while a menu owns the screen.
-use super::{field_view::State, materials::TitleOutput};
+use super::{display::Targets, field_view::State};
+use crate::native::MeshMaterial2d;
 use bevy::{
-    core_pipeline::{Core3dSystems, schedule::Core3d, upscaling::upscaling},
     image::ImageSampler,
     prelude::*,
     render::{
-        RenderApp,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_asset::RenderAssets,
-        render_resource::*,
-        renderer::{RenderContext, ViewQuery},
+        extract_component::ExtractComponent, render_asset::RenderAssets, render_resource::*,
         texture::GpuImage,
-        view::ViewTarget,
     },
-    shader::ShaderRef,
-    sprite_render::{AlphaMode2d, Material2d, Material2dPlugin},
 };
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicU64, Ordering},
 };
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub(super) struct Material {
-    #[texture(0)]
-    #[sampler(1)]
+#[derive(Asset, TypePath, Debug, Clone)]
+pub(crate) struct Material {
     image: Handle<Image>,
-    #[uniform(2)]
     enabled: u32,
-    #[uniform(3)]
     cover: Vec4,
 }
 impl Material {
@@ -43,22 +32,10 @@ impl Material {
         self.cover = cover;
         self
     }
-}
-impl Material2d for Material {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/menu_backdrop.wesl".into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-    fn specialize(
-        _pipeline: &bevy::sprite_render::Material2dPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        _: &bevy::mesh::MeshVertexBufferLayoutRef,
-        _: bevy::sprite_render::Material2dKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        descriptor.label = Some("resonance/menu-backdrop".into());
-        Ok(())
+    /// The image and cover color the native frame draws, or nothing while the
+    /// backdrop is disabled: its zero alpha leaves the target unchanged.
+    pub(crate) fn native(&self) -> Option<(AssetId<Image>, Vec4)> {
+        (self.enabled != 0).then(|| (self.image.id(), self.cover))
     }
 }
 
@@ -67,11 +44,12 @@ pub(super) struct Quad;
 
 #[derive(Component, Clone, ExtractComponent)]
 #[extract_app(bevy::render::RenderApp)]
-pub(super) struct Capture {
-    source: Handle<Image>,
+pub(crate) struct Capture {
     target: Handle<Image>,
     generation: u64,
-    completed: Arc<AtomicBool>,
+    resized_to: Option<Extent3d>,
+    /// The generation last copied, so that a menu opening copies once.
+    copied: Arc<AtomicU64>,
 }
 
 /// Retain the current scene before dialogue and field fades are composited.
@@ -79,33 +57,67 @@ pub(super) struct Capture {
 #[extract_app(bevy::render::RenderApp)]
 pub(super) struct SceneCapture(pub Capture);
 
-impl SceneCapture {
-    pub(super) fn copy(
-        &self,
-        source: &Texture,
-        images: &RenderAssets<GpuImage>,
-        context: &mut RenderContext,
-    ) {
-        if !self.0.ready() {
-            copy(&self.0, source, images, &mut None, context);
-        }
-    }
-}
-
 impl Capture {
-    pub(super) fn once(source: Handle<Image>, target: Handle<Image>) -> Self {
+    pub(super) fn once(target: Handle<Image>) -> Self {
         Self {
-            source,
             target,
             generation: 0,
-            completed: Arc::new(AtomicBool::new(false)),
+            resized_to: None,
+            copied: Arc::new(AtomicU64::new(u64::MAX)),
         }
+    }
+
+    pub(super) fn fit_source(
+        &mut self,
+        source: &Handle<Image>,
+        images: &mut Assets<Image>,
+    ) -> bool {
+        let size = images
+            .get(source)
+            .expect("retained scene image")
+            .texture_descriptor
+            .size;
+        let target = images.get(&self.target).expect("retained capture image");
+        if target.texture_descriptor.size == size {
+            return false;
+        }
+        images.get_mut(&self.target).unwrap().resize(size);
+        // An in-flight copy at the old extent cannot complete this generation.
+        self.generation += 1;
+        self.resized_to = Some(size);
+        true
     }
 
     pub(super) fn ready(&self) -> bool {
-        self.completed.load(Ordering::Acquire)
+        self.copied.load(Ordering::Acquire) == self.generation
+    }
+
+    pub(crate) fn copy_native(
+        &self,
+        source: &Texture,
+        images: &RenderAssets<GpuImage>,
+        encoder: &mut CommandEncoder,
+    ) {
+        if self.ready() {
+            return;
+        }
+        let Some(target) = images.get(&self.target) else {
+            return;
+        };
+        if target.texture.size() != source.size()
+            || self.resized_to.is_some_and(|size| size != source.size())
+        {
+            return;
+        }
+        encoder.copy_texture_to_texture(
+            source.as_image_copy(),
+            target.texture.as_image_copy(),
+            source.size(),
+        );
+        self.copied.store(self.generation, Ordering::Release);
     }
 }
+
 struct Backdrop {
     entity: Entity,
     capture: Capture,
@@ -115,27 +127,19 @@ struct Backdrop {
 }
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "menu_backdrop.wesl");
-    app.add_plugins((
-        Material2dPlugin::<Material>::default(),
-        ExtractComponentPlugin::<Capture>::default(),
-        ExtractComponentPlugin::<SceneCapture>::default(),
-    ))
-    .add_systems(
+    crate::native::init_material::<Material>(app);
+    app.add_systems(
         PostUpdate,
         sync.before(bevy::transform::TransformSystems::Propagate)
             .run_if(super::battle::field_presenting),
     );
-    app.sub_app_mut(RenderApp)
-        .add_systems(Core3d, capture.before(Core3dSystems::Prepass))
-        .add_systems(Core3d, capture_scene.after(upscaling));
 }
 
 #[allow(clippy::too_many_arguments)] // Retained images, drawing resources and field ownership.
 fn sync(
     mut commands: Commands,
     state: State,
-    outputs: Res<Assets<TitleOutput>>,
+    targets: Option<Res<Targets>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<Material>>,
@@ -144,11 +148,11 @@ fn sync(
     display: Res<super::display::Display>,
     mut backdrop: Local<Option<Backdrop>>,
 ) {
-    let Some((_, output)) = outputs.iter().next() else {
+    let Some(targets) = targets else {
         return;
     };
     let backdrop = backdrop.get_or_insert_with(|| {
-        let source = images.get(&output.source).expect("retained field output");
+        let source = images.get(&targets.source).expect("retained field output");
         let size = source.texture_descriptor.size;
         let mut target_image =
             Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8Unorm, None);
@@ -169,7 +173,7 @@ fn sync(
             .id();
         Backdrop {
             entity,
-            capture: Capture::once(output.source.clone(), target),
+            capture: Capture::once(target),
             material,
             held: false,
             field: None,
@@ -182,19 +186,8 @@ fn sync(
     }
     // Keep the frozen background while a menu is open. Before the next capture,
     // its destination must match the resized scene texture exactly.
-    if !backdrop.held {
-        let size = images
-            .get(&backdrop.capture.source)
-            .expect("retained field output")
-            .texture_descriptor
-            .size;
-        let mut target = images
-            .get_mut(&backdrop.capture.target)
-            .expect("retained menu image");
-        if target.texture_descriptor.size != size {
-            target.resize(size);
-            materials.get_mut(&backdrop.material).unwrap().image = backdrop.capture.target.clone();
-        }
+    if !backdrop.held || !backdrop.capture.ready() {
+        backdrop.capture.fit_source(&targets.source, &mut images);
     }
     let field = state
         .live
@@ -229,52 +222,6 @@ fn sync(
     }
 }
 
-fn capture(
-    view: ViewQuery<&Capture>,
-    images: Res<RenderAssets<GpuImage>>,
-    mut copied: Local<Option<(AssetId<Image>, u64)>>,
-    mut context: RenderContext,
-) {
-    let request = view.into_inner();
-    if let Some(source) = images.get(&request.source) {
-        copy(request, &source.texture, &images, &mut copied, &mut context);
-    }
-}
-
-fn capture_scene(
-    view: ViewQuery<(&SceneCapture, &ViewTarget)>,
-    images: Res<RenderAssets<GpuImage>>,
-    mut context: RenderContext,
-) {
-    let (request, target) = view.into_inner();
-    // The field camera skips output: the UI camera publishes their shared
-    // texture afterward. Copy the scene before that composition adds fades.
-    request.copy(target.main_texture(), &images, &mut context);
-}
-
-fn copy(
-    request: &Capture,
-    source: &Texture,
-    images: &RenderAssets<GpuImage>,
-    copied: &mut Option<(AssetId<Image>, u64)>,
-    context: &mut RenderContext,
-) {
-    let identity = (request.target.id(), request.generation);
-    if *copied == Some(identity) {
-        return;
-    }
-    let Some(target) = images.get(&request.target) else {
-        return;
-    };
-    context.command_encoder().copy_texture_to_texture(
-        source.as_image_copy(),
-        target.texture.as_image_copy(),
-        source.size(),
-    );
-    *copied = Some(identity);
-    request.completed.store(true, Ordering::Release);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,7 +233,6 @@ mod tests {
             .init_resource::<Assets<Image>>()
             .init_resource::<Assets<Mesh>>()
             .init_resource::<Assets<Material>>()
-            .init_resource::<Assets<TitleOutput>>()
             .add_systems(Update, sync);
         let source =
             app.world_mut()
@@ -297,13 +243,10 @@ mod tests {
                     TextureFormat::Bgra8Unorm,
                     None,
                 ));
-        app.world_mut()
-            .resource_mut::<Assets<TitleOutput>>()
-            .add(TitleOutput {
-                overlay: None,
-                source: source.clone(),
-                brightness: Vec4::ONE,
-            });
+        app.insert_resource(Targets {
+            source: source.clone(),
+            output: None,
+        });
         app.update();
         for resolution in ["1920x1080", "640x480"] {
             let size: crate::Resolution = resolution.parse().unwrap();

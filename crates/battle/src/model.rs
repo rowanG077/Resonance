@@ -12,7 +12,7 @@ mod secondary;
 mod weapon;
 use crate::{Actor, ActorId, ResourceId};
 use anyhow::{Context, Result, ensure};
-use resonance_content::animation::{Matrix, Motion, Skeleton};
+use resonance_content::animation::{Matrix, Motion, Skeleton, Track};
 use std::{collections::BTreeMap, sync::Arc};
 pub use weapon::{
     WeaponAttachment, WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback,
@@ -830,11 +830,26 @@ impl AnimatedPose {
             self.pending_sample = false;
             return Ok(());
         }
-        let sampled = (0..skeleton.bones.len())
-            .map(|bone| {
-                self.sampled_bone(skeleton, motion, bone, self.clock.frame, weight, blending)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        // Each bone's track, found once per sample rather than per bone. The
+        // first track for a bone wins, as with `find`.
+        let bones = skeleton.bones.len();
+        let mut tracks: Vec<Option<&Track>> = vec![None; bones];
+        for track in &motion.tracks {
+            if let Some(slot) = tracks.get_mut(usize::from(track.bone)) {
+                slot.get_or_insert(track);
+            }
+        }
+        let mut sampled = Vec::with_capacity(bones);
+        for (bone, track) in tracks.into_iter().enumerate() {
+            sampled.push(self.sampled_track(
+                skeleton,
+                track,
+                bone,
+                self.clock.frame,
+                weight,
+                blending,
+            )?);
+        }
         if !blending {
             self.blend_from.clone_from(&sampled);
         }
@@ -856,6 +871,18 @@ impl AnimatedPose {
             .tracks
             .iter()
             .find(|track| usize::from(track.bone) == bone);
+        self.sampled_track(skeleton, track, bone, frame, weight, blending)
+    }
+
+    fn sampled_track(
+        &self,
+        skeleton: &Skeleton,
+        track: Option<&Track>,
+        bone: usize,
+        frame: f32,
+        weight: f32,
+        blending: bool,
+    ) -> Result<pose::BonePose> {
         let mut sampled = pose::sample_bone(skeleton.bones[bone].bind, track, frame)?;
         if blending {
             sampled = if track.is_some() {
@@ -908,6 +935,15 @@ impl AnimatedPose {
         skeleton: &Skeleton,
         suppress_root: [bool; 3],
     ) -> Result<(pose::Palette, [f32; 3])> {
+        let (local, root) = Self::local_values(local, suppress_root);
+        Ok((pose::Palette::new(skeleton, local)?, root))
+    }
+
+    /// The local values a palette is composed from, and the root translation.
+    fn local_values(
+        local: &[pose::BonePose],
+        suppress_root: [bool; 3],
+    ) -> (Vec<pose::LocalPose>, [f32; 3]) {
         let root = local[0].translation();
         let local = local
             .iter()
@@ -920,7 +956,7 @@ impl AnimatedPose {
                 pose.value()
             })
             .collect();
-        Ok((pose::Palette::new(skeleton, local)?, root))
+        (local, root)
     }
 }
 
@@ -960,6 +996,9 @@ pub(crate) struct Model {
     world_override: Option<Matrix>,
     released_hurt: Option<[Option<u16>; 2]>,
     idle_pose_delay: Option<u8>,
+    /// The last composed body palette and the local values it came from. An
+    /// update presents the same pose in several passes; composition is pure.
+    palette: Option<(usize, Vec<pose::LocalPose>, Arc<pose::Palette>)>,
 }
 
 /// Prepared clock writes for one immediate actor operation. Geometry and poses
@@ -1052,6 +1091,7 @@ impl Model {
             defeat_alpha: None,
             preserve_pose_update: None,
             world_override: None,
+            palette: None,
             released_hurt: None,
             idle_pose_delay: Some(0),
             secondary: vec![Default::default(); definition.secondary_motion.len()],
@@ -1841,17 +1881,34 @@ impl Model {
     }
 
     fn present_body(&mut self, actor: &Actor, secondary_advance: Option<bool>) -> Result<()> {
-        let (mut pose, root) = if self.parts.is_empty() && self.bone_scales.is_empty() {
-            self.animation.pose(
-                &self.definition.skeleton,
+        let (local, root) = if self.parts.is_empty() && self.bone_scales.is_empty() {
+            AnimatedPose::local_values(
+                &self.animation.local,
                 self.definition.suppress_root_translation,
-            )?
+            )
         } else {
-            AnimatedPose::pose_from(
+            AnimatedPose::local_values(
                 &self.composed_local(),
-                &self.definition.skeleton,
                 self.definition.suppress_root_translation,
-            )?
+            )
+        };
+        let definition = Arc::as_ptr(&self.definition) as usize;
+        let cached = self.palette.as_ref().and_then(|(owner, key, palette)| {
+            (*owner == definition
+                && key.len() == local.len()
+                && key.iter().zip(&local).all(|(a, b)| a.same_bits(b)))
+            .then(|| palette.clone())
+        });
+        let palette = match cached {
+            Some(palette) => palette,
+            None => {
+                let palette = Arc::new(pose::Palette::new(
+                    &self.definition.skeleton,
+                    local.clone(),
+                )?);
+                self.palette = Some((definition, local, palette.clone()));
+                palette
+            }
         };
         let mut placement = secondary::Placement::actor(actor);
         if let Some(world) = self.world_override {
@@ -1862,7 +1919,8 @@ impl Model {
             }
         }
         let world = placement.world;
-        if let Some(advance) = secondary_advance.filter(|_| !self.secondary.is_empty()) {
+        let pose = if let Some(advance) = secondary_advance.filter(|_| !self.secondary.is_empty()) {
+            let mut pose = pose::Palette::clone(&palette);
             secondary::apply(
                 &self.definition.secondary_motion,
                 &mut self.secondary,
@@ -1870,10 +1928,13 @@ impl Model {
                 placement,
                 advance,
             )?;
-        }
+            Arc::new(pose)
+        } else {
+            palette
+        };
         self.shown.root_translation = root;
         self.shown.world = world;
-        self.shown.bones = Arc::new(pose);
+        self.shown.bones = pose;
         Ok(())
     }
 }

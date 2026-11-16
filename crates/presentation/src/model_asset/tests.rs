@@ -21,8 +21,7 @@ fn app(root: &Path, configure: impl FnOnce(&mut App)) -> App {
         bevy::image::ImagePlugin::default(),
         bevy::mesh::MeshPlugin,
         GltfPlugin::default(),
-    ))
-    .init_asset::<StandardMaterial>();
+    ));
     configure(&mut app);
     app.finish();
     app.cleanup();

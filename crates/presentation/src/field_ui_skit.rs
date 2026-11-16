@@ -2,7 +2,7 @@
 use super::*;
 use anyhow::ensure;
 use bevy::render::{
-    Render, RenderApp, RenderSystems,
+    Render, RenderApp,
     extract_component::{ExtractComponent, ExtractComponentPlugin},
     render_asset::RenderAssets,
     render_resource::{Extent3d, Origin3d, TextureDimension, TextureFormat},
@@ -15,7 +15,7 @@ use std::sync::Arc;
 pub(super) fn install(app: &mut App) {
     app.add_plugins(ExtractComponentPlugin::<Composition>::default());
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
-        render.add_systems(Render, composite.in_set(RenderSystems::PrepareResources));
+        render.add_systems(Render, composite.in_set(crate::renderer::FrameUploads));
     }
 }
 
@@ -217,7 +217,7 @@ impl Artwork {
         }
         Ok(ready)
     }
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if !self.layers.is_empty() {
             return;
         }
@@ -225,7 +225,7 @@ impl Artwork {
         for canvas in &mut self.canvases {
             canvas.painted = None;
         }
-        let mut allocate = |material, depth| Layer::new(material, depth, commands, meshes);
+        let mut allocate = |material, depth| Layer::new(material, depth, commands);
         self.layers.push(allocate(self.background.clone(), 4.));
         self.layers.push(allocate(self.font.clone(), 9.));
         for (index, canvas) in self.canvases.iter().enumerate() {
@@ -242,7 +242,6 @@ impl Artwork {
         font: &BitmapFont,
         resolution: crate::Resolution,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
@@ -284,7 +283,7 @@ impl Artwork {
         let rect @ [left, _, right, _] = resolution.ui_rect();
         let mut background = Batch::default();
         background.quad(rect, [0.5; 4], [0., 0., 0., 0.5]);
-        self.layers[0].update_mesh(background, [font.width, font.height], meshes)?;
+        self.layers[0].update(background, [font.width, font.height]);
         self.layers[0].show(true, commands);
         let mut text = Batch::default();
         if let Some(start) = scene.panel_started {
@@ -322,7 +321,7 @@ impl Artwork {
                 }
             }
         }
-        self.layers[1].update_mesh(text, [font.width, font.height], meshes)?;
+        self.layers[1].update(text, [font.width, font.height]);
         self.layers[1].show(true, commands);
         for (index, layer) in self.layers[2..].iter_mut().enumerate() {
             let Some(portrait) = scene.portraits.values().nth(index) else {
@@ -402,7 +401,7 @@ impl Artwork {
                 p[0] = x - 320. + dx * cos + dy * sin;
                 p[1] = 240. - y - dx * sin + dy * cos;
             }
-            layer.update_mesh(batch, [1, 1], meshes)?;
+            layer.update(batch, [1, 1]);
             layer.show(true, commands);
         }
         Ok(())
@@ -638,17 +637,7 @@ mod tests {
             wgpu::Features::TEXTURE_COMPRESSION_BC,
         ));
         install(&mut app);
-        let began = std::time::Instant::now();
-        while app.plugins_state() == bevy::app::PluginsState::Adding {
-            ensure!(
-                began.elapsed().as_secs() < 60,
-                "GPU initialization timed out"
-            );
-            bevy::tasks::tick_global_task_pools_on_main_thread();
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-        app.finish();
-        app.cleanup();
+        crate::test_support::finish_app(&mut app)?;
         let format = TextureFormat::Bc7RgbaUnorm;
         let blocks = |size, values: &[u8]| {
             let mut image = canvas_image(size, format);

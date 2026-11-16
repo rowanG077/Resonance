@@ -16,13 +16,13 @@ pub const CUSTOMIZE_OPTIONS: usize = 23;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphicsBackend {
+    /// Configurations saved while OpenGL was supported choose automatically.
     #[default]
+    #[serde(alias = "opengl")]
     Automatic,
     Dx12,
     Vulkan,
     Metal,
-    #[serde(rename = "opengl")]
-    OpenGl,
 }
 impl GraphicsBackend {
     pub fn label(self) -> &'static str {
@@ -31,7 +31,6 @@ impl GraphicsBackend {
             Self::Dx12 => "DirectX 12",
             Self::Vulkan => "Vulkan",
             Self::Metal => "Metal",
-            Self::OpenGl => "OpenGL",
         }
     }
 }

@@ -2,38 +2,32 @@
 use super::super::{Surface, TextureEffect, UiInterpolation};
 use super::*;
 use crate::anti_aliasing::{AntiAliasingCapabilities, AntiAliasingPlugin, AntiAliasingSettings};
+use crate::native::MeshMaterial2d;
 use bevy::{
-    camera::{CameraOutputMode, RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
-    render::{
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
-        view::screenshot::{Screenshot, ScreenshotCaptured},
-    },
+    camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use resonance_content::menu_data::AntiAliasing;
-
-#[derive(Resource, Default)]
-struct Captures(Vec<Image>);
 
 #[test]
 #[ignore = "requires a GPU; checks dialogue masks and scaled atlas joins with SMAA and MSAA"]
 fn dialogue_slices_have_no_aa_seams() -> Result<()> {
     let mut app = App::new();
     app.add_plugins(crate::test_support::render_plugins())
-        .add_plugins(AntiAliasingPlugin)
-        .init_resource::<Captures>();
+        .add_plugins(AntiAliasingPlugin);
     super::super::install(&mut app);
-    let began = std::time::Instant::now();
-    while app.plugins_state() == bevy::app::PluginsState::Adding {
-        anyhow::ensure!(
-            began.elapsed().as_secs() < 120,
-            "dialogue GPU setup timed out"
-        );
-        bevy::tasks::tick_global_task_pools_on_main_thread();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    app.finish();
-    app.cleanup();
+    let target = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            64,
+            48,
+            TextureFormat::Bgra8Unorm,
+            None,
+        ));
+    crate::test_support::native_scene(&mut app, target.clone());
+    crate::gpu_prepare::install(&mut app);
+    crate::test_support::finish_app(&mut app)?;
     app.update();
     let modes = app
         .world()
@@ -74,27 +68,16 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
     ]);
     pattern.sampler = bevy::image::ImageSampler::nearest();
     let pattern = app.world_mut().resource_mut::<Assets<Image>>().add(pattern);
-    let target = app
-        .world_mut()
-        .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(
-            64,
-            48,
-            TextureFormat::Bgra8Unorm,
-            None,
-        ));
     // Use the production scene -> SMAA -> UI order. SMAA deliberately does
     // not filter the UI; its one-sample atlas joins still have to be seamless.
     let scene = app
         .world_mut()
         .spawn((
             Camera3d::default(),
-            Tonemapping::Linear,
             RenderTarget::Image(target.clone().into()),
             RenderLayers::layer(1),
             Camera {
                 clear_color: Color::BLACK.into(),
-                output_mode: CameraOutputMode::Skip,
                 ..default()
             },
         ))
@@ -104,12 +87,10 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
         .spawn((
             Camera2d,
             Msaa::Off,
-            Tonemapping::Linear,
             RenderTarget::Image(target.clone().into()),
             Camera {
                 order: 1,
                 clear_color: ClearColorConfig::None,
-                output_mode: crate::renderer::COMPOSITED_OUTPUT,
                 ..default()
             },
             Projection::Orthographic(OrthographicProjection {
@@ -143,7 +124,7 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
         },
     };
     let mut layers = Vec::new();
-    for (index, (rect, coverage, source, size, interpolation)) in [
+    for (rect, coverage, source, size, interpolation) in [
         (
             [292., 220., 348., 260.],
             mask,
@@ -172,16 +153,10 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
             [2, 2],
             UiInterpolation::Center,
         ),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ] {
         let mut batch = Batch::default();
         batch.quad(rect, [0., 0., size[0] as f32, size[1] as f32], [1.; 4]);
-        let mesh = app
-            .world_mut()
-            .resource_mut::<Assets<Mesh>>()
-            .add(batch.mesh(size));
+        let geometry = batch.geometry(size);
         let material = app
             .world_mut()
             .resource_mut::<Assets<Surface>>()
@@ -196,19 +171,14 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
                 additive: false,
                 texture_effect: TextureEffect::Plain,
             });
-        layers.push((mesh.clone(), material.clone()));
-        app.world_mut().spawn((
-            Mesh2d(mesh),
-            MeshMaterial2d(material),
-            Transform::from_xyz(0., 0., index as f32),
-        ));
+        layers.push((batch, geometry.clone(), size, material.clone()));
     }
     // Nearest-filtered tiles must not read colored or transparent neighbors
     // when a subpixel join puts the pixel center outside the covered primitive.
     // Linear-filtered cells must also stay isolated when magnification places
     // a pixel center less than half a texel from a cell boundary. Native-scale
     // testing alone misses this: single-sample UI has an exact texel-center hit.
-    for (index, (coordinates, physical, sampler, [top, bottom], edges, clipped)) in [
+    for (coordinates, physical, sampler, [top, bottom], edges, clipped) in [
         (
             [3, 1],
             [3, 1],
@@ -250,10 +220,7 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
             [288., 290., 292.],
             true,
         ),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ] {
         let mut tile = Image::new_fill(
             Extent3d {
                 width: physical[0],
@@ -314,17 +281,47 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
         if clipped {
             tiled.clip_vertical(4, 240. - (top + 1.25), 240. - bottom);
         }
-        let mesh = app
-            .world_mut()
-            .resource_mut::<Assets<Mesh>>()
-            .add(tiled.mesh(coordinates));
-        layers.push((mesh.clone(), material.clone()));
-        app.world_mut().spawn((
-            Mesh2d(mesh),
-            MeshMaterial2d(material),
-            Transform::from_xyz(0., 0., 4. + index as f32),
-        ));
+        let geometry = tiled.geometry(coordinates);
+        layers.push((tiled, geometry.clone(), coordinates, material.clone()));
     }
+    // UI preparation has no Mesh asset. Warm every recipe before any draw
+    // entity exists, then verify the pipelines selected by its actual draws.
+    let preparation = crate::gpu_prepare::Shared::new(app.world());
+    {
+        let surfaces = app.world().resource::<Assets<Surface>>();
+        let mut report = preparation.0.lock().unwrap();
+        for (_, _, _, material) in &layers {
+            for mode in &modes {
+                report.prepare(
+                    crate::gpu_prepare::View::Field,
+                    None,
+                    surfaces.get(material).unwrap(),
+                    true,
+                    Some(mode.samples()),
+                );
+            }
+        }
+        report.armed = true;
+    }
+    crate::test_support::render_until(&mut app, "UI recipes did not prewarm", |_| {
+        let report = preparation.0.lock().unwrap();
+        assert!(report.error.is_none(), "{:?}", report.error);
+        report.completed.load(std::sync::atomic::Ordering::Acquire)
+    })?;
+    let warmed = preparation.0.lock().unwrap().pipelines.clone();
+    let entities: Vec<_> = layers
+        .iter()
+        .enumerate()
+        .map(|(index, (_, geometry, _, material))| {
+            app.world_mut()
+                .spawn((
+                    geometry.clone(),
+                    MeshMaterial2d(material.clone()),
+                    Transform::from_xyz(0., 0., index as f32),
+                ))
+                .id()
+        })
+        .collect();
     for size in [UVec2::new(64, 48), UVec2::new(96, 72), UVec2::new(160, 120)] {
         app.world_mut()
             .resource_mut::<Assets<Image>>()
@@ -336,22 +333,13 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
                 depth_or_array_layers: 1,
             });
         for opacity in [1.0f32, 0.5] {
-            for (mesh, material) in &layers {
-                use bevy::mesh::VertexAttributeValues;
-                {
-                    let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-                    let mut mesh = meshes.get_mut(mesh).unwrap();
-                    let Some(VertexAttributeValues::Float32x4(colors)) =
-                        mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
-                    else {
-                        unreachable!()
-                    };
-                    for color in colors {
-                        color[3] = opacity;
-                    }
+            for (batch, geometry, size, material) in &mut layers {
+                for color in &mut batch.colors {
+                    color[3] = opacity;
                 }
+                geometry.replace(batch.vertices(*size));
                 let mut materials = app.world_mut().resource_mut::<Assets<Surface>>();
-                let coverage = &mut materials.get_mut(material).unwrap().coverage;
+                let coverage = &mut materials.get_mut(material.id()).unwrap().coverage;
                 for quad in &mut coverage.quads[..coverage.count.x as usize] {
                     quad.properties.y = opacity;
                 }
@@ -359,51 +347,56 @@ fn dialogue_slices_have_no_aa_seams() -> Result<()> {
             let mut baseline = None;
             for &mode in &modes {
                 app.world_mut().resource_mut::<AntiAliasingSettings>().0 = mode;
-                for _ in 0..40 {
-                    app.update();
-                    crate::playthrough::check_exit(&app)?;
-                }
+                crate::test_support::render_until(&mut app, "UI draws did not render", |app| {
+                    let drawn = app
+                        .sub_app(bevy::render::RenderApp)
+                        .world()
+                        .resource::<crate::native::Drawn>();
+                    entities.iter().all(|entity| {
+                        drawn.draws.iter().any(|(draw, pipeline)| {
+                            if *draw != (*entity).into() {
+                                return false;
+                            }
+                            assert!(
+                                warmed.contains(pipeline),
+                                "{mode:?}: UI first use compiled {pipeline:?}"
+                            );
+                            true
+                        })
+                    })
+                })?;
                 for camera in [scene, ui] {
                     anyhow::ensure!(
                         app.world().get::<Msaa>(camera).unwrap().samples() == mode.samples(),
                         "{mode:?}: camera did not use the requested sample count"
                     );
                 }
-                while !crate::anti_aliasing::test_smaa_ready(&mut app, mode, size) {
-                    anyhow::ensure!(
-                        began.elapsed().as_secs() < 120,
-                        "{mode:?}, {size:?}: SMAA render resources were not prepared"
-                    );
-                    app.update();
-                    crate::playthrough::check_exit(&app)?;
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-                let count = app.world().resource::<Captures>().0.len();
-                app.world_mut()
-                    .spawn(Screenshot::image(target.clone()))
-                    .observe(
-                        |shot: On<ScreenshotCaptured>, mut captures: ResMut<Captures>| {
-                            captures.0.push(shot.image.clone());
-                        },
-                    );
-                while app.world().resource::<Captures>().0.len() == count {
-                    anyhow::ensure!(
-                        began.elapsed().as_secs() < 120,
-                        "dialogue readback timed out"
-                    );
-                    app.update();
-                    crate::playthrough::check_exit(&app)?;
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-                let image = app
-                    .world()
-                    .resource::<Captures>()
-                    .0
-                    .last()
-                    .unwrap()
-                    .clone()
+                crate::test_support::render_until(
+                    &mut app,
+                    "SMAA render resources were not prepared",
+                    |app| crate::native::render::smaa_ready(app, mode, size),
+                )?;
+                let image = crate::test_support::capture_image(&mut app, target.clone())?
                     .try_into_dynamic()?
                     .to_rgba8();
+                if size == UVec2::new(64, 48) && opacity == 1. && mode == AntiAliasing::Off {
+                    for _ in 0..4 {
+                        app.update();
+                        crate::playthrough::check_exit(&app)?;
+                        let geometry = &app
+                            .sub_app(bevy::render::RenderApp)
+                            .world()
+                            .resource::<crate::native::Drawn>()
+                            .geometry;
+                        anyhow::ensure!(geometry.ui_vertices > 0, "no UI geometry was rendered");
+                        anyhow::ensure!(
+                            geometry.ui_copied_vertices == 0 && geometry.ui_upload_bytes == 0,
+                            "unchanged UI copied {} vertices and uploaded {} bytes",
+                            geometry.ui_copied_vertices,
+                            geometry.ui_upload_bytes
+                        );
+                    }
+                }
                 if let Some(directory) = std::env::var_os("RESONANCE_AA_CAPTURE_DIR") {
                     let directory = std::path::Path::new(&directory);
                     std::fs::create_dir_all(directory)?;

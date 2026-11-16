@@ -2,23 +2,20 @@
 //! receives this session: renderers sample continuous visual endpoints only.
 use super::*;
 
-/// One committed session plus two alternating, preallocated prediction regions.
+/// Separate preallocated regions for a retained endpoint and transient work.
 /// Ordinary nested Rust containers use these regions through the application
 /// allocator. A region is rewound only after its previous result is dropped.
 pub struct PredictionBuffer {
-    arenas: [resonance_simulation_memory::Arena; 2],
-    next: usize,
+    scene: resonance_simulation_memory::Arena,
+    scratch: resonance_simulation_memory::Arena,
 }
 impl PredictionBuffer {
     pub const CAPACITY_PER_SLOT: usize = 64 * 1024 * 1024;
 
     pub fn new() -> Result<Self> {
         Ok(Self {
-            arenas: [
-                resonance_simulation_memory::Arena::new(Self::CAPACITY_PER_SLOT)?,
-                resonance_simulation_memory::Arena::new(Self::CAPACITY_PER_SLOT)?,
-            ],
-            next: 0,
+            scene: resonance_simulation_memory::Arena::new(Self::CAPACITY_PER_SLOT)?,
+            scratch: resonance_simulation_memory::Arena::new(Self::CAPACITY_PER_SLOT)?,
         })
     }
 
@@ -26,32 +23,30 @@ impl PredictionBuffer {
         self.execute(|| field.predict_next(input))?
     }
 
-    /// Reuse the next scene slot. Values returned by the previous use of that
-    /// slot must have been dropped before calling this again.
+    /// Reuse scene storage after the previous endpoint and its derived values
+    /// have been dropped. Scratch work never changes scene ownership.
     pub fn execute<T>(&mut self, work: impl FnOnce() -> T) -> Result<T> {
-        let slot = self.next;
-        let result = self.arenas[slot].run(|| resonance_content::diagnostics::speculative(work))?;
-        self.next = 1 - slot;
-        Ok(result)
+        Ok(self
+            .scene
+            .run(|| resonance_content::diagnostics::speculative(work))?)
     }
 
-    /// Transient render calculations use the spare slot while the scene endpoint
-    /// remains alive in the other one. This does not rotate scene ownership.
+    /// Reuse transient storage while the scene endpoint remains alive.
     pub fn scratch<T>(&mut self, work: impl FnOnce() -> T) -> Result<T> {
-        Ok(self.arenas[self.next].run(|| resonance_content::diagnostics::speculative(work))?)
+        Ok(self
+            .scratch
+            .run(|| resonance_content::diagnostics::speculative(work))?)
     }
 
-    /// Retain derived presentation endpoints in the scene's slot. The other
-    /// slot stays available for transient work on every rendered frame.
+    /// Retain derived presentation endpoints beside the scene endpoint.
     pub fn retain<T>(&mut self, work: impl FnOnce() -> T) -> Result<T> {
-        Ok(self.arenas[1 - self.next]
+        Ok(self
+            .scene
             .append(|| resonance_content::diagnostics::speculative(work))?)
     }
 
     pub fn used_bytes(&self) -> [usize; 2] {
-        self.arenas
-            .each_ref()
-            .map(resonance_simulation_memory::Arena::used)
+        [self.scene.used(), self.scratch.used()]
     }
 }
 
@@ -64,16 +59,6 @@ pub struct FieldPrediction {
 impl FieldPrediction {
     pub fn sources_unchanged(&self) -> bool {
         self.sources.sources_unchanged()
-    }
-
-    /// Advance only the detached branch. Capturing it and visiting it may run
-    /// on different threads; service ownership stays with the committed field.
-    pub fn advance(mut self, input: FieldInput) -> Result<Self> {
-        if let Some(mut state) = self.state.take() {
-            state.step(input)?;
-            self.state = state.prediction_available().then_some(state);
-        }
-        Ok(self)
     }
 }
 
@@ -89,22 +74,20 @@ impl FieldSession {
 
     /// Predict with a copy of current input, never consuming the live input latch.
     /// Scene handoffs retain their committed presentation.
-    fn predict_next(&self, input: FieldInput) -> Result<FieldPrediction> {
-        self.capture_prediction().advance(input)
-    }
-
-    pub fn capture_prediction(&self) -> FieldPrediction {
+    pub fn predict_next(&self, input: FieldInput) -> Result<FieldPrediction> {
         let mut fork = resonance_events::OperationFork::default();
         let state = if self.prediction_available() {
-            Some(self.fork_for_prediction(&mut fork))
+            let mut state = self.fork_for_prediction(&mut fork);
+            state.step(input)?;
+            state.prediction_available().then_some(state)
         } else {
             None
         };
         // Retain observed service dependencies even when the next step hands off.
-        FieldPrediction {
+        Ok(FieldPrediction {
             state,
             sources: fork,
-        }
+        })
     }
 
     pub fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {

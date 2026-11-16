@@ -9,7 +9,7 @@ const LOWER_EDGE_SKEW: f32 = 10.;
 const DEPTH: f32 = 90.;
 
 impl Artwork {
-    pub(super) fn prepare_damage(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub(super) fn prepare_damage(&mut self, commands: &mut Commands) {
         if self.damage_layer.is_some() {
             return;
         }
@@ -17,7 +17,6 @@ impl Artwork {
             self.prompt_layers[0].material.clone(),
             DEPTH,
             commands,
-            meshes,
         ));
     }
 
@@ -123,22 +122,19 @@ impl Artwork {
         session: &FieldSession,
         prediction: Option<&crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    ) {
         if session.active_skit.is_some() || session.menu_is_open() {
-            return Ok(());
+            return;
         }
         let batch = self.sample_damage(session, prediction);
         let visible = !batch.positions.is_empty();
         let layer = self.damage_layer.as_mut().expect("prepared damage layer");
         if visible {
-            layer.update_mesh(
+            layer.update(
                 batch,
                 [self.spec.textures[0].width, self.spec.textures[0].height],
-                meshes,
-            )?;
+            );
         }
         layer.show(visible, commands);
-        Ok(())
     }
 }

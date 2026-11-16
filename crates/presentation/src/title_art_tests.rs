@@ -1,4 +1,5 @@
 use super::*;
+use crate::native::MeshMaterial2d;
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::render::render_resource::{Extent3d, TextureDimension};

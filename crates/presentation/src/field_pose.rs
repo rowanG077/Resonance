@@ -7,43 +7,12 @@ use super::{
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
-/// glTF geometry nodes and their primitive children can repeat bone names.
-/// Exclude both so pose updates always reach the skeleton.
-#[cfg(test)]
-pub(super) fn named_bones(
-    root: Entity,
-    children: &Query<&Children>,
-    nodes: &Query<(&Name, &Transform, &ChildOf)>,
-    meshes: &Query<(), With<Mesh3d>>,
-) -> BTreeMap<String, (Entity, Transform, Entity)> {
-    let mut bones = BTreeMap::new();
-    for entity in children.iter_descendants(root) {
-        if meshes.contains(entity)
-            || children
-                .get(entity)
-                .is_ok_and(|children| children.iter().any(|child| meshes.contains(child)))
-        {
-            continue;
-        }
-        if let Ok((name, transform, parent)) = nodes.get(entity) {
-            bones.insert(
-                name.as_str().to_owned(),
-                (entity, *transform, parent.parent()),
-            );
-        }
-    }
-    bones
-}
-
-#[derive(Resource, Default)]
-pub(super) struct Authored(BTreeMap<Entity, Transform>);
-
-pub(super) fn restore(mut saved: ResMut<Authored>, mut nodes: Query<&mut Transform>) {
-    for (entity, authored) in std::mem::take(&mut saved.0) {
-        if let Ok(mut transform) = nodes.get_mut(entity) {
-            *transform = authored;
-        }
-    }
+pub(super) fn has_relative_translation(actor: &resonance_events::Actor) -> bool {
+    actor.appearance.bone_adjustments.values().any(|a| {
+        a.translation
+            .as_ref()
+            .is_some_and(|translation| !translation.absolute)
+    })
 }
 
 #[allow(clippy::too_many_arguments)] // Bevy injects the independent scene queries and pose resources.
@@ -53,7 +22,6 @@ pub(super) fn bones(
     names: Query<&Name>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<Locals>,
-    mut saved: ResMut<Authored>,
     mut applied: ResMut<Applied>,
 ) {
     for (part, rig) in &actors {
@@ -66,11 +34,8 @@ pub(super) fn bones(
             }
             continue;
         }
-        if actor.appearance.bone_adjustments.values().any(|a| {
-            a.translation
-                .as_ref()
-                .is_some_and(|translation| !translation.absolute)
-        }) && let Some(rig) = rig
+        if has_relative_translation(actor)
+            && let Some(rig) = rig
         {
             for bone in (0..).map_while(|i| rig.bone_at(i)) {
                 affine.translation_boundary(bone);
@@ -88,7 +53,6 @@ pub(super) fn bones(
             if let Some(entity) = entity
                 && let Ok(mut transform) = nodes.get_mut(entity)
             {
-                saved.0.entry(entity).or_insert(*transform);
                 adjust_bone(
                     entity,
                     &mut transform,

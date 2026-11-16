@@ -1,5 +1,6 @@
 //! Replace opted-in equipment placeholders on playable characters' KK joints.
 //! The original prop still owns choreography, visibility, flight and lifetime.
+use crate::native::MeshMaterial3d;
 mod choreography;
 mod equipment;
 use equipment::Equipment;

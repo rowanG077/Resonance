@@ -1,4 +1,5 @@
 //! Field scene instances: shared cooked assets, independent actor state.
+use crate::native::{DistanceFog, MeshMaterial2d, MeshMaterial3d};
 #[path = "field_backdrop.rs"]
 mod backdrop;
 #[cfg(test)]
@@ -12,8 +13,7 @@ pub(crate) mod prediction;
 mod shadows;
 pub(crate) use shadows::Shared as SharedShadows;
 #[path = "field_water.rs"]
-mod water;
-use super::draw_order::DrawOrderPlugin;
+pub(crate) mod water;
 use super::{
     camera::TitleProjection,
     draw_order::{DrawOrder, Layer},
@@ -23,7 +23,6 @@ use super::{
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     render::{
         render_resource::{TextureFormat, TextureUsages},
         view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -144,17 +143,9 @@ pub(super) struct FieldPlugin;
 pub(super) struct FieldPreparation;
 impl Plugin for FieldPlugin {
     fn build(&self, app: &mut App) {
+        prediction::install(app);
         app.add_plugins(FieldRendering)
             .init_resource::<Controls>()
-            .add_systems(
-                Update,
-                (prediction::reset, prediction::title)
-                    .chain()
-                    .after(super::new_game::transition)
-                    .before(FieldPreparation)
-                    .before(super::scene::update_materials)
-                    .before(super::scene::animate_field),
-            )
             .add_systems(
                 Update,
                 super::field_ui::subtitles
@@ -227,7 +218,19 @@ impl Plugin for FieldRendering {
         app.init_resource::<super::display::Display>()
             .init_resource::<Prediction>()
             .init_resource::<Applied>()
-            .init_resource::<super::field_pose::Authored>()
+            .add_systems(
+                PostUpdate,
+                (super::field_model_particles::sync, camera, panorama::render)
+                    .chain()
+                    .after(super::field_animation::sample)
+                    .before(super::field_animation::face_camera)
+                    // The loading cover and scene fades scale the brightness
+                    // this publishes.
+                    .before(super::loading::black_hold)
+                    .run_if(field_art_ready)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
+            )
             .add_systems(
                 PostUpdate,
                 // Scene children arrive after Update. Bind their materials and
@@ -239,7 +242,7 @@ impl Plugin for FieldRendering {
                     super::secondary_motion::bind,
                 )
                     .chain()
-                    .before(super::field_pose::restore)
+                    .before(super::field_animation::sample)
                     .run_if(field_art_ready)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
@@ -247,7 +250,7 @@ impl Plugin for FieldRendering {
             .add_systems(
                 PostUpdate,
                 sample_poses()
-                    .before(super::field_animation::blend)
+                    .before(super::field_animation::face_camera)
                     .run_if(field_art_ready)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
@@ -255,7 +258,6 @@ impl Plugin for FieldRendering {
             .add_systems(
                 PostUpdate,
                 (
-                    super::field_animation::blend,
                     super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
@@ -311,9 +313,6 @@ fn sample_poses() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sch
         // Reconcile render entities before any resumed pose evaluation.
         retire_instances.run_if(resource_exists::<Art>),
         shadows::sync.run_if(resource_exists::<Art>),
-        super::field_pose::restore,
-        super::secondary_motion::restore,
-        super::field_animation::restore,
         super::field_animation::sample.run_if(resource_exists::<Art>),
     )
         .chain()
@@ -329,9 +328,6 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
             instances,
             super::field_weapons::instances,
             super::field_model_particles::spawn,
-            super::field_model_particles::sync,
-            camera,
-            panorama::render,
         )
             .chain()
             .run_if(field_art_ready),
@@ -785,7 +781,7 @@ fn load_live(
             return;
         }
     };
-    ui.prepare(&mut commands, &mut meshes, &mut materials);
+    ui.prepare(&mut commands, &mut materials);
     let cached = session.field_package().graphics.clone();
     if let Some((art, effects)) = cached.lock().unwrap().take() {
         commands.insert_resource(art);
@@ -1254,9 +1250,8 @@ pub(super) fn fog(
     prediction: Option<Res<Prediction>>,
     mut views: Query<&mut DistanceFog, With<super::FieldCamera>>,
 ) {
-    // Transport the native range through Bevy's per-view fog uniform. The
-    // surface shader applies GX's curve; Bevy's linear falloff is not used.
-    // Updating materials here would reprepare every retained warm variant.
+    // Transport the native range through the view's fog. The surface shader
+    // applies GX's curve.
     let (mut color, mut start, mut end) =
         state
             .get()
@@ -1283,8 +1278,7 @@ pub(super) fn fog(
         end += (next.end - end) * a;
     }
     for mut view in &mut views {
-        view.color = color;
-        view.falloff = FogFalloff::Linear { start, end };
+        *view = DistanceFog { color, start, end };
     }
 }
 
@@ -1345,7 +1339,6 @@ fn ui(
     mut art: ResMut<super::field_ui::Artwork>,
     display: Option<Res<super::display::Display>>,
     mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
     roots: Query<(Entity, &ActorPart, &super::field_animation::Rig)>,
     children: Query<&Children>,
@@ -1434,7 +1427,6 @@ fn ui(
         &field.events.world,
         prediction.as_deref_mut(),
         &mut commands,
-        &mut meshes,
     ) {
         Ok(handled) => {
             for id in handled {
@@ -1455,7 +1447,6 @@ fn ui(
             .map_or(field.events.tick(), |clock| clock.0.tick()),
         prediction.as_deref_mut(),
         &mut commands,
-        &mut meshes,
         &images,
         &server,
     ) {
@@ -1479,7 +1470,6 @@ fn ui(
         field,
         prediction.as_deref(),
         &mut commands,
-        &mut meshes,
         &mut images,
         &mut materials,
         &server,
@@ -1499,7 +1489,6 @@ fn ui(
         prediction.as_deref_mut(),
         &heads,
         &mut commands,
-        &mut meshes,
         &mut materials,
     ) {
         Err(error) => {
@@ -2777,10 +2766,6 @@ fn capture_field_cached(
         .store(true, std::sync::atomic::Ordering::Release);
     app.add_plugins(
         super::renderer::default_plugins()
-            .set(bevy::pbr::PbrPlugin {
-                gltf_enable_standard_materials: false,
-                ..default()
-            })
             .set(AssetPlugin {
                 file_path: root.to_string_lossy().into_owned(),
                 ..default()
@@ -2803,7 +2788,6 @@ fn capture_field_cached(
         super::materials::install_output_materials,
     ))
     .add_plugins(FieldRendering)
-    .add_plugins(DrawOrderPlugin)
     .init_resource::<super::scene::SampledImages>()
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
@@ -2823,13 +2807,14 @@ fn capture_field_cached(
     .add_systems(
         Update,
         (
-            scene_systems(),
+            scene_systems().in_set(FieldPreparation),
             super::skin_bounds,
             capture.run_if(not(resource_exists::<sequence::Recording>)),
         )
             .chain(),
     );
     super::renderer::configure(&mut app);
+    super::field_warm::install_capture(&mut app);
     let ready = super::RenderReady::default();
     app.insert_resource(ready.clone());
     app.get_sub_app_mut(bevy::render::RenderApp)
@@ -2909,7 +2894,7 @@ fn setup(
         &crate::field_ui::Resident::default(),
     )
     .expect("validated cooked dialogue artwork");
-    ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
+    ui.prepare(&mut commands, &mut ui_materials);
     commands.insert_resource(ui);
     let mut final_image =
         Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8UnormSrgb, None);
@@ -2927,9 +2912,12 @@ fn setup(
     source.sampler = ImageSampler::linear();
     source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let source = images.add(source);
+    commands.insert_resource(super::display::Targets {
+        source: source.clone(),
+        output: Some(final_image.clone()),
+    });
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: 0,
@@ -2960,7 +2948,6 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         Camera {
@@ -2984,7 +2971,6 @@ fn setup(
                 .into(),
             ..default()
         },
-        Tonemapping::Linear,
         Msaa::Off,
         RenderTarget::Image(source.into()),
         super::FieldCamera,
@@ -3028,6 +3014,7 @@ fn capture(
         return;
     }
     if !art.ready
+        || art.gpu.is_none()
         || parts.is_empty()
         || parts.iter().any(|p| !p.prepared)
         || !ready.0.load(std::sync::atomic::Ordering::Acquire)

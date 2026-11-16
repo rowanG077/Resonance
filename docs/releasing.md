@@ -48,7 +48,7 @@ handoff and bounded resource ownership. Optional diagnostics run separately:
 
 ```sh
 python3 tools/residency_probe.py local/all-assets --trace
-python3 tools/residency_probe.py local/all-assets --captures /tmp/residency --msaa 4 --audit-pipelines
+python3 tools/residency_probe.py local/all-assets --captures /tmp/residency --msaa 4
 python3 tools/residency_probe.py local/all-assets --trace --resolution 1920x1080 \
   --benchmark-rounds 11 --jsonl /tmp/transitions.jsonl
 ```
@@ -67,10 +67,10 @@ route pass; the JSON summary retains those samples separately. Repeat visits
 can still incur cache eviction, and the probe does not flush filesystem caches.
 
 A Linux host without a usable Vulkan device can run the existing residency
-regression through Mesa's headless software OpenGL renderer:
+regression through Mesa's software Vulkan driver (lavapipe):
 
 ```sh
-EGL_PLATFORM=surfaceless WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 \
+WGPU_FORCE_FALLBACK_ADAPTER=1 WGPU_SETTINGS_PRIO=webgpu \
   RESONANCE_TEST_ASSETS="$PWD/local/all-assets" \
   cargo test -p resonance-presentation --lib \
   field_ui::resident::tests::boot_and_field_reentry_reuse_uploaded_ui \

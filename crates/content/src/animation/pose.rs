@@ -8,6 +8,25 @@ pub enum LocalPose {
     Affine(Matrix),
 }
 
+impl LocalPose {
+    /// Bitwise equality, under which a pose computed from equal values gives
+    /// equal results: unlike `==`, 0.0 and -0.0 differ and NaN equals itself.
+    pub fn same_bits(&self, other: &Self) -> bool {
+        fn bits<const N: usize>(a: &[f32; N], b: &[f32; N]) -> bool {
+            a.iter().zip(b).all(|(a, b)| a.to_bits() == b.to_bits())
+        }
+        match (self, other) {
+            (Self::Trs(a), Self::Trs(b)) => {
+                bits(&a.translation, &b.translation)
+                    && bits(&a.rotation, &b.rotation)
+                    && bits(&a.scale, &b.scale)
+            }
+            (Self::Affine(a), Self::Affine(b)) => a.iter().zip(b).all(|(a, b)| bits(a, b)),
+            _ => false,
+        }
+    }
+}
+
 /// Published bones retain their local poses as well as the model-space matrices
 /// consumed by skinning and simulation attachments. Rendering can interpolate
 /// the hierarchy without recovering authored channels from matrix inverses.
@@ -125,10 +144,13 @@ pub fn sample(skeleton: &Skeleton, motion: &Motion, frame: f32) -> Result<Vec<Bo
 /// Sample only authored channels. Callers may retain the unwritten channels
 /// from their last displayed pose before starting a new cross-fade.
 pub fn sample_bone(bind: Transform, track: Option<&Track>, frame: f32) -> Result<BonePose> {
-    let authored = track.map(|track| Channels {
-        scale: track.channels().0 & 1 != 0,
-        rotation: track.channels().0 & 4 != 0,
-        translation: track.channels().0 & 8 != 0,
+    let authored = track.map(|track| {
+        let channels = track.channels().0;
+        Channels {
+            scale: channels & 1 != 0,
+            rotation: channels & 4 != 0,
+            translation: channels & 8 != 0,
+        }
     });
     let value = match track {
         Some(track) if track.is_affine() => LocalPose::Affine(track.sample_matrix(frame, bind)?),

@@ -348,7 +348,6 @@ impl Artwork {
         inspection: Option<(ActorId, [f32; 3])>,
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let scan = if frame.recognized_result.is_some() || command.is_some() {
             None
@@ -362,7 +361,6 @@ impl Artwork {
                 &self.dialogue,
                 &self.settings,
                 commands,
-                meshes,
             )?;
         }
         let mut batches = self.draw_scan(frame, scan, time.feedback)?;
@@ -377,7 +375,7 @@ impl Artwork {
             )?;
         }
         for (layer, batch) in self.ui.scan.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }

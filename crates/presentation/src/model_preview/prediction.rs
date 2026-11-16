@@ -60,44 +60,25 @@ pub(super) fn present(
                 .preview()
                 .context("preview prediction lost its model")?;
             let overrides = evaluate_behavior(viewer.behavior.as_ref(), menu)?;
+            let model = &viewer
+                .record
+                .as_ref()
+                .context("preview has no prepared model")?
+                .preview;
             let mut locals = BTreeMap::new();
-            let mut authored = Locals::default();
+            let authored = Locals::default();
+            let mut poses = Vec::new();
             for (index, part) in viewer.parts.iter().enumerate().filter(|(_, p)| p.ready) {
                 let Some(root) = part.root else {
                     continue;
                 };
-                let transform = if part.spec.attached_to.is_some() {
-                    Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
-                } else {
-                    Transform::from_translation(preview_translation(
-                        &overrides,
-                        next.model.elevation,
-                    ))
-                    .with_rotation(Quat::from_rotation_z(next.yaw.to_radians()))
-                    .with_scale(Vec3::splat(next.model.scale))
-                };
+                let transform = part.sample_pose(&next, model, &overrides, index, &mut poses)?;
                 locals.insert(root, transform.into());
-                let mut poses = part.binding.sample_poses(part.animation_sample(&next)?)?;
-                for (node, scale) in &overrides.scales {
-                    if usize::from(node.part) != index {
-                        continue;
-                    }
-                    let i = usize::from(node.bone);
-                    let &(entity, rest) = part
-                        .binding
-                        .0
-                        .get(i)
-                        .context("behavior references a missing preview bone")?;
-                    let mut transform = rest;
-                    authored.set(entity, &mut transform, poses[i]);
-                    authored.scale(entity, &mut transform, Vec3::from_array(*scale));
-                    poses[i] = authored.get(entity, transform);
-                }
                 locals.extend(
                     part.binding
                         .0
                         .iter()
-                        .zip(poses)
+                        .zip(poses.iter().copied())
                         .map(|(&(entity, _), pose)| (entity, pose)),
                 );
             }
@@ -117,7 +98,7 @@ pub(super) fn present(
                     &actor,
                     &Default::default(),
                     menu.tick,
-                    Vec3::splat(next.model.scale),
+                    Vec3::splat(model.scale),
                     roots,
                     |e| {
                         Some((
@@ -174,7 +155,7 @@ pub(super) fn present(
     for part in viewer.parts.iter().filter(|p| p.ready) {
         for (i, handle) in part.materials.iter().enumerate() {
             if let Some(mut s) = surfaces.get_mut(handle) {
-                s.base.tint.w = opacity
+                s.tint.w = opacity
                     * part
                         .spec
                         .scene

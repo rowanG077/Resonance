@@ -1,5 +1,6 @@
 //! High-level startup logos, rendered from cooked textures.
 use super::*;
+use crate::native::MeshMaterial2d;
 use resonance_content::BootAssets;
 use resonance_game::boot::Logos;
 
@@ -77,7 +78,6 @@ pub(super) fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         BootCamera,
         RenderLayers::layer(4),

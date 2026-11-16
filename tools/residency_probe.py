@@ -11,7 +11,6 @@ def main():
     parser.add_argument("--captures", type=Path, help="write 1080p scene and battle captures")
     parser.add_argument("--trace", action="store_true", help="report preparation scopes and schedules")
     parser.add_argument("--msaa", choices=("2", "4", "8"), help="override MSAA for this probe")
-    parser.add_argument("--audit-pipelines", action="store_true", help="compare prewarming with live pipelines")
     parser.add_argument("--resolution", help="render size, e.g. 1920x1080 (default 640x480)")
     parser.add_argument("--benchmark-rounds", type=int, help="repeat field and battle routes for timing")
     parser.add_argument("--jsonl", type=Path, help="write benchmark metadata and transition samples")
@@ -26,7 +25,7 @@ def main():
     env = os.environ.copy()
     for name in (
         "RESONANCE_RESIDENCY_CAPTURE", "RESONANCE_PREPARATION_TRACE",
-        "RESONANCE_RESIDENCY_MSAA", "RESONANCE_PIPELINE_AUDIT",
+        "RESONANCE_RESIDENCY_MSAA",
         "RESONANCE_RESIDENCY_RESOLUTION", "RESONANCE_BENCHMARK_ROUNDS",
         "RESONANCE_BENCHMARK_JSONL",
     ):
@@ -38,8 +37,6 @@ def main():
         env["RESONANCE_PREPARATION_TRACE"] = "1"
     if args.msaa is not None:
         env["RESONANCE_RESIDENCY_MSAA"] = args.msaa
-    if args.audit_pipelines:
-        env["RESONANCE_PIPELINE_AUDIT"] = "1"
     if args.resolution is not None:
         env["RESONANCE_RESIDENCY_RESOLUTION"] = args.resolution
     if args.benchmark_rounds is not None:

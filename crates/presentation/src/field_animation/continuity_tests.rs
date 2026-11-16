@@ -34,6 +34,7 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
     // FIR_D03 plays 80 (rise), 84 (hold), then 88 (lower). Clip 84
     // animates only the orbiting effects; its omitted cylinders stay raised.
     let mut raised = None;
+    let mut channels = vec![0; rig.bones.len()];
     for slot in [80, 84, 88] {
         let clip = model
             .clips
@@ -43,17 +44,11 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
         let motion =
             clip.decode_for_skeleton(&std::fs::read(root.join(&clip.motion))?, &skeleton)?;
         for frame in 0..=motion.duration_frames as usize {
-            rig.authored_channels.fill(0);
-            let poses = sample_tracks(
-                &rig.bones,
-                &mut rig.authored_channels,
-                &motion,
-                frame as f32,
-                None,
-            )
-            .collect::<anyhow::Result<Vec<_>>>()?;
-            for (i, mut pose) in poses {
-                rig.blend_bone(i, &mut pose, 1., true);
+            channels.fill(0);
+            let poses = sample_tracks(&rig.bones, &mut channels, &motion, frame as f32, None)
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            for (i, pose) in poses {
+                rig.presented[i] = rig.blended_bone(i, pose, rig.from[i], 1., true);
             }
             if slot == 84 {
                 assert_eq!(

@@ -14,56 +14,28 @@ impl Rig {
         echo: Option<&resonance_events::WingEcho>,
         camera: Option<Quat>,
     ) -> (BTreeMap<Entity, Pose>, Locals, Vec<String>) {
-        let mut frames: Vec<_> = self
-            .bones
-            .iter()
-            .map(|(_, rest)| Frame::sample((*rest).into(), 0))
-            .collect();
-        let mut channels = vec![0; frames.len()];
+        let mut sample = Sample::default();
         let mut roots = Vec::new();
-        for clip in sample_clips(model, actor, part.pass, world, echo) {
+        self.sample_pose(part, model, actor, world, echo, &mut sample, |clip| {
             if actor
                 .field_model_animation()
                 .is_some_and(|a| std::ptr::eq(a, clip.animation))
             {
                 roots.extend_from_slice(clip.roots);
             }
-            for frame in sample_tracks(
-                &self.bones,
-                &mut channels,
-                clip.motion,
-                clip.time,
-                clip.echo_weight,
-            ) {
-                let (i, frame) = frame.expect("validated animation must evaluate");
-                frames[i] = frame;
-            }
-        }
-        let animation = actor.field_model_animation();
-        let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
-        let source = if key == self.clip {
-            &self.from
-        } else {
-            &self.presented
-        };
-        let weight = self.blend_weight(actor, part.pass, world.tick);
+        });
         let mut locals = BTreeMap::new();
         let mut adjustments = Locals::default();
+        let translated = crate::field_pose::has_relative_translation(actor);
         for (i, &(entity, rest)) in self.bones.iter().enumerate() {
-            let pose = self.blended_bone(i, frames[i], source[i], weight, channels[i] != 0);
             let mut transform = rest;
-            adjustments.set(entity, &mut transform, pose.pose);
+            adjustments.set(entity, &mut transform, sample.poses[i].pose);
             if self.camera_facing.contains(&entity)
                 && let Some(rotation) = camera
             {
                 adjustments.face_camera(entity, &mut transform, rotation);
             }
-            if actor
-                .appearance
-                .bone_adjustments
-                .values()
-                .any(|a| a.translation.is_some())
-            {
+            if translated {
                 adjustments.translation_boundary(entity);
             }
             for adjustment in actor.appearance.bone_adjustments.values() {

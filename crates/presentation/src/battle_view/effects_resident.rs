@@ -55,10 +55,6 @@ impl ResidentBindings {
         self.bindings.entry(key).or_insert(surface);
     }
 
-    pub(crate) fn handles(&self) -> impl Iterator<Item = &Handle<TitleSurface>> {
-        self.bindings.values()
-    }
-
     pub(crate) fn len(&self) -> usize {
         self.bindings.len()
     }

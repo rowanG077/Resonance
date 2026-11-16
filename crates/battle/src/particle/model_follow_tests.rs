@@ -63,16 +63,12 @@ fn effects() -> Result<Effects> {
 #[test]
 fn thrown_weapon_uses_current_equipment_and_retains_existing_projectiles() -> Result<()> {
     let mut effects = effects()?;
-    effects
-        .banks
-        .get_mut(&ResourceId(17))
-        .unwrap()
-        .bind_weapon_models(
-            0,
-            ActorId(0),
-            crate::WeaponSlot(0),
-            [(ResourceId(100), model(41)?), (ResourceId(200), model(42)?)].into(),
-        )?;
+    Arc::make_mut(effects.banks.get_mut(&ResourceId(17)).unwrap()).bind_weapon_models(
+        0,
+        ActorId(0),
+        crate::WeaponSlot(0),
+        [(ResourceId(100), model(41)?), (ResourceId(200), model(42)?)].into(),
+    )?;
     let mut frame = frame();
     frame.weapons.push(crate::WeaponFrame {
         attachment: None,
@@ -192,7 +188,7 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
         motions: Default::default(),
         secondary_motion: vec![],
     }))?;
-    effects.banks.get_mut(&ResourceId(17)).unwrap().models =
+    Arc::make_mut(effects.banks.get_mut(&ResourceId(17)).unwrap()).models =
         [(0, model.clone()), (1, model)].into();
     let parent = spawn(&mut effects)?;
     let child = spawn(&mut effects)?;
@@ -477,13 +473,13 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
     );
     effects.banks.insert(
         ResourceId(17),
-        EffectBank::new(
+        Arc::new(EffectBank::new(
             ResourceId(17),
             models,
             [(1, definition)].into(),
             &mut |_| Ok(None),
             &Default::default(),
-        )?,
+        )?),
     );
     let mut frame = effect_frame();
     frame.cues.push(crate::Cue::Effect(crate::EffectRequest {

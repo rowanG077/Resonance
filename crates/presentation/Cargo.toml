@@ -15,9 +15,8 @@ resonance-model-behavior.workspace = true
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true
 bevy.workspace = true
-# Enable native OpenGL alongside Bevy's default backends; discovery uses wgpu directly.
-wgpu = { version = "=30.0.1", default-features = false, features = ["dx12", "metal", "vulkan", "gles"] }
-bevy_post_process.workspace = true
+# Enable the native graphics backends; discovery uses wgpu directly.
+wgpu = { version = "=30.0.1", default-features = false, features = ["dx12", "metal", "vulkan"] }
 raw-window-handle.workspace = true
 resonance-content.workspace = true
 resonance-asset-writer.workspace = true
@@ -35,9 +34,13 @@ sha2.workspace = true
 resonance-media.workspace = true
 resonance-audio.workspace = true
 hound = "3.5"
+bytemuck = { version = "1", features = ["derive"] }
 
 tempfile = "3"
 toml = "1.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 resonance-game = { workspace = true, features = ["test-support"] }

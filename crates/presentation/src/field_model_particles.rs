@@ -6,6 +6,7 @@ use super::{
     field_view::{Art, State},
     materials::{MaterialSlot, TitleSurface},
 };
+use crate::native::MeshMaterial3d;
 use bevy::prelude::*;
 use resonance_events::effect::{Blend, SpriteOrientation};
 use std::collections::BTreeSet;
@@ -184,14 +185,14 @@ pub(super) fn sync(
                     .expect("model particle material slot");
                 let spec = &model.spec.materials[index];
                 if spec.image == resonance_content::SceneImage::Capture {
-                    commands
-                        .entity(child)
-                        .remove::<MeshMaterial3d<StandardMaterial>>()
-                        .insert(super::field_capture::Part {
+                    commands.entity(child).insert((
+                        super::field_capture::Part {
                             request: request.clone(),
                             particle: part.handle,
                             vertex_color: spec.vertex_color,
-                        });
+                        },
+                        crate::native::SceneSample::default(),
+                    ));
                     continue;
                 }
                 commands.entity(child).insert((

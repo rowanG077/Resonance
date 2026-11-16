@@ -1,5 +1,6 @@
 //! Fixed UI graphics. Views borrow canvases; controllers own no cache policy.
 use super::*;
+use crate::native::MeshMaterial2d;
 #[cfg(all(test, feature = "preparation-trace"))]
 #[path = "resident_probe.rs"]
 mod probe;
@@ -126,16 +127,12 @@ impl Resident {
                 world.get::<Canvas>(entity).is_some(),
                 "common UI canvas was released"
             );
-            let mesh = world
-                .get::<Mesh2d>(entity)
-                .context("common UI mesh binding missing")?;
+            world
+                .get::<UiGeometry>(entity)
+                .context("common UI geometry missing")?;
             let material = world
                 .get::<MeshMaterial2d<Surface>>(entity)
                 .context("common UI material binding missing")?;
-            anyhow::ensure!(
-                world.resource::<Assets<Mesh>>().contains(&mesh.0),
-                "common UI mesh missing"
-            );
             let surface = world
                 .resource::<Assets<Surface>>()
                 .get(&material.0)
@@ -364,12 +361,12 @@ impl Warm {
                 )
             })?;
         let resolution = world.resource::<crate::display::Display>().0;
-        let world_graphics = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+        let world_graphics =
             world.resource_scope(|world, mut materials: Mut<Assets<Surface>>| {
-                field.prepare(&mut world.commands(), &mut meshes, &mut materials);
-                dialogue.prepare(&mut world.commands(), &mut meshes, &mut materials);
-                battle.prepare(&mut world.commands(), &mut meshes, resolution);
-                game_over.prepare(&mut world.commands(), &mut meshes);
+                field.prepare(&mut world.commands(), &mut materials);
+                dialogue.prepare(&mut world.commands(), &mut materials);
+                battle.prepare(&mut world.commands(), resolution);
+                game_over.prepare(&mut world.commands());
                 if warm_world {
                     common.files.diagnostics().attempt(
                         "startup world UI",
@@ -377,14 +374,12 @@ impl Warm {
                             &field.menu,
                             &field.surfaces[9],
                             &mut world.commands(),
-                            &mut meshes,
                         ),
                     )
                 } else {
                     Ok(None)
                 }
-            })
-        })?;
+            })?;
         world.flush();
         battle.remember_graphics(&resident);
         {
@@ -394,38 +389,21 @@ impl Warm {
             i.dialogue = Some(dialogue);
             i.game_over = Some(game_over);
         }
-        // The inventory's HUD layers own the meshes, materials and images.
+        // The inventory's HUD layers own the geometry, materials and images.
         self.battle = None;
-        let menus: std::collections::HashSet<_> = resident
-            .0
-            .lock()
-            .unwrap()
-            .menus
-            .iter()
-            .filter(|((band, _, _, _), _)| *band == menu::DepthBand::Field as u8)
-            .map(|(_, layer)| layer.entity)
-            .collect();
         let mut bindings = Vec::new();
         for (entity, layers) in resident.canvases() {
             world.entity_mut(entity).insert((
                 Canvas,
                 layers,
-                if menus.contains(&entity) {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                },
+                Visibility::Hidden,
                 bevy::camera::visibility::NoFrustumCulling,
             ));
-            bindings.push((
-                world.get::<Mesh2d>(entity).unwrap().0.id(),
-                world
-                    .get::<MeshMaterial2d<Surface>>(entity)
-                    .unwrap()
-                    .0
-                    .id()
-                    .untyped(),
-            ));
+            let surface = world
+                .resource::<Assets<Surface>>()
+                .get(&world.get::<MeshMaterial2d<Surface>>(entity).unwrap().0)
+                .expect("prepared UI canvas material");
+            bindings.push((crate::native::Prepare::from(surface), surface.native().0));
         }
         let samples = world
             .resource::<crate::anti_aliasing::AntiAliasingCapabilities>()
@@ -438,16 +416,15 @@ impl Warm {
         let mut report = self.shared.0.lock().unwrap();
         *report = crate::gpu_prepare::Report {
             armed: true,
-            // Specialization alone leaves the first menu's render extraction,
-            // batching and draw submission cold. Exercise the retained field
-            // menu canvases on the permanent UI view while startup holds black.
-            expected: menus.into_iter().map(Into::into).collect(),
+            // Fixed-layout UI prepares directly; image uploads remain part of
+            // admission, without making empty representative canvases visible.
             ..Default::default()
         };
-        for (mesh, material) in bindings {
+        for (material, images) in bindings {
+            report.images.extend(images);
             report.prepare(
                 crate::gpu_prepare::View::Field,
-                mesh,
+                None,
                 material,
                 true,
                 Some(samples),

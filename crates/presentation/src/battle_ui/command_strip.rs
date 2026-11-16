@@ -106,7 +106,6 @@ impl Artwork {
         pending: Option<resonance_battle::item::Release>,
         characters: &[Character],
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let pending = pending
             .filter(|_| {
@@ -140,7 +139,7 @@ impl Artwork {
             draw_formation_notice(&mut batches, &self.art.font, notice)?;
         }
         for (layer, batch) in self.ui.commands.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }

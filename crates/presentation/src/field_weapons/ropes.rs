@@ -1,5 +1,6 @@
 //! Kendama strings use the same camera-facing segments as battle rendering.
 use super::*;
+use crate::native::MeshMaterial3d;
 use crate::{sparse_animation::affine::Helper, weapon_geometry::Vertices};
 
 #[allow(clippy::too_many_arguments)]

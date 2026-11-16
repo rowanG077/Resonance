@@ -1,30 +1,30 @@
-//! Synthetic rendering smoke test, headless or windowed, without game assets.
+//! Synthetic rendering smoke test of the native frame renderer, headless or
+//! windowed, without game assets. One frame mirrors the game's display: a scene
+//! image (surface patches on the left, movie text and blending on the right)
+//! shown through the output conversion into an image or the window.
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     app::{AppExit, ScheduleRunnerPlugin},
     asset::RenderAssetUsages,
-    camera::{CameraOutputMode, RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::{DebandDither, Tonemapping},
-    pbr::Material,
+    camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
     prelude::*,
     render::{
         Render, RenderApp, RenderPlugin, RenderSystems,
         render_resource::{
-            BlendState, CachedPipelineState, Extent3d, PipelineCache, PipelineDescriptor, PollType,
+            CachedPipelineState, Extent3d, PipelineCache, PipelineDescriptor, PollType,
             TextureDimension, TextureFormat,
         },
         renderer::{RenderAdapterInfo, RenderDevice},
         settings::{Backends, RenderCreation, WgpuSettings, WgpuSettingsPriority},
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
-    shader::ShaderRef,
-    sprite_render::{Material2d, SpriteMeshMaterial},
     window::ExitCondition,
 };
 use resonance_events::effect::Blend;
 use resonance_presentation::{
-    TitleOutput, TitleSurface, TitleText, install_output_materials, install_surface_material,
-    native_render_plugins,
+    MeshMaterial2d, MeshMaterial3d, TitleOutput, TitleSurface, TitleText,
+    anti_aliasing::AntiAliasingPlugin, install_output_materials, install_surface_material,
+    render_plugins, set_display_targets,
 };
 use std::{
     path::PathBuf,
@@ -41,13 +41,15 @@ const BACKEND: Backends = if cfg!(target_os = "macos") {
 };
 const REQUIRE_CPU: bool = !cfg!(target_os = "macos");
 
+const WIDTH: u32 = 256;
+const HEIGHT: u32 = 128;
+
 #[derive(Resource)]
 struct Smoke {
     directory: PathBuf,
     started: Instant,
-    target: Option<Handle<Image>>,
-    movie_target: Option<Handle<Image>>,
-    completed: u8,
+    /// The image or window the output camera draws into.
+    output: Option<RenderTarget>,
     frames: u32,
     ready_frames: u32,
     capture_started: bool,
@@ -76,17 +78,15 @@ struct Readiness {
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let directory = args.next().map(PathBuf::from).context(
-        "usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES] [--allow-hardware] [--opengl] [--windowed]",
+        "usage: ci_render OUTPUT_DIRECTORY [OVERLAY_SHADER_DELAY_FRAMES] [--allow-hardware] [--windowed]",
     )?;
     let mut overlay_shader_delay = None;
     let mut allow_hardware = false;
-    let mut backend = BACKEND;
+    let backend = BACKEND;
     let mut windowed = false;
     for value in args {
         if value == "--allow-hardware" {
             allow_hardware = true;
-        } else if value == "--opengl" {
-            backend = Backends::GL;
         } else if value == "--windowed" {
             windowed = true;
         } else {
@@ -111,14 +111,8 @@ fn main() -> Result<()> {
         // Exercise the shipped Metal backend on macOS, and software adapters
         // on Linux/Windows where hosted runners do not supply a hardware GPU.
         force_fallback_adapter: require_cpu,
-        // Exercise the shipped OpenGL device setup, including adapters whose
-        // higher limits enable Bevy's optional pipelines. Other backends use
-        // the portable feature set on software or virtual CI adapters.
-        priority: if backend == Backends::GL {
-            WgpuSettingsPriority::Functionality
-        } else {
-            WgpuSettingsPriority::WebGPU
-        },
+        // The portable feature set, on software or virtual CI adapters.
+        priority: WgpuSettingsPriority::WebGPU,
         // Do not allow WGPU_ADAPTER_NAME to override the adapter policy.
         adapter_name: None,
         ..default()
@@ -127,9 +121,7 @@ fn main() -> Result<()> {
     app.insert_resource(Smoke {
         directory,
         started: Instant::now(),
-        target: None,
-        movie_target: None,
-        completed: 0,
+        output: None,
         frames: 0,
         ready_frames: 0,
         capture_started: false,
@@ -140,7 +132,7 @@ fn main() -> Result<()> {
         backend,
         windowed,
     });
-    let mut plugins = native_render_plugins(RenderPlugin {
+    let mut plugins = render_plugins(RenderPlugin {
         render_creation: RenderCreation::Automatic(Box::new(settings)),
         synchronous_pipeline_compilation: true,
         ..default()
@@ -148,7 +140,8 @@ fn main() -> Result<()> {
     .set(WindowPlugin {
         primary_window: windowed.then(|| Window {
             title: "Resonance renderer smoke test".into(),
-            resolution: (256, 256).into(),
+            resolution: (WIDTH, HEIGHT).into(),
+            resizable: false,
             ..default()
         }),
         exit_condition: ExitCondition::DontExit,
@@ -160,26 +153,32 @@ fn main() -> Result<()> {
         plugins = plugins.disable::<bevy::winit::WinitPlugin>();
     }
     app.add_plugins(plugins)
-        .add_plugins((install_surface_material, install_output_materials))
+        .add_plugins((
+            install_surface_material,
+            install_output_materials,
+            AntiAliasingPlugin,
+        ))
         .add_systems(Startup, setup)
         .add_systems(Update, capture);
     if !windowed {
         app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)));
     }
+    // The native frame's shaders: flat quads (movie text, overlay and output
+    // conversion) first, which the delay test withholds, then the surfaces.
     let required_shaders = [
-        ("overlay", SpriteMeshMaterial::vertex_shader()),
-        ("surface", <TitleSurface as Material>::fragment_shader()),
-        ("movie", TitleText::fragment_shader()),
-        ("output", TitleOutput::fragment_shader()),
+        ("flat", "native_flat.wesl"),
+        ("surface vertex", "native_surface_vertex.wesl"),
+        ("surface", "title_surface.wesl"),
     ]
-    .into_iter()
-    .map(|(name, shader)| {
-        let ShaderRef::Path(path) = shader else {
-            anyhow::bail!("expected the {name} shader path");
-        };
-        Ok((name, app.world().resource::<AssetServer>().load(path)))
+    .map(|(name, path)| {
+        (
+            name,
+            app.world()
+                .resource::<AssetServer>()
+                .load(format!("embedded://resonance_presentation/{path}")),
+        )
     })
-    .collect::<Result<Vec<_>>>()?;
+    .to_vec();
     let readiness = Readiness {
         overlay_shader: required_shaders[0].1.clone(),
         required_shaders,
@@ -242,19 +241,32 @@ fn setup(
         );
     }
 
-    let target = images.add(Image::new_target_texture(
-        128,
-        128,
-        TextureFormat::Rgba8UnormSrgb,
+    // The scene stores encoded color, as the game's does; the output camera
+    // converts it into an sRGB image or the window.
+    let source = images.add(Image::new_target_texture(
+        WIDTH,
+        HEIGHT,
+        TextureFormat::Bgra8Unorm,
         None,
     ));
-    if smoke.windowed {
-        commands.spawn((Camera2d, RenderLayers::layer(31)));
-        commands.spawn((Sprite::from_image(target.clone()), RenderLayers::layer(31)));
-    }
-    // All four patches use the production shader with a colored texture, vertex tint,
-    // actor lighting, and material tint. Pure green/blue ramps catch swizzling weights
-    // before decoding; the normal control catches an unconditional channel swap.
+    let output = if smoke.windowed {
+        RenderTarget::default()
+    } else {
+        RenderTarget::Image(
+            images
+                .add(Image::new_target_texture(
+                    WIDTH,
+                    HEIGHT,
+                    TextureFormat::Rgba8UnormSrgb,
+                    None,
+                ))
+                .into(),
+        )
+    };
+    commands.queue({
+        let (source, output) = (source.clone(), output.clone());
+        move |world: &mut World| set_display_targets(world, source, output)
+    });
     let pixel = |rgba: [u8; 4]| {
         Image::new(
             Extent3d {
@@ -268,6 +280,19 @@ fn setup(
             RenderAssetUsages::default(),
         )
     };
+    let fixed = |width: u32, height: u32| {
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: width as f32,
+                height: height as f32,
+            },
+            ..OrthographicProjection::default_3d()
+        })
+    };
+    // Left half: all four patches use the production shader with a colored
+    // texture, vertex tint, actor lighting, and material tint. Pure green/blue
+    // ramps catch swizzling weights before decoding; the normal control catches
+    // an unconditional channel swap.
     let texture = images.add(pixel([17, 193, 241, 204]));
     let mut quad = Mesh::from(Rectangle::new(32., 32.));
     quad.insert_attribute(
@@ -297,87 +322,11 @@ fn setup(
                 red_channel,
                 ..default()
             })),
-            Transform::from_xyz(position[0], position[1], 0.),
+            Transform::from_xyz(position[0] - 64., position[1], 0.),
         ));
     }
-    commands.spawn((
-        Camera3d::default(),
-        Camera {
-            clear_color: Color::srgb_u8(16, 32, 48).into(),
-            ..default()
-        },
-        RenderTarget::Image(target.clone().into()),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: 128.,
-            },
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_xyz(0., 0., 100.).looking_at(Vec3::ZERO, Vec3::Y),
-        Tonemapping::Linear,
-        DebandDither::Disabled,
-        Msaa::Off,
-    ));
-    // Give the sprite a real image dependency instead of the default fallback.
-    // Material preparation must wait for this image before computing its size.
-    let white = images.add(pixel([255; 4]));
-    // A second camera exercises the sprite/UI overlay path and target compositing.
-    commands.spawn((
-        Sprite {
-            image: white,
-            custom_size: Some(Vec2::splat(12.)),
-            ..default()
-        },
-        Transform::from_xyz(-48., 48., 0.),
-        RenderLayers::layer(1),
-    ));
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: 1,
-            clear_color: ClearColorConfig::None,
-            // The overlay already shares the scene target; copy its stored alpha as-is.
-            output_mode: CameraOutputMode::Write {
-                blend_state: Some(BlendState::REPLACE),
-                clear_color: ClearColorConfig::None,
-            },
-            ..default()
-        },
-        RenderTarget::Image(target.clone().into()),
-        RenderLayers::layer(1),
-        Tonemapping::Linear,
-        Msaa::Off,
-    ));
-    // Exercise the actual movie image shader and final output conversion in
-    // sequence. The intermediate target stores encoded RGB just like production;
-    // the final sRGB target must recover these authored color bytes unchanged.
-    let movie_texture = images.add(Image::new(
-        Extent3d {
-            width: 2,
-            height: 2,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        vec![
-            224, 40, 72, 255, 48, 192, 88, 255, 56, 80, 208, 255, 192, 160, 32, 255,
-        ],
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::default(),
-    ));
-    let movie_source = images.add(Image::new_target_texture(
-        128,
-        96,
-        TextureFormat::Rgba8Unorm,
-        None,
-    ));
-    let movie_output = images.add(Image::new_target_texture(
-        128,
-        96,
-        TextureFormat::Rgba8UnormSrgb,
-        None,
-    ));
-    // Saturate two additive draws, then darken: clamping only at final output
-    // would leave 0.8 instead of 0.5. Keep this patch in the movie's left bar.
+    // Right half: saturate two additive draws, then darken: clamping only at
+    // final output would leave 0.8 instead of 0.5.
     let blend_quad = meshes.add(Rectangle::new(8., 8.));
     for (z, tint, blend) in [
         (-2., Vec4::new(0.8, 0.8, 0.8, 1.), Blend::AdditiveUnscaled),
@@ -393,76 +342,89 @@ fn setup(
                 depth_write: false,
                 ..default()
             })),
-            Transform::from_xyz(-56., 0., z),
-            RenderLayers::layer(4),
+            Transform::from_xyz(8., 0., z),
         ));
     }
     commands.spawn((
         Camera3d::default(),
         Camera {
-            order: 2,
-            clear_color: Color::BLACK.into(),
-            output_mode: CameraOutputMode::Skip,
+            clear_color: Color::srgb_u8(16, 32, 48).into(),
             ..default()
         },
-        RenderTarget::Image(movie_source.clone().into()),
-        RenderLayers::layer(4),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: 128.,
-                height: 96.,
-            },
-            ..OrthographicProjection::default_3d()
-        }),
+        RenderTarget::Image(source.clone().into()),
+        fixed(WIDTH, HEIGHT),
         Transform::from_xyz(0., 0., 100.).looking_at(Vec3::ZERO, Vec3::Y),
-        Tonemapping::Linear,
-        DebandDither::Disabled,
-        Msaa::Off,
     ));
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(96., 72.))),
-        MeshMaterial2d(movie_materials.add(TitleText {
-            source: movie_texture,
-            opacity_pulse: Vec4::new(1., 0., 0., 0.),
-        })),
-        RenderLayers::layer(2),
+    // The UI overlay over the scene: the movie image shader for a 2x2 movie
+    // frame on the right and a white square in the top-left corner.
+    let movie_texture = images.add(Image::new(
+        Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        vec![
+            224, 40, 72, 255, 48, 192, 88, 255, 56, 80, 208, 255, 192, 160, 32, 255,
+        ],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::default(),
     ));
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(128., 96.))),
-        MeshMaterial2d(output_materials.add(TitleOutput {
-            overlay: None,
-            source: movie_source.clone(),
-            brightness: Vec4::new(1., 0., 0., 0.),
-        })),
-        RenderLayers::layer(3),
-    ));
-    for (layer, target) in [(2, movie_source), (3, movie_output.clone())] {
+    let overlay = RenderLayers::layer(1);
+    for (source, size, position) in [
+        (movie_texture, Vec2::new(96., 72.), Vec2::new(64., 0.)),
+        (
+            images.add(pixel([255; 4])),
+            Vec2::splat(12.),
+            Vec2::new(-112., 48.),
+        ),
+    ] {
         commands.spawn((
-            Camera2d,
-            Camera {
-                order: layer as isize + 1,
-                clear_color: ClearColorConfig::None,
-                output_mode: CameraOutputMode::Write {
-                    blend_state: Some(BlendState::REPLACE),
-                    clear_color: ClearColorConfig::None,
-                },
-                ..default()
-            },
-            Projection::Orthographic(OrthographicProjection {
-                scaling_mode: ScalingMode::Fixed {
-                    width: 128.,
-                    height: 96.,
-                },
-                ..OrthographicProjection::default_2d()
-            }),
-            RenderTarget::Image(target.into()),
-            RenderLayers::layer(layer),
-            Tonemapping::Linear,
-            Msaa::Off,
+            Mesh2d(meshes.add(Rectangle::from_size(size))),
+            MeshMaterial2d(movie_materials.add(TitleText {
+                source,
+                opacity_pulse: Vec4::new(1., 0., 0., 0.),
+            })),
+            Transform::from_translation(position.extend(0.)),
+            overlay.clone(),
         ));
     }
-    smoke.movie_target = Some(movie_output);
-    smoke.target = Some(target);
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        RenderTarget::Image(source.clone().into()),
+        overlay,
+        fixed(WIDTH, HEIGHT),
+        Msaa::Off,
+    ));
+    // The output conversion, as the game's display draws it.
+    let output_layer = RenderLayers::layer(2);
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
+        MeshMaterial2d(output_materials.add(TitleOutput {
+            source,
+            brightness: Vec4::new(1., 0., 0., 0.),
+            overlay: None,
+        })),
+        output_layer.clone(),
+    ));
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 2,
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+        output.clone(),
+        output_layer,
+        fixed(WIDTH, HEIGHT),
+        Msaa::Off,
+    ));
+    smoke.output = Some(output);
 }
 
 fn wait_for_frame(
@@ -570,84 +532,36 @@ fn capture(
             "Capturing after {} frames with all pipelines ready",
             smoke.frames
         );
-        for (movie, target) in [
-            (false, smoke.target.clone().unwrap()),
-            (true, smoke.movie_target.clone().unwrap()),
-        ] {
-            commands.spawn(Screenshot::image(target)).observe(
-                move |event: On<ScreenshotCaptured>,
-                      mut smoke: ResMut<Smoke>,
-                      mut exit: MessageWriter<AppExit>| {
-                    let result = if movie {
-                        check_movie_image(&event.image, &smoke.directory)
-                    } else {
-                        check_image(&event.image, &smoke.directory)
-                    };
-                    match result {
-                        Ok(()) => {
-                            smoke.completed += 1;
-                            if smoke.completed == 2 {
-                                println!("Rendering surface and movie/output pixel checks passed");
-                                exit.write(AppExit::Success);
-                            }
-                        }
-                        Err(error) => {
-                            error!("Rendering: {error:#}");
-                            exit.write(AppExit::error());
-                        }
+        let screenshot = match smoke.output.clone().unwrap() {
+            RenderTarget::Image(image) => Screenshot::image(image.handle),
+            _ => Screenshot::primary_window(),
+        };
+        commands.spawn(screenshot).observe(
+            |event: On<ScreenshotCaptured>, smoke: Res<Smoke>, mut exit: MessageWriter<AppExit>| {
+                match check_image(&event.image, &smoke.directory) {
+                    Ok(()) => {
+                        println!("Rendering surface, movie and output pixel checks passed");
+                        exit.write(AppExit::Success);
                     }
-                },
-            );
-        }
+                    Err(error) => {
+                        error!("Rendering: {error:#}");
+                        exit.write(AppExit::error());
+                    }
+                }
+            },
+        );
     }
-}
-
-fn check_movie_image(image: &Image, directory: &std::path::Path) -> Result<()> {
-    let pixels = image.clone().try_into_dynamic()?.to_rgba8();
-    pixels.save(directory.join("movie-output.png"))?;
-    ensure!(
-        pixels.dimensions() == (128, 96),
-        "wrong movie/output dimensions"
-    );
-    for (x, y, expected) in [
-        (40, 30, [224, 40, 72, 255]),
-        (88, 30, [48, 192, 88, 255]),
-        (40, 66, [56, 80, 208, 255]),
-        (88, 66, [192, 160, 32, 255]),
-        (8, 48, [128, 128, 128, 255]), // Additive saturation before alpha blending.
-        (120, 48, [0, 0, 0, 255]),
-        (64, 6, [0, 0, 0, 255]),
-    ] {
-        for py in y - 2..=y + 2 {
-            for px in x - 2..=x + 2 {
-                let actual = pixels.get_pixel(px, py).0;
-                ensure!(
-                    actual
-                        .iter()
-                        .zip(expected)
-                        .all(|(&a, b)| a.abs_diff(b) <= 2),
-                    "movie/output pixel ({px}, {py}): expected {expected:?}, got {actual:?}"
-                );
-            }
-        }
-    }
-    Ok(())
 }
 
 fn check_image(image: &Image, directory: &std::path::Path) -> Result<()> {
     let pixels = image.clone().try_into_dynamic()?.to_rgba8();
     pixels.save(directory.join("render.png"))?;
-    ensure!(pixels.dimensions() == (128, 128), "wrong render dimensions");
-    for (x, y, expected) in [
-        // Fixed reference pixels after linear-to-sRGB output conversion. Alpha remains
-        // linear: texture 204/255 × vertex 128/255 × tint 0.5 gives byte 51.
-        (48, 48, [35, 35, 35, 51]), // Unlit: red texture × red vertex × red tint.
-        (80, 48, [72, 72, 72, 51]), // Green ramp decodes the second shade.
-        (48, 80, [125, 125, 125, 51]), // Blue ramp decodes full highlight.
-        (80, 80, [72, 137, 225, 51]), // Same green ramp without RED_CHANNEL.
-        (16, 16, [255, 255, 255, 255]),
-        (112, 112, [16, 32, 48, 255]),
-    ] {
+    ensure!(
+        pixels.dimensions() == (WIDTH, HEIGHT),
+        "wrong render dimensions: {:?}",
+        pixels.dimensions()
+    );
+    for (x, y, expected) in EXPECTED {
         // Sample patches away from edges; tolerate small backend rounding differences.
         for py in y - 2..=y + 2 {
             for px in x - 2..=x + 2 {
@@ -664,3 +578,19 @@ fn check_image(image: &Image, directory: &std::path::Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Output pixels: the scene stores the shaders' encoded color and the output
+/// conversion reproduces it exactly, opaque.
+const EXPECTED: [(u32, u32, [u8; 4]); 11] = [
+    (48, 48, [4, 4, 4, 255]),     // Unlit: red texture × red vertex × red tint.
+    (80, 48, [16, 16, 16, 255]),  // Green ramp decodes the second shade.
+    (48, 80, [52, 52, 52, 255]),  // Blue ramp decodes full highlight.
+    (80, 80, [16, 64, 191, 255]), // Same green ramp without RED_CHANNEL.
+    (16, 16, [255, 255, 255, 255]), // UI overlay.
+    (112, 112, [1, 4, 8, 255]),   // Scene clear.
+    (168, 46, [224, 40, 72, 255]), // Movie frame, unchanged by the conversion.
+    (216, 46, [48, 192, 88, 255]),
+    (168, 82, [56, 80, 208, 255]),
+    (216, 82, [192, 160, 32, 255]),
+    (136, 64, [127, 127, 127, 255]), // Additive saturation before alpha blending.
+];

@@ -1,16 +1,19 @@
 //! Opt-in CPU timings for the speculation and pose stages (nanoseconds).
+//! Stages: 0 prediction, 1 field/world poses, 2 title/UI, 3 hierarchy
+//! propagation (including affine poses), 4 committed battle update, 5 battle presentation,
+//! 6 display-list compile, 7 surface record sync.
 use std::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::Instant,
 };
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
-static NANOS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+static NANOS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 
 pub(crate) fn enable() {
     ENABLED.store(true, Ordering::Relaxed);
 }
-pub(crate) fn take() -> Option<[u64; 4]> {
+pub(crate) fn take() -> Option<[u64; 8]> {
     ENABLED
         .load(Ordering::Relaxed)
         .then(|| NANOS.each_ref().map(|v| v.swap(0, Ordering::Relaxed)))

@@ -1,5 +1,8 @@
 //! Helpers shared by presentation tests.
-use bevy::shader::{ShaderCacheError, ShaderCacheSource};
+use bevy::{
+    prelude::{App, Handle, Image, On, ResMut, Resource},
+    shader::{ShaderCacheError, ShaderCacheSource},
+};
 use resonance_battle::{Actor, PreparedBattle, Side};
 
 /// Expected world position of an inertial cloth joint under a turning animated pin.
@@ -222,11 +225,60 @@ pub(crate) fn validate_shader(
     Ok(())
 }
 
-/// Headless native renderer shared by GPU tests; WGPU_BACKEND may select OpenGL.
+/// Headless native renderer shared by GPU tests.
 pub(crate) fn render_plugins() -> bevy::app::PluginGroupBuilder {
     render_plugins_with_features(wgpu::Features::empty())
 }
 
+/// Finish asynchronous plugin setup before a GPU test starts rendering.
+pub(crate) fn finish_app(app: &mut App) -> anyhow::Result<()> {
+    let began = std::time::Instant::now();
+    while app.plugins_state() == bevy::app::PluginsState::Adding {
+        anyhow::ensure!(began.elapsed().as_secs() < 180, "GPU setup timed out");
+        bevy::tasks::tick_global_task_pools_on_main_thread();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    app.finish();
+    app.cleanup();
+    Ok(())
+}
+
+pub(crate) fn render_until(
+    app: &mut App,
+    message: &str,
+    ready: impl Fn(&App) -> bool,
+) -> anyhow::Result<()> {
+    let began = std::time::Instant::now();
+    loop {
+        app.update();
+        crate::playthrough::check_exit(app)?;
+        if ready(app) {
+            return Ok(());
+        }
+        anyhow::ensure!(began.elapsed().as_secs() < 120, "{message}");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Capture the real rendered image; each call waits for its own GPU readback.
+pub(crate) fn capture_image(app: &mut App, target: Handle<Image>) -> anyhow::Result<Image> {
+    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+    #[derive(Resource, Default)]
+    struct Captured(Option<Image>);
+
+    app.init_resource::<Captured>();
+    app.world_mut().spawn(Screenshot::image(target)).observe(
+        |shot: On<ScreenshotCaptured>, mut captured: ResMut<Captured>| {
+            captured.0 = Some(shot.image.clone());
+        },
+    );
+    render_until(app, "GPU readback timed out", |app| {
+        app.world().resource::<Captured>().0.is_some()
+    })?;
+    Ok(app.world_mut().resource_mut::<Captured>().0.take().unwrap())
+}
+
+/// The portable feature set plus `features`, so software adapters qualify.
 pub(crate) fn render_plugins_with_features(
     features: wgpu::Features,
 ) -> bevy::app::PluginGroupBuilder {
@@ -245,15 +297,11 @@ pub(crate) fn render_plugins_with_features(
         Backends::VULKAN
     })
     .with_env();
-    crate::renderer::native_render_plugins(RenderPlugin {
+    crate::renderer::render_plugins(RenderPlugin {
         render_creation: WgpuSettings {
             backends: Some(backends),
             features,
-            priority: if backends.contains(Backends::GL) {
-                WgpuSettingsPriority::Functionality
-            } else {
-                WgpuSettingsPriority::WebGPU
-            },
+            priority: WgpuSettingsPriority::WebGPU,
             ..default()
         }
         .into(),
@@ -268,4 +316,38 @@ pub(crate) fn render_plugins_with_features(
     .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
     .disable::<bevy::winit::WinitPlugin>()
     .disable::<bevy::gilrs::GilrsPlugin>()
+}
+
+/// Install the native frame renderer and point it at `scene`: cameras drawing
+/// into that image are drawn as the game's scene. The framebuffer is a small
+/// image of its own that test cameras do not draw into. Call it before the app
+/// finishes building.
+pub(crate) fn native_scene(
+    app: &mut bevy::app::App,
+    scene: bevy::asset::Handle<bevy::image::Image>,
+) {
+    use bevy::{camera::RenderTarget, prelude::*, render::render_resource::TextureFormat};
+    if !app
+        .world()
+        .contains_resource::<crate::materials::SurfaceRecords>()
+    {
+        crate::materials::install_surface_material(app);
+    }
+    if !app.is_plugin_added::<crate::anti_aliasing::AntiAliasingPlugin>() {
+        app.add_plugins(crate::anti_aliasing::AntiAliasingPlugin);
+    }
+    let framebuffer =
+        app.world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::new_target_texture(
+                1,
+                1,
+                TextureFormat::Bgra8UnormSrgb,
+                None,
+            ));
+    crate::set_display_targets(
+        app.world_mut(),
+        scene,
+        RenderTarget::Image(framebuffer.into()),
+    );
 }

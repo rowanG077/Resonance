@@ -85,31 +85,28 @@ fn title_pose_cache_reuses_endpoints_and_invalidates_for_new_predictions_and_com
     let mut prediction = Prediction::default();
     prediction.reserve().unwrap();
     world.insert_resource(prediction);
-    let publish = |world: &mut World, tick| {
+    let predict = |world: &mut World, tick| {
         world.resource_scope(|world, mut p: Mut<Prediction>| {
-            let endpoint = p
-                .execute(|| {
-                    let mut sources = resonance_events::OperationFork::default();
-                    let mut next = world
-                        .resource::<Events>()
-                        .0
-                        .fork_for_prediction(&mut sources);
-                    next.world.tick = tick;
-                    Endpoint::Title((Default::default(), next), sources)
-                })
-                .unwrap();
-            p.publish(
+            p.predict(
                 Key::Title {
                     events: Tick::new(1),
                     menu: Tick::new(1),
                     clock: tick,
                     input: Default::default(),
                 },
-                endpoint,
+                || {
+                    let mut sources = resonance_events::OperationFork::default();
+                    let mut next = world
+                        .resource::<Events>()
+                        .0
+                        .fork_for_prediction(&mut sources);
+                    next.world.tick = tick;
+                    Ok(Endpoint::Title((Default::default(), next), sources))
+                },
             );
         });
     };
-    publish(&mut world, 11);
+    predict(&mut world, 11);
     for alpha in [0., 0.25, 0.5, 0.99] {
         world.resource_mut::<Prediction>().alpha = alpha;
         world.run_system_once(animate_field).unwrap();
@@ -122,15 +119,16 @@ fn title_pose_cache_reuses_endpoints_and_invalidates_for_new_predictions_and_com
         );
     }
     // A changed prediction with the same committed tick rebuilds the target.
-    publish(&mut world, 12);
+    predict(&mut world, 12);
     world.resource_mut::<Prediction>().alpha = 0.5;
     world.run_system_once(animate_field).unwrap();
     assert_eq!(world.get::<Transform>(animated).unwrap().translation.x, 5.5);
     // Losing the prediction restores the committed pose, without retaining the blend.
-    world.resource_mut::<Prediction>().publish(
-        Key::Menu(Tick::new(1), Default::default()),
-        Endpoint::Hold(Default::default()),
-    );
+    world
+        .resource_mut::<Prediction>()
+        .predict(Key::Menu(Tick::new(1), Default::default()), || {
+            Ok(Endpoint::Hold(Default::default()))
+        });
     world.run_system_once(animate_field).unwrap();
     assert_eq!(world.get::<Transform>(animated).unwrap().translation.x, 5.);
     world.resource_mut::<Events>().0.world.tick = 20;

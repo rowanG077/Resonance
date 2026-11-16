@@ -1,6 +1,7 @@
 //! Terminal session screens use captured artwork and the shared save browser.
 use super::*;
 use crate::materials::TitleOutput;
+use crate::native::{DistanceFog, MeshMaterial2d};
 use crate::{Events, Menu, PendingAudio, PendingInput, audio, new_game, saves};
 use resonance_events::session_screen::Target;
 
@@ -16,7 +17,6 @@ pub(crate) struct GameOver {
     selected: usize,
     font: BitmapFont,
     art: resonance_content::game_over::Art,
-    mesh: Handle<Mesh>,
     entities: [Entity; 2],
 }
 
@@ -150,7 +150,7 @@ fn game_over_text(
     font: &BitmapFont,
     art: &resonance_content::game_over::Art,
     selected: usize,
-) -> Result<Mesh> {
+) -> Result<crate::field_ui::UiGeometry> {
     let mut batch = Batch::default();
     for (i, text) in art.choices.iter().enumerate() {
         skit::centered(
@@ -164,7 +164,7 @@ fn game_over_text(
         )?;
     }
     skit::centered(&mut batch, font, &art.caption, 416., 20., 1., false)?;
-    Ok(batch.mesh([font.width, font.height]))
+    Ok(batch.geometry([font.width, font.height]))
 }
 
 fn show_game_over(world: &mut World) -> Result<()> {
@@ -184,9 +184,7 @@ fn show_game_over(world: &mut World) -> Result<()> {
         .resource::<AssetServer>()
         .get_handle::<Image>(&font.texture)
         .context("scene font is not resident")?;
-    let mesh = world
-        .resource_mut::<Assets<Mesh>>()
-        .add(game_over_text(&font, &art, 0)?);
+    let geometry = game_over_text(&font, &art, 0)?;
     let material = world.resource_mut::<Assets<Surface>>().add(Surface {
         source: image.clone(),
         sampling: image.clone(),
@@ -240,7 +238,7 @@ fn show_game_over(world: &mut World) -> Result<()> {
         .id();
     let text = world
         .spawn((
-            Mesh2d(mesh.clone()),
+            geometry,
             MeshMaterial2d(material),
             Transform::from_xyz(0., 0., 19.),
         ))
@@ -249,7 +247,6 @@ fn show_game_over(world: &mut World) -> Result<()> {
         selected: 0,
         font,
         art,
-        mesh,
         entities: [background, text],
     });
     Ok(())
@@ -268,12 +265,9 @@ fn advance(world: &mut World) {
         let mut game_over = world.resource_mut::<GameOver>();
         game_over.selected ^= 1;
         match game_over_text(&game_over.font, &game_over.art, game_over.selected) {
-            Ok(mesh) => {
-                let handle = game_over.mesh.clone();
-                *world
-                    .resource_mut::<Assets<Mesh>>()
-                    .get_mut(&handle)
-                    .unwrap() = mesh;
+            Ok(geometry) => {
+                let entity = game_over.entities[1];
+                world.entity_mut(entity).insert(geometry);
             }
             Err(error) => {
                 crate::diagnostics::fatal(world, "Game over text failed", error);

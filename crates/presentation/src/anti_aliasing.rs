@@ -1,18 +1,14 @@
 //! Spatial scene antialiasing. UI, movies and final presentation never run SMAA.
 use bevy::render::{
-    Render, RenderApp, RenderSystems,
-    camera::ExtractedCamera,
     render_resource::{TextureFormat, TextureFormatFeatureFlags, TextureUsages},
     renderer::{RenderAdapter, RenderDevice},
     settings::WgpuFeatures,
 };
 use bevy::{camera::RenderTarget, prelude::*};
-use bevy_post_process::msaa_writeback::MsaaWritebackPlugin;
 use resonance_content::menu_data::AntiAliasing;
 mod smaa;
-use smaa::Smaa;
-#[cfg(test)]
-pub(crate) use smaa::test_smaa_ready;
+pub(crate) use smaa::Smaa;
+pub(crate) use smaa::{Native as NativeSmaa, NativeContext as NativeSmaaContext};
 #[cfg(test)]
 mod compositing_tests;
 
@@ -31,17 +27,13 @@ impl AntiAliasingCapabilities {
         mode.supported_or_fallback(&self.0)
     }
     fn detect(adapter: &RenderAdapter, device: &RenderDevice) -> Self {
-        let opengl = adapter.get_info().backend == wgpu::Backend::Gl;
-        let mut formats = vec![
+        let formats = [
             TextureFormat::Bgra8Unorm,
             TextureFormat::Bgra8UnormSrgb,
             TextureFormat::Rgba8Unorm,
             TextureFormat::Rgba8UnormSrgb,
             TextureFormat::Depth32Float,
         ];
-        if opengl {
-            formats.push(TextureFormat::Rgba16Unorm);
-        }
         let features = formats
             .into_iter()
             .map(|format| {
@@ -62,11 +54,6 @@ impl AntiAliasingCapabilities {
             AntiAliasing::ALL
                 .into_iter()
                 .filter(|mode| {
-                    // wgpu-hal 30.0.1 allocates sampleable MSAA textures using
-                    // GL_TEXTURE_2D instead of GL_TEXTURE_2D_MULTISAMPLE.
-                    if opengl && mode.samples() > 1 {
-                        return false;
-                    }
                     features.iter().all(|(format, features)| {
                         features.flags.sample_count_supported(mode.samples())
                             && features.allowed_usages.contains(
@@ -136,38 +123,19 @@ impl Default for AntiAliasingSettings {
 #[derive(Component)]
 pub(crate) struct SceneMsaa;
 
+/// Camera sample counts are final after this set.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ConfigureCameras;
+
 /// Installs only spatial SMAA; no temporal AA plugin, history or jitter is used.
 pub struct AntiAliasingPlugin;
 impl Plugin for AntiAliasingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AntiAliasingSettings>()
-            // Writeback preserves the filtered scene when a later MSAA UI
-            // camera loads it. No aggregate AA or temporal plugin is installed.
-            .add_plugins(MsaaWritebackPlugin)
             .add_systems(Startup, detect_capabilities)
             .add_systems(First, constrain_menu_choices)
-            .add_systems(Last, configure_cameras);
+            .add_systems(Last, configure_cameras.in_set(ConfigureCameras));
         smaa::install(app);
-        if let Some(render) = app.get_sub_app_mut(RenderApp) {
-            render.add_systems(
-                Render,
-                configure_camera_loads.in_set(RenderSystems::PrepareViews),
-            );
-        }
-    }
-}
-
-fn configure_camera_loads(mut cameras: Query<&mut ExtractedCamera>) {
-    // Bevy 0.19's Auto writeback preserves earlier cameras even when this
-    // camera clears, initializing the attachment before its clear can run.
-    // Correct that default after extraction, before writeback preparation.
-    // Loading cameras and explicit writeback choices retain Bevy's behavior.
-    for mut camera in &mut cameras {
-        if camera.msaa_writeback == MsaaWriteback::Auto
-            && !matches!(camera.clear_color, ClearColorConfig::None)
-        {
-            camera.msaa_writeback = MsaaWriteback::Off;
-        }
     }
 }
 
@@ -287,13 +255,7 @@ mod tests {
         // budget compiling the full field. Use a bounded test-only warmup and
         // the same production readiness/readback, without changing player limits.
         let began = std::time::Instant::now();
-        while app.plugins_state() == bevy::app::PluginsState::Adding {
-            anyhow::ensure!(began.elapsed().as_secs() < 180, "renderer setup timed out");
-            bevy::tasks::tick_global_task_pools_on_main_thread();
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-        app.finish();
-        app.cleanup();
+        crate::test_support::finish_app(&mut app)?;
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             std::time::Duration::ZERO,
         ));
@@ -342,7 +304,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<AntiAliasingSettings>()
             .insert_resource(AntiAliasingCapabilities(AntiAliasing::ALL.to_vec()))
-            .add_systems(Last, configure_cameras);
+            .add_systems(Last, configure_cameras.in_set(ConfigureCameras));
         let target = RenderTarget::Image(Handle::<Image>::default().into());
         let warm_target = RenderTarget::Image(
             Handle::<Image>::from(bevy::asset::uuid::Uuid::from_u128(1)).into(),
@@ -390,8 +352,8 @@ mod tests {
         assert!(app.world().get::<Smaa>(preview).is_none());
         assert_eq!(app.world().get::<Msaa>(preview), Some(&Msaa::Sample4));
 
-        // Restarting on OpenGL with an MSAA preference must configure every
-        // scene/UI camera with one sample and apply the spatial fallback.
+        // Restarting on an adapter without MSAA must configure every scene/UI
+        // camera with one sample and apply the spatial fallback.
         app.world_mut().resource_mut::<AntiAliasingCapabilities>().0 = AntiAliasing::ALL
             .into_iter()
             .filter(|mode| mode.samples() == 1)

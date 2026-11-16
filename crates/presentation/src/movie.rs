@@ -1,10 +1,10 @@
 use super::audio_output::Sink as AudioSink;
 use super::{PendingInput, RunOptions, materials::TitleText};
 use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
+use crate::native::MeshMaterial2d;
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     image::ImageSampler,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
@@ -256,7 +256,6 @@ pub(super) fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(3),
         MovieCamera,

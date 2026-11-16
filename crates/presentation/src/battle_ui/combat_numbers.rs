@@ -283,7 +283,6 @@ impl super::Artwork {
         frame: &BattleFrame,
         fraction: f32,
         commands: &mut super::Commands,
-        meshes: &mut super::Assets<super::Mesh>,
     ) -> Result<()> {
         let mut floating = Batch::default();
         let mut recovered = Batch::default();
@@ -323,8 +322,8 @@ impl super::Artwork {
                 }
             }
         }
-        self.ui.floating.upload(floating, commands, meshes)?;
-        self.ui.recovery.upload(recovered, commands, meshes)?;
+        self.ui.floating.upload(floating, commands)?;
+        self.ui.recovery.upload(recovered, commands)?;
         Ok(())
     }
 }

@@ -84,7 +84,7 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
     camera.position = [0., -1000., 0.];
     field.events.world.field_camera = Some(camera);
     let mut app = App::new();
-    app.add_plugins(bevy::transform::TransformPlugin);
+    app.add_plugins(crate::renderer::SerialTransformPlugin);
     crate::sparse_animation::affine::install(&mut app);
     app.insert_resource(crate::field_view::Session(field));
     let root = app.world_mut().spawn(Transform::IDENTITY).id();
@@ -121,12 +121,12 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
         .unwrap()?;
     assert!(!rig.camera_facing.is_empty());
     let binding = crate::sparse_animation::Binding(rig.bones.clone());
-    let poses = binding.sample_poses(Some((&motion, 0.)))?;
+    let mut poses = Vec::new();
+    binding.sample_poses(Some((&motion, 0.)), &mut poses)?;
     app.world_mut().entity_mut(root).insert(rig);
     app.add_systems(
         Update,
         (
-            restore,
             move |mut nodes: Query<&mut Transform>, mut affine: ResMut<Locals>| {
                 for (&(entity, _), &pose) in binding.0.iter().zip(&poses) {
                     affine.set(entity, &mut nodes.get_mut(entity).unwrap(), pose);

@@ -19,7 +19,6 @@ use bevy::{
         RenderTarget, ScalingMode,
         visibility::{NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
     prelude::*,
 };
 use resonance_battle::{ActorId, Battle, BattleFrame, Character, Side};
@@ -151,6 +150,27 @@ pub(super) struct Owner {
 impl Owner {
     pub(super) fn capturing_arte_binding(&self) -> bool {
         matches!(&self.phase, Phase::Scene(scene) if scene.lifecycle.capturing_arte_binding())
+    }
+
+    pub(crate) fn benchmark_counts(&self) -> Option<[u64; 8]> {
+        let Phase::Scene(scene) = &self.phase else {
+            return None;
+        };
+        let frame = scene.frame.as_ref()?;
+        Some([
+            frame.update,
+            u64::from(scene.core.ledger().combat_ticks),
+            frame
+                .actors
+                .iter()
+                .filter(|a| matches!(a.activity, resonance_battle::Activity::Casting { .. }))
+                .count() as u64,
+            frame.actors.iter().filter(|a| a.cast_releasing).count() as u64,
+            frame.spell_origins.len() as u64,
+            scene.particles.len() as u64,
+            frame.projectiles.len() as u64,
+            frame.actions.len() as u64,
+        ])
     }
 
     pub(super) fn crash_context(&self) -> String {
@@ -351,7 +371,7 @@ fn configure_publication(app: &mut App) {
     app.configure_sets(
         PostUpdate,
         PublishBattle
-            .after(super::sparse_animation::affine::propagate)
+            .after(bevy::transform::TransformSystems::Propagate)
             .before(bevy::asset::AssetEventSystems)
             // Layer::show queues Visibility changes. CheckVisibility consumes
             // InheritedVisibility, so these must reach propagation in this
@@ -1082,14 +1102,12 @@ fn prepare(
         )? {
             return Ok(());
         }
-        scene
-            .hud
-            .prepare(&mut commands, &mut assets.meshes, display.0);
+        scene.hud.prepare(&mut commands, display.0);
         if let Some(dialogue) = &mut scene.dialogue {
-            dialogue.prepare(&mut commands, &mut assets.meshes, &mut ui_surfaces);
+            dialogue.prepare(&mut commands, &mut ui_surfaces);
         }
         if let Some(art) = &mut scene.game_over {
-            art.prepare(&mut commands, &mut assets.meshes);
+            art.prepare(&mut commands);
         }
         if scene.camera.is_none() {
             scene.camera = Some(
@@ -1097,12 +1115,10 @@ fn prepare(
                     .spawn((
                         Camera2d,
                         Msaa::Off,
-                        Tonemapping::Linear,
                         Camera {
                             order: -3,
                             is_active: false,
                             clear_color: ClearColorConfig::None,
-                            output_mode: super::renderer::COMPOSITED_OUTPUT,
                             ..default()
                         },
                         scene.target.clone(),
@@ -1331,6 +1347,7 @@ fn advance(
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
     transition: Option<Res<transition::State>>,
 ) {
+    let _timer = crate::performance::smoothing_profile::Timer::start(4);
     let Some(mut owner) = owner else {
         controls.clear();
         return;
@@ -1651,7 +1668,6 @@ fn render_menu(
     scene: &mut Scene,
     time: crate::field_ui::HudTime,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
     images: &Assets<Image>,
     server: &AssetServer,
 ) -> Result<bool> {
@@ -1675,7 +1691,6 @@ fn render_menu(
             scene.lifecycle.equipment_character(),
             time,
             commands,
-            meshes,
         )
     })()
     .and_then(|()| scene.hud.menu_images_ready(images, server));
@@ -1701,7 +1716,6 @@ fn render_command_strip(
     command: Option<&resonance_game::battle::command::Frame>,
     time: crate::field_ui::HudTime,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
 ) -> Result<()> {
     let pending = scene.core.pending_item();
     let result = scene.hud.render_commands(
@@ -1711,7 +1725,6 @@ fn render_command_strip(
         pending,
         &scene.characters,
         commands,
-        meshes,
     );
     if result.is_err() {
         scene.hud.hide_commands(commands);
@@ -1733,7 +1746,6 @@ fn render_hud(
     scene: &mut Scene,
     time: crate::field_ui::HudTime,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
     images: &Assets<Image>,
     server: &AssetServer,
 ) -> Result<bool> {
@@ -1821,7 +1833,6 @@ fn render_hud(
             &marker_anchors,
             time,
             commands,
-            meshes,
         ),
     )?;
     let order = scene.lifecycle.order_selection();
@@ -1843,15 +1854,14 @@ fn render_hud(
                 order_label,
             },
             commands,
-            meshes,
         ),
     )?;
     // A closed menu supplies None; target selection hides the strip.
     if !frame.summon.as_ref().is_some_and(|summon| summon.hide_hud) {
-        render_command_strip(scene, command.as_ref(), time, commands, meshes)?;
+        render_command_strip(scene, command.as_ref(), time, commands)?;
     }
     // The battle clock holds the scene while a submenu draws above its HUD.
-    render_menu(scene, time, commands, meshes, images, server)
+    render_menu(scene, time, commands, images, server)
 }
 
 fn battle_cover(
@@ -1890,11 +1900,11 @@ fn render(
     mut ui_surfaces: ResMut<Assets<super::field_ui::Surface>>,
     display: Res<super::display::Display>,
     mut surfaces: ResMut<Assets<super::materials::TitleSurface>>,
-    mut meshes: ResMut<Assets<Mesh>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
     prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
+    let _timer = crate::performance::smoothing_profile::Timer::start(5);
     let Some(mut owner) = owner else {
         return;
     };
@@ -1951,7 +1961,6 @@ fn render(
                 &mut transforms,
                 &mut projections,
                 &mut surfaces,
-                &mut meshes,
             ),
         )?;
         scene.smoothing.active = next.is_some();
@@ -1972,7 +1981,7 @@ fn render(
                 0.
             },
         };
-        render_hud(scene, time, &mut commands, &mut meshes, &images, &server)?;
+        render_hud(scene, time, &mut commands, &images, &server)?;
         if let Some(dialogue) = &mut scene.dialogue {
             if let Some(event) = scene.lifecycle.event() {
                 scene.hud.render_event_dialogue(
@@ -1986,7 +1995,6 @@ fn render(
                     next.map(|endpoint| (endpoint, prediction.alpha)),
                     display.0,
                     &mut commands,
-                    &mut meshes,
                     &mut ui_surfaces,
                 )?;
             } else {
@@ -2017,7 +2025,6 @@ fn render(
                     alpha: prediction.alpha,
                 }),
                 &mut commands,
-                &mut meshes,
             ),
         )?;
         scene.view.submit_frame();
@@ -2280,7 +2287,7 @@ pub(crate) mod tests {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
-            bevy::transform::TransformPlugin,
+            crate::renderer::SerialTransformPlugin,
             VisibilityPlugin,
         ))
         .init_resource::<Assets<Mesh>>()

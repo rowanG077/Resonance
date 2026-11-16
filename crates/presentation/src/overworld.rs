@@ -1,9 +1,10 @@
 //! Desktop ownership of the world scene. Travel remains in resonance-game.
 use super::{
     field_view::Part,
-    materials::{TitleOutput, TitleSurface},
+    materials::{TitleOutput, TitleSurface, WorldRecords, WorldSurface},
     sparse_animation,
 };
+use crate::native::{DistanceFog, MeshMaterial3d};
 use resonance_events::effect::Blend;
 use resonance_events::stride::Gait;
 mod capture;
@@ -12,7 +13,9 @@ mod effects;
 mod interpolation;
 mod particles;
 mod preparation;
+mod residency;
 pub(crate) use preparation::Inputs;
+pub(crate) use residency::Stats as ResidencyStats;
 pub(crate) mod warm;
 use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::*;
@@ -68,11 +71,11 @@ pub(super) struct Package {
 pub(super) struct Scene {
     pub session: game::Session,
     pub package: Arc<game::Prepared>,
-    models: BTreeMap<Model, Vec<ScenePart>>,
+    models: Arc<BTreeMap<Model, Vec<ScenePart>>>,
     alternates: std::collections::BTreeSet<usize>,
     sky: usize,
     generation: Arc<()>,
-    landmarks: BTreeMap<u16, Position>,
+    landmarks: Arc<BTreeMap<u16, Position>>,
     animation: Option<MountAnimation>,
     effects: effects::Effects,
 }
@@ -158,11 +161,11 @@ impl Scene {
         Ok(Self {
             session,
             package,
-            models,
+            models: Arc::new(models),
             alternates,
             sky,
             generation: Arc::new(()),
-            landmarks,
+            landmarks: Arc::new(landmarks),
             animation: None,
             effects: Default::default(),
         })
@@ -230,48 +233,97 @@ pub(super) fn destination(
 }
 
 pub(super) struct OverworldPlugin;
+pub(super) fn init_renderer_resources(app: &mut App) {
+    app.init_resource::<Retained>()
+        .init_resource::<ResidencyStats>()
+        .init_resource::<crate::field_view::Prediction>();
+}
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         warm::install(app);
-        app.init_resource::<Controls>()
-            .init_resource::<Retained>()
-            .add_systems(PreUpdate, controls.after(bevy::input::InputSystems))
-            .add_systems(
-                FixedUpdate,
-                advance
-                    .run_if(super::battle::field_running)
-                    .before(super::new_game::advance)
-                    .before(super::field_view::advance_live),
-            )
-            .add_systems(
-                Update,
-                (
-                    retire,
-                    load,
-                    prepare,
-                    instances,
-                    bind,
-                    prediction::update,
-                    pose,
-                    camera,
-                    particles::render,
-                    ui,
-                )
-                    .chain()
-                    .after(super::new_game::transition)
-                    .after(super::field_view::FieldPreparation)
-                    .run_if(super::battle::field_presenting),
-            )
-            .add_systems(
-                PostUpdate,
-                animate
-                    .before(bevy::transform::TransformSystems::Propagate)
-                    .run_if(super::battle::field_presenting),
-            );
+        install_controls(app);
+        init_renderer_resources(app);
+        app.init_resource::<residency::Suspension>()
+            .add_systems(First, residency::resume)
+            .add_systems(FixedFirst, residency::resume)
+            .add_systems(Last, residency::suspend);
+        app.add_systems(
+            FixedUpdate,
+            advance
+                .run_if(super::battle::field_running)
+                .before(super::new_game::advance)
+                .before(super::field_view::advance_live),
+        )
+        .add_systems(
+            Update,
+            residency::resume
+                .before(retire)
+                .before(super::new_game::transition),
+        )
+        .add_systems(
+            PostUpdate,
+            residency::resume.before(pose).before(warm::Draw),
+        )
+        .add_systems(
+            Update,
+            (retire, load, prepare, instances, bind, prediction::update)
+                .chain()
+                .after(super::new_game::transition)
+                .after(super::field_view::FieldPreparation)
+                .run_if(super::battle::field_presenting),
+        )
+        .add_systems(
+            PostUpdate,
+            (pose, residency::sync_hidden, camera, particles::render, ui)
+                .chain()
+                .before(animate)
+                .before(bevy::asset::AssetEventSystems)
+                .before(bevy::transform::TransformSystems::Propagate)
+                .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                // The loading cover and scene fades scale the brightness
+                // `camera` publishes.
+                .before(super::loading::black_hold)
+                .run_if(super::battle::field_presenting),
+        )
+        .add_systems(
+            PostUpdate,
+            animate
+                .before(bevy::transform::TransformSystems::Propagate)
+                .run_if(super::battle::field_presenting),
+        );
     }
 }
 #[derive(Resource, Default)]
 pub(super) struct Controls(game::Input);
+impl Controls {
+    pub(crate) fn consume(&mut self) -> game::Input {
+        let input = self.0;
+        self.0.confirm = false;
+        self.0.cancel = false;
+        self.0.skit = false;
+        self.0.skip_skit = false;
+        self.0.travel.toggle_noishe = false;
+        self.0.travel.vehicle = false;
+        self.0.travel.toggle_perspective = false;
+        self.0.travel.cycle_map = false;
+        input
+    }
+}
+pub(crate) fn install_controls(app: &mut App) {
+    app.init_resource::<Controls>()
+        .add_systems(
+            PreUpdate,
+            controls
+                .after(bevy::input::InputSystems)
+                .run_if(not(resource_exists::<super::saves::ScenarioInput>)),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            controls
+                .after(bevy::input::InputSystems)
+                .run_if(resource_exists::<super::saves::ScenarioInput>),
+        );
+}
 pub(super) fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
@@ -322,18 +374,10 @@ fn advance(
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
     mut exit: Failures,
 ) {
-    let mut input = controls.0;
+    let mut input = controls.consume();
     if owner.as_ref().is_some_and(|s| s.overworld().is_some()) {
         input.menu = menu_controls.consume();
     }
-    controls.0.confirm = false;
-    controls.0.cancel = false;
-    controls.0.skit = false;
-    controls.0.skip_skit = false;
-    controls.0.travel.toggle_noishe = false;
-    controls.0.travel.vehicle = false;
-    controls.0.travel.toggle_perspective = false;
-    controls.0.travel.cycle_map = false;
     if owner.as_ref().is_some_and(|s| s.audio.is_some()) {
         return;
     }
@@ -376,6 +420,7 @@ struct Art {
     ui: Option<super::field_ui::WorldArtwork>,
     particles: particles::Artwork,
     retired: Vec<(Entity, Instance)>,
+    dormant: residency::Dormant,
 }
 #[derive(Component)]
 pub(super) struct WorldRoot;
@@ -389,8 +434,9 @@ struct Instance {
     wake: Option<usize>,
     barrier: Option<usize>,
     prepared: bool,
-    materials: Vec<Handle<TitleSurface>>,
+    materials: Vec<Handle<WorldSurface>>,
     draws: Vec<(Entity, usize)>,
+    motion_draws: Vec<Entity>,
     binding: sparse_animation::Binding,
     clip: Option<(u16, u32)>,
     render: interpolation::Cache,
@@ -439,6 +485,13 @@ fn retire(world: &mut World) {
             art.retired.push((entity, instance));
         }
         art.particles.hide(world);
+        art.dormant = residency::Dormant::suspend(
+            world,
+            art.retired
+                .iter()
+                .map(|&(entity, _)| entity)
+                .chain(art.particles.entities()),
+        );
         let index = art.world.index();
         let previous = world.resource_mut::<Retained>().0[index].replace(art);
         if let Some(previous) = previous {
@@ -478,6 +531,8 @@ fn load(
         // fresh travel selects their visibility without rebuilding the graph.
         if Arc::ptr_eq(&scene.package, &cached.package) {
             cached.generation = scene.generation.clone();
+            let dormant = std::mem::take(&mut cached.dormant);
+            commands.queue(move |world: &mut World| dormant.resume(world));
             for (entity, instance) in cached.retired.drain(..) {
                 commands.entity(entity).insert(instance);
             }
@@ -506,6 +561,7 @@ fn load(
             })
             .collect(),
         retired: Vec::new(),
+        dormant: Default::default(),
         particles: particles::Artwork::load(
             &scene.package.definition.visuals.dust,
             &server,
@@ -557,10 +613,10 @@ fn instances(
     warming: Option<Res<warm::Draws>>,
     mut art: Option<ResMut<Art>>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<TitleSurface>>,
+    mut materials: ResMut<Assets<WorldSurface>>,
+    mut records: ResMut<WorldRecords>,
     server: Res<AssetServer>,
     ui_resident: Res<super::field_ui::Resident>,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
     mut exit: Failures,
 ) {
@@ -583,7 +639,6 @@ fn instances(
                 .expect("prepared world skits"),
             &server,
             &mut commands,
-            &mut meshes,
             &mut ui_materials,
             &mut images,
             &ui_resident,
@@ -630,7 +685,7 @@ fn instances(
                             &mut s,
                         );
                     }
-                    materials.add(s)
+                    records.add(WorldSurface::from(s), &mut materials)
                 })
                 .collect();
             let root = commands
@@ -649,6 +704,7 @@ fn instances(
                         prepared: false,
                         materials: surfaces,
                         draws: Vec::new(),
+                        motion_draws: Vec::new(),
                         binding: Default::default(),
                         clip: None,
                         render: Default::default(),
@@ -757,9 +813,7 @@ fn bind(
             for (entity, draw) in model.draws() {
                 {
                     let slot = draw.slot.index(instance.materials.len())?;
-                    if matches!(instance.model, Model::Actor(1..=9 | 204..=212)) {
-                        instance.draws.push((entity, slot));
-                    }
+                    instance.draws.push((entity, slot));
                     let order = if let Model::Cinematic(actor) = instance.model {
                         // Complete the terrain and water before drawing the scene's
                         // actors, preserving each actor's own material sequence.
@@ -795,7 +849,12 @@ fn bind(
                     };
                     commands
                         .entity(entity)
-                        .insert((MeshMaterial3d(instance.materials[slot].clone()), order));
+                        .remove::<MeshMaterial3d<TitleSurface>>()
+                        .insert((
+                            MeshMaterial3d(instance.materials[slot].clone()),
+                            order,
+                            bevy::mesh::MeshTag::with_type::<Instance>(0),
+                        ));
                     if let Model::Tile(tile, _) = instance.model {
                         let material = part.spec.materials[slot].draw_order;
                         anyhow::ensure!(material < 4096, "world tile draw order exceeds its span");
@@ -873,23 +932,51 @@ fn terrain_order(
         }
     }
 }
+#[derive(bevy::ecs::system::SystemParam)]
+struct PosePublication<'w, 's> {
+    roots: Query<
+        'w,
+        's,
+        (
+            &'static mut Instance,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+    >,
+    surfaces: ResMut<'w, Assets<WorldSurface>>,
+    records: Res<'w, WorldRecords>,
+    draws: Query<
+        'w,
+        's,
+        (&'static mut Visibility, &'static mut bevy::mesh::MeshTag),
+        Without<Instance>,
+    >,
+}
 
 fn pose(
     owner: State,
     clock: Res<super::Clock>,
     prediction: Res<crate::field_view::Prediction>,
     art: Option<Res<Art>>,
-    mut roots: Query<(&mut Instance, &mut Transform, &mut Visibility)>,
-    mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut draws: Query<&mut Visibility, Without<Instance>>,
+    PosePublication {
+        mut roots,
+        mut surfaces,
+        records,
+        mut draws,
+    }: PosePublication,
+    warming: Option<Res<warm::Draws>>,
+    mut residency: ResMut<ResidencyStats>,
 ) {
+    residency.skipped_publications = 0;
     let Some(scene) = owner.get() else { return };
     let Some(art) = art.filter(|a| a.ready) else {
         return;
     };
+    let _timer = crate::performance::smoothing_profile::Timer::start(1);
     let future = prediction
         .world()
         .filter(|next| interpolation::continuous(scene, next));
+    let sleep_hidden = warming.is_none();
     let key = interpolation::Key {
         source: owner
             .live
@@ -900,20 +987,30 @@ fn pose(
         prediction: future.map(|_| prediction.counts()[0]),
         clock: clock.0.tick(),
     };
+    let render_origin = render_origin(scene);
     for (mut instance, mut transform, mut visibility) in &mut roots {
         if !instance.prepared {
             continue;
         }
         let part = &art.models[&instance.model][instance.part];
-        if instance.render.key != Some(key) {
+        let endpoints_changed = instance.render.key != Some(key);
+        if endpoints_changed {
             let mut cache = std::mem::take(&mut instance.render);
-            model_pose(scene, &instance, part, clock.0.tick(), &mut cache.from);
+            model_pose(
+                scene,
+                &instance,
+                part,
+                clock.0.tick(),
+                render_origin,
+                &mut cache.from,
+            );
             if let Some(next) = future {
                 model_pose(
                     next,
                     &instance,
                     part,
                     clock.0.tick().wrapping_add(1),
+                    render_origin,
                     &mut cache.to,
                 );
             }
@@ -925,54 +1022,97 @@ fn pose(
             }
         }
         let cache = &instance.render;
-        let alpha = if future.is_some() && cache.from.continuous(&cache.to) {
-            prediction.alpha
-        } else {
-            0.
-        };
-        *transform = cache.from.transform;
+        if sleep_hidden && !cache.from.visible {
+            // Native simulation and clip clocks continue. Publish the fresh
+            // transform/material/skin state on the first visible frame.
+            visibility.set_if_neq(Visibility::Hidden);
+            residency.skipped_publications += 1;
+            continue;
+        }
+        let continuous = future.is_some() && cache.from.continuous(&cache.to);
+        let alpha = if continuous { prediction.alpha } else { 0. };
+        let mut render_transform = cache.from.transform;
         if alpha > 0. {
-            transform.translation = transform
+            render_transform.translation = render_transform
                 .translation
                 .lerp(cache.to.transform.translation, alpha);
-            transform.rotation = transform.rotation.slerp(cache.to.transform.rotation, alpha);
-            transform.scale = transform.scale.lerp(cache.to.transform.scale, alpha);
+            render_transform.rotation = render_transform
+                .rotation
+                .slerp(cache.to.transform.rotation, alpha);
+            render_transform.scale = render_transform.scale.lerp(cache.to.transform.scale, alpha);
         }
-        *visibility = if cache.from.visible {
+        transform.set_if_neq(render_transform);
+        visibility.set_if_neq(if cache.from.visible {
             Visibility::Inherited
         } else {
             Visibility::Hidden
-        };
-        for (index, handle) in instance.materials.iter().enumerate() {
-            let from = &cache.from.materials[index];
-            let target = (alpha > 0.).then(|| &cache.to.materials[index]);
-            let offsets = target.map_or(from.offsets, |to| {
-                crate::field_view::prediction::uv_scrolls(
-                    from.offsets,
-                    to.offsets,
-                    from.scrolls,
-                    alpha,
-                )
-            });
-            let tint = target.map_or(from.tint, |to| from.tint.lerp(to.tint, alpha));
-            let fog_range = target.map_or(from.fog_range, |to| {
-                from.fog_range.lerp(to.fog_range, alpha)
-            });
-            if surfaces.get(handle).is_some_and(|surface| {
-                surface.uv_offsets != offsets
-                    || surface.tint != tint
-                    || surface.fog_range != fog_range
-                    || from.blend.is_some_and(|blend| surface.blend != blend)
-            }) {
-                let mut surface = surfaces.get_mut(handle).unwrap();
-                surface.uv_offsets = offsets;
-                surface.tint = tint;
-                surface.fog_color = FOG_COLOR;
-                surface.fog_range = fog_range;
-                if let Some(blend) = from.blend {
-                    surface.blend = blend;
+        });
+        if endpoints_changed {
+            for (index, handle) in instance.materials.iter().enumerate() {
+                let from = &cache.from.materials[index];
+                let target = continuous.then(|| &cache.to.materials[index]);
+                let motion = target.map_or(Vec4::ZERO, |to| {
+                    crate::field_view::prediction::uv_scrolls(
+                        from.offsets,
+                        to.offsets,
+                        from.scrolls,
+                        1.,
+                    ) - from.offsets
+                });
+                let tint_motion = target.map_or(Vec4::ZERO, |to| to.tint - from.tint);
+                // Visibility/camera discontinuities keep their committed fog. The
+                // ordinary draws share one interpolated range in the camera buffer.
+                let view_fog = cache.from.fog_range != Vec4::ZERO
+                    && (future.is_none()
+                        || continuous
+                        || cache.from.fog_range == cache.to.fog_range);
+                let fog_range = if view_fog {
+                    Vec4::ZERO
+                } else {
+                    cache.from.fog_range
+                };
+                if surfaces.get(handle).is_some_and(|surface| {
+                    surface.uv_offsets != from.offsets
+                        || surface.uv_motion != motion
+                        || surface.tint != from.tint
+                        || surface.tint_motion != tint_motion
+                        || surface.fog_range != fog_range
+                        || surface.world_fog != view_fog
+                        || from.blend.is_some_and(|blend| surface.blend != blend)
+                }) {
+                    let surface = surfaces.get_mut_untracked(handle).unwrap();
+                    surface.uv_offsets = from.offsets;
+                    surface.uv_motion = motion;
+                    surface.tint = from.tint;
+                    surface.tint_motion = tint_motion;
+                    surface.fog_color = FOG_COLOR;
+                    surface.fog_range = fog_range;
+                    surface.world_fog = view_fog;
+                    if let Some(blend) = from.blend {
+                        surface.blend = blend;
+                    }
+                    records.update(surface);
                 }
             }
+            let mut moving = std::mem::take(&mut instance.motion_draws);
+            moving.clear();
+            moving.extend(instance.draws.iter().filter_map(|&(entity, slot)| {
+                surfaces
+                    .get(&instance.materials[slot])
+                    .is_some_and(|surface| {
+                        surface.uv_motion != Vec4::ZERO || surface.tint_motion != Vec4::ZERO
+                    })
+                    .then_some(entity)
+            }));
+            instance.motion_draws = moving;
+        }
+        for &entity in &instance.motion_draws {
+            if let Ok((_, mut tag)) = draws.get_mut(entity) {
+                tag.set_if_neq(bevy::mesh::MeshTag::with_type::<Instance>(alpha.to_bits()));
+            }
+        }
+        if !endpoints_changed {
+            continue;
         }
         let session = &scene.session;
         let character = match instance.model {
@@ -980,12 +1120,17 @@ fn pose(
             Model::Actor(id @ 204..=212) => Some(u32::from(id - 203)),
             _ => None,
         };
-        if let Some(character) = character {
-            let hidden = resonance_content::appearance::hidden_accessory(
+        let hidden = character.and_then(|character| {
+            resonance_content::appearance::hidden_accessory(
                 character,
                 &session.events.world.event_flags,
-            );
-            for &(entity, slot) in &instance.draws {
+            )
+        });
+        if character.is_none() {
+            continue;
+        }
+        for &(entity, slot) in &instance.draws {
+            if let Ok((mut visibility, _)) = draws.get_mut(entity) {
                 // Hide accessory geometry without removing its animated bones.
                 let hide = part.spec.material_nodes.get(slot).is_some_and(|nodes| {
                     nodes.iter().any(|&node| {
@@ -993,13 +1138,11 @@ fn pose(
                         name.starts_with("kk") || hidden == Some(name)
                     })
                 });
-                if let Ok(mut visibility) = draws.get_mut(entity) {
-                    *visibility = if hide {
-                        Visibility::Hidden
-                    } else {
-                        Visibility::Inherited
-                    };
-                }
+                visibility.set_if_neq(if hide {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                });
             }
         }
     }
@@ -1009,6 +1152,7 @@ fn model_pose(
     instance: &Instance,
     part: &Part,
     clock: u32,
+    render_origin: Option<Position>,
     out: &mut interpolation::ModelPose,
 ) {
     out.materials.clear();
@@ -1248,119 +1392,123 @@ fn model_pose(
     // landmark from its origin. The native fog hides the far clipping plane.
     // The model transform uses native object +0x0c. The nearby [-60,-60,140]
     // values at +0x40 are auxiliary coordinates, not actor translation.
-    transform.translation =
-        Vec3::new(delta[0], delta[1], position.map()[2]) + Vec3::from_array(part.spec.translation);
+    transform.translation = render_origin.map_or_else(
+        || Vec3::new(delta[0], delta[1], position.map()[2]),
+        |anchor| interpolation::render_position(anchor, origin, position),
+    ) + Vec3::from_array(part.spec.translation);
     transform.scale = scale;
-    for binding in &part.spec.materials {
-        let mut offset = Vec4::new(
-            0.,
-            if binding.color.as_ref().is_some_and(|b| b.texture == 0) {
-                uv_offset
-            } else {
-                0.
-            },
-            0.,
-            if binding.multiply.as_ref().is_some_and(|b| b.texture == 0) {
-                uv_offset
-            } else {
-                0.
-            },
-        );
-        if let Some(character) = character
-            && let Some(channels) = &part.spec.appearance
-        {
-            for (stage, texture) in [&binding.color, &binding.multiply].into_iter().enumerate() {
-                let Some(texture) = texture else { continue };
-                if channels.costume == Some(texture.texture) {
-                    offset[stage * 2 + 1] +=
-                        f32::from(resonance_content::appearance::costume_frame(
-                            character,
-                            &session.events.world.event_flags,
-                        )) / 4.;
-                }
-                if channels.eyes == Some(texture.texture) {
-                    offset[stage * 2 + 1] += f32::from(
-                        resonance_content::appearance::forced_face(character, angel_progress)
-                            .unwrap_or(0),
-                    ) / 16.;
+    let background = matches!(instance.model, Model::Sky(_))
+        || matches!(instance.model, Model::Cinematic(actor)
+                    if cinematic::background(&cinema.unwrap().definition, actor));
+    let fog_range = if !background {
+        let far = if cinema.is_some() {
+            cinematic::FAR_CLIP
+        } else {
+            session.travel.camera_distance() + 10000.
+        };
+        Vec4::new(far * 0.5, far * 0.75, 0., 0.)
+    } else {
+        Vec4::ZERO
+    };
+    out.fog_range = fog_range;
+    {
+        for binding in &part.spec.materials {
+            let mut offset = Vec4::new(
+                0.,
+                if binding.color.as_ref().is_some_and(|b| b.texture == 0) {
+                    uv_offset
+                } else {
+                    0.
+                },
+                0.,
+                if binding.multiply.as_ref().is_some_and(|b| b.texture == 0) {
+                    uv_offset
+                } else {
+                    0.
+                },
+            );
+            if let Some(character) = character
+                && let Some(channels) = &part.spec.appearance
+            {
+                for (stage, texture) in [&binding.color, &binding.multiply].into_iter().enumerate()
+                {
+                    let Some(texture) = texture else { continue };
+                    if channels.costume == Some(texture.texture) {
+                        offset[stage * 2 + 1] +=
+                            f32::from(resonance_content::appearance::costume_frame(
+                                character,
+                                &session.events.world.event_flags,
+                            )) / 4.;
+                    }
+                    if channels.eyes == Some(texture.texture) {
+                        offset[stage * 2 + 1] += f32::from(
+                            resonance_content::appearance::forced_face(character, angel_progress)
+                                .unwrap_or(0),
+                        ) / 16.;
+                    }
                 }
             }
-        }
-        if let Model::Sky(variant) = instance.model {
-            let uv = [&binding.color, &binding.multiply].map(|binding| {
-                binding.as_ref().map_or(0., |binding| {
-                    effects::sky_scroll(variant, binding.texture, tick)
-                })
-            });
-            offset = Vec4::new(uv[0], 0., uv[1], 0.);
-        } else if instance.model == Model::Actor(effects::PORTAL_MODEL) {
-            let uv = [&binding.color, &binding.multiply].map(|binding| {
-                binding.as_ref().map_or(0., |b| {
-                    effects::portal_uv(portal_age.unwrap_or(0), b.texture)
-                })
-            });
-            offset = Vec4::new(0., uv[0], 0., uv[1]);
-        } else if instance.model == Model::Actor(effects::BARRIER_MODEL) {
-            offset = Vec4::new(0., uv_offset, 0., 0.);
-        } else if instance.model == Model::Marker(17) {
-            let scroll = (tick & 127) as f32 / 128.;
-            offset = Vec4::new(scroll, 0., scroll, 0.);
-        } else if let Model::Cinematic(actor) = instance.model {
-            let uv = [&binding.color, &binding.multiply].map(|binding| {
-                binding.as_ref().map_or(Vec2::ZERO, |b| {
-                    cinematic::uv(cinema.unwrap(), actor, b.texture, clock)
-                })
-            });
-            offset = Vec4::new(uv[0].x, uv[0].y, uv[1].x, uv[1].y);
-        } else if matches!(instance.model, Model::Tile(..)) {
-            let uv = [&binding.color, &binding.multiply].map(|binding| {
-                binding
-                    .as_ref()
-                    .and_then(|binding| {
-                        part.spec
-                            .texture_animations
-                            .iter()
-                            .find(|animation| animation.texture == binding.texture)
+            if let Model::Sky(variant) = instance.model {
+                let uv = [&binding.color, &binding.multiply].map(|binding| {
+                    binding.as_ref().map_or(0., |binding| {
+                        effects::sky_scroll(variant, binding.texture, tick)
                     })
-                    .map_or([0.; 2], |animation| animation.offset(u64::from(tick)))
-            });
-            offset = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
-        }
-        let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
-            Vec4::from_array(c.map(|v| f32::from(v) / 255.))
-        }) * Vec4::new(brightness, brightness, brightness, alpha);
-        let background = matches!(instance.model, Model::Sky(_))
-            || matches!(instance.model, Model::Cinematic(actor)
-                    if cinematic::background(&cinema.unwrap().definition, actor));
-        let fog_range = if !background {
-            let far = if cinema.is_some() {
-                cinematic::FAR_CLIP
+                });
+                offset = Vec4::new(uv[0], 0., uv[1], 0.);
+            } else if instance.model == Model::Actor(effects::PORTAL_MODEL) {
+                let uv = [&binding.color, &binding.multiply].map(|binding| {
+                    binding.as_ref().map_or(0., |b| {
+                        effects::portal_uv(portal_age.unwrap_or(0), b.texture)
+                    })
+                });
+                offset = Vec4::new(0., uv[0], 0., uv[1]);
+            } else if instance.model == Model::Actor(effects::BARRIER_MODEL) {
+                offset = Vec4::new(0., uv_offset, 0., 0.);
+            } else if instance.model == Model::Marker(17) {
+                let scroll = (tick & 127) as f32 / 128.;
+                offset = Vec4::new(scroll, 0., scroll, 0.);
+            } else if let Model::Cinematic(actor) = instance.model {
+                let uv = [&binding.color, &binding.multiply].map(|binding| {
+                    binding.as_ref().map_or(Vec2::ZERO, |b| {
+                        cinematic::uv(cinema.unwrap(), actor, b.texture, clock)
+                    })
+                });
+                offset = Vec4::new(uv[0].x, uv[0].y, uv[1].x, uv[1].y);
+            } else if matches!(instance.model, Model::Tile(..)) {
+                let uv = [&binding.color, &binding.multiply].map(|binding| {
+                    binding
+                        .as_ref()
+                        .and_then(|binding| {
+                            part.spec
+                                .texture_animations
+                                .iter()
+                                .find(|animation| animation.texture == binding.texture)
+                        })
+                        .map_or([0.; 2], |animation| animation.offset(u64::from(tick)))
+                });
+                offset = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
+            }
+            let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
+                Vec4::from_array(c.map(|v| f32::from(v) / 255.))
+            }) * Vec4::new(brightness, brightness, brightness, alpha);
+            let vehicle_blend = if instance.model == Model::Actor(203) {
+                Some(Blend::Additive)
             } else {
-                session.travel.camera_distance() + 10000.
+                (alpha < 1. || binding.blend).then_some(Blend::Alpha)
             };
-            Vec4::new(far * 0.5, far * 0.75, 0., 0.)
-        } else {
-            Vec4::ZERO
-        };
-        let vehicle_blend = if instance.model == Model::Actor(203) {
-            Some(Blend::Additive)
-        } else {
-            (alpha < 1. || binding.blend).then_some(Blend::Alpha)
-        };
-        out.materials.push(interpolation::SurfacePose {
-            offsets: offset,
-            tint,
-            fog_range,
-            blend: (fading_vehicle || instance.enemy.is_some()).then_some(vehicle_blend),
-            scrolls: std::array::from_fn(|stage| {
-                let texture = [&binding.color, &binding.multiply][stage]
-                    .as_ref()
-                    .map(|b| b.texture);
-                interpolation::scroll(scene, instance, part, texture)
-            }),
-        });
+            out.materials.push(interpolation::SurfacePose {
+                offsets: offset,
+                tint,
+                blend: (fading_vehicle || instance.enemy.is_some()).then_some(vehicle_blend),
+                scrolls: std::array::from_fn(|stage| {
+                    let texture = [&binding.color, &binding.multiply][stage]
+                        .as_ref()
+                        .map(|b| b.texture);
+                    interpolation::scroll(scene, instance, part, texture)
+                }),
+            });
+        }
     }
-
     transform.rotation = if instance.barrier.is_some() {
         Quat::from_rotation_z(heading)
     } else if instance.landmark.is_none()
@@ -1441,7 +1589,7 @@ fn animation_sample<'a>(
     part: &'a Part,
     slot: u16,
     start: u32,
-) -> Option<(&'a resonance_content::animation::Motion, f32)> {
+) -> Option<(&'a Arc<resonance_content::animation::Motion>, f32)> {
     let index = part
         .spec
         .clips
@@ -1512,11 +1660,17 @@ fn animate(
     let Some(art) = art.filter(|a| a.ready) else {
         return;
     };
+    let _timer = crate::performance::smoothing_profile::Timer::start(1);
     let future = prediction
         .world()
         .filter(|next| interpolation::continuous(scene, next));
     for mut instance in &mut roots {
         if !instance.prepared {
+            continue;
+        }
+        // Native animation sampling is absolute in time. Hidden models can
+        // sample the current endpoints immediately on becoming visible again.
+        if !instance.render.from.visible {
             continue;
         }
         let Some((slot, start)) = instance.clip else {
@@ -1538,10 +1692,12 @@ fn animate(
             });
         if instance.render.bones_key != instance.render.key {
             let mut poses = std::mem::take(&mut instance.render.bones);
-            let result =
-                instance
-                    .binding
-                    .sample_endpoints(current, next.unwrap_or(current), &mut poses);
+            let next = next.unwrap_or(current);
+            let result = instance.binding.sample_endpoints(
+                (current.0.as_ref(), current.1),
+                (next.0.as_ref(), next.1),
+                &mut poses,
+            );
             instance.render.bones = poses;
             if let Err(error) = result {
                 exit.fail("World animation failed", error);
@@ -1552,7 +1708,10 @@ fn animate(
         let alpha = if next.is_some() { prediction.alpha } else { 0. };
         for pose in &instance.render.bones {
             if let Ok(mut transform) = nodes.get_mut(pose.entity) {
-                affine.set(pose.entity, &mut transform, pose.poses.sample(alpha));
+                let sampled = pose.poses.sample(alpha);
+                if affine.get(pose.entity, *transform) != sampled {
+                    affine.set(pose.entity, &mut transform, sampled);
+                }
             }
         }
     }
@@ -1565,7 +1724,21 @@ struct CameraPose {
     far: f32,
     brightness: Vec4,
 }
-fn camera_pose(scene: &Scene, allow_departure_fade: bool) -> CameraPose {
+// Scenery stays fixed within a map tile. Move the view instead of moving every
+// mesh for each render fraction, keeping the toroidal world close to zero.
+fn render_origin(scene: &Scene) -> Option<Position> {
+    scene
+        .session
+        .cinematic
+        .is_none()
+        .then(|| interpolation::render_origin(scene.session.travel.state().position))
+}
+
+fn camera_pose(
+    scene: &Scene,
+    render_origin: Option<Position>,
+    allow_departure_fade: bool,
+) -> CameraPose {
     let state = scene.session.travel.state();
     let distance = scene.session.travel.camera_distance();
     let angle = scene.session.camera.angle();
@@ -1579,7 +1752,7 @@ fn camera_pose(scene: &Scene, allow_departure_fade: bool) -> CameraPose {
         0.
     };
     let up = Vec3::new(-bank * direction.y, bank * direction.x, 1.);
-    let (eye, rotation, fov, far) = if let Some(playback) = &scene.session.cinematic {
+    let (mut eye, rotation, fov, far) = if let Some(playback) = &scene.session.cinematic {
         let camera = playback.camera();
         let mut eye = Vec3::from_array(camera.position);
         let mut target = Vec3::from_array(camera.target);
@@ -1612,6 +1785,10 @@ fn camera_pose(scene: &Scene, allow_departure_fade: bool) -> CameraPose {
             distance + 10000.,
         )
     };
+    if let Some(anchor) = render_origin {
+        let delta = anchor.displacement_to(state.position);
+        eye += Vec3::new(delta[0], delta[1], 0.);
+    }
     let (fade, white) =
         if allow_departure_fade && let Some(fade) = scene.session.noishe_departure_fade() {
             (f32::from(fade) / 255., false)
@@ -1638,7 +1815,10 @@ fn camera(
     transition_failure: Option<Res<crate::new_game::TransitionFailure>>,
     prediction: Res<crate::field_view::Prediction>,
     display: Res<super::display::Display>,
-    mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
+    mut cameras: Query<
+        (&mut Transform, &mut Projection, &mut DistanceFog),
+        With<super::FieldCamera>,
+    >,
     mut terrain: Query<(&TerrainDraw, &mut super::draw_order::DrawOrder)>,
     mut outputs: ResMut<Assets<TitleOutput>>,
     mut clear: ResMut<ClearColor>,
@@ -1654,12 +1834,15 @@ fn camera(
         return;
     }
     clear.0 = Color::linear_rgb(60. / 255., 130. / 255., 30. / 255.);
-    let mut pose = camera_pose(scene, transition_failure.is_none());
+    let render_origin = render_origin(scene);
+    let mut pose = camera_pose(scene, render_origin, transition_failure.is_none());
+    let mut fog_range = Vec2::new(pose.far * 0.5, pose.far * 0.75);
     if let Some(next_scene) = prediction
         .world()
         .filter(|next| interpolation::continuous(scene, next))
     {
-        let next = camera_pose(next_scene, transition_failure.is_none());
+        let next = camera_pose(next_scene, render_origin, transition_failure.is_none());
+        fog_range = fog_range.lerp(Vec2::new(next.far * 0.5, next.far * 0.75), prediction.alpha);
         if pose
             .transform
             .translation
@@ -1687,7 +1870,12 @@ fn camera(
         }
     }
     terrain_order(scene, center, direction, &mut terrain);
-    for (mut transform, mut projection) in &mut cameras {
+    for (mut transform, mut projection, mut fog) in &mut cameras {
+        *fog = DistanceFog {
+            color: Color::linear_rgb(FOG_COLOR.x, FOG_COLOR.y, FOG_COLOR.z),
+            start: fog_range.x,
+            end: fog_range.y,
+        };
         *transform = pose.transform;
         *projection = Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
             fov: pose.fov.to_radians(),
@@ -1708,7 +1896,6 @@ fn ui(
     mut art: Option<ResMut<Art>>,
     mut prediction: ResMut<crate::field_view::Prediction>,
     display: Res<super::display::Display>,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
@@ -1729,6 +1916,7 @@ fn ui(
             return;
         }
     }
+    let _timer = crate::performance::smoothing_profile::Timer::start(2);
     ui.set_prompt_device(prompt_device.device());
     if let Err(error) = ui.render(
         &scene.session,
@@ -1736,7 +1924,6 @@ fn ui(
         &scene.package.resources.text,
         display.0,
         &mut commands,
-        &mut meshes,
         &mut images,
         &mut materials,
     ) {
@@ -1759,6 +1946,7 @@ pub(super) fn ready(world: &mut World) -> bool {
 pub(crate) fn residency_roots(world: &mut World) -> std::collections::BTreeSet<Entity> {
     let retained = world.resource::<Retained>();
     for art in retained.0.iter().flatten() {
+        art.dormant.assert_suspended(world);
         for (entity, instance) in &art.retired {
             assert!(world.get::<Instance>(*entity).is_none());
             assert_eq!(world.get::<Visibility>(*entity), Some(&Visibility::Hidden));

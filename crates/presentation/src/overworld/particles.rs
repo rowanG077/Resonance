@@ -1,5 +1,6 @@
 //! Small travel effects share five draw batches; no entity per particle.
 use super::*;
+use crate::native::MeshMaterial3d;
 use bevy::{
     asset::RenderAssetUsages, camera::visibility::NoFrustumCulling, mesh::PrimitiveTopology,
 };
@@ -260,7 +261,6 @@ impl Particles {
 struct Draw {
     entity: Entity,
     mesh: Handle<Mesh>,
-    material: Handle<TitleSurface>,
 }
 pub(super) struct Artwork {
     images: Vec<Handle<Image>>,
@@ -293,6 +293,9 @@ impl Artwork {
         for draw in self.draws.iter().flatten() {
             world.entity_mut(draw.entity).insert(Visibility::Hidden);
         }
+    }
+    pub(super) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.draws.iter().flatten().map(|draw| draw.entity)
     }
     pub(super) fn despawn(self, world: &mut World) {
         for draw in self.draws.into_iter().flatten() {
@@ -365,7 +368,7 @@ pub(super) fn render(
     mut art: Option<ResMut<Art>>,
     camera: Query<&Transform, With<super::super::FieldCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<TitleSurface>>,
+    (mut materials, mut records): (ResMut<Assets<WorldSurface>>, ResMut<WorldRecords>),
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -378,6 +381,7 @@ pub(super) fn render(
     };
     let mut batches: [Batch; 5] = Default::default();
     let origin = scene.session.travel.state().position;
+    let render_origin = super::render_origin(scene);
     let future = prediction
         .world()
         .filter(|next| interpolation::continuous(scene, next));
@@ -392,6 +396,9 @@ pub(super) fn render(
             continue;
         }
         let center_at = |origin: Position, p: &Particle| {
+            if let Some(anchor) = render_origin {
+                return interpolation::render_position(anchor, origin, p.position);
+            }
             let delta = origin.displacement_to(p.position);
             Vec3::new(delta[0], delta[1], p.position.map()[2])
         };
@@ -472,7 +479,6 @@ pub(super) fn render(
             ),
         }
     }
-    let far = scene.session.travel.camera_distance() + 10000.;
     for (i, batch) in batches.into_iter().enumerate() {
         if batch.positions.is_empty() {
             if let Some(draw) = &art.particles.draws[i] {
@@ -482,17 +488,19 @@ pub(super) fn render(
         }
         if art.particles.draws[i].is_none() {
             let color = i.checked_sub(1).map(|i| art.particles.images[i].clone());
-            let material = materials.add(TitleSurface {
-                color: color.clone(),
-                sampling: color,
-                blend: Some(Blend::Alpha),
-                field_fog: false,
-                fog_color: super::FOG_COLOR,
-                depth_test: true,
-                depth_write: false,
-                cull: resonance_content::CullFace::None,
-                ..default()
-            });
+            let material = records.add(
+                WorldSurface {
+                    color,
+                    blend: Some(Blend::Alpha),
+                    world_fog: true,
+                    fog_color: super::FOG_COLOR,
+                    depth_test: true,
+                    depth_write: false,
+                    cull: resonance_content::CullFace::None,
+                    ..default()
+                },
+                &mut materials,
+            );
             let mesh = meshes.add(batch.mesh());
             let entity = commands
                 .spawn((
@@ -507,20 +515,12 @@ pub(super) fn render(
                     NoFrustumCulling,
                 ))
                 .id();
-            art.particles.draws[i] = Some(Draw {
-                entity,
-                mesh,
-                material,
-            });
+            art.particles.draws[i] = Some(Draw { entity, mesh });
         } else {
             let draw = art.particles.draws[i].as_ref().unwrap();
             commands.entity(draw.entity).insert(Visibility::Inherited);
             *meshes.get_mut(&draw.mesh).unwrap() = batch.mesh();
         }
-        materials
-            .get_mut(&art.particles.draws[i].as_ref().unwrap().material)
-            .unwrap()
-            .fog_range = Vec4::new(far * 0.5, far * 0.75, 0., 0.);
     }
 }
 

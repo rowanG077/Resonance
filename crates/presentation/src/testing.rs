@@ -25,12 +25,13 @@ pub(super) fn install(app: &mut App) {
                 .after(crate::setup)
                 .before(crate::display::initialize),
         )
-        .add_systems(Last, overlay::composite)
         .add_systems(
             Update,
             (
                 advance.before(super::new_game::skip_test_battles),
-                overlay::update,
+                // Publish the overlay while its camera still has its logical
+                // activity, before the native renderer claims it in PostUpdate.
+                (overlay::update, overlay::composite).chain(),
             ),
         );
 }

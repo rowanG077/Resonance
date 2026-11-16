@@ -61,7 +61,6 @@
               dbus
               udev
               vulkan-loader
-              libglvnd
               libx11
               libxcursor
               libxi
@@ -186,6 +185,8 @@
               lockFile = ./Cargo.lock;
               outputHashes."ffv1-0.0.0" = "sha256-/ENsKVXIivMPsubqzfKUdGE/4rz8jev3LO/L+/4EVjY=";
               outputHashes."texture-compressor-0.2.4" = "sha256-tE5N/hFVKwD8PJxaPM/Ozj1LgPBb4UfM2CIi1X/TaTg=";
+              # Every wgpu crate comes from this one fork commit; update with Cargo.lock.
+              outputHashes."wgpu-core-30.0.1" = "sha256-VtaCG51VHQJyUWmwRgMT1A3d8pobnNTF0tTtFgMS1z8=";
             };
             nativeBuildInputs = [
               pkgs.pkg-config
@@ -196,7 +197,6 @@
               pkgs.dbus
               pkgs.udev
               pkgs.vulkan-loader
-              pkgs.libglvnd
               pkgs.libx11
               pkgs.libxcursor
               pkgs.libxi

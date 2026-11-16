@@ -6,7 +6,6 @@ impl Artwork {
     pub(super) fn prepare_prompt(
         &mut self,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) {
         if !self.prompt_layers.is_empty() {
@@ -30,7 +29,7 @@ impl Artwork {
                     index as f32 * 0.01
                 };
             self.prompt_layers
-                .push(Layer::new(material, depth, commands, meshes));
+                .push(Layer::new(material, depth, commands));
         }
     }
 
@@ -130,7 +129,6 @@ impl Artwork {
         session: &FieldSession,
         prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         // Menus and skits retain the last field presentation, including its
         // notifications. Their input remains owned by the modal scene.
@@ -147,7 +145,7 @@ impl Artwork {
                 a.interpolate(b, alpha);
             }
         }
-        self.upload_prompts(batches, commands, meshes)
+        self.upload_prompts(batches, commands)
     }
     fn sample_world_notifications(
         &self,
@@ -184,7 +182,6 @@ impl Artwork {
         session: &resonance_game::overworld::Session,
         prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut batches = self.sample_world_notifications(session)?;
         if let Some(prediction) = prediction
@@ -196,14 +193,9 @@ impl Artwork {
                 batch.interpolate(target, alpha);
             }
         }
-        self.upload_prompts(batches, commands, meshes)
+        self.upload_prompts(batches, commands)
     }
-    fn upload_prompts(
-        &mut self,
-        batches: [Batch; 3],
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    fn upload_prompts(&mut self, batches: [Batch; 3], commands: &mut Commands) -> Result<()> {
         let texture = &self.spec.textures[0];
         for ((layer, batch), size) in self.prompt_layers.iter_mut().zip(batches).zip([
             [texture.width, texture.height],
@@ -212,7 +204,7 @@ impl Artwork {
         ]) {
             let visible = !batch.indices.is_empty();
             if visible {
-                layer.update_mesh(batch, size, meshes)?;
+                layer.update(batch, size);
             }
             layer.show(visible, commands);
         }

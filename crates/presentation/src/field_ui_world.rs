@@ -18,7 +18,6 @@ impl Artwork {
         skits: std::sync::Arc<resonance_content::skit::SkitCatalog>,
         server: &AssetServer,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
         images: &mut Assets<Image>,
         resident: &Resident,
@@ -38,11 +37,11 @@ impl Artwork {
             images,
             resident,
         )?;
-        common.prepare(commands, meshes, materials);
+        common.prepare(commands, materials);
         common.images.extend(common.menu.prepare_world_maps()?);
         let graphics = match resident.0.lock().unwrap().world.clone() {
             Some(graphics) => graphics,
-            None => Graphics::prepare(&common.menu, &common.surfaces[9], commands, meshes)?,
+            None => Graphics::prepare(&common.menu, &common.surfaces[9], commands)?,
         };
         Ok(Self {
             common,
@@ -67,7 +66,6 @@ impl Artwork {
         text: &resonance_content::session::GameText,
         resolution: crate::Resolution,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
@@ -106,7 +104,6 @@ impl Artwork {
                 .and_then(|p| p.world().map(|w| (&w.session, p.alpha))),
             &mut batch,
             commands,
-            meshes,
         )?;
         if let Some((line, alpha)) = session.cinematic.as_ref().and_then(|c| c.dialogue()) {
             let alpha = prediction
@@ -189,18 +186,13 @@ impl Artwork {
             }
             None => None,
         };
-        self.common.render_world_notifications(
-            session,
-            prediction.as_deref_mut(),
-            commands,
-            meshes,
-        )?;
+        self.common
+            .render_world_notifications(session, prediction.as_deref_mut(), commands)?;
         if !batch.indices.is_empty() {
-            self.graphics.layer.update_mesh(
+            self.graphics.layer.update(
                 batch.clone(),
                 [self.common.font.width, self.common.font.height],
-                meshes,
-            )?;
+            );
         }
         self.graphics
             .layer
@@ -217,7 +209,6 @@ impl Artwork {
             &self.common.font,
             resolution,
             commands,
-            meshes,
             images,
             materials,
         )?;
@@ -240,7 +231,6 @@ impl Artwork {
                 .map_or(session.events.tick(), |skit| skit.events.tick()),
             &BTreeMap::new(),
             commands,
-            meshes,
             materials,
         )?;
         self.common.menu.render(
@@ -254,7 +244,6 @@ impl Artwork {
             resolution,
             prediction,
             commands,
-            meshes,
         )
     }
 }
@@ -311,10 +300,9 @@ impl Graphics {
         menu: &menu::MenuArtwork,
         font: &Handle<Surface>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<Self> {
-        let map = map::Artwork::prepare(menu, commands, meshes)?;
-        let layer = Layer::new(font.clone(), 3., commands, meshes);
+        let map = map::Artwork::prepare(menu, commands)?;
+        let layer = Layer::new(font.clone(), 3., commands);
         Ok(Self { layer, map })
     }
     pub(super) fn layers(&self) -> impl Iterator<Item = &Layer> {

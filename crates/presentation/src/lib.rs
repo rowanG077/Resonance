@@ -1,5 +1,6 @@
 //! Desktop presentation for the high-level title controller.
 
+use crate::native::DistanceFog;
 /// Time a scope for `RESONANCE_PREPARATION_TRACE`. Expands to nothing outside
 /// trace-enabled test builds. A named span ends at `profile_span!(end name)`.
 macro_rules! profile_span {
@@ -27,7 +28,6 @@ static ALLOCATOR: resonance_simulation_memory::Allocator = resonance_simulation_
 use anyhow::{Context as ContextExt, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
     render::render_resource::{TextureFormat, TextureUsages},
@@ -66,7 +66,8 @@ mod model_asset;
 mod preparation_profile;
 mod renderer;
 mod transition_metrics;
-pub use renderer::native_render_plugins;
+pub use native::{MeshMaterial2d, MeshMaterial3d, set_display_targets};
+pub use renderer::render_plugins;
 mod testing;
 pub use display::Resolution;
 mod choice_cursor;
@@ -99,7 +100,7 @@ use field_ui::{credits, session_screen};
 mod field_resources;
 mod field_view;
 mod game_over;
-mod glow;
+pub(crate) mod glow;
 mod materials;
 mod texture;
 pub use materials::{
@@ -108,6 +109,7 @@ pub use materials::{
 mod menu_backdrop;
 mod model_preview;
 mod movie;
+mod native;
 mod new_game;
 mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
@@ -120,7 +122,10 @@ pub use saves::{
 mod new_game_capture;
 mod performance;
 mod secondary_motion;
-pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, run_window_probe};
+pub use performance::{
+    PerformanceOptions, ScenarioBenchmark, run_frame_benchmark, run_movie_probe,
+    run_offscreen_benchmark, run_offscreen_title, run_window_benchmark, run_window_probe,
+};
 mod playthrough;
 mod scene;
 mod screenshot;
@@ -298,9 +303,12 @@ pub fn run_with_display(
     failures.finish(result)
 }
 
+#[derive(Clone, Copy)]
 enum DisplaySource {
     Player(Option<Resolution>),
     Fixed(Resolution),
+    /// Live gameplay rendered to a private image, independent of oracle capture.
+    Offscreen(Resolution),
 }
 
 fn build_app_with_display(
@@ -372,6 +380,7 @@ fn build_app(
     });
     app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(TitleActive);
+    let offscreen = matches!(display_source, DisplaySource::Offscreen(_));
     let interactive_display = matches!(display_source, DisplaySource::Player(_))
         && !options.headless()
         && options.replay.is_none();
@@ -388,7 +397,7 @@ fn build_app(
         ..Default::default()
     };
     let resolution = match display_source {
-        DisplaySource::Fixed(size) => size,
+        DisplaySource::Fixed(size) | DisplaySource::Offscreen(size) => size,
         DisplaySource::Player(override_size) if !interactive_display => {
             override_size.unwrap_or_default()
         }
@@ -418,22 +427,19 @@ fn build_app(
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
+    let no_window = capture_only || offscreen;
     let render_plugin = renderer::plugin(&mut app, interactive_display);
     info!(
         "Installing rendering and window plugins; interactive={interactive_display}, capture={capture_only}, resolution={resolution:?}"
     );
-    let mut plugins = renderer::native_render_plugins(render_plugin)
-        .set(bevy::pbr::PbrPlugin {
-            gltf_enable_standard_materials: false,
-            ..default()
-        })
+    let mut plugins = renderer::render_plugins(render_plugin)
         .set(AssetPlugin {
             file_path: assets.to_string_lossy().into_owned(),
             ..default()
         })
         .set(WindowPlugin {
-            primary_window: (!capture_only).then(|| display::window(resolution)),
-            exit_condition: if capture_only {
+            primary_window: (!no_window).then(|| display::window(resolution)),
+            exit_condition: if no_window {
                 ExitCondition::DontExit
             } else {
                 ExitCondition::OnAllClosed
@@ -443,7 +449,7 @@ fn build_app(
     if bevy::log::tracing::dispatcher::has_been_set() {
         plugins = plugins.disable::<bevy::log::LogPlugin>();
     }
-    if capture_only {
+    if no_window {
         // File captures have neither a window/event loop nor an audio device.
         plugins = plugins
             .disable::<bevy::winit::WinitPlugin>()
@@ -453,7 +459,7 @@ fn build_app(
     let render_ready = RenderReady::default();
     app.insert_resource(render_ready.clone())
         .insert_resource(display::Display(resolution))
-        .insert_resource(if capture_only {
+        .insert_resource(if no_window {
             display::OutputStage::Framebuffer
         } else {
             display::OutputStage::Scanout
@@ -487,7 +493,6 @@ fn build_app(
         .add_plugins(materials::install_output_materials)
         .add_plugins(materials::install_surface_material)
         .add_plugins(glow::install)
-        .add_plugins(draw_order::DrawOrderPlugin)
         .add_plugins(field_view::FieldPlugin)
         .add_plugins(overworld::OverworldPlugin)
         .init_asset::<GameAudio>()
@@ -572,12 +577,23 @@ fn build_app(
     input::install(&mut app);
     display::install(&mut app);
     testing::install(&mut app);
-    if !capture_only {
+    if offscreen {
+        audio_output::install_offscreen(&mut app).context("initializing offscreen audio clock")?;
+    } else if !capture_only {
         audio_output::install(&mut app, silent).context("initializing audio output")?;
-    } else {
-        app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-            resonance_game::clock::UPDATE_STEP,
-        ));
+    }
+    if no_window {
+        app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(if capture_only {
+            resonance_game::clock::UPDATE_STEP
+        } else {
+            // `RESONANCE_OFFSCREEN_FPS` paces offscreen runs, such as
+            // same-frame audits, that do not need every frame the GPU can draw.
+            std::env::var("RESONANCE_OFFSCREEN_FPS")
+                .ok()
+                .and_then(|fps| fps.parse::<f64>().ok())
+                .filter(|fps| *fps > 0.)
+                .map_or(Duration::ZERO, |fps| Duration::from_secs_f64(1. / fps))
+        }));
     }
     audio::validate_startup(&app, silent, capture_only)?;
     let render_diagnostics = app.world().resource::<diagnostics::Diagnostics>().clone();
@@ -627,7 +643,7 @@ fn setup(
     mut text: ResMut<Assets<TitleText>>,
     mut movie: ResMut<movie::Playback>,
     mut boot: ResMut<boot::Playback>,
-    options: Res<RunOptions>,
+    stage: Res<display::OutputStage>,
     display: Res<display::Display>,
     device: Res<bevy::render::renderer::RenderDevice>,
     mut exit: crate::diagnostics::Fatal,
@@ -644,7 +660,7 @@ fn setup(
     };
     // Convert directly into the window. Offscreen captures use the same pass
     // with an image target, without an additional full-screen sprite copy.
-    let output = options.headless().then(|| {
+    let output = matches!(*stage, display::OutputStage::Framebuffer).then(|| {
         let mut image =
             Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8UnormSrgb, None);
         image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
@@ -682,7 +698,6 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         display::OutputCamera,
@@ -702,7 +717,6 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: -3,
@@ -755,7 +769,6 @@ fn setup(
                 .into(),
             ..default()
         },
-        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: -4,

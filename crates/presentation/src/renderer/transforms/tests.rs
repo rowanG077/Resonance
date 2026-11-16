@@ -162,3 +162,82 @@ fn startup_and_affine_animation_keep_their_propagation_order() {
         assert!(actual.abs_diff_eq(expected.affine(), 0.0001));
     }
 }
+
+#[test]
+fn integrated_affine_walk_matches_attachment_queries_and_releases_overrides() {
+    use crate::sparse_animation::affine::{self, Helper, Locals, Pose};
+    use bevy::{ecs::system::RunSystemOnce, math::Affine3A};
+
+    #[derive(Resource)]
+    struct Frame(Option<u8>);
+
+    for optimizations in [
+        StaticTransformOptimizations::Enabled,
+        StaticTransformOptimizations::Disabled,
+    ] {
+        let (mut app, entities @ [root, _, branch, leaf, _, standalone]) = app();
+        affine::install(&mut app);
+        app.insert_resource(optimizations)
+            .insert_resource(Frame(None));
+        // A child's translation boundary can reveal a base movement that its
+        // parent's own offset cancels. The parent's GlobalTransform stays equal.
+        *app.world_mut().get_mut::<Transform>(root).unwrap() = Transform::IDENTITY;
+        app.add_systems(
+            Update,
+            move |frame: Res<Frame>,
+                  mut locals: ResMut<Locals>,
+                  mut nodes: Query<&mut Transform>| {
+                let Some(frame) = frame.0 else { return };
+                if frame < 2 {
+                    let x = 10. * (f32::from(frame) + 1.);
+                    locals.set_world(root, GlobalTransform::from_translation(Vec3::X * x));
+                    locals.translate(root, -Vec3::X * x);
+                    locals.translation_boundary(branch);
+                } else {
+                    let matrix = Affine3A::from_cols(
+                        Vec3::ZERO.into(),
+                        Vec3::new(0.5, 2., 0.).into(),
+                        (-Vec3::Z).into(),
+                        Vec3::new(3., 4., 5.).into(),
+                    );
+                    locals.set(
+                        root,
+                        &mut nodes.get_mut(root).unwrap(),
+                        Pose::Affine(matrix),
+                    );
+                    locals.set_world(leaf, GlobalTransform::from_translation(Vec3::Y * 90.));
+                    locals.translate(leaf, Vec3::Z * 7.);
+                    locals.set(
+                        standalone,
+                        &mut nodes.get_mut(standalone).unwrap(),
+                        Pose::Affine(matrix),
+                    );
+                }
+            },
+        );
+        for frame in [None, Some(0), Some(1), Some(2), None] {
+            app.world_mut().resource_mut::<Frame>().0 = frame;
+            app.update();
+            app.world_mut()
+                .run_system_once(move |helper: Helper, globals: Query<&GlobalTransform>| {
+                    let expected = helper.compute_global_transforms(entities).unwrap();
+                    for (entity, expected) in entities.into_iter().zip(expected) {
+                        assert!(
+                            globals
+                                .get(entity)
+                                .unwrap()
+                                .affine()
+                                .abs_diff_eq(expected.affine(), 0.0001),
+                            "incorrect integrated pose for {entity:?}, frame {frame:?}"
+                        );
+                    }
+                })
+                .unwrap();
+            if frame.is_none() {
+                for entity in entities {
+                    assert_pose(app.world(), entity);
+                }
+            }
+        }
+    }
+}

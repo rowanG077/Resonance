@@ -630,6 +630,10 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
 fn speculative_lifecycle_matches_real_visits_without_publishing_state() -> Result<()> {
     for defeated in [None, Some(Side::Party), Some(Side::Enemy)] {
         let mut live = fixture(defeated)?;
+        assert!(
+            live.lifecycle.prediction_available(),
+            "{defeated:?}: the fixture must exercise prediction"
+        );
         let mut display = Display::default();
         for tick in 0..180 {
             if !live.lifecycle.prediction_available() {

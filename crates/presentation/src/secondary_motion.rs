@@ -31,7 +31,6 @@ struct DrivenChain {
 struct Bone {
     entity: Entity,
     parent: Entity,
-    authored: Transform,
 }
 struct Authored {
     world: GlobalTransform,
@@ -157,15 +156,8 @@ impl Rig {
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
-                let &(entity, authored, parent) = names.get(name)?;
-                Some((
-                    index as u16,
-                    Bone {
-                        entity,
-                        authored,
-                        parent,
-                    },
-                ))
+                let &(entity, _, parent) = names.get(name)?;
+                Some((index as u16, Bone { entity, parent }))
             })
             .collect();
         let chains = spec.secondary_motion.prepare(&spec.bone_names).ok()?;
@@ -531,22 +523,6 @@ pub(super) fn bind(
     }
 }
 
-/// Restore only the bones modified by dynamics. A clip may omit these tracks;
-/// feeding yesterday's deformation back into the authored pose causes drift.
-pub(super) fn restore(rigs: Query<&Rig>, mut transforms: Query<&mut Transform>) {
-    for rig in &rigs {
-        for driven in &rig.chains {
-            let chain = &driven.chain;
-            for joint in chain.joints.iter().take(chain.joints.len() - 1) {
-                let bone = &rig.bones[&joint.node];
-                if let Ok(mut transform) = transforms.get_mut(bone.entity) {
-                    *transform = bone.authored;
-                }
-            }
-        }
-    }
-}
-
 #[allow(clippy::type_complexity)] // Snapshot authored world poses before writing local bones.
 pub(super) fn apply(
     state: State,
@@ -772,7 +748,6 @@ mod tests {
                         Bone {
                             entity,
                             parent: root,
-                            authored: Transform::from_translation(targets[i]),
                         },
                     )
                 })
@@ -850,7 +825,6 @@ mod tests {
                     Bone {
                         entity: parent,
                         parent: root,
-                        authored: Transform::IDENTITY,
                     },
                 ),
                 (
@@ -858,7 +832,6 @@ mod tests {
                     Bone {
                         entity: tip,
                         parent,
-                        authored: Transform::IDENTITY,
                     },
                 ),
             ]

@@ -852,8 +852,7 @@ mod tests {
         let mut cache = Cache::default();
         cache.sample((1, 1), &BattleFrame::default(), &[], &next, 0.5);
         drop(next);
-        // Rotate through both slots while the rendered birth remains cached.
-        storage.execute(|| ())?;
+        // Reuse scene storage while the rendered birth remains cached.
         storage.execute(|| ())?;
         assert_eq!(cache.particles[0].model.as_ref().unwrap().bones.len(), 1);
         Ok(())

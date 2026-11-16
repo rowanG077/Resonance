@@ -143,8 +143,7 @@ mod input_tests {
                     GraphicsBackend::Dx12,
                     GraphicsBackend::Vulkan,
                     GraphicsBackend::Metal,
-                    GraphicsBackend::OpenGl,
-                ][index % 5],
+                ][index % 4],
                 anti_aliasing,
                 vsync: index % 2 == 0,
                 experimental_high_fps: index % 2 == 0,
@@ -162,6 +161,11 @@ mod input_tests {
         let mut expected = preferences.settings;
         expected.vsync = false;
         expected.experimental_high_fps = false;
+        assert_eq!(Preferences::load(path.clone())?.settings, expected);
+        // OpenGL is no longer offered; a saved choice of it selects automatically.
+        legacy.insert("graphics_backend".into(), "opengl".into());
+        fs::write(&path, toml::to_string_pretty(&legacy)?)?;
+        expected.graphics_backend = GraphicsBackend::Automatic;
         assert_eq!(Preferences::load(path)?.settings, expected);
         Ok(())
     }

@@ -1,53 +1,15 @@
 //! Native billboards for the title event's feather and reflection trails.
 use super::{Events, FieldCamera, field_effects::Quad, title_field::Scene};
-use bevy::{
-    camera::visibility::NoFrustumCulling, image::ImageLoaderSettings,
-    mesh::MeshVertexBufferLayoutRef, prelude::*, render::render_resource::*, shader::ShaderRef,
-};
+use crate::native::MeshMaterial3d;
+use bevy::{camera::visibility::NoFrustumCulling, image::ImageLoaderSettings, prelude::*};
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "title_glow.wesl");
-    app.add_plugins(MaterialPlugin::<GlowMaterial>::default());
+    crate::native::init_material::<GlowMaterial>(app);
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub(super) struct GlowMaterial {
-    #[texture(0)]
-    #[sampler(1)]
-    pub(super) texture: Handle<Image>,
-}
-impl Material for GlowMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_glow.wesl".into()
-    }
-    fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Blend
-    }
-    fn specialize(
-        _: &bevy::pbr::MaterialPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        _: &MeshVertexBufferLayoutRef,
-        _: bevy::pbr::MaterialPipelineKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        descriptor.primitive.cull_mode = None;
-        if let Some(depth) = &mut descriptor.depth_stencil {
-            depth.depth_write_enabled = Some(false);
-            depth.depth_compare = Some(CompareFunction::Greater);
-        }
-        if let Some(fragment) = &mut descriptor.fragment {
-            for target in fragment.targets.iter_mut().flatten() {
-                target.blend = Some(BlendState {
-                    color: BlendComponent {
-                        src_factor: BlendFactor::SrcAlpha,
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    },
-                    alpha: BlendComponent::OVER,
-                });
-            }
-        }
-        Ok(())
-    }
+#[derive(Asset, TypePath, Debug, Clone)]
+pub(crate) struct GlowMaterial {
+    pub(crate) texture: Handle<Image>,
 }
 
 #[derive(Component)]

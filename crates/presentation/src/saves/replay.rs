@@ -41,6 +41,11 @@ pub(crate) enum Step {
     Capture {
         name: String,
     },
+    /// Request a field transition, entering at the game's own destination
+    /// point; for fields no save starts in.
+    Travel {
+        map: u32,
+    },
 }
 
 impl Step {
@@ -59,8 +64,9 @@ impl Step {
                 }
                 ensure!(
                     elapsed < *max_updates,
-                    "did not reach {until:?} within {max_updates} updates; scene: {:?}",
-                    recording_scene(world)
+                    "did not reach {until:?} within {max_updates} updates; scene: {:?}{}",
+                    recording_scene(world),
+                    menu_state(world)
                 );
                 Ok(Some(
                     if tap_every.is_some_and(|period| !elapsed.is_multiple_of(period)) {
@@ -70,7 +76,7 @@ impl Step {
                     },
                 ))
             }
-            Self::Capture { .. } => Ok(None),
+            Self::Capture { .. } | Self::Travel { .. } => Ok(None),
         }
     }
 
@@ -142,6 +148,14 @@ pub(crate) enum Event {
     ItemsFocus {
         focus: ItemsFocus,
     },
+    /// The inventory shows this category tab.
+    ItemsCategory {
+        category: usize,
+    },
+    /// The inventory list highlights this item.
+    ItemSelected {
+        item: u16,
+    },
     MenuSelection {
         page: MenuPage,
         entry: MenuPage,
@@ -190,8 +204,28 @@ pub(crate) enum SlotState {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ItemsFocus {
+    Categories,
     List,
     Target,
+}
+
+/// The menu position a timed-out wait reports, if a menu is open.
+fn menu_state(world: &World) -> String {
+    let Some(menu) = current_menu(world) else {
+        return String::new();
+    };
+    let mut state = format!(
+        "; menu: page {:?}, selected {}, busy {}",
+        menu.page, menu.selected, menu.busy
+    );
+    if menu.page == resonance_game::menu::Page::Items {
+        let items = menu.inventory_items();
+        state += &format!(
+            ", inventory tab {} focus {:?} row {} of {:?}",
+            menu.inventory.category, menu.inventory.focus, menu.inventory.row, items
+        );
+    }
+    state
 }
 
 fn current_menu(world: &World) -> Option<&resonance_game::menu::Menu> {
@@ -238,6 +272,8 @@ pub(crate) enum MenuPage {
     Save,
     Load,
     Customize,
+    Monsters,
+    Figurines,
 }
 impl MenuPage {
     fn page(self) -> resonance_game::menu::Page {
@@ -255,6 +291,8 @@ impl MenuPage {
             Self::Save => Page::Slots(resonance_game::menu::Mode::Save),
             Self::Load => Page::Slots(resonance_game::menu::Mode::Load),
             Self::Customize => Page::Customize,
+            Self::Monsters => Page::Monsters,
+            Self::Figurines => Page::Figurines,
         }
     }
 }
@@ -362,9 +400,20 @@ impl Event {
                 menu.page == Page::Items
                     && menu.inventory.focus
                         == match focus {
+                            ItemsFocus::Categories => Focus::Categories,
                             ItemsFocus::List => Focus::List,
                             ItemsFocus::Target => Focus::Target,
                         }
+            }),
+            Self::ItemsCategory { category } => current_menu(world).is_some_and(|menu| {
+                menu.page == resonance_game::menu::Page::Items
+                    && menu.inventory.category == *category
+            }),
+            Self::ItemSelected { item } => current_menu(world).is_some_and(|menu| {
+                use resonance_game::menu::{Page, items::Focus};
+                menu.page == Page::Items
+                    && menu.inventory.focus == Focus::List
+                    && menu.inventory_items().get(menu.inventory.row) == Some(item)
             }),
             Self::MenuSelection { page, entry } => current_menu(world).is_some_and(|menu| {
                 use resonance_game::menu::{MAIN_ENTRIES, Mode, Page};
@@ -516,6 +565,7 @@ impl CheckpointReplay {
                     );
                     continue;
                 }
+                Step::Travel { .. } => continue,
             };
             ensure!(
                 (1..=36_000).contains(&updates)
@@ -680,7 +730,7 @@ impl ScenarioInput {
 
     fn settle(&mut self, world: &World) -> Result<Option<Vec<Key>>> {
         while let Some(step) = self.steps.get(self.index) {
-            if matches!(step, Step::Capture { .. }) {
+            if matches!(step, Step::Capture { .. } | Step::Travel { .. }) {
                 return Ok(None);
             }
             if let Some(keys) = step.input(world, self.elapsed)? {
@@ -695,6 +745,13 @@ impl ScenarioInput {
     fn capture(&self) -> Option<&str> {
         match self.steps.get(self.index) {
             Some(Step::Capture { name }) => Some(name),
+            _ => None,
+        }
+    }
+
+    fn travel(&self) -> Option<u32> {
+        match self.steps.get(self.index) {
+            Some(Step::Travel { map }) => Some(*map),
             _ => None,
         }
     }
@@ -719,7 +776,7 @@ fn install_cursor(app: &mut App, steps: Vec<Step>, pad: Option<Entity>) {
     // Input fixtures start at New Game; observation-only captures keep the player default.
     let has_input = steps.iter().any(|step| match step {
         Step::Hold { keys, .. } | Step::Wait { keys, .. } => !keys.is_empty(),
-        Step::Capture { .. } => false,
+        Step::Capture { .. } | Step::Travel { .. } => false,
     });
     if has_input && let Some(mut menu) = app.world_mut().get_resource_mut::<crate::Menu>() {
         menu.0.selected = 0;
@@ -767,14 +824,32 @@ pub(crate) fn install_benchmark_replay(
     install_cursor(app, spec.steps.clone(), None);
     let output = output.to_owned();
     let began = Instant::now();
-    app.add_systems(Last, move |world: &mut World| {
+    let capture_workload = std::env::var_os("RESONANCE_BENCH_CAPTURE").is_some();
+    // Service the boundary immediately after its acknowledged native update.
+    // Last can observe one or more later catch-up ticks in the same render.
+    app.add_systems(FixedPostUpdate, (move |world: &mut World| {
         let result = (|| -> Result<()> {
             let _ = settle_cursor(world);
             ensure!(!world.resource::<ScenarioInput>().failed, "benchmark replay input failed");
+            while let Some(map) = world.resource::<ScenarioInput>().travel() {
+                world
+                    .resource_mut::<crate::new_game::Session>()
+                    .events_mut()
+                    .world
+                    .request_destination(resonance_events::SceneDestination {
+                        map,
+                        position: [-100., -100., 0.],
+                        heading: 0.,
+                    })
+                    .map_err(anyhow::Error::msg)?;
+                world.resource_mut::<ScenarioInput>().index += 1;
+                let _ = settle_cursor(world);
+            }
             while let Some(name) = world.resource::<ScenarioInput>().capture().map(str::to_owned) {
                 let battle = world.get_resource::<crate::battle::Owner>();
                 serde_json::to_writer(&mut markers, &serde_json::json!({
-                    "name":name, "elapsed_seconds":began.elapsed().as_secs_f64(),
+                    "name":name, "elapsed_seconds":crate::performance::elapsed_seconds(world).unwrap_or_else(||began.elapsed().as_secs_f64()),
+                    "boundary":"fixed_post_update",
                     "updates":world.resource::<ScenarioInput>().updates,
                     "scene":recording_scene(world)?,
                     "battle":battle.and_then(|owner| owner.replay_phase())
@@ -782,8 +857,26 @@ pub(crate) fn install_benchmark_replay(
                             "encounter":encounter, "phase":format!("{phase:?}"), "combat_tick":tick,
                         })),
                     "model_particles":battle.and_then(|owner| owner.model_particle_stats()),
+                    "battle_diagnostic":battle.and_then(|owner| owner.diagnostic()),
                 }))?;
                 markers.write_all(b"\n")?;
+                // `shot*` markers add validation images at chosen points of the workload.
+                if capture_workload && (name == "measure_begin" || name.starts_with("shot")) {
+                    use bevy::{camera::RenderTarget, render::view::screenshot::{Screenshot, ScreenshotCaptured}};
+                    let target = &world.resource::<crate::Framebuffer>().0;
+                    let screenshot = match target {
+                        RenderTarget::Image(image) => Screenshot::image(image.handle.clone()),
+                        _ => Screenshot::primary_window(),
+                    };
+                    let path = if name == "measure_begin" {
+                        output.join("workload.png")
+                    } else {
+                        output.join(format!("{name}.png"))
+                    };
+                    world.spawn(screenshot).observe(move |event: On<ScreenshotCaptured>| {
+                        crate::screenshot::write(&event.image, &path, None).expect("benchmark validation image");
+                    });
+                }
                 world.resource_mut::<ScenarioInput>().index += 1;
                 let _ = settle_cursor(world);
             }
@@ -807,7 +900,7 @@ pub(crate) fn install_benchmark_replay(
             error!("Benchmark replay: {error:#}");
             world.write_message(AppExit::error());
         }
-    });
+    }).after(scenario_consumed));
     Ok(())
 }
 
@@ -1993,9 +2086,75 @@ mod tests {
     }
 
     #[test]
+    fn benchmark_markers_observe_each_native_boundary_during_render_catch_up() {
+        let output = Output::new();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin))
+            .insert_resource(Time::<Fixed>::from_duration(
+                resonance_game::clock::UPDATE_STEP,
+            ))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(
+                std::time::Duration::ZERO,
+            ))
+            .init_resource::<Clock>()
+            .insert_resource(crate::TitleActive)
+            .insert_resource(crate::Menu(Default::default()))
+            .insert_resource(crate::timing::Ready(true))
+            .add_systems(
+                FixedUpdate,
+                |mut clock: ResMut<Clock>,
+                 mut menu: ResMut<crate::Menu>,
+                 mut input: ResMut<ScenarioInput>| {
+                    clock.0.advance();
+                    menu.0.tick += 1;
+                    input.acknowledge_input();
+                },
+            );
+        let hold = |updates| Step::Hold {
+            keys: vec![],
+            updates,
+        };
+        let spec = CheckpointReplay::new(vec![
+            hold(2),
+            Step::capture("first"),
+            hold(2),
+            Step::capture("second"),
+            hold(100),
+        ]);
+        install_benchmark_replay(
+            &mut app,
+            &spec,
+            &output.0,
+            std::sync::Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        app.update();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            resonance_game::clock::UPDATE_STEP * 8,
+        ));
+        app.update();
+        assert_eq!(app.world().resource::<crate::Menu>().0.tick, 8);
+        assert_eq!(app.world().resource::<ScenarioInput>().updates, 8);
+        drop(app); // Flush the marker writer without completing the scenario.
+        let markers: Vec<serde_json::Value> = fs::read_to_string(output.0.join("markers.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(markers.len(), 2);
+        for (marker, tick) in markers.iter().zip([2, 4]) {
+            assert_eq!(marker["updates"], tick);
+            assert_eq!(marker["scene"]["title"]["menu"]["tick"], tick);
+            assert_eq!(marker["boundary"], "fixed_post_update");
+        }
+    }
+
+    #[test]
     fn scenario_input_is_consumed_once_per_native_update_at_irregular_render_rates() {
         #[derive(Resource, Default)]
         struct Consumed(Vec<([f32; 2], bool, bool)>);
+        #[derive(Resource, Default)]
+        struct WorldConsumed(Vec<([f32; 2], bool, bool)>);
         fn fixture(gamepad: bool) -> App {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, bevy::input::InputPlugin))
@@ -2009,6 +2168,7 @@ mod tests {
                 .init_resource::<crate::PendingInput>()
                 .init_resource::<crate::field_view::Controls>()
                 .init_resource::<Consumed>()
+                .init_resource::<WorldConsumed>()
                 .insert_resource(crate::TitleActive)
                 .insert_resource(crate::Menu(Default::default()))
                 .insert_resource(crate::timing::Ready(false))
@@ -2025,6 +2185,8 @@ mod tests {
                      mut pending: ResMut<crate::PendingInput>,
                      mut field: ResMut<crate::field_view::Controls>,
                      mut scenario: ResMut<ScenarioInput>,
+                     mut travel: ResMut<crate::overworld::Controls>,
+                     mut world_consumed: ResMut<WorldConsumed>,
                      mut consumed: ResMut<Consumed>| {
                         if !ready.0 {
                             return;
@@ -2033,6 +2195,12 @@ mod tests {
                         title.0.tick += 1;
                         let title = pending.consume(clock.0);
                         let field = field.consume();
+                        let travel = travel.consume();
+                        world_consumed.0.push((
+                            travel.travel.stick,
+                            travel.confirm,
+                            travel.travel.throttle,
+                        ));
                         scenario.acknowledge_input();
                         consumed.0.push((
                             field.direction,
@@ -2041,6 +2209,7 @@ mod tests {
                         ));
                     },
                 );
+            crate::overworld::install_controls(&mut app);
             let spec = CheckpointReplay::new(vec![
                 Step::Hold {
                     keys: vec![Key::Up, Key::Interact],
@@ -2125,6 +2294,13 @@ mod tests {
         assert_eq!(regular.world().resource::<Consumed>().0, expected);
         assert_eq!(uneven.world().resource::<Consumed>().0, expected);
         assert_eq!(controller.world().resource::<Consumed>().0, expected);
+        for app in [&regular, &uneven, &controller] {
+            assert_eq!(
+                app.world().resource::<WorldConsumed>().0,
+                expected,
+                "world stick, pressed confirm and held throttle must follow native input even across catch-up ticks"
+            );
+        }
     }
 
     #[test]

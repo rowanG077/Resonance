@@ -8,7 +8,7 @@ pub(crate) fn update(
     movie: Res<Playback>,
     boot: Res<crate::boot::Playback>,
     sinks: Query<&AudioSink>,
-    proxy: Res<EventLoopProxyWrapper>,
+    proxy: Option<Res<EventLoopProxyWrapper>>,
     mut wake: Local<Option<Wake>>,
     mut settings: ResMut<WinitSettings>,
 ) {
@@ -19,6 +19,12 @@ pub(crate) fn update(
         *settings = WinitSettings::continuous();
         return;
     }
+    let Some(proxy) = proxy else {
+        // A live offscreen runner has its own continuous schedule, not Winit.
+        wake.take();
+        *settings = WinitSettings::continuous();
+        return;
+    };
     let position = movie
         .audio_entity
         .and_then(|entity| sinks.get(entity).ok())
@@ -108,6 +114,27 @@ impl Drop for Wake {
         self.state.1.notify_one();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn windowless_playback_does_not_require_an_event_loop_proxy() {
+        let mut world = World::new();
+        world.init_resource::<Playback>();
+        world.init_resource::<crate::boot::Playback>();
+        world.init_resource::<WinitSettings>();
+        for active in [false, true] {
+            world.resource_mut::<Playback>().active = active;
+            world.run_system_once(update).unwrap();
+            let settings = world.resource::<WinitSettings>();
+            assert!(matches!(settings.focused_mode, UpdateMode::Continuous));
+            assert!(matches!(settings.unfocused_mode, UpdateMode::Continuous));
         }
     }
 }

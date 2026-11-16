@@ -620,7 +620,7 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
     let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
     press(&mut menu, Idle);
     menu.customize
-        .set_backend_choices(&[Automatic, Dx12, OpenGl], Dx12, false);
+        .set_backend_choices(&[Automatic, Dx12, Vulkan], Dx12, false);
     menu.customize.row = GRAPHICS_BACKEND_OPTION;
     menu.customize.first = GRAPHICS_BACKEND_OPTION - 8;
     press(&mut menu, Accept);
@@ -641,16 +641,16 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
     press(&mut menu, Down);
     press(&mut menu, Accept);
     assert_eq!(menu.customize.focus, Focus::Options);
-    assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
     assert_eq!(menu.customize.active_backend, Some(Dx12));
     for key in [Left, Right] {
         press(&mut menu, key);
-        assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+        assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
         assert_eq!(menu.customize.focus, Focus::Options);
     }
     assert_eq!(
         serde_json::to_value(&menu.customize.draft)?["graphics_backend"],
-        "opengl"
+        "vulkan"
     );
     // Display previews still need confirmation and never undo the next-launch backend.
     menu.customize.row = RESOLUTION_OPTION;
@@ -661,9 +661,9 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
     ));
     press(&mut menu, Cancel);
     assert_eq!(menu.customize.draft.resolution, [640, 480]);
-    assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
     press(&mut menu, Cancel);
-    assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
     Ok(())
 }
 

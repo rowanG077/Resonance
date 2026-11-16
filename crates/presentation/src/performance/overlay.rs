@@ -2,8 +2,6 @@
 use super::Monitor;
 use crate::debug_font::glyph;
 use bevy::{
-    camera::visibility::RenderLayers,
-    core_pipeline::tonemapping::Tonemapping,
     image::ImageSampler,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
@@ -13,17 +11,20 @@ use std::time::{Duration, Instant};
 
 const WIDTH: u32 = 368;
 const HEIGHT: u32 = 244;
-const LAYER: usize = 31;
 
+/// The panel, which the native frame renderer draws from its
+/// [`crate::native::Panel`].
 #[derive(Component)]
-pub(super) struct Panel;
-#[derive(Component)]
-pub(super) struct OverlayCamera;
+pub(crate) struct Panel;
 #[derive(Resource)]
 pub(super) struct Artwork {
     image: Handle<Image>,
     last_draw: Option<Instant>,
 }
+
+/// The panel's numbers change slowly; redrawing them more often only costs
+/// texture uploads.
+const REDRAW: Duration = Duration::from_secs(1);
 
 pub(super) fn setup(
     mut commands: Commands,
@@ -44,22 +45,11 @@ pub(super) fn setup(
     image.sampler = ImageSampler::nearest();
     let image = images.add(image);
     commands.spawn((
-        Sprite::from_image(image.clone()),
         Panel,
-        RenderLayers::layer(LAYER),
-    ));
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: 100,
-            clear_color: ClearColorConfig::None,
-            is_active: monitor.shown,
-            ..default()
+        crate::native::Panel {
+            image: image.id(),
+            rect: [0.; 4],
         },
-        Tonemapping::Linear,
-        Msaa::Off,
-        OverlayCamera,
-        RenderLayers::layer(LAYER),
     ));
     commands.insert_resource(Artwork {
         image,
@@ -71,32 +61,38 @@ pub(super) fn update(
     monitor: Res<Monitor>,
     testing: Option<Res<crate::testing::Controls>>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
-    mut camera: Single<&mut Camera, With<OverlayCamera>>,
-    mut panel: Single<&mut Transform, With<Panel>>,
+    mut native: Single<&mut crate::native::Panel, With<Panel>>,
     mut art: ResMut<Artwork>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    camera.is_active = monitor.shown;
     if !monitor.shown {
         art.last_draw = None;
+        if native.rect != [0.; 4] {
+            native.rect = [0.; 4];
+        }
         return;
     }
     if let Some(window) = window {
         let scale = ((window.width() - 16.) / WIDTH as f32)
             .min((window.height() - 16.) / HEIGHT as f32)
             .clamp(0.1, 1.);
-        panel.scale = Vec3::splat(scale);
-        panel.translation = Vec3::new(
-            -window.width() / 2. + 8. + WIDTH as f32 * scale / 2.,
-            window.height() / 2. - 8. - HEIGHT as f32 * scale / 2.,
-            0.,
-        );
+        // The top-left corner, 8 logical pixels in.
+        let physical = window.scale_factor();
+        let rect = [
+            8. * physical,
+            8. * physical,
+            WIDTH as f32 * scale * physical,
+            HEIGHT as f32 * scale * physical,
+        ];
+        if native.rect != rect {
+            native.rect = rect;
+        }
     }
     let now = Instant::now();
     if !testing.as_ref().is_some_and(|t| t.is_changed())
         && art
             .last_draw
-            .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
+            .is_some_and(|last| now.duration_since(last) < REDRAW)
     {
         return;
     }

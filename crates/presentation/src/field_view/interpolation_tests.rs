@@ -1,5 +1,6 @@
 //! Exercise the production material system with the Salvation wing bindings.
 use super::*;
+use crate::native::MeshMaterial3d;
 use bevy::ecs::{change_detection::Tick, system::RunSystemOnce};
 use resonance_events::{Actor, SavePoint, WingStyle, effect::CharacterLight};
 
@@ -93,9 +94,9 @@ fn material_endpoints_follow_lights_wings_and_save_glow_without_advancing_the_sc
     });
     let mut prediction = Prediction::default();
     prediction.reserve()?;
-    prediction.publish(
+    prediction.predict(
         prediction::Key::Field(Tick::new(1), Default::default()),
-        prediction::Endpoint::Field(next),
+        || Ok(prediction::Endpoint::Field(next)),
     );
 
     let mut app = App::new();

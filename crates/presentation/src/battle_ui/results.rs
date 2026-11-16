@@ -427,12 +427,7 @@ impl Artwork {
         }
         Ok(batches)
     }
-    pub(super) fn render_results(
-        &mut self,
-        fraction: f32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    pub(super) fn render_results(&mut self, fraction: f32, commands: &mut Commands) -> Result<()> {
         let result = (|| {
             let batches = self.draw_results(fraction)?;
             if let Some(state) = &self.results {
@@ -444,11 +439,10 @@ impl Artwork {
                     &self.dialogue,
                     &self.settings,
                     commands,
-                    meshes,
                 )?;
             }
             for (layer, batch) in self.ui.results.iter_mut().zip(batches) {
-                layer.upload(batch, commands, meshes)?;
+                layer.upload(batch, commands)?;
             }
             Ok(())
         })();
@@ -707,11 +701,9 @@ mod tests {
         }
         let mut world = World::new();
         world.insert_resource(materials);
-        let mut meshes = Assets::<Mesh>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         hud.prepare(
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
             crate::Resolution::default(),
         );
         queue.apply(&mut world);
@@ -731,11 +723,10 @@ mod tests {
             );
             model.character_names[Character::Regal.index()] = chef;
             hud.synchronize_results(&model, &Diagnostics::new(true))?;
-            hud.render_results(0., &mut Commands::new(&mut queue, &world), &mut meshes)?;
+            hud.render_results(0., &mut Commands::new(&mut queue, &world))?;
             queue.apply(&mut world);
             let glyph = hud.font.glyphs.remove(&'C').unwrap();
-            let rendered =
-                hud.render_results(0., &mut Commands::new(&mut queue, &world), &mut meshes);
+            let rendered = hud.render_results(0., &mut Commands::new(&mut queue, &world));
             queue.apply(&mut world);
             assert_eq!(
                 diagnostics.attempt("battle HUD", rendered).is_err(),

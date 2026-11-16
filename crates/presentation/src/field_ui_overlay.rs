@@ -1,5 +1,6 @@
 //! Prepared texture banks and per-instance screen quads in native UI coordinates.
 use super::*;
+use crate::native::MeshMaterial2d;
 use anyhow::ensure;
 use bevy::image::ImageFilterMode;
 use resonance_content::{
@@ -142,7 +143,7 @@ impl Artwork {
         self.images.iter().all(|image| images.contains(image.id()))
     }
 
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if self.prepared {
             return;
         }
@@ -151,7 +152,7 @@ impl Artwork {
             .values()
             .flat_map(|bank| bank.surfaces.iter().flatten())
         {
-            self.warm.push(allocate(surface.clone(), commands, meshes));
+            self.warm.push(allocate(surface.clone(), commands));
         }
         self.prepared = true;
     }
@@ -281,7 +282,6 @@ impl Artwork {
         world: &GameWorld,
         prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         device: crate::input_icons::PromptDevice,
     ) -> Result<Vec<i32>> {
         let (mut draws, handled) = self.sample(world, device)?;
@@ -305,8 +305,7 @@ impl Artwork {
                 .clone();
             if index == self.layers.len() {
                 // All material/vertex-layout combinations were warmed before play.
-                self.layers
-                    .push(allocate(surface.clone(), commands, meshes));
+                self.layers.push(allocate(surface.clone(), commands));
             }
             let layer = &mut self.layers[index];
             if layer.material != surface {
@@ -315,7 +314,7 @@ impl Artwork {
                     .insert(MeshMaterial2d(surface.clone()));
                 layer.material = surface;
             }
-            layer.update_mesh(draw.batch, [1, 1], meshes)?;
+            layer.update(draw.batch, [1, 1]);
             commands.entity(layer.entity).insert(Transform::from_xyz(
                 0.,
                 0.,
@@ -445,12 +444,8 @@ fn quad(
     batch
 }
 
-fn allocate(
-    material: Handle<Surface>,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-) -> Layer {
-    Layer::new(material, 2., commands, meshes)
+fn allocate(material: Handle<Surface>, commands: &mut Commands) -> Layer {
+    Layer::new(material, 2., commands)
 }
 
 #[cfg(test)]
@@ -558,8 +553,7 @@ mod tests {
         let render_world = World::new();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         let mut commands = Commands::new(&mut queue, &render_world);
-        let mut meshes = Assets::<Mesh>::default();
-        art.prepare(&mut commands, &mut meshes);
+        art.prepare(&mut commands);
         for id in 0..32 {
             if prompts::PANEL_GLYPHS.contains(&id) {
                 continue;
@@ -574,7 +568,6 @@ mod tests {
                     &events.world,
                     None,
                     &mut commands,
-                    &mut meshes,
                     crate::input_icons::PromptDevice::Controller
                 )?,
                 [7]

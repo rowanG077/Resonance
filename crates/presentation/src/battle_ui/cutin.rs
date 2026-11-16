@@ -106,12 +106,7 @@ impl State {
         Ok(())
     }
 
-    pub(super) fn render(
-        &mut self,
-        fraction: f32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    pub(super) fn render(&mut self, fraction: f32, commands: &mut Commands) -> Result<()> {
         for (&catalogue, layer) in &mut self.layers {
             let mut batch = Batch::default();
             if let Some(active) = self
@@ -147,7 +142,7 @@ impl State {
                     );
                 }
             }
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }

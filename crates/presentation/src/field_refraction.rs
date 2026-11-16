@@ -4,101 +4,61 @@ use super::{
     field_effects::{Artwork, effect_rotation},
     field_view::State,
 };
-use bevy::{
-    core_pipeline::{Core3dSystems, FullscreenShader, schedule::Core3d},
-    prelude::*,
-    render::{
-        RenderApp, RenderStartup,
-        extract_component::{
-            ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
-            UniformComponentPlugin,
-        },
-        render_asset::RenderAssets,
-        render_resource::{
-            binding_types::{
-                sampler, storage_buffer_read_only, texture_2d, texture_2d_multisampled,
-                uniform_buffer,
-            },
-            *,
-        },
-        renderer::{RenderAdapterInfo, RenderContext, RenderDevice, RenderQueue, ViewQuery},
-        texture::GpuImage,
-        view::{ViewDepthStencilTexture, ViewTarget},
-    },
-};
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+use bevy::{prelude::*, render::RenderApp};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 #[derive(Resource, Clone, Default)]
-pub(super) struct Ready(Arc<AtomicBool>);
+pub(crate) struct Ready(Arc<AtomicBool>);
 impl Ready {
     pub fn get(&self) -> bool {
         self.0.load(Ordering::Acquire)
+    }
+    pub(crate) fn mark(&self) {
+        self.0.store(true, Ordering::Release);
     }
     #[cfg(test)]
     pub(super) fn completed() -> Self {
         Self(Arc::new(AtomicBool::new(true)))
     }
 }
-#[derive(Clone, Copy, Default, ShaderType)]
-struct Pulse {
+#[repr(C)]
+#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct Pulse {
     center: Vec4,
     right: Vec4,
     up: Vec4,
     opacity: Vec4,
     tint: Vec4,
 }
-#[derive(Component, Clone, Default, ExtractComponent, ShaderType)]
-#[extract_app(bevy::render::RenderApp)]
-struct Settings {
-    clip_from_world: Mat4,
+#[repr(C)]
+#[derive(Component, Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct Settings {
     uv: [Vec4; 2],
     parameters: Vec4,
     screen_copy: Vec4,
     heat_transform: Vec4,
     heat_uv: Vec4,
 }
-#[derive(Component, Clone, ExtractComponent)]
-#[extract_app(bevy::render::RenderApp)]
-struct Pulses(Vec<Pulse>);
-#[derive(Component, Clone, ExtractComponent)]
-#[extract_app(bevy::render::RenderApp)]
-struct Atlas([Handle<Image>; 3]);
+#[derive(Component, Clone)]
+pub(crate) struct Pulses(Vec<Pulse>);
+#[derive(Component, Clone)]
+pub(crate) struct Atlas([Handle<Image>; 3]);
 
 pub(super) fn install(app: &mut App) {
     super::field_capture::install(app);
     super::field_dissolve::install(app);
     let ready = Ready::default();
-    bevy::asset::embedded_asset!(app, "field_refraction.wesl");
-    app.insert_resource(ready.clone())
-        .add_plugins((
-            ExtractComponentPlugin::<Atlas>::default(),
-            ExtractComponentPlugin::<Pulses>::default(),
-            ExtractComponentPlugin::<Settings>::default(),
-            UniformComponentPlugin::<Settings>::default(),
-        ))
-        .add_systems(
-            PostUpdate,
-            sync.after(super::field_effects::render)
-                .before(super::field_audit::check)
-                .run_if(super::battle::field_presenting),
-        );
-    app.sub_app_mut(RenderApp)
-        .insert_resource(ready)
-        .add_systems(RenderStartup, prepare)
-        .add_systems(
-            Core3d,
-            render.in_set(Core3dSystems::PostProcess).in_set(Pass),
-        );
+    app.insert_resource(ready.clone()).add_systems(
+        PostUpdate,
+        sync.after(super::field_effects::render)
+            .before(super::field_audit::check)
+            .run_if(super::battle::field_presenting),
+    );
+    app.sub_app_mut(RenderApp).insert_resource(ready);
 }
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct Pass;
 
 #[allow(clippy::too_many_arguments)]
 fn sync(
@@ -154,7 +114,7 @@ fn sync(
         textures[1].clone(),
         heat.map_or_else(|| textures[1].clone(), |(_, image)| image.clone()),
     ];
-    let mut settings = Settings {
+    let settings = Settings {
         uv: [recipe.sprite.uv, air.uv].map(Vec4::from_array),
         parameters: Vec4::new(
             world.refractions.len() as f32,
@@ -171,7 +131,6 @@ fn sync(
         ),
         heat_transform,
         heat_uv: heat.map_or(Vec4::ZERO, |(recipe, _)| Vec4::from_array(recipe.sprite.uv)),
-        ..default()
     };
     let camera = world
         .field_camera
@@ -186,7 +145,7 @@ fn sync(
     let mut effects: Vec<_> = world.refractions.iter().collect();
     effects.sort_unstable_by_key(|(_, effect)| effect.draw_order);
     for (entity, projection) in &views {
-        settings.clip_from_world = projection.get_clip_from_view() * view_from_world;
+        let clip_from_world = projection.get_clip_from_view() * view_from_world;
         let pulses = effects
             .iter()
             .map(|(id, effect)| {
@@ -224,9 +183,9 @@ fn sync(
                     );
                 }
                 Pulse {
-                    center: settings.clip_from_world * position.extend(1.),
-                    right: settings.clip_from_world * (rotation * Vec3::X * size).extend(0.),
-                    up: settings.clip_from_world * (rotation * Vec3::Y * size).extend(0.),
+                    center: clip_from_world * position.extend(1.),
+                    right: clip_from_world * (rotation * Vec3::X * size).extend(0.),
+                    up: clip_from_world * (rotation * Vec3::Y * size).extend(0.),
                     opacity: Vec4::new(alpha, effect.image as u8 as f32, 0., 0.),
                     tint: Vec4::from_array(
                         art.palette(effect.palette)
@@ -237,7 +196,7 @@ fn sync(
             .collect();
         commands
             .entity(entity)
-            .insert((settings.clone(), Atlas(textures.clone()), Pulses(pulses)));
+            .insert((settings, Atlas(textures.clone()), Pulses(pulses)));
     }
     let loaded =
         ready.get() && textures.iter().all(|texture| images.contains(texture)) && !views.is_empty();
@@ -250,277 +209,33 @@ fn sync(
     }
 }
 
-#[derive(Resource)]
-struct Pipeline {
-    sampler: Sampler,
-    repeating_sampler: Sampler,
-    passes: [PassPipelines; 2],
-}
-struct PassPipelines {
-    layout: BindGroupLayoutDescriptor,
-    id: CachedRenderPipelineId,
-    ripple: CachedRenderPipelineId,
-    mesh: CachedRenderPipelineId,
-}
-fn prepare(
-    mut commands: Commands,
-    device: Res<RenderDevice>,
-    adapter: Res<RenderAdapterInfo>,
-    server: Res<AssetServer>,
-    fullscreen: Res<FullscreenShader>,
-    cache: Res<PipelineCache>,
-) {
-    commands.insert_resource(Pipeline {
-        passes: [false, true].map(|multisampled| {
-            prepare_passes(
-                multisampled,
-                crate::renderer::scene_color_format(Some(&adapter)),
-                &server,
-                &fullscreen,
-                &cache,
-            )
-        }),
-        sampler: device.create_sampler(&SamplerDescriptor {
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        }),
-        repeating_sampler: device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::Repeat,
-            address_mode_v: AddressMode::Repeat,
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        }),
-    });
+impl Settings {
+    /// Whether the refraction pass has nothing to draw this frame.
+    pub(crate) fn idle(&self) -> bool {
+        self.parameters.x == 0.
+            && self.heat_transform.w == 0.
+            && self.screen_copy.x == 0.
+            && self.screen_copy.y == 0.
+    }
 }
 
-fn prepare_passes(
-    multisampled: bool,
-    format: TextureFormat,
-    server: &AssetServer,
-    fullscreen: &FullscreenShader,
-    cache: &PipelineCache,
-) -> PassPipelines {
-    let layout = BindGroupLayoutDescriptor::new(
-        "resonance/refraction",
-        &BindGroupLayoutEntries::sequential(
-            ShaderStages::VERTEX_FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                uniform_buffer::<Settings>(true),
-                if multisampled {
-                    texture_2d_multisampled(TextureSampleType::Float { filterable: false })
-                } else {
-                    texture_2d(TextureSampleType::Float { filterable: false })
-                },
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                storage_buffer_read_only::<Vec<Pulse>>(false),
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
-            ),
-        ),
-    );
-    let shader = server.load("embedded://resonance_presentation/field_refraction.wesl");
-    let [id, ripple] = [
-        (fullscreen.to_vertex_state(), "fragment", None),
-        (
-            VertexState {
-                constants: default(),
-                shader: shader.clone(),
-                entry_point: Some("quad_vertex".into()),
-                ..default()
-            },
-            "quad_fragment",
-            Some(BlendState::ALPHA_BLENDING),
-        ),
-    ]
-    .map(|(vertex, entry_point, blend)| {
-        cache.queue_render_pipeline(RenderPipelineDescriptor {
-            label: Some(format!("resonance/refraction/{entry_point}").into()),
-            layout: vec![layout.clone()],
-            vertex,
-            fragment: Some(FragmentState {
-                constants: default(),
-                shader: shader.clone(),
-                shader_defs: if multisampled {
-                    vec!["MULTISAMPLED_DEPTH".into()]
-                } else {
-                    Vec::new()
-                },
-                entry_point: Some(entry_point.into()),
-                targets: vec![Some(ColorTargetState {
-                    format,
-                    blend,
-                    write_mask: ColorWrites::ALL,
-                })],
-            }),
-            ..default()
+/// One frame's refraction for the native frame renderer: the field camera's
+/// settings, pulses, atlases and captured meshes, copied when the pass has
+/// something to draw.
+pub(crate) struct NativeRefraction {
+    pub settings: Settings,
+    pub pulses: Vec<Pulse>,
+    pub atlas: [AssetId<Image>; 3],
+    pub material: u32,
+}
+pub(crate) type NativeQuery = (&'static Settings, &'static Atlas, &'static Pulses);
+impl NativeRefraction {
+    pub(crate) fn new((settings, atlas, pulses): (&Settings, &Atlas, &Pulses)) -> Option<Self> {
+        (!settings.idle()).then(|| Self {
+            settings: *settings,
+            pulses: pulses.0.clone(),
+            atlas: atlas.0.each_ref().map(Handle::id),
+            material: 0,
         })
-    });
-    let mesh = cache.queue_render_pipeline(super::field_capture::pipeline(
-        layout.clone(),
-        server.load("embedded://resonance_presentation/field_capture.wesl"),
-        multisampled,
-        format,
-    ));
-    PassPipelines {
-        layout,
-        id,
-        ripple,
-        mesh,
     }
 }
-
-#[derive(Default)]
-struct Bindings {
-    identity: Option<([TextureViewId; 3], BufferId, TextureViewId, BufferId)>,
-    views: HashMap<TextureViewId, BindGroup>,
-}
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn render(
-    view: ViewQuery<(
-        &ViewTarget,
-        &ViewDepthStencilTexture,
-        &Msaa,
-        &Settings,
-        &Atlas,
-        &Pulses,
-        &DynamicUniformIndex<Settings>,
-        &super::field_capture::Meshes,
-    )>,
-    pipeline: Res<Pipeline>,
-    dissolve: Res<super::field_dissolve::Pipeline>,
-    cache: Res<PipelineCache>,
-    uniforms: Res<ComponentUniforms<Settings>>,
-    images: Res<RenderAssets<GpuImage>>,
-    ready: Res<Ready>,
-    mut bindings: Local<Bindings>,
-    queue: Res<RenderQueue>,
-    mut mesh_buffer: Local<Option<RawBufferVec<f32>>>,
-    mut pulse_buffer: Local<StorageBuffer<Vec<Pulse>>>,
-    mut context: RenderContext,
-) {
-    let (target, depth, msaa, settings, atlas, pulses, index, meshes) = view.into_inner();
-    let passes = &pipeline.passes[usize::from(msaa.samples() > 1)];
-    if !dissolve.ready(&cache) {
-        return;
-    }
-    let Some(gpu_pipeline) = cache.get_render_pipeline(passes.id) else {
-        return;
-    };
-    let Some(mesh_pipeline) = cache.get_render_pipeline(passes.mesh) else {
-        return;
-    };
-    let Some(ripple_pipeline) = cache.get_render_pipeline(passes.ripple) else {
-        return;
-    };
-    let [Some(atlas), Some(air), Some(heat)] = atlas.0.each_ref().map(|handle| images.get(handle))
-    else {
-        return;
-    };
-    let Some(buffer) = uniforms.uniforms().buffer() else {
-        return;
-    };
-    pulse_buffer.get_mut().clone_from(&pulses.0);
-    if pulse_buffer.get().is_empty() {
-        pulse_buffer.get_mut().push(Pulse::default());
-    }
-    pulse_buffer.write_buffer(context.render_device(), &queue);
-    let identity = (
-        [
-            atlas.texture_view.id(),
-            air.texture_view.id(),
-            heat.texture_view.id(),
-        ],
-        buffer.id(),
-        depth
-            .attachment
-            .depth_stencil_views()
-            .depth_only_view()
-            .expect("3D camera has depth")
-            .id(),
-        pulse_buffer.buffer().unwrap().id(),
-    );
-    if bindings.identity != Some(identity) {
-        bindings.identity = Some(identity);
-        bindings.views.clear();
-    }
-    // Warm both ping-pong bindings before skipping inactive frames.
-    if settings.parameters.x == 0.
-        && settings.heat_transform.w == 0.
-        && meshes.0.is_empty()
-        && settings.screen_copy.x == 0.
-        && settings.screen_copy.y == 0.
-        && bindings
-            .views
-            .contains_key(&target.main_texture_view().id())
-    {
-        return;
-    }
-    let post = target.post_process_write();
-    for source in [post.source, post.destination] {
-        bindings.views.entry(source.id()).or_insert_with(|| {
-            context.render_device().create_bind_group(
-                "resonance/refraction",
-                &cache.get_bind_group_layout(&passes.layout),
-                &BindGroupEntries::sequential((
-                    source,
-                    &pipeline.sampler,
-                    &atlas.texture_view,
-                    uniforms.uniforms().binding().unwrap(),
-                    depth
-                        .attachment
-                        .depth_stencil_views()
-                        .depth_only_view()
-                        .expect("3D camera has depth"),
-                    &air.texture_view,
-                    pulse_buffer.binding().unwrap(),
-                    &heat.texture_view,
-                    &pipeline.repeating_sampler,
-                )),
-            )
-        });
-    }
-    if !meshes.0.is_empty() {
-        let buffer = mesh_buffer.get_or_insert_with(|| RawBufferVec::new(BufferUsages::VERTEX));
-        buffer.clear();
-        buffer.extend(meshes.0.iter().copied());
-        buffer.write_buffer(context.render_device(), &queue);
-    }
-    let mut pass = context
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("resonance/refraction"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(default()),
-                    store: StoreOp::Store,
-                },
-            })],
-            ..default()
-        });
-    pass.set_pipeline(gpu_pipeline);
-    pass.set_bind_group(0, &bindings.views[&post.source.id()], &[index.index()]);
-    pass.draw(0..3, 0..1);
-    pass.set_pipeline(ripple_pipeline);
-    pass.draw(0..6, 0..settings.parameters.x as u32);
-    if !meshes.0.is_empty() {
-        // All effects use the same single-sample color target and sampled
-        // scene depth. Draw captured meshes after ripples in this pass.
-        pass.set_pipeline(mesh_pipeline);
-        let buffer = mesh_buffer.as_ref().unwrap();
-        pass.set_vertex_buffer(0, *buffer.buffer().unwrap().slice(..));
-        pass.draw(0..super::field_capture::vertex_count(meshes), 0..1);
-    }
-    drop(pass);
-    ready.0.store(true, Ordering::Release);
-}
-
-#[cfg(test)]
-mod tests;

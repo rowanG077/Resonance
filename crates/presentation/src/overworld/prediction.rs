@@ -31,11 +31,8 @@ pub(super) fn update(
         owner.live.as_ref().unwrap().last_changed(),
         input,
     );
-    if prediction.reuse(&key) {
-        return;
-    }
-    let _timer = crate::performance::smoothing_profile::Timer::start(0);
     prediction.predict(key, || {
+        let _timer = crate::performance::smoothing_profile::Timer::start(0);
         let mut fork = resonance_events::OperationFork::default();
         let mut next = Scene {
             session: scene.session.fork_for_prediction(&mut fork),

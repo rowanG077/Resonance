@@ -5,6 +5,18 @@ use bevy::prelude::*;
 use resonance_events::camera::CameraRig;
 use resonance_game::field::FieldPrediction;
 
+pub(super) fn install(app: &mut App) {
+    app.add_systems(
+        Update,
+        (reset, title)
+            .chain()
+            .after(crate::new_game::transition)
+            .before(super::FieldPreparation)
+            .before(crate::scene::update_materials)
+            .before(crate::scene::animate_field),
+    );
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[expect(
     clippy::large_enum_variant,
@@ -224,17 +236,10 @@ pub(super) fn update(mut prediction: ResMut<Prediction>, scene: Scene) {
         return;
     }
     let key = Key::Field(session.last_changed(), controls.input);
-    if prediction.reuse(&key) {
-        return;
-    }
-    let _timer = crate::performance::smoothing_profile::Timer::start(0);
     let input = controls.input;
     prediction.predict(key, || {
-        session
-            .field()
-            .capture_prediction()
-            .advance(input)
-            .map(Endpoint::Field)
+        let _timer = crate::performance::smoothing_profile::Timer::start(0);
+        session.field().predict_next(input).map(Endpoint::Field)
     });
 }
 
@@ -244,40 +249,34 @@ impl Prediction {
         self.active = false;
     }
 
-    pub(crate) fn reuse(&mut self, key: &Key) -> bool {
+    /// Reuse an unchanged endpoint, or release it before rebuilding scene storage.
+    /// Committed frames also need an endpoint for their remaining fractional tick.
+    pub(crate) fn predict(&mut self, key: Key, visit: impl FnOnce() -> anyhow::Result<Endpoint>) {
         if self
             .cached
             .as_ref()
-            .is_some_and(|cached| &cached.key == key && cached.endpoint.sources_unchanged())
+            .is_some_and(|cached| cached.key == key && cached.endpoint.sources_unchanged())
         {
             self.active = true;
             self.reused += 1;
-            return true;
+            return;
         }
         self.clear();
-        false
-    }
-
-    /// Capture the committed state and visit the next update in the spare arena.
-    /// Committed frames also need an endpoint for their remaining fractional tick.
-    pub(crate) fn predict(&mut self, key: Key, visit: impl FnOnce() -> anyhow::Result<Endpoint>) {
         let Some(storage) = self.storage.as_mut() else {
             return;
         };
         match storage.execute(visit).and_then(|result| result) {
-            Ok(endpoint) => self.publish(key, endpoint),
+            Ok(endpoint) => {
+                self.built += 1;
+                self.active = true;
+                self.cached = Some(Cached {
+                    key,
+                    endpoint,
+                    poses: None,
+                });
+            }
             Err(error) => self.report_error(&error),
         }
-    }
-
-    pub(crate) fn publish(&mut self, key: Key, endpoint: Endpoint) {
-        self.built += 1;
-        self.active = true;
-        self.cached = Some(Cached {
-            key,
-            endpoint,
-            poses: None,
-        });
     }
 
     pub(crate) fn counts(&self) -> [u64; 2] {
@@ -356,14 +355,6 @@ impl Prediction {
 
     pub(crate) fn scratch_scene<T>(&mut self, work: impl FnOnce(&Endpoint, f32) -> T) -> Option<T> {
         self.try_scratch(|scene| Some(scene), |scene, alpha| Ok(work(scene, alpha)))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn execute<T>(&mut self, work: impl FnOnce() -> T) -> anyhow::Result<T> {
-        self.storage
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("smoothing storage is unavailable"))?
-            .execute(work)
     }
 
     pub(crate) fn report_error(&mut self, error: &anyhow::Error) {
@@ -451,9 +442,6 @@ pub(super) fn title(
             return;
         }
         let key = Key::Menu(menu.last_changed(), controls.input);
-        if prediction.reuse(&key) {
-            return;
-        }
         prediction.predict(key, || {
             let mut next = menu.0.clone();
             next.step(controls.input);
@@ -469,9 +457,6 @@ pub(super) fn title(
             clock: time.tick(),
             input,
         };
-        if prediction.reuse(&key) {
-            return;
-        }
         prediction.predict(key, || {
             let mut fork = resonance_events::OperationFork::default();
             let mut next = events.0.fork_for_prediction(&mut fork);
@@ -532,95 +517,220 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unchanged_title_reuses_storage_but_input_ticks_and_readiness_invalidate_it() {
-        use bevy::ecs::system::RunSystemOnce;
-        use std::sync::Arc;
-        let bytes: Vec<_> = [4u16, 0, 0, 0, 0x20ff]
-            .into_iter()
-            .flat_map(u16::to_be_bytes)
-            .collect();
-        let events = resonance_events::EventRuntime::new(
-            Arc::new(symphonia_script::Program::decode(&bytes).unwrap()),
-            Default::default(),
-        )
-        .unwrap();
-        let mut world = World::new();
-        world.insert_resource(crate::Events(events));
-        world.insert_resource(crate::Menu(resonance_game::TitleState::default()));
-        world.init_resource::<crate::Clock>();
-        world.init_resource::<crate::PendingInput>();
-        world.init_resource::<super::super::Controls>();
-        world.insert_resource(crate::timing::Ready(true));
-        world.init_resource::<crate::movie::Playback>();
-        world.init_resource::<crate::boot::Playback>();
-        world.init_resource::<Assets<Image>>();
-        let mut prediction = Prediction::default();
-        prediction.reserve().unwrap();
-        world.insert_resource(prediction);
-        let render = |world: &mut World, alpha| {
-            let mut prediction = world.resource_mut::<Prediction>();
-            prediction.alpha = alpha;
-            prediction.active = false;
-            world.run_system_once(title).unwrap();
-        };
-        render(&mut world, 0.1);
-        let bytes = world
-            .resource::<Prediction>()
-            .storage
-            .as_ref()
-            .unwrap()
-            .used_bytes();
-        assert_eq!(world.resource::<Prediction>().counts(), [1, 0]);
-        for alpha in [0.2, 0.5, 0.9] {
-            render(&mut world, alpha);
-            let prediction = world.resource::<Prediction>();
-            assert!(prediction.title().is_some());
-            assert_eq!(prediction.storage.as_ref().unwrap().used_bytes(), bytes);
+    fn title_smoothing_follows_fixed_updates_and_preserves_committed_state() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::{sync::Arc, time::Duration};
+        let step = resonance_game::clock::UPDATE_STEP;
+        for frames in [1, 2, 4, 8] {
+            let bytes: Vec<_> = [4u16, 0, 0, 0, 0x20ff]
+                .into_iter()
+                .flat_map(u16::to_be_bytes)
+                .collect();
+            let events = resonance_events::EventRuntime::new(
+                Arc::new(symphonia_script::Program::decode(&bytes).unwrap()),
+                Default::default(),
+            )
+            .unwrap();
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .insert_resource(Time::<Fixed>::from_duration(step))
+                .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))
+                .insert_resource(crate::test_support::run_options(""))
+                .insert_resource(crate::Events(events))
+                .insert_resource(crate::Menu(resonance_game::TitleState {
+                    revealed: true,
+                    ..Default::default()
+                }))
+                .insert_resource(crate::timing::Ready(true))
+                .init_resource::<crate::config::Preferences>()
+                .init_resource::<crate::Clock>()
+                .init_resource::<crate::PendingInput>()
+                .init_resource::<super::super::Controls>()
+                .init_resource::<crate::movie::Playback>()
+                .init_resource::<crate::boot::Playback>()
+                .init_resource::<crate::audio::MenuSounds>()
+                .init_resource::<crate::diagnostics::Diagnostics>()
+                .init_resource::<crate::scene::FieldAssets>()
+                .init_resource::<crate::sparse_animation::affine::Locals>()
+                .init_resource::<Assets<Image>>()
+                .init_resource::<Assets<crate::TitleText>>()
+                .init_resource::<Assets<crate::TitleOutput>>()
+                .init_resource::<Prediction>()
+                .add_systems(
+                    FixedUpdate,
+                    (crate::timing::advance_clock, crate::advance).chain(),
+                )
+                .add_systems(Update, (crate::scene::animate_field, crate::layout).chain());
+            install(&mut app);
+            let image = app
+                .world_mut()
+                .resource_mut::<Assets<Image>>()
+                .add(Image::default());
+            let material = app
+                .world_mut()
+                .resource_mut::<Assets<crate::TitleText>>()
+                .add(crate::TitleText {
+                    source: image.clone(),
+                    opacity_pulse: Vec4::ZERO,
+                });
+            app.insert_resource(crate::Art {
+                manifest: Vec::new(),
+                images: vec![crate::TitleImage {
+                    handle: image,
+                    size: [16, 16],
+                }],
+            });
+            app.world_mut().spawn((
+                crate::TitleQuad {
+                    index: 0,
+                    row: None,
+                    selected_index: None,
+                    top: 0.,
+                },
+                crate::MeshMaterial2d(material.clone()),
+                Transform::IDENTITY,
+            ));
+            app.update();
+            assert!(app.world().resource::<Prediction>().storage.is_none());
+            app.world_mut()
+                .resource_mut::<crate::config::Preferences>()
+                .settings
+                .experimental_high_fps = true;
+            // Offset the render cadence from the simulation boundary, as a
+            // window's refresh naturally does, including at one frame per tick.
+            let mut elapsed = Duration::from_millis(5);
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(elapsed));
+            app.update();
+            assert_eq!(app.world().resource::<Prediction>().counts(), [1, 0]);
+            let frame = step / frames;
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(frame));
+            for _ in 0..12 * frames {
+                let before = app.world().resource::<Prediction>().counts();
+                let tick = app.world().resource::<crate::Menu>().0.tick;
+                let bytes = app
+                    .world()
+                    .resource::<Prediction>()
+                    .storage
+                    .as_ref()
+                    .unwrap()
+                    .used_bytes();
+                app.update();
+                elapsed += frame;
+                crate::playthrough::check_exit(&app).unwrap();
+                let expected_tick = (elapsed.as_nanos() / step.as_nanos()) as u32;
+                assert_eq!(app.world().resource::<crate::Menu>().0.tick, expected_tick);
+                assert_eq!(
+                    app.world().resource::<crate::Menu>().0.opacity,
+                    8 * expected_tick as u8
+                );
+                assert_eq!(
+                    app.world().resource::<crate::Events>().0.tick(),
+                    expected_tick
+                );
+                assert_eq!(
+                    app.world().resource::<crate::Clock>().0.tick(),
+                    expected_tick
+                );
+                let prediction = app.world().resource::<Prediction>();
+                assert_eq!(prediction.title().unwrap().0.tick, expected_tick + 1);
+                let changed = u64::from(expected_tick != tick);
+                assert_eq!(
+                    prediction.counts(),
+                    [before[0] + changed, before[1] + 1 - changed]
+                );
+                if changed == 0 {
+                    assert_eq!(prediction.storage.as_ref().unwrap().used_bytes(), bytes);
+                }
+                // Observe the actual published title material, with a known
+                // eight-alpha-units-per-tick fade independent of the sampler.
+                let opacity = app
+                    .world()
+                    .resource::<Assets<crate::TitleText>>()
+                    .get(&material)
+                    .unwrap()
+                    .opacity_pulse
+                    .x;
+                let expected = 8. * elapsed.as_secs_f64() / step.as_secs_f64() / 255.;
+                assert!(
+                    (f64::from(opacity) - expected).abs() < 0.000001,
+                    "{frames} frames per tick at {elapsed:?}: opacity {opacity}, expected {expected}"
+                );
+            }
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+            let tick = app.world().resource::<crate::Menu>().0.tick;
+            let before = app.world().resource::<Prediction>().counts();
+            app.world_mut()
+                .resource_mut::<crate::PendingInput>()
+                .pressed
+                .reveal = true;
+            app.update();
+            assert_eq!(
+                app.world().resource::<Prediction>().counts(),
+                [before[0] + 1, before[1]]
+            );
+            assert!(app.world().resource::<crate::PendingInput>().pressed.reveal);
+            assert_eq!(app.world().resource::<crate::Menu>().0.tick, tick);
+            app.update();
+            assert_eq!(
+                app.world().resource::<Prediction>().counts(),
+                [before[0] + 1, before[1] + 1]
+            );
+            // A source edit with no simulation tick also invalidates the cache.
+            app.world_mut()
+                .resource_mut::<crate::Events>()
+                .0
+                .world
+                .random_state = 123;
+            app.update();
+            assert_eq!(
+                app.world().resource::<Prediction>().counts(),
+                [before[0] + 2, before[1] + 1]
+            );
+            app.world_mut().resource_mut::<crate::timing::Ready>().0 = false;
+            app.update();
+            assert!(app.world().resource::<Prediction>().title().is_none());
+            app.world_mut().resource_mut::<crate::timing::Ready>().0 = true;
+            app.world_mut()
+                .resource_mut::<crate::config::Preferences>()
+                .settings
+                .experimental_high_fps = false;
+            app.update();
+            assert_eq!(app.world().resource::<Prediction>().alpha, 0.);
+            assert!(app.world().resource::<Prediction>().cached.is_none());
+            app.world_mut()
+                .resource_mut::<crate::config::Preferences>()
+                .settings
+                .experimental_high_fps = true;
+            for mode in 0..3 {
+                let mut options = crate::test_support::run_options("");
+                match mode {
+                    0 => options.capture = Some("capture".into()),
+                    1 => options.replay = Some("replay".into()),
+                    _ => options.capture_at = Some(crate::CaptureAt::TitleTick(1)),
+                }
+                app.insert_resource(options);
+                app.update();
+                assert_eq!(app.world().resource::<Prediction>().alpha, 0.);
+                assert!(app.world().resource::<Prediction>().title().is_none());
+            }
         }
-        assert_eq!(world.resource::<Prediction>().counts(), [1, 3]);
-        world.resource_mut::<crate::PendingInput>().pressed.reveal = true;
-        render(&mut world, 0.95);
-        assert_eq!(world.resource::<Prediction>().counts(), [2, 3]);
-        assert!(
-            world.resource::<crate::PendingInput>().pressed.reveal,
-            "prediction consumed live input"
-        );
-        render(&mut world, 0.99);
-        assert_eq!(world.resource::<Prediction>().counts(), [2, 4]);
-        assert_eq!(world.resource::<crate::Events>().0.tick(), 0);
-
-        world.resource_mut::<crate::Clock>().0.advance();
-        render(&mut world, 0.1);
-        assert_eq!(world.resource::<Prediction>().counts(), [3, 4]);
-        assert!(world.resource::<Prediction>().title().is_some());
-        // Source edits at the same game tick must also invalidate the endpoint.
-        world.resource_mut::<crate::Events>().0.world.random_state = 123;
-        render(&mut world, 0.2);
-        assert_eq!(world.resource::<Prediction>().counts(), [4, 4]);
-        world.resource_mut::<crate::timing::Ready>().0 = false;
-        render(&mut world, 0.3);
-        assert!(world.resource::<Prediction>().title().is_none());
     }
 
     #[test]
-    fn cached_scene_and_pose_endpoints_share_one_slot_and_release_before_rotation() {
+    fn cached_scene_and_pose_endpoints_share_scene_storage_and_release_before_reuse() {
         use bevy::ecs::change_detection::Tick;
         let mut prediction = Prediction::default();
         prediction.reserve().unwrap();
         let calls = resonance_simulation_memory::system_calls();
         for tick in 0..20 {
             let key = Key::Menu(Tick::new(tick), Default::default());
-            assert!(!prediction.reuse(&key));
-            let menu = prediction
-                .execute(|| {
-                    resonance_game::menu::Menu::new(
-                        resonance_game::menu::Page::Slots(resonance_game::menu::Mode::Load),
-                        None,
-                        false,
-                    )
-                })
-                .unwrap();
-            prediction.publish(key.clone(), Endpoint::Menu(menu));
+            prediction.predict(key.clone(), || {
+                Ok(Endpoint::Menu(resonance_game::menu::Menu::new(
+                    resonance_game::menu::Page::Slots(resonance_game::menu::Mode::Load),
+                    None,
+                    false,
+                )))
+            });
             prediction
                 .retain_poses(&[PoseEndpoint {
                     entity: Entity::PLACEHOLDER,
@@ -634,7 +744,7 @@ mod tests {
             let address = prediction.poses().unwrap().as_ptr();
             for _ in 0..10 {
                 prediction.active = false;
-                assert!(prediction.reuse(&key));
+                prediction.predict(key.clone(), || panic!("unchanged endpoint was rebuilt"));
                 assert_eq!(prediction.poses().unwrap().as_ptr(), address);
                 // Retained poses must never occupy the transient scratch slot.
                 prediction
@@ -653,21 +763,18 @@ mod tests {
     fn escaped_scratch_disables_prediction_without_overwriting_live_storage() {
         let mut prediction = Prediction::default();
         prediction.reserve().unwrap();
-        let menu = prediction
-            .execute(|| {
-                resonance_game::menu::Menu::new(
-                    resonance_game::menu::Page::Slots(resonance_game::menu::Mode::Load),
-                    None,
-                    false,
-                )
-            })
-            .unwrap();
-        prediction.publish(
+        prediction.predict(
             Key::Menu(
                 bevy::ecs::change_detection::Tick::new(1),
                 Default::default(),
             ),
-            Endpoint::Menu(menu),
+            || {
+                Ok(Endpoint::Menu(resonance_game::menu::Menu::new(
+                    resonance_game::menu::Page::Slots(resonance_game::menu::Mode::Load),
+                    None,
+                    false,
+                )))
+            },
         );
         prediction.alpha = 0.5;
         // Selecting another scene must not enter scratch memory or call the renderer.
@@ -714,14 +821,12 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(false));
         let mut prediction = Prediction::default();
         prediction.reserve().unwrap();
-        let sources = prediction
-            .execute(|| {
-                let mut sources = resonance_events::OperationFork::default();
-                sources.fork_flag(&flag);
-                sources
-            })
-            .unwrap();
-        prediction.publish(key.clone(), Endpoint::Hold(sources));
+        let capture = || {
+            let mut sources = resonance_events::OperationFork::default();
+            sources.fork_flag(&flag);
+            Ok(Endpoint::Hold(sources))
+        };
+        prediction.predict(key.clone(), capture);
         let mut world = World::new();
         let mut options = crate::test_support::run_options("");
         options.speculative = true;
@@ -733,7 +838,9 @@ mod tests {
         for _ in 0..30 {
             world.run_system_once(reset).unwrap();
             let mut p = world.resource_mut::<Prediction>();
-            assert!(p.reuse(&key));
+            p.predict(key.clone(), || {
+                panic!("unchanged held endpoint was rebuilt")
+            });
             assert!(
                 p.field().is_none()
                     && p.battle().is_none()
@@ -744,86 +851,26 @@ mod tests {
         assert_eq!(world.resource::<Prediction>().counts(), [1, 30]);
         // A callback can invalidate a held result without mutating the session.
         flag.store(true, Ordering::Release);
+        let mut input = resonance_game::field::FieldInput::default();
+        input.scroll_pressed[0] = true;
+        let input_key = Key::Menu(Tick::new(4), input);
         {
             let mut p = world.resource_mut::<Prediction>();
-            assert!(!p.reuse(&key));
+            p.predict(key.clone(), capture);
+            assert_eq!(p.counts(), [2, 30]);
             for tick in 2..5 {
-                let sources = p.execute(resonance_events::OperationFork::default).unwrap();
-                p.publish(key.clone(), Endpoint::Hold(sources));
-                assert!(!p.reuse(&Key::Menu(Tick::new(tick), Default::default())));
+                p.predict(Key::Menu(Tick::new(tick), Default::default()), capture);
+                assert_eq!(p.counts(), [u64::from(tick) + 1, 30]);
             }
-            let sources = p.execute(resonance_events::OperationFork::default).unwrap();
-            p.publish(key.clone(), Endpoint::Hold(sources));
-            let mut input = resonance_game::field::FieldInput::default();
-            input.scroll_pressed[0] = true;
-            assert!(!p.reuse(&Key::Menu(Tick::new(1), input)));
-            p.publish(key.clone(), Endpoint::Hold(Default::default()));
+            p.predict(input_key.clone(), capture);
+            assert_eq!(p.counts(), [6, 30]);
         }
         // Readiness must still be checked each frame. A missed visit clears the cache.
         world.run_system_once(reset).unwrap();
         world.run_system_once(reset).unwrap();
-        assert!(!world.resource_mut::<Prediction>().reuse(&key));
-    }
-
-    #[test]
-    fn saved_smoothing_predicts_on_committed_frames_at_every_rate_and_disables_for_captures() {
-        use bevy::ecs::{change_detection::Tick, system::RunSystemOnce};
-        let mut world = World::new();
-        world.insert_resource(crate::test_support::run_options(""));
-        world.init_resource::<crate::config::Preferences>();
-        world.init_resource::<Prediction>();
-        let mut fixed = Time::<Fixed>::from_duration(resonance_game::clock::UPDATE_STEP);
-        fixed.accumulate_overstep(std::time::Duration::from_millis(5));
-        world.insert_resource(fixed);
-        world.run_system_once(reset).unwrap();
-        assert!(world.resource::<Prediction>().storage.is_none());
-        world
-            .resource_mut::<crate::config::Preferences>()
-            .settings
-            .experimental_high_fps = true;
-        for frames in [1, 2, 4, 8] {
-            let before = world.resource::<Prediction>().counts();
-            for tick in 1..=3 {
-                world
-                    .resource_mut::<Time<Fixed>>()
-                    .advance_by(resonance_game::clock::UPDATE_STEP);
-                let key = Key::Menu(Tick::new(frames * 10 + tick), Default::default());
-                for _ in 0..frames {
-                    world.run_system_once(reset).unwrap();
-                    let mut prediction = world.resource_mut::<Prediction>();
-                    assert!(prediction.alpha > 0.);
-                    if !prediction.reuse(&key) {
-                        prediction.predict(key.clone(), || Ok(Endpoint::Hold(Default::default())));
-                    }
-                    assert!(prediction.endpoint().is_some());
-                }
-            }
-            assert_eq!(
-                world.resource::<Prediction>().counts(),
-                [before[0] + 3, before[1] + 3 * u64::from(frames - 1)]
-            );
-        }
-        world
-            .resource_mut::<crate::config::Preferences>()
-            .settings
-            .experimental_high_fps = false;
-        world.run_system_once(reset).unwrap();
-        assert_eq!(world.resource::<Prediction>().alpha, 0.);
-        assert!(world.resource::<Prediction>().cached.is_none());
-        world
-            .resource_mut::<crate::config::Preferences>()
-            .settings
-            .experimental_high_fps = true;
-        for mode in 0..3 {
-            let mut options = crate::test_support::run_options("");
-            match mode {
-                0 => options.capture = Some("capture".into()),
-                1 => options.replay = Some("replay".into()),
-                _ => options.capture_at = Some(crate::CaptureAt::TitleTick(1)),
-            }
-            world.insert_resource(options);
-            world.run_system_once(reset).unwrap();
-            assert_eq!(world.resource::<Prediction>().alpha, 0.);
-        }
+        let mut p = world.resource_mut::<Prediction>();
+        assert!(p.cached.is_none());
+        p.predict(input_key, capture);
+        assert_eq!(p.counts(), [7, 30]);
     }
 }

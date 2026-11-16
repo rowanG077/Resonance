@@ -112,17 +112,17 @@ impl Artwork {
         self.images.iter().all(|image| images.contains(image.id()))
     }
 
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if !self.layers.is_empty() {
             return;
         }
         for (i, draw) in self.draws.iter().enumerate() {
-            self.layers.push(Layer::with_mesh(
+            self.layers.push(Layer::with_batch(
                 draw.material.clone(),
                 UI_DEPTH + i as f32,
-                draw.batch.clone().mesh(draw.size),
+                draw.batch.clone(),
+                draw.size,
                 commands,
-                meshes,
             ));
         }
     }

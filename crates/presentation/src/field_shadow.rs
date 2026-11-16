@@ -1,6 +1,7 @@
 //! Ordinary textured quads attached to animated joints and the field floor.
 use super::{ActorPart, Art, State};
 use crate::field_audit::{Applied, Request};
+use crate::native::MeshMaterial3d;
 use crate::sparse_animation::affine::Helper as TransformHelper;
 use crate::{draw_order::DrawOrder, materials::TitleSurface};
 use bevy::{

@@ -139,22 +139,11 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
             );
         }};
     }
-    use bevy::render::{
-        erased_render_asset::prepare_erased_assets, mesh::RenderMesh, render_asset::prepare_assets,
-        texture::GpuImage,
-    };
+    use bevy::render::{mesh::RenderMesh, render_asset::prepare_assets, texture::GpuImage};
     asset_probe!(
         bevy::render::mesh::allocator::allocate_and_free_meshes,
         "through mesh allocation"
     );
     asset_probe!(prepare_assets::<GpuImage>, "through image preparation");
     asset_probe!(prepare_assets::<RenderMesh>, "through mesh preparation");
-    asset_probe!(
-        prepare_erased_assets::<MeshMaterial3d<crate::materials::TitleSurface>>,
-        "through model material preparation"
-    );
-    asset_probe!(
-        prepare_erased_assets::<MeshMaterial2d<crate::field_ui::Surface>>,
-        "through UI material preparation"
-    );
 }

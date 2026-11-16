@@ -40,7 +40,6 @@ impl Scenario {
         }
         configure(&mut app);
         app.finish();
-        crate::battle_view::ResidentModels::install_upload_audit(&mut app);
         app.cleanup();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
         #[cfg(feature = "preparation-trace")]

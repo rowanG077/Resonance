@@ -1,13 +1,18 @@
 //! Optional wall-clock diagnostics. No game-clock changes or GPU synchronization.
+pub(crate) mod affinity;
 mod movie_probe;
 mod overlay;
 pub use movie_probe::run_movie_probe;
+mod gpu_profile;
 mod render_profile;
 pub(crate) mod smoothing_profile;
 mod stats;
-mod window_output;
+mod thread_cpu;
 mod window_probe;
-pub use window_probe::{run_frame_benchmark, run_window_probe};
+pub use window_probe::{
+    ScenarioBenchmark, run_frame_benchmark, run_offscreen_benchmark, run_offscreen_title,
+    run_window_benchmark, run_window_probe,
+};
 
 use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::*;
@@ -33,6 +38,8 @@ struct Monitor {
     started: Instant,
     frame_started: Option<Instant>,
     app_ms: f64,
+    cpu_started: Option<u64>,
+    app_cpu_ms: Option<f64>,
     frame: u64,
     history: History,
     shown: bool,
@@ -71,6 +78,12 @@ fn metadata(headless: bool) -> Metadata {
     }
 }
 
+pub(crate) fn elapsed_seconds(world: &World) -> Option<f64> {
+    world
+        .get_resource::<Monitor>()
+        .map(|monitor| monitor.started.elapsed().as_secs_f64())
+}
+
 fn create_file(path: &Path) -> Result<BufWriter<File>> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
@@ -97,6 +110,9 @@ fn line(writer: &mut impl Write, value: &impl Serialize) -> Result<()> {
 
 pub(super) fn install(app: &mut App, options: PerformanceOptions, headless: bool) -> Result<()> {
     let now = Instant::now();
+    if let Some(gpu) = app.world().get_resource::<gpu_profile::Shared>() {
+        gpu.set_origin(now);
+    }
     let mut file = options.dump.as_deref().map(create_file).transpose()?;
     if let Some(writer) = &mut file {
         line(writer, &metadata(headless))?;
@@ -106,9 +122,14 @@ pub(super) fn install(app: &mut App, options: PerformanceOptions, headless: bool
         started: now,
         frame_started: None,
         app_ms: 0.,
+        cpu_started: None,
+        app_cpu_ms: None,
         frame: 0,
         history: History::default(),
-        shown: options.overlay && !headless,
+        // `RESONANCE_PERFORMANCE_OVERLAY=1` starts with the panel shown, as F3.
+        shown: (options.overlay
+            || std::env::var_os("RESONANCE_PERFORMANCE_OVERLAY").is_some_and(|v| v != "0"))
+            && !headless,
         file,
         dump_directory: options
             .dump
@@ -122,7 +143,12 @@ pub(super) fn install(app: &mut App, options: PerformanceOptions, headless: bool
         notice_until: None,
     })
     .add_systems(First, begin_frame)
-    .add_systems(Last, end_frame);
+    .add_systems(
+        Last,
+        end_frame
+            .after(crate::materials::SurfacePublication)
+            .after(crate::native::Compile),
+    );
     if !headless {
         app.add_systems(Startup, overlay::setup)
             .add_systems(PreUpdate, controls.in_set(crate::input::HostActions))
@@ -131,29 +157,48 @@ pub(super) fn install(app: &mut App, options: PerformanceOptions, headless: bool
     Ok(())
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct FrameMetrics<'w> {
+    sampled: Option<Res<'w, crate::scene::SampledImages>>,
+    images: Option<Res<'w, Assets<Image>>>,
+    meshes: Option<Res<'w, Assets<Mesh>>>,
+    surfaces: Option<Res<'w, Assets<crate::materials::TitleSurface>>>,
+    world_surfaces: Option<Res<'w, Assets<crate::materials::WorldSurface>>>,
+    movie: Option<Res<'w, crate::movie::Playback>>,
+    profile: Option<Res<'w, render_profile::Shared>>,
+    gpu_profile: Option<Res<'w, gpu_profile::Shared>>,
+    prediction: Option<Res<'w, crate::field_view::Prediction>>,
+    testing: Option<Res<'w, crate::testing::Controls>>,
+    native: Option<Res<'w, crate::native::Stats>>,
+    diagnostics: Option<Res<'w, bevy::diagnostic::DiagnosticsStore>>,
+    transforms: Option<Res<'w, crate::renderer::TransformStats>>,
+    world_residency: Option<Res<'w, crate::overworld::ResidencyStats>>,
+}
+
+type ProfileCamera = Or<(
+    With<crate::FieldCamera>,
+    With<crate::FieldOverlayCamera>,
+    With<Camera3d>,
+)>;
+
 #[allow(clippy::too_many_arguments)]
 fn begin_frame(
-    mut monitor: ResMut<Monitor>,
+    (_, mut monitor): (bevy::ecs::system::NonSendMarker, ResMut<Monitor>),
     display: Option<Res<crate::display::Display>>,
     window: Option<Single<&Window, With<bevy::window::PrimaryWindow>>>,
     session: Option<Res<crate::new_game::Session>>,
     battle: Option<Res<crate::battle::Owner>>,
     pending: Option<Res<crate::loading::Pending>>,
     resident: Option<Res<crate::loading::Resident>>,
-    sampled: Option<Res<crate::scene::SampledImages>>,
-    images: Option<Res<Assets<Image>>>,
-    meshes: Option<Res<Assets<Mesh>>>,
-    surfaces: Option<Res<Assets<crate::materials::TitleSurface>>>,
-    movie: Option<Res<crate::movie::Playback>>,
-    profile: Option<Res<render_profile::Shared>>,
-    (prediction, testing): (
-        Option<Res<crate::field_view::Prediction>>,
-        Option<Res<crate::testing::Controls>>,
-    ),
-    diagnostics: Option<Res<bevy::diagnostic::DiagnosticsStore>>,
-    field_cameras: Query<&Camera, crate::FieldCameraFilter>,
+    metrics: FrameMetrics,
+    field_cameras: Query<(&Camera, &Msaa), ProfileCamera>,
 ) {
     let now = Instant::now();
+    monitor.cpu_started = if metrics.profile.is_some() {
+        thread_cpu::now()
+    } else {
+        None
+    };
     let previous = monitor.frame_started.replace(now);
     let Some(previous) = previous else {
         return;
@@ -169,25 +214,38 @@ fn begin_frame(
     let flush = now.duration_since(monitor.last_flush).as_secs_f64() >= 1.;
     // Sort at most once per second for the stream; never sort once per frame.
     let summary = (flush && monitor.file.is_some()).then(|| monitor.history.summary());
+    let app_cpu_ms = monitor.app_cpu_ms;
     let result = (|| -> Result<()> {
         if let Some(writer) = &mut monitor.file {
-            let sampler_stats = sampled.as_ref().map(|sampled| sampled.stats());
+            let sampler_stats = metrics.sampled.as_ref().map(|sampled| sampled.stats());
             line(
                 writer,
                 &serde_json::json!({"kind":"frame", "sample":sample,
-                    "render_profile":profile.as_ref().map(|p| p.snapshot()),
+                    "app_thread_cpu_ms":app_cpu_ms,
+                    "render_profile":metrics.profile.as_ref().map(|p| p.snapshot()),
+                    "gpu_render_profile":metrics.gpu_profile.as_ref().map(|p| p.take()),
                     "smoothing_ns":smoothing_profile::take(),
-                    "prediction_built_reused":prediction.as_ref().map(|p| p.counts()),
-                    "game_speed":testing.as_ref().map_or(1., |t| t.speed.factor()),
-                    "render_diagnostics":profile.as_ref().and(diagnostics.as_ref()).map(|d| d.iter().filter_map(|v| v.value().map(|value| (v.path().as_str(),value))).collect::<std::collections::BTreeMap<_,_>>()),
+                    "prediction_built_reused":metrics.prediction.as_ref().map(|p| p.counts()),
+                    "transform_work":metrics.profile.as_ref().and(metrics.transforms.as_ref()).map(|s| &**s),
+                    "world_residency":metrics.profile.as_ref().and(metrics.world_residency.as_ref()).map(|s| &**s),
+                    "game_speed":metrics.testing.as_ref().map_or(1., |t| t.speed.factor()),
+                    "render_diagnostics":metrics.profile.as_ref().and(metrics.diagnostics.as_ref()).map(|d| d.iter().filter_map(|v| v.value().map(|value| (v.path().as_str(),value))).collect::<std::collections::BTreeMap<_,_>>()),
                     "resolution":display.as_ref().map(|d| d.0),
                     "window_resolution":window.as_ref().map(|w| crate::Resolution { width: w.physical_width(), height: w.physical_height() }),
-                    "active_field_cameras":field_cameras.iter().filter(|camera| camera.is_active).count(),
+                    "active_scene_cameras":field_cameras.iter().filter(|(camera,_)| camera.is_active).count(),
+                    "scene_camera_msaa_samples":field_cameras.iter().filter(|(camera,_)|camera.is_active).map(|(_,msaa)|msaa.samples()).collect::<Vec<_>>(),
+                    "native_frames":metrics.native.as_ref().map(|n| serde_json::json!({
+                        "rendered":n.frames, "native":n.native_frames,
+                        "scene_sampling":n.particle_frames, "draws":n.draws,
+                    })),
                     "model_particles":battle.as_ref().and_then(|owner| owner.model_particle_stats()),
-                    "phase": if let Some(battle) = &battle { if battle.presenting() {"battle"} else {"battle_preparation"} } else if pending.is_some() || session.is_some() && resident.as_ref().is_some_and(|r| !r.active.load(std::sync::atomic::Ordering::Acquire)) {"field_preparation"} else if movie.as_ref().is_some_and(|m| m.active) {"movie"} else if session.is_some() {"field"} else {"title"},
+                    "battle_workload":battle.as_ref().and_then(|owner| owner.benchmark_counts()),
+                    "overworld":session.as_ref().and_then(|s|s.overworld()).map(|s|s.session.travel.state()),
+                    "phase": if let Some(battle) = &battle { if battle.presenting() {"battle"} else {"battle_preparation"} } else if pending.is_some() || session.is_some() && resident.as_ref().is_some_and(|r| !r.active.load(std::sync::atomic::Ordering::Acquire)) {"field_preparation"} else if metrics.movie.as_ref().is_some_and(|m| m.active) {"movie"} else if session.is_some() {"field"} else {"title"},
                     "map":session.as_ref().map(|s| s.map_id()),
                     "tick":session.as_ref().map(|s| s.events().tick()),
-                    "resources": {"images":images.as_ref().map(|a| a.len()), "meshes":meshes.as_ref().map(|a| a.len()), "surfaces":surfaces.as_ref().map(|a| a.len()),
+                    "resources": {"images":metrics.images.as_ref().map(|a| a.len()), "meshes":metrics.meshes.as_ref().map(|a| a.len()), "surfaces":metrics.surfaces.as_ref().map(|a| a.len() + metrics.world_surfaces.as_ref().map_or(0, |w| w.len())),
+                        "world_surfaces":metrics.world_surfaces.as_ref().map(|a| a.len()),
                         "sampler_hits":sampler_stats.map(|(hits, _)| hits), "sampler_misses":sampler_stats.map(|(_, misses)| misses),
                         "memory_reads":resident.as_ref().map(|r| r.memory_reads.load(std::sync::atomic::Ordering::Relaxed)),
                         "late_reads":resident.as_ref().map(|r| r.unprepared_reads.load(std::sync::atomic::Ordering::Relaxed))}}),
@@ -210,10 +268,17 @@ fn begin_frame(
     }
 }
 
-fn end_frame(mut monitor: ResMut<Monitor>, mut exit: MessageReader<AppExit>) {
+fn end_frame(
+    _: bevy::ecs::system::NonSendMarker,
+    mut monitor: ResMut<Monitor>,
+    mut exit: MessageReader<AppExit>,
+) {
     if let Some(start) = monitor.frame_started {
         monitor.app_ms = start.elapsed().as_secs_f64() * 1000.;
     }
+    monitor.app_cpu_ms = monitor.cpu_started.and_then(|start| {
+        thread_cpu::now().map(|end| thread_cpu::elapsed_ms(Some(start), Some(end)))
+    });
     if exit.read().next().is_some() {
         let summary = monitor.history.summary();
         if let Some(writer) = &mut monitor.file {
@@ -382,12 +447,6 @@ mod tests {
             bevy::input::ButtonState::Pressed,
         );
         assert!(app.world().resource::<Monitor>().shown);
-        let camera = app
-            .world_mut()
-            .query_filtered::<&Camera, With<overlay::OverlayCamera>>()
-            .single(app.world())
-            .unwrap();
-        assert!(camera.is_active);
         key(
             &mut app,
             window,

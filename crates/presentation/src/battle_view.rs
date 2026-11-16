@@ -1,5 +1,6 @@
 //! Prepared battle geometry drawn from gameplay poses and scene-owned particles.
 //! Model matrices already map cooked Z-up bones into battle Y-up coordinates.
+use crate::native::MeshMaterial3d;
 use resonance_events::effect::Blend;
 use resonance_game::battle::encounter::{RenderEffect, RenderInstances, RenderModel, RenderTrail};
 mod effects;
@@ -8,8 +9,7 @@ mod model_particles;
 pub(super) use model_particles::Stats as ModelParticleStats;
 mod accessories;
 mod resident_models;
-mod scene_sample;
-mod shadows;
+pub(crate) mod shadows;
 mod stage_color;
 pub(crate) mod startup;
 mod trails;
@@ -24,7 +24,6 @@ use bevy::{
         CameraProjection, RenderTarget, SubCameraView,
         visibility::{NoCpuCulling, NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
     ecs::system::SystemParam,
     gltf::Gltf,
     image::{ImageLoaderSettings, ImageSampler},
@@ -50,7 +49,6 @@ use std::{
 };
 
 pub(super) const LAYER: usize = 26;
-pub(super) const WARM_LAYER: usize = 27;
 // Scene cloning runs after these commands, so budget queued roots rather than enqueue time.
 const PREPARATION_ROOTS_PER_UPDATE: usize = 64;
 
@@ -204,44 +202,52 @@ impl Report {
 }
 
 pub(super) fn install(app: &mut App) {
-    scene_sample::install(app);
     let warmup = Warmup::default();
     app.world()
         .resource::<crate::gpu_prepare::Registry>()
         .watch(
             &warmup.0,
             |report| &mut report.draws,
-            None,
             |report, world, observer| {
                 rendered(
                     report,
-                    world.resource::<scene_sample::Pipeline>(),
+                    world.resource::<crate::native::render::SamplePipelines>(),
                     world.resource::<crate::loading::Resident>(),
                     observer,
                 );
             },
         );
-    app.insert_resource(warmup).add_systems(
-        PostUpdate,
-        capture_frame.after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
-    );
+    app.insert_resource(warmup)
+        .add_systems(Last, capture_frame.after(crate::native::Compile));
 }
 
 // Admission follows the real initial frame, including visible model effects,
 // dialogue and HUD. Hidden variants still join the report's pipeline/upload gate.
 fn capture_frame(
     shared: Res<Warmup>,
-    draws: Query<(Entity, &ViewVisibility, &RenderLayers), Or<(With<Mesh3d>, With<Mesh2d>)>>,
+    compiled: Res<crate::native::Compiled>,
+    cameras: Query<(Entity, &RenderLayers), With<Camera>>,
+    layers: Query<&RenderLayers>,
 ) {
     let mut report = shared.0.lock().unwrap();
     if report.frame_ready && !report.draws.submitted {
         let layer = RenderLayers::layer(LAYER);
-        report.draws.expected = draws
-            .iter()
-            .filter(|(_, visible, layers)| visible.get() && layers.intersects(&layer))
-            .map(|(entity, _, _)| entity.into())
+        // Wait until a battle camera has been compiled. Its visibility list
+        // includes draws that are still waiting for their material records.
+        if !cameras.iter().any(|(entity, layers)| {
+            layers.intersects(&layer) && compiled.views.contains_key(&entity)
+        }) {
+            return;
+        }
+        report.draws.expected = compiled
+            .views
+            .values()
+            .flatten()
+            .filter(|entity| layers.get(**entity).is_ok_and(|l| l.intersects(&layer)))
+            .map(|entity| (*entity).into())
             .collect();
-        report.draws.armed = true;
+        // A later clearing camera can still cover the whole battle during entry.
+        report.draws.armed = !report.draws.expected.is_empty();
     }
 }
 
@@ -249,11 +255,20 @@ fn capture_frame(
 pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
     use bevy::render::sync_world::MainEntity;
     use std::collections::HashSet;
-    let expected: HashSet<MainEntity> = world.query_filtered::<
-        (Entity, &ViewVisibility, &RenderLayers), Or<(With<Mesh3d>, With<Mesh2d>)>
-    >().iter(world)
-        .filter(|(_, visible, layers)| visible.get() && layers.intersects(&RenderLayers::layer(LAYER)))
-        .map(|(entity, _, _)| entity.into()).collect();
+    let layer = RenderLayers::layer(LAYER);
+    // Visibility is established before resolving materials into GPU draws.
+    let expected: HashSet<MainEntity> = world
+        .resource::<crate::native::Compiled>()
+        .views
+        .values()
+        .flatten()
+        .filter(|entity| {
+            world
+                .get::<RenderLayers>(**entity)
+                .is_some_and(|layers| layers.intersects(&layer))
+        })
+        .map(|entity| (*entity).into())
+        .collect();
     let report = world.resource::<Warmup>().0.lock().unwrap();
     ensure!(
         report.draws.completed.load(Ordering::Acquire) && report.draws.submitted,
@@ -263,19 +278,11 @@ pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
         report.draws.requests.is_empty() && report.draws.pending.is_empty(),
         "battle admitted with unfinished pipelines or draws"
     );
-    let surfaces = world.resource::<Assets<TitleSurface>>();
-    ensure!(
-        report
-            .draws
-            .material_bindings
-            .iter()
-            .filter_map(|(_, id)| id.try_typed::<TitleSurface>().ok())
-            .all(|id| surfaces.contains(id)),
-        "battle released preparation materials before admission"
-    );
     ensure!(
         expected == report.draws.expected,
-        "entry fence omitted visible draws"
+        "entry fence omitted visible draws: current={}, captured={}",
+        expected.len(),
+        report.draws.expected.len(),
     );
     ensure!(
         expected
@@ -286,7 +293,7 @@ pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
     ensure!(
         expected
             .iter()
-            .any(|e| world.get::<Mesh2d>(e.id()).is_some()),
+            .any(|e| world.get::<crate::field_ui::UiGeometry>(e.id()).is_some()),
         "entry check missed the HUD"
     );
     Ok(())
@@ -294,7 +301,7 @@ pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
 
 fn rendered(
     report: &mut Report,
-    scene_sample: &scene_sample::Pipeline,
+    scene_sample: &crate::native::render::SamplePipelines,
     resident: &crate::loading::Resident,
     observer: &gpu::Observer,
 ) {
@@ -336,6 +343,7 @@ pub(super) struct AssetsForView<'w> {
     pub inverse_bindposes: Res<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     model_bindings: Option<Res<'w, ResidentModels>>,
     effect_bindings: Option<Res<'w, ResidentBindings>>,
+    geometry_mesh: Res<'w, crate::materials::GeometryMesh>,
 }
 
 /// A static suffix after the nearest sampled bone. Applying global matrices
@@ -699,7 +707,6 @@ impl View {
                 commands
                     .spawn((
                         scene_camera(),
-                        Tonemapping::Linear,
                         Msaa::Off,
                         Camera {
                             order: -4,
@@ -743,7 +750,7 @@ impl View {
                 None,
                 &BTreeSet::new(),
                 false,
-                Some((self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws)),
+                Some(&mut warmup.0.lock().unwrap().draws),
             );
             if let Err(error) = result {
                 self.diagnostics
@@ -771,7 +778,7 @@ impl View {
                         model.weapon_style,
                         &model.suppressed_nodes,
                         model.weapon_style.is_none(),
-                        (index == 0).then(|| (self.camera.unwrap(), &mut warm_report.draws)),
+                        (index == 0).then(|| &mut warm_report.draws),
                     );
                     if let Err(error) = result {
                         self.diagnostics.report(
@@ -790,7 +797,6 @@ impl View {
         profile_span!(end model_profile);
         profile_span!("battle effect preparation");
         if !self.model_particles.prepare(
-            self.camera.unwrap(),
             &mut warmup.0.lock().unwrap().draws,
             server,
             assets,
@@ -804,18 +810,18 @@ impl View {
 
         self.effects.prepare(
             commands,
-            &mut assets.meshes,
+            &assets.geometry_mesh.0,
             &mut assets.surfaces,
             &mut assets.images,
             &mut self.sampled,
             assets.effect_bindings.as_deref(),
-            (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
+            &mut warmup.0.lock().unwrap().draws,
         )?;
         self.trails.prepare(
             commands,
             assets,
             &mut self.sampled,
-            (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
+            &mut warmup.0.lock().unwrap().draws,
         )?;
 
         if !self.scenery.iter().all(|(_, p)| p.bound)
@@ -923,7 +929,7 @@ impl View {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "The scene borrows independently owned ECS transforms, projections, materials, and meshes."
+        reason = "The scene borrows independently owned ECS transforms, projections, and materials."
     )]
     pub fn apply(
         &mut self,
@@ -934,7 +940,6 @@ impl View {
         camera_transforms: &mut Query<&mut Transform>,
         projections: &mut Query<&mut Projection>,
         surfaces: &mut Assets<TitleSurface>,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         ensure!(self.active, "battle view is not active");
         self.check()?;
@@ -1211,28 +1216,15 @@ impl View {
             particles,
             &sampling.sparkles,
             Mat3::from_quat(camera_pose.rotation),
-            meshes,
             commands,
             &order,
         );
-        let scene_samples = match result {
-            Ok(draws) => draws,
-            Err(error) => {
-                self.diagnostics.report("battle effects", error)?;
-                scene_sample::Draws::default()
-            }
-        };
-        commands
-            .entity(self.camera.context("missing battle camera")?)
-            .insert(scene_samples);
-        let result = self.trails.apply(
-            frame,
-            &sampling_input,
-            commands,
-            meshes,
-            &order,
-            &self.models,
-        );
+        if let Err(error) = result {
+            self.diagnostics.report("battle effects", error)?;
+        }
+        let result = self
+            .trails
+            .apply(frame, &sampling_input, commands, &order, &self.models);
         if let Err(error) = result {
             self.diagnostics.report("battle trails", error)?;
         }
@@ -1596,7 +1588,7 @@ impl Part {
         weapon_style: Option<WeaponStyle>,
         suppressed_nodes: &BTreeSet<usize>,
         body: bool,
-        warm: Option<(Entity, &mut gpu::Report)>,
+        warm: Option<&mut gpu::Report>,
     ) -> Result<()> {
         if self.bound {
             return Ok(());
@@ -1652,7 +1644,7 @@ impl Part {
         template: &crate::model_asset::Data,
         bone_count: usize,
         suppressed_nodes: &BTreeSet<usize>,
-        mut warm: Option<(Entity, &mut gpu::Report)>,
+        mut warm: Option<&mut gpu::Report>,
     ) -> Result<()> {
         profile_span!("battle model instantiation");
         let root = commands
@@ -1713,7 +1705,7 @@ impl Part {
                 },
                 suppressed_nodes,
             )?;
-            if let Some((camera, report)) = &mut warm {
+            if let Some(report) = &mut warm {
                 for material in self
                     .materials
                     .get(index)
@@ -1721,9 +1713,12 @@ impl Part {
                     .chain(self.depth_materials.get(index))
                 {
                     report.prepare(
-                        *camera,
+                        gpu::View::Battle,
                         draw.mesh.id(),
-                        material.id().untyped(),
+                        assets
+                            .surfaces
+                            .get(material)
+                            .expect("prepared battle model material"),
                         false,
                         None,
                     );
@@ -1759,17 +1754,14 @@ impl Part {
                 .context("missing battle material data")?,
             skin.is_some(),
         )?;
-        commands
-            .entity(entity)
-            .remove::<MeshMaterial3d<StandardMaterial>>()
-            .insert((
-                MeshMaterial3d(self.materials[index].clone()),
-                DrawOrder(
-                    Layer::Scene(self.spec.scene.materials[index].draw_order),
-                    0,
-                    0,
-                ),
-            ));
+        commands.entity(entity).insert((
+            MeshMaterial3d(self.materials[index].clone()),
+            DrawOrder(
+                Layer::Scene(self.spec.scene.materials[index].draw_order),
+                0,
+                0,
+            ),
+        ));
         self.draws.push((entity, index));
         if bone.is_some_and(|bone| suppressed_nodes.contains(&bone)) {
             // Hide the object while retaining anchors and skinning transforms for
@@ -2069,8 +2061,8 @@ impl Part {
     }
 }
 
-/// Reject malformed mesh bindings before they disappear inside Bevy's pipeline
-/// specialization (where no pipeline ID exists for the submitted-draw fence).
+/// Reject malformed mesh bindings before they reach pipeline creation, where no
+/// pipeline ID would exist for the submitted-draw fence.
 fn validate_draw_mesh(mesh: &Mesh, surface: &TitleSurface, skinned: bool) -> Result<()> {
     ensure!(
         mesh.contains_attribute(Mesh::ATTRIBUTE_POSITION) && mesh.count_vertices() > 0,
@@ -2206,7 +2198,7 @@ fn scenery_in_foreground(camera: Vec2, focus: Vec2, scenery: Vec2) -> bool {
 }
 
 #[derive(Debug, Clone)]
-struct BattleProjection(crate::camera::TitleProjection);
+pub(super) struct BattleProjection(crate::camera::TitleProjection);
 impl BattleProjection {
     fn depth(&self, mut clip: Mat4) -> Mat4 {
         // Keep finite near and far planes and raster alignment while converting depth to
@@ -2248,7 +2240,7 @@ fn scene_camera() -> Camera3d {
     }
 }
 
-fn battle_projection() -> Projection {
+pub(super) fn battle_projection() -> Projection {
     // Configure the vertical field of view, clipping planes, and display aspect.
     Projection::custom(BattleProjection(crate::camera::TitleProjection(
         PerspectiveProjection {
@@ -2661,7 +2653,7 @@ mod tests {
                         ..default()
                     },
                     RenderTarget::Image(warm.clone().into()),
-                    RenderLayers::layer(WARM_LAYER),
+                    RenderLayers::layer(LAYER + 1),
                     projection(),
                 ))
                 .id()

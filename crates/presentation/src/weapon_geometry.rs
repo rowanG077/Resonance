@@ -9,14 +9,6 @@ pub(crate) struct Vertices {
     uv: Vec<[f32; 2]>,
 }
 impl Vertices {
-    #[cfg(test)]
-    pub(crate) fn samples(&self) -> impl Iterator<Item = ([f32; 3], [f32; 2], [f32; 4])> + '_ {
-        self.positions
-            .iter()
-            .zip(&self.uv)
-            .zip(&self.colors)
-            .map(|((&position, &uv), &color)| (position, uv, color))
-    }
     pub(crate) fn is_empty(&self) -> bool {
         self.positions.is_empty()
     }
@@ -48,6 +40,22 @@ impl Vertices {
             [[1., 1., 1., 128. / 255.]; 4],
         );
     }
+    /// The same triangles in the streamed geometry layout.
+    pub(crate) fn packed(&self) -> impl Iterator<Item = crate::materials::GeometryVertex> + '_ {
+        self.positions
+            .iter()
+            .zip(&self.normals)
+            .zip(&self.uv)
+            .zip(&self.colors)
+            .map(
+                |(((position, normal), uv), color)| crate::materials::GeometryVertex {
+                    position: [position[0], position[1], position[2], 1.],
+                    normal: [normal[0], normal[1], normal[2], 0.],
+                    uv: [uv[0], uv[1], uv[0], uv[1]],
+                    color: *color,
+                },
+            )
+    }
     pub(crate) fn mesh(self) -> Mesh {
         Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -60,7 +68,7 @@ impl Vertices {
     }
 }
 
-/// Native rope width changes at the same camera distances in both renderers.
+/// Native rope width changes at the same camera distances in every view.
 pub(crate) fn string_width(distance: f32) -> f32 {
     if distance > 4000. {
         1.

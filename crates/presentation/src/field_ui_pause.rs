@@ -3,7 +3,6 @@ use super::bitmap_text::{Spacing, draw as draw_text, width as text_width};
 use super::*;
 use bevy::{
     camera::{RenderTarget, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     render::render_resource::Extent3d,
 };
 use resonance_content::input::{Keymap, StandardAction};
@@ -28,12 +27,11 @@ pub(crate) fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     display: Res<crate::display::Display>,
-    adapter: Res<bevy::render::renderer::RenderAdapterInfo>,
 ) {
     let mut image = Image::new_target_texture(
         display.0.width,
         display.0.height,
-        crate::renderer::scene_color_format(Some(&adapter)),
+        crate::renderer::SCENE_COLOR_FORMAT,
         None,
     );
     image.sampler = ImageSampler::linear();
@@ -44,13 +42,12 @@ pub(crate) fn setup(
         Camera {
             order: -2,
             clear_color: ClearColorConfig::Custom(Color::NONE),
-            output_mode: crate::renderer::COMPOSITED_OUTPUT,
             is_active: false,
             ..default()
         },
-        Tonemapping::Linear,
         Msaa::Off,
         PauseCamera,
+        crate::native::Offscreen,
         crate::display::UiCamera,
         RenderLayers::layer(LAYER),
         RenderTarget::Image(target.into()),
@@ -73,22 +70,20 @@ pub(crate) fn prepare(world: &mut World, field: &super::Artwork) {
         additive: false,
         texture_effect: Default::default(),
     });
-    let layers = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-        let mut index = 0;
-        [
-            background,
-            field.menu.input_material(),
-            field.surfaces[9].clone(),
-        ]
-        .map(|material| {
-            let layer = Layer::new(material, index as f32, &mut world.commands(), &mut meshes);
-            index += 1;
-            world
-                .commands()
-                .entity(layer.entity)
-                .insert(RenderLayers::layer(LAYER));
-            layer
-        })
+    let mut index = 0;
+    let layers = [
+        background,
+        field.menu.input_material(),
+        field.surfaces[9].clone(),
+    ]
+    .map(|material| {
+        let layer = Layer::new(material, index as f32, &mut world.commands());
+        index += 1;
+        world
+            .commands()
+            .entity(layer.entity)
+            .insert(RenderLayers::layer(LAYER));
+        layer
     });
     world.insert_resource(Panel {
         font: field.font.clone(),
@@ -107,7 +102,6 @@ pub(crate) fn update(
     mut panel: Option<ResMut<Panel>>,
     mut camera: Single<&mut Camera, With<PauseCamera>>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut elapsed: Local<f32>,
 ) {
     camera.is_active = controls.paused && panel.is_some();
@@ -134,10 +128,7 @@ pub(crate) fn update(
                 [panel.font.width, panel.font.height],
             ];
             for ((layer, batch), size) in panel.layers.iter_mut().zip(batches).zip(sizes) {
-                if let Err(error) = layer.update_mesh(batch, size, &mut meshes) {
-                    error!("Pause overlay: {error:#}");
-                    return;
-                }
+                layer.update(batch, size);
                 layer.show(true, &mut commands);
             }
         }
@@ -270,7 +261,6 @@ mod tests {
     #[test]
     fn pause_camera_and_target_resize_together_before_the_first_paused_frame() {
         use bevy::camera::ScalingMode;
-        use bevy::render::renderer::RenderAdapterInfo;
         let mut app = App::new();
         app.init_resource::<crate::display::Display>()
             .init_resource::<Assets<Image>>()
@@ -284,20 +274,6 @@ mod tests {
                 source: Handle::default(),
                 output: None,
             })
-            .insert_resource(RenderAdapterInfo::new(wgpu::AdapterInfo {
-                name: "Pause framing test".into(),
-                vendor: 0,
-                device: 0,
-                device_type: wgpu::DeviceType::Cpu,
-                device_pci_bus_id: String::new(),
-                driver: String::new(),
-                driver_info: String::new(),
-                backend: wgpu::Backend::Gl,
-                subgroup_min_size: 0,
-                subgroup_max_size: 0,
-                transient_saves_memory: None,
-                limit_bucket: None,
-            }))
             .add_systems(Startup, (setup, crate::display::initialize).chain())
             .add_systems(PostUpdate, bevy::render::camera::camera_system)
             .add_systems(Last, composite);

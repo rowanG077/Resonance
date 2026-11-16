@@ -1,5 +1,6 @@
 //! Reusable draws with every material and pipeline prepared before entry.
 //! Particle state and submission order are supplied by the scene animation owner.
+use crate::native::MeshMaterial3d;
 use resonance_events::effect::Blend;
 #[path = "effects_geometry.rs"]
 mod geometry;
@@ -178,7 +179,7 @@ impl Bank {
 
 struct Draw {
     entity: Entity,
-    mesh: Handle<Mesh>,
+    data: crate::materials::GeometryData,
 }
 
 pub(super) struct Effects {
@@ -186,11 +187,10 @@ pub(super) struct Effects {
     banks: BTreeMap<ResourceId, Bank>,
     materials: BTreeMap<MaterialKey, Handle<TitleSurface>>,
     draws: Vec<Draw>,
-    // Scene-sampling triangles stay on the CPU instead of being uploaded as a draw.
-    sample_mesh: Mesh,
     vertices: geometry::Vertices,
     wing_resource: Option<ResourceId>,
     prepared: bool,
+    mesh: Handle<Mesh>,
 }
 
 impl Effects {
@@ -338,10 +338,10 @@ impl Effects {
             banks: prepared,
             materials: BTreeMap::new(),
             draws: Vec::new(),
-            sample_mesh: warm_mesh(),
             vertices: geometry::Vertices::default(),
             wing_resource: wings.map(|wings| wings.resource),
             prepared: false,
+            mesh: Handle::default(),
         })
     }
 
@@ -382,31 +382,38 @@ impl Effects {
     pub fn prepare(
         &mut self,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+        mesh: &Handle<Mesh>,
         surfaces: &mut Assets<TitleSurface>,
         images: &mut Assets<Image>,
         sampled: &mut SampledImages,
         resident: Option<&resident::ResidentBindings>,
-        (camera, report): (Entity, &mut gpu::Report),
+        report: &mut gpu::Report,
     ) -> Result<()> {
         if self.prepared {
             return Ok(());
         }
         self.prepare_bindings(surfaces, images, sampled, resident, false)?;
+        self.mesh = mesh.clone();
         if let Some((_, surface)) = self.materials.first_key_value() {
             // Shadows and wing sparkles have fixed slots; particles grow after them.
             let wing_draws = self
                 .wing_resource
                 .map_or(0, |_| ModelAccessory::SPARKLE_PALETTES.len());
             for _ in 0..2 + wing_draws {
-                let mesh = meshes.add(warm_mesh());
-                let entity = spawn(commands, mesh.clone(), surface.clone());
-                self.draws.push(Draw { entity, mesh });
+                self.draws
+                    .push(spawn(commands, mesh.clone(), surface.clone()));
             }
         }
-        let mesh = &self.draws[0].mesh;
         for material in self.materials.values() {
-            report.prepare(camera, mesh.id(), material.id().untyped(), false, None);
+            report.prepare(
+                gpu::View::Battle,
+                mesh.id(),
+                surfaces
+                    .get(material)
+                    .expect("prepared battle effect material"),
+                true,
+                None,
+            );
         }
         self.prepared = true;
         Ok(())
@@ -513,14 +520,12 @@ impl Effects {
         particles: &[ParticleFrame],
         wing_sparkles: &[super::accessories::Sparkle],
         camera: Mat3,
-        meshes: &mut Assets<Mesh>,
         commands: &mut Commands,
         actor_order: &ActorOrder,
-    ) -> Result<super::scene_sample::Draws> {
+    ) -> Result<()> {
         for draw in &self.draws {
             commands.entity(draw.entity).insert(Visibility::Hidden);
         }
-        let mut scene_samples = super::scene_sample::Draws::default();
         let mut count = 2 + self
             .wing_resource
             .map_or(0, |_| ModelAccessory::SPARKLE_PALETTES.len());
@@ -560,28 +565,18 @@ impl Effects {
                     })
                     .transpose()?;
                 let scene_sample = declaration.particle_visual()?.scene_sample;
-                if scene_sample.is_none() && count == self.draws.len() {
-                    let surface = self
-                        .materials
-                        .get(&key)
-                        .context("particle selected an unprepared material")?;
-                    let mesh = meshes.add(warm_mesh());
-                    let entity = spawn(commands, mesh.clone(), surface.clone());
-                    commands
-                        .entity(entity)
-                        .insert((RenderLayers::layer(super::LAYER), Visibility::Hidden));
-                    self.draws.push(Draw { entity, mesh });
+                if count == self.draws.len() {
+                    let surface = if scene_sample.is_some() {
+                        self.materials.values().next()
+                    } else {
+                        self.materials.get(&key)
+                    }
+                    .context("particle selected an unprepared material")?;
+                    self.draws
+                        .push(spawn(commands, self.mesh.clone(), surface.clone()));
                 }
-                let mut mesh_asset;
-                let mesh: &mut Mesh = if scene_sample.is_some() {
-                    &mut self.sample_mesh
-                } else {
-                    mesh_asset = meshes
-                        .get_mut(&self.draws[count].mesh)
-                        .context("missing prepared particle mesh")?;
-                    &mut mesh_asset
-                };
-                let visible = geometry::update_mesh(mesh, &mut self.vertices, |vertices| {
+                self.vertices.clear();
+                let visible = (|vertices: &mut geometry::Vertices| -> Result<bool> {
                     if let Some(group) = particle.state.effect_group {
                         let model = frame
                             .models
@@ -590,7 +585,7 @@ impl Effects {
                             .context("missing particle group owner")?;
                         if !model.visible {
                             vertices.clear();
-                            return Ok(());
+                            return Ok(false);
                         }
                         let bones = models
                             .get(&model.resource)
@@ -624,25 +619,39 @@ impl Effects {
                             bone_world,
                         )?;
                     }
-                    Ok(())
-                })?;
+                    Ok(!vertices.positions.is_empty())
+                })(&mut self.vertices)?;
                 if !visible {
                     return Ok(());
                 }
                 if let Some(offset) = scene_sample {
+                    // Sampling does not use normals. Keep displacement per vertex,
+                    // so equal-mask particles can share one contiguous native draw.
+                    self.vertices
+                        .normals
+                        .fill([f32::from(offset[0]), f32::from(offset[1]), 0.]);
+                }
+                self.draws[count].data.replace(self.vertices.packed());
+                if scene_sample.is_some() {
                     let atlas = key.atlas.context("scene particle has no atlas")?;
                     let alpha = atlas
                         .alpha
                         .context("scene particle has no opacity palette")?;
-                    let mask = bank.textures[&atlas.slot][1].images[&alpha].clone();
-                    scene_samples.push(
-                        mesh,
-                        mask,
-                        offset,
-                        declaration.particle_visual()?.depth_test,
-                    )?;
+                    commands.entity(self.draws[count].entity).insert((
+                        crate::native::SceneSample {
+                            mask: Some(bank.textures[&atlas.slot][1].images[&alpha].clone()),
+                            depth_test: declaration.particle_visual()?.depth_test,
+                            ..default()
+                        },
+                        Visibility::Inherited,
+                        DrawOrder(Layer::Effects, order, 0),
+                    ));
+                    count += 1;
                     return Ok(());
                 }
+                commands
+                    .entity(self.draws[count].entity)
+                    .remove::<crate::native::SceneSample>();
                 let surface = self
                     .materials
                     .get(&key)
@@ -677,14 +686,9 @@ impl Effects {
                 if sparkles.peek().is_none() {
                     continue;
                 }
+                geometry::wing_sparkles(&mut self.vertices, sparkles, camera);
+                self.draws[2 + index].data.replace(self.vertices.packed());
                 let draw = &self.draws[2 + index];
-                let mut mesh = meshes
-                    .get_mut(&draw.mesh)
-                    .context("missing wing sparkle mesh")?;
-                geometry::update_mesh(&mut mesh, &mut self.vertices, |vertices| {
-                    geometry::wing_sparkles(vertices, sparkles, camera);
-                    Ok(())
-                })?;
                 let key = wing_key(resource, texture.palette_image(0, palette)?);
                 let material = self
                     .materials
@@ -718,14 +722,11 @@ impl Effects {
             if footprints.peek().is_none() {
                 continue;
             }
+            geometry::shadows(&mut self.vertices, footprints);
+            self.draws[usize::from(additive)]
+                .data
+                .replace(self.vertices.packed());
             let draw = &self.draws[usize::from(additive)];
-            let mut mesh = meshes
-                .get_mut(&draw.mesh)
-                .context("missing prepared shadow mesh")?;
-            geometry::update_mesh(&mut mesh, &mut self.vertices, |vertices| {
-                geometry::shadows(vertices, footprints);
-                Ok(())
-            })?;
             let surface = &self.materials[&shadow_key(additive)];
             commands.entity(draw.entity).insert((
                 MeshMaterial3d(surface.clone()),
@@ -733,7 +734,7 @@ impl Effects {
                 DrawOrder(Layer::Shadows, usize::from(additive), 0),
             ));
         }
-        Ok(scene_samples)
+        Ok(())
     }
 
     pub fn despawn(self, commands: &mut Commands) {
@@ -932,35 +933,21 @@ fn wing_key(resource: ResourceId, color: usize) -> MaterialKey {
     }
 }
 
-fn spawn(commands: &mut Commands, mesh: Handle<Mesh>, surface: Handle<TitleSurface>) -> Entity {
-    commands
+fn spawn(commands: &mut Commands, mesh: Handle<Mesh>, surface: Handle<TitleSurface>) -> Draw {
+    let data = crate::materials::GeometryData::default();
+    let entity = commands
         .spawn((
             Mesh3d(mesh),
             MeshMaterial3d(surface),
+            data.clone(),
             Transform::default(),
             Visibility::Hidden,
             NoFrustumCulling,
-            bevy::render::batching::NoAutomaticBatching,
             RenderLayers::layer(LAYER),
             DrawOrder(Layer::Effects, 0, 0),
         ))
-        .id()
-}
-
-pub(super) fn warm_mesh() -> Mesh {
-    use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology};
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(
-        Mesh::ATTRIBUTE_POSITION,
-        vec![[-1., -1., 0.], [1., -1., 0.], [0., 1., 0.]],
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; 3])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.; 4]; 3])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0., 0.], [1., 0.], [0., 1.]])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0., 0.], [1., 0.], [0., 1.]])
+        .id();
+    Draw { entity, data }
 }
 
 fn material_keys(resource: ResourceId, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
@@ -1056,7 +1043,9 @@ mod tests {
             )
         };
         let mut world = World::new();
-        let mut meshes = Assets::<Mesh>::default();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<crate::materials::GeometryMesh>();
+        let mesh = world.resource::<crate::materials::GeometryMesh>().0.clone();
         let mut surfaces = Assets::<TitleSurface>::default();
         let mut images = Assets::<Image>::default();
         let mut sampled = SampledImages::default();
@@ -1086,12 +1075,12 @@ mod tests {
         let mut encounter = load(ResourceId(77))?;
         encounter.prepare(
             &mut world.commands(),
-            &mut meshes,
+            &mesh,
             &mut surfaces,
             &mut images,
             &mut sampled,
             Some(&resident),
-            (Entity::PLACEHOLDER, &mut gpu::Report::default()),
+            &mut gpu::Report::default(),
         )?;
         world.flush();
         assert!(encounter.materials == bindings);
@@ -1107,12 +1096,12 @@ mod tests {
         encounter.prepared = false;
         encounter.prepare(
             &mut world.commands(),
-            &mut meshes,
+            &mesh,
             &mut surfaces,
             &mut images,
             &mut sampled,
             Some(&resident),
-            (Entity::PLACEHOLDER, &mut gpu::Report::default()),
+            &mut gpu::Report::default(),
         )?;
         assert!(surfaces.len() > before);
         assert_eq!(resident.len(), retained);

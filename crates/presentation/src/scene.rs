@@ -1,4 +1,5 @@
 use super::{Events, draw_order::DrawOrder, materials::TitleSurface, model_asset::Part};
+use crate::native::MeshMaterial3d;
 use anyhow::Result;
 use bevy::prelude::*;
 use resonance_content::field::{
@@ -7,6 +8,8 @@ use resonance_content::field::{
 use resonance_content::{ANIMATION_HZ, TextureBinding, TextureWrap};
 use resonance_events::effect::Blend;
 use std::sync::Arc;
+
+pub(crate) mod residency;
 
 #[derive(Component)]
 pub(super) struct AnimatedPart {

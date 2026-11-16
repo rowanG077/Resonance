@@ -1,5 +1,6 @@
 //! Weapon ribbons own their short pose history; drawing never advances it.
 use super::*;
+use crate::native::MeshMaterial3d;
 use crate::weapon_geometry::Vertices;
 use resonance_battle::WeaponSlot;
 use resonance_battle::{ActorId, Cue, ResourceId, WeaponFrame};
@@ -19,7 +20,7 @@ struct Ribbon {
 }
 struct Draw {
     entity: Entity,
-    mesh: Handle<Mesh>,
+    geometry: crate::materials::GeometryData,
 }
 pub(super) struct Trails {
     diagnostics: Diagnostics,
@@ -122,7 +123,7 @@ impl Trails {
         commands: &mut Commands,
         assets: &mut AssetsForView,
         sampled: &mut crate::scene::SampledImages,
-        (camera, report): (Entity, &mut gpu::Report),
+        report: &mut gpu::Report,
     ) -> Result<()> {
         if self.ready {
             return Ok(());
@@ -164,9 +165,9 @@ impl Trails {
                 });
                 ribbon.draws.push(Draw::prepare(
                     commands,
-                    &mut assets.meshes,
+                    &assets.geometry_mesh.0,
                     surface,
-                    camera,
+                    &assets.surfaces,
                     report,
                 ));
             }
@@ -183,9 +184,9 @@ impl Trails {
         for _ in 0..16 {
             self.ropes.push(Draw::prepare(
                 commands,
-                &mut assets.meshes,
+                &assets.geometry_mesh.0,
                 surface.clone(),
-                camera,
+                &assets.surfaces,
                 report,
             ));
         }
@@ -198,7 +199,6 @@ impl Trails {
         frame: &BattleFrame,
         sample: &super::interpolation::Input,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         order: &ActorOrder,
         models: &BTreeMap<ResourceId, super::Model>,
     ) -> Result<()> {
@@ -236,15 +236,15 @@ impl Trails {
                     .get(variant)
                     .context("weapon trail was not prepared")?
                     .apply(
-                        vertices.mesh(),
+                        vertices,
                         DrawOrder(
                             weapon_layer(order.get(actor)?, Some(slot), style, true),
                             0,
                             0,
                         ),
                         commands,
-                        meshes,
-                    )
+                    );
+                Ok(())
             })();
             if let Err(error) = result {
                 self.diagnostics
@@ -296,7 +296,7 @@ impl Trails {
                     return Ok(());
                 }
                 draw.apply(
-                    data.mesh(),
+                    data,
                     DrawOrder(
                         weapon_layer(
                             order.get(weapon.owner)?,
@@ -311,8 +311,7 @@ impl Trails {
                         0,
                     ),
                     commands,
-                    meshes,
-                )?;
+                );
                 Ok(())
             })();
             if let Err(error) = result {
@@ -331,23 +330,24 @@ impl Trails {
 impl Draw {
     fn prepare(
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+        mesh: &Handle<Mesh>,
         material: Handle<TitleSurface>,
-        camera: Entity,
+        surfaces: &Assets<TitleSurface>,
         report: &mut gpu::Report,
     ) -> Self {
-        let mut data = Vertices::default();
-        data.quad(
-            [Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::ONE],
-            [[0.; 2]; 4],
-            [[1.; 4]; 4],
+        let geometry = crate::materials::GeometryData::default();
+        report.prepare(
+            gpu::View::Battle,
+            mesh.id(),
+            surfaces.get(&material).expect("prepared trail material"),
+            true,
+            None,
         );
-        let mesh = meshes.add(data.mesh());
-        report.prepare(camera, mesh.id(), material.id().untyped(), false, None);
         let entity = commands
             .spawn((
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material),
+                geometry.clone(),
                 Transform::default(),
                 Visibility::Hidden,
                 NoFrustumCulling,
@@ -355,22 +355,13 @@ impl Draw {
                 DrawOrder(Layer::Effects, 0, 0),
             ))
             .id();
-        Self { entity, mesh }
+        Self { entity, geometry }
     }
-    fn apply(
-        &self,
-        mesh: Mesh,
-        order: DrawOrder,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        *meshes
-            .get_mut(&self.mesh)
-            .context("prepared battle ribbon mesh is missing")? = mesh;
+    fn apply(&self, vertices: Vertices, order: DrawOrder, commands: &mut Commands) {
+        self.geometry.replace(vertices.packed());
         commands
             .entity(self.entity)
             .insert((Visibility::Inherited, order));
-        Ok(())
     }
 }
 const HISTORY_SAMPLES: usize = 8;
@@ -784,15 +775,15 @@ mod tests {
             let ribbon = &trails.ribbons[&trail.resource];
             Ok(trail
                 .vertices(ribbon, [256; 2], None, 0., None)?
-                .samples()
+                .packed()
                 .collect())
         };
         let before = vertices(&trails)?;
         for x in [12., 14.] {
-            assert!(before.iter().any(|v| v.0 == [x, 20., 30.]));
+            assert!(before.iter().any(|v| v.position == [x, 20., 30., 1.]));
         }
         for uv in [[0., 0.], [0.25, 0.25]] {
-            assert!(before.iter().any(|v| v.1 == uv));
+            assert!(before.iter().any(|v| v.uv[..2] == uv));
         }
         // Render-only sword movement must move the ribbon's leading edge without
         // adding history samples, consuming duration, or advancing its fade.
@@ -805,12 +796,12 @@ mod tests {
             let mut visual = frame.weapons[0].clone();
             visual.world[3][2] += 4. * alpha;
             let sampled = trail.vertices(ribbon, [256; 2], Some(&step), alpha, Some(&visual))?;
-            let mut vertices = sampled.samples();
-            let tip = vertices.next().unwrap().0;
+            let mut vertices = sampled.packed();
+            let tip = vertices.next().unwrap().position;
             assert_eq!(&tip[..3], &ribbon.sample(&visual)?[0].to_array());
             // The bend at the previous sword tip remains in the ribbon throughout the turn.
             assert_eq!(
-                &vertices.nth(17).unwrap().0[..3],
+                &vertices.nth(17).unwrap().position[..3],
                 &trail.samples[0][0].to_array()
             );
         }
@@ -824,8 +815,8 @@ mod tests {
         }];
         trails.advance(&frame, true)?;
         assert!(trails.history[&key].highlighted);
-        assert_eq!(vertices(&trails)?[0].2[..3], [1.; 3]);
-        assert_eq!(before[0].2[..3], [0.5, 0.25, 0.25]);
+        assert_eq!(vertices(&trails)?[0].color[..3], [1.; 3]);
+        assert_eq!(before[0].color[..3], [0.5, 0.25, 0.25]);
         assert_eq!(trails.history[&key].samples.len(), 2);
         frame.cues.clear();
         // Finishing the swing must retain a visible arc across a held pose.
@@ -837,9 +828,11 @@ mod tests {
             let step = trail.step(ribbon, sword, true)?;
             let end = trail.vertices(ribbon, [256; 2], Some(&step), 1., Some(sword))?;
             trails.advance(&frame, false)?;
-            for (a, b) in end.samples().zip(vertices(&trails)?) {
-                assert!(Vec3::from_slice(&a.0).abs_diff_eq(Vec3::from_slice(&b.0), 1e-5));
-                assert!(Vec2::from_array(a.1).abs_diff_eq(Vec2::from_array(b.1), 1e-5));
+            for (a, b) in end.packed().zip(vertices(&trails)?) {
+                assert!(
+                    Vec3::from_slice(&a.position).abs_diff_eq(Vec3::from_slice(&b.position), 1e-5)
+                );
+                assert!(Vec4::from_array(a.uv).abs_diff_eq(Vec4::from_array(b.uv), 1e-5));
             }
         }
         for _ in 0..4 {
@@ -847,7 +840,7 @@ mod tests {
         }
         let held_swing = vertices(&trails)?;
         assert!(held_swing.as_chunks::<3>().0.iter().any(|triangle| {
-            let [a, b, c] = triangle.map(|v| Vec3::from_slice(&v.0));
+            let [a, b, c] = triangle.map(|v| Vec3::from_slice(&v.position));
             (b - a).cross(c - a).length_squared() > 0.01
         }));
         let remaining = trails.history[&key].remaining;
@@ -867,7 +860,7 @@ mod tests {
         trails.advance(&frame, false)?;
         frame.weapons[0].world[3][0] += 2.;
         trails.advance(&frame, false)?;
-        assert!(vertices(&trails)?.iter().all(|v| v.0[0] >= 300.));
+        assert!(vertices(&trails)?.iter().all(|v| v.position[0] >= 300.));
         // A third ribbon endpoint can move while its first two remain fixed.
         Arc::make_mut(&mut frame.weapons[0].bones).global[1][3][2] += 2.;
         trails.advance(&frame, false)?;
@@ -879,17 +872,17 @@ mod tests {
             let step = trail.step(ribbon, &frame.weapons[0], active)?;
             for t in [0., 0.5, 1.] {
                 let mesh = trail.vertices(ribbon, [256; 2], Some(&step), t, None)?;
-                let mut vertices = mesh.samples();
+                let mut vertices = mesh.packed();
                 let head = vertices.next().unwrap();
                 assert_eq!(
-                    head.2[3],
+                    head.color[3],
                     if active {
                         1.
                     } else {
                         1. - t / f32::from(FADE_UPDATES)
                     }
                 );
-                assert_eq!(vertices.nth(17).unwrap().1[0], 0.125 + 0.125 * t);
+                assert_eq!(vertices.nth(17).unwrap().uv[0], 0.125 + 0.125 * t);
             }
         }
         for _ in 0..30 {

@@ -739,7 +739,7 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         GraphicsBackend::Automatic,
         GraphicsBackend::Dx12,
         GraphicsBackend::Vulkan,
-        GraphicsBackend::OpenGl,
+        GraphicsBackend::Metal,
     ];
     menu.customize
         .set_backend_choices(&backends, GraphicsBackend::Dx12, false);
@@ -991,7 +991,6 @@ fn keymap_is_icon_only_bounded_and_keeps_its_window_and_single_cursor() -> Resul
     let mut world = World::new();
     let mut art = fixture.artwork(&mut world)?;
     let mut queue = bevy::ecs::world::CommandQueue::default();
-    let mut meshes = Assets::<Mesh>::default();
     art.render(
         Source::Title(Some(&menu)),
         &fixture.font,
@@ -1000,17 +999,17 @@ fn keymap_is_icon_only_bounded_and_keeps_its_window_and_single_cursor() -> Resul
         crate::Resolution::default(),
         None,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     queue.apply(&mut world);
+    let mut stream = crate::materials::GeometryFrame::default();
     let cursor_vertices: usize = art
         .layers
         .iter()
         .filter(|((_, role, _), layer)| *role == DrawRole::Cursor && layer.visible)
-        .map(|(_, layer)| meshes.get(&layer.mesh).unwrap().count_vertices())
+        .map(|(_, layer)| layer.geometry.append_to(&mut stream).len())
         .sum();
     assert_eq!(
-        cursor_vertices, 8,
+        cursor_vertices, 12,
         "keymap must publish only one cursor and its shadow"
     );
     if let Ok(output) = std::env::var("RESONANCE_KEYMAP_PREVIEW") {

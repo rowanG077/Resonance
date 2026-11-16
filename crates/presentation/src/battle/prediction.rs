@@ -67,11 +67,8 @@ pub(super) fn update(
         voice_busy,
         entry_voice_ready,
     };
-    if prediction.reuse(&key) {
-        return;
-    }
-    let _timer = crate::performance::smoothing_profile::Timer::start(0);
     prediction.predict(key, || {
+        let _timer = crate::performance::smoothing_profile::Timer::start(0);
         let (endpoint, sources) = predict(scene, &input, last_page, voice_busy, entry_voice_ready)?;
         Ok(match endpoint {
             Some(endpoint) => CachedScene::Battle(endpoint, sources),

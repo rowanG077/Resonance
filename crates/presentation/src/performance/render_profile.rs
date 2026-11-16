@@ -18,6 +18,11 @@ pub(super) struct Shared(Arc<Mutex<Sample>>);
 pub(super) struct Sample {
     frame: u64,
     total_ms: f64,
+    thread_cpu_ms: f64,
+    assets_thread_cpu_ms: f64,
+    resources_thread_cpu_ms: f64,
+    encode_thread_cpu_ms: f64,
+    submit_thread_cpu_ms: f64,
     prepare_ms: f64,
     assets_ms: f64,
     geometry_ms: f64,
@@ -27,6 +32,19 @@ pub(super) struct Sample {
     encode_ms: f64,
     submit_ms: f64,
     present_cleanup_ms: f64,
+    title_records_updated: usize,
+    title_record_bytes: usize,
+    title_record_uploads: usize,
+    // Historical schema names: title and world material-record writes only.
+    // Native frame tables and Bevy mesh/image uploads are outside these totals.
+    scene_upload_copies: usize,
+    scene_upload_bytes: usize,
+    /// Packed geometry snapshot copies and vertex-buffer uploads, separately.
+    geometry_streams: crate::native::render::GeometryStats,
+    meshes_extracted: usize,
+    images_extracted: usize,
+    /// Resolved draw items, including UI/offscreen items and pending pipelines.
+    scene_items: usize,
 }
 impl Shared {
     pub fn snapshot(&self) -> Sample {
@@ -43,12 +61,21 @@ struct Times {
     views_start: Instant,
     views_end: Instant,
     sorted: Instant,
+    extracted: [usize; 2],
+    cpu: [Option<u64>; 6],
 }
 
-pub(super) fn install(app: &mut App) {
+pub(super) fn install(app: &mut App, pass_diagnostics: bool) {
+    app.init_resource::<crate::renderer::TransformStats>();
+    app.world_mut()
+        .resource_mut::<crate::renderer::TransformStats>()
+        .enabled = true;
+    super::gpu_profile::install(app);
     let shared = Shared::default();
-    app.insert_resource(shared.clone())
-        .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    app.insert_resource(shared.clone());
+    if pass_diagnostics {
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
     let render = app.sub_app_mut(RenderApp);
     let now = Instant::now();
     render
@@ -62,6 +89,8 @@ pub(super) fn install(app: &mut App) {
             views_start: now,
             views_end: now,
             sorted: now,
+            extracted: [0; 2],
+            cpu: [None; 6],
         })
         .add_systems(
             Render,
@@ -95,14 +124,30 @@ pub(super) fn install(app: &mut App) {
             ),
         );
 }
-fn start(mut t: ResMut<Times>) {
+fn start(
+    _: bevy::ecs::system::NonSendMarker,
+    mut t: ResMut<Times>,
+    meshes: Option<
+        Res<bevy::render::render_asset::ExtractedAssets<bevy::render::mesh::RenderMesh>>,
+    >,
+    images: Option<
+        Res<bevy::render::render_asset::ExtractedAssets<bevy::render::texture::GpuImage>>,
+    >,
+) {
     t.start = Instant::now();
+    t.cpu[0] = super::thread_cpu::now();
+    t.extracted = [
+        meshes.as_ref().map_or(0, |a| a.extracted.len()),
+        images.as_ref().map_or(0, |a| a.extracted.len()),
+    ];
 }
-fn graph(mut t: ResMut<Times>) {
+fn graph(_: bevy::ecs::system::NonSendMarker, mut t: ResMut<Times>) {
     t.graph = Instant::now();
+    t.cpu[3] = super::thread_cpu::now();
 }
-fn assets(mut t: ResMut<Times>) {
+fn assets(_: bevy::ecs::system::NonSendMarker, mut t: ResMut<Times>) {
     t.assets = Instant::now();
+    t.cpu[1] = super::thread_cpu::now();
 }
 fn views_start(mut t: ResMut<Times>) {
     t.views_start = Instant::now();
@@ -110,19 +155,34 @@ fn views_start(mut t: ResMut<Times>) {
 fn views_end(mut t: ResMut<Times>) {
     t.views_end = Instant::now();
 }
-fn sorted(mut t: ResMut<Times>) {
+fn sorted(_: bevy::ecs::system::NonSendMarker, mut t: ResMut<Times>) {
     t.sorted = Instant::now();
+    t.cpu[2] = super::thread_cpu::now();
 }
-fn encoded(mut t: ResMut<Times>) {
+fn encoded(_: bevy::ecs::system::NonSendMarker, mut t: ResMut<Times>) {
     t.encoded = Instant::now();
+    t.cpu[4] = super::thread_cpu::now();
 }
-fn submitted(mut t: ResMut<Times>) {
+fn submitted(_: bevy::ecs::system::NonSendMarker, mut t: ResMut<Times>) {
     t.submitted = Instant::now();
+    t.cpu[5] = super::thread_cpu::now();
 }
-fn finish(t: Res<Times>, shared: Res<Shared>) {
+fn finish(
+    _: bevy::ecs::system::NonSendMarker,
+    t: Res<Times>,
+    shared: Res<Shared>,
+    records: Option<Res<crate::materials::SurfaceRecordStats>>,
+    uploads: Option<Res<crate::renderer::Uploads>>,
+    drawn: Option<Res<crate::native::Drawn>>,
+) {
     let mut s = shared.0.lock().unwrap();
     s.frame += 1;
     s.total_ms = t.start.elapsed().as_secs_f64() * 1000.;
+    s.thread_cpu_ms = super::thread_cpu::elapsed_ms(t.cpu[0], super::thread_cpu::now());
+    s.assets_thread_cpu_ms = super::thread_cpu::elapsed_ms(t.cpu[0], t.cpu[1]);
+    s.resources_thread_cpu_ms = super::thread_cpu::elapsed_ms(t.cpu[2], t.cpu[3]);
+    s.encode_thread_cpu_ms = super::thread_cpu::elapsed_ms(t.cpu[3], t.cpu[4]);
+    s.submit_thread_cpu_ms = super::thread_cpu::elapsed_ms(t.cpu[4], t.cpu[5]);
     s.prepare_ms = t.graph.duration_since(t.start).as_secs_f64() * 1000.;
     s.assets_ms = t.assets.duration_since(t.start).as_secs_f64() * 1000.;
     s.geometry_ms = t.views_start.duration_since(t.assets).as_secs_f64() * 1000.;
@@ -132,4 +192,15 @@ fn finish(t: Res<Times>, shared: Res<Shared>) {
     s.encode_ms = t.encoded.duration_since(t.graph).as_secs_f64() * 1000.;
     s.submit_ms = t.submitted.duration_since(t.encoded).as_secs_f64() * 1000.;
     s.present_cleanup_ms = t.submitted.elapsed().as_secs_f64() * 1000.;
+    s.title_records_updated = records.as_ref().map_or(0, |r| r.updated);
+    s.title_record_bytes = records.as_ref().map_or(0, |r| r.bytes);
+    s.title_record_uploads = records.as_ref().map_or(0, |r| r.uploads);
+    s.scene_upload_copies = uploads.as_ref().map_or(0, |u| u.stats.copies);
+    s.scene_upload_bytes = uploads.as_ref().map_or(0, |u| u.stats.bytes);
+    s.geometry_streams = drawn
+        .as_ref()
+        .map_or_else(Default::default, |drawn| drawn.geometry);
+    s.meshes_extracted = t.extracted[0];
+    s.images_extracted = t.extracted[1];
+    s.scene_items = drawn.map_or(0, |drawn| drawn.draws.len());
 }

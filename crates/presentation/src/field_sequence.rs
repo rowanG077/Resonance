@@ -447,6 +447,7 @@ fn capture(
     }
     if recording.settled < 20 {
         if art.ready
+            && art.gpu.is_some()
             && weapons.ready(&session.0.events.world)
             && !roots.is_empty()
             && roots.iter().all(|(_, p)| p.prepared)

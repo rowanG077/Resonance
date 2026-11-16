@@ -12,17 +12,13 @@ pub(super) struct Artwork {
     sprites: Vec<[u32; 4]>,
 }
 impl Artwork {
-    pub fn prepare(
-        menu: &menu::MenuArtwork,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<Self> {
+    pub fn prepare(menu: &menu::MenuArtwork, commands: &mut Commands) -> Result<Self> {
         // Validate the complete recipe before allocating any optional canvases.
         let art = [menu.world_map_art(0)?, menu.world_map_art(1)?];
         let (material, atlas_size, sprites) = menu.world_hud_art()?;
         anyhow::ensure!(sprites.len() == 7, "world HUD artwork is incomplete");
         let map_sizes = art.clone().map(|(_, size)| size);
-        let mut layer = |material, depth| Layer::new(material, depth, commands, meshes);
+        let mut layer = |material, depth| Layer::new(material, depth, commands);
         let maps = art.map(|(material, _)| layer(material, 2.));
         Ok(Self {
             maps,
@@ -46,7 +42,6 @@ impl Artwork {
         future: Option<(&resonance_game::overworld::Session, f32)>,
         overlay: &mut Batch,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let state = session.travel.state();
         let world = state.world.index();
@@ -139,14 +134,13 @@ impl Artwork {
         for (index, layer) in self.maps.iter_mut().enumerate() {
             let shown = index == world && !map.indices.is_empty();
             if shown {
-                layer.update_mesh(map.clone(), self.map_sizes[world], meshes)?;
+                layer.update(map.clone(), self.map_sizes[world]);
             }
             layer.show(shown, commands);
         }
         let shown = !decoration.indices.is_empty();
         if shown {
-            self.decorations
-                .update_mesh(decoration, self.atlas_size, meshes)?;
+            self.decorations.update(decoration, self.atlas_size);
         }
         self.decorations.show(shown, commands);
         Ok(())

@@ -482,7 +482,6 @@ impl Artwork {
         party: PartyHudInput<'_>,
         fraction: f32,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let batches = self.draw_notices(frame, party, fraction)?;
         for (index, (layer, batch)) in self.ui.notice.iter_mut().zip(batches).enumerate() {
@@ -497,7 +496,7 @@ impl Artwork {
                         .insert((transform, GlobalTransform::from(transform)));
                 }
             }
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }

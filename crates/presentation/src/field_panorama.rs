@@ -1,5 +1,6 @@
 //! A field's scrolling background, drawn behind its scenery without depth writes.
 use super::{Art, State};
+use crate::native::MeshMaterial3d;
 use crate::{
     draw_order::{DrawOrder, Layer},
     loading::LoadTasks,
@@ -112,12 +113,11 @@ impl Draw {
                 Vec3::new(-1., -1., 0.5),
                 Vec3::new(1., -1., 0.5),
             ];
-            meshes.get_mut(&self.mesh).unwrap().insert_attribute(
-                Mesh::ATTRIBUTE_POSITION,
-                corners
-                    .map(|p| from_clip.project_point3(p).to_array())
-                    .to_vec(),
-            );
+            let positions = corners.map(|p| from_clip.project_point3(p).to_array());
+            meshes
+                .get_mut(&self.mesh)
+                .unwrap()
+                .insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
             self.from_clip = Some(from_clip);
         }
         let surface = materials.get(&self.material).unwrap();

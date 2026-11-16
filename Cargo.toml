@@ -36,8 +36,7 @@ time = { version = "0.3.55", default-features = false, features = ["std"] }
 sha2 = "0.11.1"
 glam = { version = "0.34.1", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-bevy = { version = "=0.20.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "ktx2", "zstd_rust", "x11", "wayland"] }
-bevy_post_process = { version = "=0.20.1", default-features = false }
+bevy = { version = "=0.20.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_gltf", "bevy_scene", "ktx2", "zstd_rust", "x11", "wayland"] }
 raw-window-handle = "0.6"
 resonance-content = { path = "crates/content" }
 resonance-game = { path = "crates/game" }
@@ -74,3 +73,14 @@ lto = "off"
 incremental = true
 # Local iteration does not produce distribution debugging artifacts.
 debug = 0
+
+[patch.crates-io]
+# wgpu 30.0.1 with our wgpu-core upload and tracker patches. The other crates
+# are unchanged from v30.0.1; taking them from the same branch keeps one copy.
+naga = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }
+naga-types = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }
+wgpu = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }
+wgpu-core = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }
+wgpu-hal = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }
+wgpu-naga-bridge = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }
+wgpu-types = { git = "https://github.com/rowanG077/wgpu", branch = "rowan/wgpu-core-30.0.1-patches" }

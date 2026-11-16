@@ -458,6 +458,35 @@ pub(crate) struct Locals {
 }
 
 impl Locals {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.poses.is_empty() && self.worlds.is_empty() && self.translations.is_empty()
+    }
+
+    pub(crate) fn propagation_parts(
+        &self,
+        entity: Entity,
+        local: Transform,
+        parent: GlobalTransform,
+        inherited_translation: Vec3,
+    ) -> (GlobalTransform, Vec3, bool) {
+        let world = self.worlds.get(&entity);
+        let local_pose = world.is_none().then(|| self.poses.get(&entity)).flatten();
+        let translation = self.translations.get(&entity);
+        let pose = world.copied().unwrap_or_else(|| {
+            parent
+                * local_pose.map_or_else(
+                    || GlobalTransform::from(local),
+                    |&(matrix, _)| matrix.into(),
+                )
+        });
+        let authored = world.is_some() || local_pose.is_some() || translation.is_some();
+        (
+            pose,
+            translation.copied().unwrap_or(inherited_translation),
+            authored,
+        )
+    }
+
     pub fn remember_authored(&mut self, entity: Entity, transform: Transform) {
         let pose = self.get(entity, transform);
         self.authored.insert(entity, pose);
@@ -870,20 +899,27 @@ impl Helper<'_, '_> {
 }
 
 pub(crate) fn install(app: &mut App) {
-    app.init_resource::<Locals>()
-        .add_systems(
-            PreUpdate,
-            // Keep the outgoing pose until the battle transition hides the field.
-            clear.run_if(crate::battle::field_presenting.or_else(field_camera_hidden)),
-        )
-        .add_systems(
-            PostUpdate,
-            propagate
-                .after(bevy::transform::TransformSystems::Propagate)
-                .before(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
-                .before(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
-                .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
-        );
+    app.init_resource::<Locals>().add_systems(
+        PreUpdate,
+        // Keep the outgoing pose until the battle transition hides the field.
+        clear.run_if(crate::battle::field_presenting.or_else(field_camera_hidden)),
+    );
+}
+
+/// New affine overrides may appear without a TRS edit, so mark their ancestors
+/// before the integrated walk. `clear` separately marks overrides being removed.
+pub(crate) fn mark_current(affine: Option<Res<Locals>>, mut transforms: Query<&mut Transform>) {
+    let Some(affine) = affine else { return };
+    for &entity in affine
+        .poses
+        .keys()
+        .chain(affine.worlds.keys())
+        .chain(affine.translations.keys())
+    {
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            transform.set_changed();
+        }
+    }
 }
 
 fn field_camera_hidden(cameras: Query<&Camera, With<crate::FieldCamera>>) -> bool {
@@ -912,49 +948,6 @@ pub(crate) fn reset(world: &mut World) {
     });
 }
 
-#[allow(clippy::too_many_arguments)] // Hierarchy queries and retained traversal scratch buffers.
-pub(crate) fn propagate(
-    affine: Res<Locals>,
-    helper: Helper,
-    children: Query<&Children>,
-    mut globals: Query<&mut GlobalTransform>,
-    mut seen: Local<bevy::ecs::entity::EntityHashSet>,
-    mut entities: Local<Vec<Entity>>,
-    mut stack: Local<Vec<Entity>>,
-    mut cache: Local<EntityHashMap<GlobalTransform>>,
-) {
-    let _timer = crate::performance::smoothing_profile::Timer::start(3);
-    seen.clear();
-    entities.clear();
-    stack.clear();
-    cache.clear();
-    for &root in affine
-        .poses
-        .keys()
-        .chain(affine.worlds.keys())
-        .chain(affine.translations.keys())
-    {
-        stack.push(root);
-        while let Some(entity) = stack.pop() {
-            if !seen.insert(entity) {
-                continue;
-            }
-            entities.push(entity);
-            if let Ok(children) = children.get(entity) {
-                stack.extend(children.iter());
-            }
-        }
-    }
-    for &entity in entities.iter() {
-        let pose = helper
-            .global_with(entity, &BTreeMap::new(), Some(&mut cache))
-            .expect("affine hierarchy must have local transforms");
-        *globals
-            .get_mut(entity)
-            .expect("affine hierarchy must have global transforms") = pose;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -967,7 +960,7 @@ mod tests {
     #[test]
     fn battle_holds_the_outgoing_pose_until_the_field_camera_is_hidden() {
         let mut app = App::new();
-        app.add_plugins(bevy::transform::TransformPlugin)
+        app.add_plugins(crate::renderer::SerialTransformPlugin)
             .init_resource::<crate::loading::Resident>();
         install(&mut app);
         let camera = app
@@ -1003,7 +996,7 @@ mod tests {
     #[test]
     fn reset_restores_all_overrides_before_same_frame_actor_retirement() {
         let mut app = App::new();
-        app.add_plugins(bevy::transform::TransformPlugin);
+        app.add_plugins(crate::renderer::SerialTransformPlugin);
         install(&mut app);
         let matrix_bone = app.world_mut().spawn(Transform::IDENTITY).id();
         let world_bone = app
@@ -1232,7 +1225,7 @@ mod tests {
         use bevy::ecs::system::SystemState;
         for scale in [Vec3::ONE, Vec3::new(0., 1., 1.)] {
             let mut app = App::new();
-            app.add_plugins(bevy::transform::TransformPlugin);
+            app.add_plugins(crate::renderer::SerialTransformPlugin);
             install(&mut app);
             let world = app.world_mut();
             let root = world.spawn(Transform::from_scale(scale)).id();
@@ -1350,7 +1343,7 @@ mod tests {
         assert_eq!(skeleton.bones[targets[1] as usize].parent, Some(targets[0]));
         assert_eq!(skeleton.bones[targets[2] as usize].parent, Some(targets[0]));
         let mut app = App::new();
-        app.add_plugins(bevy::transform::TransformPlugin);
+        app.add_plugins(crate::renderer::SerialTransformPlugin);
         install(&mut app);
         let actor = app
             .world_mut()
@@ -1425,7 +1418,7 @@ mod tests {
     fn world_pose_survives_collapsed_parent_and_restores_after_release() {
         use bevy::ecs::system::RunSystemOnce;
         let mut app = App::new();
-        app.add_plugins(bevy::transform::TransformPlugin);
+        app.add_plugins(crate::renderer::SerialTransformPlugin);
         install(&mut app);
         let collapsed = Transform::from_scale(Vec3::new(0., 0., 3.));
         let root = app.world_mut().spawn(collapsed).id();
@@ -1645,7 +1638,7 @@ mod tests {
         });
         let motion = Motion::decode(&motion.encode(&skeleton).unwrap()).unwrap();
         let mut app = App::new();
-        app.add_plugins(bevy::transform::TransformPlugin);
+        app.add_plugins(crate::renderer::SerialTransformPlugin);
         install(&mut app);
         let parent_pose = Transform::from_xyz(10., 20., 30.)
             .with_scale(Vec3::new(2., 3., 4.))

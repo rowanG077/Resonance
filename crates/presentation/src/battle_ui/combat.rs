@@ -421,7 +421,6 @@ impl Artwork {
         marker_anchors: &[ActorMarkers],
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut batches: Vec<_> = (0..self.combat.layers.len())
             .map(|_| Batch::default())
@@ -435,7 +434,7 @@ impl Artwork {
             time,
         )?;
         for (layer, batch) in self.combat.layers.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }
@@ -482,11 +481,9 @@ mod tests {
         assert!(smash_depth > Depth::Results.value());
 
         let mut world = World::new();
-        let mut meshes = Assets::<Mesh>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         hud.prepare(
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
             crate::Resolution::default(),
         );
         queue.apply(&mut world);
@@ -498,13 +495,7 @@ mod tests {
         // Depth must update in the same frame, without transform propagation.
         for actor in [0, 1, 0] {
             hud.notice_request(ActorId::from_index(actor)?, "Fire Ball", 90, &frame)?;
-            hud.render_notices(
-                &frame,
-                party,
-                0.,
-                &mut Commands::new(&mut queue, &world),
-                &mut meshes,
-            )?;
+            hud.render_notices(&frame, party, 0., &mut Commands::new(&mut queue, &world))?;
             queue.apply(&mut world);
             for layer in &hud.ui.notice {
                 let entity = layer.rendered.as_ref().unwrap().entity;

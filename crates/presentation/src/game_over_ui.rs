@@ -90,7 +90,7 @@ impl Artwork {
             resident,
         )
     }
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if !self.layers.is_empty() {
             return;
         }
@@ -99,7 +99,6 @@ impl Artwork {
                 material.clone(),
                 super::battle_ui::game_over_depth() + index as f32,
                 commands,
-                meshes,
             ));
         }
     }
@@ -114,12 +113,11 @@ impl Artwork {
         screen: &Screen,
         fraction: f32,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         anyhow::ensure!(self.layers.len() == 3, "game-over artwork was not prepared");
         let mut image = Batch::default();
         image.quad([0., 0., 640., 480.], [0., 0., 1., 1.], [1.; 4]);
-        self.layers[0].update_mesh(image, [1, 1], meshes)?;
+        self.layers[0].update(image, [1, 1]);
         let mut text = Batch::default();
         centered(
             &mut text,
@@ -139,14 +137,14 @@ impl Artwork {
                 if screen.selected == i { 255 } else { 64 },
             )?;
         }
-        self.layers[1].update_mesh(text, [self.data.font.width, self.data.font.height], meshes)?;
+        self.layers[1].update(text, [self.data.font.width, self.data.font.height]);
         let mut fade = Batch::default();
         fade.quad(
             [0., 0., 640., 480.],
             [0., 0., 1., 1.],
             [1., 1., 1., screen.fade_alpha(fraction) / 255.],
         );
-        self.layers[2].update_mesh(fade, [1, 1], meshes)?;
+        self.layers[2].update(fade, [1, 1]);
         for layer in &mut self.layers {
             layer.show(true, commands);
         }

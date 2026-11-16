@@ -28,7 +28,6 @@ fn residency_probe() -> Result<()> {
     } else {
         Default::default()
     };
-    let audit = std::env::var_os("RESONANCE_PIPELINE_AUDIT").is_some();
     let benchmark_rounds = std::env::var("RESONANCE_BENCHMARK_ROUNDS")
         .ok()
         .map(|rounds| rounds.parse::<u32>())
@@ -49,9 +48,6 @@ fn residency_probe() -> Result<()> {
         crate::preparation_profile::install(app);
         if benchmark_rounds.is_some() {
             crate::battle::skip_shatter_duration_for_benchmark(app);
-        }
-        if audit {
-            crate::model_asset::pipeline_test::install(app);
         }
         if let Some(mode) = samples {
             app.add_systems(
@@ -126,9 +122,6 @@ fn residency_probe() -> Result<()> {
         capture(&mut scenario.app, &output.join("battle.png"))?;
     }
     scenario.return_from_battle(request)?;
-    if audit {
-        crate::model_asset::pipeline_test::check(scenario.app.world());
-    }
     let profile = crate::preparation_profile::take();
     if !profile.is_null() {
         eprintln!("PREPARATION_PROFILE {profile}");

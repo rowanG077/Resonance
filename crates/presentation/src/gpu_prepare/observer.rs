@@ -1,14 +1,10 @@
 use bevy::{
-    core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d},
     ecs::system::SystemParam,
     prelude::*,
     render::{
-        erased_render_asset::ErasedRenderAssets,
         extract_resource::ExtractResource,
-        material_bind_groups::MaterialBindGroupAllocators,
         mesh::RenderMesh,
         render_asset::RenderAssets,
-        render_phase::ViewSortedRenderPhases,
         render_resource::{CachedPipelineState, CachedRenderPipelineId, PipelineCache, PollType},
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -42,7 +38,6 @@ impl Shared {
         world.resource::<crate::gpu_prepare::Registry>().watch(
             &shared.0,
             |report| report,
-            None,
             |report, _, observer| observer.render(report, None),
         );
         shared
@@ -74,7 +69,6 @@ pub(crate) struct Report {
     pub direct: bool,
     pub requests: Vec<crate::gpu_prepare::Request>,
     pub requested: HashSet<crate::gpu_prepare::Request>,
-    pub material_bindings: HashSet<(bool, bevy::asset::UntypedAssetId)>,
     pub expected: HashSet<MainEntity>,
     pub pending: HashSet<MainEntity>,
     pub pipelines: HashSet<CachedRenderPipelineId>,
@@ -127,16 +121,13 @@ impl Report {
 
 #[derive(SystemParam)]
 pub(crate) struct Observer<'w> {
-    phases: Res<'w, ViewSortedRenderPhases<Transparent3d>>,
-    quads: Res<'w, ViewSortedRenderPhases<Transparent2d>>,
     pub cache: Res<'w, PipelineCache>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
     meshes: Res<'w, RenderAssets<RenderMesh>>,
     images: Res<'w, RenderAssets<GpuImage>>,
-    pub materials: Res<'w, ErasedRenderAssets<bevy::pbr::PreparedMaterial>>,
-    pub allocators: Res<'w, MaterialBindGroupAllocators>,
-    quad_materials: Res<'w, ErasedRenderAssets<bevy::sprite_render::PreparedMaterial2d>>,
+    /// Draws of the native frame renderer.
+    native: Option<Res<'w, crate::native::Drawn>>,
 }
 
 impl Observer<'_> {
@@ -149,20 +140,6 @@ impl Observer<'_> {
                 .images
                 .iter()
                 .all(|id| self.images.get(*id).is_some())
-            && report.material_bindings.iter().all(|(flat, id)| {
-                let binding = if *flat {
-                    self.quad_materials.get(*id).map(|m| m.binding)
-                } else {
-                    self.materials.get(*id).map(|m| m.binding)
-                };
-                binding.is_some_and(|binding| {
-                    self.allocators
-                        .get(&id.type_id())
-                        .and_then(|allocator| allocator.get(binding.group))
-                        .and_then(|slab| slab.bind_group())
-                        .is_some()
-                })
-            })
     }
 
     pub fn failed(&self, report: &Report) -> Option<String> {
@@ -221,7 +198,14 @@ impl Observer<'_> {
             }
         }
         self.observe(report, policy, true);
-        if report.error.is_none() && report.pending.is_empty() && self.assets_ready(report) {
+        if report.error.is_none()
+            && report.pending.is_empty()
+            && self.assets_ready(report)
+            && self
+                .native
+                .as_ref()
+                .is_none_or(|native| native.pending == 0)
+        {
             self.submit(report);
         }
     }
@@ -242,7 +226,11 @@ impl Observer<'_> {
         collect_ready: bool,
     ) {
         let mut ready = HashSet::new();
-        for (entity, pipeline) in draws(&self.phases, &self.quads) {
+        let native = self
+            .native
+            .iter()
+            .flat_map(|native| native.draws.iter().copied());
+        for (entity, pipeline) in native {
             if !report.expected.contains(&entity) {
                 continue;
             }
@@ -289,23 +277,6 @@ impl Observer<'_> {
 
 pub(crate) fn rendered(shared: Res<Shared>, observer: Observer) {
     observer.render(&mut shared.0.lock().unwrap(), None);
-}
-
-/// Draws queued by both cameras; callers retain their own pipeline/error policy.
-pub(crate) fn draws<'a>(
-    models: &'a ViewSortedRenderPhases<Transparent3d>,
-    ui: &'a ViewSortedRenderPhases<Transparent2d>,
-) -> impl Iterator<Item = (MainEntity, CachedRenderPipelineId)> + 'a {
-    let models = models
-        .0
-        .values()
-        .flat_map(|p| p.items.values())
-        .map(|p| (p.entity.1, p.pipeline));
-    let ui =
-        ui.0.values()
-            .flat_map(|p| p.items.values())
-            .map(|p| (p.entity.1, p.pipeline));
-    models.chain(ui)
 }
 
 #[cfg(test)]

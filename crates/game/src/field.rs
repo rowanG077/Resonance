@@ -2216,14 +2216,14 @@ mod tests {
         let mut storage = PredictionBuffer::new().unwrap();
         let allocation_counts = resonance_simulation_memory::system_calls();
         let right = storage.predict(&field, positive).unwrap().state.unwrap();
-        let left = storage.predict(&field, negative).unwrap().state.unwrap();
         assert!(right.events.world.actors[&1].position[0] > 0.);
+        drop(right);
+        let left = storage.predict(&field, negative).unwrap().state.unwrap();
         assert!(left.events.world.actors[&1].position[0] < 0.);
         assert_eq!(field.events.world.actors[&1].position, [0.; 3]);
         assert_eq!(field.events.tick(), 0);
         assert_eq!(field.events.world.random_state, original_random);
         assert_eq!(field.events.world.gameplay_random, original_gameplay_random);
-        drop(right);
         drop(left);
         assert_eq!(
             resonance_simulation_memory::system_calls(),
@@ -2252,45 +2252,16 @@ mod tests {
                 predicted.events.world.actors[&1].heading,
                 field.events.world.actors[&1].heading
             );
-        }
-        assert!(field.events.world.actors[&1].position[0] < 80.);
-    }
-
-    #[test]
-    fn captured_prediction_can_advance_off_thread_alongside_committed_state() {
-        let mut field = empty_session();
-        field.events.world.controlled_actor = 1;
-        field.events.world.input_enabled = true;
-        field.events.world.insert_actor(1, Actor::new(1, [0.; 3]));
-        let mut storage = PredictionBuffer::new().unwrap();
-        for tick in 0..24 {
-            let input = FieldInput {
-                direction: [if tick % 2 == 0 { 1. } else { -1. }, 0.],
-                ..Default::default()
-            };
-            let snapshot = storage.execute(|| field.capture_prediction()).unwrap();
-            let worker = std::thread::spawn(move || {
-                let result = storage.retain(|| snapshot.advance(input)).unwrap().unwrap();
-                (storage, result)
-            });
-            field.step(input).unwrap();
-            let (returned, prediction) = worker.join().unwrap();
-            storage = returned;
-            let next = prediction.state.unwrap();
-            assert_eq!(next.events.tick(), field.events.tick());
             assert_eq!(
-                next.events.world.actors[&1].position,
-                field.events.world.actors[&1].position
-            );
-            assert_eq!(
-                next.events.world.random_state,
+                predicted.events.world.random_state,
                 field.events.world.random_state
             );
             assert_eq!(
-                next.events.world.gameplay_random,
+                predicted.events.world.gameplay_random,
                 field.events.world.gameplay_random
             );
         }
+        assert!(field.events.world.actors[&1].position[0] < 80.);
     }
 
     #[test]
@@ -2308,6 +2279,7 @@ mod tests {
             let counts = resonance_simulation_memory::system_calls();
             let mut prediction = None;
             for _ in 0..4 {
+                drop(prediction.take());
                 prediction = storage
                     .predict(&field, FieldInput::default())
                     .unwrap()

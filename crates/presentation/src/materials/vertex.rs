@@ -8,7 +8,7 @@ use bevy::{
     render::render_resource::VertexFormat,
 };
 
-pub(super) const FLAGS: MeshVertexAttribute =
+pub(crate) const FLAGS: MeshVertexAttribute =
     MeshVertexAttribute::new("SurfaceChannels", 0x7265736f6e616e63, VertexFormat::Uint32);
 
 /// Padded GPU inputs do not supply UVs missing from the authored geometry.

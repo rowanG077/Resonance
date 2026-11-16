@@ -1,16 +1,24 @@
 use bevy::{
-    mesh::MeshVertexBufferLayoutRef,
     prelude::*,
     render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction,
-        Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+        BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction, Face, ShaderType,
     },
-    shader::ShaderRef,
-    sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
 use resonance_events::effect::Blend;
+mod geometry;
+mod record_buffer;
+mod stream;
 mod vertex;
+mod world;
+mod world_state;
+pub(crate) use geometry::{GeometryData, GeometryFrame, GeometryMesh, GeometryVertex};
+pub(crate) use record_buffer::RecordStats as SurfaceRecordStats;
+pub(crate) use stream::Records as SurfaceRecords;
+pub(crate) use stream::SurfacePublication;
+pub(crate) use vertex::FLAGS as SURFACE_CHANNELS;
 pub(super) use vertex::has_uv;
+pub(crate) use world::WorldSurface;
+pub(crate) use world_state::WorldRecords;
 
 #[cfg(test)]
 #[path = "surface_shader_tests.rs"]
@@ -22,7 +30,6 @@ pub(crate) fn embed_effect_color(app: &mut App) {
 
 fn embed_shaders(app: &mut App) {
     bevy::asset::embedded_asset!(app, "title_surface.wesl");
-    bevy::asset::embedded_asset!(app, "title_surface_vertex.wesl");
     bevy::shader::load_shader_library!(app, "surface_bindings.wesl");
     bevy::shader::load_shader_library!(app, "surface_vertex.wesl");
     embed_effect_color(app);
@@ -110,33 +117,14 @@ pub(super) fn install(app: &mut App) {
         .push(Box::new(Slots::default()));
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-#[uniform(2, OutputUniform)]
+#[derive(Asset, TypePath, Debug, Clone)]
 pub struct TitleOutput {
-    #[texture(0)]
-    #[sampler(1)]
     pub source: Handle<Image>,
     pub brightness: Vec4,
     /// Premultiplied, encoded UI composited after scene fades and before display conversion.
-    #[texture(3)]
-    #[sampler(4)]
     pub overlay: Option<Handle<Image>>,
 }
 
-#[derive(Clone, ShaderType)]
-pub struct OutputUniform {
-    brightness: Vec4,
-    overlay_enabled: u32,
-}
-
-impl From<&TitleOutput> for OutputUniform {
-    fn from(output: &TitleOutput) -> Self {
-        Self {
-            brightness: output.brightness,
-            overlay_enabled: u32::from(output.overlay.is_some()),
-        }
-    }
-}
 impl TitleOutput {
     /// Assets::iter_mut marks every visited material as modified, even if its
     /// bytes are unchanged. Avoid rebuilding bindings for unchanged output.
@@ -155,72 +143,28 @@ impl TitleOutput {
     }
 }
 
-impl Material2d for TitleOutput {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_output.wesl".into()
-    }
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[derive(Asset, TypePath, Debug, Clone)]
 pub struct TitleText {
-    #[texture(0)]
-    #[sampler(1)]
     pub source: Handle<Image>,
-    #[uniform(2)]
     pub opacity_pulse: Vec4,
-}
-
-impl Material2d for TitleText {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_text.wesl".into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-
-    fn specialize(
-        _pipeline: &bevy::sprite_render::Material2dPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
-        _key: Material2dKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        if let Some(fragment) = &mut descriptor.fragment {
-            for target in fragment.targets.iter_mut().flatten() {
-                target.blend = Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING);
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Register the movie/UI image pass and the final output conversion.
 pub fn install_output_materials(app: &mut App) {
-    // Keep Bevy's shader identity/import paths while fixing its DX12 instance
-    // index alias. Install before Material2dPlugin starts loading sprite shaders.
-    // The pixel smoke test includes a translated sprite after other 2D meshes,
-    // so reading the wrong instance's transform cannot pass unnoticed.
-    app.world()
-        .resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>()
-        .insert_asset(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/src/sprite_material.wesl").into(),
-            std::path::Path::new("bevy_sprite_render/sprite_mesh/sprite_material.wesl"),
-            include_bytes!("sprite_material.wesl").as_slice(),
-        );
-    app.add_plugins((
-        bevy::sprite_render::Material2dPlugin::<TitleOutput>::default(),
-        bevy::sprite_render::Material2dPlugin::<TitleText>::default(),
-    ));
-    bevy::asset::embedded_asset!(app, "title_output.wesl");
-    bevy::asset::embedded_asset!(app, "title_text.wesl");
+    crate::native::init_material::<TitleOutput>(app);
+    crate::native::init_material::<TitleText>(app);
 }
 
 /// Register the scene material and its embedded production shaders.
 pub fn install_surface_material(app: &mut App) {
+    crate::renderer::install_uploads(app);
     crate::scene::install_sampled_images(app);
-    // Bevy starts loading 3D material shaders while adding the plugin.
     embed_shaders(app);
-    app.add_plugins(MaterialPlugin::<TitleSurface>::default());
+    crate::native::init_material::<TitleSurface>(app);
+    crate::native::init_material::<WorldSurface>(app);
+    stream::install(app);
+    world_state::install(app);
+    crate::native::install(app);
 }
 
 /// Shared scenery illumination from up to two independently moving sources.
@@ -245,19 +189,14 @@ impl SceneryLighting {
 }
 
 /// Unlit scene surface with an optional second, independently mapped texture.
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone, PartialEq)]
-#[bind_group_data(SurfaceKey)]
-#[data(4, SurfaceUniform, binding_array(10))]
-#[bindless]
+#[derive(Asset, TypePath, Debug, Clone, PartialEq)]
+// Authored ordering uses direct draws rather than wide unordered batches.
+// Bound per-draw texture tracking and fit the sampler arrays on native GPUs
+// whose limits cannot accommodate Bevy's 2,048-slot desktop default.
 pub struct TitleSurface {
-    #[texture(0)]
     pub color: Option<Handle<Image>>,
     /// Share texture pixels while selecting a separately prepared sampler.
-    #[texture(5)]
-    #[sampler(1)]
     pub sampling: Option<Handle<Image>>,
-    #[texture(2)]
-    #[sampler(3)]
     pub multiply: Option<Handle<Image>>,
     /// Battle dual-palette effects take RGB from `color` and alpha from `multiply`.
     pub multiply_alpha_only: bool,
@@ -266,8 +205,6 @@ pub struct TitleSurface {
     pub tint: Vec4,
     /// Native RGB ambient bytes (64 is neutral); W enables unlit actor modulation.
     pub ambient_color: Vec4,
-    #[texture(6)]
-    #[sampler(7)]
     pub toon_ramp: Option<Handle<Image>>,
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
@@ -276,7 +213,7 @@ pub struct TitleSurface {
     /// Scene fog: RGB color, depth start/end, and nonlinear exponent (zero is linear).
     pub fog_color: Vec4,
     pub fog_range: Vec4,
-    /// Use per-view field fog; menu previews and overworld materials keep their own fog.
+    /// Use the field camera's native exponential fog curve.
     pub field_fog: bool,
     /// Native ambient channels are applied before byte-quantized toon shading.
     pub ambient_scale: Vec3,
@@ -347,9 +284,8 @@ impl TitleSurface {
     }
 }
 
-/// One packed record per material in Bevy's reusable bindless data buffer.
-/// Ordinary bindings use the same layout in a single uniform buffer.
-#[derive(Clone, ShaderType)]
+/// One packed row in the native field and battle material table.
+#[derive(Clone, Debug, PartialEq, ShaderType)]
 pub struct SurfaceUniform {
     uv_offsets: Vec4,
     uv_scales: Vec4,
@@ -393,8 +329,9 @@ impl From<&TitleSurface> for SurfaceUniform {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SurfaceKey {
+    world_surface: bool,
     constant_color: bool,
     clamp_color: bool,
     vertex_alpha: bool,
@@ -449,9 +386,54 @@ impl SurfaceKey {
     }
 }
 
+/// Pipeline state of a surface recipe for the native display-list renderer.
+pub(crate) struct NativeSurfaceState {
+    pub defs: Vec<&'static str>,
+    pub cull: Option<Face>,
+    pub blend: Option<BlendState>,
+    pub depth_write: bool,
+    pub depth_compare: CompareFunction,
+}
+
+impl SurfaceKey {
+    /// The shader definitions and pipeline state this recipe draws with.
+    pub(crate) fn native_state(self) -> NativeSurfaceState {
+        let mut defs = Vec::new();
+        for (enabled, def) in [
+            (self.world_surface, "WORLD_SURFACE"),
+            (self.vertex_alpha, "VERTEX_ALPHA"),
+            (self.constant_color, "CONSTANT_COLOR"),
+            (self.clamp_color, "CLAMP_COLOR"),
+            (self.multiply_alpha_only, "MULTIPLY_ALPHA_ONLY"),
+        ] {
+            if enabled {
+                defs.push(def);
+            }
+        }
+        NativeSurfaceState {
+            defs,
+            cull: match self.cull {
+                resonance_content::CullFace::Back => Some(Face::Back),
+                resonance_content::CullFace::Front => Some(Face::Front),
+                resonance_content::CullFace::None => None,
+            },
+            blend: self.blend_state(),
+            depth_write: self.depth_write,
+            depth_compare: if !self.depth_test {
+                CompareFunction::Always
+            } else if self.depth_write || self.depth_equal {
+                CompareFunction::GreaterEqual
+            } else {
+                CompareFunction::Greater
+            },
+        }
+    }
+}
+
 impl From<&TitleSurface> for SurfaceKey {
     fn from(material: &TitleSurface) -> Self {
         Self {
+            world_surface: false,
             constant_color: material.constant_color,
             clamp_color: material.clamp_color,
             vertex_alpha: material.vertex_alpha,
@@ -462,79 +444,6 @@ impl From<&TitleSurface> for SurfaceKey {
             multiply_alpha_only: material.multiply_alpha_only,
             cull: material.cull,
         }
-    }
-}
-
-impl Material for TitleSurface {
-    fn vertex_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_surface_vertex.wesl".into()
-    }
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/title_surface.wesl".into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode {
-        // All authored draws must share a sortable phase. Opaque recipes still
-        // disable blending in their pipeline, but cannot move ahead of actors.
-        AlphaMode::Blend
-    }
-
-    fn specialize(
-        _pipeline: &bevy::pbr::MaterialPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        layout: &MeshVertexBufferLayoutRef,
-        key: bevy::pbr::MaterialPipelineKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        descriptor.label = Some("resonance/surface".into());
-        if layout.0.contains(vertex::FLAGS) {
-            let flags = layout
-                .0
-                .get_layout(&[vertex::FLAGS.at_shader_location(8)])?;
-            descriptor.vertex.buffers[0]
-                .attributes
-                .extend(flags.attributes);
-            descriptor.vertex.shader_defs.push("SURFACE_LAYOUT".into());
-        }
-        // Imported triangles have counter-clockwise winding.
-        descriptor.primitive.cull_mode = match key.bind_group_data.cull {
-            resonance_content::CullFace::Back => Some(Face::Back),
-            resonance_content::CullFace::Front => Some(Face::Front),
-            resonance_content::CullFace::None => None,
-        };
-        if key.bind_group_data.vertex_alpha {
-            descriptor.vertex.shader_defs.push("VERTEX_ALPHA".into());
-            if let Some(fragment) = &mut descriptor.fragment {
-                fragment.shader_defs.push("VERTEX_ALPHA".into());
-            }
-        }
-        if key.bind_group_data.constant_color
-            && let Some(fragment) = &mut descriptor.fragment
-        {
-            fragment.shader_defs.push("CONSTANT_COLOR".into());
-        }
-        if let Some(fragment) = &mut descriptor.fragment {
-            if key.bind_group_data.clamp_color {
-                fragment.shader_defs.push("CLAMP_COLOR".into());
-            }
-            if key.bind_group_data.multiply_alpha_only {
-                fragment.shader_defs.push("MULTIPLY_ALPHA_ONLY".into());
-            }
-            for target in fragment.targets.iter_mut().flatten() {
-                target.blend = key.bind_group_data.blend_state();
-            }
-        }
-        if let Some(depth) = &mut descriptor.depth_stencil {
-            depth.depth_write_enabled = Some(key.bind_group_data.depth_write);
-            // Convert strict/non-strict depth tests to Bevy’s reverse-Z convention.
-            depth.depth_compare = Some(if !key.bind_group_data.depth_test {
-                CompareFunction::Always
-            } else if key.bind_group_data.depth_write || key.bind_group_data.depth_equal {
-                CompareFunction::GreaterEqual
-            } else {
-                CompareFunction::Greater
-            });
-        }
-        Ok(())
     }
 }
 

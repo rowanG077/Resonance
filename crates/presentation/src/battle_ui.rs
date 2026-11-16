@@ -295,7 +295,9 @@ impl Artwork {
                     .effect(TextureEffect::GlyphPattern),
             ),
             reserved_commands: make(text(Depth::Vitals).offset_depth(2.)),
-            floating: make(text(Depth::Meters)),
+            // Above the unison frame and escape art, which also sit at
+            // `Meters + 1`; an equal depth left the order to the renderer.
+            floating: make(text(Depth::Meters).offset_depth(0.5)),
             recovery: make(text(Depth::Recovery)),
             scan,
             transition: make(solid(Depth::Transition)),
@@ -433,12 +435,7 @@ impl Artwork {
     }
 
     /// Call before activation; the scene loader owns GPU readiness and warmup.
-    pub fn prepare(
-        &mut self,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-        resolution: crate::Resolution,
-    ) {
+    pub fn prepare(&mut self, commands: &mut Commands, resolution: crate::Resolution) {
         self.resolution = resolution;
         if let Some(resident) = self.windows.resident() {
             let inventory = resident.0.lock().unwrap();
@@ -466,7 +463,7 @@ impl Artwork {
             }
         }
         for layer in self.layers_mut() {
-            layer.prepare(commands, meshes);
+            layer.prepare(commands);
         }
         self.windows.prepare_windows(resolution);
     }
@@ -524,7 +521,6 @@ impl Artwork {
         marker_anchors: &[ActorMarkers],
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         ensure!(
             self.layers().all(|layer| layer.rendered.is_some()),
@@ -539,21 +535,21 @@ impl Artwork {
             self.hide_for_event(commands);
             return Ok(());
         }
-        self.render_party(frame, party, time, commands, meshes)?;
-        self.render_results(time.feedback, commands, meshes)?;
-        self.render_overlays((committed, frame), time, commands, meshes)?;
+        self.render_party(frame, party, time, commands)?;
+        self.render_results(time.feedback, commands)?;
+        self.render_overlays((committed, frame), time, commands)?;
         if self.results.is_some() {
             for layer in [&mut self.ui.floating, &mut self.ui.recovery] {
                 layer.show(false, commands);
             }
         } else {
-            self.render_numbers(frame, time.feedback, commands, meshes)?;
+            self.render_numbers(frame, time.feedback, commands)?;
         }
-        self.render_notices(frame, party, time.feedback, commands, meshes)?;
-        self.render_combat(frame, command, marker_anchors, time, commands, meshes)?;
-        self.render_scan(frame, command, inspection, time, commands, meshes)?;
-        self.render_unison_attack(frame, party, time, commands, meshes)?;
-        self.cutin.render(time.update, commands, meshes)?;
+        self.render_notices(frame, party, time.feedback, commands)?;
+        self.render_combat(frame, command, marker_anchors, time, commands)?;
+        self.render_scan(frame, command, inspection, time, commands)?;
+        self.render_unison_attack(frame, party, time, commands)?;
+        self.cutin.render(time.update, commands)?;
         Ok(())
     }
 
@@ -565,7 +561,6 @@ impl Artwork {
         character: usize,
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         use resonance_game::battle::command::View;
         let future = time
@@ -597,7 +592,6 @@ impl Artwork {
             &self.settings,
             time.tick,
             commands,
-            meshes,
         )
     }
 
@@ -606,7 +600,6 @@ impl Artwork {
         frame: &BattleFrame,
         input: RibbonInput<'_>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let batches = if frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
             || frame
@@ -620,7 +613,7 @@ impl Artwork {
                 .draw(input, &self.font, &self.combat.enemies, frame)?
         };
         for (layer, batch) in self.ui.ribbons.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }
@@ -657,7 +650,6 @@ impl Artwork {
         next: Option<(&crate::battle::prediction::Endpoint, f32)>,
         resolution: crate::Resolution,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
         let future = if let Some((endpoint, alpha)) = next
@@ -698,7 +690,6 @@ impl Artwork {
             // Battle dialogue uses a fixed attachment height plus scripted offsets.
             &BTreeMap::new(),
             commands,
-            meshes,
             materials,
         )
     }
@@ -723,7 +714,6 @@ impl Artwork {
         letterbox: u16,
         prediction: Option<TransitionPrediction<'_>>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let flash_at = |age| {
             let peak_end = HOURGLASS_FLASH_RISE + HOURGLASS_FLASH_PEAK;
@@ -829,7 +819,7 @@ impl Artwork {
         if let Some(color) = cover.filter(|color| color.w > 0.) {
             batch.quad(self.resolution.ui_rect(), [0.5; 4], color.to_array());
         }
-        layer.upload(batch, commands, meshes)?;
+        layer.upload(batch, commands)?;
         Ok(())
     }
 
@@ -969,7 +959,6 @@ impl Artwork {
         frames: (&BattleFrame, &BattleFrame),
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut panel = Batch::default();
         let mut text = Batch::default();
@@ -998,7 +987,7 @@ impl Artwork {
             warning.draw(&self.art.font, projected, &mut text)?;
         }
         for (layer, batch) in self.ui.labels.iter_mut().zip([panel, text]) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }

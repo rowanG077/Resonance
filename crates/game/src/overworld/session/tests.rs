@@ -1240,6 +1240,7 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
         let counts = resonance_simulation_memory::system_calls();
         let mut predicted = None;
         for _ in 0..4 {
+            drop(predicted.take());
             predicted = Some(storage.execute(|| {
                 let mut next =
                     session.fork_for_prediction(&mut resonance_events::OperationFork::default());
@@ -1449,6 +1450,7 @@ fn speculative_world_updates_reuse_slots_and_leave_motion_rng_and_menus_committe
         let counts = resonance_simulation_memory::system_calls();
         let mut result = None;
         for _ in 0..4 {
+            drop(result.take());
             result = Some(storage.execute(|| {
                 let mut next =
                     session.fork_for_prediction(&mut resonance_events::OperationFork::default());

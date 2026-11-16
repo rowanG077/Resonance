@@ -400,17 +400,15 @@ fn system_handoff_interpolates_with_retained_world_notices() -> Result<()> {
     let expected_alpha = 1. - f32::from(next.main_fade) * 0.5 / 255.;
     let mut prediction = Prediction::default();
     prediction.reserve()?;
-    let next = prediction.execute(|| next.clone())?;
-    prediction.publish(
+    prediction.predict(
         Key::Menu(
             bevy::ecs::change_detection::Tick::new(1),
             Default::default(),
         ),
-        Endpoint::Menu(next),
+        || Ok(Endpoint::Menu(next)),
     );
     prediction.alpha = 0.5;
     let mut queue = bevy::ecs::world::CommandQueue::default();
-    let mut meshes = Assets::<Mesh>::default();
     let mut render = |artwork: &mut MenuArtwork, prediction: &mut Prediction| -> Result<()> {
         artwork.render(
             Source::Title(Some(&menu)),
@@ -420,7 +418,6 @@ fn system_handoff_interpolates_with_retained_world_notices() -> Result<()> {
             crate::Resolution::default(),
             Some(prediction),
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
         )?;
         queue.apply(&mut world);
         Ok(())
@@ -625,17 +622,15 @@ fn optional_battle_menu_text_is_admitted_when_drawn() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires locally cooked menus; CPU mesh/visibility preparation only"]
+#[ignore = "requires locally cooked menus; CPU geometry/visibility preparation only"]
 fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     let fixture = Fixture::load()?;
     let mut world = World::new();
     let mut artwork = fixture.artwork(&mut world)?;
     let canvases = artwork.canvas_bindings();
     let mut queue = bevy::ecs::world::CommandQueue::default();
-    let mut meshes = Assets::<Mesh>::default();
     artwork.prepare_windows(crate::Resolution::default());
     queue.apply(&mut world);
-    assert!(meshes.is_empty(), "unused menu planes allocated meshes");
     assert!(artwork.layers.is_empty());
     let state = resonance_game::menu::strategy::Strategy {
         focus: StrategyFocus::Rename,
@@ -651,7 +646,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         &fixture.party.settings.preferences,
         100,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     queue.apply(&mut world);
     assert!(
@@ -681,7 +675,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             crate::Resolution::default(),
             None,
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
         )?;
         queue.apply(&mut world);
         let submitted: Vec<_> = artwork
@@ -701,7 +694,8 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             "first text publication must have its menu depth before propagation",
         );
         for layer in submitted {
-            assert!(meshes.get(&layer.mesh).unwrap().count_vertices() > 0);
+            let mut stream = crate::materials::GeometryFrame::default();
+            assert!(!layer.geometry.append_to(&mut stream).is_empty());
             assert!(matches!(
                 world.get::<Visibility>(layer.entity),
                 Some(Visibility::Visible | Visibility::Inherited)
@@ -729,7 +723,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
                 crate::Resolution::default(),
                 None,
                 &mut Commands::new(&mut queue, &world),
-                &mut meshes,
             )?;
             queue.apply(&mut world);
             assert!(
@@ -763,7 +756,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         &fixture.party.settings.preferences,
         101,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     queue.apply(&mut world);
     let shade = &artwork.layers[&(0, DrawRole::Background, FONT)];
@@ -792,7 +784,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         crate::Resolution::default(),
         None,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     queue.apply(&mut world);
     assert!(artwork.layers.values().all(|layer| !layer.visible
@@ -805,7 +796,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         &fixture.party.settings.preferences,
         103,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     queue.apply(&mut world);
     assert!(
@@ -835,7 +825,6 @@ fn battle_menu_cursors_stay_visible_and_repeatable() -> Result<()> {
     let mut world = World::new();
     let mut artwork = fixture.artwork(&mut world)?;
     let mut queue = bevy::ecs::world::CommandQueue::default();
-    let mut meshes = Assets::<Mesh>::default();
     artwork.prepare_windows(crate::Resolution::default());
     queue.apply(&mut world);
     artwork.animation.trail.slots(0, [0, 0]);
@@ -848,7 +837,6 @@ fn battle_menu_cursors_stay_visible_and_repeatable() -> Result<()> {
             &fixture.party.settings.preferences,
             tick,
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
         )?;
         queue.apply(&mut world);
         artwork
@@ -1152,7 +1140,6 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
     slots.take_command();
     slots.finish(None);
     let mut queue = bevy::ecs::world::CommandQueue::default();
-    let mut meshes = Assets::<Mesh>::default();
     artwork.render(
         Source::Title(Some(&slots)),
         &fixture.font,
@@ -1161,7 +1148,6 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
         crate::Resolution::default(),
         None,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     assert!(!artwork.layers.is_empty());
     let mut draw = artwork.begin_drawing(&fixture.font, &fixture.dialogue, None, 0)?;
@@ -1224,7 +1210,6 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
         crate::Resolution::default(),
         None,
         &mut Commands::new(&mut queue, &world),
-        &mut meshes,
     )?;
     assert!(artwork.layers.values().all(|layer| !layer.visible));
     assert!(

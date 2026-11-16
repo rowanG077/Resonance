@@ -365,7 +365,6 @@ impl Artwork {
         party: PartyHudInput<'_>,
         time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let actors: Vec<_> = frame
             .actors
@@ -522,7 +521,7 @@ impl Artwork {
             }
         }
         for (layer, batch) in self.ui.portraits.iter_mut().zip(portraits) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         for (layer, batch) in self
             .ui
@@ -530,23 +529,21 @@ impl Artwork {
             .iter_mut()
             .zip(petrified_portraits)
         {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         for (layer, batch) in self.ui.stat_icons.iter_mut().zip(stat_icons) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
-        self.ui
-            .rhythm_prompt
-            .upload(rhythm_prompt, commands, meshes)?;
-        self.ui.gauges.upload(gauges, commands, meshes)?;
+        self.ui.rhythm_prompt.upload(rhythm_prompt, commands)?;
+        self.ui.gauges.upload(gauges, commands)?;
         self.ui
             .patterned_vitals
-            .upload(patterned_digits, commands, meshes)?;
-        self.ui.font.upload(digits, commands, meshes)?;
+            .upload(patterned_digits, commands)?;
+        self.ui.font.upload(digits, commands)?;
         // Command labels cover both ordinary and patterned vitals.
         self.ui
             .reserved_commands
-            .upload(reserved_commands, commands, meshes)
+            .upload(reserved_commands, commands)
     }
 }
 
@@ -621,11 +618,9 @@ mod tests {
     fn portraits_and_recovery_follow_rotated_slots() -> Result<()> {
         let (mut artwork, _, _app) = test_artwork()?;
         let mut world = World::new();
-        let mut meshes = Assets::<Mesh>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         artwork.prepare(
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
             crate::Resolution::default(),
         );
         queue.apply(&mut world);
@@ -652,7 +647,6 @@ mod tests {
             },
             HudTime::default(),
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
         )?;
         for (character, slot) in [(Character::Lloyd, 1), (Character::Colette, 0)] {
             let batch = &artwork.ui.portraits[character.index()]
@@ -695,12 +689,7 @@ mod tests {
         assert_eq!(markers.positions[0][1], 240. - (TOP - 1. + 2.));
         assert!(artwork.ui.reserved_commands.definition.depth < Depth::Commands.value());
         let mut number_positions = |fraction| -> Result<_> {
-            artwork.render_numbers(
-                &frame,
-                fraction,
-                &mut Commands::new(&mut queue, &world),
-                &mut meshes,
-            )?;
+            artwork.render_numbers(&frame, fraction, &mut Commands::new(&mut queue, &world))?;
             Ok([&artwork.ui.floating, &artwork.ui.recovery].map(|layer| {
                 layer
                     .rendered
@@ -748,15 +737,13 @@ mod tests {
         }));
         assert!(diagnostics.has_errors());
         let mut world = World::new();
-        let mut meshes = Assets::<Mesh>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         artwork.prepare(
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
             crate::Resolution::default(),
         );
         queue.apply(&mut world);
-        let counts = (materials.len(), meshes.len());
+        let count = materials.len();
         let mut frame = fixtures::frame(fixtures::actor(Default::default()));
         frame.actors = vec![frame.actors[0].clone(); 4];
         for (slot, actor) in frame.actors.iter_mut().enumerate() {
@@ -795,7 +782,6 @@ mod tests {
                 &[super::ActorMarkers::default(); 4],
                 Default::default(),
                 &mut Commands::new(&mut queue, &world),
-                &mut meshes,
             )?;
             queue.apply(&mut world);
             assert!(
@@ -855,7 +841,7 @@ mod tests {
             for vitals in [&artwork.ui.font, &artwork.ui.patterned_vitals] {
                 assert!(artwork.ui.reserved_commands.definition.depth > vitals.definition.depth);
             }
-            assert_eq!((materials.len(), meshes.len()), counts);
+            assert_eq!(materials.len(), count);
         }
         Ok(())
     }

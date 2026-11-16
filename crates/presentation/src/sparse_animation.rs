@@ -88,12 +88,17 @@ impl Binding {
     }
 
     /// Start with the rest pose, then write each indexed track exactly once.
-    pub fn sample_poses(&self, animation: Option<(&Motion, f32)>) -> Result<Vec<affine::Pose>> {
-        let mut poses: Vec<_> = self.0.iter().map(|&(_, rest)| rest.into()).collect();
+    pub fn sample_poses(
+        &self,
+        animation: Option<(&Motion, f32)>,
+        poses: &mut Vec<affine::Pose>,
+    ) -> Result<()> {
+        poses.clear();
+        poses.extend(self.0.iter().map(|&(_, rest)| affine::Pose::from(rest)));
         if let Some((motion, frame)) = animation {
             self.sample_tracks(motion, frame, |i, pose| poses[i] = pose)?;
         }
-        Ok(poses)
+        Ok(())
     }
 
     fn sample_tracks(
@@ -155,23 +160,6 @@ impl Binding {
                 .collect::<Result<_>>()?,
         ))
     }
-}
-
-pub(super) fn sample(
-    bones: &[(Entity, Transform)],
-    motion: &Motion,
-    frame: f32,
-    nodes: &mut Query<&mut Transform>,
-    affine: &mut affine::Locals,
-) -> Result<()> {
-    for track in &motion.tracks {
-        let &(entity, rest) = bones
-            .get(usize::from(track.bone))
-            .context("animation bone outside bound model")?;
-        let pose = sample_track(track, frame, rest)?;
-        affine.set(entity, &mut *nodes.get_mut(entity)?, pose);
-    }
-    Ok(())
 }
 
 pub(super) fn sample_track(

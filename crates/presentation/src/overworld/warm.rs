@@ -1,5 +1,6 @@
 //! Build and submit both ordinary worlds at boot through the live renderer.
 use super::*;
+use crate::native::MeshMaterial3d;
 
 #[derive(Resource)]
 pub(super) struct Draws(crate::gpu_prepare::Shared);
@@ -32,10 +33,14 @@ fn retire(world: &mut World) {
         .store(false, Ordering::Release);
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct Draw;
+
 pub(super) fn install(app: &mut App) {
     app.add_systems(
         PostUpdate,
-        draw.after(super::animate)
+        draw.in_set(Draw)
+            .after(super::animate)
             .before(bevy::transform::TransformSystems::Propagate),
     );
 }
@@ -85,12 +90,15 @@ fn draw(world: &mut World) {
     for entity in nodes {
         if let Some((mesh, material)) = world
             .get::<Mesh3d>(entity)
-            .zip(world.get::<MeshMaterial3d<TitleSurface>>(entity))
+            .zip(world.get::<MeshMaterial3d<WorldSurface>>(entity))
         {
             report.prepare(
                 crate::gpu_prepare::View::Field,
                 mesh.0.id(),
-                material.0.id().untyped(),
+                world
+                    .resource::<Assets<WorldSurface>>()
+                    .get(&material.0)
+                    .expect("prepared world material"),
                 false,
                 Some(samples),
             );

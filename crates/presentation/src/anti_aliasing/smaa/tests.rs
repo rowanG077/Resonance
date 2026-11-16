@@ -1,91 +1,93 @@
 use super::*;
+use crate::native::{MeshMaterial2d, MeshMaterial3d};
 
-#[derive(Resource, Default)]
-struct Captures(Vec<Image>);
-
-fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Result<Vec<Image>> {
-    let s2x = mode == AntiAliasing::SmaaS2x;
-    use bevy::{
-        camera::{CameraOutputMode, RenderTarget, visibility::RenderLayers},
-        core_pipeline::tonemapping::Tonemapping,
-        render::view::screenshot::{Screenshot, ScreenshotCaptured},
-    };
+/// SMAA (or S2x) on the native frame: a white quad over a red clear, a green
+/// UI glyph that SMAA must not filter, a resize and three simultaneous target
+/// sizes retaining their GPU resources. Returns false when the adapter does
+/// not support `mode`.
+fn render_native_scene(mode: AntiAliasing) -> anyhow::Result<bool> {
+    use bevy::camera::{RenderTarget, visibility::RenderLayers};
     const SIZE: u32 = 96;
     let mut app = App::new();
-    app.add_plugins(crate::test_support::render_plugins().disable::<bevy::log::LogPlugin>())
-        .add_plugins(bevy_post_process::msaa_writeback::MsaaWritebackPlugin)
-        .init_resource::<Captures>();
-    static LOGGING: std::sync::Once = std::sync::Once::new();
-    LOGGING.call_once(|| {
-        app.add_plugins(bevy::log::LogPlugin::default());
-    });
-    install(&mut app);
-    let began = std::time::Instant::now();
-    while app.plugins_state() == bevy::app::PluginsState::Adding {
-        anyhow::ensure!(began.elapsed().as_secs() < 120, "S2x GPU setup timed out");
-        bevy::tasks::tick_global_task_pools_on_main_thread();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    app.finish();
-    app.cleanup();
-    let caps = super::super::AntiAliasingCapabilities::detect(
-        app.world()
-            .resource::<bevy::render::renderer::RenderAdapter>(),
-        app.world().resource::<RenderDevice>(),
-    );
-    anyhow::ensure!(
-        !s2x || caps.supports(resonance_content::menu_data::AntiAliasing::SmaaS2x),
-        "this test requires native 2x MSAA support"
-    );
-    let msaa = if s2x { Msaa::Sample2 } else { Msaa::Off };
-    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
-        std::time::Duration::ZERO,
-    ));
+    app.add_plugins(crate::test_support::render_plugins_with_features(
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+    ))
+    .add_plugins(super::super::AntiAliasingPlugin);
     let target = app
         .world_mut()
         .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(SIZE, SIZE, format, None));
-    // The S2x camera loads a background published by an earlier camera. Its
-    // readable attachment must preserve that scene before drawing geometry.
+        .add(Image::new_target_texture(
+            SIZE,
+            SIZE,
+            crate::renderer::SCENE_COLOR_FORMAT,
+            None,
+        ));
+    crate::test_support::native_scene(&mut app, target.clone());
+    crate::test_support::finish_app(&mut app)?;
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::ZERO,
+    ));
+    app.update();
+    let caps = app
+        .world()
+        .resource::<super::super::AntiAliasingCapabilities>();
+    if !caps.supports(mode) {
+        return Ok(false);
+    }
+    app.world_mut()
+        .resource_mut::<super::super::AntiAliasingSettings>()
+        .0 = mode;
+    let white = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_fill(
+            Extent3d::default(),
+            TextureDimension::D2,
+            &[255; 4],
+            TextureFormat::Rgba8Unorm,
+            default(),
+        ));
     app.world_mut().spawn((
-        Camera2d,
-        msaa,
-        Tonemapping::Linear,
+        Camera3d::default(),
         RenderTarget::Image(target.clone().into()),
-        RenderLayers::layer(2),
         Camera {
-            order: -1,
             clear_color: Color::srgb(1., 0., 0.).into(),
-            output_mode: CameraOutputMode::Skip,
             ..default()
         },
     ));
-    let camera = app
-        .world_mut()
-        .spawn((
+    // Preview and reflection cameras can keep sizes different from the scene
+    // after a live resolution change. Both remain active under the menu.
+    let offscreen_sizes = [UVec2::new(80, 64), UVec2::splat(48)];
+    for (index, size) in offscreen_sizes.into_iter().enumerate() {
+        let image = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::new_target_texture(
+                size.x,
+                size.y,
+                crate::renderer::SCENE_COLOR_FORMAT,
+                None,
+            ));
+        app.world_mut().spawn((
             Camera3d::default(),
-            msaa,
-            Tonemapping::Linear,
-            RenderTarget::Image(target.clone().into()),
+            RenderTarget::Image(image.into()),
+            crate::native::Offscreen,
             Camera {
-                clear_color: ClearColorConfig::None,
-                output_mode: CameraOutputMode::Skip,
+                order: -10 + index as isize,
                 ..default()
             },
-        ))
-        .id();
-    app.world_mut().entity_mut(camera).insert(Smaa(mode));
+        ));
+    }
     let mesh = app
         .world_mut()
         .resource_mut::<Assets<Mesh>>()
         .add(Rectangle::new(1., 1.));
+    // The glow material draws its texture with a fourfold gain: white.
     let material = app
         .world_mut()
-        .resource_mut::<Assets<StandardMaterial>>()
-        .add(StandardMaterial {
-            base_color: Color::WHITE,
-            unlit: true,
-            ..default()
+        .resource_mut::<Assets<crate::glow::GlowMaterial>>()
+        .add(crate::glow::GlowMaterial {
+            texture: white.clone(),
         });
     app.world_mut().spawn((
         Mesh3d(mesh),
@@ -98,9 +100,9 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
         .add(Rectangle::new(12., 12.));
     let green = app
         .world_mut()
-        .resource_mut::<Assets<ColorMaterial>>()
-        .add(Color::srgb(0., 1., 0.));
-    let ui_layer = bevy::camera::visibility::RenderLayers::layer(1);
+        .resource_mut::<Assets<crate::menu_backdrop::Material>>()
+        .add(crate::menu_backdrop::Material::visible(white).with_cover(Vec4::new(0., 1., 0., 1.)));
+    let ui_layer = RenderLayers::layer(1);
     app.world_mut().spawn((
         Mesh2d(glyph),
         MeshMaterial2d(green),
@@ -109,17 +111,12 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
     ));
     app.world_mut().spawn((
         Camera2d,
-        msaa,
-        Tonemapping::Linear,
+        Msaa::Off,
         RenderTarget::Image(target.clone().into()),
         ui_layer,
         Camera {
             order: 1,
             clear_color: ClearColorConfig::None,
-            output_mode: CameraOutputMode::Write {
-                blend_state: Some(BlendState::REPLACE),
-                clear_color: ClearColorConfig::None,
-            },
             ..default()
         },
     ));
@@ -134,114 +131,114 @@ fn render_native_scene(format: TextureFormat, mode: AntiAliasing) -> anyhow::Res
             crate::playthrough::check_exit(&app)?;
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let render = app.sub_app_mut(RenderApp).world_mut();
-        let mut resources = render.query::<&ViewResources>();
-        anyhow::ensure!(
-            resources
-                .iter(render)
-                .any(|resources| resources.size == size
-                    && resources.mode == Smaa(mode)
-                    && resources.spatial.as_ref().is_none_or(|spatial| spatial
-                        .calibrated
-                        .load(std::sync::atomic::Ordering::Relaxed))),
-            "{mode:?}: SMAA render resources were not prepared"
-        );
-        let count = app.world().resource::<Captures>().0.len();
-        app.world_mut()
-            .spawn(Screenshot::image(target.clone()))
-            .observe(
-                |shot: On<ScreenshotCaptured>, mut captures: ResMut<Captures>| {
-                    captures.0.push(shot.image.clone())
-                },
-            );
-        while app.world().resource::<Captures>().0.len() == count {
+        crate::test_support::render_until(
+            &mut app,
+            "SMAA render resources were not prepared",
+            |app| crate::native::render::smaa_ready(app, mode, size),
+        )?;
+        let textures = |app: &App| {
+            crate::native::render::smaa(app)
+                .unwrap()
+                .0
+                .iter()
+                .map(|view| {
+                    (
+                        view.size,
+                        [
+                            view.edges.texture.id(),
+                            view.stencil.texture.id(),
+                            view.weights.texture.id(),
+                        ],
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let retained = textures(&app);
+        for expected in offscreen_sizes.into_iter().chain([size]) {
             anyhow::ensure!(
-                began.elapsed().as_secs() < 120,
-                "S2x native readback timed out"
+                retained.iter().any(|(size, _)| *size == expected),
+                "{mode:?}: simultaneous SMAA target {expected:?} was evicted"
             );
+        }
+        for _ in 0..8 {
             app.update();
             crate::playthrough::check_exit(&app)?;
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            anyhow::ensure!(
+                textures(&app) == retained,
+                "{mode:?}: SMAA textures changed while all three target sizes stayed active"
+            );
         }
-        let image = app
-            .world()
-            .resource::<Captures>()
-            .0
-            .last()
-            .unwrap()
-            .clone()
+        let image = crate::test_support::capture_image(&mut app, target.clone())?
             .try_into_dynamic()?
             .to_rgba8();
-        anyhow::ensure!(image.dimensions() == (size.x, size.y), "S2x resize failed");
+        anyhow::ensure!(image.dimensions() == (size.x, size.y), "resize failed");
         anyhow::ensure!(
             image
                 .get_pixel(size.x / 2, size.y / 2)
                 .0
                 .iter()
                 .all(|channel| *channel >= 254),
-            "{format:?} {size:?}: S2x failed to render opaque geometry: {:?}",
+            "{mode:?} {size:?}: failed to render opaque geometry: {:?}",
             image.get_pixel(size.x / 2, size.y / 2).0
         );
         anyhow::ensure!(
             image
-                .pixels()
-                .filter(|p| p.0[1] > 1 && p.0[1] < 254)
+                .enumerate_pixels()
+                // Keep the UI square out of the scene-edge check. Filtering
+                // that square must not masquerade as smoothing the geometry.
+                .filter(|(x, y, p)| {
+                    (*x > size.x / 2 - 24 || *y > size.y / 2 - 24) && p.0[1] > 1 && p.0[1] < 254
+                })
                 .count()
                 > 10,
             "{mode:?}: SMAA did not smooth the scene edge"
         );
         anyhow::ensure!(
             image.get_pixel(0, 0).0 == [255, 0, 0, 255],
-            "S2x lost the scene clear color"
+            "{mode:?}: lost the scene clear color"
         );
-        anyhow::ensure!(
-            image.get_pixel(size.x / 2 - 32, size.y / 2 - 32).0 == [0, 255, 0, 255],
-            "S2x overwrote UI composition"
-        );
+        let glyph_center = UVec2::new(size.x / 2 - 32, size.y / 2 - 32);
+        for y in glyph_center.y - 7..=glyph_center.y + 6 {
+            for x in glyph_center.x - 7..=glyph_center.x + 6 {
+                let inside = (glyph_center.x - 6..glyph_center.x + 6).contains(&x)
+                    && (glyph_center.y - 6..glyph_center.y + 6).contains(&y);
+                let expected = if inside {
+                    [0, 255, 0, 255]
+                } else {
+                    [255, 0, 0, 255]
+                };
+                anyhow::ensure!(
+                    image.get_pixel(x, y).0 == expected,
+                    "{mode:?}: UI edge ({x}, {y}) was filtered: {:?}, expected {expected:?}",
+                    image.get_pixel(x, y).0
+                );
+            }
+        }
     }
-    app.world_mut().entity_mut(camera).remove::<Smaa>();
-    for _ in 0..4 {
-        app.update();
-        crate::playthrough::check_exit(&app)?;
-    }
-    let render = app.sub_app_mut(RenderApp).world_mut();
+    app.world_mut()
+        .resource_mut::<super::super::AntiAliasingSettings>()
+        .0 = AntiAliasing::Off;
+    app.update();
     anyhow::ensure!(
-        render
-            .query::<&ViewResources>()
-            .iter(render)
-            .next()
-            .is_none(),
-        "S2x retained attachments after disabling the mode"
+        crate::native::render::smaa(&app).unwrap().0.is_empty(),
+        "{mode:?}: disabling SMAA retained its render textures"
     );
-    Ok(app.world().resource::<Captures>().0.clone())
+    Ok(true)
 }
 #[test]
-#[ignore = "requires a GPU; validates SMAA color space, loaded scenes, UI and resize"]
-fn regular_smaa_preserves_scene_colors() -> anyhow::Result<()> {
+#[ignore = "requires a GPU; validates SMAA and S2x edges, UI, resize and three-target resource reuse"]
+fn native_smaa_smooths_the_scene_and_keeps_ui() -> anyhow::Result<()> {
     for mode in [
         AntiAliasing::SmaaLow,
         AntiAliasing::SmaaMedium,
         AntiAliasing::SmaaHigh,
         AntiAliasing::SmaaUltra,
     ] {
-        compare_scene_formats(mode)?;
+        anyhow::ensure!(render_native_scene(mode)?, "{mode:?} must be supported");
     }
-    Ok(())
-}
-fn compare_scene_formats(mode: AntiAliasing) -> anyhow::Result<()> {
-    let srgb = render_native_scene(TextureFormat::Bgra8UnormSrgb, mode)?;
-    let unorm = render_native_scene(TextureFormat::Bgra8Unorm, mode)?;
-    for (srgb, unorm) in srgb.into_iter().zip(unorm) {
-        let srgb = srgb.try_into_dynamic()?.to_rgba8();
-        let unorm = unorm.try_into_dynamic()?.to_rgba8();
-        anyhow::ensure!(
-            srgb.pixels().zip(unorm.pixels()).all(|(a, b)| a
-                .0
-                .into_iter()
-                .zip(b.0)
-                .all(|(a, b)| a.abs_diff(b) <= 1)),
-            "{mode:?}: SMAA color-space mismatch between sRGB and encoded-unorm scene targets"
-        );
+    // S2x needs two-sample MSAA, which software adapters may lack.
+    if !render_native_scene(AntiAliasing::SmaaS2x)? {
+        println!("S2x unsupported on this adapter; skipped");
     }
     Ok(())
 }
@@ -264,7 +261,7 @@ fn all_spatial_shader_variants_validate() {
             AntiAliasing::SmaaUltra,
             AntiAliasing::SmaaS2x,
         ] {
-            for (srgb, manual_srgb) in [(false, false), (true, false), (false, true)] {
+            for srgb in [false, true] {
                 for phase in [
                     "SMAA_EDGE_DETECTION",
                     "SMAA_BLENDING_WEIGHT_CALCULATION",
@@ -277,9 +274,6 @@ fn all_spatial_shader_variants_validate() {
                     }
                     if srgb {
                         defs.push("SMAA_INPUT_SRGB".into());
-                    }
-                    if manual_srgb {
-                        defs.push("SMAA_MANUAL_SRGB".into());
                     }
                     cache
                         .get(0, handle.id(), &defs)

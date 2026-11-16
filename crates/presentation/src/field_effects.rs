@@ -7,6 +7,7 @@ use super::{
     field_view::{ActorPart, State},
     materials::TitleSurface,
 };
+use crate::native::MeshMaterial3d;
 use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::RenderAssetUsages,
@@ -81,6 +82,13 @@ fn merge_particles(
 #[derive(Component)]
 pub(super) struct EffectDraw;
 
+struct Draw {
+    entity: Entity,
+    mesh: Handle<Mesh>,
+    order: DrawOrder,
+    visible: bool,
+}
+
 #[derive(Resource)]
 pub(super) struct Artwork {
     drawn: std::collections::BTreeSet<Request>,
@@ -90,7 +98,7 @@ pub(super) struct Artwork {
     materials: Vec<Handle<TitleSurface>>,
     bindings: Bindings,
     warm_mesh: Handle<Mesh>,
-    draws: Vec<Vec<(Entity, Handle<Mesh>)>>,
+    draws: Vec<Vec<Draw>>,
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
     overlay_materials: BTreeMap<u32, Vec<Option<SpriteMaterials>>>,
     refraction_texture: [Handle<Image>; 2],
@@ -312,8 +320,8 @@ impl Artwork {
     }
     pub fn despawn(&mut self, world: &mut World) {
         self.ambient.reset();
-        for (entity, _) in self.draws.drain(..).flatten() {
-            world.despawn(entity);
+        for draw in self.draws.drain(..).flatten() {
+            world.despawn(draw.entity);
         }
     }
     pub(super) fn prepared_bindings(
@@ -760,7 +768,7 @@ fn sync_draws(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &[Handle<TitleSurface>],
-    draws: &mut Vec<Vec<(Entity, Handle<Mesh>)>>,
+    draws: &mut Vec<Vec<Draw>>,
     quads: &[(Layer, usize, Quad)],
 ) {
     // field_warm prepares every binding offscreen. Live draws only need meshes
@@ -771,29 +779,51 @@ fn sync_draws(
     let mut used = vec![0; materials.len()];
     for (order, run) in quads.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)).enumerate() {
         let (pass, layer, _) = run[0];
-        let batch = Quad::mesh(run.iter().map(|(_, _, quad)| quad));
-        let (entity, mesh) = if let Some((entity, mesh)) = draws[layer].get(used[layer]) {
-            *meshes.get_mut(mesh).unwrap() = batch;
-            (*entity, mesh.clone())
+        let order = DrawOrder(pass, order, 0);
+        let mesh = if let Some(draw) = draws[layer].get(used[layer]) {
+            *meshes.get_mut(&draw.mesh).unwrap() = Quad::mesh(run.iter().map(|(_, _, quad)| quad));
+            draw.mesh.clone()
         } else {
-            let mesh = meshes.add(batch);
-            let entity = commands
-                .spawn((Transform::default(), NoFrustumCulling, EffectDraw))
-                .id();
-            draws[layer].push((entity, mesh.clone()));
-            (entity, mesh)
+            meshes.add(Quad::mesh(run.iter().map(|(_, _, quad)| quad)))
         };
-        commands.entity(entity).insert((
-            Mesh3d(mesh),
-            MeshMaterial3d(materials[layer].clone()),
-            Visibility::Inherited,
-            DrawOrder(pass, order, 0),
-        ));
+        if draws[layer].len() == used[layer] {
+            let entity = commands
+                .spawn((
+                    Transform::default(),
+                    NoFrustumCulling,
+                    EffectDraw,
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(materials[layer].clone()),
+                    Visibility::Inherited,
+                    order,
+                ))
+                .id();
+            draws[layer].push(Draw {
+                entity,
+                mesh: mesh.clone(),
+                order,
+                visible: true,
+            });
+        }
+        let draw = &mut draws[layer][used[layer]];
+        // The mesh asset changed in place; reinserting it marks the draw.
+        draw.mesh = mesh.clone();
+        commands.entity(draw.entity).insert(Mesh3d(mesh));
+        if !draw.visible || draw.order != order {
+            commands
+                .entity(draw.entity)
+                .insert((Visibility::Inherited, order));
+            draw.visible = true;
+            draw.order = order;
+        }
         used[layer] += 1;
     }
-    for (draws, used) in draws.iter().zip(used) {
-        for (entity, _) in draws.iter().skip(used) {
-            commands.entity(*entity).insert(Visibility::Hidden);
+    for (draws, used) in draws.iter_mut().zip(used) {
+        for draw in draws.iter_mut().skip(used) {
+            if draw.visible {
+                commands.entity(draw.entity).insert(Visibility::Hidden);
+                draw.visible = false;
+            }
         }
     }
 }
@@ -891,10 +921,12 @@ mod tests {
             "a local variant enlarged the startup inventory"
         );
         assert_eq!(shared.0.materials.len(), counts.1);
-        first.draws.push(vec![(
-            app.world_mut().spawn_empty().id(),
-            meshes.add(Mesh::from(Rectangle::new(1., 1.))),
-        )]);
+        first.draws.push(vec![Draw {
+            entity: app.world_mut().spawn_empty().id(),
+            mesh: meshes.add(Mesh::from(Rectangle::new(1., 1.))),
+            order: DrawOrder(Layer::Effects, 0, 0),
+            visible: true,
+        }]);
         first.spec.palette[0] = [0; 4];
         assert!(second.draws.is_empty() && shared.0.draws.is_empty());
         assert_eq!(second.spec.palette[0], [255; 4]);

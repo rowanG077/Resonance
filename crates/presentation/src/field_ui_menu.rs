@@ -415,14 +415,11 @@ impl MenuArtwork {
                 let Some(material) = self.materials.get(&texture) else {
                     continue;
                 };
-                let layer = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-                    Layer::new(
-                        material.material.clone(),
-                        band.at(plane, role.depth()),
-                        &mut world.commands(),
-                        &mut meshes,
-                    )
-                });
+                let layer = Layer::new(
+                    material.material.clone(),
+                    band.at(plane, role.depth()),
+                    &mut world.commands(),
+                );
                 world.commands().entity(layer.entity).insert((
                     super::resident::Canvas,
                     bevy::camera::visibility::NoFrustumCulling,
@@ -961,12 +958,7 @@ impl MenuArtwork {
         )
     }
 
-    fn submit_drawing(
-        &mut self,
-        batches: DrawBatches,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    fn submit_drawing(&mut self, batches: DrawBatches, commands: &mut Commands) -> Result<()> {
         for (key, layer) in &mut self.layers {
             if batches
                 .get(key)
@@ -997,14 +989,13 @@ impl MenuArtwork {
                     }) {
                         return layer;
                     }
-                    let mut layer = Layer::with_mesh(
+                    let layer = Layer::with_batch(
                         prepared.material.clone(),
                         self.band.at(plane, role.depth()),
-                        batch.clone().mesh(size),
+                        batch.clone(),
+                        size,
                         commands,
-                        meshes,
                     );
-                    layer.uploaded = Some((batch.clone(), size));
                     commands.entity(layer.entity).insert((
                         match self.band {
                             DepthBand::Field => RenderLayers::default(),
@@ -1016,7 +1007,7 @@ impl MenuArtwork {
                     ));
                     layer
                 });
-            layer.update_mesh(batch, size, meshes)?;
+            layer.update(batch, size);
             layer.show(true, commands);
         }
         let expected: std::collections::HashSet<_> = self
@@ -1051,7 +1042,6 @@ impl MenuArtwork {
         dialogue: &DialogueArt,
         preferences: &resonance_content::menu_data::CustomizeSettings,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
         let mut color = preferences.colors.choice;
@@ -1063,7 +1053,7 @@ impl MenuArtwork {
             false,
             color,
         )?;
-        self.submit_drawing(draw.batches, commands, meshes)
+        self.submit_drawing(draw.batches, commands)
     }
 
     pub(crate) fn render_battle_results_panel(
@@ -1073,7 +1063,6 @@ impl MenuArtwork {
         dialogue: &DialogueArt,
         preferences: &resonance_content::menu_data::CustomizeSettings,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
         for offset in offsets {
@@ -1087,7 +1076,7 @@ impl MenuArtwork {
         for position in batches.values_mut().flat_map(|batch| &mut batch.positions) {
             position[1] = center + (position[1] - center) * scale;
         }
-        self.submit_drawing(batches, commands, meshes)
+        self.submit_drawing(batches, commands)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1100,7 +1089,6 @@ impl MenuArtwork {
         preferences: &resonance_content::menu_data::CustomizeSettings,
         tick: u32,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let (kind, position) = page.viewport();
         self.set_page(Some(ActivePage::Menu(kind)));
@@ -1129,7 +1117,7 @@ impl MenuArtwork {
             interpolate_batches(&mut batches, &next, alpha);
         }
         self.animation.trail = trail;
-        self.submit_drawing(batches, commands, meshes)
+        self.submit_drawing(batches, commands)
     }
 
     fn sample(
@@ -1552,7 +1540,6 @@ impl MenuArtwork {
         resolution: super::super::Resolution,
         prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         self.resolution = resolution;
         self.animation.advance(source);
@@ -1580,7 +1567,7 @@ impl MenuArtwork {
             .and_then(|(page, batches, trail)| {
                 self.animation.trail = trail;
                 self.set_page(page);
-                self.submit_drawing(batches, commands, meshes)
+                self.submit_drawing(batches, commands)
             });
         if result.is_err() {
             self.clear_page(commands);

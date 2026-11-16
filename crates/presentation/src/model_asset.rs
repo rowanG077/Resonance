@@ -570,7 +570,3 @@ pub(super) fn instantiate(commands: &mut Commands, root: Entity, handle: Handle<
         }
     });
 }
-
-#[cfg(all(test, feature = "preparation-trace"))]
-#[path = "model_asset/tests/pipelines.rs"]
-pub(super) mod pipeline_test;

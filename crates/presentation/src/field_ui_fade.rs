@@ -56,16 +56,11 @@ fn batch(world: &resonance_events::GameWorld, resolution: super::super::Resoluti
 }
 
 impl Artwork {
-    pub(super) fn prepare_fade(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub(super) fn prepare_fade(&mut self, commands: &mut Commands) {
         if self.fade_layer.is_some() {
             return;
         }
-        self.fade_layer = Some(Layer::new(
-            self.fade_surface.clone(),
-            DEPTH,
-            commands,
-            meshes,
-        ));
+        self.fade_layer = Some(Layer::new(self.fade_surface.clone(), DEPTH, commands));
     }
 
     pub(super) fn render_fade(
@@ -73,7 +68,6 @@ impl Artwork {
         world: &resonance_events::GameWorld,
         prediction: Option<&crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let layer = self
             .fade_layer
@@ -100,7 +94,7 @@ impl Artwork {
             }
             draw.interpolate(&next, alpha);
         }
-        layer.update_mesh(draw, [1, 1], meshes)?;
+        layer.update(draw, [1, 1]);
         layer.show(true, commands);
         Ok(())
     }
