@@ -6,7 +6,7 @@ mod source;
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
     camera::{
-        RenderTarget,
+        CameraProjection, RenderTarget, SubCameraView,
         visibility::{NoFrustumCulling, RenderLayers},
     },
     core_pipeline::tonemapping::Tonemapping,
@@ -15,8 +15,9 @@ use bevy::{
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
     render::{
-        extract_resource::ExtractResourcePlugin, render_resource::TextureFormat,
-        sync_world::MainEntity,
+        erased_render_asset::prepare_erased_assets, extract_resource::ExtractResourcePlugin,
+        render_asset::prepare_assets, render_resource::TextureFormat, sync_world::MainEntity,
+        texture::GpuImage,
     },
     sprite_render::Material2dPlugin,
 };
@@ -35,6 +36,9 @@ use symphonia_script_tools::PreparationCache;
 type Pending = crate::loading::Task<source::Prepared>;
 const LAYER: usize = 29;
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct CompositeImageReady;
+
 pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "model_preview.wesl");
     let shared = gpu::Shared::default();
@@ -46,7 +50,12 @@ pub(super) fn install(app: &mut App) {
             ExtractResourcePlugin::<gpu::Capture>::default(),
         ))
         .add_systems(Startup, setup)
-        .add_systems(Update, prepare.after(crate::field_view::FieldPreparation))
+        .add_systems(
+            Update,
+            (layout, prepare)
+                .chain()
+                .after(crate::field_view::FieldPreparation),
+        )
         .add_systems(
             PostUpdate,
             (animate, pose, motion::apply)
@@ -57,6 +66,13 @@ pub(super) fn install(app: &mut App) {
     app.get_sub_app_mut(bevy::render::RenderApp)
         .unwrap()
         .insert_resource(shared)
+        // A resize must upload the new texture view before the composite binds it.
+        .configure_sets(
+            bevy::render::Render,
+            CompositeImageReady
+                .after(prepare_assets::<GpuImage>)
+                .before(prepare_erased_assets::<MeshMaterial2d<Composite>>),
+        )
         .add_systems(
             bevy::render::Render,
             (gpu::rendered, gpu::capture_submitted).in_set(bevy::render::RenderSystems::Cleanup),
@@ -238,13 +254,7 @@ fn setup(
             },
             RenderLayers::layer(LAYER),
             RenderTarget::Image(target.clone().into()),
-            Projection::custom(crate::camera::TitleProjection(PerspectiveProjection {
-                fov: 15.834_f32.to_radians(),
-                aspect_ratio: 10. / 7.,
-                near: 100.,
-                far: 10000.,
-                ..default()
-            })),
+            preview_projection(size),
             Transform::default(),
         ))
         .id();
@@ -256,7 +266,11 @@ fn setup(
         .spawn((
             Mesh2d(meshes.add(Rectangle::new(640., 480.))),
             MeshMaterial2d(composite.clone()),
-            Transform::from_xyz(0., 0., crate::field_ui::model_preview_depth()),
+            Transform {
+                translation: Vec3::new(0., 0., crate::field_ui::model_preview_depth()),
+                scale: (size.ui_size() / Vec2::new(640., 480.)).extend(1.),
+                ..default()
+            },
             Visibility::Hidden,
         ))
         .id();
@@ -276,6 +290,78 @@ fn setup(
         behavior_tick: None,
         overrides: PoseOverrides::default(),
     });
+}
+
+/// Expand clip coordinates into the display margins while retaining the authored
+/// perspective, model placement and subpixel raster alignment.
+#[derive(Debug, Clone)]
+struct PreviewProjection {
+    authored: crate::camera::TitleProjection,
+    canvas: Vec2,
+}
+impl CameraProjection for PreviewProjection {
+    fn get_clip_from_view(&self) -> Mat4 {
+        Mat4::from_scale(self.canvas.recip().extend(1.)) * self.authored.get_clip_from_view()
+    }
+    fn get_clip_from_view_for_sub(&self, view: &SubCameraView) -> Mat4 {
+        let full = view.full_size.as_vec2();
+        let size = view.size.as_vec2();
+        let scale = full / size;
+        let offset = (full - size - 2. * view.offset) / size * Vec2::new(1., -1.);
+        Mat4::from_scale_rotation_translation(scale.extend(1.), Quat::IDENTITY, offset.extend(0.))
+            * self.get_clip_from_view()
+    }
+    fn update(&mut self, _width: f32, _height: f32) {}
+    fn far(&self) -> f32 {
+        self.authored.far()
+    }
+    fn get_frustum_corners(&self, near: f32, far: f32) -> [bevy::math::Vec3A; 8] {
+        let scale = bevy::math::Vec3A::new(self.canvas.x, self.canvas.y, 1.);
+        self.authored
+            .get_frustum_corners(near, far)
+            .map(|corner| corner * scale)
+    }
+}
+
+fn preview_projection(size: crate::Resolution) -> Projection {
+    Projection::custom(PreviewProjection {
+        authored: crate::camera::TitleProjection(PerspectiveProjection {
+            fov: 15.834_f32.to_radians(),
+            aspect_ratio: 10. / 7.,
+            near: 100.,
+            far: 10000.,
+            ..default()
+        }),
+        canvas: size.ui_size() / Vec2::new(640., 480.),
+    })
+}
+
+fn layout(
+    display: Res<crate::display::Display>,
+    viewer: Res<Viewer>,
+    mut images: ResMut<Assets<Image>>,
+    mut composites: ResMut<Assets<Composite>>,
+    mut projections: Query<&mut Projection>,
+    mut transforms: Query<&mut Transform>,
+) {
+    if !display.is_changed() {
+        return;
+    }
+    let size = display.0;
+    let image = composites.get(&viewer.composite).unwrap().image.clone();
+    let mut target = images.get_mut(&image).unwrap();
+    if target.size() != UVec2::new(size.width, size.scene_height()) {
+        target.resize(bevy::render::render_resource::Extent3d {
+            width: size.width,
+            height: size.scene_height(),
+            depth_or_array_layers: 1,
+        });
+        // A resized image has a new texture view; refresh the sampling bind group.
+        composites.get_mut(&viewer.composite).unwrap().image = image;
+    }
+    *projections.get_mut(viewer.camera).unwrap() = preview_projection(size);
+    transforms.get_mut(viewer.quad).unwrap().scale =
+        (size.ui_size() / Vec2::new(640., 480.)).extend(1.);
 }
 
 fn prepare(
@@ -970,6 +1056,82 @@ mod tests {
         affine::{Locals, Pose},
     };
     use bevy::{ecs::system::RunSystemOnce, math::Affine3A};
+
+    #[test]
+    fn viewport_margins_reveal_models_without_moving_the_authored_view() {
+        let mut world = World::new();
+        world.init_resource::<Assets<Image>>();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<Composite>>();
+        world.init_resource::<crate::scene::SampledImages>();
+        world.insert_resource(crate::display::Display(crate::Resolution::default()));
+        world.run_system_once(setup).unwrap();
+        let (camera, quad, composite) = {
+            let viewer = world.resource::<Viewer>();
+            (viewer.camera, viewer.quad, viewer.composite.clone())
+        };
+        let image = world
+            .resource::<Assets<Composite>>()
+            .get(&composite)
+            .unwrap()
+            .image
+            .clone();
+        let baseline = world
+            .get::<Projection>(camera)
+            .unwrap()
+            .get_clip_from_view();
+        // This point is past the authored right edge but inside a wider display.
+        let point = Vec3::new(225., 20., -1000.);
+        let original = baseline.project_point3(point).truncate() * Vec2::new(320., 240.);
+        assert!(original.x > 320. && original.x < 400.);
+        for resolution in [
+            "1280x720",
+            "1920x1080",
+            "2560x1080",
+            "480x640",
+            "640x640",
+            "1080x1920",
+            "800x600",
+            "640x480",
+        ] {
+            let size: crate::Resolution = resolution.parse().unwrap();
+            world.resource_mut::<crate::display::Display>().0 = size;
+            world.run_system_once(layout).unwrap();
+            assert_eq!(
+                world
+                    .resource::<Assets<Composite>>()
+                    .get(&composite)
+                    .unwrap()
+                    .image,
+                image
+            );
+            assert_eq!(
+                world
+                    .resource::<Assets<Image>>()
+                    .get(&image)
+                    .unwrap()
+                    .size(),
+                UVec2::new(size.width, size.scene_height())
+            );
+            let canvas = size.ui_size();
+            let scale = world.get::<Transform>(quad).unwrap().scale;
+            assert_eq!(scale, (canvas / Vec2::new(640., 480.)).extend(1.));
+            let projection = world
+                .get::<Projection>(camera)
+                .unwrap()
+                .get_clip_from_view();
+            let projected = projection.project_point3(point).truncate() * canvas * 0.5;
+            assert!(
+                projected.abs_diff_eq(original, 0.0001),
+                "model moved at {resolution}"
+            );
+            if size.aspect() > 4. / 3. {
+                assert!(projected.x < canvas.x * 0.5, "display margin is clipped");
+            } else if size.aspect() == 4. / 3. {
+                assert_eq!(projection, baseline, "authored framing changed");
+            }
+        }
+    }
 
     #[test]
     fn failed_preview_releases_the_menu_and_hides_its_view_unless_paranoid() {
