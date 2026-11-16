@@ -29,6 +29,106 @@ fn party_fixture(controls: &[Control]) -> Result<Battle> {
 }
 
 #[test]
+fn unaffordable_assist_warns_on_the_recipient_once_per_press() -> Result<()> {
+    for mode in [Control::Manual, Control::SemiAuto] {
+        for slot in 0..2 {
+            let mut battle = party_fixture(&[mode, Control::Auto])?;
+            let owner = ActorId(0);
+            let recipient = ActorId(1);
+            battle
+                .prepare_assist_shortcut(owner, slot, Some((recipient, crate::ActionKey(7))))?
+                .commit();
+            battle.actors[recipient.index()].tp = 0;
+            let rejection = Cue::Rejected {
+                actor: recipient,
+                reason: crate::Rejection::InsufficientTp,
+            };
+            let mut input = ControlInput::neutral(owner);
+            input.assist[slot] = ButtonInput {
+                pressed: true,
+                held: true,
+                released: false,
+            };
+            let frame = battle.step(BattleInput {
+                controllers: vec![input],
+                ..Default::default()
+            })?;
+            assert_eq!(frame.cues, [rejection.clone()]);
+            assert_eq!(frame.actors[recipient.index()].tp, 0);
+            assert!(battle.pending_technique(recipient).is_none());
+            assert_eq!(battle.ledger.achievements[owner.index()].assist_commands, 0);
+
+            input.assist[slot].pressed = false;
+            let held = battle.step(BattleInput {
+                controllers: vec![input],
+                ..Default::default()
+            })?;
+            assert!(!held.cues.contains(&rejection));
+
+            battle.actors[recipient.index()].tp = 5;
+            input.assist[slot].pressed = true;
+            let admitted = battle.step(BattleInput {
+                controllers: vec![input],
+                ..Default::default()
+            })?;
+            assert!(
+                admitted
+                    .cues
+                    .contains(&Cue::TechniqueQueued { actor: recipient })
+            );
+            assert!(!admitted.cues.contains(&rejection));
+            assert_eq!(battle.ledger.achievements[owner.index()].assist_commands, 1);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn assigned_ally_arte_reports_insufficient_tp_without_queueing() -> Result<()> {
+    let mut battle = fixture()?;
+    let recipient = ActorId(1);
+    battle.actors[recipient.index()].tp = 0;
+    let mut input = ControlInput::neutral(recipient);
+    input.assigned_arte = Some(crate::TechniqueId(1));
+    battle.actors[recipient.index()].conditions =
+        crate::conditions::Conditions::new(crate::conditions::Layers {
+            base: crate::conditions::Condition::Curse.into(),
+            ..Default::default()
+        });
+    let unavailable = battle.step(BattleInput {
+        controllers: vec![input],
+        ..Default::default()
+    })?;
+    assert!(unavailable.cues.is_empty());
+    assert!(battle.pending_technique(recipient).is_none());
+    battle.actors[recipient.index()].conditions = Default::default();
+    let rejected = battle.step(BattleInput {
+        controllers: vec![input],
+        ..Default::default()
+    })?;
+    assert_eq!(
+        rejected.cues,
+        [Cue::Rejected {
+            actor: recipient,
+            reason: crate::Rejection::InsufficientTp,
+        }]
+    );
+    assert_eq!(rejected.actors[recipient.index()].tp, 0);
+    assert!(battle.pending_technique(recipient).is_none());
+    battle.actors[recipient.index()].tp = 5;
+    let admitted = battle.step(BattleInput {
+        controllers: vec![input],
+        ..Default::default()
+    })?;
+    assert!(
+        admitted
+            .cues
+            .contains(&Cue::TechniqueQueued { actor: recipient })
+    );
+    Ok(())
+}
+
+#[test]
 fn party_reorder_preserves_active_actions_targets_and_camera_pose() -> Result<()> {
     let mut battle = fixture()?;
     assert!(battle.start_actor_command(

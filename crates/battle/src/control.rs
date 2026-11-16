@@ -869,9 +869,14 @@ impl Battle {
                 .is_some_and(|actor| actor.side == crate::Side::Party),
             "Tech queue owner is not a party member"
         );
-        if !self.technique_queue_admitted(actor, action)
-            || !self.technique_target_eligible(actor, action, target)
+        if !self.actors[index].available() || !self.technique_target_eligible(actor, action, target)
         {
+            return Ok(false);
+        }
+        if let Err(reason) = self.technique_readiness(actor, action) {
+            if reason == crate::Rejection::InsufficientTp {
+                self.pending_cues.push(Cue::Rejected { actor, reason });
+            }
             return Ok(false);
         }
         let control = self

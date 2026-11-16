@@ -1132,9 +1132,23 @@ impl Battle {
             && !owner.airborne()
     }
     pub(crate) fn technique_ready(&self, actor: ActorId, action: crate::ActionKey) -> bool {
-        self.learned_technique(actor, action).is_some()
-            && self.actors[actor.index()].conditions.arte_queue_allowed()
-            && u32::from(self.actors[actor.index()].tp) >= self.action_quote(actor, action)
+        self.technique_readiness(actor, action).is_ok()
+    }
+
+    pub(crate) fn technique_readiness(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> Result<(), Rejection> {
+        let owner = &self.actors[actor.index()];
+        if self.learned_technique(actor, action).is_none() || !owner.conditions.arte_queue_allowed()
+        {
+            return Err(Rejection::Unavailable);
+        }
+        if u32::from(owner.tp) < self.action_quote(actor, action) {
+            return Err(Rejection::InsufficientTp);
+        }
+        Ok(())
     }
 
     pub(crate) fn special_guard_learned(&self, actor: ActorId, action: crate::ActionKey) -> bool {
