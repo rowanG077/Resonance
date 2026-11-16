@@ -241,3 +241,117 @@ fn menu_holds_release_and_interrupting_the_parent_preserves_its_resident() -> Re
     );
     Ok(())
 }
+
+#[test]
+fn landing_without_an_aerial_chain_window_accepts_spells_after_its_pose_blend() -> Result<()> {
+    for mode in [Control::Manual, Control::SemiAuto] {
+        for (input_at, finishes_airborne) in [
+            (0, false),
+            (2, false),
+            (12, false),
+            (22, false),
+            (23, false),
+            (0, true),
+            (2, true),
+        ] {
+            let mut prepared = prepared_fixture(mode, false);
+            let attack =
+                crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[5]));
+            attack.chain_at = None;
+            attack.recovery = 10;
+            if finishes_airborne {
+                attack.end_at = 1;
+            }
+            Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).motions =
+                Some(missing_motions());
+            let mut battle = prepared.finish()?;
+            let mut model = crate::tests::model_definition(7, [(0, 60.), (99, 8.)]);
+            model.idle_motions = [Some(0), None];
+            battle.set_models(crate::tests::models(
+                &battle.actors,
+                vec![Some(Arc::new(model)), None, None],
+            )?);
+            let parent = aerial_normal(&mut battle)?;
+            // A pre-floor input cannot become a delayed ground cast.
+            battle.step(player_buttons(false, input_at != 0, false, [0, 80]))?;
+            assert_eq!(
+                battle.action_recovery_remaining(parent).is_some(),
+                finishes_airborne
+            );
+            battle.actors[0].position[1] = 1.;
+            battle.actors[0].movement.vertical = -2.;
+            let mut frame = battle.step(player_buttons(false, input_at == 0, false, [0, 80]))?;
+            battle.advance_models(&mut frame, crate::BattleClock::Running, false)?;
+            assert_eq!(frame.actors[0].activity, Activity::Recovering);
+            assert_eq!(battle.action_definition(parent), Some(crate::ActionKey(5)));
+            let expected = (input_at <= 22).then_some(input_at.max(6));
+            let mut started = None;
+            for update in 1..=34 {
+                let mut frame =
+                    battle.step(player_buttons(false, update == input_at, false, [0, 80]))?;
+                battle.advance_models(&mut frame, crate::BattleClock::Running, false)?;
+                if frame.cues.iter().any(|cue| {
+                    matches!(
+                        cue,
+                        Cue::Started {
+                            actor: ActorId(0),
+                            ..
+                        }
+                    )
+                }) {
+                    started = Some(update);
+                    break;
+                }
+            }
+            assert_eq!(started, expected, "landing input {input_at}");
+            if started.is_some() {
+                assert!(matches!(
+                    battle.activity(ActorId(0)),
+                    Activity::Casting { .. }
+                ));
+            } else {
+                assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+            }
+            assert!(battle.sequence(&parent).is_none());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn auto_companion_gets_one_landing_combo_checkpoint() -> Result<()> {
+    // Visit zero crosses the floor. The first grounded visit is the checkpoint.
+    for contact_visit in [1, 2] {
+        let mut battle = fixture(Control::Auto, false);
+        let owner = ActorId(0);
+        battle.actors[0].equipment.combo_traits.jump_combo = true;
+        let parent = aerial_normal(&mut battle)?;
+        battle.actors[0].position[1] = 1.;
+        battle.actors[0].movement.vertical = -2.;
+        let target = ActorId(1);
+        for visit in 0..=contact_visit {
+            if visit + 1 == contact_visit {
+                battle.emit(
+                    Arc::new(crate::tests::contact_projectile(false, false)),
+                    parent,
+                    owner,
+                    target,
+                    battle.actors[target.index()].position,
+                )?;
+            }
+            let frame = battle.step(BattleInput::default())?;
+            assert_eq!(
+                frame
+                    .cues
+                    .iter()
+                    .any(|cue| matches!(cue, Cue::Hit { actor, .. } if *actor == target)),
+                visit == contact_visit
+            );
+            assert_eq!(
+                battle.sequence(&parent).is_none(),
+                contact_visit == 1 && visit == contact_visit
+            );
+        }
+    }
+    Ok(())
+}

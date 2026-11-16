@@ -118,7 +118,7 @@ fn leaving_combat_cancels_chanting_without_release_or_payment() {
         let tp = battle.actors[0].tp;
         battle.terminal.result = Some(crate::BattleResult::Victory);
         let cues = battle.step(BattleInput::default()).unwrap().cues;
-        assert_eq!(battle.activity(ActorId(0)), crate::Activity::Idle);
+        assert_eq!(battle.activity(ActorId(0)), crate::Activity::Recovering);
         assert_eq!(battle.actors[0].tp, tp);
         assert!(!cues.iter().any(|cue| matches!(cue, Cue::Released { .. })));
     }

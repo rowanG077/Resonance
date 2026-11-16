@@ -225,6 +225,8 @@ fn published_spells_cancel_normal_recovery_and_allow_another_normal_chain() -> R
             total_hits += cast_after_normals(&mut battle, count).with_context(|| format!("character {character}, spell {spell}, {mode:?}, full chain {full_chain}, cycle {cycle}"))?;
             // Admission initializes the chant; the next callback reads Guard.
             let frame = battle.step(buttons(false, false, true))?;
+            assert_eq!(battle.activity(owner), Activity::Recovering);
+            battle.step(BattleInput::default())?;
             assert_eq!(battle.activity(owner), Activity::Idle);
             assert!(
                 !frame

@@ -2512,13 +2512,24 @@ impl Battle {
         transition: ActionTransition,
         cues: &mut Vec<Cue>,
     ) -> Result<bool> {
-        if matches!(transition, ActionTransition::Recover { landed: true, .. }) {
+        if let ActionTransition::Recover {
+            remaining,
+            landed: true,
+        } = transition
+        {
             self.finish_normal_landing(sequence);
+            if let Execution::Recovering { remaining: clock } = &mut sequence.execution {
+                // Recovery already began in midair. Only its landing clock changes.
+                *clock = remaining;
+                return Ok(true);
+            }
         }
         if matches!(
             &sequence.definition.execution,
             crate::ActionExecution::Attack(_)
-        ) && (self.chain_enemy(id, sequence, cues)? || self.chain_normal(id, sequence, cues)?)
+        ) && (sequence.normal != Some(crate::control::NormalState::Landing)
+            || matches!(transition, ActionTransition::Advance))
+            && (self.chain_enemy(id, sequence, cues)? || self.chain_normal(id, sequence, cues)?)
         {
             return Ok(false);
         }
@@ -2646,6 +2657,19 @@ impl Battle {
             sequence.learning = false;
         }
         if let Execution::Recovering { remaining } = &mut sequence.execution {
+            let landing = sequence.normal == Some(crate::control::NormalState::Landing);
+            let landing_combo_visit = landing
+                && sequence
+                    .combo
+                    .is_some_and(|window| sequence.age <= window.buffer_until);
+            if landing_combo_visit
+                && self
+                    .models
+                    .as_ref()
+                    .is_some_and(|models| !models.motion_ready_this_update(sequence.actor))
+            {
+                return Ok(SequenceStep::Continue);
+            }
             if matches!(
                 &sequence.definition.execution,
                 crate::ActionExecution::Casting(_)
@@ -2655,6 +2679,13 @@ impl Battle {
             let actor = &self.actors[index];
             let finished = *remaining == 0 && !actor.needs_landing();
             *remaining = remaining.saturating_sub(1);
+            if landing_combo_visit {
+                // Resolve this update's contacts before deciding the chain and advancing its age.
+                return Ok(SequenceStep::Transition(ActionTransition::Advance));
+            }
+            if landing {
+                sequence.age += 1;
+            }
             return Ok(if finished {
                 SequenceStep::Transition(ActionTransition::FinishRecovery)
             } else {
@@ -2701,7 +2732,18 @@ impl Battle {
             }));
         }
         if sequence.finished() {
-            self.enter_idle(sequence.actor);
+            if matches!(sequence.execution, Execution::Cancelled) {
+                self.set_task(
+                    index,
+                    ActorTask::Recovering {
+                        remaining: 0,
+                        after_hit: false,
+                        idle_pose: None,
+                    },
+                );
+            } else {
+                self.enter_idle(sequence.actor);
+            }
             cues.push(Cue::Completed { action: id });
             return Ok(SequenceStep::Finished);
         }

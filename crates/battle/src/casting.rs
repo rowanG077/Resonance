@@ -91,6 +91,7 @@ pub(crate) fn step(
             }
             Progress::Recovery(remaining) => return Ok(Some(remaining)),
             Progress::Finished => sequence.execution = crate::action::Execution::Finished,
+            Progress::Cancelled => sequence.execution = crate::action::Execution::Cancelled,
         },
     }
     Ok(None)
@@ -367,6 +368,7 @@ pub(crate) enum Progress {
     Casting,
     Recovery(u32),
     Finished,
+    Cancelled,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -548,7 +550,7 @@ impl CastRun {
                 actor,
                 reason: crate::Rejection::Unavailable,
             });
-            return Ok(Progress::Finished);
+            return Ok(Progress::Cancelled);
         }
         let lucky = if sequence.unison {
             false
@@ -561,7 +563,7 @@ impl CastRun {
                     actor,
                     reason: crate::Rejection::InsufficientTp,
                 });
-                return Ok(Progress::Finished);
+                return Ok(Progress::Cancelled);
             }
             let learned = if store {
                 None
@@ -759,7 +761,7 @@ impl CastRun {
         let occupied = battle.spell_active(actor, crate::SpellSlot::Primary);
         if battle.phase() != crate::BattlePhase::Combat {
             battle.cancel_cast(actor, cues);
-            return Ok(Progress::Finished);
+            return Ok(Progress::Cancelled);
         }
         // A long release pose can outlast scene framing. Finish its first
         // cycle before recovery, without waiting for the independent spell.
@@ -875,7 +877,7 @@ impl CastRun {
                 || battle.special_guard_threat_pending(actor))
         {
             battle.cancel_cast(actor, cues);
-            return Ok(Progress::Finished);
+            return Ok(Progress::Cancelled);
         }
         self.rhythm(battle, actor);
         if !occupied {

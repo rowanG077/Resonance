@@ -43,6 +43,7 @@ const WALK_BLEND_TICKS: u8 = 3;
 pub(crate) const RUN_BLEND_TICKS: u8 = 4;
 const STOP_BLEND_TICKS: u8 = 8;
 const AERIAL_COMBO_LIFT: f32 = 8.;
+const NORMAL_LANDING_TICKS: u32 = 16;
 const RUN_REVERSE_ANGLE: f32 = 135.;
 
 const DIRECTION_THRESHOLD: i8 = 48;
@@ -236,7 +237,7 @@ pub(crate) struct PendingTechnique {
     pub issuer: Option<ControllerPort>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NormalState {
     Attack(NormalAttack),
     Landing,
@@ -1219,14 +1220,16 @@ impl Battle {
             return Ok(false);
         }
         if self.actors[index].control == Control::Auto {
-            // Autonomous choices occur at authored checkpoints. A rejected
-            // choice must not be sampled again on every later recovery frame.
-            // Explicit commands can use any remaining eligible combo frame.
-            // Recovery retains the final action age, so completing recovery
-            // must not revisit a checkpoint at that same age.
-            let checkpoint = sequence.running()
-                && (sequence.age == window.opens_at.max(1)
-                    || window.retry_at == Some(sequence.age));
+            // Landing advances its own clock after the pose blend. Ordinary
+            // recovery holds the last attack age, so it cannot revisit a checkpoint.
+            // Explicit commands may use any remaining eligible combo frame.
+            let checkpoint = if sequence.normal == Some(NormalState::Landing) {
+                sequence.age == window.opens_at
+            } else {
+                sequence.running()
+                    && (sequence.age == window.opens_at.max(1)
+                        || window.retry_at == Some(sequence.age))
+            };
             if !checkpoint && self.pending_technique(actor).is_none()
                 || !self.visit_companion_combo(sequence)?
             {
@@ -1517,15 +1520,21 @@ impl Battle {
         let mut recovery = None;
         if let Some((&id, sequence)) = self.runtime[index]
             .action_mut()
-            .filter(|(_, sequence)| sequence.normal.is_some() && sequence.running())
+            .filter(|(_, sequence)| matches!(sequence.normal, Some(NormalState::Attack(_))))
         {
             let actor = &mut self.actors[index];
             if actor.movement.vertical > 0. && actor.airborne() {
                 actor.movement.airborne_action = true;
             }
             if actor.movement.airborne_action && !actor.airborne() {
-                sequence.cancel_attack_events();
-                recovery = Some((id, 16));
+                if sequence.running() {
+                    sequence.cancel_attack_events();
+                }
+                let crate::ActionExecution::Attack(attack) = &sequence.definition.execution else {
+                    unreachable!("normal attacks use an attack execution")
+                };
+                // The landing clock includes its final chain visit, then authored recovery.
+                recovery = Some((id, NORMAL_LANDING_TICKS + 1 + u32::from(attack.recovery)));
                 if let Some(motions) = self.prepared.actor_setup[index]
                     .control
                     .as_ref()
@@ -1547,14 +1556,22 @@ impl Battle {
     }
 
     pub(crate) fn finish_normal_landing(&mut self, sequence: &mut crate::action::Sequence) {
-        let index = sequence.actor.index();
-        let combo = &mut self.runtime[index].combo;
+        sequence.normal = Some(NormalState::Landing);
+        let previous = sequence.combo.replace(ComboWindow {
+            opens_at: sequence.age,
+            retry_at: None,
+            buffer_until: sequence.age + NORMAL_LANDING_TICKS,
+        });
+        // Movement crosses the floor after the attack's input visit. Capture that
+        // update's shortcut if the airborne window could not sample it.
+        if sequence.started_at != self.update
+            && previous.is_none_or(|window| sequence.age > window.buffer_until)
+        {
+            self.sample_action_combo(sequence);
+        }
+        let combo = &mut self.runtime[sequence.actor.index()].combo;
         if matches!(combo.buffered, Some(BufferedAction::Normal(_))) {
             combo.buffered = None;
-        }
-        sequence.normal = Some(NormalState::Landing);
-        if let Some(window) = &mut sequence.combo {
-            window.opens_at = sequence.age;
         }
     }
 

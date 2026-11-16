@@ -42,7 +42,7 @@ fn guard_cancels_unfinished_casts_without_payment_or_release() {
                     ..
                 }
             )));
-            assert_eq!(frame.actors[0].activity, crate::Activity::Idle);
+            assert_eq!(frame.actors[0].activity, crate::Activity::Recovering);
             assert_eq!(frame.actors[0].tp, tp);
             assert_eq!(battle.actors[0].casting_state.interrupted, None);
             assert_eq!(
@@ -77,7 +77,7 @@ fn guard_uses_current_control_mode_and_the_casters_input_channel() {
         crate::Activity::Casting { held: false }
     ));
     battle.step(held(ActorId(0), true, false)).unwrap();
-    assert_eq!(battle.activity(ActorId(0)), crate::Activity::Idle);
+    assert_eq!(battle.activity(ActorId(0)), crate::Activity::Recovering);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn global_pause_holds_guard_but_local_hit_stop_allows_cancellation() {
     assert_eq!(cast_remaining(&battle), remaining);
     battle.actors[0].hit_stop = 3;
     battle.step(held(ActorId(0), true, true)).unwrap();
-    assert_eq!(battle.activity(ActorId(0)), crate::Activity::Idle);
+    assert_eq!(battle.activity(ActorId(0)), crate::Activity::Recovering);
 }
 
 #[test]
@@ -132,5 +132,56 @@ fn ready_delayed_cast_survives_guard_and_releases_once_when_unheld() {
             battle.technique_uses(ActorId(0), crate::TechniqueId(66)),
             Some(50)
         );
+    }
+}
+
+#[test]
+fn one_and_two_update_guard_taps_cancel_without_entering_guard() {
+    for mode in [Control::Manual, Control::SemiAuto] {
+        for guard_updates in [1, 2, 3] {
+            let mut battle = controlled(mode, 20);
+            battle.step(request()).unwrap();
+            battle.step(BattleInput::default()).unwrap();
+            let tp = battle.actors[0].tp;
+            let mut expected_random = battle.random;
+            for update in 0..guard_updates.max(2) {
+                let frame = battle
+                    .step(held(ActorId(0), update < guard_updates, false))
+                    .unwrap();
+                assert_eq!(
+                    frame.actors[0].activity,
+                    match update {
+                        0 => crate::Activity::Recovering,
+                        1 => crate::Activity::Idle,
+                        _ => crate::Activity::Guarding,
+                    }
+                );
+                assert_eq!(frame.actors[0].tp, tp);
+                assert!(!frame.actors[0].guard.active);
+                if update < 2 {
+                    if update == 1 {
+                        // Ordinary control initializes once, after cancellation.
+                        expected_random.next_u16();
+                    }
+                    assert_eq!(battle.random, expected_random);
+                }
+            }
+            let mut input = crate::ControlInput::neutral(ActorId(0));
+            input.attack = crate::ButtonInput {
+                held: true,
+                pressed: true,
+                ..Default::default()
+            };
+            let frame = battle.step(BattleInput::from(input)).unwrap();
+            assert_eq!(frame.actors[0].activity, crate::Activity::Approaching);
+            let frame = battle.step(BattleInput::default()).unwrap();
+            assert!(frame.cues.iter().any(|cue| matches!(
+                cue,
+                Cue::Started {
+                    actor: ActorId(0),
+                    ..
+                }
+            )));
+        }
     }
 }
