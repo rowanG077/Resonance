@@ -81,6 +81,14 @@ mod tests {
     #[ignore = "requires cooked battle assets; GameCube Z rotation regression"]
     fn z_rotates_party_and_preserves_slot_modes_through_battle_completion() -> Result<()> {
         let mut f = fixture(&[1, 2, 3, 4, 5], [1, 2, 2, 2])?;
+        let selected_actor = f.candidate.setup.actors[0].0;
+        command_visit(
+            &mut f,
+            command::Input {
+                control_mode: true,
+                ..Default::default()
+            },
+        )?;
         let random = f.battle.random_state();
         let ticks = f.battle.ledger().elapsed_ticks;
         for expected in [
@@ -98,7 +106,21 @@ mod tests {
             );
             let menu = f.lifecycle.command_frame().unwrap();
             assert_eq!(menu.actor, f.candidate.setup.actors[0].0);
-            assert_eq!(menu.view, command::View::Strip);
+            let selected_slot = f
+                .candidate
+                .setup
+                .actors
+                .iter()
+                .position(|&(actor, _)| actor == selected_actor)
+                .unwrap();
+            assert_eq!(
+                menu.control_selection,
+                Some(command::ControlSelection {
+                    actor: selected_actor,
+                    slot: selected_slot as u8,
+                    mode: f.battle.actors()[selected_actor.index()].control,
+                })
+            );
             for (slot, &(id, character)) in f.candidate.setup.actors.iter().enumerate() {
                 let actor = &f.battle.actors()[id.index()];
                 assert_eq!(character as u8, expected[slot]);
@@ -156,8 +178,8 @@ mod tests {
             },
         )?;
         assert_eq!(
-            f.lifecycle.command_frame().unwrap().view,
-            command::View::Control(command::ControlSelection {
+            f.lifecycle.command_frame().unwrap().control_selection,
+            Some(command::ControlSelection {
                 actor,
                 slot: 0,
                 mode: Control::SemiAuto,

@@ -126,6 +126,8 @@ pub struct Frame {
     pub controller: ControllerPort,
     /// Connection sample from this retained menu visit, shared by input and draw.
     pub connected: [bool; 4],
+    /// Start's mode label remains visible while navigating the command visit.
+    pub control_selection: Option<ControlSelection>,
     pub view: View,
     pub escape_requested: bool,
 }
@@ -133,7 +135,6 @@ pub struct Frame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
     Strip,
-    Control(ControlSelection),
     User(ActorSelection),
     Inventory(ListFrame),
     Tech(crate::menu::techniques::Tech),
@@ -247,12 +248,13 @@ pub struct Step {
 struct Session {
     admission: Admission,
     page: Page,
+    // Start's type label stays with this command visit across navigation and submenus.
+    control_selection: Option<ControlSelection>,
 }
 
 #[derive(Debug)]
 enum Page {
     Strip,
-    Control(ControlSelection),
     Items(items::Owner),
     Tech(Box<crate::menu::techniques::BattlePage>),
     TechTarget(TechTarget),
@@ -267,13 +269,12 @@ impl Page {
             Self::Tech(_) | Self::Strategy(_) | Self::Unison(_) | Self::Equipment(_) => {
                 InputKind::SharedMenu
             }
-            Self::Strip | Self::Control(_) | Self::TechTarget(_) => InputKind::Command,
+            Self::Strip | Self::TechTarget(_) => InputKind::Command,
         }
     }
     fn view(&self) -> View {
         match self {
             Self::Strip => View::Strip,
-            Self::Control(selection) => View::Control(selection.clone()),
             Self::TechTarget(target) => View::TechTarget {
                 target: target.selected,
             },
@@ -390,6 +391,7 @@ impl Owner {
             enabled: self.effective_enabled(session.admission.enabled),
             selected: self.selected,
             connected: self.connected,
+            control_selection: session.control_selection.clone(),
             view: session.page.view(),
             escape_requested: self.escape_requested,
         })
@@ -413,6 +415,7 @@ impl Owner {
             self.session = Some(Session {
                 admission,
                 page: Page::Strip,
+                control_selection: None,
             });
             return Ok(Step {
                 events: vec![Event::Cue(2), Event::VoiceStreamsPaused(true)],
@@ -449,10 +452,18 @@ impl Owner {
                         None
                     }
                     StripIntent::Control => {
-                        result.events.push(Event::Cue(2));
-                        Some(Page::Control(
-                            candidate.begin_control_selection(battle, session.admission.actor)?,
-                        ))
+                        session.control_selection = Some(match session.control_selection.take() {
+                            Some(selection) => {
+                                result.events.push(Event::Cue(1));
+                                candidate.cycle_control_mode(battle, selection)?
+                            }
+                            None => {
+                                result.events.push(Event::Cue(2));
+                                candidate
+                                    .begin_control_selection(battle, session.admission.actor)?
+                            }
+                        });
+                        Some(Page::Strip)
                     }
                     StripIntent::ChangeCharacter => {
                         if let Some(actor) =
@@ -506,23 +517,6 @@ impl Owner {
                             }
                         }
                     }
-                }
-            }
-            Page::Control(mut selection) => {
-                if input.controller != session.admission.controller {
-                    Some(Page::Control(selection))
-                } else if input.control_mode {
-                    selection = candidate.cycle_control_mode(battle, selection)?;
-                    result.events.push(Event::Cue(1));
-                    Some(Page::Control(selection))
-                } else if input.cancel_b.pressed || input.cancel_y.pressed || input.open.pressed {
-                    result.events.push(Event::Cue(3));
-                    Some(Page::Strip)
-                } else if input.confirm_a.pressed {
-                    result.events.push(Event::Cue(2));
-                    Some(Page::Strip)
-                } else {
-                    Some(Page::Control(selection))
                 }
             }
             Page::Tech(mut tech) => {
@@ -662,6 +656,9 @@ impl Owner {
             }
         };
         if let Some(page) = next {
+            if let Some(selection) = &mut session.control_selection {
+                *selection = candidate.begin_control_selection(battle, selection.actor)?;
+            }
             session.page = page;
             self.session = Some(session);
         } else {

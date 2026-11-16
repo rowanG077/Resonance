@@ -67,7 +67,7 @@ fn control_selector_preserves_portrait_and_saved_slots_with_an_absent_member() -
 
 #[test]
 #[ignore = "requires prepared battle assets; Dolphin Start control-selector regression"]
-fn start_opens_control_selection_then_cycles_live_and_saved_modes() -> Result<()> {
+fn control_modes_preserve_command_navigation_and_live_and_saved_edits() -> Result<()> {
     use command::{Input, View};
     use resonance_battle::ControllerPort;
     let mut f = fixture()?;
@@ -104,10 +104,9 @@ fn start_opens_control_selection_then_cycles_live_and_saved_modes() -> Result<()
     f.lifecycle.take_command_events();
     let actor = f.candidate.setup.actors[0].0;
     let before = f.candidate.party.settings.battle_controls;
-    assert!(matches!(
-        command(&mut f, start_confirm)?.view,
-        View::Control(_)
-    ));
+    let frame = command(&mut f, start_confirm)?;
+    assert_eq!(frame.view, View::Strip);
+    assert!(frame.control_selection.is_some());
     assert_eq!(f.lifecycle.take_command_events(), [command::Event::Cue(2)]);
     assert_eq!(f.candidate.party.settings.battle_controls, before);
     for (saved, live) in [
@@ -116,43 +115,101 @@ fn start_opens_control_selection_then_cycles_live_and_saved_modes() -> Result<()
         (0, Control::Manual),
     ] {
         let frame = command(&mut f, start_confirm)?;
-        assert!(matches!(frame.view, View::Control(selection)
+        assert!(matches!(frame.control_selection, Some(selection)
             if selection.actor == actor && selection.mode == live));
         assert_eq!(f.candidate.party.settings.battle_controls, [saved, 2, 0, 0]);
         assert_eq!(f.battle.actors()[actor.index()].control, live);
     }
-    for input in [
+    let frame = command(
+        &mut f,
         Input {
             controller: ControllerPort::Two,
             ..start
         },
-        Input {
-            step: 1,
-            ..Default::default()
-        },
+    )?;
+    assert!(matches!(frame.control_selection, Some(selection)
+        if selection.actor == actor && selection.mode == Control::Manual));
+    for (step, selected) in [
+        (1, command::Command::Strategy),
+        (-1, command::Command::Unison),
     ] {
-        let frame = command(&mut f, input)?;
-        assert!(matches!(frame.view, View::Control(selection)
+        let frame = command(
+            &mut f,
+            Input {
+                step,
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(frame.selected, selected);
+        assert!(matches!(frame.control_selection, Some(selection)
             if selection.actor == actor && selection.mode == Control::Manual));
         assert_eq!(f.candidate.party.settings.battle_controls, before);
     }
-    for (saved, exit) in [(1, confirm), (2, cancel)] {
-        command(&mut f, start)?;
-        assert!(matches!(command(&mut f, exit)?.view, View::Strip));
-        assert_eq!(
-            f.candidate.persistent_party().settings.battle_controls[0],
-            saved
-        );
-        assert!(matches!(command(&mut f, start)?.view, View::Control(_)));
-    }
-    command(&mut f, cancel)?;
+    f.lifecycle.take_command_events();
+    let frame = command(&mut f, confirm)?;
+    assert_eq!(frame.view, View::Strip);
+    assert!(frame.control_selection.is_some());
+    assert_eq!(f.lifecycle.take_command_events(), [command::Event::Cue(4)]);
     super::item_tests::command_visit(&mut f, cancel)?;
     assert!(f.lifecycle.command_frame().is_none());
-    command(&mut f, open)?;
+    assert!(command(&mut f, open)?.control_selection.is_none());
     assert!(
-        matches!(command(&mut f, start)?.view, View::Control(selection)
+        matches!(command(&mut f, start)?.control_selection, Some(selection)
+        if selection.mode == Control::Manual)
+    );
+    command(&mut f, start)?;
+    let frame = command(
+        &mut f,
+        Input {
+            step: -1,
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(frame.selected, command::Command::Tech);
+    let frame = command(&mut f, confirm)?;
+    assert!(matches!(frame.view, View::Tech(_)));
+    assert!(matches!(frame.control_selection, Some(selection)
+        if selection.actor == actor && selection.mode == Control::SemiAuto));
+    assert_eq!(
+        f.candidate.persistent_party().settings.battle_controls[0],
+        1
+    );
+    assert_eq!(f.battle.actors()[actor.index()].control, Control::SemiAuto);
+    let frame = command(
+        &mut f,
+        Input {
+            shared_menu: Some(MenuAction::Cancel),
+            ..Default::default()
+        },
+    )?;
+    assert!(matches!(frame.control_selection, Some(selection)
+        if selection.actor == actor && selection.mode == Control::SemiAuto));
+    assert!(
+        matches!(command(&mut f, start)?.control_selection, Some(selection)
         if selection.mode == Control::Auto)
     );
+    assert_eq!(
+        f.candidate.persistent_party().settings.battle_controls[0],
+        2
+    );
+    command(&mut f, confirm)?;
+    command(
+        &mut f,
+        Input {
+            shared_menu: Some(MenuAction::Up),
+            ..Default::default()
+        },
+    )?;
+    let frame = command(
+        &mut f,
+        Input {
+            shared_menu: Some(MenuAction::Details),
+            ..Default::default()
+        },
+    )?;
+    assert!(matches!(frame.view, View::Tech(_)));
+    assert!(matches!(frame.control_selection, Some(selection)
+        if selection.actor == actor && selection.mode == Control::Manual));
     Ok(())
 }
 

@@ -35,11 +35,6 @@ fn actor_selection(selection: &ActorSelection) -> Value {
 fn command_view(view: &View) -> Value {
     match view {
         View::Strip => json!({"kind": "strip"}),
-        View::Control(selection) => json!({"kind": "control", "actor": selection.actor.index(),
-        "slot": selection.slot, "mode": match selection.mode {
-            Control::Manual => "manual", Control::SemiAuto => "semi_auto",
-            Control::Auto => "auto", Control::Enemy => "enemy",
-        }}),
         View::TechTarget { target } => {
             json!({"kind": "tech_target", "target": target.map(|id| id.index())})
         }
@@ -245,6 +240,13 @@ impl Owner {
                 "actor": command.actor.index(), "selected": command.selected.index(),
                 "enabled": command.enabled,
                 "controller": command.controller.index(),
+                "control_selection": command.control_selection.as_ref().map(|selection| json!({
+                    "actor": selection.actor.index(), "slot": selection.slot,
+                    "mode": match selection.mode {
+                        Control::Manual => "manual", Control::SemiAuto => "semi_auto",
+                        Control::Auto => "auto", Control::Enemy => "enemy",
+                    },
+                })),
                 "view": command_view(&command.view),
             })),
             "strategy_party": strategy_party,
