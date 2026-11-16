@@ -636,6 +636,7 @@ impl NativeHost<'_> {
             }
             NativeCall::ReturnFieldControl => {
                 self.world.mapped_input_disabled = false;
+                self.world.mapped_input_foreground = false;
                 if let Some(party) = &mut self.world.party {
                     party.travel.skit_prompts_disabled = a[0] & 1 != 0;
                 }
@@ -1673,6 +1674,7 @@ impl NativeHost<'_> {
             }
             NativeCall::DisableMappedInput => {
                 self.world.mapped_input_disabled = true;
+                self.world.mapped_input_foreground = self.foreground;
                 self.world.input_enabled = false;
                 if let Some(actor) = self.world.actors.get_mut(&self.world.controlled_actor) {
                     actor.motion = None;
@@ -1680,6 +1682,7 @@ impl NativeHost<'_> {
             }
             NativeCall::EnableMappedInput => {
                 self.world.mapped_input_disabled = false;
+                self.world.mapped_input_foreground = false;
                 self.world.input_enabled = true;
             }
             NativeCall::SetEventBit | NativeCall::ClearEventBit | NativeCall::TestEventBit => {

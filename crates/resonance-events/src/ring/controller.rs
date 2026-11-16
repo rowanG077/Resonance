@@ -34,6 +34,7 @@ const BUBBLE_TURN_PER_TICK: f32 = 4.;
 const BOMB_FUSE_TICKS: u32 = 180;
 const BOMB_BLAST_TICKS: u32 = 60;
 const RADAR_TICKS: u32 = 600;
+const RADAR_INTERRUPTION_TICKS: u32 = 15;
 const FADE_TICKS: u32 = 30;
 const RING_LAUNCH_FLAG: u16 = 21;
 const PROJECTILE_STUN_TICKS: i16 = 240;
@@ -66,7 +67,15 @@ enum Phase {
     BombFuse(i32),
     BombBlast(i32),
     RadarScan(i32),
-    RadarFade(i32),
+    RadarFade {
+        handle: i32,
+        callback: bool,
+    },
+    RadarInterrupted {
+        handle: i32,
+        amount: f32,
+        duration: u32,
+    },
     SunlightBeam(SunlightExposure),
     SunlightFade(u32),
 }
@@ -92,7 +101,8 @@ impl Phase {
             | Self::BubbleFalling
             | Self::EarthquakeFade
             | Self::BombBlast(_)
-            | Self::RadarFade(_)
+            | Self::RadarFade { .. }
+            | Self::RadarInterrupted { .. }
             | Self::SunlightFade(_) => Pause::Continue,
             Self::OrbFlying(_)
             | Self::OrbHeld(_)
@@ -406,6 +416,12 @@ impl Cast {
         }
         Ok(())
     }
+    fn radar_callback(&mut self, events: &mut EventRuntime) -> Result<()> {
+        if let Some(operation) = events.queue_radar_end_callback()? {
+            self.callbacks.push(operation);
+        }
+        Ok(())
+    }
     fn update(&mut self, events: &mut EventRuntime) -> Result<()> {
         let exists = events
             .world
@@ -413,6 +429,35 @@ impl Cast {
             .get(&self.source.0)
             .is_some_and(|a| a.instance == self.source.1);
         if exists {
+            if events.world.mapped_input_disabled {
+                let interrupted = match self.phase {
+                    Phase::RadarScan(handle) => Some((
+                        handle,
+                        fraction(self.age, FADE_TICKS + 1),
+                        RADAR_INTERRUPTION_TICKS,
+                        true,
+                    )),
+                    Phase::RadarFade { handle, callback } => Some((
+                        handle,
+                        1. - fraction(self.age.saturating_sub(1), FADE_TICKS + 1),
+                        RADAR_INTERRUPTION_TICKS.min(FADE_TICKS.saturating_sub(self.age)),
+                        callback,
+                    )),
+                    _ => None,
+                };
+                if let Some((handle, amount, duration, callback)) = interrupted {
+                    if callback {
+                        self.radar_callback(events)?;
+                    }
+                    // Keep the current strength and fade rate; event control only
+                    // shortens the remaining lifetime to fifteen updates.
+                    self.transition(Phase::RadarInterrupted {
+                        handle,
+                        amount,
+                        duration,
+                    });
+                }
+            }
             let pause = self.phase.pause();
             let advancing = !events.world.mapped_input_disabled || pause == Pause::Continue;
             if advancing {
@@ -606,10 +651,26 @@ impl Cast {
                 }
             }
             Phase::RadarScan(handle) if self.age >= RADAR_TICKS - FADE_TICKS => {
-                self.callback(events, Hit::Pulse, true)?;
-                self.transition(Phase::RadarFade(handle));
+                self.transition(Phase::RadarFade {
+                    handle,
+                    callback: true,
+                });
             }
-            Phase::RadarFade(_) if self.age >= FADE_TICKS => self.finish(&mut events.world),
+            Phase::RadarFade { handle, callback } => {
+                if callback && self.age > FADE_TICKS / 2 {
+                    self.radar_callback(events)?;
+                    self.phase = Phase::RadarFade {
+                        handle,
+                        callback: false,
+                    };
+                }
+                if self.age >= FADE_TICKS {
+                    self.finish(&mut events.world);
+                }
+            }
+            Phase::RadarInterrupted { duration, .. } if self.age >= duration => {
+                self.finish(&mut events.world)
+            }
             Phase::SunlightBeam(_) if !sunlight_ready(&events.world) => {
                 self.transition(Phase::SunlightFade(self.age));
             }
@@ -850,11 +911,19 @@ impl Cast {
             Phase::BombBlast(_) if (1..=21).contains(&self.age) => {
                 visuals.bomb(self.age == 1, &mut world.random_state)
             }
-            Phase::RadarScan(handle) | Phase::RadarFade(handle) => {
-                let amount = if matches!(self.phase, Phase::RadarFade(_)) {
-                    1. - fraction(self.age.saturating_sub(1), FADE_TICKS + 1)
-                } else {
-                    fraction(self.age, FADE_TICKS + 1)
+            Phase::RadarScan(handle)
+            | Phase::RadarFade { handle, .. }
+            | Phase::RadarInterrupted { handle, .. } => {
+                let amount = match self.phase {
+                    Phase::RadarFade { .. } => {
+                        1. - fraction(self.age.saturating_sub(1), FADE_TICKS + 1)
+                    }
+                    Phase::RadarInterrupted { amount, .. } => {
+                        // Early interruption carries the start past the fog end,
+                        // producing the original green pulse until cleanup.
+                        amount - fraction(self.age, FADE_TICKS + 1)
+                    }
+                    _ => fraction(self.age, FADE_TICKS + 1),
                 };
                 if self.age > 0 {
                     world.fog_effects.insert(
@@ -1014,7 +1083,9 @@ impl Cast {
             world.model_particles.remove(&handle);
         }
         match phase {
-            Phase::RadarScan(handle) | Phase::RadarFade(handle) => {
+            Phase::RadarScan(handle)
+            | Phase::RadarFade { handle, .. }
+            | Phase::RadarInterrupted { handle, .. } => {
                 world.fog_effects.remove(&handle);
             }
             Phase::BombFuse(id) | Phase::BombBlast(id) => {

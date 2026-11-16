@@ -524,6 +524,37 @@ impl EventRuntime {
         hit: crate::ring::Hit,
         secondary: bool,
     ) -> Result<Option<crate::Operation>> {
+        self.queue_ring_callback_with_control(hit, secondary, false)
+    }
+
+    pub(crate) fn queue_radar_end_callback(&mut self) -> Result<Option<crate::Operation>> {
+        // The original game tries the foreground slot once, including when a
+        // background event disabled input. An occupied foreground discards this callback.
+        if self.interaction.is_some()
+            || self.world.mapped_input_disabled && self.world.mapped_input_foreground
+        {
+            return Ok(None);
+        }
+        // Bypass the input gate only for the background pause. A separate
+        // handoff, such as an entry fade, still owns input until it completes.
+        let take_control = self.world.mapped_input_disabled
+            && self.world.field_exit.is_none()
+            && self.world.field_transition.is_none()
+            && self.world.world_transition.is_none()
+            && !self
+                .instances
+                .iter()
+                .flatten()
+                .any(|instance| matches!(instance.wait, Some(Wait::ControlHandoff(_))));
+        self.queue_ring_callback_with_control(crate::ring::Hit::Pulse, true, take_control)
+    }
+
+    fn queue_ring_callback_with_control(
+        &mut self,
+        hit: crate::ring::Hit,
+        secondary: bool,
+        take_control: bool,
+    ) -> Result<Option<crate::Operation>> {
         let key = if secondary {
             crate::ring::SECONDARY_CALLBACK
         } else {
@@ -544,7 +575,12 @@ impl EventRuntime {
         instance.event_actor = hit.event_actor();
         instance.callback = Some(Callback::Owned(completion.clone()));
         *entry = Some(instance);
-        self.reconcile_control();
+        if take_control {
+            self.interaction = Some(handle);
+            self.world.input_enabled = false;
+        } else {
+            self.reconcile_control();
+        }
         Ok(Some(completion))
     }
 
@@ -688,6 +724,7 @@ impl EventRuntime {
             self.interaction = None;
             self.world.input_enabled = true;
             self.world.mapped_input_disabled = false;
+            self.world.mapped_input_foreground = false;
         }
         Ok(())
     }
@@ -721,6 +758,7 @@ impl EventRuntime {
                     self.interaction = None;
                     self.world.input_enabled = true;
                     self.world.mapped_input_disabled = false;
+                    self.world.mapped_input_foreground = false;
                 }
                 *entry = None;
             }
@@ -816,6 +854,7 @@ impl EventRuntime {
         self.interaction = None;
         self.world.input_enabled = false;
         self.world.mapped_input_disabled = false;
+        self.world.mapped_input_foreground = false;
     }
     pub fn step(&mut self) -> Result<()> {
         self.step_with_motion(
@@ -1391,6 +1430,7 @@ impl EventRuntime {
                     resources: &self.resources,
                     program: &instance.program,
                     event_actor: instance.event_actor,
+                    foreground: instance.background.is_none(),
                     registers: &mut instance.registers,
                     events: &mut commands,
                     free_slots: self
@@ -1455,7 +1495,7 @@ impl EventRuntime {
                     }
                     if self.interaction == Some(instance.handle) {
                         self.interaction = None;
-                        self.world.input_enabled = true;
+                        self.world.input_enabled = !self.world.mapped_input_disabled;
                     }
                 }
             }

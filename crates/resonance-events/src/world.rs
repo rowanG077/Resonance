@@ -720,6 +720,7 @@ pub struct GameWorld {
     pub input: crate::input::Input,
     /// Native event pause, independent of an authored task's input ownership.
     pub mapped_input_disabled: bool,
+    pub(crate) mapped_input_foreground: bool,
     pub controlled_actor: i32,
     /// Block retained by the player's grab action, independent of script targets.
     pub grabbed_block: Option<i32>,

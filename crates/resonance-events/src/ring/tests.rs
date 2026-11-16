@@ -7,19 +7,36 @@ use std::sync::Arc;
 use symphonia_script::{NativeCall, Program, scenario};
 
 fn field(ability: Ability, callback: Option<(u32, &str)>) -> EventRuntime {
-    let header = match callback {
-        Some((key, _)) => format!(
-            ".code_base 10\n.word 10\n.word 0\n.word 0\n.word 1\n.word 0\n.word 0\n.word {}\n.word {}\n.word 0\n.word 1\n",
+    field_registry(
+        ability,
+        &callback
+            .into_iter()
+            .map(|(key, body)| (0, key, body))
+            .collect::<Vec<_>>(),
+    )
+}
+fn field_registry(ability: Ability, registry: &[(u32, u32, &str)]) -> EventRuntime {
+    let base = 4 + registry.len() * 6;
+    let mut header = format!(
+        ".code_base {base}\n.word {base}\n.word 0\n.word 0\n.word {}\n",
+        registry.len()
+    );
+    let mut body = "end\n".to_string();
+    let mut pc = 1;
+    for &(kind, key, code) in registry {
+        header += &format!(
+            ".word 0\n.word {kind}\n.word {}\n.word {}\n.word 0\n.word {pc}\n",
             key >> 16,
             key & 65535
-        ),
-        None => ".code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n".into(),
-    };
-    let source = scenario::assemble(&format!(
-        ".scenario\n{header}end\n{}",
-        callback.map_or("", |(_, source)| source)
-    ))
-    .unwrap();
+        );
+        let encoded = scenario::assemble(&format!(
+            ".scenario\n.code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n{code}"
+        ))
+        .unwrap();
+        pc += encoded.len() / 2 - 4;
+        body += code;
+    }
+    let source = scenario::assemble(&format!(".scenario\n{header}{body}")).unwrap();
     let clip = || AnimationClip {
         duration_ticks: 30,
         attachments: None,
@@ -534,6 +551,158 @@ fn ring_hit_uses_nearest_target_and_keeps_control_until_callback_finishes() {
         steps(&mut events, 60);
         assert!(events.player_has_control());
     }
+}
+
+#[test]
+fn foreground_interactions_end_radar_from_its_current_strength_without_deferred_callbacks() {
+    let callback = format!(
+        "push.s8 42\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::SetEventBit as u8
+    );
+    let interaction = format!(
+        "proc {}\npush.s8 0\ncalc 0\narg\npush.s8 90\ncalc 0\narg\nproc {}\nproc {}\nend\n",
+        NativeCall::DisableMappedInput as u8,
+        NativeCall::YieldCommand as u8,
+        NativeCall::EnableMappedInput as u8
+    );
+    for interrupted_at in [25, 80, 595, 618] {
+        let mut events = field_registry(
+            Ability::Radar,
+            &[(0, 42, &interaction), (0, SECONDARY_CALLBACK, &callback)],
+        );
+        events.activate_ring(true).unwrap();
+        steps(&mut events, interrupted_at);
+        assert!(events.interact(42).unwrap());
+        steps(&mut events, 1);
+        assert!(events.world.mapped_input_disabled);
+        let before = events.world.fog().cloned().unwrap();
+        let callback_ran = events.world.event_flags.contains(&42);
+        let remaining = 15.min(620 - interrupted_at - 1);
+        for elapsed in 1..=remaining {
+            steps(&mut events, 1);
+            if elapsed < remaining {
+                let fog = events.world.fog().unwrap();
+                let expected = before.start + 326.66667 * elapsed as f32;
+                assert!((fog.start - expected).abs() < 0.01);
+                assert_eq!(fog.end, 10000.);
+                // The ramp interruption reverses the fog range for eight updates.
+                assert_eq!(fog.start > fog.end, interrupted_at == 25 && elapsed >= 7);
+            } else {
+                assert!(events.world.fog().is_none());
+            }
+        }
+        assert_eq!(events.world.actors.len(), 1);
+        assert!(!events.player_has_control());
+        steps(&mut events, 100);
+        assert!(events.player_has_control());
+        assert_eq!(events.world.event_flags.contains(&42), callback_ran);
+    }
+}
+
+#[test]
+fn radar_expiry_waits_for_a_pending_field_control_handoff() {
+    let spawn_handoff = format!(
+        "push.s8 77\ncalc 0\narg\nproc {}\n",
+        NativeCall::SpawnEvent as u8
+    );
+    let spawn_pause = format!(
+        "push.s8 78\ncalc 0\narg\nproc {}\n",
+        NativeCall::SpawnEvent as u8
+    );
+    let pause = format!("proc {}\nend\n", NativeCall::DisableMappedInput as u8);
+    let handoff = format!(
+        "push.s8 0\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::ReturnFieldControl as u8
+    );
+    let callback = format!(
+        "push.s8 42\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::SetEventBit as u8
+    );
+    for (fading, background_pause) in [(false, false), (true, false), (true, true)] {
+        let interaction = format!(
+            "{spawn_handoff}{}end\n",
+            if background_pause { &spawn_pause } else { "" }
+        );
+        let mut events = field_registry(
+            Ability::Radar,
+            &[
+                (0, 42, &interaction),
+                (2, 77, &handoff),
+                (2, 78, &pause),
+                (0, SECONDARY_CALLBACK, &callback),
+            ],
+        );
+        events.activate_ring(true).unwrap();
+        steps(&mut events, 600);
+        if fading {
+            assert!(events.interact(42).unwrap());
+        }
+        steps(&mut events, 5);
+        assert!(!events.world.event_flags.contains(&42));
+        steps(&mut events, 1);
+        if fading {
+            for _ in 606..611 {
+                assert!(!events.player_has_control());
+                assert!(!events.world.event_flags.contains(&42));
+                steps(&mut events, 1);
+            }
+            steps(&mut events, 1);
+        }
+        assert!(events.world.event_flags.contains(&42));
+        assert_eq!(events.player_has_control(), !background_pause);
+    }
+}
+
+#[test]
+fn background_control_ends_radar_and_admits_its_callback_while_input_stays_disabled() {
+    let start = format!(
+        "push.s8 77\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::SpawnEvent as u8
+    );
+    let background = format!(
+        "push.s8 0\ncalc 0\narg\npush.s8 60\ncalc 0\narg\nproc {}\nproc {}\npush.s8 0\ncalc 0\narg\npush.s8 90\ncalc 0\narg\nproc {}\nproc {}\nend\n",
+        NativeCall::YieldCommand as u8,
+        NativeCall::DisableMappedInput as u8,
+        NativeCall::YieldCommand as u8,
+        NativeCall::EnableMappedInput as u8
+    );
+    let callback = format!(
+        "push.s8 42\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::SetEventBit as u8
+    );
+    let mut events = field_registry(
+        Ability::Radar,
+        &[
+            (0, CALLBACK, &start),
+            (2, 77, &background),
+            (0, SECONDARY_CALLBACK, &callback),
+        ],
+    );
+    events.activate_ring(true).unwrap();
+    steps(&mut events, 60);
+    let scanning = events.world.fog().cloned().unwrap();
+    events
+        .world
+        .input
+        .sample([crate::input::Button::Accept].into(), [].into());
+    steps(&mut events, 1);
+    assert_eq!(events.world.fog(), Some(&scanning));
+    for _ in 0..100 {
+        if events.world.mapped_input_disabled {
+            break;
+        }
+        steps(&mut events, 1);
+    }
+    assert!(events.world.mapped_input_disabled);
+    steps(&mut events, 1);
+    assert!(events.world.event_flags.contains(&42));
+    assert!(events.world.mapped_input_disabled);
+    assert!(!events.world.input_enabled);
+    assert!(!events.player_has_control());
+    steps(&mut events, 14);
+    assert!(events.world.fog().is_none());
+    steps(&mut events, 100);
+    assert!(events.player_has_control());
 }
 
 #[test]
