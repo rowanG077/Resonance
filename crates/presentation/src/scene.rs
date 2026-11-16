@@ -12,6 +12,8 @@ use std::sync::Arc;
 pub(super) struct AnimatedPart {
     index: usize,
     binding: super::sparse_animation::Binding,
+    pose_key: Option<(bevy::ecs::change_detection::Tick, Option<u64>)>,
+    poses: Vec<super::sparse_animation::affine::PoseEndpoint>,
 }
 
 /// Every title scene instance, including static parts sharing the same GLB.
@@ -108,13 +110,14 @@ impl FieldAssets {
 pub(super) fn animate_field(
     events: Option<Res<Events>>,
     field: Res<FieldAssets>,
-    roots: Query<(Entity, &AnimatedPart)>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
+    mut roots: Query<(Entity, &mut AnimatedPart)>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<super::sparse_animation::affine::Locals>,
     mut visibility: Query<&mut Visibility>,
 ) {
     let Some(events) = events else { return };
-    for (root, animation) in &roots {
+    for (root, mut animation) in &mut roots {
         let part = &field.parts[animation.index];
         let spec = &part.art.spec;
         let mut visibility = visibility.get_mut(root).unwrap();
@@ -146,6 +149,39 @@ pub(super) fn animate_field(
             ) / ANIMATION_HZ;
             (clip, sampled, false)
         };
+        let future = prediction
+            .as_ref()
+            .and_then(|p| p.title().map(|(_, e)| (e, p.alpha)))
+            .and_then(|(next, alpha)| {
+                let duration = spec.clips[clip].duration_seconds;
+                let elapsed = if spec.autoplay {
+                    next.tick() as f32 / ANIMATION_HZ
+                } else {
+                    let current = events.0.world.actor_for_resource(part.resource)?;
+                    let actor = next.world.actor_for_resource(part.resource)?;
+                    if current.instance != actor.instance || current.visible != actor.visible {
+                        return None;
+                    }
+                    let mut transform = transforms.get_mut(root).ok()?;
+                    transform.translation = Vec3::from_array(current.position)
+                        .lerp(Vec3::from_array(actor.position), alpha);
+                    let a = current.animation.as_ref()?;
+                    let b = actor.animation.as_ref()?;
+                    if (a.source, a.resource, a.slot, a.start_tick)
+                        != (b.source, b.resource, b.slot, b.start_tick)
+                    {
+                        return None;
+                    }
+                    b.sample(next.tick(), 1, duration * ANIMATION_HZ) / ANIMATION_HZ
+                };
+                let time = if repeat && elapsed > duration {
+                    let phase = elapsed % duration;
+                    if phase == 0. { duration } else { phase }
+                } else {
+                    elapsed.min(duration)
+                };
+                Some((time, alpha))
+            });
         let spec = &spec.clips[clip];
         let time = if repeat && elapsed > spec.duration_seconds {
             let phase = elapsed % spec.duration_seconds;
@@ -157,10 +193,28 @@ pub(super) fn animate_field(
         } else {
             elapsed.min(spec.duration_seconds)
         };
-        animation
-            .binding
-            .sample(&part.art.motions[clip], time, &mut transforms, &mut affine)
-            .expect("validated title animation must evaluate");
+        let key = (
+            events.last_changed(),
+            future.map(|_| prediction.as_ref().unwrap().counts()[0]),
+        );
+        if animation.pose_key != Some(key) {
+            let AnimatedPart { binding, poses, .. } = &mut *animation;
+            binding
+                .sample_endpoints(
+                    (&part.art.motions[clip], time),
+                    (
+                        &part.art.motions[clip],
+                        future.map_or(time, |(time, _)| time),
+                    ),
+                    poses,
+                )
+                .expect("validated title animation must evaluate");
+            animation.pose_key = Some(key);
+        }
+        let alpha = future.map_or(0., |(_, alpha)| alpha);
+        for &endpoint in &animation.poses {
+            endpoint.apply(alpha, &mut transforms, &mut affine);
+        }
     }
 }
 
@@ -214,6 +268,8 @@ pub(super) fn prepare_field(
                 commands.entity(part.root).insert(AnimatedPart {
                     index,
                     binding: instance.binding(part.art.spec.bone_names.len())?,
+                    pose_key: None,
+                    poses: Vec::new(),
                 });
             }
             for (entity, draw) in instance.draws() {
@@ -241,6 +297,7 @@ pub(super) fn prepare_field(
 
 pub(super) fn update_materials(
     events: Option<Res<Events>>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     field: Res<FieldAssets>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
@@ -267,11 +324,17 @@ pub(super) fn update_materials(
                                     == binding.texture as i32
                             })
                     })
-                    .fold([0.; 2], |mut offset, (index, _)| {
-                        let uv = world
-                            .texture_animation_states
-                            .get(index)
-                            .map_or([0.; 2], |state| state.offset);
+                    .fold([0.; 2], |mut offset, (index, animation)| {
+                        let Some(current) = world.texture_animation_states.get(index) else {
+                            return offset;
+                        };
+                        let next = prediction.as_ref().and_then(|p| {
+                            Some((
+                                p.title()?.1.world.texture_animation_states.get(index)?,
+                                p.alpha,
+                            ))
+                        });
+                        let uv = current.render_offset(&animation.motion, next);
                         offset[0] += uv[0];
                         offset[1] += uv[1];
                         offset
@@ -298,3 +361,7 @@ pub(super) fn update_materials(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "scene/animation_tests.rs"]
+mod animation_tests;

@@ -2,6 +2,7 @@
 use crate::gpu_prepare as gpu;
 pub(super) mod material;
 mod motion;
+mod prediction;
 mod source;
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
@@ -58,7 +59,7 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(
             PostUpdate,
-            (animate, pose, motion::apply)
+            (animate, pose, motion::apply, prediction::present)
                 .chain()
                 .after(crate::secondary_motion::restore)
                 .before(bevy::transform::TransformSystems::Propagate),
@@ -129,6 +130,22 @@ struct Part {
     bones: BTreeMap<String, Entity>,
     ready: bool,
 }
+impl Part {
+    /// Resolve the preview clock to authored 30-Hz frames for both pose evaluators.
+    fn animation_sample<'a>(
+        &'a self,
+        preview: &resonance_game::menu::preview::Preview<'_>,
+    ) -> Result<Option<(&'a resonance_content::animation::Motion, f32)>> {
+        let Some(index) = self.clip else {
+            return Ok(None);
+        };
+        let motion = &self.motions[index];
+        let tick = preview.sample(self.spec.scene.clips[index].duration_ticks());
+        let frame =
+            tick as f32 * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ;
+        Ok(Some((motion, frame.min(motion.duration_frames))))
+    }
+}
 #[derive(Resource)]
 struct Viewer {
     camera: Entity,
@@ -146,6 +163,7 @@ struct Viewer {
     behavior: Option<PreparedBehavior>,
     behavior_tick: Option<u32>,
     overrides: PoseOverrides,
+    prediction: prediction::Cache,
 }
 #[derive(Debug, PartialEq, Eq)]
 enum PreviewStatus {
@@ -196,9 +214,11 @@ pub(super) struct State<'w> {
     live: Option<ResMut<'w, crate::new_game::Session>>,
 }
 impl State<'_> {
-    fn menu(&mut self) -> Option<&mut resonance_game::menu::Menu> {
-        let session = &mut **self.live.as_mut()?;
-        session.menu_mut()
+    fn menu(&self) -> Option<&resonance_game::menu::Menu> {
+        self.live.as_ref()?.menu()
+    }
+    fn menu_mut(&mut self) -> Option<&mut resonance_game::menu::Menu> {
+        self.live.as_mut()?.menu_mut()
     }
 }
 #[derive(SystemParam)]
@@ -289,6 +309,7 @@ fn setup(
         behavior: None,
         behavior_tick: None,
         overrides: PoseOverrides::default(),
+        prediction: Default::default(),
     });
 }
 
@@ -391,7 +412,9 @@ fn prepare(
         let selected = menu.preview().unwrap();
         let same_selection = viewer.record.as_ref().is_some_and(|r| r.id == selected.id);
         if same_selection && viewer.status == PreviewStatus::Unavailable {
-            menu.busy = false;
+            if menu.busy {
+                state.menu_mut().unwrap().busy = false;
+            }
             return Ok(());
         }
         commands.entity(viewer.quad).insert(Visibility::Inherited);
@@ -402,6 +425,8 @@ fn prepare(
         if same_selection && viewer.status == PreviewStatus::Ready {
             return Ok(());
         }
+        let menu = state.menu_mut().unwrap();
+        let selected = menu.preview().unwrap();
         if !same_selection {
             let record = Record {
                 id: selected.id,
@@ -637,7 +662,7 @@ fn prepare(
     if let Err(error) = result {
         fail(
             error,
-            state.menu(),
+            state.menu_mut(),
             &mut viewer,
             &mut commands,
             shared,
@@ -848,18 +873,15 @@ fn animate(
                         .outline_color_for(&part.spec.scene.materials[index])
                         .map_or(1., |c| f32::from(c[3]) / 255.);
             }
-            if let Some(index) = part.clip {
-                let duration = part.spec.scene.clips[index].duration_ticks();
-                let tick = preview.sample(duration);
-                let clip = &part.motions[index];
-                part.binding.sample(
+            restore_pose(&part.binding, &mut transforms, &mut affine)?;
+            if let Some((clip, frame)) = part.animation_sample(&preview)? {
+                crate::sparse_animation::sample(
+                    &part.binding.0,
                     clip,
-                    tick as f32 / resonance_content::ANIMATION_HZ,
+                    frame,
                     &mut transforms,
                     &mut affine,
                 )?;
-            } else {
-                restore_pose(&part.binding, &mut transforms, &mut affine)?;
             }
         }
         Ok(())
@@ -867,7 +889,7 @@ fn animate(
     if let Err(error) = result {
         fail(
             error,
-            Some(menu),
+            state.menu_mut(),
             &mut viewer,
             &mut commands,
             &shared,
@@ -894,23 +916,9 @@ fn pose(
     }
     let result = (|| -> Result<()> {
         let preview = menu.preview().unwrap();
-        let distance = preview.distance;
-        let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
-        let target = Vec3::new(
-            -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
-            0.,
-            distance * 6.4_f32.to_radians().sin(),
-        );
-        let eye = target
-            + Vec3::new(
-                0.,
-                -distance * 15_f32.to_radians().cos(),
-                distance * 15_f32.to_radians().sin(),
-            );
         *transforms
             .get_mut(viewer.camera)
-            .context("preview camera is missing")? =
-            Transform::from_translation(eye).looking_at(target, Vec3::Z);
+            .context("preview camera is missing")? = preview_camera(&preview);
         ensure!(
             viewer
                 .overrides
@@ -952,7 +960,7 @@ fn pose(
     if let Err(error) = result {
         fail(
             error,
-            Some(menu),
+            state.menu_mut(),
             &mut viewer,
             &mut commands,
             &shared,
@@ -973,6 +981,23 @@ fn evaluate_behavior(
         .as_ref()
         .context("preview behavior has no checkpoint flags")?;
     behavior.evaluate(|flag| checkpoint.progress().event_flags.contains(&flag))
+}
+
+fn preview_camera(preview: &resonance_game::menu::preview::Preview<'_>) -> Transform {
+    let distance = preview.distance;
+    let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
+    let target = Vec3::new(
+        -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
+        0.,
+        distance * 6.4_f32.to_radians().sin(),
+    );
+    let eye = target
+        + Vec3::new(
+            0.,
+            -distance * 15_f32.to_radians().cos(),
+            distance * 15_f32.to_radians().sin(),
+        );
+    Transform::from_translation(eye).looking_at(target, Vec3::Z)
 }
 
 fn preview_translation(pose: &PoseOverrides, elevation: f32) -> Vec3 {
@@ -1131,6 +1156,82 @@ mod tests {
                 assert_eq!(projection, baseline, "authored framing changed");
             }
         }
+    }
+
+    #[test]
+    fn committed_and_predicted_preview_samples_use_thirty_hz_frames() -> Result<()> {
+        use resonance_content::animation::{
+            Channel, Interpolation, Motion, NodeTrack, Track, Transform as Trs,
+        };
+        let motion = Arc::new(Motion {
+            duration_frames: 30.,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![Arc::new(NodeTrack {
+                    translation: Some(Channel {
+                        interpolation: Interpolation::Linear,
+                        times: vec![0., 1.],
+                        values: vec![[0.; 3], [30., 0., 0.]],
+                    }),
+                    ..NodeTrack::new(Trs::default())
+                })],
+            }],
+        });
+        let spec: PreviewPart = serde_json::from_value(serde_json::json!({
+            "resource":1,"mesh":"test.glb","textures":[],"materials":[],
+                "translation":[0.,0.,0.],"autoplay":false,"texture_animations":[],
+                "clips":[{"motion":"test.motion","slots":[0],"duration_seconds":1.}],
+            "animation":0,"attached_to":null,"additive":false
+        }))?;
+        let part = Part {
+            spec: spec.clone(),
+            gltf: Default::default(),
+            textures: vec![],
+            toon: None,
+            root: None,
+            materials: vec![],
+            clips: vec![],
+            motions: vec![motion],
+            clip: Some(0),
+            binding: Binding(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]),
+            bones: Default::default(),
+            ready: true,
+        };
+        let model = ModelPreview {
+            document: Default::default(),
+            scale: 1.,
+            elevation: 0.,
+            parts: vec![spec],
+            hidden_geometry: vec![],
+            behavior: None,
+        };
+        for tick in [0, 1, 21, 60, 61] {
+            let preview = resonance_game::menu::preview::Preview {
+                id: PreviewId::Monster(0),
+                model: &model,
+                yaw: 0.,
+                distance: 1.,
+                animation_tick: tick,
+                opacity: 255,
+                page_fade: 0,
+            };
+            let (motion, frame) = part.animation_sample(&preview)?.unwrap();
+            let seconds = preview.sample(60) as f32 / resonance_content::ANIMATION_HZ;
+            let mut endpoints = Vec::new();
+            part.binding
+                .sample_endpoints((motion, seconds), (motion, seconds), &mut endpoints)?;
+            let predicted = crate::sparse_animation::sample_track(
+                &motion.tracks[0],
+                frame,
+                Transform::IDENTITY,
+            )?;
+            assert_eq!(predicted, endpoints[0].poses.to);
+            assert_eq!(
+                predicted.global().translation().x,
+                preview.sample(60) as f32 * 0.5
+            );
+        }
+        Ok(())
     }
 
     #[test]

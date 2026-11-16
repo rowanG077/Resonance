@@ -126,6 +126,7 @@ pub(super) fn portrait(
     actor: &resonance_battle::ActorFrame,
     result: Option<BattleResult>,
     tick: u64,
+    future: Option<(&resonance_battle::ActorFrame, f32)>,
 ) -> Portrait {
     let activity = if actor.cast_releasing && actor.hp > 0 && actor.available() {
         Activity::Action
@@ -140,16 +141,26 @@ pub(super) fn portrait(
     } else {
         [128; 3]
     };
+    let pulse = |tick| {
+        let angle = ((tick % 360_u64) * 32 % 360) as f32;
+        (160. + 32. * angle.to_radians().sin()) as u16
+    };
     let brightness = match activity {
-        Activity::Casting { held: false } => {
-            let angle = ((tick % 360) * 32 % 360) as f32;
-            (160. + 32. * angle.to_radians().sin()) as u16
-        }
+        Activity::Casting { held: false } => pulse(tick),
         Activity::Casting { held: true } => 128 + (tick / 2 % 2) as u16 * 64,
         _ if actor.hp <= 0 || !actor.available() => 96,
         _ => 128,
     };
-    let color = tint.map(|channel| f32::from(channel * brightness / 128) / 128.);
+    let shade = |brightness| tint.map(|channel| f32::from(channel * brightness / 128) / 128.);
+    let mut color = shade(brightness);
+    if let Some((next, fraction)) = future
+        && matches!(activity, Activity::Casting { held: false })
+        && next.activity == activity
+        && !next.cast_releasing
+    {
+        let next = shade(pulse(tick.wrapping_add(1)));
+        color = std::array::from_fn(|i| color[i].lerp(next[i], fraction));
+    }
     let shake = actor.reaction.hit_shake_remaining();
     Portrait {
         row: if actor.hp > 0 && actor.available() && result == Some(BattleResult::Victory) {
@@ -162,7 +173,21 @@ pub(super) fn portrait(
             }
         },
         color: [color[0], color[1], color[2], 1.],
-        offset_y: -f32::from(shake * (shake % 2)),
+        offset_y: portrait_shake(
+            shake,
+            future.map(|(a, t)| (a.reaction.hit_shake_remaining(), t)),
+        ),
+    }
+}
+
+fn portrait_shake(shake: u8, future: Option<(u8, f32)>) -> f32 {
+    let offset = |ticks: u8| -f32::from(ticks * (ticks % 2));
+    let current = offset(shake);
+    match future {
+        Some((next, fraction)) if shake.checked_sub(1) == Some(next) => {
+            current.lerp(offset(next), fraction)
+        }
+        _ => current,
     }
 }
 
@@ -228,15 +253,18 @@ pub(super) fn backdrop(
     }
 }
 
+fn gauge_width(percent: i16) -> f32 {
+    f32::from(percent.clamp(0, 100) * BAR_SIZE[0] as i16 / 100)
+}
+
 fn bar(
     batch: &mut Batch,
     [x, y]: [f32; 2],
     current: i16,
-    trail: i16,
+    trail_width: f32,
     row: usize,
     colors: &resonance_content::battle_ui::MeterColors,
 ) {
-    let width = |percent: i16| f32::from(percent.clamp(0, 100) * BAR_SIZE[0] as i16 / 100);
     let rect = |width| [x, y, x + width, y + BAR_SIZE[1]];
     let [left, top, right, bottom] = rect(BAR_SIZE[0]);
     slanted_quad(
@@ -246,14 +274,14 @@ fn bar(
         8.,
         [colors.shadow; 4],
     );
-    let current = width(current);
+    let current = gauge_width(current);
     if current > 0. {
         slanted_quad(batch, rect(current), [0.5; 4], 8., colors.bars[row]);
     }
-    if width(trail) > current {
+    if trail_width > current {
         slanted_quad(
             batch,
-            [x + current, y, x + width(trail), y + BAR_SIZE[1]],
+            [x + current, y, x + trail_width, y + BAR_SIZE[1]],
             [0.5; 4],
             8.,
             [colors.trail; 4],
@@ -268,14 +296,14 @@ fn vital(
     [x, y]: [f32; 2],
     colors: [[u8; 4]; 2],
     shadow: [u8; 4],
-    pattern_tick: Option<u64>,
+    pattern_offset: Option<f32>,
 ) -> Result<()> {
     let text = format!("{:4}", value.clamp(0, 9999));
     for (offset, gradient) in [
         (1., [shadow; 4]),
         (0., [colors[0], colors[0], colors[1], colors[1]]),
     ] {
-        let target = if offset == 0. && pattern_tick.is_some() {
+        let target = if offset == 0. && pattern_offset.is_some() {
             &mut *patterned
         } else {
             &mut *batch
@@ -293,10 +321,10 @@ fn vital(
                 gradient,
             );
             if offset == 0.
-                && let Some(tick) = pattern_tick
+                && let Some(offset) = pattern_offset
             {
                 let [u, v] = VITAL_PATTERN_ORIGIN;
-                let u = u + (tick / 2 % VITAL_PATTERN_SIZE) as f32;
+                let u = u + offset;
                 let size = VITAL_PATTERN_SIZE as f32;
                 target.pattern_uv.extend([
                     [u, v],
@@ -310,8 +338,8 @@ fn vital(
     Ok(())
 }
 
-fn reserve_label(batch: &mut Batch, font: &BitmapFont, x: f32, tick: u64) -> Result<()> {
-    let alpha = (160. + 80. * ((tick % 60) as f32 * 6.).to_radians().sin()) as u8;
+fn reserve_label(batch: &mut Batch, font: &BitmapFont, x: f32, phase: f32) -> Result<()> {
+    let alpha = (160. + 80. * (phase * 6.).to_radians().sin()) as u8;
     for (offset, colors) in [
         (2., [[0, 0, 0, alpha / 2]; 2]),
         (0., [[112, 112, 48, alpha], [96, 96, 128, alpha]]),
@@ -335,6 +363,7 @@ impl Artwork {
         &mut self,
         frame: &BattleFrame,
         party: PartyHudInput<'_>,
+        time: HudTime,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -374,6 +403,9 @@ impl Artwork {
                 actor,
                 frame.recognized_result,
                 self.numbers.presentation_tick,
+                time.next
+                    .and_then(|n| n.frame.actors.get(id))
+                    .map(|a| (a, time.visit)),
             );
             if self.art.portraits[character].is_some() {
                 let source_top = f32::from(portrait.row) * 64.;
@@ -434,12 +466,13 @@ impl Artwork {
                     )?;
                 }
             }
+            let tick = self.numbers.presentation_tick;
             if queued {
                 reserve_label(
                     &mut reserved_commands,
                     &self.art.font,
                     x,
-                    self.numbers.presentation_tick,
+                    (tick % 60) as f32 + time.visit,
                 )?;
             }
             let numbers = self.numbers.actors.get(id);
@@ -452,12 +485,19 @@ impl Artwork {
                 .enumerate()
             {
                 let trail = numbers.map_or(current, |numbers| numbers.trails[row]);
+                let next_percent = time
+                    .next
+                    .and_then(|next| next.frame.actors.get(id))
+                    .map_or(current, |a| [a.hp_percent(), a.tp_percent()][row]);
+                // A refill is published on commit. Only the existing trailing edge decays.
+                let next_trail = (trail - 1).max(next_percent).min(trail);
+                let trail_width = gauge_width(trail).lerp(gauge_width(next_trail), time.feedback);
                 let position = vital_position(slot, row);
                 bar(
                     &mut gauges,
                     [x + 48., position[1] + 18.],
                     current,
-                    trail,
+                    trail_width,
                     row,
                     &self.art.meters,
                 );
@@ -475,7 +515,9 @@ impl Artwork {
                     (row == 0
                         && (actor.conditions.effective().intersects(POISON)
                             || actor.conditions.effective().contains(Condition::Weak)))
-                    .then_some(self.numbers.presentation_tick),
+                    .then_some(
+                        (tick / 2 % VITAL_PATTERN_SIZE) as f32 + (tick % 2) as f32 * time.visit,
+                    ),
                 )?;
             }
         }
@@ -514,32 +556,43 @@ mod tests {
 
     #[test]
     fn portraits_follow_actions_and_outcomes() {
+        let fixed = |actor: &resonance_battle::ActorFrame, result, tick| {
+            portrait(actor, result, tick, None)
+        };
         let mut actor = fixtures::actor(Default::default());
         actor.activity = Activity::Casting { held: false };
-        assert_eq!(portrait(&actor, None, 0).row, 0);
-        assert_eq!(portrait(&actor, None, 0).color, [1.25, 1.25, 1.25, 1.]);
-        assert!(portrait(&actor, None, 3).color[0] > 1.4);
+        assert_eq!(fixed(&actor, None, 0).row, 0);
+        assert_eq!(fixed(&actor, None, 0).color, [1.25, 1.25, 1.25, 1.]);
+        assert!(fixed(&actor, None, 3).color[0] > 1.4);
+        let pulsing = portrait(&actor, None, 0, Some((&actor, 0.5)));
+        assert_eq!(pulsing.color[0], (160. + 176.) / 256.);
+        assert_eq!(portrait_shake(3, Some((2, 0.5))), -1.5);
+        assert_eq!(portrait_shake(3, Some((3, 0.5))), -3.);
+        assert_eq!(portrait_shake(3, Some((10, 0.5))), -3.);
         actor.activity = Activity::Casting { held: true };
-        assert_eq!(portrait(&actor, None, 0).color, [1.; 4]);
-        assert_eq!(portrait(&actor, None, 2).color, [1.5, 1.5, 1.5, 1.]);
+        assert_eq!(
+            portrait(&actor, None, 1, Some((&actor, 0.5))).color,
+            [1.; 4]
+        );
+        assert_eq!(fixed(&actor, None, 2).color, [1.5, 1.5, 1.5, 1.]);
         actor.cast_releasing = true;
-        assert_eq!(portrait(&actor, None, 2).row, 1);
-        assert_eq!(portrait(&actor, None, 2).color, [1.; 4]);
+        assert_eq!(fixed(&actor, None, 2).row, 1);
+        assert_eq!(fixed(&actor, None, 2).color, [1.; 4]);
         actor.hp = 0;
-        assert_eq!(portrait(&actor, None, 2).row, 0);
+        assert_eq!(fixed(&actor, None, 2).row, 0);
         actor.hp = actor.equipment.max_hp;
         actor.cast_releasing = false;
         actor.activity = Activity::Action;
-        assert_eq!(portrait(&actor, None, 0).row, 1);
-        assert_eq!(portrait(&actor, Some(BattleResult::Victory), 0).row, 3);
+        assert_eq!(fixed(&actor, None, 0).row, 1);
+        assert_eq!(fixed(&actor, Some(BattleResult::Victory), 0).row, 3);
         actor.activity = Activity::Hurt;
-        assert_eq!(portrait(&actor, None, 0).row, 2);
+        assert_eq!(fixed(&actor, None, 0).row, 2);
         actor.activity = Activity::Idle;
         actor.hp = 0;
-        assert_eq!(portrait(&actor, Some(BattleResult::Victory), 0).row, 0);
-        assert_eq!(portrait(&actor, None, 0).color, [0.75, 0.75, 0.75, 1.]);
+        assert_eq!(fixed(&actor, Some(BattleResult::Victory), 0).row, 0);
+        assert_eq!(fixed(&actor, None, 0).color, [0.75, 0.75, 0.75, 1.]);
         actor.activity = Activity::Defeated;
-        assert_eq!(portrait(&actor, None, 0).row, 2);
+        assert_eq!(fixed(&actor, None, 0).row, 2);
         let normal = [[128; 4]; 2];
         assert_eq!(hp_colors(&actor, normal), HP_CRITICAL);
         actor.hp = actor.equipment.max_hp / 4;
@@ -553,14 +606,14 @@ mod tests {
             });
         actor.activity = Activity::Idle;
         assert_eq!(hp_colors(&actor, normal), HP_POISON);
-        assert_eq!(portrait(&actor, None, 0).color, [0.5, 1., 0.5, 1.]);
+        assert_eq!(fixed(&actor, None, 0).color, [0.5, 1., 0.5, 1.]);
         actor.conditions =
             resonance_battle::conditions::Conditions::new(resonance_battle::conditions::Layers {
                 base: Condition::Weak.into(),
                 ..Default::default()
             });
         assert_eq!(hp_colors(&actor, normal), HP_CRITICAL);
-        assert_eq!(portrait(&actor, None, 0).color, [1., 0.625, 0.625, 1.]);
+        assert_eq!(fixed(&actor, None, 0).color, [1., 0.625, 0.625, 1.]);
     }
 
     #[test]
@@ -583,7 +636,7 @@ mod tests {
         frame.actors[0].control = resonance_battle::Control::SemiAuto;
         frame.actors[0].control_label_ticks = 1;
         frame.cues.push(resonance_battle::Cue::Recovered {
-            floating: false,
+            floating: true,
             actor: resonance_battle::ActorId::from_index(0)?,
             kind: resonance_battle::RecoveryKind::Hp,
             nominal: 7,
@@ -597,6 +650,7 @@ mod tests {
                 queued_techniques: &[true, false],
                 names: &[None; 2],
             },
+            HudTime::default(),
             &mut Commands::new(&mut queue, &world),
             &mut meshes,
         )?;
@@ -640,21 +694,35 @@ mod tests {
         assert_eq!(markers.positions[0][0], left(1) + 28. + 2. + 4. - 320.);
         assert_eq!(markers.positions[0][1], 240. - (TOP - 1. + 2.));
         assert!(artwork.ui.reserved_commands.definition.depth < Depth::Commands.value());
-        artwork.render_numbers(&frame, &mut Commands::new(&mut queue, &world), &mut meshes)?;
-        let recovered = &artwork
-            .ui
-            .recovery
-            .rendered
-            .as_ref()
-            .unwrap()
-            .uploaded
-            .as_ref()
-            .unwrap()
-            .0;
-        assert!(!recovered.positions.is_empty());
+        let mut number_positions = |fraction| -> Result<_> {
+            artwork.render_numbers(
+                &frame,
+                fraction,
+                &mut Commands::new(&mut queue, &world),
+                &mut meshes,
+            )?;
+            Ok([&artwork.ui.floating, &artwork.ui.recovery].map(|layer| {
+                layer
+                    .rendered
+                    .as_ref()
+                    .unwrap()
+                    .uploaded
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .positions
+                    .clone()
+            }))
+        };
+        let [hit, recovered] = number_positions(0.)?;
+        let [hit_half, recovery_half] = number_positions(0.5)?;
+        // Over the first update the floating glyph shrinks four pixels and recovery moves one.
+        let width = |positions: &[[f32; 3]]| positions[1][0] - positions[0][0];
+        assert!((width(&hit) - width(&hit_half) - 2.).abs() < 0.001);
+        assert_eq!(recovery_half[0][0] - recovered[0][0], 0.5);
+        assert!(!recovered.is_empty());
         assert!(
             recovered
-                .positions
                 .iter()
                 .all(|p| { (left(1) - 320. ..left(2) - 320.).contains(&p[0]) })
         );
@@ -711,7 +779,7 @@ mod tests {
         artwork.advance(&frame, false)?;
         for queued in [true, false] {
             artwork.render(
-                &frame,
+                (&frame, &frame),
                 PartyHudInput {
                     characters: &[
                         Character::Lloyd,
@@ -725,6 +793,7 @@ mod tests {
                 None,
                 None,
                 &[super::ActorMarkers::default(); 4],
+                Default::default(),
                 &mut Commands::new(&mut queue, &world),
                 &mut meshes,
             )?;

@@ -6,6 +6,7 @@ const PRELUDE_COLOR: [u8; 3] = [16; 3];
 const PRELUDE_STEP: u8 = 4;
 const RESTORE_STEP: u8 = 2;
 
+#[derive(Clone)]
 pub(super) struct State {
     original: [u8; 4],
     color: [u8; 4],

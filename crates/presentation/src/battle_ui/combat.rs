@@ -149,19 +149,20 @@ impl Hud {
         batch: &mut [Batch],
         command: Option<&resonance_game::battle::command::Frame>,
         marker_anchors: &[ActorMarkers],
+        time: HudTime,
     ) -> Result<()> {
         use resonance_game::battle::command::View;
 
         // Selection keeps its own ornaments moving while gameplay waits.
-        let elapsed = if command.is_some() || frame.target_selector.is_some() {
-            self.ui_steps
+        let (elapsed, fraction) = if command.is_some() || frame.target_selector.is_some() {
+            (self.ui_steps, time.visit)
         } else {
-            self.motion_steps
+            (self.motion_steps, time.feedback)
         };
         self.ui_steps = 0;
         self.motion_steps = 0;
         self.motion_tick = ((u32::from(self.motion_tick) + elapsed) % 360) as u16;
-        meters::draw(frame, art, &mut batch[METERS..METERS + meters::COUNT])?;
+        meters::draw(frame, time, art, &mut batch[METERS..METERS + meters::COUNT])?;
         let selection = command.and_then(|command| match command.view {
             View::Enemy { target } => Some((command.actor, target)),
             View::TechTarget {
@@ -177,7 +178,7 @@ impl Hud {
             selection,
             frame,
             &art.font,
-            self.motion_tick,
+            (self.motion_tick, fraction),
             batch,
         )?;
         for (layer, markers) in self.marker_layers.into_iter().zip(self.markers.draw(
@@ -185,6 +186,7 @@ impl Hud {
             selection,
             marker_anchors,
             elapsed,
+            fraction,
         )?) {
             if let Some(layer) = layer {
                 batch[layer] = markers;
@@ -192,8 +194,13 @@ impl Hud {
         }
         if frame.recognized_result.is_none() && frame.target_selector.is_none() {
             let (left, right) = batch.split_at_mut(COMBO_TEXT);
-            self.combos
-                .draw(&art.font, &art.combo, &mut left[COMBO_PANEL], &mut right[0])?;
+            self.combos.draw(
+                &art.font,
+                &art.combo,
+                time.feedback,
+                &mut left[COMBO_PANEL],
+                &mut right[0],
+            )?;
         }
         if !command.is_some_and(|command| {
             matches!(
@@ -206,7 +213,7 @@ impl Hud {
             )
         }) {
             self.technical_smash
-                .draw(&art.font, &mut batch[TECHNICAL_SMASH])?;
+                .draw(&art.font, time.feedback, &mut batch[TECHNICAL_SMASH])?;
         }
         Ok(())
     }
@@ -266,7 +273,7 @@ fn draw_enemies(
     selection: Option<(resonance_battle::ActorId, resonance_battle::ActorId)>,
     frame: &BattleFrame,
     font: &BitmapFont,
-    motion_tick: u16,
+    (motion_tick, fraction): (u16, f32),
     batch: &mut [Batch],
 ) -> Result<()> {
     if frame.recognized_result.is_some() {
@@ -344,10 +351,14 @@ fn draw_enemies(
             let mut uv = [0., 0., 32., 32.];
             if selected.is_some_and(|target| target == enemy.actor) {
                 let pulse =
-                    (4. + 4. * (f32::from(motion_tick % 60) * 6.).to_radians().sin()) as u16;
-                let size = 32. + f32::from(pulse);
-                let shift = f32::from(pulse / 2);
-                let (sine, cosine) = (f32::from(motion_tick % 72) * 5.).to_radians().sin_cos();
+                    |tick: u16| (4. + 4. * (f32::from(tick % 60) * 6.).to_radians().sin()) as u16;
+                let from = pulse(motion_tick);
+                let to = pulse(motion_tick + 1);
+                let size = 32. + f32::from(from).lerp(f32::from(to), fraction);
+                let shift = f32::from(from / 2).lerp(f32::from(to / 2), fraction);
+                let (sine, cosine) = ((f32::from(motion_tick % 72) + fraction) * 5.)
+                    .to_radians()
+                    .sin_cos();
                 let center = x - shift + size / 2. - sine / 2.;
                 let half_width = size * cosine.abs() / 2.;
                 rect = [
@@ -408,14 +419,21 @@ impl Artwork {
         frame: &BattleFrame,
         command: Option<&resonance_game::battle::command::Frame>,
         marker_anchors: &[ActorMarkers],
+        time: HudTime,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut batches: Vec<_> = (0..self.combat.layers.len())
             .map(|_| Batch::default())
             .collect();
-        self.combat
-            .draw(frame, &self.art, &mut batches, command, marker_anchors)?;
+        self.combat.draw(
+            frame,
+            &self.art,
+            &mut batches,
+            command,
+            marker_anchors,
+            time,
+        )?;
         for (layer, batch) in self.combat.layers.iter_mut().zip(batches) {
             layer.upload(batch, commands, meshes)?;
         }
@@ -444,7 +462,14 @@ mod tests {
         frame.cues.clear();
         hud.combat.advance(&frame, 16)?;
         let mut batches = vec![Batch::default(); hud.combat.layers.len()];
-        hud.combat.draw(&frame, &hud.art, &mut batches, None, &[])?;
+        hud.combat.draw(
+            &frame,
+            &hud.art,
+            &mut batches,
+            None,
+            &[],
+            HudTime::default(),
+        )?;
         assert!(
             batches[TECHNICAL_SMASH]
                 .colors
@@ -476,6 +501,7 @@ mod tests {
             hud.render_notices(
                 &frame,
                 party,
+                0.,
                 &mut Commands::new(&mut queue, &world),
                 &mut meshes,
             )?;
@@ -560,11 +586,21 @@ mod tests {
             queued_techniques: &[false],
             names: &[Some("R%s")],
         };
-        let combos = |hud: &mut Artwork, frame: &BattleFrame| -> Result<[Batch; 2]> {
+        let combos = |hud: &mut Artwork, frame: &BattleFrame, fraction| -> Result<[Batch; 2]> {
             let mut batches = (0..hud.combat.layers.len())
                 .map(|_| Batch::default())
                 .collect::<Vec<_>>();
-            hud.combat.draw(frame, &hud.art, &mut batches, None, &[])?;
+            hud.combat.draw(
+                frame,
+                &hud.art,
+                &mut batches,
+                None,
+                &[],
+                HudTime {
+                    feedback: fraction,
+                    ..Default::default()
+                },
+            )?;
             Ok([
                 std::mem::take(&mut batches[COMBO_PANEL]),
                 std::mem::take(&mut batches[COMBO_TEXT]),
@@ -590,8 +626,8 @@ mod tests {
             },
         ];
         hud.advance(&frame, true)?;
-        let notices = hud.draw_notices(&frame, party)?;
-        let first = combos(&mut hud, &frame)?;
+        let notices = hud.draw_notices(&frame, party, 0.)?;
+        let first = combos(&mut hud, &frame, 0.)?;
         assert!(notices.iter().any(|b| !b.indices.is_empty()));
         assert!(
             notices
@@ -612,7 +648,7 @@ mod tests {
                 .all(|p| (-320. ..=320.).contains(&p[0]) && (128. ..=232.).contains(&p[1]))
         );
         assert!(
-            combos(&mut hud, &frame)? == first,
+            combos(&mut hud, &frame, 0.)? == first,
             "drawing consumes no time"
         );
         frame.cues = vec![Cue::Combo {
@@ -622,7 +658,7 @@ mod tests {
         }];
         hud.advance(&frame, true)?;
         frame.cues.clear();
-        let replaced = combos(&mut hud, &frame)?;
+        let replaced = combos(&mut hud, &frame, 0.)?;
         assert!(
             first != replaced,
             "the count and its strip expand for another digit"
@@ -630,12 +666,21 @@ mod tests {
         for _ in 0..100 {
             hud.advance(&frame, true)?;
         }
-        assert!(hud.draw_notices(&frame, party)? == notices);
-        assert!(combos(&mut hud, &frame)? == replaced);
-        for _ in 0..12 {
+        assert!(hud.draw_notices(&frame, party, 0.)? == notices);
+        assert!(combos(&mut hud, &frame, 0.)? == replaced);
+        hud.advance(&frame, false)?; // Completed damage starts travelling from the victim.
+        let start = combos(&mut hud, &frame, 0.)?;
+        let middle = combos(&mut hud, &frame, 0.5)?;
+        hud.advance(&frame, false)?;
+        let next = combos(&mut hud, &frame, 0.)?;
+        // The last glyph belongs to DAMAGE, after the corner hit count and its pop.
+        let x = |batches: &[Batch; 2]| batches[1].positions.last().unwrap()[0];
+        assert_ne!(x(&start), x(&next));
+        assert!((x(&middle) - (x(&start) + x(&next)) * 0.5).abs() < 0.001);
+        for _ in 2..12 {
             hud.advance(&frame, false)?;
         }
-        let entered = hud.draw_notices(&frame, party)?;
+        let entered = hud.draw_notices(&frame, party, 0.)?;
         assert!(
             entered != notices,
             "notices fade in while the battle advances"
@@ -643,18 +688,18 @@ mod tests {
         for _ in 0..10 {
             hud.advance(&frame, false)?;
         }
-        let fading = hud.draw_notices(&frame, party)?;
+        let fading = hud.draw_notices(&frame, party, 0.)?;
         assert!(fading != entered && !fading[1].indices.is_empty());
         for _ in 0..120 {
             hud.advance(&frame, false)?;
         }
         assert!(
-            hud.draw_notices(&frame, party)?
+            hud.draw_notices(&frame, party, 0.)?
                 .iter()
                 .all(|b| b.indices.is_empty())
         );
         assert!(
-            combos(&mut hud, &frame)?
+            combos(&mut hud, &frame, 0.)?
                 .iter()
                 .all(|b| b.indices.is_empty())
         );
@@ -672,11 +717,11 @@ mod tests {
         hud.notice_request(ActorId::from_index(0)?, "Fire Ball", 90, &frame)?;
         hud.notice_request(ActorId::from_index(1)?, "Poisonous Pollen", 12, &frame)?;
         hud.advance(&frame, false)?;
-        let active_notices = hud.draw_notices(&frame, party)?;
+        let active_notices = hud.draw_notices(&frame, party, 0.)?;
         assert!(active_notices.iter().any(|b| !b.indices.is_empty()));
         let scan = hud.scan.take();
         assert!(
-            hud.draw_notices(&frame, party)? == active_notices,
+            hud.draw_notices(&frame, party, 0.)? == active_notices,
             "party and enemy artes remain visible during a scan"
         );
         hud.scan = scan;
@@ -746,12 +791,12 @@ mod tests {
                 .all(|b| b.indices.is_empty())
         );
         assert!(
-            combos(&mut hud, &frame)?
+            combos(&mut hud, &frame, 0.)?
                 .iter()
                 .all(|b| b.indices.is_empty())
         );
         assert!(
-            hud.draw_notices(&frame, party)?
+            hud.draw_notices(&frame, party, 0.)?
                 .iter()
                 .all(|b| b.indices.is_empty())
         );
@@ -759,14 +804,14 @@ mod tests {
         hud.overlay_request(Request::EscapeNotice)?;
         hud.notices.advance(&frame, 8);
         assert!(
-            hud.draw_notices(&frame, party)?
+            hud.draw_notices(&frame, party, 0.)?
                 .iter()
                 .any(|batch| !batch.indices.is_empty())
         );
         hud.overlay_request(Request::DefeatNotice)?;
         hud.notices.advance(&frame, 8);
         assert!(
-            hud.draw_notices(&frame, party)?
+            hud.draw_notices(&frame, party, 0.)?
                 .iter()
                 .any(|batch| !batch.indices.is_empty())
         );
@@ -804,7 +849,7 @@ mod tests {
                 selection,
                 frame,
                 &font,
-                0,
+                (0, 0.),
                 &mut batches,
             )?;
             Ok(batches)
@@ -865,12 +910,13 @@ mod tests {
         use resonance_battle::item::ITEM_COOLDOWN_TICKS;
         use resonance_battle::{BattleResult, EscapeFrame, MAX_ESCAPE_GAUGE, MAX_UNISON_GAUGE};
         let art = fixtures::battle_art()?;
-        let draw = |frame: &BattleFrame| -> Result<[Batch; meters::COUNT]> {
+        let sample = |frame: &BattleFrame, time| -> Result<[Batch; meters::COUNT]> {
             let mut batches = std::array::from_fn(|_| Batch::default());
-            meters::draw(frame, &art, &mut batches)?;
+            meters::draw(frame, time, &art, &mut batches)?;
             Ok(batches)
         };
         let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        let draw = |frame: &BattleFrame| sample(frame, HudTime::default());
         assert!(draw(&frame)?.iter().all(|batch| batch.indices.is_empty()));
         frame.item_cooldown = ITEM_COOLDOWN_TICKS / 2;
         frame.escape = Some(EscapeFrame {
@@ -882,6 +928,28 @@ mod tests {
         let half = draw(&frame)?;
         assert!(half.iter().all(|batch| !batch.indices.is_empty()));
         assert!(draw(&frame)? == half, "drawing does not advance meters");
+        let mut next = crate::battle::prediction::Endpoint {
+            frame: frame.clone(),
+            ..Default::default()
+        };
+        next.frame.escape.as_mut().unwrap().gauge += 16;
+        next.frame.item_cooldown -= 2;
+        let end = draw(&next.frame)?;
+        let mid = sample(
+            &frame,
+            HudTime {
+                visit: 0.5,
+                next: Some(&next),
+                ..Default::default()
+            },
+        )?;
+        // Each bar's second vertex is its right edge. The item fill follows its shadow quad.
+        for (layer, vertex) in [(0, 5), (5, 1)] {
+            let edge = |batches: &[Batch; meters::COUNT]| batches[layer].positions[vertex][0];
+            assert_ne!(edge(&half), edge(&end));
+            assert_eq!(edge(&mid), (edge(&half) + edge(&end)) * 0.5);
+        }
+        assert_ne!(mid[4].positions, half[4].positions);
         frame.item_cooldown = 0;
         let cooling = draw(&frame)?;
         assert!(cooling[0].positions.len() < half[0].positions.len());

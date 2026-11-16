@@ -29,16 +29,14 @@ impl Notice {
         }
     }
 
-    pub fn draw(&self, font: &BitmapFont, batch: &mut Batch) -> Result<()> {
+    pub fn draw(&self, font: &BitmapFont, fraction: f32, batch: &mut Batch) -> Result<()> {
         let Some((bonuses, total, age)) = self.0 else {
             return Ok(());
         };
-        let fade = age.saturating_sub(HOLD_TICKS);
-        let alpha = (age.min(FADE_IN_TICKS) * 16)
-            .min(255)
-            .saturating_sub(fade * 6) as u8;
-        let x = -4. * FADE_IN_TICKS.saturating_sub(age) as f32
-            - (fade * fade.saturating_sub(1)) as f32 / 32.;
+        let age = age as f32 + fraction;
+        let fade = (age - HOLD_TICKS as f32).max(0.);
+        let alpha = ((age * 16.).min(255.) - fade * 6.).round() as u8;
+        let x = -4. * (FADE_IN_TICKS as f32 - age).max(0.) - fade * (fade - 1.).max(0.) / 32.;
         let heading = [[128, 128, 32, alpha], [64, 64, 128, alpha]];
         let detail = [[128, 128, 128, alpha], [64, 64, 128, alpha]];
         for (offset, shadow) in [([3., 2.], true), ([0., 0.], false)] {

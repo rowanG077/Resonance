@@ -65,18 +65,15 @@ impl Drawing<'_> {
         let y = 84. + (state.row - state.first) as f32 * 28.;
         self.highlight([32., y, 240., 24.], if state.reading { 127 } else { 255 });
         let starts = self.vertex_counts();
-        let first = state.first - usize::from(state.list_scroll > 0);
-        let offset = scroll_offset(state.list_scroll, 28);
-        for (row, &id) in records
-            .iter()
-            .skip(first)
-            .take(SYNOPSIS_LIST_ROWS + usize::from(state.list_scroll != 0))
-            .enumerate()
-        {
+        let rows =
+            self.scroll
+                .primary
+                .rows(state.first, state.list_scroll, SYNOPSIS_LIST_ROWS, 1, 28);
+        for (row, &id) in records.iter().skip(rows.first).take(rows.count).enumerate() {
             let record = &menu.checkpoint.as_ref().unwrap().progress().event_records[&id];
             self.text(
                 &catalog.entries[usize::from(id)].title,
-                [32., 84. + row as f32 * 28. - offset as f32],
+                [32., 84. + row as f32 * 28. - rows.offset],
                 20.,
                 if record.value == 3 { WHITE } else { 6 },
             )?;
@@ -137,17 +134,18 @@ impl Drawing<'_> {
         self.plane = 3;
         self.frame([16., top, 604., height])?;
         let starts = self.vertex_counts();
-        let first = state.line - usize::from(state.text_scroll > 0);
-        let offset = scroll_offset(state.text_scroll, 27);
-        let visible = SYNOPSIS_TEXT_ROWS + usize::from(state.text_scroll != 0);
-        for (row, line) in lines.iter().skip(first).take(visible).enumerate() {
-            let y = top + 4. + row as f32 * 27. - offset as f32;
+        let rows =
+            self.scroll
+                .detail
+                .rows(state.line, state.text_scroll, SYNOPSIS_TEXT_ROWS, 1, 27);
+        for (row, line) in lines.iter().skip(rows.first).take(rows.count).enumerate() {
+            let y = top + 4. + row as f32 * 27. - rows.offset;
             let mut x = 24.;
             for span in &line.0 {
                 self.text(&span.text, [x, y], 24., usize::from(span.color))?;
                 x += self.text_width(&span.text, 24.)?;
             }
-            if first + row + 1 < lines.len() {
+            if rows.first + row + 1 < lines.len() {
                 self.opacity = state.text_opacity / 2;
                 self.quad(
                     FONT,
@@ -160,14 +158,14 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [top + 4., top + 355.]);
         let arrow_line = if (1..4).contains(&state.text_scroll) {
-            first
+            rows.first
         } else {
             state.line
         };
         if arrow_line > 0 {
             self.scroll_arrow(SCROLL_UP, [306., top - 12.])?;
         }
-        if first + visible < lines.len() {
+        if rows.first + rows.count < lines.len() {
             self.scroll_arrow(SCROLL_DOWN, [306., top + height - 8.])?;
         }
         self.opacity = 255;

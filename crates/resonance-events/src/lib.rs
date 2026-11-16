@@ -39,12 +39,13 @@ pub use world::{
     ACTOR_CONTACT_HEIGHT, Actor, ActorContact, ActorMotion, ActorRole, Appearance, Attachment,
     AudioCommand, BoneAdjustment, BoneScale, BoneTarget, CameraTrack, Emote, Enemy, EventRecord,
     Face, Fade, FieldModelPose, FieldModelStart, FieldTransition, FieldWeapon, GameWorld,
-    MusicCommand, Overlay, OverlayKind, PlayerSize, SavePoint, SceneDestination, SpriteOverlay,
-    TreasureChest, TreasureKind, TreasureReward, Trigger, TriggerShape, VoicePlayback,
-    WorldTransition,
+    MusicCommand, Overlay, OverlayKind, PlayerSize, SavePoint, SceneDestination, SceneDissolve,
+    SpriteOverlay, TreasureChest, TreasureKind, TreasureReward, Trigger, TriggerShape,
+    VoicePlayback, WorldTransition,
 };
 mod operation;
-pub use operation::{Operation, Outcome, Progress};
+mod prediction;
+pub use operation::{Operation, OperationFork, Outcome, Progress};
 pub mod camera;
 pub mod caption;
 pub mod collision;

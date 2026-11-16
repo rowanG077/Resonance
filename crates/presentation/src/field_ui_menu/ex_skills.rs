@@ -99,9 +99,10 @@ impl Drawing<'_> {
             }
         }
         let first = state.first;
-        let start = first - usize::from(state.scroll > 0);
-        let rows = VISIBLE_CHOICES + usize::from(state.scroll != 0);
-        let scroll = scroll_offset(state.scroll, 25);
+        let rows = self
+            .scroll
+            .primary
+            .rows(first, state.scroll, VISIBLE_CHOICES, 1, 25);
         let starts = self.vertex_counts();
         if gem_list {
             if choosing_gem {
@@ -117,11 +118,11 @@ impl Drawing<'_> {
                 self.opacity = opacity;
             }
             let party = menu.party();
-            for (row, &level) in gems.iter().skip(start).take(rows).enumerate() {
+            for (row, &level) in gems.iter().skip(rows.first).take(rows.count).enumerate() {
                 let id = ex.gem_items[usize::from(level - 1)];
                 let item = &data.items[usize::from(id)];
                 let item_text = data.item_text(id)?;
-                let y = 218. + row as f32 * 25. - scroll as f32;
+                let y = 218. + row as f32 * 25. - rows.offset;
                 self.sprite(
                     self.spec
                         .sprite(Sprite::Items, usize::from(item.category - 1))?,
@@ -138,14 +139,14 @@ impl Drawing<'_> {
                     255,
                 );
             }
-            for (row, id) in choices.iter().skip(start).take(rows).enumerate() {
+            for (row, id) in choices.iter().skip(rows.first).take(rows.count).enumerate() {
                 self.text(
                     &captions
                         .skills
                         .get(id)
                         .context("EX skill caption was not prepared")?
                         .name,
-                    [48., 218. + row as f32 * 25. - scroll as f32],
+                    [48., 218. + row as f32 * 25. - rows.offset],
                     20.,
                     if member.ex_skills.contains(id) {
                         DISABLED

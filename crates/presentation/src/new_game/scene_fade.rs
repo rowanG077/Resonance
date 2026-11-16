@@ -96,7 +96,10 @@ pub(super) fn cover(world: &mut World) {
 }
 
 /// Apply after the scene and loading cover have published their output values.
-pub(crate) fn update(world: &mut World) {
+pub(crate) fn update(
+    world: &mut World,
+    gate: &mut bevy::ecs::system::SystemState<crate::timing::ClockGate>,
+) {
     let Some(mut fade) = world.remove_resource::<Fade>() else {
         return;
     };
@@ -126,7 +129,19 @@ pub(crate) fn update(world: &mut World) {
     {
         fade.phase = Phase::In(tick);
     }
-    let alpha = fade.opacity(tick);
+    let committed = fade.opacity(tick);
+    let fraction = world
+        .get_resource::<crate::field_view::Prediction>()
+        .map_or(0., |p| p.alpha);
+    let alpha = if fraction > 0.
+        && gate
+            .get(world)
+            .is_ok_and(|gate| gate.running(world.get_resource::<super::Session>()))
+    {
+        committed.lerp(fade.opacity(tick.wrapping_add(1)), fraction)
+    } else {
+        committed
+    };
     crate::materials::TitleOutput::update(
         &mut world.resource_mut::<Assets<crate::materials::TitleOutput>>(),
         |brightness| {
@@ -135,7 +150,7 @@ pub(crate) fn update(world: &mut World) {
             brightness.z = 0.;
         },
     );
-    if !matches!(fade.phase, Phase::In(_)) || alpha != 0. {
+    if !matches!(fade.phase, Phase::In(_)) || committed != 0. {
         world.insert_resource(fade);
     }
 }

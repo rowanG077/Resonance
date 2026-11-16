@@ -38,6 +38,9 @@ mod manual;
 mod monsters;
 #[path = "field_ui_menu/rename.rs"]
 mod rename;
+#[path = "field_ui_menu/scroll.rs"]
+mod scroll;
+use scroll::{ListScroll, ScrollMotion};
 #[path = "field_ui_menu/shop.rs"]
 mod shop;
 #[path = "field_ui_menu/status.rs"]
@@ -118,10 +121,29 @@ const GOLD: usize = 8;
 const DISABLED: usize = 7;
 const TICKS_PER_MINUTE: u64 = 60 * 60;
 
+#[derive(Clone, Copy)]
 pub(super) enum Source<'a> {
     Title(Option<&'a Menu>),
     Field(&'a FieldSession),
     World(&'a resonance_game::overworld::Session, Option<&'a str>),
+}
+
+impl<'a> Source<'a> {
+    fn menu(self) -> Option<&'a Menu> {
+        match self {
+            Self::Title(menu) => menu,
+            Self::Field(field) => field.menu.as_ref(),
+            Self::World(world, _) => world.menu.as_ref(),
+        }
+    }
+
+    fn at_endpoint(self, endpoint: &'a crate::field_view::prediction::Endpoint) -> Option<Self> {
+        match self {
+            Self::Field(_) => endpoint.field().map(Self::Field),
+            Self::World(_, message) => endpoint.world().map(|w| Self::World(&w.session, message)),
+            Self::Title(_) => endpoint.menu().map(|m| Self::Title(Some(m))),
+        }
+    }
 }
 
 fn menu_label<'a>(labels: &'a BTreeMap<String, String>, key: &str) -> Result<&'a str> {
@@ -129,11 +151,6 @@ fn menu_label<'a>(labels: &'a BTreeMap<String, String>, key: &str) -> Result<&'a
         .get(key)
         .map(String::as_str)
         .with_context(|| format!("menu label {key:?} was not prepared"))
-}
-
-/// Lists scroll over five updates, including the extra row entering from above.
-fn scroll_offset(phase: i8, row_height: i32) -> i32 {
-    i32::from(phase) * row_height / 5 + if phase < 0 { row_height } else { 0 }
 }
 
 /// Once the retained content has faded out, the current content follows its page.
@@ -245,6 +262,7 @@ pub(super) struct MenuArtwork {
     resolution: super::super::Resolution,
     spec: MenuArt,
     draws: MenuDraws,
+    resident_motion: bool,
     experience: std::sync::Arc<[u32]>,
     materials: BTreeMap<MaterialKey, MenuMaterial>,
     input_atlas: std::sync::Arc<crate::input_icons::Atlas>,
@@ -252,20 +270,67 @@ pub(super) struct MenuArtwork {
     pub layers: BTreeMap<(usize, DrawRole, MaterialKey), Layer>,
     band: DepthBand,
     active_page: Option<ActivePage>,
+    animation: MenuAnimation,
+    resident: std::sync::Weak<std::sync::Mutex<super::resident::Inventory>>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum BattlePage<'a> {
+    Items(
+        &'a resonance_game::battle::command::ListFrame,
+        &'a resonance_content::menu_data::MenuData,
+    ),
+    Strategy(resonance_game::menu::strategy::Page<'a>),
+    Tech(resonance_game::menu::techniques::Page<'a>),
+    Equipment(resonance_game::menu::equipment::Page<'a>),
+    Unison(resonance_game::menu::unison::Page<'a>),
+}
+
+impl BattlePage<'_> {
+    fn viewport(self) -> (Page, (usize, i8)) {
+        match self {
+            Self::Items(list, _) => (Page::Items, (list.first, list.scroll)),
+            Self::Strategy(p) => (Page::Strategy, (p.state.first, p.state.scroll)),
+            Self::Equipment(p) => (Page::Equip, (p.state.first, p.state.scroll)),
+            Self::Tech(_) => (Page::Tech, (0, 0)),
+            Self::Unison(_) => (Page::Unison, (0, 0)),
+        }
+    }
+}
+
+fn interpolate_batches(batches: &mut DrawBatches, next: &DrawBatches, alpha: f32) {
+    for (key, batch) in batches {
+        if let Some(target) = next.get(key) {
+            batch.interpolate(target, alpha);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MenuFrame {
+    previous_page: Option<ActivePage>,
+    interpolating: bool,
+    tick: u32,
+    scroll: ScrollMotion,
+    // The last System tick closes its panel as the shared main page starts sliding.
+    closing_system: Option<usize>,
+}
+
+#[derive(Clone, Default)]
+struct MenuAnimation {
     world_notice: WorldNotice,
     ship_notice: WorldNotice,
     trail: super::super::choice_cursor::Trail,
-    resident: std::sync::Weak<std::sync::Mutex<super::resident::Inventory>>,
 }
 /// Native world notices slide down from the top while their alpha approaches 255.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct WorldNotice {
     message: Option<(String, bool)>,
     opacity: u8,
     tick: Option<u32>,
 }
 impl WorldNotice {
-    fn step(&mut self, tick: u32, message: Option<(&str, bool)>) -> Option<(String, bool, u8)> {
+    fn step(&mut self, tick: u32, message: Option<(&str, bool)>) {
         let elapsed = self
             .tick
             .map_or(1, |last| tick.saturating_sub(last))
@@ -280,13 +345,34 @@ impl WorldNotice {
         } else {
             self.opacity = self.opacity.saturating_sub((elapsed * 16).min(255) as u8);
         }
-        (self.opacity > 0)
-            .then(|| {
-                self.message
-                    .as_ref()
-                    .map(|(s, a)| (s.clone(), *a, self.opacity))
-            })
-            .flatten()
+    }
+
+    fn value(&self) -> Option<(&str, bool, u8)> {
+        self.message
+            .as_ref()
+            .filter(|_| self.opacity > 0)
+            .map(|(message, acknowledgement)| (message.as_str(), *acknowledgement, self.opacity))
+    }
+}
+impl MenuAnimation {
+    fn advance(&mut self, source: Source<'_>) {
+        if let Source::World(session, message) = source {
+            let acknowledgement = matches!(
+                session.prompt(),
+                Some(
+                    resonance_game::overworld::Prompt::Item { .. }
+                        | resonance_game::overworld::Prompt::Guidepost { .. }
+                )
+            );
+            self.world_notice
+                .step(session.events.tick(), message.map(|s| (s, acknowledgement)));
+            let label = session.ship_action().map(|action| match action {
+                resonance_game::overworld::travel::ShipAction::Embark => "Embark",
+                resonance_game::overworld::travel::ShipAction::Disembark => "Disembark",
+            });
+            self.ship_notice
+                .step(session.events.tick(), label.map(|s| (s, false)));
+        }
     }
 }
 impl MenuArtwork {
@@ -411,6 +497,7 @@ impl MenuArtwork {
             resolution: Default::default(),
             spec: self.spec.clone(),
             draws: Default::default(),
+            resident_motion: false,
             experience,
             materials: self.materials.clone(),
             input_atlas: self.input_atlas.clone(),
@@ -418,9 +505,7 @@ impl MenuArtwork {
             layers: Default::default(),
             band: DepthBand::Field,
             active_page: None,
-            world_notice: Default::default(),
-            ship_notice: Default::default(),
-            trail: Default::default(),
+            animation: Default::default(),
             resident: self.resident.clone(),
         }
     }
@@ -644,6 +729,7 @@ impl MenuArtwork {
             resolution: Default::default(),
             spec,
             draws: MenuDraws::default(),
+            resident_motion: false,
             experience,
             materials: prepared,
             input_atlas,
@@ -651,17 +737,20 @@ impl MenuArtwork {
             layers: BTreeMap::new(),
             band: DepthBand::Field,
             active_page: None,
-            world_notice: Default::default(),
-            ship_notice: Default::default(),
-            trail: Default::default(),
+            animation: Default::default(),
             resident: resident.downgrade(),
         };
         resident.0.lock().unwrap().menu = Some(menu.fresh(menu.experience.clone()));
         Ok(menu)
     }
+    fn can_animate(&self) -> bool {
+        self.draws
+            .ready()
+            .is_ok_and(|ready| ready || self.resident_motion)
+    }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
         self.active_page.is_some()
-            && self.draws.ready().unwrap_or(false)
+            && self.can_animate()
             && self.drawn_images().all(|image| images.contains(image.id()))
     }
 
@@ -681,7 +770,7 @@ impl MenuArtwork {
         {
             return true;
         }
-        (self.active_page.is_none() || self.draws.ready().unwrap_or(false))
+        (self.active_page.is_none() || self.can_animate())
             && self.active_page
                 == session
                     .menu
@@ -801,8 +890,12 @@ impl MenuArtwork {
     }
     fn set_page(&mut self, page: Option<ActivePage>) {
         if self.active_page != page {
-            self.active_page = page;
+            if page.is_none() {
+                self.animation.trail = Default::default();
+            }
+            self.resident_motion = page.is_some() && self.can_animate();
             *self.draws.0.lock().unwrap() = Default::default();
+            self.active_page = page;
         }
     }
 
@@ -837,7 +930,8 @@ impl MenuArtwork {
             font,
             selection: &dialogue.selection,
             cursor_texture: &dialogue.cursor,
-            trail: self.trail,
+            trail: self.animation.trail,
+            interpolating: false,
             preferences,
             input_atlas: &self.input_atlas,
             prompt_device: self.prompt_device,
@@ -848,7 +942,23 @@ impl MenuArtwork {
             opacity: 255,
             offset: [0.; 2],
             batches: BTreeMap::new(),
+            scroll: Default::default(),
         })
+    }
+
+    fn visible_canvases_resident(&self) -> bool {
+        let Some(resident) = self.resident.upgrade() else {
+            return false;
+        };
+        let inventory = resident.lock().unwrap();
+        self.layers.iter().filter(|(_, layer)| layer.visible).all(
+            |(&(plane, role, material), layer)| {
+                inventory
+                    .menus
+                    .get(&(self.band as u8, plane, role, material))
+                    .is_some_and(|prepared| prepared.entity == layer.entity)
+            },
+        )
     }
 
     fn submit_drawing(
@@ -909,14 +1019,20 @@ impl MenuArtwork {
             layer.update_mesh(batch, size, meshes)?;
             layer.show(true, commands);
         }
-        let expected = self
+        let expected: std::collections::HashSet<_> = self
             .layers
             .values()
             .filter(|layer| layer.visible)
             .map(|layer| bevy::render::sync_world::MainEntity::from(layer.entity))
             .collect();
         let mut report = self.draws.0.lock().unwrap();
-        if report.expected != expected || !report.armed {
+        if !report.armed || expected != report.expected {
+            // The first draw admits this visit. Thereafter startup-resident canvases
+            // can animate while the GPU confirms the current page's actual drawing.
+            self.resident_motion = self.active_page.is_some()
+                && (self.resident_motion
+                    || report.completed.load(std::sync::atomic::Ordering::Acquire))
+                && self.visible_canvases_resident();
             *report = crate::gpu_prepare::Report {
                 armed: true,
                 expected,
@@ -974,13 +1090,11 @@ impl MenuArtwork {
         self.submit_drawing(batches, commands, meshes)
     }
 
-    /// Render the field-owned Tech page from a battle page borrow.  Both
-    /// callers use the same `Drawing` methods and page state; battle only
-    /// supplies a different backdrop and skips field-only input plumbing.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render_battle_tech(
+    pub(super) fn render_battle_page(
         &mut self,
-        page: resonance_game::menu::techniques::Page<'_>,
+        page: BattlePage<'_>,
+        future: Option<(BattlePage<'_>, f32)>,
         font: &BitmapFont,
         dialogue: &DialogueArt,
         preferences: &resonance_content::menu_data::CustomizeSettings,
@@ -988,29 +1102,447 @@ impl MenuArtwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        self.set_page(Some(ActivePage::Menu(Page::Tech)));
-        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
-        draw.opacity = 255;
-        draw.shade(draw.screen);
-        draw.plane = 1;
-        let anchor = draw.techniques_page(page)?;
-        draw.tech_cursors_page(page);
-        let modal = matches!(
-            page.state.focus,
-            TechFocus::CannotForget | TechFocus::Forget { .. }
-        );
-        let alpha = if modal { 127 } else { 255 };
-        draw.cursor_trail(anchor, alpha);
-        if let Some(anchor) = draw.tech_popup_page(page)? {
-            draw.cursor_trail(anchor, 255);
+        let (kind, position) = page.viewport();
+        self.set_page(Some(ActivePage::Menu(kind)));
+        let future = future.filter(|(p, _)| p.viewport().0 == kind);
+        let scroll = future.map_or_default(|(next, alpha)| {
+            ListScroll::between(position, next.viewport().1, alpha)
+        });
+        let sample = |page: BattlePage, tick, trail| -> Result<_> {
+            let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
+            draw.trail = trail;
+            draw.interpolating = future.is_some();
+            draw.scroll.primary = scroll;
+            match page {
+                BattlePage::Items(list, data) => draw.battle_items(list, data)?,
+                BattlePage::Strategy(page) => draw.battle_strategy(page)?,
+                BattlePage::Tech(page) => draw.battle_tech(page)?,
+                BattlePage::Equipment(page) => draw.battle_equipment(page)?,
+                BattlePage::Unison(page) => draw.battle_unison(page)?,
+            }
+            Ok((draw.batches, draw.trail))
+        };
+        let (mut batches, trail) = sample(page, tick, self.animation.trail)?;
+        if let Some((next, alpha)) = future
+            && let Ok((next, _)) = sample(next, tick.wrapping_add(1), trail)
+        {
+            interpolate_batches(&mut batches, &next, alpha);
         }
-        let trail = draw.trail;
-        let drawing = draw.batches;
-        self.trail = trail;
-        self.submit_drawing(drawing, commands, meshes)
+        self.animation.trail = trail;
+        self.submit_drawing(batches, commands, meshes)
     }
 
-    #[allow(clippy::too_many_arguments)] // Compose shared artwork with the live viewport and clock.
+    fn sample(
+        &self,
+        source: Source<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        frame: MenuFrame,
+        animation: &MenuAnimation,
+    ) -> Result<PageDrawing> {
+        let menu = source.menu();
+        let shop = match source {
+            Source::Field(session) => session
+                .shop
+                .as_ref()
+                .zip(session.events.world.party.as_ref()),
+            _ => None,
+        };
+        let crafting = match source {
+            Source::Field(session) => session
+                .crafting
+                .as_ref()
+                .zip(session.events.world.party.as_ref()),
+            _ => None,
+        };
+        let notice = if let Source::World(session, _) = source {
+            animation
+                .world_notice
+                .value()
+                .filter(|_| session.active_skit.is_none() && session.menu.is_none())
+        } else {
+            None
+        };
+        let ship_notice = if let Source::World(session, _) = source {
+            animation
+                .ship_notice
+                .value()
+                .filter(|_| session.player_has_control())
+        } else {
+            None
+        };
+        if menu.is_none()
+            && shop.is_none()
+            && crafting.is_none()
+            && notice.is_none()
+            && ship_notice.is_none()
+        {
+            return Ok((None, DrawBatches::new(), animation.trail));
+        }
+        let system = menu.and_then(|m| match m.page {
+            Page::System => Some(m.selected),
+            Page::Main => frame.closing_system,
+            _ => None,
+        });
+        let page = menu
+            .map(|menu| {
+                ActivePage::Menu(if system.is_some() {
+                    Page::System
+                } else {
+                    menu.page
+                })
+            })
+            .or_else(|| shop.map(|_| ActivePage::Shop))
+            .or_else(|| crafting.map(|_| ActivePage::Crafting))
+            .or_else(|| {
+                notice
+                    .as_ref()
+                    .or(ship_notice.as_ref())
+                    .map(|_| ActivePage::WorldNotice)
+            });
+        let item_visual = menu
+            .filter(|menu| menu.page == Page::Items)
+            .map(items::Visual::from_menu);
+        let preferences = menu
+            .and_then(Menu::preferences)
+            .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
+            .or_else(|| crafting.map(|(_, party)| &party.settings.preferences))
+            .or_else(|| match source {
+                Source::World(session, _) => session
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .map(|party| &party.settings.preferences),
+                _ => None,
+            });
+        let mut draw = self.begin_drawing(font, dialogue, preferences, frame.tick)?;
+        draw.trail = if page == frame.previous_page {
+            animation.trail
+        } else {
+            Default::default()
+        };
+        draw.scroll = frame.scroll;
+        draw.interpolating = frame.interpolating;
+        let stat_source = menu
+            .and_then(|menu| menu.checkpoint.as_ref())
+            .map(|checkpoint| {
+                let progress = checkpoint.progress();
+                (&progress.party, &progress.event_flags)
+            })
+            .or_else(|| match source {
+                Source::Field(session) => session
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .map(|party| (party, &session.events.world.event_flags)),
+                Source::World(session, _) => session
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .map(|party| (party, &session.events.world.event_flags)),
+                Source::Title(_) => None,
+            });
+        if let Some((party, flags)) = stat_source {
+            draw.stats = resonance_game::menu::stats::Projection::new(
+                flags.contains(&0x3fa),
+                party.battles.kills,
+            );
+        }
+
+        draw.opacity = menu.map_or_else(
+            || {
+                shop.map(|(s, _)| 255 - s.fade)
+                    .or_else(|| crafting.map(|(c, _)| 255 - c.fade))
+                    .unwrap_or(255)
+            },
+            |m| 255 - m.background_fade(),
+        );
+        if let Some(menu) = menu {
+            if menu.checkpoint.is_none() {
+                draw.quad_role(
+                    DrawRole::Background,
+                    FONT,
+                    draw.screen,
+                    [0.5; 4],
+                    [0., 0., 0., 1.],
+                );
+            }
+            draw.shade(draw.screen);
+            draw.opacity = 255 - menu.foreground_fade();
+            draw.plane = 1;
+            let anchor = match menu.page {
+                Page::Slots(mode) => draw.slots(menu, mode)?,
+                Page::Main | Page::Party | Page::System | Page::Character(_) => {
+                    draw.main(menu, system)?
+                }
+                Page::Status | Page::Titles => draw.status(menu)?,
+                Page::Rename => draw.rename(menu)?,
+                Page::Items => draw.items(menu, item_visual.unwrap())?,
+                Page::Collection => draw.collection(menu)?,
+                Page::WorldMap => draw.world_map(menu)?,
+                Page::Monsters => draw.monsters(menu)?,
+                Page::Figurines => draw.figurines(menu)?,
+                Page::Manual => draw.manual(menu)?,
+                Page::Equip => draw.equipment(menu)?,
+                Page::Tech => draw.techniques(menu)?,
+                Page::Unison => draw.unison(menu.unison_page(), menu.at_save_point)?,
+                Page::ExSkills => draw.ex_skills(menu)?,
+                Page::Strategy => draw.strategy(menu.strategy_page())?,
+                Page::Synopsis => draw.synopsis(menu)?,
+                Page::Cooking => draw.cooking(menu)?,
+                Page::Customize => draw.customize(menu)?,
+                Page::GradeShop => draw.grade_shop(menu)?,
+            };
+            let modal = menu.popup.is_some()
+                || match menu.page {
+                    Page::ExSkills => matches!(menu.ex_skills.focus, ExFocus::Confirm { .. }),
+                    Page::Cooking => menu.cooking.popup.is_some(),
+                    Page::Synopsis => menu.synopsis.reading,
+                    Page::Strategy => {
+                        menu.strategy.focus.preset()
+                            && (menu.strategy.focus == StrategyFocus::Rename
+                                || menu.strategy.rename_opacity != 0)
+                    }
+                    Page::Tech => matches!(
+                        menu.tech.focus,
+                        TechFocus::CannotForget | TechFocus::Forget { .. }
+                    ),
+                    _ => false,
+                };
+            draw.plane = if modal { 1 } else { draw.plane.max(2) };
+            match menu.page {
+                Page::Equip if menu.equipment.focus != EquipmentFocus::Character => {
+                    let fade = u32::from(menu.equipment.transition.page_fade);
+                    draw.cursor(
+                        [32. - (fade * 308 / 256) as f32, 68.],
+                        ((255 - fade) / 2) as u8,
+                    );
+                }
+                Page::Items
+                    if matches!(
+                        menu.inventory.focus,
+                        ItemFocus::Target | ItemFocus::Discard(_)
+                    ) =>
+                {
+                    let row = menu.inventory.row - menu.inventory.first;
+                    draw.plane = 2;
+                    draw.cursor(
+                        [48. + (row % 2) as f32 * 296., 96. + (row / 2) as f32 * 26.],
+                        127,
+                    );
+                    draw.plane = 3;
+                }
+                Page::Tech => draw.tech_cursors(menu),
+                Page::ExSkills => draw.ex_cursors(menu),
+                Page::Strategy => draw.strategy_cursors(menu.strategy_page()),
+                Page::Cooking if menu.cooking.focus != CookingFocus::Header => draw.cursor(
+                    menu.cooking.header_cursor(),
+                    (255 - menu.cooking.transition.page_fade) >> 1,
+                ),
+                Page::Customize
+                    if matches!(
+                        menu.customize.focus,
+                        CustomizeFocus::Colors | CustomizeFocus::Volume
+                    ) =>
+                {
+                    draw.cursor(
+                        menu.customize.options_cursor(),
+                        (255 - menu.customize.transition.page_fade) >> 1,
+                    )
+                }
+                _ => {}
+            }
+            let list = matches!(menu.page, Page::Slots(_)) && menu.focus == SlotFocus::List;
+            if !menu.busy {
+                if list {
+                    draw.cursor([336. + menu.bank as f32 * 144., 30.], 127);
+                }
+                let alpha = match menu.page {
+                    Page::Rename if menu.rename.pending => 0,
+                    Page::Rename => 255 - menu.rename.fade,
+                    Page::Items if !modal => 255 - item_visual.unwrap().fade,
+                    Page::Collection => 255 - menu.collection.page_fade,
+                    Page::Manual => 255 - menu.manual.page_fade,
+                    Page::Monsters => 255 - menu.monsters.view.page_fade,
+                    Page::Figurines => 255 - menu.figurines.view.page_fade,
+                    Page::Equip => 255 - menu.equipment.transition.page_fade,
+                    Page::Customize => 255 - menu.customize.transition.page_fade,
+                    _ if system.is_some() => menu.system_opacity,
+                    Page::Cooking => (255 - menu.cooking.transition.page_fade) >> u8::from(modal),
+                    Page::ExSkills => {
+                        (255 - menu.ex_skills.transition.page_fade) >> u8::from(modal)
+                    }
+                    Page::Unison => 255,
+                    Page::Tech if !modal => 255,
+                    Page::WorldMap => match menu.world_map.focus {
+                        WorldMapFocus::Locations => 255 - menu.world_map.page_fade,
+                        WorldMapFocus::Shops => menu.world_map.shops_opacity,
+                        WorldMapFocus::Items => menu.world_map.items_opacity,
+                    },
+                    Page::Titles => menu.status.title_opacity,
+                    Page::Status => 255 - menu.status.page_fade,
+                    Page::Strategy if menu.strategy.focus == StrategyFocus::Rename => 127,
+                    Page::Strategy => 255,
+                    // The list regains its active cursor while the popup fades away.
+                    Page::Slots(_) if menu.confirmation.is_none() && menu.notice.is_none() => 255,
+                    _ if modal || menu.confirmation.is_some() || menu.notice.is_some() => 127,
+                    _ => 255,
+                };
+                let group_target = match menu.page {
+                    Page::Tech => menu.tech_target_visible() && menu.tech_targets_all(),
+                    Page::Items => {
+                        menu.inventory.focus == ItemFocus::Target && menu.inventory.target_all
+                    }
+                    _ => false,
+                };
+                if group_target {
+                    for slot in 0..menu.party().formation.len() {
+                        let at = if menu.page == Page::Items {
+                            items::target_cursor(menu, slot, item_visual.unwrap())
+                        } else {
+                            techniques::target_cursor(menu, slot)
+                        };
+                        draw.cursor_trail(at, 255);
+                    }
+                } else {
+                    draw.cursor_trail(anchor, alpha);
+                }
+            }
+            let anchor = if let Some(popup) = &menu.popup {
+                match &popup.content {
+                    PopupContent::Confirmation { kind, bank, yes } => {
+                        let keys = match kind {
+                            ConfirmationKind::Save => ["confirm_save_a", "confirm_save_b"],
+                            ConfirmationKind::Overwrite => {
+                                ["confirm_overwrite_a", "confirm_overwrite_b"]
+                            }
+                            ConfirmationKind::Load => ["confirm_load_a", "confirm_load_b"],
+                        };
+                        draw.popup(
+                            menu_label(&self.spec.labels, keys[*bank])?,
+                            Some(*yes),
+                            popup.opacity,
+                        )?
+                    }
+                    PopupContent::Notice(notice) => {
+                        draw.popup(&wrap(notice, 32), None, popup.opacity)?
+                    }
+                }
+            } else {
+                match menu.page {
+                    Page::Tech => draw.tech_popup(menu)?,
+                    Page::ExSkills => draw.ex_popup(menu)?,
+                    Page::Strategy => draw.strategy_rename(menu.strategy_page())?,
+                    Page::Synopsis => {
+                        draw.synopsis_text(menu)?;
+                        None
+                    }
+                    Page::Cooking => {
+                        draw.cooking_popup(menu)?;
+                        None
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(anchor) = anchor.filter(|_| !menu.busy) {
+                draw.cursor_trail(
+                    anchor,
+                    menu.popup.as_ref().map_or_else(
+                        || match menu.page {
+                            Page::ExSkills => menu.ex_skills.popup_opacity,
+                            _ => 255,
+                        },
+                        |popup| popup.opacity,
+                    ),
+                );
+            }
+        } else if let Some((shop, party)) = shop {
+            draw.shade(draw.screen);
+            draw.plane = 1;
+            let anchor = draw.shop(shop, party)?;
+            draw.plane = 4;
+            draw.cursor_trail(anchor, 255 - shop.fade);
+        } else if let Some((crafting, party)) = crafting {
+            draw.shade(draw.screen);
+            draw.plane = 1;
+            let anchor = draw.crafting(crafting, party)?;
+            draw.plane = 4;
+            draw.cursor_trail(anchor, 255 - crafting.fade);
+        } else if let (Source::World(_, _), Some((message, acknowledgement, opacity))) =
+            (source, notice)
+        {
+            draw.plane = 3;
+            draw.opacity = opacity;
+            let lines = draw.wrap_notice(message, 24., 600.)?;
+            let mut width: f32 = 0.;
+            for line in &lines {
+                width = width.max(draw.text_width(line, 24.)?);
+            }
+            // A tight top notice, 12-pixel inset, 26-pixel
+            // line pitch. Enter/Leave are separate button ribbons below it.
+            let height = lines.len() as f32 * 26.;
+            let top = 24. - ((height + 48.) * (255 - opacity) as f32 / 255.).trunc();
+            let left = ((640. - width) / 2.).trunc();
+            draw.colored_frame(
+                [left - 12., top - 12., width + 24., height + 24.],
+                false,
+                draw.popup_color(),
+            )?;
+            for (index, line) in lines.iter().enumerate() {
+                draw.text_size(line, [left, top + index as f32 * 26.], [24., 24.], WHITE)?;
+            }
+            if !acknowledgement {
+                draw.world_button(6, "Enter", [504., 76.])?;
+                draw.world_button(8, "Leave", [504., 104.])?;
+            }
+        } else if let Some((label, _, opacity)) = ship_notice {
+            draw.opacity = opacity;
+            let x = 616. - draw.text_width(label, 24.)? - 24.;
+            draw.world_button(8, label, [x, 24.])?;
+        }
+        Ok((page, draw.batches, draw.trail))
+    }
+
+    fn sample_prediction(
+        &self,
+        source: Source<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        mut frame: MenuFrame,
+        prediction: &mut crate::field_view::Prediction,
+    ) -> Result<Option<PageDrawing>> {
+        let Some(next) = prediction.endpoint().and_then(|e| source.at_endpoint(e)) else {
+            return Ok(None);
+        };
+        frame.interpolating = true;
+        frame.scroll = ScrollMotion::between(source, next, prediction.alpha).unwrap_or_default();
+        let (page, mut batches, trail) =
+            self.sample(source, font, dialogue, frame, &self.animation)?;
+        frame.previous_page = page;
+        frame.tick = frame.tick.wrapping_add(1);
+        frame.closing_system = source
+            .menu()
+            .filter(|m| m.page == Page::System && m.system_closing)
+            .map(|m| m.selected);
+        let next = prediction.scratch_scene(|endpoint, alpha| {
+            let next = source.at_endpoint(endpoint).expect("same menu endpoint");
+            let mut animation = self.animation.clone();
+            animation.trail = trail;
+            animation.advance(next);
+            self.sample(next, font, dialogue, frame, &animation)
+                .map(|(next_page, batches, _)| (next_page == page).then_some((batches, alpha)))
+        });
+        let Some(next) = next else { return Ok(None) };
+        if let Some((next, alpha)) = next? {
+            interpolate_batches(&mut batches, &next, alpha);
+        }
+        Ok(Some((page, batches, trail)))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         source: Source<'_>,
@@ -1018,378 +1550,38 @@ impl MenuArtwork {
         dialogue: &DialogueArt,
         presentation_tick: u32,
         resolution: super::super::Resolution,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         self.resolution = resolution;
-        let result = (|| {
-            let (menu, shop) = match source {
-                Source::Title(menu) => (menu, None),
-                Source::Field(session) => (
-                    session.menu.as_ref(),
-                    session
-                        .shop
-                        .as_ref()
-                        .zip(session.events.world.party.as_ref()),
-                ),
-                Source::World(session, _) => (session.menu.as_ref(), None),
-            };
-            let crafting = match source {
-                Source::Field(session) => session
-                    .crafting
-                    .as_ref()
-                    .zip(session.events.world.party.as_ref()),
-                _ => None,
-            };
-            let notice = if let Source::World(session, message) = source {
-                let acknowledgement = matches!(
-                    session.prompt(),
-                    Some(
-                        resonance_game::overworld::Prompt::Item { .. }
-                            | resonance_game::overworld::Prompt::Guidepost { .. }
-                    )
-                );
-                self.world_notice
-                    .step(session.events.tick(), message.map(|s| (s, acknowledgement)))
-                    .filter(|_| session.active_skit.is_none() && session.menu.is_none())
-            } else {
-                None
-            };
-            let ship_notice = if let Source::World(session, _) = source {
-                let label = session.ship_action().map(|action| match action {
-                    resonance_game::overworld::travel::ShipAction::Embark => "Embark",
-                    resonance_game::overworld::travel::ShipAction::Disembark => "Disembark",
-                });
-                self.ship_notice
-                    .step(session.events.tick(), label.map(|label| (label, false)))
-                    .filter(|_| session.player_has_control())
-            } else {
-                None
-            };
-            if menu.is_none()
-                && shop.is_none()
-                && crafting.is_none()
-                && notice.is_none()
-                && ship_notice.is_none()
-            {
-                self.clear_page(commands);
-                return Ok(());
+        self.animation.advance(source);
+        let frame = MenuFrame {
+            previous_page: self.active_page,
+            interpolating: false,
+            tick: presentation_tick,
+            scroll: Default::default(),
+            closing_system: None,
+        };
+        let predicted = prediction.and_then(|p| {
+            match self.sample_prediction(source, font, dialogue, frame, p) {
+                Ok(drawing) => drawing,
+                Err(error) => {
+                    p.report_error(&error);
+                    None
+                }
             }
-            self.set_page(
-                menu.map(|menu| ActivePage::Menu(menu.page))
-                    .or_else(|| shop.map(|_| ActivePage::Shop))
-                    .or_else(|| crafting.map(|_| ActivePage::Crafting))
-                    .or_else(|| {
-                        notice
-                            .as_ref()
-                            .or(ship_notice.as_ref())
-                            .map(|_| ActivePage::WorldNotice)
-                    }),
-            );
-            let item_visual = menu
-                .filter(|menu| menu.page == Page::Items)
-                .map(items::Visual::from_menu);
-            let preferences = menu
-                .and_then(Menu::preferences)
-                .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
-                .or_else(|| crafting.map(|(_, party)| &party.settings.preferences))
-                .or_else(|| match source {
-                    Source::World(session, _) => session
-                        .events
-                        .world
-                        .party
-                        .as_ref()
-                        .map(|party| &party.settings.preferences),
-                    _ => None,
-                });
-            let mut draw = self.begin_drawing(font, dialogue, preferences, presentation_tick)?;
-            let stat_source = menu
-                .and_then(|menu| menu.checkpoint.as_ref())
-                .map(|checkpoint| {
-                    let progress = checkpoint.progress();
-                    (&progress.party, &progress.event_flags)
-                })
-                .or_else(|| match source {
-                    Source::Field(session) => session
-                        .events
-                        .world
-                        .party
-                        .as_ref()
-                        .map(|party| (party, &session.events.world.event_flags)),
-                    Source::World(session, _) => session
-                        .events
-                        .world
-                        .party
-                        .as_ref()
-                        .map(|party| (party, &session.events.world.event_flags)),
-                    Source::Title(_) => None,
-                });
-            if let Some((party, flags)) = stat_source {
-                draw.stats = resonance_game::menu::stats::Projection::new(
-                    flags.contains(&0x3fa),
-                    party.battles.kills,
-                );
-            }
-            draw.opacity = menu.map_or_else(
-                || {
-                    shop.map(|(s, _)| 255 - s.fade)
-                        .or_else(|| crafting.map(|(c, _)| 255 - c.fade))
-                        .unwrap_or(255)
-                },
-                |m| 255 - m.background_fade(),
-            );
-            if let Some(menu) = menu {
-                if menu.checkpoint.is_none() {
-                    draw.quad_role(
-                        DrawRole::Background,
-                        FONT,
-                        draw.screen,
-                        [0.5; 4],
-                        [0., 0., 0., 1.],
-                    );
-                }
-                draw.shade(draw.screen);
-                draw.opacity = 255 - menu.foreground_fade();
-                draw.plane = 1;
-                let anchor = match menu.page {
-                    Page::Slots(mode) => draw.slots(menu, mode)?,
-                    Page::Main | Page::Party | Page::System | Page::Character(_) => {
-                        draw.main(menu)?
-                    }
-                    Page::Status | Page::Titles => draw.status(menu)?,
-                    Page::Rename => draw.rename(menu)?,
-                    Page::Items => draw.items(menu, item_visual.unwrap())?,
-                    Page::Collection => draw.collection(menu)?,
-                    Page::WorldMap => draw.world_map(menu)?,
-                    Page::Monsters => draw.monsters(menu)?,
-                    Page::Figurines => draw.figurines(menu)?,
-                    Page::Manual => draw.manual(menu)?,
-                    Page::Equip => draw.equipment(menu)?,
-                    Page::Tech => draw.techniques(menu)?,
-                    Page::Unison => draw.unison(menu.unison_page(), menu.at_save_point)?,
-                    Page::ExSkills => draw.ex_skills(menu)?,
-                    Page::Strategy => draw.strategy(menu.strategy_page())?,
-                    Page::Synopsis => draw.synopsis(menu)?,
-                    Page::Cooking => draw.cooking(menu)?,
-                    Page::Customize => draw.customize(menu)?,
-                    Page::GradeShop => draw.grade_shop(menu)?,
-                };
-                let modal = menu.popup.is_some()
-                    || match menu.page {
-                        Page::ExSkills => matches!(menu.ex_skills.focus, ExFocus::Confirm { .. }),
-                        Page::Cooking => menu.cooking.popup.is_some(),
-                        Page::Synopsis => menu.synopsis.reading,
-                        Page::Strategy => {
-                            menu.strategy.focus.preset()
-                                && (menu.strategy.focus == StrategyFocus::Rename
-                                    || menu.strategy.rename_opacity != 0)
-                        }
-                        Page::Tech => matches!(
-                            menu.tech.focus,
-                            TechFocus::CannotForget | TechFocus::Forget { .. }
-                        ),
-                        _ => false,
-                    };
-                draw.plane = if modal { 1 } else { draw.plane.max(2) };
-                match menu.page {
-                    Page::Equip if menu.equipment.focus != EquipmentFocus::Character => {
-                        let fade = u32::from(menu.equipment.transition.page_fade);
-                        draw.cursor(
-                            [32. - (fade * 308 / 256) as f32, 68.],
-                            ((255 - fade) / 2) as u8,
-                        );
-                    }
-                    Page::Items
-                        if matches!(
-                            menu.inventory.focus,
-                            ItemFocus::Target | ItemFocus::Discard(_)
-                        ) =>
-                    {
-                        let row = menu.inventory.row - menu.inventory.first;
-                        draw.plane = 2;
-                        draw.cursor(
-                            [48. + (row % 2) as f32 * 296., 96. + (row / 2) as f32 * 26.],
-                            127,
-                        );
-                        draw.plane = 3;
-                    }
-                    Page::Tech => draw.tech_cursors(menu),
-                    Page::ExSkills => draw.ex_cursors(menu),
-                    Page::Strategy => draw.strategy_cursors(menu.strategy_page()),
-                    Page::Cooking if menu.cooking.focus != CookingFocus::Header => draw.cursor(
-                        menu.cooking.header_cursor(),
-                        (255 - menu.cooking.transition.page_fade) >> 1,
-                    ),
-                    Page::Customize
-                        if matches!(
-                            menu.customize.focus,
-                            CustomizeFocus::Colors | CustomizeFocus::Volume
-                        ) =>
-                    {
-                        draw.cursor(
-                            menu.customize.options_cursor(),
-                            (255 - menu.customize.transition.page_fade) >> 1,
-                        )
-                    }
-                    _ => {}
-                }
-                let list = matches!(menu.page, Page::Slots(_)) && menu.focus == SlotFocus::List;
-                if !menu.busy {
-                    if list {
-                        draw.cursor([336. + menu.bank as f32 * 144., 30.], 127);
-                    }
-                    let alpha = match menu.page {
-                        Page::Rename if menu.rename.pending => 0,
-                        Page::Rename => 255 - menu.rename.fade,
-                        Page::Items if !modal => 255 - item_visual.unwrap().fade,
-                        Page::Collection => 255 - menu.collection.page_fade,
-                        Page::Manual => 255 - menu.manual.page_fade,
-                        Page::Monsters => 255 - menu.monsters.view.page_fade,
-                        Page::Figurines => 255 - menu.figurines.view.page_fade,
-                        Page::Equip => 255 - menu.equipment.transition.page_fade,
-                        Page::Customize => 255 - menu.customize.transition.page_fade,
-                        Page::System => menu.system_opacity,
-                        Page::Cooking => {
-                            (255 - menu.cooking.transition.page_fade) >> u8::from(modal)
-                        }
-                        Page::ExSkills => {
-                            (255 - menu.ex_skills.transition.page_fade) >> u8::from(modal)
-                        }
-                        Page::Unison => 255,
-                        Page::Tech if !modal => 255,
-                        Page::WorldMap => match menu.world_map.focus {
-                            WorldMapFocus::Locations => 255 - menu.world_map.page_fade,
-                            WorldMapFocus::Shops => menu.world_map.shops_opacity,
-                            WorldMapFocus::Items => menu.world_map.items_opacity,
-                        },
-                        Page::Titles => menu.status.title_opacity,
-                        Page::Status => 255 - menu.status.page_fade,
-                        Page::Strategy if menu.strategy.focus == StrategyFocus::Rename => 127,
-                        Page::Strategy => 255,
-                        // The list regains its active cursor while the popup fades away.
-                        Page::Slots(_) if menu.confirmation.is_none() && menu.notice.is_none() => {
-                            255
-                        }
-                        _ if modal || menu.confirmation.is_some() || menu.notice.is_some() => 127,
-                        _ => 255,
-                    };
-                    let group_target = match menu.page {
-                        Page::Tech => menu.tech_target_visible() && menu.tech_targets_all(),
-                        Page::Items => {
-                            menu.inventory.focus == ItemFocus::Target && menu.inventory.target_all
-                        }
-                        _ => false,
-                    };
-                    if group_target {
-                        for slot in 0..menu.party().formation.len() {
-                            let at = if menu.page == Page::Items {
-                                items::target_cursor(menu, slot, item_visual.unwrap())
-                            } else {
-                                techniques::target_cursor(menu, slot)
-                            };
-                            draw.cursor_trail(at, 255);
-                        }
-                    } else {
-                        draw.cursor_trail(anchor, alpha);
-                    }
-                }
-                let anchor = if let Some(popup) = &menu.popup {
-                    match &popup.content {
-                        PopupContent::Confirmation { kind, bank, yes } => {
-                            let keys = match kind {
-                                ConfirmationKind::Save => ["confirm_save_a", "confirm_save_b"],
-                                ConfirmationKind::Overwrite => {
-                                    ["confirm_overwrite_a", "confirm_overwrite_b"]
-                                }
-                                ConfirmationKind::Load => ["confirm_load_a", "confirm_load_b"],
-                            };
-                            draw.popup(
-                                menu_label(&self.spec.labels, keys[*bank])?,
-                                Some(*yes),
-                                popup.opacity,
-                            )?
-                        }
-                        PopupContent::Notice(notice) => {
-                            draw.popup(&wrap(notice, 32), None, popup.opacity)?
-                        }
-                    }
-                } else {
-                    match menu.page {
-                        Page::Tech => draw.tech_popup(menu)?,
-                        Page::ExSkills => draw.ex_popup(menu)?,
-                        Page::Strategy => draw.strategy_rename(menu.strategy_page())?,
-                        Page::Synopsis => {
-                            draw.synopsis_text(menu)?;
-                            None
-                        }
-                        Page::Cooking => {
-                            draw.cooking_popup(menu)?;
-                            None
-                        }
-                        _ => None,
-                    }
-                };
-                if let Some(anchor) = anchor.filter(|_| !menu.busy) {
-                    draw.cursor_trail(
-                        anchor,
-                        menu.popup.as_ref().map_or_else(
-                            || match menu.page {
-                                Page::ExSkills => menu.ex_skills.popup_opacity,
-                                _ => 255,
-                            },
-                            |popup| popup.opacity,
-                        ),
-                    );
-                }
-            } else if let Some((shop, party)) = shop {
-                draw.shade(draw.screen);
-                draw.plane = 1;
-                let anchor = draw.shop(shop, party)?;
-                draw.plane = 4;
-                draw.cursor_trail(anchor, 255 - shop.fade);
-            } else if let Some((crafting, party)) = crafting {
-                draw.shade(draw.screen);
-                draw.plane = 1;
-                let anchor = draw.crafting(crafting, party)?;
-                draw.plane = 4;
-                draw.cursor_trail(anchor, 255 - crafting.fade);
-            } else if let (Source::World(_, _), Some((message, acknowledgement, opacity))) =
-                (source, notice)
-            {
-                draw.plane = 3;
-                draw.opacity = opacity;
-                let lines = draw.wrap_notice(&message, 24., 600.)?;
-                let mut width: f32 = 0.;
-                for line in &lines {
-                    width = width.max(draw.text_width(line, 24.)?);
-                }
-                // A tight top notice, 12-pixel inset, 26-pixel
-                // line pitch. Enter/Leave are separate button ribbons below it.
-                let height = lines.len() as f32 * 26.;
-                let top = 24. - ((height + 48.) * (255 - opacity) as f32 / 255.).trunc();
-                let left = ((640. - width) / 2.).trunc();
-                draw.colored_frame(
-                    [left - 12., top - 12., width + 24., height + 24.],
-                    false,
-                    draw.popup_color(),
-                )?;
-                for (index, line) in lines.iter().enumerate() {
-                    draw.text_size(line, [left, top + index as f32 * 26.], [24., 24.], WHITE)?;
-                }
-                if !acknowledgement {
-                    draw.world_button(6, "Enter", [504., 76.])?;
-                    draw.world_button(8, "Leave", [504., 104.])?;
-                }
-            } else if let Some((label, _, opacity)) = ship_notice {
-                draw.opacity = opacity;
-                let x = 616. - draw.text_width(&label, 24.)? - 24.;
-                draw.world_button(8, &label, [x, 24.])?;
-            }
-            let trail = draw.trail;
-            let drawing = draw.batches;
-            self.trail = trail;
-            self.submit_drawing(drawing, commands, meshes)
-        })();
+        });
+        let result = predicted
+            .map_or_else(
+                || self.sample(source, font, dialogue, frame, &self.animation),
+                Ok,
+            )
+            .and_then(|(page, batches, trail)| {
+                self.animation.trail = trail;
+                self.set_page(page);
+                self.submit_drawing(batches, commands, meshes)
+            });
         if result.is_err() {
             self.clear_page(commands);
         }
@@ -1398,6 +1590,11 @@ impl MenuArtwork {
 }
 
 type DrawBatches = BTreeMap<(usize, DrawRole, MaterialKey), Batch>;
+type PageDrawing = (
+    Option<ActivePage>,
+    DrawBatches,
+    super::super::choice_cursor::Trail,
+);
 
 struct Drawing<'a> {
     screen: [f32; 4],
@@ -1406,6 +1603,7 @@ struct Drawing<'a> {
     selection: &'a resonance_content::font::SelectionArt,
     cursor_texture: &'a resonance_content::font::UiTexture,
     trail: super::super::choice_cursor::Trail,
+    interpolating: bool,
     preferences: Option<&'a resonance_content::menu_data::CustomizeSettings>,
     input_atlas: &'a crate::input_icons::Atlas,
     prompt_device: crate::input_icons::PromptDevice,
@@ -1416,6 +1614,7 @@ struct Drawing<'a> {
     opacity: u8,
     offset: [f32; 2],
     batches: DrawBatches,
+    scroll: ScrollMotion,
 }
 impl Drawing<'_> {
     fn batch(&mut self, texture: MaterialKey) -> &mut Batch {
@@ -1518,8 +1717,10 @@ impl Drawing<'_> {
         };
         let position = [anchor[0] + bob, anchor[1] - bob];
         if alpha == 255 && self.opacity == 255 {
-            for ([x, y], alpha) in self.trail.sample(self.tick, position.map(|v| v as i32)) {
-                self.cursor_image([x as f32, y as f32], alpha);
+            for ([x, y], alpha) in self.trail.slots(self.tick, position.map(|v| v as i32)) {
+                if self.interpolating || alpha != 0 {
+                    self.cursor_image([x as f32, y as f32], alpha);
+                }
             }
         }
         self.cursor(position, alpha);
@@ -2178,9 +2379,13 @@ impl Drawing<'_> {
     ) -> Result<()> {
         let minutes = ticks / TICKS_PER_MINUTE;
         self.number((minutes / 60) as u32, [x + size[0] * 3., y], size, color)?;
-        if colon {
-            self.text_size(":", [x + size[0] * 3., y], size, color)?;
+        // Keep the clock glyphs in place as the panel slides through a blink.
+        let opacity = self.opacity;
+        if !colon {
+            self.opacity = 0;
         }
+        self.text_size(":", [x + size[0] * 3., y], size, color)?;
+        self.opacity = opacity;
         self.number((minutes % 60) as u32, [x + size[0] * 6., y], size, color)?;
         if minutes % 60 < 10 {
             self.text_size("0", [x + size[0] * 4., y], size, color)?;
@@ -2585,7 +2790,7 @@ impl Drawing<'_> {
             [32., 110. + (menu.slot - menu.first_slot) as f32 * 48.]
         })
     }
-    fn main(&mut self, menu: &Menu) -> Result<[f32; 2]> {
+    fn main(&mut self, menu: &Menu, system: Option<usize>) -> Result<[f32; 2]> {
         let slide = |distance: u32| f32::from((u32::from(menu.main_fade) * distance / 256) as u16);
         let header_offset = [0., -slide(84)];
         self.offset = header_offset;
@@ -2601,7 +2806,10 @@ impl Drawing<'_> {
                         - (self.text_width(label, 23.)? / 2.).trunc(),
                     20. + (index / MAIN_COLUMNS) as f32 * 28.,
                 ];
-                if index == menu.selected && matches!(menu.page, Page::Main | Page::Character(_)) {
+                if system.is_none()
+                    && index == menu.selected
+                    && matches!(menu.page, Page::Main | Page::Character(_))
+                {
                     self.highlight(
                         [position[0], position[1], self.text_width(label, 23.)?, 24.],
                         255,
@@ -2677,7 +2885,7 @@ impl Drawing<'_> {
             }
         }
         self.offset = header_offset;
-        if menu.page == Page::System {
+        if let Some(selected) = system {
             let x = 444 + u32::from(255 - menu.system_opacity) * 196 / 256;
             let x = x + (640 - x) * u32::from(menu.main_fade) / 256;
             self.offset = [x as f32 - 444., 0.];
@@ -2693,7 +2901,7 @@ impl Drawing<'_> {
             for (index, key) in ["save", "load", "customize"].into_iter().enumerate() {
                 let label = menu_label(&self.spec.labels, key)?;
                 let y = 52. + index as f32 * 28.;
-                if index == menu.selected {
+                if index == selected {
                     self.highlight([460., y, self.text_width(label, 24.)?, 24.], 255);
                 }
                 self.text(
@@ -2712,7 +2920,7 @@ impl Drawing<'_> {
             }
             self.offset = [0.; 2];
             self.opacity = 255;
-            Ok([x as f32 + 8., 52. + menu.selected as f32 * 28.])
+            Ok([x as f32 + 8., 52. + selected as f32 * 28.])
         } else if matches!(menu.page, Page::Party | Page::Character(_)) {
             if matches!(menu.page, Page::Character(_)) {
                 self.cursor(anchor, 127);
@@ -2994,4 +3202,24 @@ fn wrap(text: &str, width: usize) -> String {
         column += word.chars().count();
     }
     result
+}
+
+impl Drawing<'_> {
+    fn battle_tech(&mut self, page: resonance_game::menu::techniques::Page<'_>) -> Result<()> {
+        self.opacity = 255;
+        self.shade(self.screen);
+        self.plane = 1;
+        let anchor = self.techniques_page(page)?;
+        self.tech_cursors_page(page);
+        let modal = matches!(
+            page.state.focus,
+            TechFocus::CannotForget | TechFocus::Forget { .. }
+        );
+        let alpha = if modal { 127 } else { 255 };
+        self.cursor_trail(anchor, alpha);
+        if let Some(anchor) = self.tech_popup_page(page)? {
+            self.cursor_trail(anchor, 255);
+        }
+        Ok(())
+    }
 }

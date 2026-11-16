@@ -65,7 +65,7 @@ fn activation_reuses_the_warmed_fragment_pipeline() -> Result<()> {
     let mesh =
         app.world_mut()
             .resource_mut::<Assets<Mesh>>()
-            .add(mesh(&pieces(7), Vec2::splat(64.), 0));
+            .add(mesh(&pieces(7), Vec2::splat(64.), 0.));
     let entity = app
         .world_mut()
         .spawn((

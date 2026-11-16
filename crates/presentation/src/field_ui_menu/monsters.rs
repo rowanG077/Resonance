@@ -198,14 +198,9 @@ impl Drawing<'_> {
         let y = 84. + (row - first) as f32 * 28.;
         self.highlight([x, y, 280., 24.], 255);
         let starts = self.vertex_counts();
-        let offset = scroll_offset(scroll, 28);
-        for (i, name) in names
-            .iter()
-            .skip(first - usize::from(scroll > 0))
-            .take(VISIBLE + usize::from(scroll != 0))
-            .enumerate()
-        {
-            self.text(name, [x, 84. + i as f32 * 28. - offset as f32], 20., WHITE)?;
+        let rows = self.scroll.primary.rows(first, scroll, VISIBLE, 1, 28);
+        for (i, name) in names.iter().skip(rows.first).take(rows.count).enumerate() {
+            self.text(name, [x, 84. + i as f32 * 28. - rows.offset], 20., WHITE)?;
         }
         self.clip_rows(starts, [84., 420.]);
         if first > 0 {

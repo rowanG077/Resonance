@@ -186,11 +186,12 @@ struct Message {
 }
 
 impl Message {
-    fn alpha(&self) -> u8 {
-        let fading = self.age.saturating_sub(u64::from(self.duration));
-        let entering = self.age.min(FADE_IN_TICKS) * 256 / FADE_IN_TICKS;
-        let leaving = 255_u64.saturating_sub(fading.min(FADE_OUT_TICKS) * 256 / FADE_OUT_TICKS);
-        entering.min(leaving) as u8
+    fn opacity_and_offset(&self, fraction: f32) -> (u8, f32) {
+        let age = self.age as f32 + fraction;
+        let fading = (age - f32::from(self.duration)).max(0.);
+        let entering = (age * 256. / FADE_IN_TICKS as f32).floor();
+        let leaving = 255. - (fading * 256. / FADE_OUT_TICKS as f32).floor();
+        (entering.min(leaving) as u8, fading)
     }
 }
 
@@ -353,6 +354,7 @@ impl Artwork {
         &self,
         frame: &BattleFrame,
         party: PartyHudInput<'_>,
+        fraction: f32,
     ) -> Result<Vec<Batch>> {
         let mut batches = (0..self.ui.notice.len())
             .map(|_| Batch::default())
@@ -364,7 +366,7 @@ impl Artwork {
             .results
             .as_ref()
             .into_iter()
-            .flat_map(results::Results::page_characters)
+            .flat_map(|result| result.page_characters(fraction))
         {
             draw_face(
                 character,
@@ -380,12 +382,8 @@ impl Artwork {
             for (side, message) in self.notices.messages.iter().enumerate() {
                 let Some(message) = message else { continue };
                 let newest = side == self.notices.newest;
-                let alpha = if newest {
-                    message.alpha()
-                } else {
-                    subdued(message.alpha())
-                };
-                let fading = message.age.saturating_sub(u64::from(message.duration)) as f32;
+                let (alpha, fading) = message.opacity_and_offset(fraction);
+                let alpha = if newest { alpha } else { subdued(alpha) };
                 let offset = if side == Side::Party as usize {
                     -fading
                 } else {
@@ -437,7 +435,7 @@ impl Artwork {
         if let Some((result, age)) = self.notices.outcome {
             let batches = &mut batches[OUTCOME_NOTICE..ENEMY_ICONS];
             let top = 27.;
-            let alpha = (age.min(FADE_IN_TICKS) * 256 / FADE_IN_TICKS).min(255) as u8;
+            let alpha = ((age as f32 + fraction) * 256. / FADE_IN_TICKS as f32) as u8;
             let text = if result == resonance_battle::BattleResult::Escaped {
                 &self.art.notices.escaped
             } else {
@@ -482,10 +480,11 @@ impl Artwork {
         &mut self,
         frame: &BattleFrame,
         party: PartyHudInput<'_>,
+        fraction: f32,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        let batches = self.draw_notices(frame, party)?;
+        let batches = self.draw_notices(frame, party, fraction)?;
         for (index, (layer, batch)) in self.ui.notice.iter_mut().zip(batches).enumerate() {
             let depth = layer_depth(index, self.notices.newest, self.results.is_some());
             if layer.definition.depth != depth {
@@ -559,13 +558,13 @@ mod tests {
         }
         // An escaped result alone does not request a banner.
         assert!(
-            hud.draw_notices(&frame, party)?[OUTCOME_NOTICE + TEXT]
+            hud.draw_notices(&frame, party, 0.)?[OUTCOME_NOTICE + TEXT]
                 .indices
                 .is_empty()
         );
         hud.overlay_request(Request::EscapeNotice)?;
         hud.notices.advance(&frame, 8);
-        let shown = hud.draw_notices(&frame, party)?;
+        let shown = hud.draw_notices(&frame, party, 0.)?;
         assert_eq!(shown[TEXT].positions.len(), 8 * 4);
         assert_eq!(shown[ENEMY_NOTICE + TEXT].positions.len(), 13 * 4);
         assert_eq!(
@@ -579,7 +578,7 @@ mod tests {
             assert_eq!(shown[face].positions.len(), 4);
         }
         hud.notices.advance(&frame, 200);
-        let expired = hud.draw_notices(&frame, party)?;
+        let expired = hud.draw_notices(&frame, party, 0.)?;
         assert!(
             expired[..OUTCOME_NOTICE]
                 .iter()
@@ -591,7 +590,7 @@ mod tests {
         );
         hud.overlay_request(Request::DefeatNotice)?;
         hud.notices.advance(&frame, 8);
-        let defeated = hud.draw_notices(&frame, party)?;
+        let defeated = hud.draw_notices(&frame, party, 0.)?;
         assert!(
             defeated[OUTCOME_NOTICE + FACES + Character::Lloyd.index()]
                 .positions
@@ -682,7 +681,7 @@ mod tests {
         {
             hud.notice_request(ActorId::from_index(0)?, name, 90, &frame)?;
             hud.notices.advance(&frame, 8);
-            let batches = hud.draw_notices(&frame, party)?;
+            let batches = hud.draw_notices(&frame, party, 0.)?;
             let border = &batches[FRAME];
             let emblem = &border.positions[border.positions.len() - 4..];
             assert_eq!(emblem[0], [emblem_left - 320., 212., 0.]);
@@ -700,13 +699,13 @@ mod tests {
         }
         hud.notice_request(ActorId::from_index(1)?, "Poisonous Pollen", 12, &frame)?;
         hud.notices.advance(&frame, 8);
-        let paired = hud.draw_notices(&frame, party)?;
+        let paired = hud.draw_notices(&frame, party, 0.)?;
         assert_eq!(paired[FRAME].colors[0][3], 190. / 255.);
         assert_eq!(paired[ENEMY_NOTICE + FRAME].colors[0][3], 1.);
         assert!(layer_depth(ICONS, 1, false) < layer_depth(ENEMY_NOTICE + FILL, 1, false));
         assert!(layer_depth(ENEMY_NOTICE + ICONS, 0, false) < layer_depth(FILL, 0, false));
         hud.notices.advance(&frame, 20);
-        let remaining = hud.draw_notices(&frame, party)?;
+        let remaining = hud.draw_notices(&frame, party, 0.)?;
         assert!(remaining[ENEMY_NOTICE + FRAME].indices.is_empty());
         assert_eq!(remaining[FRAME].positions, paired[FRAME].positions);
         assert_eq!(remaining[FRAME].colors, paired[FRAME].colors);

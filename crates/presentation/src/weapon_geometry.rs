@@ -9,6 +9,14 @@ pub(crate) struct Vertices {
     uv: Vec<[f32; 2]>,
 }
 impl Vertices {
+    #[cfg(test)]
+    pub(crate) fn samples(&self) -> impl Iterator<Item = ([f32; 3], [f32; 2], [f32; 4])> + '_ {
+        self.positions
+            .iter()
+            .zip(&self.uv)
+            .zip(&self.colors)
+            .map(|((&position, &uv), &color)| (position, uv, color))
+    }
     pub(crate) fn is_empty(&self) -> bool {
         self.positions.is_empty()
     }

@@ -1,9 +1,9 @@
 use crate::Actor;
 use anyhow::{Result, ensure};
-use glam::{EulerRot, Mat4, Quat, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use resonance_content::{
-    animation::Matrix,
-    secondary_motion::{Chain, Environment, Simulation, UpAxis},
+    animation::{Matrix, pose::Palette},
+    secondary_motion::{Chain, Environment, SegmentRotation, Simulation, UpAxis},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +27,7 @@ impl Placement {
 pub(super) fn apply(
     chains: &[Chain],
     simulations: &mut [Simulation],
-    bones: &mut [Matrix],
+    pose: &mut Palette,
     placement: Placement,
     advance: bool,
 ) -> Result<()> {
@@ -45,7 +45,7 @@ pub(super) fn apply(
         simulations.fill_with(Simulation::default);
         return Ok(());
     };
-    let authored: Vec<_> = bones
+    let authored: Vec<_> = pose
         .iter()
         .map(|matrix| world * Mat4::from_cols_array_2d(matrix))
         .collect();
@@ -80,8 +80,8 @@ pub(super) fn apply(
         deform(
             chain,
             &authored,
-            simulation.positions(),
-            bones,
+            simulation.deformation(),
+            pose,
             placement,
             inverse,
         )?;
@@ -92,15 +92,11 @@ pub(super) fn apply(
 fn deform(
     chain: &resonance_content::secondary_motion::Chain,
     authored: &[Mat4],
-    positions: &[Vec3],
-    bones: &mut [Matrix],
+    (positions, rotations): (&[Vec3], &mut [SegmentRotation]),
+    pose: &mut Palette,
     placement: Placement,
     inverse: Mat4,
 ) -> Result<()> {
-    let angles = |direction: Vec3| {
-        let d = placement.rotation.inverse() * direction.normalize_or_zero();
-        Vec2::new((-d.y).clamp(-1., 1.).asin(), d.x.atan2(d.z))
-    };
     for (index, joint) in chain.joints.iter().enumerate().take(chain.joints.len() - 1) {
         let bone = usize::from(joint.node);
         let matrix = authored[bone];
@@ -110,30 +106,25 @@ fn deform(
         );
         let mut driven = matrix;
         if !chain.preserve_rotation {
-            let mut delta = angles(positions[index] - positions[index + 1])
-                - angles(
-                    authored[usize::from(joint.node)].w_axis.truncate()
-                        - authored[usize::from(chain.joints[index + 1].node)]
-                            .w_axis
-                            .truncate(),
-                );
-            if chain.rotation_locks[0] {
-                delta.x = 0.;
-            }
-            if chain.rotation_locks[1] {
-                delta.y = 0.;
-            }
+            let correction = rotations[index].update(
+                chain,
+                placement.rotation.inverse()
+                    * (authored[usize::from(chain.joints[index + 1].node)]
+                        .w_axis
+                        .truncate()
+                        - matrix.w_axis.truncate()),
+                placement.rotation.inverse() * (positions[index + 1] - positions[index]),
+            );
             // Rotate the authored basis rigidly, preserving its scale and shear.
             // Locks describe actor axes, so bring the correction into world space.
-            let correction = placement.rotation
-                * Quat::from_euler(EulerRot::ZYX, 0., delta.y, delta.x)
-                * placement.rotation.inverse();
+            let correction = placement.rotation * correction * placement.rotation.inverse();
             driven = Mat4::from_quat(correction) * driven;
         }
         driven.w_axis = positions[index].extend(1.);
         // Dynamics overwrite driven joints only. Terminal guides keep the
         // composed target matrix; other children keep their ordinary pose.
-        bones[bone] = (inverse * driven).to_cols_array_2d();
+        pose.global[bone] = (inverse * driven).to_cols_array_2d();
+        pose.joints[bone].secondary = Some(usize::from(chain.joints[0].node));
     }
     Ok(())
 }
@@ -169,10 +160,12 @@ mod tests {
             let targets: Vec<_> = (0..3)
                 .map(|i| Vec3::new(10., 20. + i as f32 * 8., 5.) + offset)
                 .collect();
-            let mut bones: Vec<_> = targets
-                .iter()
-                .map(|&position| Mat4::from_translation(position).to_cols_array_2d())
-                .collect();
+            let mut bones = Palette::independent(
+                targets
+                    .iter()
+                    .map(|&position| Mat4::from_translation(position).to_cols_array_2d())
+                    .collect(),
+            );
             let guide = bones[2];
             expected.advance(
                 &chain,
@@ -239,11 +232,12 @@ mod tests {
                     rotation_locks: [false; 2],
                     collision_plane: None,
                 };
-                let mut bones: Vec<_> = local.iter().map(Mat4::to_cols_array_2d).collect();
+                let mut bones =
+                    Palette::independent(local.iter().map(Mat4::to_cols_array_2d).collect());
                 deform(
                     &chain,
                     &authored,
-                    &positions,
+                    (&positions, &mut [SegmentRotation::default(); 3]),
                     &mut bones,
                     placement,
                     world.inverse(),

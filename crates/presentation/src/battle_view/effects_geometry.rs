@@ -179,13 +179,23 @@ pub(super) fn particle(
         } else {
             particle.heading
         },
-        texture_size,
+        Uv::particle(particle, texture_size),
         camera,
     )?;
     if !data.positions.is_empty() {
         let offset = Vec3::from_array(particle.state.offset);
         if let Some(matrix) = bone_world {
-            let normal_matrix = Mat3::from_mat4(matrix).inverse().transpose();
+            let basis = Mat3::from_mat4(matrix);
+            // Cofactors give the inverse-transpose direction without division,
+            // so authored zero-scale poses can still flatten attached particles.
+            let mut normal_matrix = Mat3::from_cols(
+                basis.y_axis.cross(basis.z_axis),
+                basis.z_axis.cross(basis.x_axis),
+                basis.x_axis.cross(basis.y_axis),
+            );
+            if basis.determinant() < 0. {
+                normal_matrix = -normal_matrix;
+            }
             ensure!(
                 matrix.is_finite() && normal_matrix.is_finite(),
                 "invalid particle bone matrix"
@@ -219,7 +229,7 @@ pub(super) fn group(
     state: &ParticleState,
     heading: f32,
     declaration: &Declaration,
-    texture_size: [u32; 2],
+    uv: Uv,
     camera: Mat3,
     mut points: impl Iterator<Item = Result<Vec3>>,
 ) -> Result<()> {
@@ -232,7 +242,7 @@ pub(super) fn group(
         return Ok(());
     };
     ensure!(first.is_finite(), "invalid particle group position");
-    fill_geometry(out, state, declaration, heading, texture_size, camera)?;
+    fill_geometry(out, state, declaration, heading, uv, camera)?;
     let base_len = out.positions.len();
     let offset = Vec3::from_array(state.offset);
     for point in points {
@@ -258,12 +268,12 @@ fn fill_geometry(
     state: &ParticleState,
     declaration: &Declaration,
     heading: f32,
-    texture_size: [u32; 2],
+    uv: Uv,
     camera: Mat3,
 ) -> Result<()> {
     out.clear();
     ensure!(
-        texture_size.iter().all(|&v| v > 0) && camera.is_finite() && heading.is_finite(),
+        uv.size.iter().all(|&v| v > 0) && camera.is_finite() && heading.is_finite(),
         "invalid particle texture size or orientation"
     );
     if matches!(declaration, Declaration::ModelParticle { .. }) {
@@ -273,7 +283,6 @@ fn fill_geometry(
     let gradient = declaration.template()?.gradient;
     let anchored = p.anchored;
     let colors = state.colors.map(|c| c.map(|v| f32::from(v as u8) / 255.));
-    let uv = Uv::new(state.uv, texture_size);
     let dimensions = match state.geometry {
         ParticleGeometry::Size { value, .. } | ParticleGeometry::Spiral { value, .. } => {
             Vec3::from_array(value)
@@ -746,21 +755,31 @@ fn shell(size: Vec3, anchored: bool, elliptical: bool, segment: u8, count: u8) -
 }
 
 #[derive(Clone, Copy)]
-struct Uv {
+pub(super) struct Uv {
     rect: [i32; 4],
+    offset: [f32; 2],
     size: [u32; 2],
 }
 impl Uv {
     fn new(rect: [i16; 4], size: [u32; 2]) -> Self {
         Self {
             rect: rect.map(i32::from),
+            offset: [0.; 2],
             size,
+        }
+    }
+    pub(super) fn particle(particle: &ParticleFrame, size: [u32; 2]) -> Self {
+        Self {
+            offset: particle.uv_offset,
+            ..Self::new(particle.state.uv, size)
         }
     }
     fn at(self, vertex: usize) -> [f32; 2] {
         [
-            (self.rect[0] + (vertex & 1) as i32 * self.rect[2]) as f32 / self.size[0] as f32,
-            (self.rect[1] + (vertex / 2) as i32 * self.rect[3]) as f32 / self.size[1] as f32,
+            ((self.rect[0] + (vertex & 1) as i32 * self.rect[2]) as f32 + self.offset[0])
+                / self.size[0] as f32,
+            ((self.rect[1] + (vertex / 2) as i32 * self.rect[3]) as f32 + self.offset[1])
+                / self.size[1] as f32,
         ]
     }
     fn panel(mut self, layout: UvLayout, panel: u16, columns: u8) -> Self {
@@ -882,7 +901,7 @@ mod tests {
             state,
             declaration,
             heading,
-            texture_size,
+            Uv::new(state.uv, texture_size),
             camera,
         )?;
         Ok((!vertices.positions.is_empty()).then_some(vertices))
@@ -936,7 +955,14 @@ mod tests {
             let previous = mesh.clone();
             let storage = mesh_storage(&mesh);
             let visible = update_mesh(&mut mesh, &mut vertices, |vertices| {
-                fill_geometry(vertices, &state, &declaration, 0., [512; 2], Mat3::IDENTITY)
+                fill_geometry(
+                    vertices,
+                    &state,
+                    &declaration,
+                    0.,
+                    Uv::new(state.uv, [512; 2]),
+                    Mat3::IDENTITY,
+                )
             })?;
             assert_eq!(visible, count > 0);
             assert!(
@@ -1108,7 +1134,7 @@ mod tests {
             &state,
             0.,
             &declaration,
-            [64; 2],
+            Uv::new(state.uv, [64; 2]),
             Mat3::IDENTITY,
             std::iter::empty(),
         )?;
@@ -1119,7 +1145,7 @@ mod tests {
             &state,
             0.,
             &declaration,
-            [64; 2],
+            Uv::new(state.uv, [64; 2]),
             Mat3::IDENTITY,
             points.into_iter().map(Ok),
         )?;

@@ -44,20 +44,20 @@ impl Drawing<'_> {
             }
         }
         let starts = self.vertex_counts();
-        let first = crafting
-            .first
-            .saturating_sub(usize::from(crafting.scroll > 0));
-        let offset = scroll_offset(crafting.scroll, 27);
+        let rows = self
+            .scroll
+            .primary
+            .rows(crafting.first, crafting.scroll, VISIBLE_ROWS, 1, 27);
         for (row, &id) in vendor
             .recipes
             .iter()
-            .skip(first)
-            .take(VISIBLE_ROWS + usize::from(crafting.scroll != 0))
+            .skip(rows.first)
+            .take(rows.count)
             .enumerate()
         {
             let recipe = &data.crafting.recipes[usize::from(id)];
             let item = &data.items[usize::from(recipe.result)];
-            let y = 78. + row as f32 * 27. - offset as f32;
+            let y = 78. + row as f32 * 27. - rows.offset;
             self.sprite_rect(
                 self.spec
                     .sprite(Sprite::Items, usize::from(item.category - 1))?,

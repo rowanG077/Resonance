@@ -38,7 +38,7 @@ impl std::fmt::Display for ActionKey {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ActionDefinitions {
     pub(crate) entries: Vec<Arc<ActionDefinition>>,
 }
@@ -159,7 +159,7 @@ pub struct PreparedBattle {
     pub(crate) resources: BattleResources,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct BattleResources {
     pub(crate) actor_setup: Vec<ActorSetup>,
     pub(crate) formation_count: usize,

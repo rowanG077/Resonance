@@ -164,7 +164,7 @@ const USE_TICKS: u32 = 60;
 const QUICK_USE_TICKS: u32 = 30;
 const HOURGLASS_TICKS: u16 = 300;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct State {
     pub pending: Option<Release>,
     pub cooldown: u16,

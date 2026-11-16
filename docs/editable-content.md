@@ -108,7 +108,7 @@ The JSON owns the coordinate dimensions. Texture bindings are prepared up front.
 
 ## Finding a resource
 
-A library starts with `content.json`: `{"version":109,"game":"tales-of-symphonia"}`.
+A library starts with `content.json`: `{"version":111,"game":"tales-of-symphonia"}`.
 It identifies the cooked format and semantic game, with no source platform,
 product code, revision, file inventory or checksums. A future Steam importer
 targets the same layout and resource contracts; actual gameplay determines save

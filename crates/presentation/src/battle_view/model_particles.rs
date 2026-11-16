@@ -577,7 +577,7 @@ fn appearance(
             Vec4::ZERO,
         )
     };
-    let uv = model_uv(particle.state.uv);
+    let uv = model_uv(particle.state.uv, particle.uv_offset);
     let uv_offsets = base.uv_offsets + Vec4::new(uv[0], uv[1], uv[0], uv[1]);
     let surface = surfaces
         .get(handle)
@@ -698,14 +698,17 @@ mod tests {
         let mut particles = particles(2)?;
         for (index, particle) in particles.iter_mut().enumerate() {
             particle.model = Some(resonance_battle::EffectModelFrame {
+                attachment: None,
                 resource: ResourceId(10),
                 clip: None,
                 frame: 0.,
                 world: Mat4::IDENTITY.to_cols_array_2d(),
-                bones: Arc::new(vec![
-                    Mat4::from_translation(Vec3::new(index as f32 * 20., 0., 0.))
-                        .to_cols_array_2d(),
-                ]),
+                bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+                    vec![
+                        Mat4::from_translation(Vec3::new(index as f32 * 20., 0., 0.))
+                            .to_cols_array_2d(),
+                    ],
+                )),
             });
             particle.state.colors[0] = [64, 64, 64, 100 + index as i16];
             particle.state.uv = [index as i16, 0, 2, 2];
@@ -768,7 +771,9 @@ mod tests {
         // Rebind a previous skin draw to an unrelated rigid model in the same
         // update as retirement. Neither the draw pool nor materials grow.
         particles[0].model.as_mut().unwrap().resource = ResourceId(11);
-        particles[0].model.as_mut().unwrap().bones = Arc::new(vec![]);
+        particles[0].model.as_mut().unwrap().bones = Arc::new(
+            resonance_content::animation::pose::Palette::independent(vec![]),
+        );
         particles[0].state.uv = [0; 4];
         pool.clear_pose();
         pool.apply(

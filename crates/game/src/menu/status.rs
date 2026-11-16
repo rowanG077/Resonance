@@ -11,7 +11,7 @@ pub enum Focus {
     Costume,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Status {
     pub details: bool,
     pub focus: Focus,

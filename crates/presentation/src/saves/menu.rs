@@ -75,7 +75,7 @@ pub(super) fn update(world: &mut World) {
     let Some(mut menu) = current(world).filter(|menu| matches!(menu.page, Page::Slots(_))) else {
         return;
     };
-    let command = menu.take_command();
+    let command = menu.has_command().then(|| menu.take_command()).flatten();
     if command != Some(Command::ReadSlots) {
         let selection = Selection {
             bank: menu.bank,

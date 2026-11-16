@@ -140,7 +140,7 @@ enum Completion {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Frame {
     function: u16,
     local_base: usize,
@@ -157,6 +157,7 @@ pub struct SourceFrame {
     pub location: Option<SourceLocation>,
 }
 
+#[derive(Clone)]
 pub struct Vm {
     program: Arc<Program>,
     pc: u32,

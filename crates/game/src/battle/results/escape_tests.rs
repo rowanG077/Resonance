@@ -152,7 +152,8 @@ fn disabled_or_failed_escape_does_not_mutate_core_or_candidate() -> Result<()> {
         ready(&mut f)?;
         let actor = f.candidate.setup.actors[0].0;
         if !restricted {
-            f.candidate.setup.actors[1].0 = ActorId::from_index(f.battle.actors().len())?;
+            Arc::get_mut(&mut f.candidate.setup).unwrap().actors[1].0 =
+                ActorId::from_index(f.battle.actors().len())?;
         }
         let before = serde_json::to_value(&f.candidate.party)?;
         let progress = f.battle.escape_frame();

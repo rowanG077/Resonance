@@ -1,5 +1,5 @@
 //! Secondary-chain dynamics for battle models.
-use super::Chain;
+use super::{Chain, SegmentRotation};
 use glam::Vec3;
 
 // Fixed-tick solver tuning in model units.
@@ -35,10 +35,16 @@ pub struct Environment {
 #[derive(Debug, Clone, Default)]
 pub struct Simulation {
     positions: Vec<Vec3>,
+    rotations: Vec<SegmentRotation>,
     velocity: Vec<Vec3>,
     targets: Vec<Vec3>,
 }
 impl Simulation {
+    /// Joint positions and their last actor-space rotation corrections.
+    pub fn deformation(&mut self) -> (&[Vec3], &mut [SegmentRotation]) {
+        (&self.positions, &mut self.rotations)
+    }
+
     pub fn positions(&self) -> &[Vec3] {
         &self.positions
     }
@@ -51,6 +57,7 @@ impl Simulation {
 
     pub fn reset(&mut self, targets: &[Vec3]) {
         self.positions = targets.to_vec();
+        self.rotations = vec![SegmentRotation::default(); targets.len()];
         self.velocity = vec![Vec3::ZERO; targets.len()];
         self.targets = targets.to_vec();
     }

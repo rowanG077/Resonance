@@ -1,15 +1,16 @@
 use super::*;
 
-pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 18;
-pub const COMBINED_BATTLES_OPTION: usize = 19;
-pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 20;
-pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 21;
+pub const FLEXIBLE_BATTLE_PARTY_OPTION: usize = 19;
+pub const COMBINED_BATTLES_OPTION: usize = 20;
+pub const LEARN_ELEMENTAL_ARTES_OPTION: usize = 21;
+pub const LEARN_BOTH_ARTE_PATHS_OPTION: usize = 22;
 pub const DISPLAY_MODE_OPTION: usize = 13;
 pub const RESOLUTION_OPTION: usize = 14;
 pub const ANTI_ALIASING_OPTION: usize = 15;
 pub const GRAPHICS_BACKEND_OPTION: usize = 16;
 pub const VSYNC_OPTION: usize = 17;
-pub const CUSTOMIZE_OPTIONS: usize = 22;
+pub const EXPERIMENTAL_HIGH_FPS_OPTION: usize = 18;
+pub const CUSTOMIZE_OPTIONS: usize = 23;
 
 /// Portable saved preference; Automatic follows the host platform's default.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -241,6 +242,7 @@ pub struct CustomizeSettings {
     pub graphics_backend: GraphicsBackend,
     pub anti_aliasing: AntiAliasing,
     pub vsync: bool,
+    pub experimental_high_fps: bool,
     pub display_mode: DisplayMode,
     pub resolution: [u32; 2],
 }
@@ -283,6 +285,7 @@ impl Default for CustomizeSettings {
             graphics_backend: Default::default(),
             anti_aliasing: Default::default(),
             vsync: false,
+            experimental_high_fps: false,
             display_mode: Default::default(),
             resolution: default_display_resolution(),
         }

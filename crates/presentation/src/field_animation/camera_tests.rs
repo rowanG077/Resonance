@@ -65,7 +65,7 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
         field::document,
         library::Library,
     };
-    use std::{path::PathBuf, sync::Arc};
+    use std::path::PathBuf;
     let assets = PathBuf::from(std::env::var_os("RESONANCE_TEST_ASSETS").unwrap());
     let library = Library::open(&assets, &[])?;
     let (_, manifest) = document::capture_scene(&mut library.snapshot(), 362, || false)?;
@@ -74,9 +74,7 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
     let skeleton = Skeleton::from_glb(&bytes)?;
     let length = u32::from_le_bytes(bytes[12..16].try_into()?) as usize;
     let gltf: serde_json::Value = serde_json::from_slice(&bytes[20..20 + length])?;
-    let motion = Arc::new(Motion::decode(&std::fs::read(
-        assets.join(&part.clips[0].motion),
-    )?)?);
+    let motion = Motion::decode(&std::fs::read(assets.join(&part.clips[0].motion))?)?;
     let mut field = resonance_game::field::FieldSession::new(
         &std::fs::read(assets.join(&manifest.script))?,
         vec![],
@@ -122,23 +120,16 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
         )
         .unwrap()?;
     assert!(!rig.camera_facing.is_empty());
+    let binding = crate::sparse_animation::Binding(rig.bones.clone());
+    let poses = binding.sample_poses(Some((&motion, 0.)))?;
     app.world_mut().entity_mut(root).insert(rig);
     app.add_systems(
         Update,
         (
             restore,
-            move |rigs: Query<&Rig>,
-                  mut nodes: Query<&mut Transform>,
-                  mut affine: ResMut<Locals>| {
-                for rig in &rigs {
-                    crate::sparse_animation::sample(
-                        &rig.bones,
-                        &motion,
-                        0.,
-                        &mut nodes,
-                        &mut affine,
-                    )
-                    .unwrap();
+            move |mut nodes: Query<&mut Transform>, mut affine: ResMut<Locals>| {
+                for (&(entity, _), &pose) in binding.0.iter().zip(&poses) {
+                    affine.set(entity, &mut nodes.get_mut(entity).unwrap(), pose);
                 }
             },
             face_camera,

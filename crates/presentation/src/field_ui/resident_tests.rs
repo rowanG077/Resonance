@@ -14,6 +14,20 @@ fn first_menu_open_reuses_startup_pipelines_and_canvases() -> Result<()> {
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use resonance_events::input::Button;
+
+    fn press(scenario: &mut Scenario, button: Button) -> Result<()> {
+        let mut session = scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::new_game::Session>();
+        let field = session.field_mut();
+        field.step(resonance_game::field::FieldInput {
+            pressed_buttons: [button].into(),
+            ..default()
+        })
+    }
+
     let pipelines = Arc::new(AtomicUsize::new(0));
     let draws = Arc::new(Mutex::new(std::collections::HashSet::new()));
     let observed = pipelines.clone();
@@ -67,53 +81,55 @@ fn first_menu_open_reuses_startup_pipelines_and_canvases() -> Result<()> {
             .player_has_control()
     })?;
     let entities: std::collections::HashSet<_> = resident.entities().into_iter().collect();
+    // Keep the production fractional clock on the offscreen graphics fixture.
+    let mut options = scenario.app.world_mut().resource_mut::<crate::RunOptions>();
+    options.capture = None;
+    options.speculative = true;
+    scenario
+        .app
+        .insert_resource(TimeUpdateStrategy::ManualDuration(
+            resonance_game::clock::UPDATE_STEP / 3,
+        ));
     for _ in 0..2 {
-        scenario
-            .app
-            .world_mut()
-            .resource_mut::<crate::new_game::Session>()
-            .field_mut()
-            .step(resonance_game::field::FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Menu].into(),
-                ..default()
-            })?;
-        assert!(
-            scenario
-                .app
-                .world()
-                .resource::<crate::new_game::Session>()
-                .menu()
-                .is_some()
-        );
+        press(&mut scenario, Button::Menu)?;
+        let mut previous = None;
+        let mut moved = false;
         scenario.wait("menu did not finish opening", |app| {
             let world = app.world();
-            let menu = &world.resource::<Artwork>().menu;
+            let menu = world.resource::<crate::new_game::Session>().menu().unwrap();
+            let artwork = &world.resource::<Artwork>().menu;
+            if let Some((shade, _)) = artwork
+                .layers
+                .get(&(0, menu::DrawRole::Background, menu::MaterialKey::Font))
+                .filter(|layer| layer.visible)
+                .and_then(|layer| layer.uploaded.as_ref())
+            {
+                let opacity = shade.colors[0][3];
+                moved |= previous.is_some_and(|(tick, alpha)| tick == menu.tick && opacity > alpha);
+                previous = Some((menu.tick, opacity));
+            }
             assert!(
-                menu.layers
+                artwork
+                    .layers
                     .values()
                     .all(|layer| entities.contains(&layer.entity))
             );
             if let Some(draws) = world.get_resource::<MenuDraws>() {
-                for id in &draws.0.lock().unwrap().pipelines {
-                    assert!(id.id() < startup, "menu compiled a new pipeline: {id:?}");
-                }
+                assert!(
+                    draws
+                        .0
+                        .lock()
+                        .unwrap()
+                        .pipelines
+                        .iter()
+                        .all(|id| id.id() < startup),
+                    "menu compiled a pipeline after startup"
+                );
             }
-            world
-                .resource::<crate::new_game::Session>()
-                .menu()
-                .is_some_and(|m| {
-                    !m.main_animating() && menu.ready(world.resource::<Assets<Image>>())
-                })
+            !menu.main_animating() && artwork.ready(world.resource::<Assets<Image>>())
         })?;
-        scenario
-            .app
-            .world_mut()
-            .resource_mut::<crate::new_game::Session>()
-            .field_mut()
-            .step(resonance_game::field::FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Cancel].into(),
-                ..default()
-            })?;
+        assert!(moved, "menu opacity never advanced within a fixed tick");
+        press(&mut scenario, Button::Cancel)?;
         scenario.wait("menu did not finish closing", |app| {
             app.world()
                 .resource::<crate::new_game::Session>()
@@ -427,7 +443,10 @@ fn save_installation_renders_overworld_and_field_replacements() -> Result<()> {
 #[test]
 #[ignore = "requires RESONANCE_TEST_ASSETS and a GPU; run serially"]
 fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> {
+    use bevy::time::TimeUpdateStrategy::ManualDuration;
+    use resonance_game::clock::UPDATE_STEP;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::time::Duration;
 
     let mut scenario = Scenario::boot(Default::default(), |_| {})?;
     // Exercise a visible field, including a return to already-resident world graphics.
@@ -481,6 +500,9 @@ fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> 
         "loading a save skipped its fade in"
     );
     capture(&mut scenario.app, "load-fade-in.png")?;
+    let mut options = scenario.app.world_mut().resource_mut::<crate::RunOptions>();
+    options.capture = None;
+    options.speculative = true;
     // Depart during the saved field's fade in as well as after a cached return.
     for visit in 0..2 {
         let events = scenario
@@ -496,17 +518,9 @@ fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> 
             to: 0.,
             white: false,
         });
-        scenario
-            .app
-            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
-                resonance_game::clock::UPDATE_STEP,
-            ));
+        scenario.app.insert_resource(ManualDuration(UPDATE_STEP));
         scenario.update()?;
-        scenario
-            .app
-            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
-                std::time::Duration::ZERO,
-            ));
+        scenario.app.insert_resource(ManualDuration(Duration::ZERO));
         capture(&mut scenario.app, &format!("{visit}-field.png"))?;
         let previous_brightness = brightness(&scenario.app);
         scenario.request_scene(3000)?;
@@ -517,9 +531,31 @@ fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> 
             "replacing the load fade caused a brightness jump"
         );
         assert!(crate::new_game::scene_fade::outgoing(scenario.app.world()));
-        for _ in 0..7 {
+        for _ in 0..6 {
             scenario.update()?;
         }
+        let half = UPDATE_STEP / 2;
+        for (elapsed, paused, remaining) in [
+            (half, false, 8.5),
+            (Duration::ZERO, true, 9.),
+            (Duration::ZERO, false, 8.5),
+        ] {
+            scenario.app.insert_resource(ManualDuration(elapsed));
+            scenario
+                .app
+                .world_mut()
+                .resource_mut::<crate::testing::Controls>()
+                .paused = paused;
+            scenario.app.update();
+            assert!(
+                (brightness(&scenario.app) - initial_brightness * remaining / 15.).abs() < 0.001
+            );
+        }
+        scenario
+            .app
+            .insert_resource(ManualDuration(UPDATE_STEP - half));
+        scenario.update()?;
+        scenario.app.insert_resource(ManualDuration(Duration::ZERO));
         assert!(
             scenario
                 .app

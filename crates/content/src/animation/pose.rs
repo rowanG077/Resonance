@@ -8,6 +8,89 @@ pub enum LocalPose {
     Affine(Matrix),
 }
 
+/// Published bones retain their local poses as well as the model-space matrices
+/// consumed by skinning and simulation attachments. Rendering can interpolate
+/// the hierarchy without recovering authored channels from matrix inverses.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Palette {
+    pub joints: Vec<JointPose>,
+    pub global: Vec<Matrix>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JointPose {
+    pub parent: Option<usize>,
+    /// Authored local channels, even when dynamics override the skinning matrix.
+    pub local: LocalPose,
+    /// Simulated joints share their pinned root; terminal guides remain authored.
+    pub secondary: Option<usize>,
+}
+
+impl std::ops::Deref for Palette {
+    type Target = [Matrix];
+    fn deref(&self) -> &Self::Target {
+        &self.global
+    }
+}
+
+impl Palette {
+    pub fn new(skeleton: &Skeleton, local: Vec<LocalPose>) -> Result<Self> {
+        let matrices: Vec<_> = local.iter().map(|p| p.matrix()).collect();
+        let global = skeleton.global_matrices(&matrices)?;
+        Ok(Self {
+            joints: skeleton
+                .bones
+                .iter()
+                .zip(local)
+                .map(|(bone, local)| JointPose {
+                    parent: bone.parent.map(usize::from),
+                    secondary: None,
+                    local: bone.parent_transform.map_or(local, |parent| {
+                        LocalPose::Affine(super::multiply(parent, local.matrix()))
+                    }),
+                })
+                .collect(),
+            global,
+        })
+    }
+
+    pub fn bind(skeleton: &Skeleton) -> Result<Self> {
+        Self::new(
+            skeleton,
+            skeleton
+                .bones
+                .iter()
+                .map(|b| LocalPose::Trs(b.bind))
+                .collect(),
+        )
+    }
+
+    /// Explicit model-space bones, without a parent relationship.
+    pub fn independent(global: Vec<Matrix>) -> Self {
+        Self {
+            joints: global
+                .iter()
+                .map(|&matrix| JointPose {
+                    parent: None,
+                    local: LocalPose::Affine(matrix),
+                    secondary: None,
+                })
+                .collect(),
+            global,
+        }
+    }
+
+    pub fn append(&mut self, next: Self) {
+        let offset = self.len();
+        self.joints.extend(next.joints.into_iter().map(|mut joint| {
+            joint.parent = joint.parent.map(|parent| parent + offset);
+            joint.secondary = joint.secondary.map(|root| root + offset);
+            joint
+        }));
+        self.global.extend(next.global);
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct BonePose {
     value: LocalPose,
@@ -22,18 +105,21 @@ struct Channels {
 }
 
 pub fn sample(skeleton: &Skeleton, motion: &Motion, frame: f32) -> Result<Vec<BonePose>> {
-    skeleton
+    let mut poses = skeleton
         .bones
         .iter()
-        .enumerate()
-        .map(|(index, bone)| {
-            sample_bone(
-                bone.bind,
-                motion.tracks.iter().find(|t| usize::from(t.bone) == index),
-                frame,
-            )
-        })
-        .collect()
+        .map(|bone| sample_bone(bone.bind, None, frame))
+        .collect::<Result<Vec<_>>>()?;
+    for track in &motion.tracks {
+        let index = usize::from(track.bone);
+        // A selected effect mesh may use a subset of its motion source's rig.
+        // The motion is validated against that source before being shared.
+        let Some(bone) = skeleton.bones.get(index) else {
+            continue;
+        };
+        poses[index] = sample_bone(bone.bind, Some(track), frame)?;
+    }
+    Ok(poses)
 }
 
 /// Sample only authored channels. Callers may retain the unwritten channels
@@ -53,6 +139,12 @@ pub fn sample_bone(bind: Transform, track: Option<&Track>, frame: f32) -> Result
 }
 
 impl LocalPose {
+    pub fn matrix(self) -> Matrix {
+        match self {
+            Self::Trs(t) => t.matrix(),
+            Self::Affine(m) => m,
+        }
+    }
     /// Rotate locally without changing translation or decomposing an affine basis.
     pub fn rotate(self, rotation: [f32; 4]) -> Self {
         match self {
@@ -164,10 +256,7 @@ impl BonePose {
     }
 
     pub fn matrix(&self) -> Matrix {
-        match self.value {
-            LocalPose::Trs(t) => t.matrix(),
-            LocalPose::Affine(m) => m,
-        }
+        self.value.matrix()
     }
     pub fn translation(&self) -> [f32; 3] {
         match self.value {
@@ -201,6 +290,27 @@ mod tests {
             shadow_bounds: true,
             bind: Transform::default(),
         }
+    }
+
+    #[test]
+    fn appending_palettes_rebases_parents_and_cloth_pins() -> Result<()> {
+        let skeleton = Skeleton {
+            bones: vec![
+                rest(),
+                Bone {
+                    parent: Some(0),
+                    ..rest()
+                },
+            ],
+        };
+        let mut palette = Palette::bind(&skeleton)?;
+        palette.joints[1].secondary = Some(0);
+        palette.global[1][3][0] = 4.;
+        palette.append(palette.clone());
+        assert_eq!(palette.joints[3].parent, Some(2));
+        assert_eq!(palette.joints[3].secondary, Some(2));
+        assert_eq!(palette.global[3], palette.global[1]);
+        Ok(())
     }
 
     fn rotation_pose(step: bool, degrees: f32) -> BonePose {

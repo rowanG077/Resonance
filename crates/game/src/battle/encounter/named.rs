@@ -35,10 +35,6 @@ impl Assets {
         Ok((self, prepared, selected))
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "One preparation borrows the retained session and its candidate snapshot."
-    )]
     pub fn capture(
         snapshot: &mut Snapshot,
         menus: &MenuData,
@@ -99,10 +95,6 @@ impl Assets {
 
     /// Observe one action without requiring its surrounding story event.
     #[cfg(feature = "test-support")]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "One preparation borrows the retained session and its candidate snapshot."
-    )]
     pub fn capture_fixture(
         snapshot: &mut Snapshot,
         menus: &MenuData,

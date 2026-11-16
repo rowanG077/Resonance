@@ -172,10 +172,13 @@ fn render(world: &mut World) {
         return;
     };
     if !active.loading {
+        let fraction = world
+            .get_resource::<super::field_view::Prediction>()
+            .map_or(0., |prediction| prediction.alpha);
         let result = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
             active
                 .art
-                .render(&active.screen, &mut world.commands(), &mut meshes)
+                .render(&active.screen, fraction, &mut world.commands(), &mut meshes)
         });
         if let Err(error) = result {
             world.insert_resource(active);

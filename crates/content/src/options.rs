@@ -28,6 +28,7 @@ pub const OPTIONS: [&str; CUSTOMIZE_OPTIONS] = [
     "anti_aliasing",
     "graphics_backend",
     "vsync",
+    "experimental_high_fps",
     "flexible_battle_party",
     "combined_battles",
     "learn_elemental_artes",
@@ -120,6 +121,8 @@ pub struct Defaults {
     pub anti_aliasing: AntiAliasing,
     #[serde(default)]
     pub vsync: bool,
+    #[serde(default)]
+    pub experimental_high_fps: bool,
     pub display_mode: DisplayMode,
     pub resolution: [u32; 2],
 }
@@ -195,6 +198,7 @@ impl Defaults {
             graphics_backend: self.graphics_backend,
             anti_aliasing: self.anti_aliasing,
             vsync: self.vsync,
+            experimental_high_fps: self.experimental_high_fps,
             display_mode: self.display_mode,
             resolution: self.resolution,
         };
@@ -231,6 +235,7 @@ impl Defaults {
             graphics_backend: settings.graphics_backend,
             anti_aliasing: settings.anti_aliasing,
             vsync: settings.vsync,
+            experimental_high_fps: settings.experimental_high_fps,
             display_mode: settings.display_mode,
             resolution: settings.resolution,
         })
@@ -254,6 +259,13 @@ impl Document {
             .or_insert_with(|| CustomizeOption {
                 name: "VSync".into(),
                 description: "Synchronize frames with the display.\nHelps prevent screen tearing."
+                    .into(),
+            });
+        options
+            .entry("experimental_high_fps".into())
+            .or_insert_with(|| CustomizeOption {
+                name: "Enable experimental high FPS".into(),
+                description: "Smooths movement above 60 FPS.\nMay cause small visual glitches."
                     .into(),
             });
         let data = CustomizeData {

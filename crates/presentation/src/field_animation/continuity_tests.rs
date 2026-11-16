@@ -44,7 +44,14 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
             clip.decode_for_skeleton(&std::fs::read(root.join(&clip.motion))?, &skeleton)?;
         for frame in 0..=motion.duration_frames as usize {
             rig.authored_channels.fill(0);
-            let poses = rig.sample_tracks(&motion, frame as f32)?;
+            let poses = sample_tracks(
+                &rig.bones,
+                &mut rig.authored_channels,
+                &motion,
+                frame as f32,
+                None,
+            )
+            .collect::<anyhow::Result<Vec<_>>>()?;
             for (i, mut pose) in poses {
                 rig.blend_bone(i, &mut pose, 1., true);
             }

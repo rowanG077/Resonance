@@ -95,17 +95,22 @@ impl Drawing<'_> {
             },
         );
         let starts = self.vertex_counts();
-        let first = state.first_location - usize::from(state.location_scroll > 0);
-        let scroll = scroll_offset(state.location_scroll, 26);
+        let rows = self.scroll.primary.rows(
+            state.first_location,
+            state.location_scroll,
+            LOCATION_ROWS,
+            1,
+            26,
+        );
         for (row, (_, location)) in locations
             .iter()
-            .skip(first)
-            .take(LOCATION_ROWS + usize::from(state.location_scroll != 0))
+            .skip(rows.first)
+            .take(rows.count)
             .enumerate()
         {
             self.text(
                 &location.name,
-                [24., 86. + row as f32 * 26. - scroll as f32],
+                [24., 86. + row as f32 * 26. - rows.offset],
                 16.,
                 WHITE,
             )?;
@@ -175,18 +180,20 @@ impl Drawing<'_> {
                     WHITE,
                 )?;
                 let starts = self.vertex_counts();
-                let first = state.first_item - usize::from(state.item_scroll > 0);
-                let scroll = scroll_offset(state.item_scroll, 26);
+                let rows =
+                    self.scroll
+                        .detail
+                        .rows(state.first_item, state.item_scroll, ITEM_ROWS, 1, 26);
                 for (row, &id) in shop
                     .items
                     .iter()
-                    .skip(first)
-                    .take(ITEM_ROWS + usize::from(state.item_scroll != 0))
+                    .skip(rows.first)
+                    .take(rows.count)
                     .enumerate()
                 {
                     let item = &data.items[usize::from(id)];
                     let item_text = data.item_text(id)?;
-                    let y = 118. + row as f32 * 26. - scroll as f32;
+                    let y = 118. + row as f32 * 26. - rows.offset;
                     self.sprite_rect(
                         self.spec
                             .sprite(Sprite::Items, usize::from(item.category - 1))?,

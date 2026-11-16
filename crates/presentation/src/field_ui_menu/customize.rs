@@ -1,10 +1,30 @@
 use super::*;
 use resonance_content::menu_data::{
     ANTI_ALIASING_OPTION, COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, DISPLAY_MODE_OPTION,
-    FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION, LEARN_BOTH_ARTE_PATHS_OPTION,
-    LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
+    EXPERIMENTAL_HIGH_FPS_OPTION, FLEXIBLE_BATTLE_PARTY_OPTION, GRAPHICS_BACKEND_OPTION,
+    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION, RESOLUTION_OPTION, VSYNC_OPTION,
 };
-use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
+use resonance_game::menu::customize::{Customize, Focus, VISIBLE_OPTIONS};
+
+const GROUP_WIDTH: f32 = 320.;
+const COLOR_STEP: f32 = 16.;
+const COLOR_CYCLE: f32 = 7. * GROUP_WIDTH;
+
+fn color_center(state: &Customize) -> f32 {
+    (state.color_group as f32 - f32::from(state.color_scroll.signum())) * GROUP_WIDTH
+        + f32::from(state.color_scroll) * COLOR_STEP
+}
+
+pub(super) fn sample_color_center(from: &Customize, to: &Customize, alpha: f32) -> f32 {
+    let center = color_center(from);
+    let half = COLOR_CYCLE / 2.;
+    let travel = (color_center(to) - center + half).rem_euclid(COLOR_CYCLE) - half;
+    if travel.abs() == COLOR_STEP {
+        center + travel * alpha
+    } else {
+        center
+    }
+}
 
 fn resolution_label(size: [u32; 2], native: Option<[u32; 2]>) -> String {
     let suffix = if native == Some(size) {
@@ -164,21 +184,20 @@ impl Drawing<'_> {
                 [
                     32.,
                     y,
-                    self.text_width(data.option_name(state.row), 20.)?,
+                    self.text_width(data.option_name(state.row), 20.)?.min(276.),
                     24.,
                 ],
                 255,
             );
         }
-        let scroll = scroll_offset(state.scroll, 26);
-        let first = state.first - usize::from(state.scroll > 0);
+        let rows = self
+            .scroll
+            .primary
+            .rows(state.first, state.scroll, VISIBLE_OPTIONS, 1, 26);
         let starts = self.vertex_counts();
-        for (index, row) in (first..CUSTOMIZE_OPTIONS)
-            .take(VISIBLE_OPTIONS + usize::from(state.scroll != 0))
-            .enumerate()
-        {
-            let y = 62. + index as f32 * 26. - scroll as f32;
-            self.text(data.option_name(row), [32., y], 20., GOLD)?;
+        for (index, row) in (rows.first..CUSTOMIZE_OPTIONS).take(rows.count).enumerate() {
+            let y = 62. + index as f32 * 26. - rows.offset;
+            self.fitted_text(data.option_name(row), [32., y], [20., 24.], 276., GOLD)?;
             let mut x = 320.;
             match row {
                 0..=3 => {
@@ -264,6 +283,7 @@ impl Drawing<'_> {
                 6 => self.button(6, [x, y])?,
                 7..=12
                 | VSYNC_OPTION
+                | EXPERIMENTAL_HIGH_FPS_OPTION
                 | FLEXIBLE_BATTLE_PARTY_OPTION
                 | COMBINED_BATTLES_OPTION
                 | LEARN_ELEMENTAL_ARTES_OPTION
@@ -276,6 +296,7 @@ impl Drawing<'_> {
                         11 => settings.battle_auto_zoom,
                         12 => settings.rumble,
                         VSYNC_OPTION => settings.vsync,
+                        EXPERIMENTAL_HIGH_FPS_OPTION => settings.experimental_high_fps,
                         FLEXIBLE_BATTLE_PARTY_OPTION => settings.flexible_battle_party,
                         COMBINED_BATTLES_OPTION => settings.combined_battles,
                         LEARN_ELEMENTAL_ARTES_OPTION => settings.learn_elemental_artes,
@@ -305,16 +326,19 @@ impl Drawing<'_> {
         self.offset = [0., bottom];
         let mut cursor = state.options_cursor();
         if matches!(state.row, 2..=4) {
+            // Choose visible cards at the sampled position so a departing card
+            // never shares a batch slot with the incoming card during a blend.
+            let center = self
+                .scroll
+                .color_center
+                .unwrap_or_else(|| color_center(state));
             for (index, color) in settings.colors.groups().into_iter().enumerate() {
-                let movement = i32::from(state.color_scroll.signum()) * 320
-                    - i32::from(state.color_scroll) * 16;
-                let mut x = 160 + (index as i32 - state.color_group as i32) * 320 + movement;
-                if x <= -1120 {
-                    x += 2240;
-                } else if x >= 1120 {
-                    x -= 2240;
+                let mut x = 160. + index as f32 * GROUP_WIDTH - center;
+                if x <= -COLOR_CYCLE / 2. {
+                    x += COLOR_CYCLE;
+                } else if x >= COLOR_CYCLE / 2. {
+                    x -= COLOR_CYCLE;
                 }
-                let x = x as f32;
                 if x + 312. < self.screen[0] || x > self.screen[2] {
                     continue;
                 }
@@ -400,10 +424,10 @@ impl Drawing<'_> {
                             }
                             ' ' => x += 12.,
                             _ => {
-                                if index >= shown + 4 {
-                                    break;
-                                }
-                                self.opacity = if speed == 0 || index < shown {
+                                // Keep the sliding text layer stable as the preview reveals glyphs.
+                                self.opacity = if speed != 0 && index >= shown + 4 {
+                                    0
+                                } else if speed == 0 || index < shown {
                                     state.preview_opacity
                                 } else {
                                     ((speed * 4
@@ -412,8 +436,10 @@ impl Drawing<'_> {
                                         * i32::from(state.preview_opacity)
                                         / (speed * 4)) as u8
                                 };
-                                self.text(&ch.to_string(), [x, y], 24., WHITE)?;
-                                x += self.text_width(&ch.to_string(), 24.)?;
+                                let mut buffer = [0; 4];
+                                let glyph = ch.encode_utf8(&mut buffer);
+                                self.text(glyph, [x, y], 24., WHITE)?;
+                                x += self.text_width(glyph, 24.)?;
                                 index += 1;
                             }
                         }
@@ -637,6 +663,21 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         },
         data,
     )?;
+    let opening_text = |menu: &Menu| -> Result<Batch> {
+        let mut draw = fixture.drawing(0);
+        draw.customize(menu)?;
+        Ok(draw.batches.remove(&(1, DrawRole::Text, FONT)).unwrap())
+    };
+    menu.customize.draft.message_speed = 1;
+    let mut heading = opening_text(&menu)?;
+    let start_y = heading.positions[0][1];
+    menu.step(Default::default());
+    let next = opening_text(&menu)?;
+    heading.interpolate(&next, 0.5);
+    assert!(
+        next.positions[0][1] < heading.positions[0][1] && heading.positions[0][1] < start_y,
+        "revealing a preview glyph held the sliding heading"
+    );
     menu.customize.transition = Default::default();
     for row in 0..CUSTOMIZE_OPTIONS {
         menu.customize.row = row;
@@ -744,12 +785,29 @@ fn named_options_render_every_editor_and_modded_confirmation() -> Result<()> {
         }
     }
     menu.customize.row = 4;
+    menu.customize.focus = Focus::Colors;
     for group in 0..7 {
-        for component in 0..5 {
-            menu.customize.focus = Focus::Colors;
-            menu.customize.color_group = group;
-            menu.customize.component = component;
-            fixture.drawing(0).customize(&menu)?;
+        // Cover every card and component, both wraps and a card entering the viewport.
+        let (phase, next_group, next_phase, dx) = match group {
+            0 => (0, 6, -1, 8.),
+            6 => (0, 0, 1, -8.),
+            _ => (9, group, 10, -8.),
+        };
+        (menu.customize.color_group, menu.customize.color_scroll) = (group, phase);
+        menu.customize.component = group % 5;
+        let [x, y] = fixture.drawing(0).customize(&menu)?;
+        let mut next = menu.clone();
+        (next.customize.color_group, next.customize.color_scroll) = (next_group, next_phase);
+        let mut draw = fixture.drawing(0);
+        draw.scroll =
+            ScrollMotion::between(Source::Title(Some(&menu)), Source::Title(Some(&next)), 0.5)
+                .unwrap();
+        assert_eq!(draw.customize(&menu)?, [x + dx, y]);
+        if group == 2 {
+            let mut future = fixture.drawing(0);
+            future.scroll = draw.scroll;
+            future.customize(&next)?;
+            assert!(draw.batches == future.batches);
         }
     }
     menu.customize.row = 5;
@@ -940,6 +998,7 @@ fn keymap_is_icon_only_bounded_and_keeps_its_window_and_single_cursor() -> Resul
         &fixture.dialogue,
         0,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;

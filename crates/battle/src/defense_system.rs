@@ -36,7 +36,7 @@ pub struct DefenseSystemDefinition {
     pub deployment_pose: Pose,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct State {
     deployment_age: Option<u16>,
     cleaned_up: bool,

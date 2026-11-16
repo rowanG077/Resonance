@@ -2180,11 +2180,12 @@ mastery, chef selection and fullness, and use the current recipe rules.
 
 ## Options and preferences
 
-`game/options.json` owns all 21 option names/descriptions, editor labels, themes,
+`game/options.json` owns all 23 option names/descriptions, editor labels, themes,
 reset defaults and arte-forgetting confirmations. Both field and title menus read
 this document through the active library, including enabled mods. Option keys are
 engine meanings, such as `message_speed`, `combined_battles`, `learn_both_arte_paths`,
-`display_mode`, `resolution`, `anti_aliasing` and `graphics_backend`; their menu order
+`display_mode`, `resolution`, `anti_aliasing`, `graphics_backend`, `vsync` and
+`experimental_high_fps`; their menu order
 is fixed by the engine.
 
 Defaults use names: `difficulty` is `normal`, `hard` or `mania`, and `window` is
@@ -2246,6 +2247,12 @@ and take effect after restarting the game. The menu shows the current
 backend and whether `WGPU_BACKEND` overrides the saved choice. Discovery preserves
 the saved preference even when it is unavailable on the current GPU. Existing libraries
 may omit this option and default; the loader supplies them without re-cooking.
+
+`defaults.experimental_high_fps` is a boolean, false by default. Customize shows
+it as **Enable experimental high FPS**. It smooths movement above 60 FPS, applies
+immediately, and saves when leaving Customize. `--speculative` forces it on for
+the current run; replays and deterministic captures disable it. Existing options
+documents and saved preferences may omit it; no re-cook is needed.
 
 `defaults.anti_aliasing` is `off`, `smaa_low`, `smaa_medium`, `smaa_high`,
 `smaa_ultra`, `msaa2`, `msaa4` (the engine default), `msaa8` or `smaa_s2x`.

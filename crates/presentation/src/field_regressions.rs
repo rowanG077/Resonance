@@ -75,6 +75,89 @@ fn enter(fixture: StoryFixture, map: u32, story: Option<i32>) -> Result<Scene> {
         Ok(())
     })
 }
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn speculative_ticks_match_real_field_steps_and_report_cpu_cost() -> Result<()> {
+    let mut field = enter(MARTEL_START, 308, Some(107_000))?;
+    field.advance_until(FieldSession::player_has_control)?;
+    let mut baseline = enter(MARTEL_START, 308, Some(107_000))?;
+    baseline.advance_until(FieldSession::player_has_control)?;
+    let mut measurements = crate::test_support::PredictionMeasurements::new()?;
+    let assert_poses = |actual: &FieldSession, expected: &FieldSession| {
+        assert_eq!(
+            actual.events.world.actors.len(),
+            expected.events.world.actors.len()
+        );
+        for (id, actor) in &actual.events.world.actors {
+            let other = &expected.events.world.actors[id];
+            assert_eq!(
+                (actor.position, actor.heading),
+                (other.position, other.heading)
+            );
+        }
+    };
+    let mut endpoints = 0;
+    for tick in 0..240 {
+        let input = FieldInput {
+            direction: if tick % 60 < 30 {
+                [0.25, 0.]
+            } else {
+                [-0.25, 0.]
+            },
+            // Exercise real ring scripts, particles, RNG and owned operations.
+            pressed_buttons: if tick == 120 {
+                [Button::Ring].into()
+            } else {
+                Default::default()
+            },
+            ..Default::default()
+        };
+        let before_tick = field.events.tick();
+        let before_audio = format!("{:?}", field.events.world.audio_commands);
+        let before_random = field.events.world.random_state;
+        let before_gameplay_random = field.events.world.gameplay_random;
+        let waits = field.events.pending_operations();
+        let mut next = None;
+        for _ in 0..4 {
+            next = measurements.measure(|storage| {
+                drop(next.take());
+                Ok(storage.predict(&field, input)?.state)
+            })?;
+        }
+        assert_eq!(field.events.tick(), before_tick);
+        assert_eq!(field.events.pending_operations(), waits);
+        assert_eq!(field.events.world.random_state, before_random);
+        assert_eq!(field.events.world.gameplay_random, before_gameplay_random);
+        assert_eq!(
+            format!("{:?}", field.events.world.audio_commands),
+            before_audio
+        );
+        field.step(input)?;
+        baseline.step(input)?;
+        assert_eq!(
+            field.events.world.random_state,
+            baseline.events.world.random_state
+        );
+        assert_eq!(
+            field.events.world.gameplay_random,
+            baseline.events.world.gameplay_random
+        );
+        assert_eq!(
+            field.events.world.event_flags,
+            baseline.events.world.event_flags
+        );
+        assert_poses(&field, &baseline);
+        if let Some(next) = next {
+            endpoints += 1;
+            assert_eq!(next.events.tick(), field.events.tick());
+            assert_poses(&next, &field);
+        }
+    }
+    assert!(endpoints >= 200, "only {endpoints} eligible predictions");
+    measurements.report("Field 308");
+    Ok(())
+}
 fn mission(field: &FieldSession, address: u16) -> i32 {
     field
         .events

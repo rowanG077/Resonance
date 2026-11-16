@@ -30,8 +30,6 @@ mod combat_numbers;
 mod command_strip;
 #[path = "battle_ui/cutin.rs"]
 mod cutin;
-#[path = "battle_ui/equipment.rs"]
-mod equipment;
 #[cfg(test)]
 #[path = "battle_ui/fixtures.rs"]
 mod fixtures;
@@ -50,10 +48,6 @@ mod results;
 #[path = "battle_ui/ribbons.rs"]
 mod ribbons;
 pub(crate) use ribbons::Input as RibbonInput;
-#[path = "battle_ui/strategy.rs"]
-mod strategy;
-#[path = "battle_ui/techniques.rs"]
-mod techniques;
 #[path = "battle_ui/text.rs"]
 mod text;
 #[path = "battle_ui/unison.rs"]
@@ -86,6 +80,7 @@ pub(crate) struct PartyHudInput<'a> {
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ActorMarkers {
     pub target: Option<[f32; 3]>,
+    pub presented_target: Option<[f32; 3]>,
     pub head: Option<[f32; 3]>,
     pub effect_tick: u16,
 }
@@ -143,6 +138,22 @@ struct PendingImage {
     required: bool,
 }
 
+pub(crate) struct TransitionPrediction<'a> {
+    pub cover: Option<&'a resonance_battle::TransitionFrame>,
+    pub letterbox: u16,
+    pub hourglass_remaining: u16,
+    pub alpha: f32,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct HudTime<'a> {
+    pub tick: u32,
+    pub next: Option<&'a crate::battle::prediction::Endpoint>,
+    pub visit: f32,
+    pub update: f32,
+    pub feedback: f32,
+}
+
 impl Artwork {
     pub(crate) fn displayed_vitals(&self, actor: usize) -> Option<[i32; 2]> {
         self.numbers
@@ -156,7 +167,7 @@ impl Artwork {
         actor: &resonance_battle::ActorFrame,
         result: Option<resonance_battle::BattleResult>,
     ) -> party::Portrait {
-        party::portrait(actor, result, self.numbers.presentation_tick)
+        party::portrait(actor, result, self.numbers.presentation_tick, None)
     }
 
     /// Build surfaces from the artwork and menu catalogue admitted by battle preparation.
@@ -506,11 +517,12 @@ impl Artwork {
     )]
     pub fn render(
         &mut self,
-        frame: &BattleFrame,
+        (committed, frame): (&BattleFrame, &BattleFrame),
         party: PartyHudInput<'_>,
         command: Option<&resonance_game::battle::command::Frame>,
         inspection: Option<(resonance_battle::ActorId, [f32; 3])>,
         marker_anchors: &[ActorMarkers],
+        time: HudTime,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -527,22 +539,66 @@ impl Artwork {
             self.hide_for_event(commands);
             return Ok(());
         }
-        self.render_party(frame, party, commands, meshes)?;
-        self.render_results(commands, meshes)?;
-        self.render_overlays(frame, commands, meshes)?;
+        self.render_party(frame, party, time, commands, meshes)?;
+        self.render_results(time.feedback, commands, meshes)?;
+        self.render_overlays((committed, frame), time, commands, meshes)?;
         if self.results.is_some() {
             for layer in [&mut self.ui.floating, &mut self.ui.recovery] {
                 layer.show(false, commands);
             }
         } else {
-            self.render_numbers(frame, commands, meshes)?;
+            self.render_numbers(frame, time.feedback, commands, meshes)?;
         }
-        self.render_notices(frame, party, commands, meshes)?;
-        self.render_combat(frame, command, marker_anchors, commands, meshes)?;
-        self.render_scan(frame, command, inspection, commands, meshes)?;
-        self.render_unison_attack(frame, party, commands, meshes)?;
-        self.cutin.render(commands, meshes)?;
+        self.render_notices(frame, party, time.feedback, commands, meshes)?;
+        self.render_combat(frame, command, marker_anchors, time, commands, meshes)?;
+        self.render_scan(frame, command, inspection, time, commands, meshes)?;
+        self.render_unison_attack(frame, party, time, commands, meshes)?;
+        self.cutin.render(time.update, commands, meshes)?;
         Ok(())
+    }
+
+    pub(crate) fn render_command_page(
+        &mut self,
+        candidate: &resonance_game::battle::results::Candidate,
+        core: &resonance_battle::Battle,
+        command: &resonance_game::battle::command::Frame,
+        character: usize,
+        time: HudTime,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        use resonance_game::battle::command::View;
+        let future = time
+            .next
+            .and_then(|n| n.menu.as_deref())
+            .filter(|n| n.actor == command.actor);
+        let [current, next] = [Some(command), future].map(|command| {
+            let command = command?;
+            Some(match &command.view {
+                View::Inventory(list) => menu::BattlePage::Items(list, &self.menu_data),
+                View::Strategy(state) => menu::BattlePage::Strategy(candidate.strategy_page(state)),
+                View::Tech(state) => menu::BattlePage::Tech(candidate.battle_tech_view(
+                    state,
+                    &command.connected,
+                    core,
+                )),
+                View::Unison(state) => menu::BattlePage::Unison(candidate.unison_page(state)),
+                View::Equipment(state) => {
+                    menu::BattlePage::Equipment(candidate.equipment_page(core, state, character))
+                }
+                _ => return None,
+            })
+        });
+        self.windows.render_battle_page(
+            current.context("missing shared battle page")?,
+            next.map(|p| (p, time.visit)),
+            &self.font,
+            &self.dialogue,
+            &self.settings,
+            time.tick,
+            commands,
+            meshes,
+        )
     }
 
     pub(crate) fn render_ribbons(
@@ -598,11 +654,30 @@ impl Artwork {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         frame: &BattleFrame,
+        next: Option<(&crate::battle::prediction::Endpoint, f32)>,
         resolution: crate::Resolution,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
+        let future = if let Some((endpoint, alpha)) = next
+            && let Some(event) = &endpoint.event
+            && event.events.tick() == world.tick.wrapping_add(1)
+        {
+            let continuous = frame
+                .camera
+                .zip(endpoint.frame.camera)
+                .is_some_and(|(a, b)| crate::battle::continuous_camera(a, b));
+            Some(DialogueEndpoint {
+                players: &event.dialogue,
+                camera: continuous
+                    .then(|| DialogueCamera::battle(&event.events.world, &endpoint.frame))
+                    .transpose()?,
+                alpha,
+            })
+        } else {
+            None
+        };
         DialogueDraw {
             resolution,
             attached_positions: &BTreeMap::new(),
@@ -618,6 +693,7 @@ impl Artwork {
             world,
             dialogue,
             DialogueCamera::battle(world, frame)?,
+            future,
             world.tick,
             // Battle dialogue uses a fixed attachment height plus scripted offsets.
             &BTreeMap::new(),
@@ -645,10 +721,11 @@ impl Artwork {
         &mut self,
         frame: Option<&resonance_battle::TransitionFrame>,
         letterbox: u16,
+        prediction: Option<TransitionPrediction<'_>>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        let flash = self.hourglass_flash_age.map(|age| {
+        let flash_at = |age| {
             let peak_end = HOURGLASS_FLASH_RISE + HOURGLASS_FLASH_PEAK;
             resonance_battle::TransitionFrame {
                 color: [255; 3],
@@ -661,14 +738,59 @@ impl Artwork {
                     255 - (age - peak_end + 1) * HOURGLASS_FLASH_STEP
                 },
             }
-        });
+        };
+        let flash = self.hourglass_flash_age.map(flash_at);
         // Event, summon and departure fades retain ownership of the screen.
         let frame = frame.or(flash.as_ref());
+        let mut cover = frame.map(|frame| {
+            Vec4::new(
+                frame.color[0] as f32,
+                frame.color[1] as f32,
+                frame.color[2] as f32,
+                frame.alpha as f32,
+            ) / 255.
+        });
+        let mut letterbox = f32::from(letterbox);
+        if let Some(next) = prediction {
+            let age = if next.hourglass_remaining > self.hourglass_remaining {
+                Some(0)
+            } else {
+                self.hourglass_flash_age
+                    .map(|age| age + 1)
+                    .filter(|&age| age < HOURGLASS_FLASH_DURATION)
+            };
+            let flash = age.map(flash_at);
+            let future = next.cover.or(flash.as_ref());
+            let same_color = frame.zip(future).is_none_or(|(a, b)| a.color == b.color);
+            if same_color {
+                let future = future.map(|frame| {
+                    Vec4::new(
+                        frame.color[0] as f32,
+                        frame.color[1] as f32,
+                        frame.color[2] as f32,
+                        frame.alpha as f32,
+                    ) / 255.
+                });
+                cover = match (cover, future) {
+                    (Some(a), Some(b)) => Some(a.lerp(b, next.alpha)),
+                    (Some(mut a), None) => {
+                        a.w *= 1. - next.alpha;
+                        Some(a)
+                    }
+                    (None, Some(mut b)) => {
+                        b.w *= next.alpha;
+                        Some(b)
+                    }
+                    _ => None,
+                };
+            }
+            letterbox += (f32::from(next.letterbox) - letterbox) * next.alpha;
+        }
         let layer = &mut self.ui.transition;
         let mut batch = Batch::default();
-        if letterbox != 0 {
+        if letterbox != 0. {
             let [left, top, right, bottom] = self.resolution.ui_rect();
-            let height = f32::from(letterbox).min((bottom - top) * 0.5);
+            let height = letterbox.min((bottom - top) * 0.5);
             for bounds in [
                 [left, top, right, top + height],
                 [left, bottom - height, right, bottom],
@@ -676,38 +798,36 @@ impl Artwork {
                 batch.quad(bounds, [0.5; 4], [0., 0., 0., 1.]);
             }
         }
-        if let Some(frame) = frame.filter(|frame| frame.alpha != 0) {
-            let [r, g, b] = frame.color.map(|channel| f32::from(channel) / 255.);
-            if let Some(wipe) = &frame.wipe {
-                let [left, top, right, bottom] = self.resolution.ui_rect();
-                let row_height = (bottom - top) / 480.;
-                for (row, offset) in wipe.offsets.iter().enumerate() {
-                    let width = f32::from(wipe.progress.saturating_sub(*offset));
-                    if width > 0. {
-                        let y = top + row as f32 * row_height;
-                        let start = batch.colors.len();
-                        batch.quad(
-                            [
-                                left,
-                                y,
-                                left + width / 640. * (right - left),
-                                y + row_height,
-                            ],
-                            [0.5; 4],
-                            [0., 0., 0., 1.],
-                        );
-                        // Rows fade from opaque at the left to clear at
-                        // their moving endpoint, including endpoints offscreen.
-                        batch.colors[start + 1][3] = 0.;
-                        batch.colors[start + 2][3] = 0.;
-                    }
+        if let Some(wipe) = frame
+            .filter(|frame| frame.alpha != 0)
+            .and_then(|frame| frame.wipe.as_ref())
+        {
+            let [left, top, right, bottom] = self.resolution.ui_rect();
+            let row_height = (bottom - top) / 480.;
+            for (row, offset) in wipe.offsets.iter().enumerate() {
+                let width = f32::from(wipe.progress.saturating_sub(*offset));
+                if width > 0. {
+                    let y = top + row as f32 * row_height;
+                    let start = batch.colors.len();
+                    batch.quad(
+                        [
+                            left,
+                            y,
+                            left + width / 640. * (right - left),
+                            y + row_height,
+                        ],
+                        [0.5; 4],
+                        [0., 0., 0., 1.],
+                    );
+                    // Rows fade from opaque at the left to clear at
+                    // their moving endpoint, including endpoints offscreen.
+                    batch.colors[start + 1][3] = 0.;
+                    batch.colors[start + 2][3] = 0.;
                 }
             }
-            batch.quad(
-                self.resolution.ui_rect(),
-                [0.5; 4],
-                [r, g, b, f32::from(frame.alpha) / 255.],
-            );
+        }
+        if let Some(color) = cover.filter(|color| color.w > 0.) {
+            batch.quad(self.resolution.ui_rect(), [0.5; 4], color.to_array());
         }
         layer.upload(batch, commands, meshes)?;
         Ok(())
@@ -846,28 +966,35 @@ impl Artwork {
     }
     fn render_overlays(
         &mut self,
-        frame: &BattleFrame,
+        frames: (&BattleFrame, &BattleFrame),
+        time: HudTime,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut panel = Batch::default();
         let mut text = Batch::default();
-        for (_, label) in &self.labels {
-            let camera = frame.camera.as_ref().context("actor label has no camera")?;
-            let projected = resonance_battle::project_screen_point(*camera, label.position);
+        let next = time.next.map(|n| (&n.frame, time.visit));
+        for (&owner, label) in &self.labels {
+            let projected = overlays::project_anchor(frames, next, |_| Some(label.position))?;
             label.draw(
-                &self.art.font,
-                self.art.stat_colors,
-                self.art.stat_backdrops,
+                &self.art,
+                if time
+                    .next
+                    .is_some_and(|n| label.runs_during_hold(owner, n.frame.clock))
+                {
+                    time.visit
+                } else {
+                    time.feedback
+                },
                 projected,
                 &mut panel,
                 &mut text,
             )?;
         }
         for (&actor, warning) in &self.tp_warnings {
-            let camera = frame.camera.context("TP warning has no camera")?;
-            let position = frame.actors[actor.index()].condition_label_origin();
-            let projected = resonance_battle::project_screen_point(camera, position);
+            let projected = overlays::project_anchor(frames, next, |frame| {
+                Some(frame.actors.get(actor.index())?.condition_label_origin())
+            })?;
             warning.draw(&self.art.font, projected, &mut text)?;
         }
         for (layer, batch) in self.ui.labels.iter_mut().zip([panel, text]) {

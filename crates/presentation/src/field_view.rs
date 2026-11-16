@@ -1,10 +1,13 @@
 //! Field scene instances: shared cooked assets, independent actor state.
 #[path = "field_backdrop.rs"]
 mod backdrop;
+#[cfg(test)]
+mod interpolation_tests;
 #[path = "field_lighting.rs"]
 mod lighting;
 #[path = "field_panorama.rs"]
 mod panorama;
+pub(crate) mod prediction;
 #[path = "field_shadow.rs"]
 mod shadows;
 pub(crate) use shadows::Shared as SharedShadows;
@@ -32,6 +35,7 @@ use bevy::{
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
 };
+pub(super) use prediction::Prediction;
 use resonance_content::{
     HEIGHT, WIDTH,
     field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
@@ -144,6 +148,15 @@ impl Plugin for FieldPlugin {
             .init_resource::<Controls>()
             .add_systems(
                 Update,
+                (prediction::reset, prediction::title)
+                    .chain()
+                    .after(super::new_game::transition)
+                    .before(FieldPreparation)
+                    .before(super::scene::update_materials)
+                    .before(super::scene::animate_field),
+            )
+            .add_systems(
+                Update,
                 super::field_ui::subtitles
                     .after(super::movie::update)
                     .after(load_live)
@@ -212,6 +225,7 @@ impl Plugin for FieldRendering {
         super::model_preview::install(app);
         water::install(app);
         app.init_resource::<super::display::Display>()
+            .init_resource::<Prediction>()
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
             .add_systems(
@@ -245,13 +259,18 @@ impl Plugin for FieldRendering {
                     super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
-                    super::field_pose::attachments,
-                    super::field_weapons::render,
-                    super::field_weapons::choreograph,
-                    super::field_weapons::dynamics,
+                    (
+                        super::field_animation::prepare_prediction,
+                        super::field_weapons::render,
+                        super::field_weapons::physics_endpoints(),
+                        super::field_animation::present::<false>,
+                        super::field_pose::attachments,
+                        super::field_weapons::present(),
+                    )
+                        .chain(),
                     super::field_weapons::strings,
                     super::field_weapons::publish,
-                    super::field_pose::outlines,
+                    super::field_pose::finish_models,
                     shadows::pose,
                     super::field_effects::render,
                     fog,
@@ -302,6 +321,7 @@ fn sample_poses() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sch
 
 fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
+        prediction::update,
         super::field_weapons::prepare,
         prepare,
         audit::begin,
@@ -324,8 +344,13 @@ pub(super) struct Controls {
     input: FieldInput,
 }
 impl Controls {
+    pub(super) fn current(&self) -> FieldInput {
+        self.input
+    }
+
     pub(super) fn clear_actions(&mut self) {
         self.input.pressed_buttons = Buttons::default();
+        self.input.scroll_pressed = [false; 2];
     }
 
     pub(super) fn consume(&mut self) -> FieldInput {
@@ -396,6 +421,7 @@ pub(super) struct ActorPart {
     pub(super) part: usize,
     pub(super) pass: u8,
     pub(super) materials: Vec<Handle<TitleSurface>>,
+    pub(super) winding: super::field_pose::Winding,
     pub(super) prepared: bool,
     pub(super) disabled: bool,
     pub(super) geometry: Vec<(usize, Entity)>,
@@ -417,6 +443,7 @@ impl ActorPart {
             part,
             pass,
             materials,
+            winding: Default::default(),
             prepared: false,
             disabled: false,
             geometry: Vec::new(),
@@ -844,13 +871,22 @@ pub(super) fn gather_controls(
     .and_then(|(_, menu)| menu.preferences())
     .map(|settings| settings.keymap.clone())
     .unwrap_or_else(|| crate::input::settings(session.as_deref(), preferences.as_deref()).keymap);
+    // Idle menus are reads, not simulation changes. Only a pending capture
+    // receives mutable access and invalidates its owner's prediction.
     let captured = crate::input::active_menu(
-        session
-            .as_deref_mut()
-            .and_then(|session| session.menu_mut()),
-        title.as_deref_mut().map(|title| &mut title.0),
+        session.as_mut().and_then(|session| {
+            session
+                .reborrow()
+                .filter_map_unchanged(|session| session.menu_mut())
+        }),
+        title
+            .as_mut()
+            .map(|title| title.reborrow().map_unchanged(|title| &mut title.0)),
     )
-    .is_some_and(|(_, menu)| menu.capture_physical(&physical.capture_inputs(&capture_map)));
+    .is_some_and(|(_, mut menu)| {
+        menu.needs_physical_capture()
+            && menu.capture_physical(&physical.capture_inputs(&capture_map))
+    });
     if captured {
         *controls = Controls::default();
         return;
@@ -865,13 +901,19 @@ pub(super) fn gather_controls(
         .and_then(|session| session.events().world.party.as_ref());
     let map = crate::input::active_keymap(menu, party, preferences.as_deref());
     let preview = physical.camera(&map);
+    let previous_scroll = controls.input.scroll_direction;
     controls.input.scroll_direction = i8::from(preview.y > 0.5) - i8::from(preview.y < -0.5);
+    for (index, sign) in [1, -1].into_iter().enumerate() {
+        controls.input.scroll_pressed[index] |=
+            controls.input.scroll_direction == sign && previous_scroll != sign;
+    }
     controls.input.preview_direction = preview.to_array();
     let digital = Vec2::new(
         f32::from(physical.down(&map, A::OrderRight))
             - f32::from(physical.down(&map, A::OrderLeft)),
         f32::from(physical.down(&map, A::OrderUp)) - f32::from(physical.down(&map, A::OrderCancel)),
     );
+    let previous_direction = controls.input.direction;
     controls.input.direction = (physical.movement(&map) + digital)
         .clamp_length_max(1.)
         .to_array();
@@ -905,6 +947,21 @@ pub(super) fn gather_controls(
             physical.edge(&map, action) || digital.is_some_and(|a| physical.edge(&map, a)),
         );
     }
+    // Analog navigation must retain a short deflection just like a D-pad tap.
+    for (axis, sign, button) in [
+        (0, -1., Button::Left),
+        (0, 1., Button::Right),
+        (1, 1., Button::Up),
+        (1, -1., Button::Down),
+    ] {
+        tapped = tapped.with(
+            button,
+            tapped.contains(button)
+                || (controls.input.direction[axis] * sign > 0.5
+                    && previous_direction[axis] * sign <= 0.5),
+        );
+    }
+    // Retain taps until the simulation consumes them, even across a press and release.
     controls.input.pressed_buttons = controls.input.pressed_buttons.union(tapped);
     controls.input.held_buttons = held;
     controls.input.run = !physical.down(&map, A::Walk);
@@ -987,6 +1044,62 @@ mod control_tests {
         world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
         world.run_system_once(gather_controls).unwrap();
         assert!(world.resource::<Controls>().input.run);
+    }
+
+    #[test]
+    fn pause_menu_consumes_a_tap_after_many_render_frames_without_a_tick() {
+        let mut world = World::new();
+        world.init_resource::<Controls>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        let mut menu =
+            resonance_game::menu::Menu::new(resonance_game::menu::Page::Main, None, false);
+        menu.selected = 2;
+        for _ in 0..2 {
+            world
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::ArrowLeft);
+            world.run_system_once(gather_controls).unwrap();
+            let mut predicted = menu.clone();
+            predicted.step(world.resource::<Controls>().current());
+            world
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .release(KeyCode::ArrowLeft);
+            for _ in 0..60 {
+                world.resource_mut::<ButtonInput<KeyCode>>().clear();
+                world.run_system_once(gather_controls).unwrap();
+            }
+            let input = world.resource_mut::<Controls>().consume();
+            assert_eq!(input.direction, [0.; 2]);
+            menu.step(input);
+            assert_eq!(menu.selected, predicted.selected);
+            menu.step(world.resource_mut::<Controls>().consume());
+            assert_eq!(menu.selected, predicted.selected);
+        }
+        assert_eq!(menu.selected, 0);
+    }
+
+    #[test]
+    fn pause_menu_retains_a_short_analog_deflection() {
+        let mut world = World::new();
+        world.init_resource::<Controls>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        let pad = world.spawn(Gamepad::default()).id();
+        let mut menu =
+            resonance_game::menu::Menu::new(resonance_game::menu::Page::Main, None, false);
+        menu.selected = 2;
+        for value in [-1., 0., 0., 0.] {
+            world
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .analog_mut()
+                .set(GamepadAxis::LeftStickX, value);
+            world.run_system_once(gather_controls).unwrap();
+        }
+        menu.step(world.resource_mut::<Controls>().consume());
+        assert_eq!(menu.selected, 1);
+        world.run_system_once(gather_controls).unwrap();
+        menu.step(world.resource_mut::<Controls>().consume());
+        assert_eq!(menu.selected, 1);
     }
 
     #[test]
@@ -1136,19 +1249,39 @@ pub(super) fn advance_live(
     }
 }
 
-pub(super) fn fog(state: State, mut views: Query<&mut DistanceFog, With<super::FieldCamera>>) {
+pub(super) fn fog(
+    state: State,
+    prediction: Option<Res<Prediction>>,
+    mut views: Query<&mut DistanceFog, With<super::FieldCamera>>,
+) {
     // Transport the native range through Bevy's per-view fog uniform. The
     // surface shader applies GX's curve; Bevy's linear falloff is not used.
     // Updating materials here would reprepare every retained warm variant.
-    let (color, start, end) = state
-        .get()
-        .events
-        .world
-        .fog()
-        .map_or((Color::NONE, 0., 0.), |fog| {
-            let [r, g, b] = fog.color.map(|c| f32::from(c) / 255.);
-            (Color::linear_rgb(r, g, b), fog.start, fog.end)
-        });
+    let (mut color, mut start, mut end) =
+        state
+            .get()
+            .events
+            .world
+            .fog()
+            .map_or((Color::NONE, 0., 0.), |fog| {
+                let [r, g, b] = fog.color.map(|c| f32::from(c) / 255.);
+                (Color::linear_rgb(r, g, b), fog.start, fog.end)
+            });
+    if let Some((next, a)) = prediction
+        .as_ref()
+        .and_then(|p| p.field()?.events.world.fog().map(|f| (f, p.alpha)))
+        && state.get().events.world.fog().is_some()
+    {
+        let current = color.to_linear();
+        let target = next.color.map(|v| f32::from(v) / 255.);
+        color = Color::linear_rgb(
+            current.red + (target[0] - current.red) * a,
+            current.green + (target[1] - current.green) * a,
+            current.blue + (target[2] - current.blue) * a,
+        );
+        start += (next.start - start) * a;
+        end += (next.end - end) * a;
+    }
     for mut view in &mut views {
         view.color = color;
         view.falloff = FogFalloff::Linear { start, end };
@@ -1167,6 +1300,7 @@ fn camera(
     mut clear: ResMut<ClearColor>,
     mut applied: ResMut<Applied>,
     credits: Option<Res<super::credits::Playback>>,
+    prediction: Res<Prediction>,
 ) {
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
@@ -1176,9 +1310,9 @@ fn camera(
         return;
     };
     for (mut transform, mut projection) in &mut cameras {
-        *transform = camera_transform(camera);
+        *transform = prediction.camera_transform(camera);
         *projection = Projection::custom(TitleProjection(PerspectiveProjection {
-            fov: camera.fov_degrees().to_radians(),
+            fov: prediction.camera_fov(camera).to_radians(),
             aspect_ratio: display.as_ref().map_or(4. / 3., |d| d.0.aspect()),
             near: super::camera::FIELD_NEAR,
             far: super::camera::FIELD_FAR,
@@ -1189,7 +1323,7 @@ fn camera(
     // Field UI composites the fade after scene saturation and before dialogue.
     TitleOutput::update(&mut outputs, |b| {
         if let Some(credits) = &credits {
-            b.x = credits.brightness();
+            b.x = credits.brightness(prediction.alpha);
             b.y = 0.;
             return;
         }
@@ -1202,9 +1336,12 @@ fn camera(
 #[allow(clippy::too_many_arguments)] // Dialogue state, glyph meshes, and projected actor attachments.
 fn ui(
     mut commands: Commands,
-    mut live: Option<ResMut<super::new_game::Session>>,
-    mut checkpoint: Option<ResMut<Session>>,
+    (mut live, mut checkpoint): (
+        Option<ResMut<super::new_game::Session>>,
+        Option<ResMut<Session>>,
+    ),
     server: Res<AssetServer>,
+    mut prediction: Option<ResMut<Prediction>>,
     mut art: ResMut<super::field_ui::Artwork>,
     display: Option<Res<super::display::Display>>,
     mut images: ResMut<Assets<Image>>,
@@ -1230,9 +1367,9 @@ fn ui(
         return;
     }
     let field = checkpoint
-        .as_mut()
-        .map(|session| &mut session.0)
-        .or_else(|| live.as_mut().map(|session| session.field_mut()))
+        .as_ref()
+        .map(|session| &session.0)
+        .or_else(|| live.as_ref().map(|session| session.field()))
         .expect("field UI session");
     if !art.ready(&images) {
         if field
@@ -1293,7 +1430,12 @@ fn ui(
                 .map(|position| (part.actor, position))
         })
         .collect();
-    match art.render_overlays(&field.events.world, &mut commands, &mut meshes) {
+    match art.render_overlays(
+        &field.events.world,
+        prediction.as_deref_mut(),
+        &mut commands,
+        &mut meshes,
+    ) {
         Ok(handled) => {
             for id in handled {
                 applied.ack(Request::Overlay(id));
@@ -1311,6 +1453,7 @@ fn ui(
         clock
             .as_ref()
             .map_or(field.events.tick(), |clock| clock.0.tick()),
+        prediction.as_deref_mut(),
         &mut commands,
         &mut meshes,
         &images,
@@ -1323,13 +1466,18 @@ fn ui(
         }
         Ok(false) => applied.loading(Request::Menu),
         Err(error) => {
-            if !failures.menu_page(field, error) {
-                return;
-            }
+            let field = checkpoint
+                .as_mut()
+                .map(|s| &mut s.0)
+                .or_else(|| live.as_mut().map(|s| s.field_mut()))
+                .unwrap();
+            failures.menu_page(field, error);
+            return;
         }
     }
     match art.render_skit(
         field,
+        prediction.as_deref(),
         &mut commands,
         &mut meshes,
         &mut images,
@@ -1346,7 +1494,14 @@ fn ui(
             return;
         }
     }
-    match art.render(field, &heads, &mut commands, &mut meshes, &mut materials) {
+    match art.render(
+        field,
+        prediction.as_deref_mut(),
+        &heads,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+    ) {
         Err(error) => {
             failures.skip("field dialogue rendering", error);
         }
@@ -1523,10 +1678,6 @@ pub(super) fn image_ready(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Field preparation resolves meshes, materials and animation assets together."
-)]
 fn prepare(
     mut art: ResMut<Art>,
     mut assets: super::model_asset::ModelAssets,
@@ -1741,9 +1892,47 @@ fn retire_instances(mut commands: Commands, mut art: ResMut<Art>, session: State
         }
     }
 }
+/// Authored root placement shared by committed and speculative presentation.
+/// An echo retains its own snapshot even when its old slot expires.
+pub(super) fn actor_transform(
+    actor: &resonance_events::Actor,
+    id: i32,
+    pass: u8,
+    world: &resonance_events::GameWorld,
+    echo: Option<&resonance_events::WingEcho>,
+) -> Transform {
+    let [x, y, z] = echo.map_or_else(
+        || {
+            [
+                actor.tilt_degrees()[0],
+                actor.tilt_degrees()[1],
+                actor.model_heading(),
+            ]
+        },
+        |echo| echo.angles,
+    );
+    let mut scale =
+        Vec3::from_array(echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(world.tick)))
+            * actor
+                .wings
+                .as_ref()
+                .map_or(1., |w| w.layer(pass, world.effect_tick).scale);
+    scale *= actor.field_model_player_scale(world, id);
+    Transform {
+        translation: Vec3::from_array(
+            echo.map_or_else(|| actor.visual_position(), |echo| echo.position),
+        ),
+        rotation: Quat::from_rotation_z(z.to_radians())
+            * Quat::from_rotation_y(y.to_radians())
+            * Quat::from_rotation_x(x.to_radians()),
+        scale,
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Independent scene instances, materials, and animation players.
 fn pose(
     mut commands: Commands,
+    prediction: Option<Res<Prediction>>,
     session: State,
     art: Res<Art>,
     children: Query<&Children>,
@@ -1768,22 +1957,27 @@ fn pose(
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
+    let smoothing = prediction.as_deref().filter(|p| p.alpha > 0.);
     let direction = world.field_camera.as_ref().map_or(Vec3::ZERO, |camera| {
-        Vec3::from_array(camera.target) - Vec3::from_array(camera.position)
+        let direction = |c: &resonance_events::camera::CameraRig| {
+            Vec3::from_array(c.target) - Vec3::from_array(c.position)
+        };
+        let current = direction(camera);
+        if let Some(p) = smoothing
+            && let Some(next) = p.camera(camera)
+            && (direction(next) != current || next.orientation != camera.orientation)
+        {
+            *p.camera_transform(camera).forward()
+        } else {
+            current
+        }
     });
-    actor_depths.clear();
-    actor_depths.extend(world.actor_order().iter().filter_map(|&id| {
-        // Attached models have local coordinates; sort them with their owner.
-        let actor = std::iter::successors(world.field_model_actor(id), |actor| {
-            world.field_model_actor(actor.attachment.as_ref()?.actor)
-        })
-        .take(world.actors.len())
-        .last()?;
-        Some((id, Vec3::from_array(actor.visual_position()).dot(direction)))
-    }));
-    // Stable ties preserve submission order. Recompute from the live camera
-    // and positions so moving actors and camera cuts update the blend order.
-    actor_depths.sort_by(|a, b| b.1.total_cmp(&a.1));
+    super::draw_order::field_actor_depths(
+        &mut actor_depths,
+        world,
+        direction,
+        smoothing.and_then(|p| Some((&p.field()?.events.world, p.alpha))),
+    );
     for (root, mut instance, mut transform, mut visibility, _model) in &mut roots {
         if instance.disabled {
             *visibility = Visibility::Hidden;
@@ -1835,12 +2029,34 @@ fn pose(
         let pose = actor.field_model_pose();
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let sealed = save_point.is_some_and(|p| !p.is_open(&world.event_flags));
-        let wing_layer = actor
-            .wings
-            .as_ref()
-            .map(|w| w.layer(instance.pass, world.effect_tick));
+        let future = prediction.as_ref().and_then(|p| {
+            let s = p.field()?;
+            let a = s.events.world.field_model_actor(instance.actor)?;
+            prediction::continuous_actor(actor, a).then_some((s, a, p.alpha))
+        });
+        let wing_layer = actor.wings.as_ref().map(|w| {
+            let mut layer = w.layer(instance.pass, world.effect_tick);
+            if let Some((s, _, alpha)) = future {
+                // Keep the committed wing style, but follow the predicted effect
+                // clock so scrolling stays smooth through its 128-tick wrap.
+                let next = w.layer(instance.pass, s.events.world.effect_tick);
+                layer.uv_offset = prediction::uv_offsets(
+                    Vec4::splat(layer.uv_offset),
+                    Vec4::splat(next.uv_offset),
+                    alpha,
+                )
+                .x;
+            }
+            layer
+        });
         let wing_echo = wing_layer.as_ref().and_then(|layer| layer.echo);
-        let echo_color = wing_echo.map(|echo| echo.rgba(tick));
+        let echo_color = wing_echo.map(|echo| {
+            let from = echo.rgba(tick).map(f32::from);
+            future.map_or(from, |(s, _, alpha)| {
+                let to = echo.rgba(s.events.tick()).map(f32::from);
+                std::array::from_fn(|i| from[i] + (to[i] - from[i]) * alpha)
+            })
+        });
         let reaction_tint = world
             .pose_tint(instance.actor)
             .or_else(|| actor.enemy.as_ref()?.stun_effect()?.tint(tick))
@@ -1852,15 +2068,19 @@ fn pose(
                     1.,
                 )
             });
-        let tint = reaction_tint
+        let mut tint = reaction_tint
             * Vec4::new(
                 1.,
                 1.,
                 1.,
-                f32::from(wing_layer.as_ref().map_or(
-                    if actor.ring_station { 64 } else { pose.opacity },
-                    |layer| echo_color.map_or(layer.alpha, |rgba| rgba[3]),
-                )) / 255.,
+                wing_layer.as_ref().map_or(
+                    if actor.ring_station {
+                        64.
+                    } else {
+                        f32::from(pose.opacity)
+                    },
+                    |layer| echo_color.map_or(f32::from(layer.alpha), |rgba| rgba[3]),
+                ) / 255.,
             )
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                 if sealed {
@@ -1873,44 +2093,78 @@ fn pose(
             } else {
                 Vec4::ONE
             };
-        let light = session.character_light(instance.actor);
-        let scenery_lighting = lighting::resolve(&art.environment, world, instance.actor);
+        if actor.wings.is_none()
+            && !actor.ring_station
+            && actor.resource != resonance_content::field::SAVE_POINT_RESOURCE
+            && let Some((_, n, a)) = future
+        {
+            tint.w += (f32::from(n.field_model_pose().opacity) / 255. - tint.w) * a;
+        }
+        let mut scenery_lighting = lighting::resolve(&art.environment, world, instance.actor);
+        if let Some((session, _, alpha)) = future {
+            scenery_lighting = scenery_lighting.lerp(
+                lighting::resolve(&art.environment, &session.events.world, instance.actor),
+                alpha,
+            );
+        }
         let ambient_modulation = echo_color.is_some() || actor.ambient_modulation_enabled();
-        let ambient_color = if let Some(rgba) = echo_color {
-            Vec4::new(
-                f32::from(rgba[0]),
-                f32::from(rgba[1]),
-                f32::from(rgba[2]),
-                1.,
-            )
+        let mut ambient_color = if let Some(rgba) = echo_color {
+            Vec4::new(rgba[0], rgba[1], rgba[2], 1.)
         } else if instance.part == 0 && ambient_modulation {
             Vec3::from_array(pose.tint.map(f32::from)).extend(1.)
         } else {
             Vec4::new(64., 64., 64., 0.)
         };
-        let light_position = match light.position {
-            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(pose.position),
-            LightPosition::World(p) => Vec3::from_array(p),
-            LightPosition::Actor { id, height } => {
-                world.field_model_actor(id).map_or(Vec3::ZERO, |a| {
-                    Vec3::from_array(a.field_model_pose().position) + Vec3::Z * height
-                })
+        if ambient_modulation
+            && echo_color.is_none()
+            && instance.part == 0
+            && let Some((_, n, a)) = future
+        {
+            ambient_color = ambient_color.lerp(
+                Vec3::from_array(n.field_model_pose().tint.map(f32::from)).extend(1.),
+                a,
+            );
+        }
+        let light = session.character_light(instance.actor);
+        let (mut light_position, mut shades) = light_uniforms(&light, actor, world);
+        if let Some((s, actor, alpha)) = future {
+            let next_light = s.character_light(instance.actor);
+            let next_world = &s.events.world;
+            let (position, colors) = light_uniforms(&next_light, actor, next_world);
+            let same_anchor = match (&light.position, &next_light.position) {
+                (LightPosition::Relative(_), LightPosition::Relative(_))
+                | (LightPosition::World(_), LightPosition::World(_)) => true,
+                (LightPosition::Actor { id, .. }, LightPosition::Actor { id: next_id, .. }) => {
+                    id == next_id
+                        && world
+                            .field_model_actor(*id)
+                            .zip(next_world.field_model_actor(*id))
+                            .is_some_and(|(a, b)| prediction::continuous_actor(a, b))
+                }
+                _ => false,
+            };
+            if same_anchor {
+                light_position = light_position.lerp(position, alpha);
+            }
+            for (shade, color) in shades.iter_mut().zip(colors) {
+                *shade = shade.lerp(color, alpha);
             }
         }
-        .extend(f32::from(light.strength));
-        // Quantize light colors to five bits per channel before shading.
-        let shades = [light.shade, light.bright].map(|c| {
-            Vec3::from_array(c.map(|v| {
-                let v = v >> 3;
-                f32::from((v << 3) | (v >> 2)) / 255.
-            }))
-            .extend(1.)
-        });
-        transform.scale = Vec3::from_array(
-            wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
-        ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
-        transform.scale *= actor.field_model_player_scale(world, instance.actor);
-        let mirrored = transform.scale.element_product() < 0.;
+        let mut glow_scale = save_point.filter(|_| !sealed).map_or(1., |p| p.glow_scale);
+        if !sealed
+            && save_point.is_some()
+            && let Some((s, _, alpha)) = future
+            && let Some(next) = s
+                .events
+                .world
+                .save_points
+                .iter()
+                .find(|p| p.actor == instance.actor)
+            && next.is_open(&s.events.world.event_flags)
+        {
+            glow_scale += (next.glow_scale - glow_scale) * alpha;
+        }
+        *transform = actor_transform(actor, instance.actor, instance.pass, world, wing_echo);
         for (index, material) in part.spec.materials.iter().enumerate() {
             let tint = tint
                 * part
@@ -1968,10 +2222,16 @@ fn pose(
                     continue;
                 }
                 let texture = animation.texture.resolve(&world.texture_bindings);
-                let uv = world
-                    .texture_animation_states
-                    .get(index)
-                    .map_or([0.; 2], |state| state.offset);
+                let Some(current) = world.texture_animation_states.get(index) else {
+                    continue;
+                };
+                let next = future.and_then(|(session, _, alpha)| {
+                    Some((
+                        session.events.world.texture_animation_states.get(index)?,
+                        alpha,
+                    ))
+                });
+                let uv = current.render_offset(&animation.motion, next);
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
                     .enumerate()
@@ -1997,7 +2257,7 @@ fn pose(
             }
             let scales = [&material.color, &material.multiply].map(|binding| {
                 if binding.as_ref().is_some_and(|b| b.texture == 1) {
-                    save_point.filter(|_| !sealed).map_or(1., |p| p.glow_scale)
+                    glow_scale
                 } else {
                     1.
                 }
@@ -2010,19 +2270,6 @@ fn pose(
                 pose.toon_lighting.map(i32::from),
             );
             let depth_write = material.depth_write && pose.depth_write;
-            let cull = if actor.ring_station
-                || actor.resource == resonance_content::field::SAVE_POINT_RESOURCE
-            {
-                resonance_content::CullFace::None
-            } else {
-                // Reflection reverses triangle winding, including outline geometry.
-                use resonance_content::CullFace;
-                match (material.cull, mirrored) {
-                    (CullFace::Back, true) => CullFace::Front,
-                    (CullFace::Front, true) => CullFace::Back,
-                    (cull, _) => cull,
-                }
-            };
             let blend = pose.blend.or_else(|| {
                 if actor.ring_station || (save_point.is_some() && !sealed) {
                     Some(Blend::Additive)
@@ -2042,7 +2289,6 @@ fn pose(
                     || s.shade_colors != shades
                     || s.scenery_lighting != scenery_lighting
                     || s.toon_ramp != toon_ramp
-                    || s.cull != cull
                     || s.vertex_alpha != actor.ring_station
                     || s.clamp_color != actor.ring_station
             }) {
@@ -2058,27 +2304,10 @@ fn pose(
                 surface.shade_colors = shades;
                 surface.scenery_lighting = scenery_lighting;
                 surface.toon_ramp = toon_ramp;
-                surface.cull = cull;
                 surface.vertex_alpha = actor.ring_station;
                 surface.clamp_color = actor.ring_station;
             }
         }
-        transform.translation = Vec3::from_array(
-            wing_echo.map_or_else(|| actor.visual_position(), |echo| echo.position),
-        );
-        let [x, y, z] = wing_echo.map_or_else(
-            || {
-                [
-                    actor.tilt_degrees()[0],
-                    actor.tilt_degrees()[1],
-                    actor.model_heading(),
-                ]
-            },
-            |echo| echo.angles,
-        );
-        transform.rotation = Quat::from_rotation_z(z.to_radians())
-            * Quat::from_rotation_y(y.to_radians())
-            * Quat::from_rotation_x(x.to_radians());
         // Fades can stop at one byte of opacity; omit the whole model so it
         // cannot leave invisible depth coverage behind.
         *visibility = if tint.w > 1. / 255.
@@ -2869,4 +3098,32 @@ struct Manifest(FieldAssets);
 #[derive(Resource)]
 struct Root {
     files: std::sync::Arc<resonance_content::prepared::Files>,
+}
+
+fn light_uniforms(
+    light: &resonance_events::effect::CharacterLight,
+    actor: &resonance_events::Actor,
+    world: &resonance_events::GameWorld,
+) -> (Vec4, [Vec4; 2]) {
+    let position = match light.position {
+        LightPosition::Relative(p) => {
+            Vec3::from_array(p) + Vec3::from_array(actor.field_model_pose().position)
+        }
+        LightPosition::World(p) => Vec3::from_array(p),
+        LightPosition::Actor { id, height } => {
+            world.field_model_actor(id).map_or(Vec3::ZERO, |a| {
+                Vec3::from_array(a.field_model_pose().position) + Vec3::Z * height
+            })
+        }
+    }
+    .extend(f32::from(light.strength));
+    // Quantize each endpoint to native five-bit colors before interpolating.
+    let shades = [light.shade, light.bright].map(|c| {
+        Vec3::from_array(c.map(|v| {
+            let v = v >> 3;
+            f32::from((v << 3) | (v >> 2)) / 255.
+        }))
+        .extend(1.)
+    });
+    (position, shades)
 }

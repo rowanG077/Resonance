@@ -60,17 +60,14 @@ impl Drawing<'_> {
             self.sprite_rect(rect, [x, y, x + 32., y + 32.], [tint, tint, tint, 1.]);
         }
         let starts = self.vertex_counts();
-        let first = book.first - usize::from(book.scroll > 0) * COLUMNS;
-        let scroll_offset = scroll_offset(book.scroll, 28);
-        for (row_in_view, &id) in items
-            .iter()
-            .skip(first)
-            .take(VISIBLE + usize::from(book.scroll != 0) * COLUMNS)
-            .enumerate()
-        {
+        let rows = self
+            .scroll
+            .primary
+            .rows(book.first, book.scroll, VISIBLE, COLUMNS, 28);
+        for (row_in_view, &id) in items.iter().skip(rows.first).take(rows.count).enumerate() {
             let column = (row_in_view % COLUMNS) as f32;
             let x = 28. + column * 197.;
-            let y = 96. + (row_in_view / COLUMNS) as f32 * 28. - scroll_offset as f32;
+            let y = 96. + (row_in_view / COLUMNS) as f32 * 28. - rows.offset;
             let item = &data.items[usize::from(id)];
             let item_text = data.item_text(id)?;
             self.sprite_rect(

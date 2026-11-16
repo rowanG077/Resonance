@@ -156,14 +156,12 @@ impl Drawing<'_> {
                 anchor = [350. + right_offset, y + 4.];
             }
             let starts = self.vertex_counts();
-            let scroll = scroll_offset(state.scroll, 23);
-            for (row, &id) in items
-                .iter()
-                .skip(state.first.saturating_sub(usize::from(state.scroll > 0)))
-                .take(VISIBLE_EQUIPMENT + usize::from(state.scroll != 0))
-                .enumerate()
-            {
-                let y = 78. + row as f32 * 23. - scroll as f32;
+            let rows =
+                self.scroll
+                    .primary
+                    .rows(state.first, state.scroll, VISIBLE_EQUIPMENT, 1, 23);
+            for (row, &id) in items.iter().skip(rows.first).take(rows.count).enumerate() {
+                let y = 78. + row as f32 * 23. - rows.offset;
                 self.equipment_name_data(data, id, [350., y])?;
                 let count = page.party.items[&id];
                 self.text_size(&format!(":{count:2}"), [558., y], [16., 20.], 5)?;
@@ -247,36 +245,21 @@ impl Drawing<'_> {
     }
 }
 
-impl MenuArtwork {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render_battle_equipment(
-        &mut self,
-        page: EquipmentPage<'_>,
-        font: &BitmapFont,
-        dialogue: &DialogueArt,
-        preferences: &resonance_content::menu_data::CustomizeSettings,
-        tick: u32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        self.set_page(Some(ActivePage::Menu(Page::Equip)));
-        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
-        draw.opacity = 255 - page.state.transition.page_fade;
-        draw.shade(draw.screen);
-        draw.plane = 1;
-        let anchor = draw.equipment_page(page)?;
-        draw.plane = 2;
+impl Drawing<'_> {
+    pub(super) fn battle_equipment(&mut self, page: EquipmentPage<'_>) -> Result<()> {
+        self.opacity = 255 - page.state.transition.page_fade;
+        self.shade(self.screen);
+        self.plane = 1;
+        let anchor = self.equipment_page(page)?;
+        self.plane = 2;
         if page.state.focus != Focus::Character {
             let fade = u32::from(page.state.transition.page_fade);
-            draw.cursor(
+            self.cursor(
                 [32. - (fade * 308 / 256) as f32, 68.],
                 ((255 - fade) / 2) as u8,
             );
         }
-        draw.cursor(anchor, 255 - page.state.transition.page_fade);
-        let trail = draw.trail;
-        let drawing = draw.batches;
-        self.trail = trail;
-        self.submit_drawing(drawing, commands, meshes)
+        self.cursor(anchor, 255 - page.state.transition.page_fade);
+        Ok(())
     }
 }

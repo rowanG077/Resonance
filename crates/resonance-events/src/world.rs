@@ -70,6 +70,7 @@ pub(crate) struct FieldModelSample {
 }
 
 /// Animation controllers configured while the previous field model was still on screen.
+#[derive(Clone)]
 pub struct FieldModelStart {
     pub instance: u64,
     model_resource: u32,
@@ -817,7 +818,7 @@ pub struct GameWorld {
     pub camera: Option<CameraTrack>,
     pub fade: Option<Fade>,
     pub scene_dissolve: Option<SceneDissolve>,
-    /// Nonzero blends the previous rendered field into each new frame.
+    /// Nonzero blends the preceding field tick's image into the displayed scene.
     pub frame_feedback: u8,
     pub next_transition_white: Option<bool>,
     pub overlays: BTreeMap<i32, Overlay>,
@@ -1472,7 +1473,7 @@ pub struct Fade {
 
 /// Native transition mode 4 freezes the preceding field image, then reveals
 /// the live scene beneath it. Its first presentation retains full opacity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneDissolve {
     pub start_tick: u32,
     pub duration: u32,

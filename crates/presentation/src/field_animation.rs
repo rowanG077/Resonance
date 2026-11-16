@@ -4,10 +4,12 @@ mod camera_tests;
 #[cfg(test)]
 mod continuity_tests;
 mod frame;
+mod prediction;
 use super::field_view::{ActorPart, Art, Part, State};
 use super::sparse_animation::affine::{Locals, Pose};
 use bevy::prelude::*;
 use frame::Frame;
+pub(super) use prediction::{prepare as prepare_prediction, present};
 use resonance_events::{Actor, Animation, Wings};
 use std::collections::BTreeSet;
 
@@ -65,8 +67,20 @@ pub(super) fn bind(
                 pass: part.pass,
             };
             let weight = sample.wing_weight(start.animation.as_ref()).unwrap_or(1.);
-            for clip in start.animation.iter().chain(&start.scenery_animations) {
-                if let Some(tracks) = sample.tracks(&mut rig, artwork, clip) {
+            let echo = sample
+                .wings
+                .and_then(|w| w.layer(sample.pass, sample.effect_tick).echo);
+            for animation in start.animation.iter().chain(&start.scenery_animations) {
+                if let Some(clip) = sample.clip(artwork, animation, echo) {
+                    let tracks = sample_tracks(
+                        &rig.bones,
+                        &mut rig.authored_channels,
+                        clip.motion,
+                        clip.time,
+                        clip.echo_weight,
+                    )
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .expect("validated animation must evaluate");
                     for (bone, mut pose) in tracks {
                         rig.blend_bone(bone, &mut pose, weight, true);
                     }
@@ -89,37 +103,51 @@ pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
     }
 }
 
-/// Resolve the displayed clip and its sampling time.
-fn sample_clip<'a>(
-    model: &'a Part,
-    animation: &Animation,
-    resource: u32,
-    tick: u32,
-    delay: f32,
-) -> Option<(&'a resonance_content::animation::Motion, f32)> {
-    let index = model
-        .spec
-        .clips
-        .iter()
-        .position(|clip| animation.matches(clip, resource))?;
-    let spec = &model.spec.clips[index];
-    let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
-    let mut time = animation.sample(tick, 0, duration);
-    if delay != 0. && duration > 0. {
-        time -= delay;
-        if time < 0. || time > duration {
-            let phase = time.rem_euclid(duration);
-            time = if phase == 0. && time > 0. {
-                duration
-            } else {
-                phase
-            };
+struct SampledClip<'a> {
+    animation: &'a resonance_events::Animation,
+    motion: &'a resonance_content::animation::Motion,
+    time: f32,
+    roots: &'a [String],
+    echo_weight: Option<f32>,
+}
+
+/// Predictions retain the current echo when its slot changes in the next tick.
+/// All other clip timing and entrance rules are shared with committed sampling.
+fn sample_clips<'a>(
+    model: &'a crate::field_view::Part,
+    actor: &'a resonance_events::Actor,
+    pass: u8,
+    world: &'a resonance_events::GameWorld,
+    echo: Option<&'a resonance_events::WingEcho>,
+) -> impl Iterator<Item = SampledClip<'a>> + 'a {
+    let sample = ActorSample::current(actor, world, pass);
+    actor
+        .field_model_animation()
+        .into_iter()
+        .chain(actor.scenery_animations.values())
+        .filter_map(move |animation| sample.clip(model, animation, echo))
+}
+
+fn sample_tracks<'a>(
+    bones: &'a [(Entity, Transform)],
+    channels: &'a mut [u8],
+    motion: &'a resonance_content::animation::Motion,
+    time: f32,
+    echo_weight: Option<f32>,
+) -> impl Iterator<Item = anyhow::Result<(usize, Frame)>> + 'a {
+    motion.tracks.iter().map(move |track| {
+        let i = usize::from(track.bone);
+        let rest = bones[i].1;
+        channels[i] |= track.channels().0;
+        let mut frame = Frame::sample(
+            super::sparse_animation::sample_track(track, time, rest)?,
+            channels[i],
+        );
+        if let Some(weight) = echo_weight {
+            frame = Frame::sample(rest.into(), 0).mix(frame, rest, weight);
         }
-    }
-    Some((
-        &model.motions[index],
-        time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-    ))
+        Ok((i, frame))
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -148,41 +176,58 @@ impl<'a> ActorSample<'a> {
             .map(|entrance| entrance.weight)
     }
 
-    fn tracks(
+    fn clip(
         self,
-        rig: &mut Rig,
-        model: &Part,
-        animation: &Animation,
-    ) -> Option<Vec<(usize, Frame)>> {
-        let layer = self.wings.map(|w| w.layer(self.pass, self.effect_tick));
+        model: &'a Part,
+        animation: &'a Animation,
+        echo: Option<&resonance_events::WingEcho>,
+    ) -> Option<SampledClip<'a>> {
+        let delay = if echo.is_some() {
+            -1.
+        } else {
+            self.wings
+                .map_or(0., |w| w.layer(self.pass, self.effect_tick).pose_delay)
+        };
+        let echo_weight = echo.and_then(|e| e.entrance_weight(self.tick));
+        let index = model
+            .spec
+            .clips
+            .iter()
+            .position(|clip| animation.matches(clip, self.resource))?;
+        let spec = &model.spec.clips[index];
+        let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
+        let mut time = animation.sample(self.tick, 0, duration);
         let delay = self
             .wings
             .and_then(|w| w.entrance(self.pass, self.tick.saturating_sub(animation.start_tick)))
-            .map_or_else(
-                || layer.as_ref().map_or(0., |layer| layer.pose_delay),
-                |entrance| entrance.delay,
-            );
-        let (clip, mut time) = sample_clip(model, animation, self.resource, self.tick, delay)?;
-        let echo = layer
-            .and_then(|layer| layer.echo)
-            .and_then(|echo| echo.entrance_weight(self.tick));
-        if echo.is_some() {
-            time = 0.;
-        }
-        let mut tracks = rig
-            .sample_tracks(clip, time)
-            .expect("validated animation must evaluate");
-        if let Some(weight) = echo {
-            for (i, pose) in &mut tracks {
-                let rest = rig.bones[*i].1;
-                *pose = Frame::sample(rest.into(), 0).mix(*pose, rest, weight);
+            .map_or(delay, |entrance| entrance.delay);
+        if delay != 0. && duration > 0. {
+            time -= delay;
+            if time < 0. || time > duration {
+                let phase = time.rem_euclid(duration);
+                time = if phase == 0. && time > 0. {
+                    duration
+                } else {
+                    phase
+                };
             }
         }
-        Some(tracks)
+        Some(SampledClip {
+            animation,
+            motion: &model.motions[index],
+            time: if echo_weight.is_some() {
+                0.
+            } else {
+                time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ
+            },
+            roots: &spec.pose_chains,
+            echo_weight,
+        })
     }
 }
 
 /// Evaluate sparse curves before blending and script adjustments.
+#[allow(clippy::too_many_arguments)] // Independent pose, asset and prediction resources.
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
@@ -193,20 +238,28 @@ pub(super) fn sample(
 ) {
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
-        rig.authored_channels.fill(0);
+        let Rig {
+            bones,
+            authored_channels,
+            ..
+        } = &mut *rig;
+        authored_channels.fill(0);
         let actor = world.field_model_actor(part.actor).unwrap();
-        let sample = ActorSample::current(actor, world, part.pass);
         let model = &art.models[&part.resource][part.part];
-        for animation in actor
-            .field_model_animation()
-            .into_iter()
-            .chain(actor.scenery_animations.values())
-        {
-            let Some(tracks) = sample.tracks(&mut rig, model, animation) else {
-                continue;
-            };
-            for (i, pose) in tracks {
-                let entity = rig.bones[i].0;
+        let echo = actor
+            .wings
+            .as_ref()
+            .and_then(|w| w.layer(part.pass, world.effect_tick).echo);
+        for clip in sample_clips(model, actor, part.pass, world, echo) {
+            for pose in sample_tracks(
+                bones,
+                authored_channels,
+                clip.motion,
+                clip.time,
+                clip.echo_weight,
+            ) {
+                let (i, pose) = pose.expect("validated animation must evaluate");
+                let entity = bones[i].0;
                 if let Ok(mut transform) = nodes.get_mut(entity) {
                     affine.set(entity, &mut transform, pose.pose);
                 }
@@ -214,8 +267,8 @@ pub(super) fn sample(
             applied.ack(super::field_audit::Request::Animation {
                 actor: part.actor,
                 part: part.part,
-                resource: animation.resource,
-                slot: animation.slot,
+                resource: clip.animation.resource,
+                slot: clip.animation.slot,
             });
         }
     }
@@ -294,41 +347,52 @@ impl Rig {
         Ok(None)
     }
 
-    fn sample_tracks(
-        &mut self,
-        motion: &resonance_content::animation::Motion,
-        time: f32,
-    ) -> anyhow::Result<Vec<(usize, Frame)>> {
-        motion
-            .tracks
-            .iter()
-            .map(|track| {
-                let i = usize::from(track.bone);
-                self.authored_channels[i] |= track.channels().0;
-                Ok((
-                    i,
-                    Frame::sample(
-                        super::sparse_animation::sample_track(track, time, self.bones[i].1)?,
-                        self.authored_channels[i],
-                    ),
-                ))
-            })
-            .collect()
+    fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, animated: bool) {
+        *pose = self.blended_bone(index, *pose, self.from[index], weight, animated);
+        self.presented[index] = *pose;
     }
 
     fn start_blend(&mut self) {
         self.from.copy_from_slice(&self.presented);
     }
 
-    fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, animated: bool) {
+    /// The committed and predicted poses use the same omitted-channel rules.
+    fn blended_bone(
+        &self,
+        index: usize,
+        pose: Frame,
+        source: Frame,
+        weight: f32,
+        animated: bool,
+    ) -> Frame {
         // Cloth and hair resume their rest target when explicit motion ends;
         // carrying a previous clip's bend would pin the dynamics to that pose.
         if !animated && !self.secondary_bones.contains(&index) {
-            *pose = self.presented[index];
+            self.presented[index]
         } else if weight < 1. {
-            *pose = self.from[index].mix(*pose, self.bones[index].1, weight);
+            source.mix(pose, self.bones[index].1, weight)
+        } else {
+            pose
         }
-        self.presented[index] = *pose;
+    }
+
+    fn blend_weight(&self, actor: &resonance_events::Actor, pass: u8, tick: u32) -> f32 {
+        actor.field_model_animation().map_or(1., |animation| {
+            actor
+                .wings
+                .as_ref()
+                .and_then(|w| w.entrance(pass, tick.saturating_sub(animation.start_tick)))
+                .map_or_else(
+                    || {
+                        if self.sampled {
+                            animation.blend_weight(tick)
+                        } else {
+                            1.
+                        }
+                    },
+                    |entrance| entrance.weight,
+                )
+        })
     }
 }
 
@@ -366,12 +430,7 @@ pub(super) fn blend(
             rig.start_blend();
             rig.clip = key;
         }
-        let sample = ActorSample::current(actor, world, part.pass);
-        let weight = sample.wing_weight(animation).unwrap_or_else(|| {
-            animation
-                .filter(|_| rig.sampled)
-                .map_or(1., |a| a.blend_weight(world.tick))
-        });
+        let weight = rig.blend_weight(actor, part.pass, world.tick);
         for i in 0..rig.bones.len() {
             let entity = rig.bones[i].0;
             if let Ok(mut transform) = nodes.get_mut(entity) {
@@ -409,7 +468,9 @@ mod tests {
         for (weight, angle) in [(0.5, 0.5), (1., 0.)] {
             for i in 0..2 {
                 let mut pose = Frame::sample(rest.into(), 0);
+                let predicted = rig.blended_bone(i, pose, rig.from[i], weight, false);
                 rig.blend_bone(i, &mut pose, weight, false);
+                assert_eq!(predicted, pose);
                 let expected = if i == 0 { angle } else { 1. };
                 let rotation =
                     super::super::sparse_animation::affine::rotation(pose.pose.global().affine());
@@ -417,6 +478,18 @@ mod tests {
                 assert_eq!(pose.pose.global().translation(), rest.translation);
             }
         }
+    }
+
+    #[test]
+    fn first_animation_has_no_unseen_bind_pose_to_blend_from() {
+        let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]);
+        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
+        let mut animation = resonance_events::Animation::new(1, 0, 60, 10);
+        animation.blend_ticks = 9;
+        actor.animation = Some(animation);
+        assert_eq!(rig.blend_weight(&actor, 0, 10), 1.);
+        rig.sampled = true;
+        assert_eq!(rig.blend_weight(&actor, 0, 10), 0.);
     }
 
     #[test]

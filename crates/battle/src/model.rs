@@ -3,7 +3,10 @@ mod player;
 pub(crate) use player::UpdatePhase;
 pub use player::{CommonPose, ModelRequest, Models, Pose};
 mod effect;
-pub use effect::{EffectModelDefinition, EffectModelFrame, PreparedEffectModel};
+pub use effect::{
+    EffectModelAttachment, EffectModelDefinition, EffectModelFrame, EffectModelParent,
+    PreparedEffectModel,
+};
 use resonance_content::animation::pose;
 mod secondary;
 mod weapon;
@@ -12,8 +15,8 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::animation::{Matrix, Motion, Skeleton};
 use std::{collections::BTreeMap, sync::Arc};
 pub use weapon::{
-    WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback, WeaponSlot,
-    WeaponTextureAnimation,
+    WeaponAttachment, WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback,
+    WeaponSlot, WeaponTextureAnimation, WeaponTextureFrame,
 };
 
 impl Models {
@@ -681,7 +684,7 @@ pub struct ModelFrame {
     pub world: Matrix,
     /// Placement sampled by following particles before the completed body is drawn.
     pub particle_world: Matrix,
-    pub bones: Arc<Vec<Matrix>>,
+    pub bones: Arc<resonance_content::animation::pose::Palette>,
 }
 
 #[derive(Debug, Clone)]
@@ -896,7 +899,7 @@ impl AnimatedPose {
         &self,
         skeleton: &Skeleton,
         suppress_root: [bool; 3],
-    ) -> Result<(resonance_content::animation::Pose, [f32; 3])> {
+    ) -> Result<(pose::Palette, [f32; 3])> {
         Self::pose_from(&self.local, skeleton, suppress_root)
     }
 
@@ -904,9 +907,9 @@ impl AnimatedPose {
         local: &[pose::BonePose],
         skeleton: &Skeleton,
         suppress_root: [bool; 3],
-    ) -> Result<(resonance_content::animation::Pose, [f32; 3])> {
+    ) -> Result<(pose::Palette, [f32; 3])> {
         let root = local[0].translation();
-        let matrices: Vec<_> = local
+        let local = local
             .iter()
             .enumerate()
             .map(|(index, &pose)| {
@@ -914,16 +917,10 @@ impl AnimatedPose {
                 if index == 0 {
                     pose.suppress_translation(suppress_root);
                 }
-                pose.matrix()
+                pose.value()
             })
             .collect();
-        Ok((
-            skeleton.pose_with_matrices(
-                skeleton.bones.iter().map(|bone| bone.bind).collect(),
-                &matrices,
-            )?,
-            root,
-        ))
+        Ok((pose::Palette::new(skeleton, local)?, root))
     }
 }
 
@@ -1076,7 +1073,7 @@ impl Model {
                 root_translation: [0.; 3],
                 world: world(actor),
                 particle_world: world(actor),
-                bones: Arc::new(Vec::new()),
+                bones: Arc::new(pose::Palette::default()),
             },
             definition,
             clip: play.clip,
@@ -1865,18 +1862,18 @@ impl Model {
             }
         }
         let world = placement.world;
-        if let Some(advance) = secondary_advance {
+        if let Some(advance) = secondary_advance.filter(|_| !self.secondary.is_empty()) {
             secondary::apply(
                 &self.definition.secondary_motion,
                 &mut self.secondary,
-                &mut pose.global,
+                &mut pose,
                 placement,
                 advance,
             )?;
         }
         self.shown.root_translation = root;
         self.shown.world = world;
-        self.shown.bones = Arc::new(pose.global);
+        self.shown.bones = Arc::new(pose);
         Ok(())
     }
 }
@@ -1895,6 +1892,7 @@ pub struct ModelSample {
 
 /// Independent presentation playback using the same poses and attachments as combat.
 /// Sampling never changes the live battle's actor or animation state.
+#[derive(Clone)]
 pub struct ModelSampler(Model);
 impl ModelSampler {
     pub fn new(definition: Arc<ModelDefinition>, id: ActorId, actor: &Actor) -> Result<Self> {

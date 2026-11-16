@@ -3,6 +3,7 @@ use resonance_content::battle_effect::ParticleBirth;
 use std::collections::BTreeSet;
 
 /// Observed random inputs and allocation identity for one authored emission.
+#[derive(Clone)]
 pub struct FixtureEffectBirth {
     pub owner: ActorId,
     pub appearance: EffectAppearance,
@@ -15,7 +16,7 @@ pub struct FixtureEffectBirth {
     pub heading: Option<f32>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Births {
     scopes: BTreeSet<(ActorId, EffectAppearance, u8)>,
     pending: Vec<FixtureEffectBirth>,

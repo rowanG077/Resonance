@@ -54,7 +54,7 @@ pub(super) struct State {
     pieces: Vec<Piece>,
     size: Vec2,
     age: Option<u16>,
-    mesh_age: u16,
+    mesh_age: f32,
     crack_color: Color,
     battle_ready: bool,
     #[cfg(all(test, feature = "preparation-trace"))]
@@ -73,6 +73,15 @@ impl State {
 
     pub(super) fn finished(&self) -> bool {
         self.age == Some(END_TICK)
+    }
+
+    fn fragment_age(&self, fraction: f32) -> f32 {
+        let hold = f32::from(HOLD_TICKS);
+        if self.battle_ready {
+            (f32::from(self.age.unwrap_or_default()) + fraction).clamp(hold, f32::from(END_TICK))
+        } else {
+            hold
+        }
     }
 
     pub(super) fn entry_voice_ready(&self) -> bool {
@@ -191,7 +200,7 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
     // Warm the cracked pose used at activation and preserve it through the hold.
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
-        .add(mesh(&pieces, size, 0));
+        .add(mesh(&pieces, size, f32::from(HOLD_TICKS)));
     let material = world
         .resource_mut::<Assets<crate::menu_backdrop::Material>>()
         .add(crate::menu_backdrop::Material::visible(image).with_cover(cover));
@@ -225,7 +234,7 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         pieces,
         size,
         age: None,
-        mesh_age: 0,
+        mesh_age: f32::from(HOLD_TICKS),
         crack_color: crack_color(request.formation_count()),
         battle_ready: false,
         #[cfg(all(test, feature = "preparation-trace"))]
@@ -304,8 +313,8 @@ fn render(
     state: Option<ResMut<State>>,
     owner: Option<Res<Owner>>,
     display: Res<crate::display::Display>,
-    mut cameras: Query<&mut Camera>,
-    field_cameras: Query<Entity, crate::FieldCameraFilter>,
+    prediction: Res<crate::field_view::Prediction>,
+    (mut cameras, field_cameras): (Query<&mut Camera>, Query<Entity, crate::FieldCameraFilter>),
     mut meshes: ResMut<Assets<Mesh>>,
     mut exit: crate::diagnostics::Fatal,
 ) {
@@ -360,9 +369,8 @@ fn render(
         };
     }
     // Rebuild only once the pieces start moving.
-    if let Some(age) = state.age
-        && age > HOLD_TICKS
-        && age != state.mesh_age
+    let age = state.fragment_age(prediction.alpha);
+    if age != state.mesh_age
         && let Some(mut target) = meshes.get_mut(&state.mesh)
     {
         *target = mesh(&state.pieces, state.size, age);
@@ -418,13 +426,9 @@ fn pieces(seed: u64) -> Vec<Piece> {
     result
 }
 
-fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
-    let motion = age.saturating_sub(HOLD_TICKS) as f32 * 90. / (END_TICK - HOLD_TICKS) as f32;
-    let alpha = if age >= END_TICK {
-        0.
-    } else {
-        1. - age.saturating_sub(FADE_START) as f32 * FADE_STEP
-    };
+fn mesh(pieces: &[Piece], size: Vec2, age: f32) -> Mesh {
+    let motion = (age - f32::from(HOLD_TICKS)).max(0.) * 90. / f32::from(END_TICK - HOLD_TICKS);
+    let alpha = ((f32::from(END_TICK) - age) * FADE_STEP).clamp(0., 1.);
     let mut positions = Vec::with_capacity(pieces.len() * 3);
     let mut uv = Vec::with_capacity(positions.capacity());
     for piece in pieces {
@@ -479,7 +483,7 @@ mod tests {
                     pieces: Vec::new(),
                     size: Vec2::ZERO,
                     age: Some(0),
-                    mesh_age: 0,
+                    mesh_age: f32::from(HOLD_TICKS),
                     crack_color: Color::WHITE,
                     battle_ready: false,
                     #[cfg(feature = "preparation-trace")]
@@ -491,7 +495,9 @@ mod tests {
                     app.world().resource::<State>().age,
                     Some((tick + 1).min(HOLD_TICKS)),
                 );
-                assert!(!app.world().resource::<State>().entry_voice_ready());
+                let state = app.world().resource::<State>();
+                assert_eq!(state.fragment_age(0.5), f32::from(HOLD_TICKS));
+                assert!(!state.entry_voice_ready());
             }
             app.world_mut().resource_mut::<State>().start_shatter();
             let age = app.world().resource::<State>().age.unwrap();
@@ -499,6 +505,9 @@ mod tests {
                 app.world_mut().run_schedule(FixedUpdate);
                 let state = app.world().resource::<State>();
                 assert_eq!(state.age, Some(next));
+                if next == HOLD_TICKS + 1 {
+                    assert_eq!(state.fragment_age(0.5), f32::from(next) + 0.5);
+                }
                 assert_eq!(state.finished(), next == END_TICK);
                 assert_eq!(state.entry_voice_ready(), next >= 56);
             }
@@ -562,7 +571,7 @@ mod tests {
             .sum();
         assert!((area - 1.).abs() < 0.00001);
         let size = Vec2::new(640., 480.);
-        let held = mesh(&pieces, size, 0);
+        let held = mesh(&pieces, size, 0.);
         let Some(VertexAttributeValues::Float32x3(positions)) =
             held.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
@@ -578,8 +587,8 @@ mod tests {
             let expected = (Vec2::from_array(*uv) - Vec2::splat(0.5)) * Vec2::new(size.x, -size.y);
             assert!(Vec2::new(position[0], position[1]).distance(expected) < 0.0001);
         }
-        let before = mesh(&pieces, size, HOLD_TICKS);
-        let moving = mesh(&pieces, size, HOLD_TICKS + 1);
+        let before = mesh(&pieces, size, f32::from(HOLD_TICKS));
+        let moving = mesh(&pieces, size, f32::from(HOLD_TICKS) + 0.5);
         assert_eq!(
             held.attribute(Mesh::ATTRIBUTE_POSITION),
             before.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -592,7 +601,7 @@ mod tests {
             held.attribute(Mesh::ATTRIBUTE_UV_0),
             moving.attribute(Mesh::ATTRIBUTE_UV_0)
         );
-        let end = mesh(&pieces, size, END_TICK);
+        let end = mesh(&pieces, size, f32::from(END_TICK));
         let Some(VertexAttributeValues::Float32x4(colors)) = end.attribute(Mesh::ATTRIBUTE_COLOR)
         else {
             panic!("fragment colors");

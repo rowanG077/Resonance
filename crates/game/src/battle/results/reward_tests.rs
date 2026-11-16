@@ -81,8 +81,10 @@ fn grade_shop_doubles_signed_grade_in_results_records_and_balance() -> Result<()
                     }
                     Ok(())
                 })?;
-                fixture.candidate.setup.formation_count = formations;
-                fixture.candidate.setup.enemies[0].grade = enemy_grade;
+                Arc::get_mut(&mut fixture.candidate.setup)
+                    .unwrap()
+                    .formation_count = formations;
+                Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0].grade = enemy_grade;
                 fixture.candidate.party.grade_hundredths = 100_000;
                 enter_controlled_victory(&mut fixture)?;
                 construct_result(&mut fixture)?;
@@ -108,10 +110,16 @@ fn combined_bonus_reaches_results_and_party_including_signed_grade() -> Result<(
             [(1, 19, 101), (2, 28, 151), (3, 38, 202), (128, 1225, 6514)]
         {
             let mut fixture = local_fixture(&[1], |_, _, _| Ok(()))?;
-            fixture.candidate.setup.formation_count = formation_count;
-            fixture.candidate.setup.enemies[0].grade = enemy_grade;
-            fixture.candidate.setup.enemies[0].reward.experience = 19;
-            fixture.candidate.setup.enemies[0].reward.gald = 101;
+            Arc::get_mut(&mut fixture.candidate.setup)
+                .unwrap()
+                .formation_count = formation_count;
+            Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0].grade = enemy_grade;
+            Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0]
+                .reward
+                .experience = 19;
+            Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0]
+                .reward
+                .gald = 101;
             fixture.candidate.party.grade_hundredths = 100_000;
             let before_experience = fixture.candidate.party.members[0].experience;
             let before_gald = fixture.candidate.party.gald;
@@ -244,14 +252,20 @@ fn invalid_reward_resources_do_not_publish_party_randomness_or_results() -> Resu
             Ok(())
         })?;
         enter_controlled_victory(&mut fixture)?;
-        fixture.candidate.setup.enemies[0].reward.experience = 100;
+        Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0]
+            .reward
+            .experience = 100;
         let before = serde_json::to_value(&fixture.candidate.party)?;
         let random = fixture.candidate.gameplay_random;
         let battle_random = fixture.battle.random_state();
         let actors = fixture.battle.actors().to_vec();
         if invalid_drop {
-            fixture.candidate.setup.enemies[0].reward.drops[0] = Some(u16::MAX);
-            fixture.candidate.setup.enemies[0].reward.drop_chances[0] = 100;
+            Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0]
+                .reward
+                .drops[0] = Some(u16::MAX);
+            Arc::get_mut(&mut fixture.candidate.setup).unwrap().enemies[0]
+                .reward
+                .drop_chances[0] = 100;
         } else {
             Arc::make_mut(&mut fixture.candidate.menus).titles[0].clear();
         }

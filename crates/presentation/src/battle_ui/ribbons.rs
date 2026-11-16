@@ -22,6 +22,7 @@ const ENEMY_BACKDROP: [[u8; 4]; 4] = [
 #[derive(Clone, Copy)]
 pub(crate) struct Input<'a> {
     pub tick: u32,
+    pub fraction: f32,
     pub menu_open: bool,
     /// A selected enemy, rather than the actor owning the target selector.
     pub target: Option<ActorId>,
@@ -35,8 +36,7 @@ pub(super) struct State {
     tick: Option<u32>,
     order_revision: u32,
     notice_since: Option<u32>,
-    orders_x: f32,
-    enemies_x: f32,
+    next: [f32; 2],
     presented: [f32; 2],
     phase: u32,
 }
@@ -47,35 +47,56 @@ impl State {
             return;
         }
         let hidden = -56. - order_characters as f32 * 24.;
-        let elapsed = self.tick.map_or(1, |tick| input.tick.wrapping_sub(tick));
+        let first = self.tick.map_or(input.tick, |tick| tick.wrapping_add(1));
+        let skipped = input.tick.wrapping_sub(first);
         if self.tick.is_none() {
-            self.orders_x = hidden;
-            self.enemies_x = ENEMY_HIDDEN;
+            self.next = [hidden, ENEMY_HIDDEN];
         }
-        if input.order_revision != self.order_revision {
+        // A newly observed order starts at this visit, even after a gap in draws.
+        let new_order = input.order_revision != self.order_revision;
+        if new_order {
             self.order_revision = input.order_revision;
             self.notice_since = Some(input.tick);
-            self.orders_x = ORDER_ENTRY;
+            self.next[0] = ORDER_ENTRY;
         }
-        // Present the completed placement, then advance the next one. Repeated
-        // readbacks retain both its position and animation phase.
-        self.presented = [self.orders_x, self.enemies_x];
-        self.phase = self.tick.unwrap_or(input.tick);
-        let notice = self
-            .notice_since
-            .is_some_and(|since| input.tick.wrapping_sub(since) < ORDER_NOTICE_TICKS);
-        let distance = SLIDE_SPEED * elapsed as f32;
-        self.orders_x = if input.menu_open || notice {
-            (self.orders_x + distance).min(0.)
+        let (order_first, order_skipped) = if new_order {
+            (input.tick, 0)
         } else {
-            (self.orders_x - distance).max(hidden)
+            (first, skipped)
         };
-        self.enemies_x = if input.menu_open || input.target.is_some() {
-            (self.enemies_x - distance).max(ENEMY_SHOWN)
+        let notice_ticks = self.notice_since.map_or(0, |since| {
+            ORDER_NOTICE_TICKS.saturating_sub(order_first.wrapping_sub(since))
+        });
+        let slide = |start: f32, target: f32, ticks: u32| {
+            let distance = SLIDE_SPEED * ticks as f32;
+            start + (target - start).clamp(-distance, distance)
+        };
+        let order_x = |ticks| {
+            let shown = if input.menu_open {
+                ticks
+            } else {
+                notice_ticks.min(ticks)
+            };
+            slide(slide(self.next[0], 0., shown), hidden, ticks - shown)
+        };
+        let enemy_target = if input.menu_open || input.target.is_some() {
+            ENEMY_SHOWN
         } else {
-            (self.enemies_x + distance).min(ENEMY_HIDDEN)
+            ENEMY_HIDDEN
+        };
+        let enemy_x = |ticks| slide(self.next[1], enemy_target, ticks);
+        self.presented = [order_x(order_skipped), enemy_x(skipped)];
+        self.next = [order_x(order_skipped + 1), enemy_x(skipped + 1)];
+        self.phase = if self.tick.is_some() {
+            input.tick.wrapping_sub(1)
+        } else {
+            input.tick
         };
         self.tick = Some(input.tick);
+    }
+
+    fn sample(&self, fraction: f32) -> [f32; 2] {
+        std::array::from_fn(|i| self.presented[i] + (self.next[i] - self.presented[i]) * fraction)
     }
 
     /// Batches use the solid surface, dialogue font, and existing battle font atlas.
@@ -99,7 +120,7 @@ impl State {
             Ok::<_, anyhow::Error>(width + glyph.advance as f32)
         })?;
         self.advance(input, input.order_label.chars().count());
-        let [orders_x, enemies_x] = self.presented;
+        let [orders_x, enemies_x] = self.sample(input.fraction);
         if orders_x + width + 24. > 0. {
             let x = orders_x;
             let color = if input.order == QuickOrder::Cancel {
@@ -185,7 +206,7 @@ impl State {
                     4.,
                 );
                 let color = if selected_group.map(usize::from) == Some(group) {
-                    let wave = ((self.phase.wrapping_mul(8) % 360) as f32)
+                    let wave = ((self.phase.wrapping_mul(8) % 360) as f32 + input.fraction * 8.)
                         .to_radians()
                         .sin();
                     let shade = (160. + 32. * wave) as u8;
@@ -244,6 +265,7 @@ mod tests {
         let mut state = State::default();
         let mut input = Input {
             tick: 1,
+            fraction: 0.,
             menu_open: false,
             target: None,
             order: QuickOrder::Cancel,
@@ -253,11 +275,12 @@ mod tests {
         state.advance(input, 13);
         assert_eq!(state.presented, [-368., ENEMY_HIDDEN]);
         input.menu_open = true;
-        for tick in 2..=11 {
+        for tick in [2, 11] {
             input.tick = tick;
             state.advance(input, 13);
         }
         assert_eq!(state.presented, [-224., 512.]);
+        assert_eq!(state.sample(0.5), [-216., 504.]);
         for tick in 12..=25 {
             input.tick = tick;
             state.advance(input, 13);
@@ -269,7 +292,7 @@ mod tests {
         input.menu_open = false;
         input.order = QuickOrder::LeftPreset;
         input.order_revision = 1;
-        for tick in 26..=86 {
+        for tick in [26, 86] {
             input.tick = tick;
             state.advance(input, 7);
         }

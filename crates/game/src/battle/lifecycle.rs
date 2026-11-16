@@ -98,6 +98,32 @@ pub struct Lifecycle {
 }
 
 impl Lifecycle {
+    pub fn prediction_available(&self) -> bool {
+        !matches!(self.phase, Phase::Finish | Phase::Finished | Phase::Faulted)
+            && self
+                .events
+                .as_ref()
+                .is_none_or(super::event::Sequence::prediction_available)
+    }
+    pub fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            phase: self.phase,
+            entry_color: self.entry_color,
+            entry_alpha: self.entry_alpha,
+            command: self.command.clone(),
+            command_setup: self.command_setup.clone(),
+            command_events: self.command_events.clone(),
+            order: self.order,
+            order_age: self.order_age,
+            order_revision: self.order_revision,
+            order_issuer: self.order_issuer,
+            events: self
+                .events
+                .as_ref()
+                .map(|event| event.fork_for_prediction(fork)),
+        }
+    }
+
     pub fn new(command_setup: Option<command::Setup>) -> Self {
         Self {
             phase: Phase::Combat,
@@ -148,7 +174,12 @@ impl Lifecycle {
     pub fn event(&self) -> Option<&super::event::Playback> {
         self.events
             .as_ref()
-            .and_then(super::event::Sequence::playback)
+            .and_then(|event| event.playback.as_ref())
+    }
+
+    /// Move the isolated event's dialogue and camera state into its render endpoint.
+    pub fn into_event(self) -> Option<super::event::Playback> {
+        self.events.and_then(|event| event.playback)
     }
 
     pub fn take_event_audio(&mut self) -> Vec<resonance_events::AudioCommand> {

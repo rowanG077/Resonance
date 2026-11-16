@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 fn read(sequence: Value) -> Result<TextureAnimation> {
     Ok(serde_json::from_value(
-        json!({"texture":8,"sequence":sequence}),
+        json!({"texture":8,"sequence":sequence,"interpolation":"step"}),
     )?)
 }
 
@@ -75,6 +75,7 @@ fn irregular_timelines_keep_held_frames_and_field_cinematic_ownership_flat() -> 
     let motion = crate::field::TextureMotion::Sampled {
         animation: TextureAnimation {
             texture: (),
+            interpolation: crate::TextureInterpolation::Step,
             delay_ticks: 0,
             loop_start: 0,
             offsets: animation.offsets,

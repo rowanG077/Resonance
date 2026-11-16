@@ -108,6 +108,7 @@ impl State {
 
     pub(super) fn render(
         &mut self,
+        fraction: f32,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -120,18 +121,24 @@ impl State {
             {
                 let [width, height] = layer.definition.size;
                 let height = height as f32 * VIEWPORT_WIDTH / width as f32;
-                let exit_at = active.duration.saturating_sub(FADE_TICKS);
-                let (offset, alpha) = if active.age < FADE_TICKS {
-                    let progress = f32::from(active.age) / f32::from(FADE_TICKS);
-                    (SLIDE_DISTANCE * (1. - progress * progress), progress)
-                } else if active.age >= exit_at {
-                    let progress = f32::from(active.age - exit_at) / f32::from(FADE_TICKS);
-                    let alpha = f32::from(active.duration.saturating_sub(active.age + 1))
-                        / f32::from(FADE_TICKS);
-                    (SLIDE_DISTANCE * progress * progress, alpha)
-                } else {
-                    (0., 1.)
+                let sample = |age: u16| {
+                    let exit_at = active.duration.saturating_sub(FADE_TICKS);
+                    if age < FADE_TICKS {
+                        let progress = f32::from(age) / f32::from(FADE_TICKS);
+                        Vec2::new(SLIDE_DISTANCE * (1. - progress * progress), progress)
+                    } else if age >= exit_at {
+                        let progress = f32::from(age - exit_at) / f32::from(FADE_TICKS);
+                        let alpha =
+                            f32::from(active.duration.saturating_sub(age.saturating_add(1)))
+                                / f32::from(FADE_TICKS);
+                        Vec2::new(SLIDE_DISTANCE * progress * progress, alpha)
+                    } else {
+                        Vec2::Y
+                    }
                 };
+                let [offset, alpha] = sample(active.age)
+                    .lerp(sample(active.age.saturating_add(1)), fraction)
+                    .to_array();
                 for x in [-offset, offset] {
                     batch.quad(
                         [x, PORTRAIT_TOP, x + VIEWPORT_WIDTH, PORTRAIT_TOP + height],

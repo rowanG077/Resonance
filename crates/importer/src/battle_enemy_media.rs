@@ -130,6 +130,11 @@ fn animate_body(parts: &mut [PreviewPart], metadata: &[u8]) -> Result<()> {
         };
         animations.push(TextureAnimation {
             texture,
+            interpolation: if settings[channel] == 2 {
+                resonance_content::TextureInterpolation::Scroll
+            } else {
+                resonance_content::TextureInterpolation::Step
+            },
             delay_ticks,
             loop_start: 0,
             offsets,

@@ -290,7 +290,6 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             instances,
             bind,
             pose,
-            terrain_order,
             camera,
             particles::render,
             ui,

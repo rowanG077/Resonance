@@ -268,27 +268,28 @@ fn monitor_resolutions(
 /// Instant keeps the timeout independent of gameplay speed, pause and fixed ticks.
 pub(super) fn preview_preferences(
     mut display: ResMut<InteractiveDisplay>,
-    mut session: Option<ResMut<crate::new_game::Session>>,
-    mut title: Option<ResMut<crate::saves::title::TitleMenu>>,
+    session: Option<ResMut<crate::new_game::Session>>,
+    title: Option<ResMut<crate::saves::title::TitleMenu>>,
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
     windows: Query<Option<&OnMonitor>, With<PrimaryWindow>>,
     monitors: Query<&Monitor>,
 ) {
     use resonance_game::menu::customize::Focus;
+    // Map without marking: the session and title only change if the menu does.
     let menu = crate::input::active_menu(
-        session
-            .as_deref_mut()
-            .and_then(|session| session.menu_mut()),
-        title.as_deref_mut().map(|title| &mut title.0),
+        session.and_then(|session| session.filter_map_unchanged(|session| session.menu_mut())),
+        title.map(|title| title.map_unchanged(|title| &mut title.0)),
     )
     .filter(|(_, menu)| menu.page == resonance_game::menu::Page::Customize);
-    let Some((owner, menu)) = menu else {
+    let Some((owner, mut menu)) = menu else {
         display.preview = None;
         display.confirmation = None;
         display.menu = None;
         return;
     };
-    display.enter_customize(owner, &mut menu.customize);
+    if display.menu != Some(owner) {
+        display.enter_customize(owner, &mut menu.customize);
+    }
     let monitor = windows
         .single()
         .ok()
@@ -297,8 +298,16 @@ pub(super) fn preview_preferences(
     let limit = device
         .as_ref()
         .map_or(8192, |device| device.limits().max_texture_dimension_2d);
-    let (choices, native) = monitor_resolutions(monitor, menu.customize.draft.resolution, limit);
-    menu.customize.set_resolution_choices(choices, native);
+    let (mut choices, native) =
+        monitor_resolutions(monitor, menu.customize.draft.resolution, limit);
+    choices.sort_unstable();
+    choices.dedup();
+    let native = native.filter(|size| choices.contains(size));
+    if menu.customize.resolution_choices() != choices
+        || menu.customize.native_resolution() != native
+    {
+        menu.customize.set_resolution_choices(choices, native);
+    }
     if let Focus::DisplayConfirmation {
         revision,
         remaining_secs,

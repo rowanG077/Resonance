@@ -44,7 +44,7 @@ enum Generation {
 }
 
 /// Over Limit and rescue bursts share a short, expanding scene history.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct ActivationFeedback {
     update: Option<u64>,
     frame: Option<resonance_battle::UnisonFeedback>,
@@ -95,7 +95,68 @@ pub(super) fn battle(
     commands: &mut Commands,
     camera: Entity,
     frame: &resonance_battle::BattleFrame,
+    next: Option<&resonance_battle::BattleFrame>,
+    alpha: f32,
     activation: &ActivationFeedback,
+) {
+    let (dissolve, feedback) = battle_effects(frame, activation);
+    let future = next.map(|next| {
+        let mut predicted = activation.clone();
+        predicted.advance(next);
+        battle_effects(next, &predicted)
+    });
+    let mut opacity = feedback.map_or(f32::from(dissolve), |(f, _, _)| f32::from(f.alpha));
+    let mut expansion = feedback.map_or(0., |(f, _, _)| f32::from(f.expansion));
+    if let Some((next_dissolve, next_feedback)) = future {
+        match (feedback, next_feedback) {
+            (Some((_, id, _)), Some((f, next_id, _))) if id == next_id => {
+                opacity += (f32::from(f.alpha) - opacity) * alpha;
+                expansion += (f32::from(f.expansion) - expansion) * alpha;
+            }
+            (Some((f, _, _)), None)
+                if next_dissolve == 0 && f.remaining == 0 && f.expansion == 1 =>
+            {
+                opacity *= 1. - alpha;
+                expansion *= 1. - alpha;
+            }
+            (None, None)
+                if dissolve > 0
+                    && next.is_some_and(|next| {
+                        frame.summon.map(|s| s.generation) == next.summon.map(|s| s.generation)
+                            && frame.enemy_presentation.is_some()
+                                == next.enemy_presentation.is_some()
+                            && next_dissolve <= dissolve
+                    }) =>
+            {
+                opacity += (f32::from(next_dissolve) - opacity) * alpha;
+            }
+            _ => {}
+        }
+    }
+    commands.entity(camera).insert((
+        Settings {
+            opacity: Vec4::new(
+                opacity / 255.,
+                0.,
+                640. / (640. + expansion * 2.),
+                480. / (480. + expansion * 2.),
+            ),
+        },
+        BattleCapture {
+            update: feedback.map_or(frame.update, |(_, _, update)| update),
+            generation: feedback.map(|(_, generation, _)| generation),
+        },
+    ));
+}
+
+/// The dissolve opacity and the feedback, with its generation and update, that
+/// `frame` shows.
+fn battle_effects(
+    frame: &resonance_battle::BattleFrame,
+    activation: &ActivationFeedback,
+) -> (
+    u8,
+    Option<(resonance_battle::UnisonFeedback, Generation, u64)>,
 ) {
     let dissolve = frame
         .enemy_presentation
@@ -140,23 +201,7 @@ pub(super) fn battle(
                 })
         })
         .filter(|(feedback, _, _)| dissolve == 0 && feedback.expansion != 0);
-    let expansion = feedback.map_or(0., |(feedback, _, _)| f32::from(feedback.expansion));
-    commands.entity(camera).insert((
-        Settings {
-            opacity: Vec4::new(
-                feedback.map_or(f32::from(dissolve), |(feedback, _, _)| {
-                    f32::from(feedback.alpha)
-                }) / 255.,
-                0.,
-                640. / (640. + expansion * 2.),
-                480. / (480. + expansion * 2.),
-            ),
-        },
-        BattleCapture {
-            update: feedback.map_or(frame.update, |(_, _, update)| update),
-            generation: feedback.map(|(_, generation, _)| generation),
-        },
-    ));
+    (dissolve, feedback)
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -186,6 +231,7 @@ fn sync(
     mut commands: Commands,
     art: Option<Res<super::field_view::Art>>,
     state: super::field_view::State,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     views: Query<Entity, With<super::FieldCamera>>,
 ) {
     // Unpublished warm-up frames must not enter the next visible dissolve or trail.
@@ -196,10 +242,18 @@ fn sync(
         return;
     }
     let world = &state.get().events.world;
-    let alpha = world
+    let mut alpha = world
         .scene_dissolve
         .as_ref()
         .map_or(0., |f| f.alpha(world.tick));
+    if let Some((next, a)) = prediction
+        .as_ref()
+        .and_then(|p| p.field().map(|f| (&f.events.world, p.alpha)))
+        && let Some(dissolve) = &world.scene_dissolve
+        && next.scene_dissolve.as_ref() == Some(dissolve)
+    {
+        alpha += (dissolve.alpha(next.tick) - alpha) * a;
+    }
     let feedback = alpha == 0. && world.frame_feedback != 0;
     let fading_out = world
         .fade
@@ -569,12 +623,19 @@ mod tests {
             flash: 0,
             flash_active: false,
         });
-        for (event_dissolve, expected) in [(0, 200.), (255, 255.)] {
+        for (event_dissolve, next_event, expected) in
+            [(0, 0, 195.), (255, 247, 251.), (230, 255, 230.)]
+        {
             frame.event_dissolve = event_dissolve;
+            let mut next = frame.clone();
+            next.event_dissolve = next_event;
+            next.summon.as_mut().unwrap().dissolve -= 10;
             battle(
                 &mut Commands::new(&mut queue, &world),
                 camera,
                 &frame,
+                Some(&next),
+                0.5,
                 &activation,
             );
             queue.apply(&mut world);

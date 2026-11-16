@@ -17,7 +17,7 @@ pub mod skit;
 pub mod title_events;
 pub const TITLE_REVEAL_TICKS: u32 = 843;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuInput {
     pub reveal: bool,
     pub up: bool,
@@ -110,7 +110,7 @@ impl TitleState {
 }
 
 /// Repeat immediately on press, then every fourth update after a 30-update hold.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct DirectionRepeat {
     held_ticks: u8,
 }

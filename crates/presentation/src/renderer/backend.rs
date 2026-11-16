@@ -247,11 +247,11 @@ fn detect(mut commands: Commands, candidates: Res<Candidates>, adapter: Res<Rend
 
 fn constrain(
     caps: Option<Res<Capabilities>>,
-    mut title: Option<ResMut<crate::saves::title::TitleMenu>>,
-    mut session: Option<ResMut<crate::new_game::Session>>,
+    title: Option<ResMut<crate::saves::title::TitleMenu>>,
+    session: Option<ResMut<crate::new_game::Session>>,
 ) {
     let Some(caps) = caps else { return };
-    let apply = |menu: &mut resonance_game::menu::Menu| {
+    let apply = |mut menu: Mut<resonance_game::menu::Menu>| {
         if menu.customize.backend_choices() != caps.choices
             || menu.customize.active_backend != Some(caps.active)
             || menu.customize.backend_override != caps.overridden
@@ -260,10 +260,12 @@ fn constrain(
                 .set_backend_choices(&caps.choices, caps.active, caps.overridden);
         }
     };
-    if let Some(title) = &mut title {
-        apply(&mut title.0);
+    if let Some(title) = title {
+        apply(title.map_unchanged(|title| &mut title.0));
     }
-    if let Some(menu) = session.as_mut().and_then(|session| session.menu_mut()) {
+    if let Some(menu) =
+        session.and_then(|session| session.filter_map_unchanged(|session| session.menu_mut()))
+    {
         apply(menu);
     }
 }
@@ -271,6 +273,259 @@ fn constrain(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_graphics_menu_polling_does_not_invalidate_title_predictions() {
+        use crate::{display, field_view, saves::title::TitleMenu};
+        use bevy::ecs::system::RunSystemOnce;
+        use resonance_game::menu::{Mode, Page, input_capture::Capture};
+
+        let mut world = World::new();
+        world.init_resource::<display::InteractiveDisplay>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<field_view::Controls>();
+        world.insert_resource(TitleMenu::load());
+        world.insert_resource(Capabilities {
+            choices: vec![GraphicsBackend::Automatic, GraphicsBackend::Vulkan],
+            active: GraphicsBackend::Vulkan,
+            overridden: false,
+        });
+        world.run_system_once(constrain).unwrap();
+        for page in [
+            Page::Slots(Mode::Load),
+            Page::Main,
+            Page::Customize,
+            Page::Tech,
+        ] {
+            world.resource_mut::<TitleMenu>().0.page = page;
+            // Entering Customize initializes the monitor choices once.
+            world.run_system_once(display::preview_preferences).unwrap();
+            let source = world.resource_mut::<TitleMenu>().last_changed();
+            for _ in 0..8 {
+                world.increment_change_tick();
+                world.run_system_once(constrain).unwrap();
+                world.run_system_once(field_view::gather_controls).unwrap();
+                world.run_system_once(display::preview_preferences).unwrap();
+                assert_eq!(world.resource_mut::<TitleMenu>().last_changed(), source);
+            }
+        }
+        let source = world.resource_mut::<TitleMenu>().last_changed();
+        world.resource_mut::<Capabilities>().overridden = true;
+        world.run_system_once(constrain).unwrap();
+        assert_ne!(world.resource_mut::<TitleMenu>().last_changed(), source);
+        assert!(world.resource::<TitleMenu>().0.customize.backend_override);
+
+        // Captures still mutate the source and finish on release.
+        {
+            let mut menu = world.resource_mut::<TitleMenu>();
+            menu.0.page = Page::Customize;
+            menu.0.customize.capture = Some(Capture::after_opening([]));
+        }
+        let source = world.resource_mut::<TitleMenu>().last_changed();
+        world.increment_change_tick();
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::F10);
+        world.run_system_once(field_view::gather_controls).unwrap();
+        assert_ne!(world.resource_mut::<TitleMenu>().last_changed(), source);
+        *world.resource_mut::<ButtonInput<KeyCode>>() = Default::default();
+        world.run_system_once(field_view::gather_controls).unwrap();
+        let menu = &world.resource::<TitleMenu>().0;
+        assert!(menu.customize.capture.is_none());
+        assert!(
+            menu.customize
+                .draft
+                .keymap
+                .get(resonance_content::input::StandardAction::Confirm)
+                .contains(&resonance_content::input::PhysicalInput::Key("F10".into()))
+        );
+
+        // A pending validation notice must also be delivered without a recorder.
+        world.resource_mut::<TitleMenu>().0.customize.binding_error =
+            Some("invalid binding".into());
+        world.run_system_once(field_view::gather_controls).unwrap();
+        assert_eq!(
+            world.resource::<TitleMenu>().0.notice.as_deref(),
+            Some("invalid binding")
+        );
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn gameplay_menu_polling_reuses_predictions_until_input_or_simulation_changes()
+    -> anyhow::Result<()> {
+        use crate::{display, field_audio, field_view, new_game};
+        use bevy::ecs::system::RunSystemOnce;
+        use field_view::prediction::{Endpoint, Key, Prediction};
+        use std::{path::PathBuf, sync::Arc};
+
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_ASSETS")
+                .ok_or_else(|| anyhow::anyhow!("set RESONANCE_TEST_ASSETS"))?,
+        );
+        let package =
+            new_game::FieldPackage::prepare(&root, 332, &mut Default::default(), || false)?;
+        let checkpoint = crate::test_support::field_checkpoint(&package.files)?;
+        let session = new_game::Session::load_prepared(Arc::new(package), Some(checkpoint), None)?;
+        let mut world = World::new();
+        world.insert_resource(session);
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<field_view::Controls>();
+        world.init_resource::<display::InteractiveDisplay>();
+        world.init_resource::<Assets<field_audio::FieldSource>>();
+        assert!(field_audio::prepare_handoff(&mut world)?);
+        world.insert_resource(Capabilities {
+            choices: vec![GraphicsBackend::Automatic, GraphicsBackend::Vulkan],
+            active: GraphicsBackend::Vulkan,
+            overridden: false,
+        });
+        let key = |world: &mut World| {
+            Key::Field(
+                world.resource_mut::<new_game::Session>().last_changed(),
+                world.resource::<field_view::Controls>().current(),
+            )
+        };
+        for menu in [
+            None,
+            Some(resonance_game::menu::Menu::new(
+                resonance_game::menu::Page::Main,
+                None,
+                false,
+            )),
+        ] {
+            world.resource_mut::<new_game::Session>().field_mut().menu = menu;
+            *world.resource_mut::<ButtonInput<KeyCode>>() = Default::default();
+            world.run_system_once(constrain).unwrap();
+            world.run_system_once(field_view::gather_controls).unwrap();
+            let source = key(&mut world);
+            let mut storage = resonance_game::field::PredictionBuffer::new()?;
+            let mut prediction = Prediction::default();
+            prediction.publish(
+                source.clone(),
+                Endpoint::Field(storage.predict(
+                    world.resource::<new_game::Session>().field(),
+                    world.resource::<field_view::Controls>().current(),
+                )?),
+            );
+            for _ in 0..60 {
+                world.increment_change_tick();
+                world.run_system_once(constrain).unwrap();
+                world.run_system_once(field_view::gather_controls).unwrap();
+                world.run_system_once(display::preview_preferences).unwrap();
+                assert!(field_audio::prepare_handoff(&mut world)?);
+                assert_eq!(key(&mut world), source);
+                assert!(prediction.reuse(&key(&mut world)));
+            }
+            assert_eq!(prediction.counts(), [1, 60]);
+
+            world
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::ArrowRight);
+            world.run_system_once(field_view::gather_controls).unwrap();
+            assert!(!prediction.reuse(&key(&mut world)));
+            let input = world.resource::<field_view::Controls>().current();
+            prediction.publish(
+                key(&mut world),
+                Endpoint::Field(
+                    storage.predict(world.resource::<new_game::Session>().field(), input)?,
+                ),
+            );
+            world
+                .resource_mut::<new_game::Session>()
+                .field_mut()
+                .step(input)?;
+            assert!(!prediction.reuse(&key(&mut world)));
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS; no window or audio device"]
+    fn rheairds_menu_polling_preserves_the_world_source_and_committed_state() -> anyhow::Result<()>
+    {
+        use crate::{display, field_audio, field_view, new_game};
+        use bevy::ecs::system::RunSystemOnce;
+        use resonance_content::overworld::{Mount, Position, TravelState, World as Map};
+        use resonance_events::{PersistentState, party::Party};
+        use std::{path::PathBuf, sync::Arc};
+
+        let root = PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_ASSETS")
+                .ok_or_else(|| anyhow::anyhow!("set RESONANCE_TEST_ASSETS"))?,
+        );
+        let package = Arc::new(crate::overworld::Package::prepare(
+            &root,
+            &mut Default::default(),
+            || false,
+            Default::default(),
+        )?);
+        let mut persistent = PersistentState {
+            party: Some(Party::new(
+                package.world.resources.session_data.as_ref().unwrap(),
+                Default::default(),
+            )?),
+            ..Default::default()
+        };
+        persistent.party.as_mut().unwrap().formation = vec![1, 2, 3, 4];
+        persistent
+            .memory
+            .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+        let state = TravelState {
+            world: Map::Sylvarant,
+            position: Position::from_map([9770., 23500., 0.])?,
+            heading: 0.,
+            camera_yaw: 0.,
+            alternate_perspective: false,
+            map_display: Default::default(),
+            mount: Mount::Rheairds,
+            altitude: 600.,
+        };
+        let session = resonance_game::overworld::Session::enter(
+            package.world.assets(state.world, &persistent)?,
+            state,
+            persistent,
+            Default::default(),
+        )?;
+        let owner = new_game::Session::load_world_prepared(package, session.checkpoint()?)?;
+        let mut world = World::new();
+        world.insert_resource(owner);
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<field_view::Controls>();
+        world.init_resource::<display::InteractiveDisplay>();
+        world.init_resource::<Assets<field_audio::FieldSource>>();
+        world.insert_resource(Capabilities {
+            choices: vec![GraphicsBackend::Automatic, GraphicsBackend::Vulkan],
+            active: GraphicsBackend::Vulkan,
+            overridden: false,
+        });
+        assert!(field_audio::prepare_handoff(&mut world)?);
+        let source = world.resource_mut::<new_game::Session>().last_changed();
+        let checkpoint = |world: &World| -> anyhow::Result<serde_json::Value> {
+            Ok(serde_json::to_value(
+                world
+                    .resource::<new_game::Session>()
+                    .overworld()
+                    .unwrap()
+                    .session
+                    .checkpoint()?,
+            )?)
+        };
+        let before = checkpoint(&world)?;
+        for _ in 0..60 {
+            world.increment_change_tick();
+            world.run_system_once(constrain).unwrap();
+            world.run_system_once(field_view::gather_controls).unwrap();
+            world.run_system_once(display::preview_preferences).unwrap();
+            assert!(field_audio::prepare_handoff(&mut world)?);
+            assert_eq!(
+                world.resource_mut::<new_game::Session>().last_changed(),
+                source
+            );
+        }
+        assert_eq!(checkpoint(&world)?, before);
+        Ok(())
+    }
+
     #[test]
     #[ignore = "opens a native graphics adapter; no game assets or window required"]
     fn native_backend_discovery_and_saved_backend_fallback() {

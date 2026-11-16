@@ -143,6 +143,7 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
                 part: 0,
                 pass: 0,
                 materials: vec![],
+                winding: Default::default(),
                 prepared: true,
                 disabled: false,
                 geometry: vec![],

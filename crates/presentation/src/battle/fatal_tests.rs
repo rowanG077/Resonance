@@ -171,6 +171,7 @@ impl Fixture {
         .init_asset::<crate::sparse_animation::Clip>()
         .init_asset::<crate::field_ui::Surface>()
         .init_resource::<crate::field_ui::Resident>()
+        .init_asset::<crate::materials::TitleSurface>()
         .init_asset::<crate::materials::TitleOutput>()
         .init_asset::<crate::materials::TitleSurface>()
         .init_asset::<crate::audio::GameAudio>()
@@ -184,6 +185,7 @@ impl Fixture {
             files: Some(title.files),
         })
         .init_resource::<crate::field_view::Controls>()
+        .init_resource::<crate::field_view::Prediction>()
         .init_resource::<input::Controls>()
         .init_resource::<crate::input_icons::DeviceTracker>()
         .insert_resource(MenuMemory {
@@ -208,6 +210,7 @@ impl Fixture {
             images: vec![],
         })
         .insert_resource(crate::RunOptions {
+            speculative: false,
             assets: root.clone(),
             mods,
             script_root: None,
@@ -607,7 +610,7 @@ impl Fixture {
         &mut self,
         draw: impl Fn(
             &mut Scene,
-            u32,
+            crate::field_ui::HudTime,
             &mut Commands,
             &mut Assets<Mesh>,
             &Assets<Image>,
@@ -634,7 +637,10 @@ impl Fixture {
             queue.apply(world);
             let result = draw(
                 scene,
-                tick,
+                crate::field_ui::HudTime {
+                    tick,
+                    ..Default::default()
+                },
                 &mut Commands::new(&mut queue, world),
                 &mut meshes,
                 world.resource::<Assets<Image>>(),
@@ -684,7 +690,7 @@ impl Fixture {
         let result = render_command_strip(
             scene,
             command.as_ref(),
-            0,
+            Default::default(),
             &mut Commands::new(&mut queue, world),
             &mut meshes,
         );
@@ -921,6 +927,7 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
         KeyCode::F6,
         KeyCode::F7,
         KeyCode::F8,
+        KeyCode::F10,
     ]
     .into_iter()
     .enumerate()
@@ -948,9 +955,14 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
             });
             fixture.step((state == ButtonState::Pressed).then_some(key_code))?;
             let controls = fixture.app.world().resource::<crate::testing::Controls>();
-            assert!(!controls.paused && !controls.double_speed && !controls.skipping);
+            assert!(
+                !controls.paused
+                    && controls.speed == resonance_playback::Speed::Normal
+                    && !controls.skipping
+            );
             assert!(!fixture.app.world().resource::<Time<Virtual>>().is_paused());
             let host = fixture.app.world().resource::<crate::input::HostInput>();
+            assert!(!host.slow_motion);
             assert!(
                 StandardAction::HOST
                     .into_iter()
@@ -973,10 +985,42 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
         };
         assert_eq!(
             state.focus,
-            resonance_game::menu::techniques::Focus::BindingError
+            if key_code == KeyCode::F10 {
+                resonance_game::menu::techniques::Focus::List
+            } else {
+                resonance_game::menu::techniques::Focus::BindingError
+            }
         );
         eprintln!("recorder retained ownership for {key_code:?} down/release");
         fixture.draw_menu()?;
+    }
+    // The newly recorded arte is owned by the battle's candidate party until
+    // commit; it must take precedence over the inspection shortcut immediately.
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        fixture.app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::F10,
+            logical_key: Key::F10,
+            state,
+            text: None,
+            repeat: false,
+            window,
+        });
+        fixture.step((state == ButtonState::Pressed).then_some(KeyCode::F10))?;
+        assert!(
+            !fixture
+                .app
+                .world()
+                .resource::<crate::input::HostInput>()
+                .slow_motion
+        );
+        assert_eq!(
+            fixture
+                .app
+                .world()
+                .resource::<crate::testing::Controls>()
+                .speed,
+            resonance_playback::Speed::Normal
+        );
     }
     // The guard ends with the recorder; the same production Pause handler then
     // pauses and resumes on new presses while the battle page remains open.
@@ -1444,5 +1488,128 @@ fn invalid_battle_music_keeps_field_audio_and_state() -> Result<()> {
         fixture.party
     );
     assert!(fixture.request.is_pending());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires freshly cooked battle assets; CPU prediction and model/particle publication only"]
+fn demon_fang_predicts_weapon_trails_without_changing_committed_battle() -> Result<()> {
+    let mut fixture = Fixture::new("demon-fang-attachment")?;
+    fixture.enter_combat()?;
+    let actor = ActorId::from_index(0)?;
+    {
+        let mut owner = fixture.app.world_mut().resource_mut::<Owner>();
+        let Phase::Scene(scene) = &mut owner.phase else {
+            unreachable!()
+        };
+        scene
+            .core
+            .record_technique_acquisition(actor, TechniqueId(1))?;
+        let action = scene
+            .core
+            .prepared_technique(actor, TechniqueId(1))
+            .context("Demon Fang was not prepared")?
+            .action;
+        scene
+            .core
+            .set_control_mode(actor, resonance_battle::Control::Auto)?;
+        ensure!(
+            scene.core.queue_technique(actor, action)?,
+            "Demon Fang was not queued"
+        );
+    }
+    let mut measurements = crate::test_support::PredictionMeasurements::new()?;
+    let mut cache = interpolation::Cache::default();
+    let initial_uses = fixture
+        .scene()
+        .core
+        .technique_uses(actor, TechniqueId(1))
+        .unwrap();
+    let mut sampled_swing = false;
+    for tick in 0..120 {
+        let scene = fixture.scene();
+        let input = fixture
+            .app
+            .world()
+            .resource::<input::Controls>()
+            .clone()
+            .sample(&scene.settings);
+        let before = scene.core.snapshot();
+        let random = scene.core.random_state();
+        let (predicted, sources) = measurements.measure(|storage| {
+            storage.execute(|| {
+                prediction::predict(
+                    scene,
+                    &input,
+                    scene.hud.results_on_last_page(),
+                    Default::default(),
+                    true,
+                )
+            })?
+        })?;
+        let predicted = predicted.context("Demon Fang prediction")?;
+        assert_eq!(scene.core.snapshot(), before);
+        assert_eq!(scene.core.random_state(), random);
+        assert!(sources.sources_unchanged());
+        let from = scene.frame.as_ref().unwrap();
+        if let Some(slot) = from.cues.iter().find_map(|cue| match *cue {
+            resonance_battle::Cue::WeaponTrail {
+                actor: owner,
+                slot,
+                duration: 1..,
+                ..
+            } if owner == actor => Some(slot),
+            _ => None,
+        }) {
+            let tip = |f: &BattleFrame| -> Result<Vec3> {
+                let sword = f
+                    .weapons
+                    .iter()
+                    .find(|w| w.owner == actor && w.slot == Some(slot) && w.visible)
+                    .context("Demon Fang ribbon has no sword")?;
+                ensure!(
+                    sword.attachment.is_some(),
+                    "Demon Fang sword lost its attachment"
+                );
+                let bone = sword.bones.last().context("Demon Fang sword has no tip")?;
+                Ok(
+                    (Mat4::from_cols_array_2d(&sword.world) * Mat4::from_cols_array_2d(bone))
+                        .transform_point3(Vec3::ZERO),
+                )
+            };
+            let (a, b) = (tip(from)?, tip(&predicted.frame)?);
+            let travel = a.distance(b);
+            if travel > 0.02 {
+                let (frame, _) = cache.sample((tick, 1), from, &scene.particles, &predicted, 0.5);
+                let mid = tip(frame)?;
+                assert!(
+                    [a, b]
+                        .iter()
+                        .all(|end| (0.005..travel).contains(&mid.distance(*end))),
+                    "Demon Fang tip at the ribbon cue: {a:?}, {mid:?}, {b:?}"
+                );
+                sampled_swing = true;
+            }
+        }
+        fixture.step(None)?;
+        assert_eq!(predicted.frame, *fixture.scene().frame.as_ref().unwrap());
+        assert_eq!(predicted.particles, fixture.scene().particles);
+    }
+    assert!(
+        fixture
+            .scene()
+            .core
+            .technique_uses(actor, TechniqueId(1))
+            .unwrap()
+            > initial_uses,
+        "Demon Fang did not execute: clock {:?}, activity {:?}",
+        fixture.scene().frame.as_ref().unwrap().clock,
+        fixture.scene().core.activity(actor)
+    );
+    ensure!(
+        sampled_swing,
+        "Demon Fang did not sample a moving sword during its ribbon cue"
+    );
+    measurements.report("Battle arena 13");
     Ok(())
 }

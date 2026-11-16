@@ -5,7 +5,7 @@ use crate::sparse_animation::affine::{Helper as TransformHelper, Locals};
 
 #[allow(clippy::type_complexity)] // Snapshot authored world poses before writing local bones.
 pub(super) fn apply(
-    mut state: State,
+    state: State,
     viewer: Res<Viewer>,
     mut rigs: Query<&mut Rig>,
     mut transforms: ParamSet<(TransformHelper, (Query<&mut Transform>, ResMut<Locals>))>,
@@ -26,9 +26,10 @@ pub(super) fn apply(
         .map(|index| primary.spec.scene.clips[index].pose_chains.as_slice())
         .unwrap_or_default();
     let helper = transforms.p0();
-    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots) else {
+    let Some(()) = rig.advance(&helper, preview.yaw, menu.tick, true, roots) else {
         return;
     };
+    let pose = &rigs.get(root).unwrap().pose;
     let mut locals = Vec::new();
     for part in viewer
         .parts
@@ -38,12 +39,13 @@ pub(super) fn apply(
         if let Some(root) = part.root
             && let Ok(rig) = rigs.get(root)
         {
-            locals.extend(rig.locals(&helper, &pose));
+            locals.extend(rig.locals(&helper, pose));
         }
     }
     let (mut transforms, mut affine) = transforms.p1();
     for (entity, local) in locals {
         if let Ok(mut transform) = transforms.get_mut(entity) {
+            affine.remember_authored(entity, *transform);
             local.apply(entity, &mut transform, &mut affine);
         }
     }

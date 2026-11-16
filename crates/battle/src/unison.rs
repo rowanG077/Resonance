@@ -229,6 +229,7 @@ struct Selection {
     arte: UnisonArte,
 }
 
+#[derive(Clone)]
 struct Placement {
     position: [f32; 3],
     heading: f32,
@@ -236,6 +237,7 @@ struct Placement {
     target: ActorId,
 }
 
+#[derive(Clone)]
 struct Orbit {
     yaw: f32,
     speed: f32,
@@ -255,6 +257,7 @@ impl Orbit {
     }
 }
 
+#[derive(Clone)]
 struct Combined {
     recipe: usize,
     actors: [ActorId; 2],
@@ -262,6 +265,7 @@ struct Combined {
     actions: [Option<ActionId>; 2],
 }
 
+#[derive(Clone)]
 struct Run {
     initiator: ActorId,
     phase: UnisonPhase,
@@ -285,7 +289,7 @@ struct Run {
     feedback_request_update: Option<u64>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct State {
     definition: Option<Arc<UnisonDefinition>>,
     openers: Vec<ActionKey>,

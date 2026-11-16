@@ -127,6 +127,7 @@ mod input_tests {
         assert_eq!(preferences.settings.display_mode, DisplayMode::Windowed);
         assert_eq!(preferences.settings.resolution, [640, 480]);
         assert!(!preferences.settings.vsync);
+        assert!(!preferences.settings.experimental_high_fps);
         assert_eq!(
             preferences.settings.graphics_backend,
             GraphicsBackend::Automatic
@@ -146,6 +147,7 @@ mod input_tests {
                 ][index % 5],
                 anti_aliasing,
                 vsync: index % 2 == 0,
+                experimental_high_fps: index % 2 == 0,
                 resolution: [1920, 1080],
                 ..preferences.settings.clone()
             };
@@ -155,9 +157,11 @@ mod input_tests {
         // Existing config.toml files retain every setting when VSync is omitted.
         let mut legacy: toml::Table = toml::from_str(&fs::read_to_string(&path)?)?;
         assert!(legacy.remove("vsync").is_some());
+        assert!(legacy.remove("experimental_high_fps").is_some());
         fs::write(&path, toml::to_string_pretty(&legacy)?)?;
         let mut expected = preferences.settings;
         expected.vsync = false;
+        expected.experimental_high_fps = false;
         assert_eq!(Preferences::load(path)?.settings, expected);
         Ok(())
     }

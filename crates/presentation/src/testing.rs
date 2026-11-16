@@ -2,6 +2,10 @@
 use crate::field_ui::pause as overlay;
 use bevy::prelude::*;
 use resonance_content::input::StandardAction;
+use resonance_playback::Speed;
+
+#[cfg(test)]
+mod tests;
 
 const SKIP_UPDATES_PER_FRAME: usize = 64;
 
@@ -9,7 +13,7 @@ const SKIP_UPDATES_PER_FRAME: usize = 64;
 pub(super) struct Controls {
     pub paused: bool,
     pub skipping: bool,
-    pub double_speed: bool,
+    pub speed: Speed,
 }
 
 pub(super) fn install(app: &mut App) {
@@ -33,11 +37,19 @@ pub(super) fn install(app: &mut App) {
 
 pub(super) fn controls(
     input: Res<crate::input::HostInput>,
+    options: Option<Res<super::RunOptions>>,
     session: Option<Res<super::new_game::Session>>,
     mut controls: ResMut<Controls>,
     mut time: ResMut<Time<Virtual>>,
+    mut commands: Commands,
 ) {
     use StandardAction::*;
+    // Slow motion is a live inspection control, not part of deterministic
+    // captures. It also works at the title, without a session.
+    if input.slow_motion && !options.is_some_and(|o| o.headless() || o.replay.is_some()) {
+        slow_motion(&mut controls, &mut time);
+        commands.queue(super::performance::show);
+    }
     let Some(session) = session else {
         return;
     };
@@ -57,8 +69,12 @@ fn toggle(
 ) {
     match action {
         StandardAction::SpeedToggle => {
-            controls.double_speed = !controls.double_speed;
-            time.set_relative_speed(if controls.double_speed { 2. } else { 1. });
+            controls.speed = if controls.speed == Speed::Double {
+                Speed::Normal
+            } else {
+                Speed::Double
+            };
+            time.set_relative_speed_f64(controls.speed.factor());
         }
         StandardAction::Pause => {
             controls.paused = !controls.paused;
@@ -71,9 +87,25 @@ fn toggle(
         StandardAction::SkipEvent => controls.skipping = !controls.skipping && can_skip,
         _ => unreachable!(),
     }
+    log(controls);
+}
+
+/// Cycles the live game speed through half, a fifth and a tenth back to normal.
+fn slow_motion(controls: &mut Controls, time: &mut Time<Virtual>) {
+    controls.speed = match controls.speed {
+        Speed::Normal | Speed::Double => Speed::Half,
+        Speed::Half => Speed::Fifth,
+        Speed::Fifth => Speed::Tenth,
+        Speed::Tenth => Speed::Normal,
+    };
+    time.set_relative_speed_f64(controls.speed.factor());
+    log(controls);
+}
+
+fn log(controls: &Controls) {
     info!(
-        "Testing: {}x, {}, skip={}",
-        if controls.double_speed { 2 } else { 1 },
+        "Testing: {}, {}, skip={}",
+        controls.speed.label(),
         if controls.paused { "paused" } else { "playing" },
         controls.skipping
     );
@@ -81,9 +113,9 @@ fn toggle(
 
 pub(super) fn audio(world: &mut World) {
     if let Some(controls) = world.get_resource::<Controls>() {
-        let (paused, double_speed) = (controls.paused, controls.double_speed);
+        let (paused, speed) = (controls.paused, controls.speed);
         for sink in world.query::<&super::audio_output::Sink>().iter(world) {
-            sink.0.set_transport(paused, double_speed);
+            sink.0.set_transport(paused, speed);
         }
     }
 }
@@ -140,30 +172,5 @@ fn advance(world: &mut World) {
         error!("Event skip failed: {error:#}");
         world.resource_mut::<Controls>().skipping = false;
         world.write_message(AppExit::error());
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pause_resumes_virtual_time_without_losing_the_selected_speed() {
-        use StandardAction::*;
-        let mut controls = Controls::default();
-        let mut time = Time::<Virtual>::default();
-        toggle(&mut controls, &mut time, SpeedToggle, false);
-        assert_eq!(time.relative_speed(), 2.);
-        toggle(&mut controls, &mut time, Pause, false);
-        assert!(controls.paused && time.is_paused());
-        toggle(&mut controls, &mut time, SpeedToggle, false);
-        assert!(time.is_paused());
-        assert_eq!(time.relative_speed(), 1.);
-        toggle(&mut controls, &mut time, Pause, false);
-        assert!(!controls.paused && !time.is_paused());
-        toggle(&mut controls, &mut time, SkipEvent, false);
-        assert!(!controls.skipping);
-        toggle(&mut controls, &mut time, SkipEvent, true);
-        assert!(controls.skipping);
     }
 }

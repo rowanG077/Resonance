@@ -1,7 +1,6 @@
 //! Timed character confirmations execute the independent Unison loadout.
 use super::*;
 use resonance_battle::{ActionKey, ActorId, UnisonFrame, UnisonPhase, UnisonRecipeId};
-use resonance_game::menu::unison::Page;
 
 const BUTTONS: [[f32; 2]; 4] = [[528., 320.], [488., 340.], [568., 312.], [512., 288.]];
 const FACE_OFFSETS: [[f32; 2]; 4] = [[16., 16.], [-16., 16.], [16., -16.], [-16., -16.]];
@@ -174,6 +173,7 @@ impl Artwork {
         &mut self,
         frame: &BattleFrame,
         party: PartyHudInput<'_>,
+        time: HudTime,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -192,14 +192,13 @@ impl Artwork {
                 unison.phase,
                 UnisonPhase::Selecting | UnisonPhase::Executing
             ) {
+                let tick = frame.update as u32;
+                let pulse =
+                    |tick: u32| 176. + (48. * ((tick % 45 * 8) as f32).to_radians().sin()).trunc();
+                let shade = pulse(tick).lerp(pulse(tick.wrapping_add(1)), time.update);
                 for (slot, [x, y]) in BUTTONS.into_iter().enumerate() {
                     let blocked = unison.blocked_slots & (1 << slot) != 0;
-                    let tick = frame.update as u32;
-                    let intensity = if blocked {
-                        48.
-                    } else {
-                        176. + (48. * (((tick % 360 * 8) % 360) as f32).to_radians().sin()).trunc()
-                    } / 128.;
+                    let intensity = if blocked { 48. } else { shade } / 128.;
                     let tint = [intensity, intensity, intensity, 1.];
                     let action = [
                         resonance_content::input::StandardAction::Confirm,
@@ -239,7 +238,7 @@ impl Artwork {
                     .chars()
                     .map(|ch| advance(&self.font, ch))
                     .sum::<f32>();
-                let x = (684. - f32::from(row.age) * 24.).max(624. - width);
+                let x = (684. - (f32::from(row.age) + time.feedback) * 24.).max(624. - width);
                 let y = 104. + index as f32 * 32.;
                 let icon_width = row.actors.len() as f32 * 32.;
                 party::backdrop(
@@ -275,24 +274,6 @@ impl Artwork {
             layer.upload(batch, commands, meshes)?;
         }
         Ok(())
-    }
-
-    pub fn render_unison(
-        &mut self,
-        page: Page<'_>,
-        tick: u32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        self.windows.render_battle_unison(
-            page,
-            &self.font,
-            &self.dialogue,
-            &self.settings,
-            tick,
-            commands,
-            meshes,
-        )
     }
 }
 

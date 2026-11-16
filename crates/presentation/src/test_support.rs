@@ -2,6 +2,60 @@
 use bevy::shader::{ShaderCacheError, ShaderCacheSource};
 use resonance_battle::{Actor, PreparedBattle, Side};
 
+/// Expected world position of an inertial cloth joint under a turning animated pin.
+pub(crate) fn inertial_joint(
+    position: bevy::math::Vec3,
+    pin: impl Fn(f32) -> bevy::math::Vec3,
+    t: f32,
+) -> bevy::math::Vec3 {
+    position + (pin(t) - pin(0.).lerp(pin(1.), t))
+}
+
+/// CPU cost and allocator isolation for cooked field and battle predictions.
+pub(crate) struct PredictionMeasurements {
+    storage: resonance_game::field::PredictionBuffer,
+    milliseconds: Vec<f64>,
+    peak_bytes: usize,
+}
+
+impl PredictionMeasurements {
+    pub fn new() -> anyhow::Result<Self> {
+        Ok(Self {
+            storage: resonance_game::field::PredictionBuffer::new()?,
+            milliseconds: Vec::new(),
+            peak_bytes: 0,
+        })
+    }
+
+    pub fn measure<T>(
+        &mut self,
+        run: impl FnOnce(&mut resonance_game::field::PredictionBuffer) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let calls = resonance_simulation_memory::system_calls();
+        let start = std::time::Instant::now();
+        let value = run(&mut self.storage)?;
+        let ms = start.elapsed().as_secs_f64() * 1000.;
+        assert_eq!(resonance_simulation_memory::system_calls(), calls);
+        self.milliseconds.push(ms);
+        self.peak_bytes = self
+            .peak_bytes
+            .max(self.storage.used_bytes().into_iter().max().unwrap());
+        Ok(value)
+    }
+
+    pub fn report(mut self, scene: &str) {
+        self.milliseconds.sort_by(f64::total_cmp);
+        let n = self.milliseconds.len();
+        eprintln!(
+            "{scene}, {n} predictions: median {:.3} ms, p95 {:.3} ms, max {:.3} ms (CPU only); peak arena {:.2} MiB; zero system allocator calls",
+            self.milliseconds[n / 2],
+            self.milliseconds[n * 95 / 100],
+            self.milliseconds[n - 1],
+            self.peak_bytes as f64 / (1024. * 1024.)
+        );
+    }
+}
+
 /// Independent editable copies of a complete current library. Fixtures use the
 /// same content reader as production and never translate an old cooked tree.
 fn named_fixture() -> anyhow::Result<tempfile::TempDir> {
@@ -61,6 +115,7 @@ pub(crate) fn await_preparation<T: Send + 'static>(
 
 pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOptions {
     crate::RunOptions {
+        speculative: false,
         assets: assets.into(),
         mods: Vec::new(),
         script_root: None,

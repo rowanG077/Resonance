@@ -363,6 +363,129 @@ fn world_map_draws_shared_location_names_positions_and_visibility() -> Result<()
 }
 
 #[test]
+#[ignore = "requires locally cooked menu artwork; CPU only"]
+fn system_handoff_interpolates_with_retained_world_notices() -> Result<()> {
+    use crate::field_view::prediction::{Endpoint, Key, Prediction};
+    let fixture = Fixture::load()?;
+    let mut world = World::new();
+    let mut artwork = fixture.artwork(&mut world)?;
+    // A previously displayed overworld label remains in the retained UI state.
+    artwork
+        .animation
+        .world_notice
+        .step(1, Some(("Iselia", false)));
+    artwork
+        .animation
+        .ship_notice
+        .step(1, Some(("Embark", false)));
+    let mut menu = fixture.field_menu();
+    menu.page = Page::System;
+    menu.system_opacity = 255;
+    menu.selected = 1; // Load starts sliding the main header on the last System tick.
+    menu.step(resonance_game::field::FieldInput {
+        pressed_buttons: [resonance_events::input::Button::Accept].into(),
+        ..default()
+    });
+    assert!(menu.system_closing);
+    let mut next = menu.clone();
+    for _ in 0..255 {
+        next.step(Default::default());
+        if next.page != Page::System {
+            break;
+        }
+        menu.clone_from(&next);
+    }
+    assert_eq!(next.page, Page::Main);
+    assert!(next.main_fade > 0);
+    let expected_alpha = 1. - f32::from(next.main_fade) * 0.5 / 255.;
+    let mut prediction = Prediction::default();
+    prediction.reserve()?;
+    let next = prediction.execute(|| next.clone())?;
+    prediction.publish(
+        Key::Menu(
+            bevy::ecs::change_detection::Tick::new(1),
+            Default::default(),
+        ),
+        Endpoint::Menu(next),
+    );
+    prediction.alpha = 0.5;
+    let mut queue = bevy::ecs::world::CommandQueue::default();
+    let mut meshes = Assets::<Mesh>::default();
+    let mut render = |artwork: &mut MenuArtwork, prediction: &mut Prediction| -> Result<()> {
+        artwork.render(
+            Source::Title(Some(&menu)),
+            &fixture.font,
+            &fixture.dialogue,
+            1,
+            crate::Resolution::default(),
+            Some(prediction),
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+        )?;
+        queue.apply(&mut world);
+        Ok(())
+    };
+    // A second draw must be able to reuse the same scratch slot.
+    render(&mut artwork, &mut prediction)?;
+    render(&mut artwork, &mut prediction)?;
+    assert!(prediction.endpoint().is_some());
+    let header = &artwork.layers[&(1, DrawRole::Text, MaterialKey::Font)];
+    let alpha = header.uploaded.as_ref().unwrap().0.colors[0][3];
+    assert!(
+        (alpha - expected_alpha).abs() < 0.001,
+        "handoff alpha {alpha}"
+    );
+    assert_eq!(
+        artwork.animation.world_notice.value(),
+        Some(("Iselia", false, 16))
+    );
+    assert_eq!(
+        artwork.animation.ship_notice.value(),
+        Some(("Embark", false, 16))
+    );
+
+    let mut broken = menu.clone();
+    broken.page = Page::Customize;
+    broken.customize.draft.window = u8::MAX;
+    prediction.predict(
+        Key::Menu(bevy::ecs::change_detection::Tick::new(2), default()),
+        || Ok(Endpoint::Menu(broken)),
+    );
+    render(&mut artwork, &mut prediction)?;
+    assert!(prediction.endpoint().is_none());
+    let header = &artwork.layers[&(1, DrawRole::Text, MaterialKey::Font)];
+    assert_eq!(header.uploaded.as_ref().unwrap().0.colors[0][3], 1.);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked menu data; CPU only"]
+fn released_page_taps_navigate_once_and_match_prediction() -> Result<()> {
+    let fixture = Fixture::load()?;
+    let mut menu = fixture.field_menu();
+    menu.page = Page::Status;
+    for (direction, pressed, details) in [(-1, [false, true], true), (1, [true, false], false)] {
+        let tapped = resonance_game::field::FieldInput {
+            scroll_pressed: pressed,
+            ..Default::default()
+        };
+        let mut predicted = menu.clone();
+        predicted.step(resonance_game::field::FieldInput {
+            scroll_direction: direction,
+            ..tapped
+        });
+        menu.step(tapped);
+        assert_eq!(menu.status.details, details);
+        assert_eq!(menu.status.details, predicted.status.details);
+        for _ in 0..30 {
+            menu.step(Default::default());
+            assert_eq!(menu.status.details, details);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires locally cooked menus; CPU page admission and drawing only"]
 fn optional_battle_menu_text_is_admitted_when_drawn() -> Result<()> {
     use resonance_content::diagnostics::Diagnostics;
@@ -520,8 +643,9 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         rename_opacity: 255,
         ..Default::default()
     };
-    artwork.render_battle_strategy(
-        state.page(&fixture.party, &fixture.data),
+    artwork.render_battle_page(
+        BattlePage::Strategy(state.page(&fixture.party, &fixture.data)),
+        None,
         &fixture.font,
         &fixture.dialogue,
         &fixture.party.settings.preferences,
@@ -555,6 +679,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             &fixture.dialogue,
             101,
             crate::Resolution::default(),
+            None,
             &mut Commands::new(&mut queue, &world),
             &mut meshes,
         )?;
@@ -602,6 +727,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
                 &fixture.dialogue,
                 101,
                 crate::Resolution::default(),
+                None,
                 &mut Commands::new(&mut queue, &world),
                 &mut meshes,
             )?;
@@ -625,9 +751,13 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         description_previous: 0,
         description_blend: 255,
     };
-    artwork.render_battle_items(
-        &list,
-        &fixture.data,
+    let next = resonance_game::battle::command::ListFrame {
+        fade: 32,
+        ..list.clone()
+    };
+    artwork.render_battle_page(
+        BattlePage::Items(&list, &fixture.data),
+        Some((BattlePage::Items(&next, &fixture.data), 0.5)),
         &fixture.font,
         &fixture.dialogue,
         &fixture.party.settings.preferences,
@@ -636,6 +766,10 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         &mut meshes,
     )?;
     queue.apply(&mut world);
+    let shade = &artwork.layers[&(0, DrawRole::Background, FONT)];
+    let top = u16::from(fixture.party.settings.preferences.colors.shade_top[3]);
+    let expected = f32::from(top + top * 223 / 255) / 510.;
+    assert!((shade.uploaded.as_ref().unwrap().0.colors[0][3] - expected).abs() < 1e-5);
     assert!(
         artwork
             .layers
@@ -656,15 +790,16 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
         &fixture.dialogue,
         102,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;
     queue.apply(&mut world);
     assert!(artwork.layers.values().all(|layer| !layer.visible
         && world.get::<Visibility>(layer.entity) == Some(&Visibility::Hidden)));
-    artwork.render_battle_items(
-        &list,
-        &fixture.data,
+    artwork.render_battle_page(
+        BattlePage::Items(&list, &fixture.data),
+        None,
         &fixture.font,
         &fixture.dialogue,
         &fixture.party.settings.preferences,
@@ -695,7 +830,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked menus; CPU drawing only"]
-fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
+fn battle_menu_cursors_stay_visible_and_repeatable() -> Result<()> {
     let fixture = Fixture::load()?;
     let mut world = World::new();
     let mut artwork = fixture.artwork(&mut world)?;
@@ -703,6 +838,32 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
     let mut meshes = Assets::<Mesh>::default();
     artwork.prepare_windows(crate::Resolution::default());
     queue.apply(&mut world);
+    artwork.animation.trail.slots(0, [0, 0]);
+    let mut cursor = |page: BattlePage<'_>, fraction: Option<f32>, tick| -> Result<Batch> {
+        artwork.render_battle_page(
+            page,
+            fraction.map(|a| (page, a)),
+            &fixture.font,
+            &fixture.dialogue,
+            &fixture.party.settings.preferences,
+            tick,
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+        )?;
+        queue.apply(&mut world);
+        artwork
+            .layers
+            .iter()
+            .find_map(|((_, role, _), layer)| {
+                (*role == DrawRole::Cursor
+                    && layer.visible
+                    && world
+                        .get::<Visibility>(layer.entity)
+                        .is_some_and(|v| *v != Visibility::Hidden))
+                .then(|| layer.uploaded.as_ref().unwrap().0.clone())
+            })
+            .context("missing rendered cursor")
+    };
     for focus in [
         EquipmentFocus::Character,
         EquipmentFocus::Slots,
@@ -723,25 +884,15 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
             stats: Default::default(),
             battle: None,
         };
-        artwork.render_battle_equipment(
-            page,
-            &fixture.font,
-            &fixture.dialogue,
-            &fixture.party.settings.preferences,
-            100,
-            &mut Commands::new(&mut queue, &world),
-            &mut meshes,
-        )?;
-        queue.apply(&mut world);
+        cursor(BattlePage::Equipment(page), None, 100)
+            .with_context(|| format!("equipment {focus:?}"))?;
+    }
+    let menu = fixture.field_menu();
+    let tech = BattlePage::Tech(menu.tech_page());
+    for tick in 1..10 {
         assert!(
-            artwork.layers.iter().any(|((_, role, _), layer)| {
-                *role == DrawRole::Cursor
-                    && layer.visible
-                    && world
-                        .get::<Visibility>(layer.entity)
-                        .is_some_and(|v| *v != Visibility::Hidden)
-            }),
-            "{focus:?}"
+            cursor(tech, Some(0.5), tick)? == cursor(tech, Some(0.5), tick)?,
+            "cursor changed on repeated draw of tick {tick}"
         );
     }
     Ok(())
@@ -1008,6 +1159,7 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
         &fixture.dialogue,
         0,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;
@@ -1070,6 +1222,7 @@ fn selected_menu_art_is_checked_without_admitting_unrelated_pages() -> Result<()
         &fixture.dialogue,
         1,
         crate::Resolution::default(),
+        None,
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;

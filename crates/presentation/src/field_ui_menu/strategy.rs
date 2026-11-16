@@ -27,17 +27,19 @@ impl Drawing<'_> {
         self.offset = [party_x, 0.];
         let anchor = main_anchor(state)?;
         let starts = self.vertex_counts();
-        let first = state.first - usize::from(state.scroll > 0);
-        let offset = i32::from(state.scroll) * 69 / 10 + if state.scroll < 0 { 69 } else { 0 };
+        let rows = self
+            .scroll
+            .primary
+            .sample((state.first, state.scroll), 4, 1, 69, 10);
         for (slot, &id) in party
             .formation
             .iter()
             .enumerate()
-            .skip(first)
-            .take(4 + usize::from(state.scroll != 0))
+            .skip(rows.first)
+            .take(rows.count)
         {
             let member = usize::from(id - 1);
-            let y = 60. + (slot - first) as f32 * 69. - offset as f32;
+            let y = 60. + (slot - rows.first) as f32 * 69. - rows.offset;
             self.colored_frame([16., y, 414., 59.], false, self.party_color(slot))?;
             if slot == page.state.character
                 && (focus.character() || focus.setting() || focus.options())
@@ -387,29 +389,14 @@ fn key_position(column: usize, row: usize) -> [f32; 2] {
     ]
 }
 
-impl MenuArtwork {
-    #[allow(clippy::too_many_arguments)] // Already prepared resources and one immutable shared page.
-    pub(crate) fn render_battle_strategy(
-        &mut self,
-        page: StrategyPage<'_>,
-        font: &BitmapFont,
-        dialogue: &DialogueArt,
-        preferences: &resonance_content::menu_data::CustomizeSettings,
-        tick: u32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        self.set_page(Some(ActivePage::Menu(Page::Strategy)));
-        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
-        draw.opacity = 255 - page.state.transition.page_fade;
+impl Drawing<'_> {
+    pub(super) fn battle_strategy(&mut self, page: StrategyPage<'_>) -> Result<()> {
+        self.opacity = 255 - page.state.transition.page_fade;
         // Fade the gradient with the page over the paused battle scene.
-        draw.shade(draw.screen);
-        draw.plane = 1;
-        draw.strategy_page(page)?;
-        let trail = draw.trail;
-        let drawing = draw.batches;
-        self.trail = trail;
-        self.submit_drawing(drawing, commands, meshes)
+        self.shade(self.screen);
+        self.plane = 1;
+        self.strategy_page(page)?;
+        Ok(())
     }
 }
 

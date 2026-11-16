@@ -70,6 +70,16 @@ pub struct Playback {
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
 }
 impl Playback {
+    fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            events: self.events.fork_for_prediction(fork),
+            dialogue: self
+                .dialogue
+                .iter()
+                .map(|(&slot, player)| (slot, player.fork_for_prediction(fork)))
+                .collect(),
+        }
+    }
     fn step(&mut self, confirm: bool, accelerate: bool) -> Result<()> {
         use resonance_events::input::{Button, Buttons};
         self.events.world.input.sample(
@@ -144,7 +154,7 @@ pub(super) enum Visit {
 /// One opening, one timed interruption, then uninterrupted ordinary combat.
 pub(super) struct Sequence {
     phase: Phase,
-    playback: Option<Playback>,
+    pub(super) playback: Option<Playback>,
     rescue: Option<Prepared>,
     party: Party,
     pub(super) boss: resonance_battle::ActorId,
@@ -155,6 +165,27 @@ pub(super) struct Sequence {
     dissolve: u8,
 }
 impl Sequence {
+    // Starting a different event changes resource and operation ownership.
+    pub(super) fn prediction_available(&self) -> bool {
+        !matches!(self.phase, Phase::RescueReady)
+    }
+    pub(super) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            phase: self.phase,
+            playback: self
+                .playback
+                .as_ref()
+                .map(|playback| playback.fork_for_prediction(fork)),
+            rescue: self.rescue.clone(),
+            party: self.party.clone(),
+            boss: self.boss,
+            scenes: self.scenes.clone(),
+            formation: self.formation.clone(),
+            reserve: self.reserve,
+            audio: self.audio.clone(),
+            dissolve: self.dissolve,
+        }
+    }
     pub(super) fn new(
         plan: Plan,
         party: Party,
@@ -185,10 +216,6 @@ impl Sequence {
             audio: Vec::new(),
             dissolve: 0,
         })
-    }
-
-    pub(super) fn playback(&self) -> Option<&Playback> {
-        self.playback.as_ref()
     }
 
     pub(super) fn apply_view(&self, frame: &mut resonance_battle::BattleFrame) -> Result<()> {

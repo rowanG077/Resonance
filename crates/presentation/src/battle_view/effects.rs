@@ -610,7 +610,7 @@ impl Effects {
                             &particle.state,
                             particle.heading,
                             declaration,
-                            size,
+                            geometry::Uv::particle(particle, size),
                             camera,
                             points,
                         )?;

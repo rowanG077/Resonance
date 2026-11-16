@@ -258,17 +258,19 @@ impl Drawing<'_> {
             }
         }
         let starts = self.vertex_counts();
-        let first = shop.first.saturating_sub(usize::from(shop.scroll > 0));
-        let offset = scroll_offset(shop.scroll, 28);
+        let rows = self
+            .scroll
+            .primary
+            .rows(shop.first, shop.scroll, VISIBLE_ITEMS, 1, 28);
         for (row, item) in shop
             .rows
             .iter()
-            .skip(first)
-            .take(VISIBLE_ITEMS + usize::from(shop.scroll != 0))
+            .skip(rows.first)
+            .take(rows.count)
             .enumerate()
         {
             let data = &shop.resources.data.items[usize::from(item.id)];
-            let y = 88. + row as f32 * 28. - offset as f32;
+            let y = 88. + row as f32 * 28. - rows.offset;
             self.sprite_rect(
                 self.spec
                     .sprite(Sprite::Items, usize::from(data.category - 1))?,

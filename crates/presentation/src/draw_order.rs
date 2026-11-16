@@ -45,6 +45,34 @@ pub(super) enum ActorLayer {
 #[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct DrawOrder(pub Layer, pub usize, pub u32);
 
+pub(super) fn field_actor_depths(
+    depths: &mut Vec<(i32, f32)>,
+    world: &resonance_events::GameWorld,
+    direction: Vec3,
+    future: Option<(&resonance_events::GameWorld, f32)>,
+) {
+    depths.clear();
+    depths.extend(world.actor_order().iter().filter_map(|&id| {
+        // Attached actors have local coordinates and draw with their committed owner.
+        let owner = std::iter::successors(Some(id), |id| {
+            Some(world.field_model_actor(*id)?.attachment.as_ref()?.actor)
+        })
+        .take(world.actors.len())
+        .last()?;
+        let actor = world.field_model_actor(owner)?;
+        let mut position = Vec3::from_array(actor.visual_position());
+        if let Some((next, alpha)) = future
+            && let Some(target) = next.field_model_actor(owner)
+            && crate::field_view::prediction::continuous_pose(actor, target)
+        {
+            position = position.lerp(Vec3::from_array(target.visual_position()), alpha);
+        }
+        Some((id, position.dot(direction)))
+    }));
+    // Stable ties retain the simulation's submission order.
+    depths.sort_by(|a, b| b.1.total_cmp(&a.1));
+}
+
 impl DrawOrder {
     pub(super) fn field_model(mut layer: Layer, instance: usize, material: u32) -> Self {
         use resonance_content::field::MODEL_DRAW_SPAN;
@@ -129,6 +157,23 @@ mod tests {
     #[test]
     fn field_actors_finish_body_and_outline_before_nearer_models() {
         use resonance_content::field::{DrawStage, MODEL_DRAW_SPAN};
+        use resonance_events::{Actor, Attachment, GameWorld};
+        let mut world = GameWorld::default();
+        for (id, depth) in [(1, 1.), (2, 3.), (3, 100.)] {
+            world.insert_actor(id, Actor::new(1, [0., depth, 0.]));
+        }
+        world.actors.get_mut(&3).unwrap().attachment = Some(Attachment {
+            actor: 1,
+            bone: "head".into(),
+        });
+        let mut next = GameWorld::default();
+        next.actors = world.actors.clone();
+        next.actors.get_mut(&1).unwrap().position[1] = 5.;
+        let mut depths = Vec::new();
+        for (alpha, order) in [(0.25, [2, 1, 3]), (0.5, [1, 2, 3]), (0.75, [1, 3, 2])] {
+            field_actor_depths(&mut depths, &world, Vec3::Y, Some((&next, alpha)));
+            assert_eq!(depths.iter().map(|&(id, _)| id).collect::<Vec<_>>(), order);
+        }
         for stage in [DrawStage::Actors, DrawStage::LateActors] {
             let layer = Layer::Scene(stage.offset());
             let far_body = DrawOrder::field_model(layer, 0, 15);

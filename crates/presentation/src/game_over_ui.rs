@@ -112,6 +112,7 @@ impl Artwork {
     pub fn render(
         &mut self,
         screen: &Screen,
+        fraction: f32,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -143,7 +144,7 @@ impl Artwork {
         fade.quad(
             [0., 0., 640., 480.],
             [0., 0., 1., 1.],
-            [1., 1., 1., f32::from(screen.alpha) / 255.],
+            [1., 1., 1., screen.fade_alpha(fraction) / 255.],
         );
         self.layers[2].update_mesh(fade, [1, 1], meshes)?;
         for layer in &mut self.layers {

@@ -16,6 +16,7 @@ pub struct Inventory<'a> {
 }
 
 /// Scene feedback for committed item releases. Each use requests one user voice.
+#[derive(Clone)]
 pub struct Feedback {
     pub use_effect: EffectAppearance,
     pub revival_effect: EffectAppearance,
@@ -25,7 +26,7 @@ pub struct Feedback {
     pub actors: Vec<ActorFeedback>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ActorFeedback {
     pub use_offset: [f32; 3],
     pub used: Option<Sound>,

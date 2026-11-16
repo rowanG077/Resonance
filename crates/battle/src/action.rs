@@ -3,6 +3,7 @@ use crate::{ActionDefinition, ActionExecution, ActionId, ActorId, Battle, Cue};
 use anyhow::Result;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub(crate) enum Execution {
     Attack(crate::attack::AttackRun),
     Casting(crate::casting::CastingRun),
@@ -18,6 +19,7 @@ pub(crate) enum Execution {
     Cancelled,
 }
 
+#[derive(Clone)]
 pub(crate) struct Sequence {
     pub action: crate::ActionKey,
     pub definition: Arc<ActionDefinition>,

@@ -16,7 +16,8 @@ pub(super) use failure::update as transition_failure;
 #[path = "field_ui_fade.rs"]
 mod fade;
 pub(super) use battle_ui::{
-    ActorMarkers, Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput, RibbonInput,
+    ActorMarkers, Artwork as BattleHud, EnemyHud as BattleEnemyHud, HudTime, PartyHudInput,
+    RibbonInput, TransitionPrediction,
 };
 #[path = "game_over_ui.rs"]
 mod game_over_ui;
@@ -396,6 +397,7 @@ impl MenuOverlay {
         menu: Option<&resonance_game::menu::Menu>,
         presentation_tick: u32,
         resolution: super::Resolution,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -405,6 +407,7 @@ impl MenuOverlay {
             &self.dialogue,
             presentation_tick,
             resolution,
+            prediction,
             commands,
             meshes,
         )
@@ -744,6 +747,7 @@ impl Artwork {
         &mut self,
         session: &FieldSession,
         tick: u32,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         images: &Assets<Image>,
@@ -757,6 +761,7 @@ impl Artwork {
                 &self.spec,
                 tick,
                 self.resolution,
+                prediction,
                 commands,
                 meshes,
             )
@@ -769,6 +774,7 @@ impl Artwork {
     pub(super) fn render_skit(
         &mut self,
         session: &FieldSession,
+        prediction: Option<&crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
@@ -781,6 +787,7 @@ impl Artwork {
             }
             self.skits.render(
                 session.active_skit.as_ref(),
+                prediction.and_then(|p| p.field()?.active_skit.as_ref().map(|s| (s, p.alpha))),
                 &self.font,
                 self.resolution,
                 commands,
@@ -889,31 +896,48 @@ impl Artwork {
     pub fn render_overlays(
         &mut self,
         world: &resonance_events::GameWorld,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<Vec<i32>> {
-        self.overlays
-            .render(world, commands, meshes, self.menu.prompt_device())
+        self.overlays.render(
+            world,
+            prediction,
+            commands,
+            meshes,
+            self.menu.prompt_device(),
+        )
     }
     pub fn render(
         &mut self,
         session: &FieldSession,
+        mut prediction: Option<&mut crate::field_view::Prediction>,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
         if let Some(credits) = &mut self.credits {
-            credits.render(session.events.world.screen_request.as_ref(), commands);
+            credits.render(
+                session.events.world.screen_request.as_ref(),
+                prediction.as_ref().map_or(0., |p| p.alpha),
+                commands,
+            );
         }
-        self.render_fade(&session.events.world, commands, meshes)?;
-        self.render_prompt(session, commands, meshes)?;
-        self.render_damage(session, commands, meshes)?;
+        self.render_fade(
+            &session.events.world,
+            prediction.as_deref(),
+            commands,
+            meshes,
+        )?;
+        self.render_prompt(session, prediction.as_deref_mut(), commands, meshes)?;
+        self.render_damage(session, prediction.as_deref(), commands, meshes)?;
         let (world, dialogue) = session.dialogue_scene();
         self.render_dialogue(
             world,
             dialogue,
             &session.events.world,
+            prediction.as_deref(),
             world.tick,
             heads,
             commands,
@@ -927,12 +951,29 @@ impl Artwork {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         camera_world: &resonance_events::GameWorld,
+        prediction: Option<&crate::field_view::Prediction>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
+        let future = prediction.and_then(|p| {
+            let players = p
+                .field()
+                .map(|f| f.dialogue_scene().1)
+                .or_else(|| p.world()?.session.active_skit.as_ref().map(|s| &s.dialogue))?;
+            let next_world = p.field().map_or(camera_world, |f| &f.events.world);
+            let continuous = camera_world
+                .field_camera
+                .as_ref()
+                .is_none_or(|c| p.camera(c).is_some());
+            Some(DialogueEndpoint {
+                players,
+                camera: continuous.then(|| DialogueCamera::field(next_world)),
+                alpha: p.alpha,
+            })
+        });
         DialogueDraw {
             resolution: self.resolution,
             attached_positions: &self.attached_positions,
@@ -948,6 +989,7 @@ impl Artwork {
             world,
             dialogue,
             DialogueCamera::field(camera_world),
+            future,
             presentation_tick,
             heads,
             commands,
@@ -1092,6 +1134,12 @@ fn prepare_dialogue(
     }
 }
 
+struct DialogueEndpoint<'a> {
+    players: &'a BTreeMap<u8, DialoguePlayer>,
+    camera: Option<DialogueCamera<'a>>,
+    alpha: f32,
+}
+
 struct DialogueDraw<'a> {
     resolution: super::Resolution,
     attached_positions: &'a BTreeMap<i32, Vec3>,
@@ -1110,6 +1158,7 @@ impl DialogueDraw<'_> {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         camera: DialogueCamera,
+        future: Option<DialogueEndpoint>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
@@ -1138,7 +1187,7 @@ impl DialogueDraw<'_> {
             let Some(request) = displayed_dialogue(player, world.dialogue.get(&slot)) else {
                 continue;
             };
-            let (rect, pointer, above) = layout_with_camera(
+            let (rect, mut pointer, above) = layout_with_camera(
                 self.font,
                 request,
                 player,
@@ -1148,16 +1197,61 @@ impl DialogueDraw<'_> {
                 self.resolution,
             )?;
             let opening = player.opening_fraction();
-            let rect = opening.map_or(rect, |fraction| {
-                expanding_rect(
-                    rect,
-                    pointer.unwrap_or([
-                        rect[0] + ((rect[2] - rect[0]) / 2.).trunc(),
-                        rect[1] + ((rect[3] - rect[1]) / 2.).trunc(),
-                    ]),
-                    fraction,
-                )
-            });
+            let expand = |rect: [f32; 4], pointer: Option<[f32; 2]>, fraction: Option<f32>| {
+                fraction.map_or(rect, |fraction| {
+                    expanding_rect(
+                        rect,
+                        pointer.unwrap_or([
+                            rect[0] + ((rect[2] - rect[0]) / 2.).trunc(),
+                            rect[1] + ((rect[3] - rect[1]) / 2.).trunc(),
+                        ]),
+                        fraction,
+                    )
+                })
+            };
+            let committed_rect = expand(rect, pointer, opening);
+            let mut next_rect = committed_rect;
+            let mut rect = committed_rect;
+            if let Some(endpoint) = &future
+                && let Some(next_camera) = &endpoint.camera
+                && let Some(next) = endpoint
+                    .players
+                    .get(&slot)
+                    .filter(|n| n.operation.id() == player.operation.id() && n.page == player.page)
+            {
+                let camera_world = camera.world;
+                let next_world = next_camera.world;
+                let same_actor = request.speaker_actor.is_none_or(|id| {
+                    match (camera_world.actors.get(&id), next_world.actors.get(&id)) {
+                        (Some(a), Some(b)) => crate::field_view::prediction::continuous_actor(a, b),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                });
+                if same_actor {
+                    let (target, target_pointer, target_above) = layout_with_camera(
+                        self.font,
+                        request,
+                        next,
+                        next_camera,
+                        self.attached_positions,
+                        self.head_heights.get(&request.operation.id()).copied(),
+                        self.resolution,
+                    )?;
+                    // Switching sides of the speaker is a discrete layout change.
+                    if above == target_above {
+                        next_rect = expand(target, target_pointer, next.opening_fraction());
+                        rect = std::array::from_fn(|i| rect[i].lerp(next_rect[i], endpoint.alpha));
+                        pointer = pointer.map(|from| {
+                            target_pointer.map_or(from, |to| {
+                                std::array::from_fn(|i| {
+                                    from[i] + (to[i] - from[i]) * endpoint.alpha
+                                })
+                            })
+                        });
+                    }
+                }
+            }
             let mut batches: [Batch; layer::TEXTURES.len()] =
                 std::array::from_fn(|_| Batch::default());
             let mut highlight = Batch::default();
@@ -1250,18 +1344,34 @@ impl DialogueDraw<'_> {
                     }
                 }
                 let [w, h] = cursor_size.map(|v| v as f32);
-                let bob = super::choice_cursor::bob(&style, presentation_tick);
-                let x = left + bob;
-                let y = y - bob;
-                for ([tx, ty], alpha) in self
+                let position = |rect: [f32; 4], tick| {
+                    let bob = super::choice_cursor::bob(&style, tick);
+                    let y = super::choice_cursor::drawing_y(
+                        rect[1] + f32::from(lines.selected_line) * 25.,
+                    );
+                    Vec2::new(rect[0] + bob, y - bob)
+                };
+                let current = position(committed_rect, presentation_tick);
+                let next_tick = presentation_tick.wrapping_add(1);
+                let next = position(next_rect, next_tick);
+                let fraction = future.as_ref().map_or(0., |endpoint| endpoint.alpha);
+                let [x, y] = current.lerp(next, fraction).to_array();
+                let slots = self
                     .choice_trail
-                    .sample(presentation_tick, [x as i32, y as i32])
-                {
-                    let [tx, ty] = [tx as f32, ty as f32];
+                    .slots(presentation_tick, current.as_ivec2().to_array());
+                let mut predicted_trail = *self.choice_trail;
+                let next_slots = predicted_trail.slots(next_tick, next.as_ivec2().to_array());
+                for ((from, a), (to, b)) in slots.into_iter().zip(next_slots) {
+                    let alpha = f32::from(a).lerp(f32::from(b), fraction);
+                    if alpha == 0. {
+                        continue;
+                    }
+                    let [tx, ty] =
+                        std::array::from_fn(|i| (from[i] as f32).lerp(to[i] as f32, fraction));
                     batches[layer::CURSOR].quad(
                         overlay([tx + 4. - w, ty + 8., tx + 4., ty + 8. + h]),
                         [0., 0., w, h],
-                        [1., 1., 1., f32::from(alpha) / 255.],
+                        [1., 1., 1., alpha / 255.],
                     );
                 }
                 batches[layer::CURSOR].quad(
@@ -1314,7 +1424,18 @@ impl DialogueDraw<'_> {
                         f32::from(glyph.color[0]) / 255.,
                         f32::from(glyph.color[1]) / 255.,
                         f32::from(glyph.color[2]) / 255.,
-                        f32::from(player.glyph_alpha(index)) / 255.,
+                        future
+                            .as_ref()
+                            .and_then(|endpoint| {
+                                let (players, a) = (endpoint.players, endpoint.alpha);
+                                let next = players.get(&slot).filter(|p| {
+                                    p.operation.id() == player.operation.id()
+                                        && p.page == player.page
+                                })?;
+                                let v = f32::from(player.glyph_alpha(index));
+                                Some((v + (f32::from(next.glyph_alpha(index)) - v) * a) / 255.)
+                            })
+                            .unwrap_or(f32::from(player.glyph_alpha(index)) / 255.),
                     ],
                 );
                 x += advance;
@@ -1349,7 +1470,14 @@ impl DialogueDraw<'_> {
             {
                 // Add the pulsing icon after the frame masks so the tail shows through it.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
-                let phase = (presentation_tick % 90) as f32 * 4.0f32.to_radians();
+                let pulse = |tick| {
+                    let phase = (tick % 90) as f32 * 4.0f32.to_radians();
+                    (phase.sin().abs() * 255.).trunc() / 255.
+                };
+                let opacity = pulse(presentation_tick);
+                let opacity = future.as_ref().map_or(opacity, |endpoint| {
+                    opacity + (pulse(presentation_tick.wrapping_add(1)) - opacity) * endpoint.alpha
+                });
                 batches[layer::TOP_FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
                     if preferences.is_some_and(|s| s.window == 2) {
@@ -1357,7 +1485,7 @@ impl DialogueDraw<'_> {
                     } else {
                         [224., 120., 248., 144.]
                     },
-                    [1., 1., 1., (phase.sin().abs() * 255.).trunc() / 255.],
+                    [1., 1., 1., opacity],
                 );
             }
             for (index, mut batch) in batches.into_iter().enumerate() {
@@ -1616,30 +1744,52 @@ fn expanding_rect(rect: [f32; 4], origin: [f32; 2], fraction: f32) -> [f32; 4] {
     ]
 }
 
+fn scene_ndc(
+    camera: &Transform,
+    fov_degrees: f32,
+    point: Vec3,
+    resolution: super::Resolution,
+) -> Vec3 {
+    let projection =
+        bevy::math::proj::perspective(fov_degrees.to_radians(), resolution.aspect(), 100., 40000.);
+    projection.project_point3(camera.to_matrix().inverse().transform_point3(point))
+}
+
+/// Apply the fixed pixels' rounding error to the continuously projected point.
+fn pixel_aligned_position(from: Vec2, to: Vec2, shown: Vec2, fraction: f32) -> Vec2 {
+    if fraction <= 0. {
+        from.trunc()
+    } else if fraction >= 1. {
+        to.trunc()
+    } else {
+        shown + (from.trunc() - from).lerp(to.trunc() - to, fraction)
+    }
+}
+
+// The 640×448 scene sits inside the 640×480 overlay.
+fn scene_ui_point(ndc: Vec3, resolution: super::Resolution) -> Vec2 {
+    let ui = resolution.ui_size();
+    Vec2::new(
+        320. + ui.x * 0.5 * ndc.x,
+        240. - ui.y * 0.5 + ui.y * (224. / 480.) * (1. - ndc.y),
+    )
+}
+
 fn project_dialogue_point(
     camera: &Transform,
     fov_degrees: f32,
     point: Vec3,
     resolution: super::Resolution,
 ) -> [f32; 2] {
-    let projection =
-        bevy::math::proj::perspective(fov_degrees.to_radians(), resolution.aspect(), 100., 40000.);
-    let ndc = projection.project_point3(camera.to_matrix().inverse().transform_point3(point));
+    let ndc = scene_ndc(camera, fov_degrees, point, resolution);
     if resolution == super::Resolution::default() {
         return [
             (320. * (ndc.x + 1.)).round().clamp(0., 640.),
             (224. * (1. - ndc.y)).round().clamp(0., 480.),
         ];
     }
-    // Project into the 640×448 scene, then use those pixel coordinates directly
-    // in the 640×480 overlay. Scaling Y here would push dialogue downward.
-    let ui = resolution.ui_size();
-    [
-        (320. + ui.x * 0.5 * ndc.x).round().clamp(0., 640.),
-        (240. - ui.y * 0.5 + ui.y * (224. / 480.) * (1. - ndc.y))
-            .round()
-            .clamp(0., 480.),
-    ]
+    let [x, y] = scene_ui_point(ndc, resolution).to_array();
+    [x.round().clamp(0., 640.), y.round().clamp(0., 480.)]
 }
 
 fn layout(
@@ -2049,6 +2199,33 @@ struct Batch {
     indices: Vec<u32>,
 }
 impl Batch {
+    /// Geometry and color may move; changing glyphs, atlas frames and topology
+    /// remain discrete so input speculation cannot morph unrelated UI content.
+    fn interpolate(&mut self, next: &Self, alpha: f32) {
+        if self.indices != next.indices
+            || self.positions.len() != next.positions.len()
+            || self.uv.len() != next.uv.len()
+        {
+            return;
+        }
+        for start in (0..self.positions.len()).step_by(4) {
+            let end = (start + 4).min(self.positions.len());
+            if self.uv[start..end] != next.uv[start..end] {
+                continue;
+            }
+            for i in start..end {
+                for axis in 0..3 {
+                    self.positions[i][axis] +=
+                        (next.positions[i][axis] - self.positions[i][axis]) * alpha;
+                }
+                for channel in 0..4 {
+                    self.colors[i][channel] +=
+                        (next.colors[i][channel] - self.colors[i][channel]) * alpha;
+                }
+            }
+        }
+    }
+
     /// Clip axis-aligned quads after composition, including their gradient colours.
     fn clip_vertical(&mut self, start: usize, top: f32, bottom: f32) {
         for i in (start..self.positions.len()).step_by(4) {
@@ -2483,6 +2660,7 @@ mod tests {
                 if let Err(error) = art.render_menu(
                     live.field(),
                     100,
+                    None,
                     &mut commands,
                     &mut meshes,
                     &images,
@@ -3073,5 +3251,28 @@ mod tests {
             expanding_rect(rect, [330., 220.], 1.),
             [169., 120., 491., 144.]
         );
+    }
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    #[test]
+    fn ui_motion_and_fades_interpolate_but_glyph_changes_are_discrete() {
+        let mut start = Batch::default();
+        start.quad([10., 20., 30., 40.], [0., 0., 1., 1.], [1.; 4]);
+        let mut next = Batch::default();
+        next.quad([20., 30., 40., 50.], [0., 0., 1., 1.], [0.; 4]);
+        let mut middle = start.clone();
+        middle.interpolate(&next, 0.5);
+        for (a, b) in start.positions.iter().zip(&middle.positions) {
+            assert_eq!(b[0], a[0] + 5.);
+            assert_eq!(b[1], a[1] - 5.);
+        }
+        assert_eq!(middle.colors, vec![[0.5; 4]; 4]);
+        next.uv[0][0] = 0.25;
+        let mut unchanged = start.clone();
+        unchanged.interpolate(&next, 0.5);
+        assert!(unchanged == start);
     }
 }

@@ -10,6 +10,7 @@ preparation-trace = []
 
 [dependencies]
 resonance-battle.workspace = true
+resonance-simulation-memory.workspace = true
 resonance-model-behavior.workspace = true
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true

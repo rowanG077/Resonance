@@ -107,9 +107,27 @@ fn run(
             allow_incomplete_scripts: false,
             record_playthrough: None,
             record_title_ticks: 1000,
+            speculative: std::env::var_os("RESONANCE_PROBE_SMOOTHING").is_some(),
         },
         resolution,
     )?;
+    app.add_systems(
+        Startup,
+        |options: Res<crate::RunOptions>, mut window: Single<&mut Window, With<PrimaryWindow>>| {
+            window.title = format!(
+                "Resonance probe — smoothing {}",
+                if options.speculative { "ON" } else { "OFF" }
+            );
+        },
+    );
+    let title_capture = std::env::var_os("RESONANCE_PROBE_TITLE_CAPTURE").is_some();
+    let speed_probe = std::env::var_os("RESONANCE_PROBE_SPEEDS").is_some();
+    if title_capture {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_nanos(4_170_833),
+        ));
+        app.add_systems(Update, capture_title.after(crate::layout));
+    }
     if let Some(size) = surface_size {
         let mut window = app
             .world_mut()
@@ -117,16 +135,20 @@ fn run(
             .single_mut(app.world_mut())?;
         *window = crate::display::window(size);
     }
-    if let Some((_, profile)) = benchmark {
+    let smoothing_profile = std::env::var_os("RESONANCE_PROBE_PROFILE").is_some();
+    if smoothing_profile {
+        super::smoothing_profile::enable();
+    }
+    if smoothing_profile || benchmark.is_some_and(|(_, profile)| profile) {
+        super::render_profile::install(&mut app);
+    }
+    if benchmark.is_some() {
         app.add_systems(
             Startup,
             |mut window: Single<&mut Window, With<PrimaryWindow>>| {
                 window.title = "Resonance performance probe".into();
             },
         );
-        if profile {
-            super::render_profile::install(&mut app);
-        }
         if std::env::var_os("RESONANCE_BENCH_REPUBLISH").is_some() {
             app.add_systems(Update, |battle: Option<ResMut<crate::battle::Owner>>| {
                 if let Some(mut battle) = battle {
@@ -209,11 +231,16 @@ fn run(
         battle: None,
         measured_window: None,
         completed: completed.clone(),
+        title_only: speed_probe
+            || title_capture
+            || std::env::var_os("RESONANCE_PROBE_TITLE").is_some(),
+        speed_step: speed_probe.then_some(0),
     })
     .add_systems(
         PreUpdate,
         drive
             .after(bevy::input::InputSystems)
+            .before(crate::testing::controls)
             .before(crate::gather_input)
             .before(crate::field_view::gather_controls),
     );
@@ -223,6 +250,36 @@ fn run(
         "window probe exited before completing its workload"
     );
     Ok(())
+}
+
+fn capture_title(
+    mut commands: Commands,
+    probe: Res<Probe>,
+    events: Option<Res<crate::Events>>,
+    fixed: Res<Time<Fixed>>,
+    mut captured: Local<u32>,
+) {
+    let Some(events) = events else {
+        return;
+    };
+    let tick = events.0.tick();
+    // Both title lighting atlases change row at tick 617. Capture the interval
+    // around that boundary at four render samples per authoritative update.
+    if !(614..=620).contains(&tick) {
+        return;
+    }
+    let path = probe.output.join(format!(
+        "title-{tick}-{:03}-{:03}.png",
+        (fixed.overstep_fraction() * 1000.) as u32,
+        *captured
+    ));
+    *captured += 1;
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(move |event: On<ScreenshotCaptured>| {
+            crate::screenshot::write(&event.image, &path, None)
+                .expect("title diagnostic screenshot");
+        });
 }
 
 #[derive(Resource)]
@@ -240,6 +297,8 @@ struct Probe {
     battle: Option<Instant>,
     measured_window: Option<UVec2>,
     completed: Arc<AtomicBool>,
+    title_only: bool,
+    speed_step: Option<u8>,
 }
 #[allow(clippy::too_many_arguments)] // Diagnostic input, field state, window and finite lifetime.
 fn drive(
@@ -289,7 +348,33 @@ fn drive(
         exit.write(AppExit::error());
         return;
     }
-    if movie.active && !probe.replay {
+    if probe.title_only {
+        if let Some(step) = probe.speed_step {
+            let seconds = probe.started.elapsed().as_secs();
+            if step < 4 && seconds >= 3 + u64::from(step) * 3 {
+                input.press(KeyCode::F10);
+                probe.speed_step = Some(step + 1);
+            }
+            if probe.screenshots < 4 && seconds >= 4 + u64::from(probe.screenshots) * 3 {
+                let path = probe
+                    .output
+                    .join(format!("speed-{}.png", probe.screenshots));
+                commands.spawn(Screenshot::primary_window()).observe(
+                    move |event: On<ScreenshotCaptured>| {
+                        crate::screenshot::write(&event.image, &path, None)
+                            .expect("speed diagnostic screenshot");
+                    },
+                );
+                probe.screenshots += 1;
+            }
+        }
+        if probe.started.elapsed().as_secs() >= 20 {
+            probe.completed.store(true, Ordering::Release);
+            exit.write(AppExit::Success);
+        }
+        return;
+    }
+    if movie.active {
         if movie.presented_frame.is_some_and(|frame| frame > 60) {
             input.press(KeyCode::Escape);
         }
