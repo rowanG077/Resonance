@@ -1,6 +1,12 @@
 //! The field's two spatial ambience channels (native channels 5 and 6).
 use crate::{AudioCommand, GameWorld};
 
+// The MIDI volume controller keeps seven bits. Spatial sounds use the whole
+// byte for distance attenuation and channel selection before writing it here.
+pub(crate) fn sound_volume(value: u8) -> u8 {
+    value & 0x7f
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AmbientSound {
     pub id: i16,
@@ -27,7 +33,7 @@ impl GameWorld {
         {
             self.audio_commands.push(AudioCommand::Sound {
                 id: voice.id,
-                volume: voice.volume,
+                volume: sound_volume(voice.volume),
                 pan: voice.pan,
                 slot: None,
             });
@@ -119,7 +125,7 @@ impl GameWorld {
                     if old.volume != new.volume {
                         self.audio_commands.push(AudioCommand::SoundVolume {
                             slot,
-                            volume: new.volume,
+                            volume: sound_volume(new.volume),
                         });
                     }
                     if old.pan != new.pan {
@@ -129,7 +135,7 @@ impl GameWorld {
                 }
                 (_, Some(new)) => self.audio_commands.push(AudioCommand::RepeatSound {
                     id: new.id,
-                    volume: new.volume,
+                    volume: sound_volume(new.volume),
                     pan: new.pan,
                     slot: slot as u8,
                 }),

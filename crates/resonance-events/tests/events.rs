@@ -2652,16 +2652,50 @@ fn model_particles_animate_and_expire_without_aliasing_actor_handles() {
 }
 
 #[test]
+fn controlled_actor_ambient_sound_starts_and_stops_on_the_current_leader() {
+    // Thoda's lift and balance scripts attach temporary movement sounds to
+    // 999999, the native controlled-player alias, then clear the same emitter.
+    let setup = script(&[(
+        Call::SetActorAmbientSound,
+        &[CONTROLLED_ACTOR, 181, 200, 800],
+    )]);
+    let clear = script(&[(Call::SetActorAmbientSound, &[CONTROLLED_ACTOR, -1, 0, 0])]);
+    let mut world = GameWorld::default();
+    world.controlled_actor = 5;
+    world.input_enabled = true;
+    world.insert_actor(5, Actor::new(5, [0.; 3]));
+    let mut events = runtime(program(&setup, &clear), Default::default(), world);
+    steps(&mut events, 2);
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::RepeatSound {
+            id: 181,
+            volume: 72,
+            slot: 5,
+            ..
+        }]
+    ));
+    events.world.audio_commands.clear();
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 2);
+    assert!(events.world.actors[&5].ambient_sound.is_none());
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::StopSound(5)]
+    ));
+}
+
+#[test]
 fn actor_sounds_attenuate_pan_and_ignore_removed_emitters() {
     let code = script(&[
-        (Call::PlayActorSound, &[10, 154, 100, 1000]),
-        (Call::PlayActorSound, &[11, 154, 100, 1000]),
+        (Call::PlayActorSound, &[10, 154, 200, 1000]),
+        (Call::PlayActorSound, &[11, 154, 200, 1000]),
         (Call::PlayActorSound, &[12, 154, 100, 1000]),
         (Call::PlayActorSound, &[999, 154, 100, 1000]),
     ]);
     let mut world = GameWorld::default();
     world.controlled_actor = 1;
-    for (id, x) in [(1, 0.), (10, -500.), (11, 500.), (12, 2000.)] {
+    for (id, x) in [(1, 0.), (10, -500.), (11, 250.), (12, 2000.)] {
         world.insert_actor(id, Actor::new(1, [x, 0., 0.]));
     }
     let mut camera = camera::CameraRig::default();
@@ -2675,7 +2709,7 @@ fn actor_sounds_attenuate_pan_and_ignore_removed_emitters() {
         commands[0],
         AudioCommand::Sound {
             id: 154,
-            volume: 50,
+            volume: 100,
             pan: 0..64,
             slot: None
         }
@@ -2684,7 +2718,7 @@ fn actor_sounds_attenuate_pan_and_ignore_removed_emitters() {
         commands[1],
         AudioCommand::Sound {
             id: 154,
-            volume: 50,
+            volume: 22,
             pan: 65..=127,
             slot: None
         }
@@ -2747,6 +2781,45 @@ fn sound_slot_controls_ignore_unknown_operations_and_continue() {
         ]
     ));
     assert_eq!(events.active_instances(), 0);
+}
+
+#[test]
+fn scripted_sound_volume_keeps_the_native_byte_and_midi_widths() {
+    // These are authored volumes in Dirk's house, Izoold and Toize Mine.
+    let code = script(&[
+        (Call::PlaySound, &[390, 0, -80, 255]),
+        (Call::PlaySound, &[132, 0, 200, 255]),
+        (Call::ConfigureSound, &[1, 100, -80]),
+        (Call::ConfigureSound, &[1, 100, 200]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        Default::default(),
+        Default::default(),
+    );
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [
+            AudioCommand::Sound {
+                id: 390,
+                volume: 48,
+                ..
+            },
+            AudioCommand::Sound {
+                id: 132,
+                volume: 72,
+                ..
+            },
+            AudioCommand::SoundVolume {
+                slot: 1,
+                volume: 48
+            },
+            AudioCommand::SoundVolume {
+                slot: 1,
+                volume: 72
+            },
+        ]
+    ));
 }
 
 #[test]

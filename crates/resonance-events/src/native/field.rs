@@ -2,6 +2,7 @@
 use super::{NativeHost, NativeResult, Wait, require};
 use crate::{
     Actor, Animation, ResourceKind,
+    ambient::sound_volume,
     animation::slot,
     camera::CameraRig,
     world::{Attachment, AudioCommand, BoneAdjustment, Emote, EventRecord, Face, Trigger},
@@ -683,7 +684,7 @@ impl NativeHost<'_> {
                         match a[1] {
                             100 => AudioCommand::SoundVolume {
                                 slot,
-                                volume: if a[2] == 255 { 127 } else { a[2] as u8 },
+                                volume: sound_volume(a[2] as u8),
                             },
                             101 => AudioCommand::SoundPan {
                                 slot,
@@ -707,8 +708,8 @@ impl NativeHost<'_> {
                     ),
                     _ => AudioCommand::Sound {
                         id: a[0] as i16,
-                        volume: if op == NativeCall::PlaySound && a[2] != 255 {
-                            a[2].clamp(0, 127) as u8
+                        volume: if op == NativeCall::PlaySound {
+                            sound_volume(a[2] as u8)
                         } else {
                             127
                         },
