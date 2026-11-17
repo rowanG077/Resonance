@@ -231,10 +231,6 @@ impl crate::GameWorld {
         // Battle audio retires field voices. Re-admit spatial ambience when
         // this suspended scene resumes, even if its emitters have not moved.
         self.ambient_voices = [None; 2];
-        // Explicit script slots restart on return even when their previous
-        // one-shot has already finished playing.
-        self.audio_commands
-            .push(crate::AudioCommand::ReplayFieldSounds);
         Ok(())
     }
 
@@ -360,8 +356,13 @@ mod tests {
     }
 
     #[test]
-    fn battle_return_restarts_stationary_field_ambience() {
-        for outcome in [Outcome::Victory, Outcome::Escaped, Outcome::Defeat] {
+    fn battle_return_restarts_stationary_field_ambience_only_after_combat() {
+        for outcome in [
+            Some(Outcome::Victory),
+            Some(Outcome::Escaped),
+            Some(Outcome::Defeat),
+            None,
+        ] {
             let mut world = world(false);
             // Burning Iselia uses these two persistent spatial fire cues.
             for (actor, sound) in [(500, 383), (501, 384)] {
@@ -394,14 +395,14 @@ mod tests {
             let before = voices(&std::mem::take(&mut world.audio_commands));
             assert_eq!(before.len(), 2);
             let request = request(&mut world);
-            world.complete_battle(&request, outcome).unwrap();
-            assert!(matches!(
-                std::mem::take(&mut world.audio_commands).as_slice(),
-                [crate::AudioCommand::ReplayFieldSounds]
-            ));
-            world.step_ambient_sound();
-            assert_eq!(voices(&world.audio_commands), before);
-            world.audio_commands.clear();
+            if let Some(outcome) = outcome {
+                world.complete_battle(&request, outcome).unwrap();
+                world.step_ambient_sound();
+                assert_eq!(voices(&world.audio_commands), before);
+                world.audio_commands.clear();
+            } else {
+                assert!(world.skip_battle_as_victory().unwrap());
+            }
             world.step_ambient_sound();
             assert!(
                 world.audio_commands.is_empty(),

@@ -71,7 +71,7 @@ impl Battle {
             );
         }
         if let Some(sound) = recovery.voice {
-            self.request_voice(actor, sound, crate::VoicePriority::Action);
+            cues.push(self.voice_cue(actor, sound, crate::VoicePriority::Action, None));
         }
         self.restore_contact_recovery_expression(sequence);
         Ok(())

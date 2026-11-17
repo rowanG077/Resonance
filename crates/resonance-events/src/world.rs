@@ -1089,8 +1089,6 @@ pub enum AudioCommand {
     StopVoice,
     SelectBank(u8),
     StopSound(u16),
-    /// Restart the field's explicitly bound script cues after combat.
-    ReplayFieldSounds,
     SoundVolume {
         slot: u16,
         volume: u8,

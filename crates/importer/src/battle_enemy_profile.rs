@@ -172,6 +172,7 @@ fn voices(usual: &[u8], base: u32, party: bool) -> Result<Voices> {
     Ok(Voices {
         hurt: [line(3), line(4)],
         defeat: line(6),
+        alternate_defeat: None,
         critical: line(8),
         guard: line(9),
         ally_defeated: [line(10), line(11)],
@@ -190,6 +191,7 @@ fn voices(usual: &[u8], base: u32, party: bool) -> Result<Voices> {
             .filter_map(|i| line(i).zip(line(i + 1)).map(|(a, b)| [a, b]))
             .collect(),
         interrupted_cast: line(49),
+        enemy_defeated: line(50),
         escape_request: line(51),
         escape_success: line(52),
         escape_cancel: line(53),
@@ -205,14 +207,16 @@ fn category<T: Copy>(items: &[T], index: usize, label: &str) -> Result<T> {
         .with_context(|| format!("unknown enemy {label} {index}"))
 }
 
-/// `data` is the profile section of one native enemy package. The resident
-/// BTLusual archive is only needed for the 76 enemies with a nonzero voice base.
-pub(crate) fn profile(data: &[u8], nodes: &[String], usual: Option<&[u8]>) -> Result<Profile> {
+/// Read one enemy profile and resolve its voice bank from the resident battle archive.
+pub(crate) fn profile(data: &[u8], nodes: &[String], usual: &[u8]) -> Result<Profile> {
     read_profile(data, Some(nodes), usual)
 }
 
 pub(crate) fn party_profile(data: &[u8], usual: &[u8]) -> Result<Profile> {
-    let mut profile = read_profile(data, None, Some(usual))?;
+    let mut profile = read_profile(data, None, usual)?;
+    if let Some(voices) = &mut profile.voices {
+        voices.alternate_defeat = crate::battle_party_native::sound(half(data, 0xf4)?);
+    }
     let anchors = crate::world_gpl::animation_target_bindings(vec![
         (0, profile.head_anchor.bone),
         (1, profile.overlimit_bone),
@@ -222,7 +226,7 @@ pub(crate) fn party_profile(data: &[u8], usual: &[u8]) -> Result<Profile> {
     Ok(profile)
 }
 
-fn read_profile(data: &[u8], nodes: Option<&[String]>, usual: Option<&[u8]>) -> Result<Profile> {
+fn read_profile(data: &[u8], nodes: Option<&[String]>, usual: &[u8]) -> Result<Profile> {
     use resonance_content::battle_profile::{RecoilWeight, Size, Species};
     let b = data.get(..496).context("truncated actor profile")?;
     let party = nodes.is_none();
@@ -388,13 +392,7 @@ fn read_profile(data: &[u8], nodes: Option<&[String]>, usual: Option<&[u8]>) -> 
             "size",
         )?,
         voices: (voice_base != 0)
-            .then(|| {
-                voices(
-                    usual.context("voiced enemy needs resident battle archive")?,
-                    voice_base,
-                    party,
-                )
-            })
+            .then(|| voices(usual, voice_base, party))
             .transpose()?,
         death_motion: b[0x9c],
         overlimit_bone,

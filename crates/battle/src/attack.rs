@@ -4,7 +4,7 @@ use crate::ResourceId;
 use crate::TechniqueId;
 use crate::WeaponSlot;
 use crate::{
-    ActionExecution, ActionId, Battle, Cue, MeleeDefinition, MotionBinding, Sound,
+    ActionExecution, ActionId, Battle, Cue, MeleeDefinition, MotionBinding, Sound, VoicePriority,
     WeaponFlightDefinition,
 };
 use anyhow::{Context, Result, ensure};
@@ -1123,7 +1123,7 @@ pub(crate) fn step(
                 if let Some(name) = item {
                     battle.actors[index].reaction.protection.armor(60);
                     if let Some(voice) = recipe.success_voice {
-                        battle.request_voice(actor, voice, crate::VoicePriority::Action);
+                        cues.push(battle.voice_cue(actor, voice, VoicePriority::Action, None));
                     }
                     cues.push(Cue::EffectNotice {
                         actor,
@@ -1149,7 +1149,7 @@ pub(crate) fn step(
                 if battle.random.next_u16() & 1 != 0
                     && let Some(voice) = recipe.failure_voice
                 {
-                    battle.request_voice(actor, voice, crate::VoicePriority::Action);
+                    cues.push(battle.voice_cue(actor, voice, VoicePriority::Action, None));
                 }
             }
             AttackEvent::Seal(definition) => {
@@ -1464,14 +1464,10 @@ pub(crate) fn step(
                 });
             }
             AttackEvent::Voice { sound, priority } => {
-                battle.request_action_voice(
-                    actor,
-                    *sound,
-                    *priority,
-                    (*priority == crate::VoicePriority::Action
-                        && sequence.definition.normal.is_none())
-                    .then_some(id),
-                );
+                let action = (*priority == VoicePriority::Action
+                    && sequence.definition.normal.is_none())
+                .then_some(id);
+                cues.push(battle.voice_cue(actor, *sound, *priority, action));
             }
             AttackEvent::Sound(sound) => {
                 if let Some(sound) = sound {

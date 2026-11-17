@@ -31,7 +31,12 @@ impl Feedback {
     }
 
     /// Resolve semantic events before models, effects and audio consume the frame.
-    pub fn resolve(&mut self, frame: &mut BattleFrame, entry_voice_ready: bool) {
+    pub fn resolve(
+        &mut self,
+        frame: &mut BattleFrame,
+        entry_voice_ready: bool,
+        mut record_voices: impl FnMut(&[Cue]),
+    ) {
         if frame
             .cues
             .iter()
@@ -39,9 +44,12 @@ impl Feedback {
         {
             return;
         }
+        let original = std::mem::take(&mut frame.cues);
+        frame.cues.reserve(original.len());
         let mut cues = Vec::new();
+        let mut voices = Vec::new();
         if entry_voice_ready && let Some((actor, sound)) = self.resources.entry_voice.take() {
-            cues.push(Cue::Voice {
+            voices.push(Cue::Voice {
                 action: None,
                 actor,
                 sound,
@@ -49,8 +57,12 @@ impl Feedback {
                 position: frame.actors[actor.index()].audio_position(),
                 centered: true,
             });
+            record_voices(&voices);
+            frame.cues.append(&mut voices);
         }
-        for cue in &frame.cues {
+        for event in original {
+            frame.cues.push(event);
+            let cue = frame.cues.last().unwrap();
             match *cue {
                 Cue::Backstepped { actor } | Cue::Taunted { actor } => {
                     let Some(control) = self.resources.actors.get(actor.index()) else {
@@ -65,7 +77,7 @@ impl Feedback {
                             position,
                         }));
                     } else {
-                        cues.extend(control.taunt.map(|sound| Cue::Voice {
+                        voices.extend(control.taunt.map(|sound| Cue::Voice {
                             action: None,
                             actor,
                             sound,
@@ -160,7 +172,7 @@ impl Feedback {
                         .get(actor.index())
                         .and_then(|actor| actor.acquisition_voice)
                     {
-                        cues.push(Cue::Voice {
+                        voices.push(Cue::Voice {
                             action: None,
                             actor,
                             sound,
@@ -253,7 +265,7 @@ impl Feedback {
                             priority: 1,
                         }));
                     }
-                    cues.extend(voice.map(|sound| Cue::Voice {
+                    voices.extend(voice.map(|sound| Cue::Voice {
                         action: source,
                         actor,
                         sound,
@@ -279,7 +291,7 @@ impl Feedback {
                         position,
                         priority: 1,
                     }));
-                    cues.extend(
+                    voices.extend(
                         self.resources
                             .actors
                             .get(actor.index())
@@ -312,7 +324,7 @@ impl Feedback {
                     }
                 }
                 Cue::TechniqueQueued { actor } => {
-                    cues.extend(
+                    voices.extend(
                         self.resources
                             .actors
                             .get(actor.index())
@@ -373,7 +385,7 @@ impl Feedback {
                             if let Some(sound) =
                                 feedback.discovery.filter(|_| discovered).or(feedback.used)
                             {
-                                cues.push(Cue::Voice {
+                                voices.push(Cue::Voice {
                                     action: None,
                                     actor: user,
                                     sound,
@@ -475,7 +487,7 @@ impl Feedback {
                         }
                     }
                     if let Cue::Charged { .. } = cue {
-                        cues.extend(
+                        voices.extend(
                             self.resources
                                 .actors
                                 .get(actor.index())
@@ -518,7 +530,7 @@ impl Feedback {
                             });
                         }
                         if let Some(sound) = feedback.voice {
-                            cues.push(Cue::Voice {
+                            voices.push(Cue::Voice {
                                 action: None,
                                 actor,
                                 sound,
@@ -564,6 +576,28 @@ impl Feedback {
                         }
                     }
                 }
+                Cue::EnemyDefeatedReaction { actor } => {
+                    if let Some(sound) = self
+                        .resources
+                        .contact_audio
+                        .as_ref()
+                        .and_then(|audio| audio.actors[actor.index()].voices.enemy_defeated)
+                    {
+                        voices.push(Cue::Voice {
+                            action: None,
+                            actor,
+                            sound,
+                            priority: VoicePriority::AfterSpeech,
+                            position: frame.actors[actor.index()].audio_position(),
+                            centered: false,
+                        });
+                    }
+                }
+                Cue::Hit {
+                    defeated: false, ..
+                } => {
+                    voices.extend(self.contact_voice(cue, frame));
+                }
                 Cue::Defeated { actor } => {
                     let target = &frame.actors[actor.index()];
                     if let Some(sound) = self
@@ -571,9 +605,18 @@ impl Feedback {
                         .contact_audio
                         .as_ref()
                         .and_then(|audio| audio.actors.get(actor.index()))
-                        .and_then(|audio| audio.voices.defeat)
+                        .and_then(|audio| {
+                            if target.side == Side::Party
+                                && let Some(alternate) = audio.voices.alternate_defeat
+                                && self.random.next_u16() & 1 == 0
+                            {
+                                Some(alternate)
+                            } else {
+                                audio.voices.defeat
+                            }
+                        })
                     {
-                        cues.push(Cue::Voice {
+                        voices.push(Cue::Voice {
                             action: None,
                             actor,
                             sound,
@@ -610,7 +653,7 @@ impl Feedback {
                                 if let Some(sound) =
                                     reaction.voices[variant].filter(|_| recipient.available())
                                 {
-                                    cues.push(Cue::Voice {
+                                    voices.push(Cue::Voice {
                                         action: None,
                                         actor: reaction.recipient,
                                         sound,
@@ -624,6 +667,12 @@ impl Feedback {
                     }
                 }
                 _ => {}
+            }
+            // Speech joins the actor’s channel at the event that requested it.
+            // Other feedback retains its presentation pass after gameplay events.
+            if !voices.is_empty() {
+                record_voices(&voices);
+                frame.cues.append(&mut voices);
             }
         }
         frame.cues.extend(cues);
@@ -683,13 +732,6 @@ impl Feedback {
 
     /// Resolve contact presentation once, before effects and audio consume this frame.
     fn contacts(&mut self, frame: &mut BattleFrame) {
-        if frame
-            .cues
-            .iter()
-            .any(|cue| matches!(cue, Cue::CombatRetired))
-        {
-            return;
-        }
         let mut cues = Vec::new();
         for cue in &frame.cues {
             let Cue::Hit {
@@ -699,9 +741,7 @@ impl Feedback {
                 element,
                 contact_sound,
                 suppress_guard_sound,
-                was_casting,
                 overlimit,
-                stunned,
                 repeated,
                 result,
                 ..
@@ -813,44 +853,56 @@ impl Feedback {
                     priority: 1,
                 });
             }
-            let voices = &audio.actors[actor.index()].voices;
-            let (voice, priority) = if result.guard == GuardResult::Broken {
-                (voices.critical, VoicePriority::Action)
-            } else if let GuardResult::Blocked { first, .. } = result.guard {
-                (voices.guard.filter(|_| first), VoicePriority::Reaction)
-            } else if result.suppresses_reaction() {
-                (None, VoicePriority::Reaction)
-            } else {
-                let reaction = if stunned {
-                    voices.stunned
-                } else if was_casting {
-                    voices.interrupted_cast
-                } else if result.critical {
-                    voices.critical
-                } else {
-                    None
-                };
-                if reaction.is_some() {
-                    (reaction, VoicePriority::Action)
-                } else {
-                    let hurt = voices.hurt[usize::from(self.random.next_u16() & 1)]
-                        .or(voices.hurt[0])
-                        .or(voices.hurt[1]);
-                    (hurt, VoicePriority::Reaction)
-                }
-            };
-            if let Some(sound) = voice {
-                cues.push(Cue::Voice {
-                    action: None,
-                    actor,
-                    sound,
-                    priority,
-                    position: target.audio_position(),
-                    centered: false,
-                });
-            }
         }
         frame.cues.extend(cues);
+    }
+
+    fn contact_voice(&mut self, cue: &Cue, frame: &BattleFrame) -> Option<Cue> {
+        let Cue::Hit {
+            actor,
+            was_casting,
+            stunned,
+            result,
+            ..
+        } = *cue
+        else {
+            return None;
+        };
+        let audio = self.resources.contact_audio.as_ref()?;
+        let voices = &audio.actors[actor.index()].voices;
+        let (voice, priority) = if result.guard == GuardResult::Broken {
+            (voices.critical, VoicePriority::Action)
+        } else if let GuardResult::Blocked { first, .. } = result.guard {
+            (voices.guard.filter(|_| first), VoicePriority::Reaction)
+        } else if result.suppresses_reaction() {
+            (None, VoicePriority::Reaction)
+        } else {
+            let reaction = if stunned {
+                voices.stunned
+            } else if was_casting {
+                voices.interrupted_cast
+            } else if result.critical {
+                voices.critical
+            } else {
+                None
+            };
+            if reaction.is_some() {
+                (reaction, VoicePriority::Action)
+            } else {
+                let hurt = voices.hurt[usize::from(self.random.next_u16() & 1)]
+                    .or(voices.hurt[0])
+                    .or(voices.hurt[1]);
+                (hurt, VoicePriority::Reaction)
+            }
+        };
+        Some(Cue::Voice {
+            action: None,
+            actor,
+            sound: voice?,
+            priority,
+            position: frame.actors[actor.index()].audio_position(),
+            centered: false,
+        })
     }
 
     /// Called once with the completed simulation snapshot, never while drawing.
@@ -957,7 +1009,7 @@ fn attached_effect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_battle::{BattleResult, CameraDefinition, PreparedBattle};
+    use resonance_battle::{ActorId, BattleResult, CameraDefinition, PreparedBattle, Sound};
 
     #[test]
     fn resolved_battle_voices_reach_the_title_counter_without_audio_playback() -> anyhow::Result<()>
@@ -1025,9 +1077,7 @@ mod tests {
             ]);
             frame.actors[actor.index()].activity =
                 resonance_battle::Activity::Casting { held: false };
-            let core_cues = frame.cues.len();
-            feedback.resolve(&mut frame, true);
-            battle.record_voice_requests(&frame.cues[core_cues..]);
+            feedback.resolve(&mut frame, true, |cues| battle.record_voice_requests(cues));
         }
         assert_eq!(battle.ledger().achievements[0].voices, 50);
         assert_eq!(battle.ledger().achievements[1].voices, 0);
@@ -1062,7 +1112,7 @@ mod tests {
                 resonance_battle::ActorId::from_index(1)?,
             ],
         }];
-        feedback.resolve(&mut frame, true);
+        feedback.resolve(&mut frame, true, |_| {});
         assert_eq!(
             frame
                 .cues
@@ -1110,7 +1160,7 @@ mod tests {
         let mut frame = battle.snapshot();
         let actors = frame.actors.clone();
         frame.cues.push(Cue::Defeated { actor });
-        feedback.resolve(&mut frame, true);
+        feedback.resolve(&mut frame, true, |_| {});
         let effects: Vec<_> = frame
             .cues
             .iter()
@@ -1168,7 +1218,7 @@ mod tests {
         );
         let mut frame = battle.snapshot();
         frame.cues = vec![event.clone()];
-        feedback.resolve(&mut frame, true);
+        feedback.resolve(&mut frame, true, |_| {});
         let voices: Vec<_> = frame
             .cues
             .iter()
@@ -1184,21 +1234,16 @@ mod tests {
         }));
         assert_eq!(frame.actors[1].hp, 100);
         frame.cues = vec![event.clone()];
-        Feedback::default().resolve(&mut frame, true);
+        Feedback::default().resolve(&mut frame, true, |_| {});
         assert_eq!(frame.cues, [event]);
         Ok(())
     }
 
-    #[test]
-    fn contact_feedback_uses_resolved_hits_and_keeps_gameplay_unchanged() -> anyhow::Result<()> {
+    fn contact_battle() -> anyhow::Result<(resonance_battle::Battle, BattleFrame)> {
         use resonance_battle::{
-            ActionDefinition, ActionExecution, ActionRequest, Affinity, BattleInput, ContactSource,
-            EffectAppearance, Element, HitProtection, HitResult, PreparedAttack, Sound,
+            ActionDefinition, ActionExecution, ActionRequest, BattleInput, PreparedAttack,
         };
-        use resonance_game::battle::{
-            contact_audio::{ContactActorAudio, ContactAudio, ContactVoices},
-            contact_feedback::{ContactArt, ContactElementFeedback},
-        };
+
         let mut battle = PreparedBattle::new(
             vec![
                 (
@@ -1246,10 +1291,200 @@ mod tests {
             target: ids[1],
             action: resonance_battle::ActionKey(0),
         }))?;
-        let source = ContactSource::Melee {
-            actor: ids[0],
-            action: admitted.actions[0].0,
+        Ok((battle, admitted))
+    }
+
+    fn contact_audio() -> resonance_game::battle::contact_audio::ContactAudio {
+        use resonance_game::battle::contact_audio::{
+            ContactActorAudio, ContactAudio, ContactVoices,
         };
+
+        ContactAudio {
+            actors: vec![
+                ContactActorAudio {
+                    neutral: Some(Sound::Cue(10)),
+                    voices: ContactVoices {
+                        hurt: [Some(Sound::Stream(1)), Some(Sound::Stream(2))],
+                        guard: Some(Sound::Stream(3)),
+                        interrupted_cast: Some(Sound::Stream(4)),
+                        defeat: Some(Sound::Stream(5)),
+                        alternate_defeat: Some(Sound::Stream(7)),
+                        enemy_defeated: Some(Sound::Stream(8)),
+                        critical: Some(Sound::Stream(6)),
+                        ..Default::default()
+                    },
+                };
+                2
+            ],
+            elements: [Some(Sound::Cue(11)); 8],
+            guard: Some(Sound::Cue(12)),
+            guard_break: Some(Sound::Cue(13)),
+            overlimit: Some(Sound::Cue(14)),
+        }
+    }
+
+    const FIRST_BLOCK: GuardResult = GuardResult::Blocked {
+        first: true,
+        special: false,
+    };
+
+    fn contact_hit(
+        action: resonance_battle::ActionId,
+        owner: ActorId,
+        actor: ActorId,
+        guard: GuardResult,
+        was_casting: bool,
+        critical: bool,
+        defeated: bool,
+    ) -> Cue {
+        use resonance_battle::{Affinity, ContactSource, Element, HitProtection, HitResult};
+
+        Cue::Hit {
+            source: ContactSource::Melee {
+                actor: owner,
+                action,
+            },
+            owner,
+            actor,
+            position: [1., 2., 3.],
+            element: Some(Element::Fire),
+            contact_sound: None,
+            suppress_guard_sound: false,
+            was_casting,
+            overlimit: false,
+            stunned: false,
+            defeated,
+            repeated: false,
+            result: HitResult {
+                amount: 10,
+                hp_change: -10,
+                critical,
+                boosted: false,
+                reaction_suppressed: false,
+                reaction_forced: false,
+                affinity: Affinity::Normal,
+                guard,
+                protection: HitProtection::None,
+            },
+        }
+    }
+
+    fn actor_lines(cues: &[Cue], speaker: ActorId) -> Vec<Sound> {
+        cues.iter()
+            .filter_map(|cue| match *cue {
+                Cue::Voice { actor, sound, .. } if actor == speaker => Some(sound),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn defeat_voices_preserve_same_update_speech_order() -> anyhow::Result<()> {
+        let (mut battle, admitted) = contact_battle()?;
+        let action = admitted.actions[0].0;
+        let speaker = ActorId::from_index(0)?;
+        let enemy = ActorId::from_index(1)?;
+        let mut feedback = Feedback::new(
+            Resources {
+                contact_audio: Some(contact_audio()),
+                ..Default::default()
+            },
+            1,
+        );
+        let block = contact_hit(action, enemy, speaker, FIRST_BLOCK, false, false, false);
+        let kill = Cue::EnemyDefeatedReaction { actor: speaker };
+        let stop = Cue::StopVoice {
+            actor: speaker,
+            max_priority: VoicePriority::Announcement,
+        };
+        let summon = Cue::Voice {
+            actor: speaker,
+            action: None,
+            priority: VoicePriority::Announcement,
+            sound: Sound::Stream(9),
+            position: [0.; 3],
+            centered: true,
+        };
+        // Contact reactions and the summon's explicit stop and announcement share one channel.
+        for (events, expected, resolved) in [
+            (vec![block.clone(), kill.clone()], vec![Some(3), Some(8)], 2),
+            (vec![kill.clone(), block], vec![Some(8), Some(3)], 2),
+            (
+                vec![kill.clone(), stop.clone(), summon.clone()],
+                vec![Some(8), None, Some(9)],
+                1,
+            ),
+            (vec![stop, summon, kill], vec![None, Some(9), Some(8)], 1),
+        ] {
+            let mut ordered = battle.publish(events);
+            let before = battle.ledger().achievements[speaker.index()].voices;
+            feedback.resolve(&mut ordered, true, |cues| {
+                battle.record_voice_requests(cues)
+            });
+            let speech: Vec<_> = ordered
+                .cues
+                .iter()
+                .filter_map(|cue| match *cue {
+                    Cue::Voice {
+                        actor,
+                        sound: Sound::Stream(line),
+                        ..
+                    } if actor == speaker => Some(Some(line)),
+                    Cue::StopVoice { actor, .. } if actor == speaker => Some(None),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(speech, expected);
+            assert_eq!(
+                battle.ledger().achievements[speaker.index()].voices,
+                before + resolved
+            );
+        }
+
+        // Sacrifice can defeat the caster after an unrelated hit on the same update.
+        let caster = speaker;
+        for (seed, hurt, defeat) in [(0, 1, 7), (1, 1, 5)] {
+            feedback.random = Random::new(seed);
+            let mut frame = battle.publish(vec![
+                contact_hit(
+                    action,
+                    enemy,
+                    caster,
+                    GuardResult::None,
+                    false,
+                    false,
+                    false,
+                ),
+                Cue::IncidentalDamage {
+                    actor: caster,
+                    amount: 90,
+                },
+                Cue::Defeated { actor: caster },
+            ]);
+            frame.actors[caster.index()].hp = 0;
+            frame.actors[caster.index()].availability = resonance_battle::ActorAvailability::Dead;
+            let before = battle.ledger().achievements[caster.index()].voices;
+            feedback.resolve(&mut frame, true, |cues| battle.record_voice_requests(cues));
+            assert_eq!(
+                actor_lines(&frame.cues, caster),
+                [Sound::Stream(hurt), Sound::Stream(defeat)]
+            );
+            assert_eq!(
+                battle.ledger().achievements[caster.index()].voices,
+                before + 2
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn contact_feedback_uses_resolved_hits_and_keeps_gameplay_unchanged() -> anyhow::Result<()> {
+        use resonance_battle::EffectAppearance;
+        use resonance_game::battle::contact_feedback::{ContactArt, ContactElementFeedback};
+
+        let (battle, admitted) = contact_battle()?;
+        let action = admitted.actions[0].0;
+        let ids: Vec<_> = battle.actor_ids().collect();
         let base = battle.snapshot();
         let gameplay_random = battle.random_state();
         let effect = |member| EffectAppearance {
@@ -1269,30 +1504,10 @@ mod tests {
                 color: [64, 96, 128],
             }; 9],
         };
-        let audio = ContactAudio {
-            actors: vec![
-                ContactActorAudio {
-                    neutral: Some(Sound::Cue(10)),
-                    voices: ContactVoices {
-                        hurt: [Some(Sound::Stream(1)), Some(Sound::Stream(2))],
-                        guard: Some(Sound::Stream(3)),
-                        interrupted_cast: Some(Sound::Stream(4)),
-                        defeat: Some(Sound::Stream(5)),
-                        critical: Some(Sound::Stream(6)),
-                        ..Default::default()
-                    },
-                };
-                2
-            ],
-            elements: [Some(Sound::Cue(11)); 8],
-            guard: Some(Sound::Cue(12)),
-            guard_break: Some(Sound::Cue(13)),
-            overlimit: Some(Sound::Cue(14)),
-        };
         let mut feedback = Feedback::new(
             Resources {
                 contact_art: Some(art),
-                contact_audio: Some(audio),
+                contact_audio: Some(contact_audio()),
                 ..Default::default()
             },
             99,
@@ -1300,10 +1515,10 @@ mod tests {
         feedback.resources.entry_voice = Some((ids[0], Sound::Stream(90)));
         feedback.resources.target_changed = Some(Sound::Cue(108));
         let mut held = base.clone();
-        feedback.resolve(&mut held, false);
+        feedback.resolve(&mut held, false, |_| {});
         assert!(!held.cues.iter().any(|cue| matches!(cue, Cue::Voice { .. })));
         let mut entry = base.clone();
-        feedback.resolve(&mut entry, true);
+        feedback.resolve(&mut entry, true, |_| {});
         assert!(entry.cues.iter().any(|cue| matches!(cue,
             Cue::Voice { actor, sound: Sound::Stream(90), centered: true, .. } if *actor == ids[0])));
         let mut next = base.clone();
@@ -1311,7 +1526,7 @@ mod tests {
             actor: ids[0],
             target: ids[1],
         });
-        feedback.resolve(&mut next, true);
+        feedback.resolve(&mut next, true, |_| {});
         assert!(!next.cues.iter().any(|cue| matches!(cue, Cue::Voice { .. })));
         assert!(next.cues.iter().any(|cue| matches!(
             cue,
@@ -1330,18 +1545,7 @@ mod tests {
                 11,
                 Some(4),
             ),
-            (
-                GuardResult::Blocked {
-                    first: true,
-                    special: false,
-                },
-                false,
-                100,
-                false,
-                &[2][..],
-                12,
-                Some(3),
-            ),
+            (FIRST_BLOCK, false, 100, false, &[2][..], 12, Some(3)),
             (
                 GuardResult::Broken,
                 false,
@@ -1365,32 +1569,17 @@ mod tests {
         ] {
             let mut frame = base.clone();
             frame.actors[1].state.hp = hp;
-            frame.cues = vec![Cue::Hit {
-                source,
-                owner: ids[0],
-                actor: ids[1],
-                position: [1., 2., 3.],
-                element: Some(Element::Fire),
-                contact_sound: None,
-                suppress_guard_sound: false,
+            frame.cues = vec![contact_hit(
+                action,
+                ids[0],
+                ids[1],
+                guard,
                 was_casting,
-                overlimit: false,
-                stunned: false,
-                repeated: false,
-                result: HitResult {
-                    amount: 10,
-                    hp_change: -10,
-                    critical,
-                    boosted: false,
-                    reaction_suppressed: false,
-                    reaction_forced: false,
-                    affinity: Affinity::Normal,
-                    guard,
-                    protection: HitProtection::None,
-                },
-            }];
+                critical,
+                false,
+            )];
             let actors = frame.actors.clone();
-            feedback.contacts(&mut frame);
+            feedback.resolve(&mut frame, true, |_| {});
             let effects: Vec<_> = frame
                 .cues
                 .iter()
@@ -1453,6 +1642,14 @@ mod tests {
                 assert!([Sound::Stream(1), Sound::Stream(2)].contains(&voices[0]));
             }
             assert_eq!(frame.actors, actors);
+            if hp == 0 {
+                frame.cues = vec![
+                    contact_hit(action, ids[0], ids[1], guard, was_casting, critical, true),
+                    Cue::Defeated { actor: ids[1] },
+                ];
+                feedback.resolve(&mut frame, true, |_| {});
+                assert_eq!(actor_lines(&frame.cues, ids[1]), [Sound::Stream(5)]);
+            }
             if matches!(guard, GuardResult::Blocked { .. }) {
                 for (authored, suppressed, expected) in [
                     (None, false, vec![Sound::Cue(12)]),
@@ -1476,7 +1673,7 @@ mod tests {
                     };
                     *contact_sound = authored;
                     *suppress_guard_sound = suppressed;
-                    feedback.contacts(&mut guarded);
+                    feedback.resolve(&mut guarded, true, |_| {});
                     let sounds: Vec<_> = guarded
                         .cues
                         .iter()
@@ -1489,27 +1686,8 @@ mod tests {
                     assert_eq!(guarded.actors, actors);
                 }
             }
-            if hp == 0 {
-                frame.cues.retain(|cue| matches!(cue, Cue::Hit { .. }));
-                frame.cues.push(frame.cues[0].clone());
-                frame.cues.push(Cue::Defeated { actor: ids[1] });
-                feedback.resolve(&mut frame, true);
-                assert_eq!(
-                    frame
-                        .cues
-                        .iter()
-                        .filter(|cue| matches!(
-                            cue,
-                            Cue::Voice {
-                                sound: Sound::Stream(5),
-                                ..
-                            }
-                        ))
-                        .count(),
-                    1
-                );
-            }
         }
+
         feedback
             .resources
             .admission_flashes
@@ -1528,7 +1706,7 @@ mod tests {
                     nominal,
                     applied: 0,
                 }];
-                feedback.resolve(&mut capped, true);
+                feedback.resolve(&mut capped, true, |_| {});
                 assert_eq!(
                     capped.cues.contains(&Cue::ActorFlash {
                         actor: ids[0],
@@ -1586,7 +1764,7 @@ mod tests {
             .filter_map(|cue| feedback.resources.notice(cue))
             .collect();
         assert_eq!(notices, [(ids[0], "Self Cure"), (ids[0], "Angel's Tear")]);
-        feedback.resolve(&mut frame, true);
+        feedback.resolve(&mut frame, true, |_| {});
         assert!(frame.cues.contains(&Cue::ActorPulse {
             actor: ids[0],
             color: [10, 20, 30]
@@ -1662,7 +1840,7 @@ mod tests {
                 action: resonance_battle::ActionKey(0),
                 phase,
             }];
-            feedback.resolve(&mut frame, true);
+            feedback.resolve(&mut frame, true, |_| {});
             assert_eq!(
                 frame.cues.iter().any(|cue| matches!(
                     cue,
@@ -1717,7 +1895,7 @@ mod tests {
             Cue::GuardReady { actor: ids[0] },
             Cue::UnisonReady,
         ]);
-        feedback.resolve(&mut frame, true);
+        feedback.resolve(&mut frame, true, |_| {});
         assert!(frame.models.is_empty());
         assert!(
             !frame
@@ -1846,7 +2024,7 @@ mod tests {
                 action: resonance_battle::ActionKey(0),
                 phase,
             }];
-            feedback.resolve(&mut frame, true);
+            feedback.resolve(&mut frame, true, |_| {});
             let opening = phase == resonance_battle::CastPhase::SceneOpening;
             assert_eq!(
                 frame.cues.iter().any(|cue| matches!(cue,

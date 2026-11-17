@@ -23,6 +23,8 @@ impl Battle {
         let actor = &mut self.actors[index];
         actor.secondary_wind.advance(&mut self.random);
         let runtime = &mut self.runtime[index];
+        runtime.enemy_defeated_voice_cooldown =
+            runtime.enemy_defeated_voice_cooldown.saturating_sub(1);
         runtime.target_settle_remaining = runtime.target_settle_remaining.saturating_sub(1);
         if runtime.body_bypass_ticks != 0 {
             runtime.body_bypass_ticks -= 1;

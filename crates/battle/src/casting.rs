@@ -568,7 +568,7 @@ impl CastRun {
             let learned = if store {
                 None
             } else {
-                battle.commit_cast_use(actor, requested)?
+                battle.commit_cast_use(actor, requested, cues)?
             };
             if let Some(action) = learned {
                 let definition = Arc::clone(&battle.prepared.actions[action]);
@@ -588,7 +588,7 @@ impl CastRun {
                 battle.actors[actor.index()].tp -= amount as u16;
                 // Storage retains the requested spell and its existing payment order.
                 if store {
-                    let _ = battle.commit_cast_use(actor, requested)?;
+                    let _ = battle.commit_cast_use(actor, requested, cues)?;
                 }
                 lucky
             }

@@ -36,7 +36,7 @@ impl Battle {
         (self.unison_gauge.clamp(0, MAX_UNISON_GAUGE) / SAVED_GAUGE_SCALE) as u8
     }
 
-    pub(crate) fn begin_taunt(&mut self, actor: ActorId) {
+    pub(crate) fn begin_taunt(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let index = actor.index();
         self.set_task(
             index,
@@ -59,7 +59,7 @@ impl Battle {
             actor,
             pose: crate::CommonPose::Taunt,
         });
-        self.pending_cues.push(Cue::Taunted { actor });
+        cues.push(Cue::Taunted { actor });
     }
 
     pub(crate) fn advance_taunt(

@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires extracted GQSEAF battle REL and resident archive"]
-    fn native_strategy_tables_survive_named_rules_and_mod_edits() -> Result<()> {
+    fn party_combat_rules_survive_import_and_mod_edits() -> Result<()> {
         let root = std::env::var_os("RESONANCE_TEST_EXTRACTED")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
@@ -438,6 +438,12 @@ mod tests {
             )
         };
         let restored = prepare(json.clone())?;
+        let lloyd = restored.records[PartyCharacterId::Lloyd.index()]
+            .voices
+            .as_ref()
+            .context("missing Lloyd's battle voices")?;
+        assert_eq!(lloyd.alternate_defeat, Some(Sound::Cue(618)));
+        assert_eq!(lloyd.enemy_defeated, Some(Sound::Cue(552)));
         assert_eq!(
             restored.companion_normal_selection,
             profile::CompanionNormalSelection {

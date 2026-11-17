@@ -643,6 +643,18 @@ impl Control {
             .try_send(message)
             .context("field audio queue is full or stopped")
     }
+    // A running decoder drains its queue before advancing the frame count.
+    pub(super) fn queue_stalled(&mut self) -> bool {
+        let frame = self.rendered_frames();
+        let (previous, since) = self
+            .stalled
+            .get_or_insert_with(|| (frame, std::time::Instant::now()));
+        if *previous != frame {
+            *previous = frame;
+            *since = std::time::Instant::now();
+        }
+        since.elapsed() >= QUEUE_STALL
+    }
     fn leave_field(&mut self) -> Result<()> {
         if self.in_field {
             self.enqueue(Message::LeaveField)?;
@@ -808,6 +820,9 @@ struct BoundSound {
     volume: u8,
 }
 
+// Slots 0 through 4 belong to the script. Spatial ambience manages slots 5 and 6.
+type SoundBindings = [Option<BoundSound>; 5];
+
 pub(super) struct Frames {
     synth: Synthesizer,
     battle: Option<battle::State>,
@@ -821,7 +836,7 @@ pub(super) struct Frames {
     background_music: Option<i16>,
     sounds: Vec<ScorePlayer>,
     /// Keep the cue for battle return even after its playback ends.
-    sound_bindings: [Option<BoundSound>; 5],
+    sound_bindings: SoundBindings,
     studio: Studio,
     studio_initialized: bool,
     stream_block: [BusFrame; BLOCK_FRAMES],
@@ -976,17 +991,6 @@ impl Frames {
                 self.play_sound(BoundSound { id, pan, volume }, Some(slot), true)?;
             }
             AudioCommand::StopSound(slot) => self.replace_sound_slot(slot, None),
-            AudioCommand::ReplayFieldSounds => {
-                for (slot, binding) in self.sound_bindings.into_iter().enumerate() {
-                    if let Some(cue) = binding
-                        && let Err(error) = self.play_sound(cue, Some(slot as u8), false)
-                    {
-                        self.assets
-                            .diagnostics
-                            .report("replay field sound", error)?;
-                    }
-                }
-            }
             AudioCommand::SoundVolume { slot, volume } => {
                 ensure!(volume < 128, "invalid sound volume");
                 if let Some(Some(binding)) = self.sound_bindings.get_mut(usize::from(slot)) {
@@ -1075,13 +1079,13 @@ impl Frames {
                     self.battle_command(command_id, command)?
                 }
                 Ok(Message::LeaveField) => {
-                    self.sound_bindings = [None; 5];
+                    self.sound_bindings.fill(None);
                     self.sounds.clear();
                     self.stop_voice()?;
                 }
                 Ok(Message::EnterField(assets)) => {
                     self.initialize_studio(&assets)?;
-                    self.sound_bindings = [None; 5];
+                    self.sound_bindings.fill(None);
                     self.assets = assets;
                     // Music continues across fields, but scripted fades belong
                     // to the scene that requested them.
@@ -1334,7 +1338,7 @@ impl Decodable for FieldSource {
             music: None,
             background_music: None,
             sounds: Vec::new(),
-            sound_bindings: [None; 5],
+            sound_bindings: SoundBindings::default(),
             studio: Studio::new(self.assets.reverbs).expect("validated field studio effects"),
             studio_initialized: self.assets.music_reverbs.is_some(),
             stream_block: [[[0; 2]; 3]; BLOCK_FRAMES],
@@ -1530,6 +1534,13 @@ fn flush_commands(world: &mut World) -> Result<()> {
 /// before ownership changes. Queue pressure or decoder retirement defers entry,
 /// but only briefly: see `recover_handoff`.
 pub(super) fn prepare_handoff(world: &mut World) -> Result<bool> {
+    // A resumed script can request another scene while End waits for queue space.
+    if world
+        .get_resource::<battle::Playback>()
+        .is_some_and(battle::Playback::returning)
+    {
+        return Ok(false);
+    }
     if !prepare_scene(world)? {
         return Ok(false);
     }
@@ -1559,7 +1570,7 @@ pub(super) fn leave_field(world: &mut World) -> Result<bool> {
 
 const QUEUE_STALL: std::time::Duration = std::time::Duration::from_secs(2);
 
-fn recover_handoff(world: &mut World, error: anyhow::Error) -> Result<bool> {
+pub(super) fn recover_handoff(world: &mut World, error: anyhow::Error) -> Result<bool> {
     let diagnostics = world
         .get_resource::<Control>()
         .map(|control| control.diagnostics.clone())
@@ -1568,19 +1579,8 @@ fn recover_handoff(world: &mut World, error: anyhow::Error) -> Result<bool> {
         error.downcast_ref::<mpsc::TrySendError<Message>>(),
         Some(mpsc::TrySendError::Full(_))
     );
-    // A running decoder drains commands before advancing its frame counter.
-    // Empty flushes do not prove progress; partial batches from a healthy mixer
-    // do. Retire only when a full queue persists without decoder progress.
     if full && let Some(mut control) = world.get_resource_mut::<Control>() {
-        let frame = control.rendered_frames();
-        let (previous, since) = control
-            .stalled
-            .get_or_insert_with(|| (frame, std::time::Instant::now()));
-        if *previous != frame {
-            *previous = frame;
-            *since = std::time::Instant::now();
-        }
-        full = since.elapsed() < QUEUE_STALL;
+        full = !control.queue_stalled();
     }
     if !full {
         if let Some(assets) = world
@@ -1843,7 +1843,7 @@ mod tests {
 
     // Share immutable preparation across these device-free handoff cases; each
     // invocation still gets a fresh VM, party, commands and audio owner.
-    fn handoff_session() -> Result<crate::new_game::Session> {
+    pub(super) fn handoff_session() -> Result<crate::new_game::Session> {
         static PACKAGE: std::sync::OnceLock<
             std::result::Result<Arc<crate::new_game::FieldPackage>, String>,
         > = std::sync::OnceLock::new();

@@ -2072,7 +2072,7 @@ impl Oracle {
                 &mut candidate,
                 &mut display,
             )?;
-            feedback.resolve(&mut frame, true);
+            feedback.resolve(&mut frame, true, |_| {});
             if input_action != action {
                 frame.cues.retain(|cue| {
                     if let Cue::Started {

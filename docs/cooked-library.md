@@ -187,7 +187,7 @@ only that request. No archive numbers or ID reconstruction rules are needed.
 
 ## Resolved views and source owners
 
-In layout 107, catalogue paths in this guide (for example `game/items.json`)
+Catalogue paths in this guide (for example `game/items.json`)
 are resolved document views. The importer publishes independently editable owners
 under the corresponding directory, and the game assembles/caches them at startup.
 Use `resonance-import resolve --assets PATH --document game/items.json` to inspect

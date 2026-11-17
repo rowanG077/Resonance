@@ -530,6 +530,7 @@ impl Battle {
         &mut self,
         owner: ActorId,
         input: crate::ControlInput,
+        cues: &mut Vec<crate::Cue>,
     ) -> Result<()> {
         if self.phase() != crate::BattlePhase::Combat {
             return Ok(());
@@ -554,7 +555,9 @@ impl Battle {
         {
             return Ok(());
         }
-        if self.queue_technique_from(actor, binding, owner)? {
+        if self.with_command_cues(cues, |battle| {
+            battle.queue_technique_from(actor, binding, owner)
+        })? {
             self.runtime[actor.index()]
                 .control
                 .as_mut()

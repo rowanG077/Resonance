@@ -221,7 +221,7 @@ impl Battle {
             self.remember_idle_home(index);
         }
         if intent.motion == GroundMotion::Taunt {
-            self.begin_taunt(actor);
+            self.begin_taunt(actor, cues);
             return Ok(());
         }
         let control = self.runtime[index].control.as_mut().unwrap();

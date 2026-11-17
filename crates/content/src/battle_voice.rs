@@ -20,6 +20,8 @@ pub struct TimedVoice {
 pub struct Voices {
     pub hurt: [Option<Sound>; 2],
     pub defeat: Option<Sound>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternate_defeat: Option<Sound>,
     pub critical: Option<Sound>,
     pub guard: Option<Sound>,
     pub ally_defeated: [Option<Sound>; 2],
@@ -37,6 +39,8 @@ pub struct Voices {
     /// Two variations for each ordinary celebration pose, in pose order.
     pub victory: Vec<[Sound; 2]>,
     pub interrupted_cast: Option<Sound>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enemy_defeated: Option<Sound>,
     pub escape_request: Option<Sound>,
     pub escape_success: Option<Sound>,
     pub escape_cancel: Option<Sound>,
@@ -50,6 +54,7 @@ impl Voices {
         let Self {
             hurt,
             defeat,
+            alternate_defeat,
             critical,
             guard,
             ally_defeated,
@@ -65,6 +70,7 @@ impl Voices {
             repeated_encounter,
             victory,
             interrupted_cast,
+            enemy_defeated,
             escape_request,
             escape_success,
             escape_cancel,
@@ -73,6 +79,7 @@ impl Voices {
         } = self;
         [
             *defeat,
+            *alternate_defeat,
             *critical,
             *guard,
             *unison_start,
@@ -85,6 +92,7 @@ impl Voices {
             *stronger_enemies,
             *repeated_encounter,
             *interrupted_cast,
+            *enemy_defeated,
             *escape_request,
             *escape_success,
             *escape_cancel,

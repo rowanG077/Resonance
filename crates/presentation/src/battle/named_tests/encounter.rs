@@ -51,6 +51,17 @@ fn publish_named_title_fields_fixture() -> Result<()> {
     Ok(())
 }
 
+fn encounter_setup(formation: u16) -> Setup {
+    let rescue = formation == 4;
+    Setup {
+        route: if rescue { [2, 3, 600, 0, 3] } else { [0; 5] },
+        encounter: Encounter::Formation(formation),
+        arena: if rescue { 26 } else { 13 },
+        defeat: DefeatPolicy::GameOver,
+        music: rescue.then_some(91),
+    }
+}
+
 fn options(formation: u16) -> PrepareOptions {
     PrepareOptions {
         hunting_symbol: None,
@@ -397,13 +408,7 @@ fn verify_encounters(library: Library, with_audio: bool) -> Result<()> {
             &menus,
             &data,
             &party,
-            Setup {
-                route: if event { [2, 3, 600, 0, 3] } else { [0; 5] },
-                encounter: Encounter::Formation(formation),
-                arena: if event { 26 } else { 13 },
-                defeat: DefeatPolicy::GameOver,
-                music: event.then_some(91),
-            },
+            encounter_setup(formation),
             diagnostics.clone(),
             &|| false,
         )?;
@@ -541,5 +546,162 @@ fn normal_attacks_activate_the_authored_weapon_ribbon() -> Result<()> {
     // Lloyd's neutral contact uses the first sword for ten authored ticks.
     assert_eq!(trails, [(WeaponSlot(0), 40)]);
     assert!(!diagnostics.has_errors());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a complete cooked library at RESONANCE_TEST_ASSETS"]
+fn named_boss_defeat_voices_finish_before_victory() -> Result<()> {
+    use resonance_battle::{
+        ActionRequest, ActorId, BattleInput, BattlePhase, BattleResult, Cue, Sound, VoicePriority,
+    };
+    let library = named_library()?;
+    let diagnostics = Diagnostics::new(true);
+    let mut snapshot = library.snapshot();
+    resonance_content::preparation::gameplay(&mut snapshot, &diagnostics, &|| false)?;
+    let files = Files::from_snapshot(snapshot, || false, diagnostics.clone())?;
+    let data = SessionData::load(&files)?;
+    let menus = MenuData::load(&files)?;
+    let mut party = Party::new(&data, Default::default()).map_err(anyhow::Error::msg)?;
+
+    let mut snapshot = library.snapshot();
+    let catalogue =
+        resonance_content::battle_audio::document::Catalogue::capture(&mut snapshot, &|| false)?;
+    let mut cache = crate::loading::Cache::default();
+    for (formation, stream, ticks) in [
+        (19, Some(1056), 247), // Kilia
+        (34, Some(1223), 0),   // Yggdrasill retreats without his defeat cry
+        (66, Some(1223), 0),
+        (76, None, 43), // Silent guardians
+        (77, None, 43),
+        (78, None, 43),
+        (73, Some(1223), 356), // Yggdrasill
+        (79, Some(1203), 302), // Mithos
+        (81, Some(1244), 101), // Final Mithos
+        (4, Some(1027), 256),  // Vidarr
+    ] {
+        party.formation = if formation == 4 {
+            vec![1, 2, 3, 9]
+        } else {
+            vec![1]
+        };
+        let inputs = Assets::capture(
+            &mut snapshot,
+            &menus,
+            &data,
+            &party,
+            encounter_setup(formation),
+            diagnostics.clone(),
+            &|| false,
+        )?;
+        let (_, prepared, selected) =
+            inputs.prepare_named(&menus, options(formation), &catalogue)?;
+        let audio = crate::battle_audio::Assets::capture_named(
+            &catalogue,
+            &selected,
+            &mut snapshot,
+            diagnostics.clone(),
+            &mut cache.audio,
+            &|| false,
+        )?;
+        let mut battle = prepared.core;
+        let mut feedback = crate::battle::feedback::Feedback::new(prepared.feedback, 1);
+        let owner = ActorId::from_index(0)?;
+        let enemy = ActorId::from_index(party.formation.len())?;
+        let retreat = matches!(formation, 34 | 66);
+        if retreat {
+            let hp = battle.actors()[enemy.index()].equipment.max_hp;
+            battle.set_actor_vitals(enemy, hp / 2, hp, 0, 0)?;
+        }
+        battle.suppress_automatic_decisions();
+        battle.set_instant_kill(true);
+        let attack =
+            battle.record_technique_acquisition(owner, resonance_battle::TechniqueId(1))?;
+        let mut defeat = None;
+        let defeat_cry = stream.map(Sound::Stream);
+        let mut defeat_requests = Vec::new();
+        let mut channel = Vec::new();
+        let mut finished = false;
+        for update in 0_u32..1800 {
+            if let Some(result) = battle.recognize_result() {
+                finished = true;
+                let expected = defeat
+                    .zip(defeat_cry)
+                    .map(|(update, sound)| (update, sound, VoicePriority::Announcement));
+                assert_eq!(
+                    defeat_requests,
+                    expected.as_slice(),
+                    "formation {formation}"
+                );
+                if retreat {
+                    assert_eq!(result, BattleResult::Escaped);
+                    assert!(defeat.is_none());
+                    break;
+                }
+                assert_eq!(result, BattleResult::Victory, "formation {formation}");
+                let elapsed = update - defeat.context("victory without a defeat cue")?;
+                assert_eq!(elapsed, ticks, "formation {formation}");
+                audio.check_defeat_voice_pcm(&channel, defeat_cry.is_some())?;
+                eprintln!(
+                    "Formation {formation}: stream {stream:?}, victory {elapsed} updates after KO"
+                );
+                break;
+            }
+            let mut input = BattleInput::default();
+            if !retreat
+                && defeat.is_none()
+                && battle.phase() == BattlePhase::Combat
+                && !battle.is_paused()
+                && battle.activity(owner) == resonance_battle::Activity::Idle
+            {
+                let [x, _, z] = battle.actors()[enemy.index()].position;
+                battle.restore_fixture_placement(owner, [x - 180., 0., z], Some(90.))?;
+                battle.restore_fixture_target(owner, enemy)?;
+                input.actions.push(ActionRequest {
+                    actor: owner,
+                    target: enemy,
+                    action: attack,
+                });
+            }
+            let mut frame = battle.step(input)?;
+            let clock = frame.clock;
+            feedback.resolve(&mut frame, true, |_| {});
+            battle.advance_models(&mut frame, clock, true)?;
+            if frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Defeated { actor } if *actor == enemy))
+            {
+                assert!(
+                    defeat.replace(update).is_none(),
+                    "duplicate defeat in formation {formation}"
+                );
+            }
+            defeat_requests.extend(frame.cues.iter().filter_map(|cue| match *cue {
+                Cue::Voice {
+                    actor,
+                    sound,
+                    priority,
+                    ..
+                } if actor == enemy
+                    && (Some(sound) == defeat_cry
+                        || (defeat.is_some() && priority == VoicePriority::Announcement)) =>
+                {
+                    Some((update, sound, priority))
+                }
+                _ => None,
+            }));
+            if defeat.is_some() {
+                channel.push(frame.cues.into_iter().filter(|cue| matches!(cue,
+                    Cue::Voice { actor, .. } | Cue::StopVoice { actor, .. } |
+                    Cue::VoiceVolume { actor, .. } | Cue::Defeated { actor } if *actor == enemy
+                )).collect());
+            }
+        }
+        ensure!(
+            finished,
+            "formation {formation} failed to resolve, defeat at {defeat:?}"
+        );
+    }
     Ok(())
 }

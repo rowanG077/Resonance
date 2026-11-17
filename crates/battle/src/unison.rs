@@ -1056,7 +1056,7 @@ impl State {
         battle.interrupt_actor(actor, cues);
         battle.request_pose(actor, Some(member.windup_motion), member.windup_pose);
         if let Some(voice) = member.windup_voice {
-            battle.request_voice(actor, voice, crate::VoicePriority::Action);
+            cues.push(battle.voice_cue(actor, voice, crate::VoicePriority::Action, None));
         }
         cues.push(Cue::EffectDuringPause(EffectRequest {
             owner: actor,
@@ -1289,7 +1289,7 @@ impl Run {
         let speaker =
             combined.actors[usize::from(battle.random.next_u16()) % combined.actors.len()];
         if let Some((_, voice)) = prelude.voices.iter().find(|(actor, _)| *actor == speaker) {
-            battle.request_voice(speaker, *voice, crate::VoicePriority::Action);
+            cues.push(battle.voice_cue(speaker, *voice, crate::VoicePriority::Action, None));
         }
         cues.push(Cue::Sound {
             actor: speaker,
@@ -1354,7 +1354,7 @@ impl Run {
             .iter()
             .find(|(actors, _, _)| *actors == combined.actors)
         {
-            battle.request_voice(*speaker, *sound, crate::VoicePriority::Action);
+            cues.push(battle.voice_cue(*speaker, *sound, crate::VoicePriority::Action, None));
         }
         self.orbit = Some(Orbit::new(
             &mut battle.random,

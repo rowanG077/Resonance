@@ -4,6 +4,38 @@ use crate::conditions::{Conditions, Layers};
 use crate::{Actor, ActorAvailability, RecoveryKind};
 
 #[test]
+fn kill_voice_requires_two_surviving_enemies_and_observes_its_cooldown() -> Result<()> {
+    let mut actors = vec![killer(Side::Party, BOTH)];
+    for index in 1..=5 {
+        let mut enemy = target(Side::Enemy, 1);
+        enemy.position[0] = 100. * index as f32;
+        actors.push(enemy);
+    }
+    let mut battle = crate::tests::prepare_actors(actors, 1).finish()?;
+    // Successive kills leave four, three, two, one and zero enemies available.
+    for (index, (updates, expected)) in
+        [(0, true), (359, false), (1, true), (360, false), (0, false)]
+            .into_iter()
+            .enumerate()
+    {
+        let mut cues = Vec::new();
+        for _ in 0..updates {
+            battle.advance_actor_common(0, &mut cues)?;
+        }
+        let victim = ActorId::from_index(index + 1)?;
+        let mut contact = contact_fixture(rule(100));
+        contact.origin = Origin::World(battle.actors[victim.index()].position);
+        let cues = resolve_contact(&mut battle, contact)?;
+        assert!(cues.contains(&Cue::Defeated { actor: victim }));
+        assert_eq!(
+            cues.contains(&Cue::EnemyDefeatedReaction { actor: ActorId(0) }),
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn encounter_health_hold_prevents_kill_credit_until_released() -> Result<()> {
     let mut victim = target(Side::Enemy, 1);
     victim.equipment.max_hp = 1001;

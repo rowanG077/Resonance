@@ -1,10 +1,10 @@
 use super::*;
 
 fn fixture() -> Result<Battle> {
-    party_fixture(&[Control::Manual, Control::Auto])
+    party_fixture(&[Control::Manual, Control::Auto], 1)
 }
 
-fn party_fixture(controls: &[Control]) -> Result<Battle> {
+fn party_fixture(controls: &[Control], enemies: usize) -> Result<Battle> {
     let prepared = companion_prepared(false);
     let mut actors = controls
         .iter()
@@ -17,7 +17,11 @@ fn party_fixture(controls: &[Control]) -> Result<Battle> {
             Ok((actor, prepared.resources.actor_setup[0].clone()))
         })
         .collect::<Result<Vec<_>>>()?;
-    actors.push((prepared.actors[1].clone(), Default::default()));
+    for slot in 0..enemies {
+        let mut enemy = prepared.actors[1].clone();
+        enemy.position[0] += 100. * slot as f32;
+        actors.push((enemy, Default::default()));
+    }
     PreparedBattle::new(actors, prepared.resources.actions, 1)?
         .with_camera(crate::CameraDefinition {
             leader: ActorId(0),
@@ -32,7 +36,7 @@ fn party_fixture(controls: &[Control]) -> Result<Battle> {
 fn unaffordable_assist_warns_on_the_recipient_once_per_press() -> Result<()> {
     for mode in [Control::Manual, Control::SemiAuto] {
         for slot in 0..2 {
-            let mut battle = party_fixture(&[mode, Control::Auto])?;
+            let mut battle = party_fixture(&[mode, Control::Auto], 1)?;
             let owner = ActorId(0);
             let recipient = ActorId(1);
             battle
@@ -80,6 +84,40 @@ fn unaffordable_assist_warns_on_the_recipient_once_per_press() -> Result<()> {
             assert_eq!(battle.ledger.achievements[owner.index()].assist_commands, 1);
         }
     }
+    Ok(())
+}
+
+#[test]
+fn assist_callout_precedes_the_recipients_projectile_kill_in_the_same_update() -> Result<()> {
+    let mut battle = party_fixture(&[Control::Manual, Control::Auto], 3)?;
+    let owner = ActorId(0);
+    let recipient = ActorId(1);
+    let victim = ActorId(2);
+    battle
+        .prepare_assist_shortcut(owner, 0, Some((recipient, crate::ActionKey(7))))?
+        .commit();
+    battle.actors[victim.index()].hp = 1;
+    battle.emit(
+        Arc::new(crate::tests::contact_projectile(false, false)),
+        crate::ActionId(99),
+        recipient,
+        victim,
+        battle.actors[victim.index()].position,
+    )?;
+    let birth = battle.step(BattleInput::default())?;
+    assert!(!birth.projectiles[0].contact_active);
+    let mut input = ControlInput::neutral(owner);
+    input.assist[0].pressed = true;
+    let frame = battle.step(BattleInput {
+        controllers: vec![input],
+        ..Default::default()
+    })?;
+    assert!(frame.cues.contains(&Cue::Defeated { actor: victim }));
+    let ordinal = |cue: Cue| frame.cues.iter().position(|event| *event == cue).unwrap();
+    assert!(
+        ordinal(Cue::TechniqueQueued { actor: recipient })
+            < ordinal(Cue::EnemyDefeatedReaction { actor: recipient })
+    );
     Ok(())
 }
 
@@ -181,7 +219,7 @@ fn party_reorder_preserves_active_actions_targets_and_camera_pose() -> Result<()
 #[test]
 fn party_reorder_keeps_multiplayer_leadership_and_escape_in_slot_order() -> Result<()> {
     for automatic in [false, true] {
-        let mut battle = party_fixture(&[Control::SemiAuto, Control::Manual, Control::Auto])?;
+        let mut battle = party_fixture(&[Control::SemiAuto, Control::Manual, Control::Auto], 1)?;
         battle.reorder_party(&[ActorId(2), ActorId(1), ActorId(0)])?;
         assert_eq!(battle.actors[1].control_slot, ControllerPort::Two);
         assert_eq!(battle.actors[1].control, Control::Manual);
