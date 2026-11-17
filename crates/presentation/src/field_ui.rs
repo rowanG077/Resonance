@@ -1293,6 +1293,7 @@ impl DialogueDraw<'_> {
                     self.font.glyphs.get(&glyph.character).with_context(|| {
                         format!("uncooked dialogue glyph {:?}", glyph.character)
                     })?;
+                let advance = body_advance(glyph.character, spec.advance);
                 if let Some(choice) = world.choices.get(&slot)
                     && let resonance_events::dialogue::Selection::Number(number) = &choice.selection
                     && let Some(range) = &player.current().number
@@ -1301,13 +1302,13 @@ impl DialogueDraw<'_> {
                     && (player.accepts_input() || !choice.operation.is_pending())
                 {
                     highlight.quad(
-                        [x, y, x + body_advance(spec.advance), y + 25.],
+                        [x, y, x + advance, y + 25.],
                         [0.5; 4],
                         [0.5, 0.625, 1., 0.5],
                     );
                 }
                 batches[layer::FONT].quad(
-                    [x, y, x + 21., y + 25.],
+                    [x, y, x + body_glyph_width(glyph.character), y + 25.],
                     glyph_uv(spec.rect),
                     [
                         f32::from(glyph.color[0]) / 255.,
@@ -1316,7 +1317,7 @@ impl DialogueDraw<'_> {
                         f32::from(player.glyph_alpha(index)) / 255.,
                     ],
                 );
-                x += body_advance(spec.advance);
+                x += advance;
             }
             x = left - 6.;
             let height = rect[3] - top;
@@ -1661,15 +1662,7 @@ fn layout(
     .map(|(rect, pointer, _)| (rect, pointer))
 }
 
-fn layout_with_camera(
-    font: &BitmapFont,
-    request: &Dialogue,
-    player: &DialoguePlayer,
-    camera: &DialogueCamera,
-    attached_positions: &BTreeMap<i32, Vec3>,
-    head_height: Option<f32>,
-    resolution: super::Resolution,
-) -> Result<([f32; 4], Option<[f32; 2]>, bool)> {
+fn dialogue_dimensions(font: &BitmapFont, player: &DialoguePlayer) -> Result<[f32; 2]> {
     let mut width = 0f32;
     let mut height = 25f32;
     for page in &player.pages {
@@ -1692,15 +1685,28 @@ fn layout_with_camera(
                     .get(&measured)
                     .with_context(|| format!("uncooked dialogue glyph {:?}", measured))?
                     .advance;
-                x += body_advance(advance);
+                x += body_advance(glyph.character, advance);
             }
         }
         width = width.max(x);
         height = height.max(lines * 25.);
     }
-    if let Some(size) = request.dimensions {
-        [width, height] = size.map(f32::from);
-    }
+    Ok([width, height])
+}
+
+fn layout_with_camera(
+    font: &BitmapFont,
+    request: &Dialogue,
+    player: &DialoguePlayer,
+    camera: &DialogueCamera,
+    attached_positions: &BTreeMap<i32, Vec3>,
+    head_height: Option<f32>,
+    resolution: super::Resolution,
+) -> Result<([f32; 4], Option<[f32; 2]>, bool)> {
+    let [width, height] = match request.dimensions {
+        Some(size) => size.map(f32::from),
+        None => dialogue_dimensions(font, player)?,
+    };
     // Screen anchors remain usable without a scene camera.
     let project = |point| {
         camera.transform.as_ref().map_or([320., 240.], |transform| {
@@ -1765,10 +1771,12 @@ fn layout_with_camera(
                     frame_top(upper_top, height) + height.max(MIN_FRAME_HEIGHT) + POINTER_REACH;
                 let correction = (tip_y - (head_y - HEAD_CLEARANCE)).max(0.);
                 upper_top -= correction;
-                // When an overlapping box cannot fit above, put it below the
-                // speaker rather than clamping it back into their head.
-                if correction > 0. && upper_top < FRAME_MARGIN {
-                    above = false;
+                // At the upper margin the pointer can reach the speaker.
+                // Move below only if the window itself would cover their head.
+                if upper_top < FRAME_MARGIN {
+                    let frame_bottom =
+                        frame_top(FRAME_MARGIN, height) + height.max(MIN_FRAME_HEIGHT) + 16.;
+                    above = frame_bottom <= head_y;
                 }
             }
             let [x, y] = actor.map_or(
@@ -2007,9 +2015,16 @@ fn frame(
     }
 }
 
-// ASCII body glyphs use 21×25 quads with proportional advances.
-fn body_advance(advance: u32) -> f32 {
-    (advance as f32 * 0.84).trunc()
+fn body_glyph_width(character: char) -> f32 {
+    if resonance_content::font::is_single_byte(character) {
+        21.
+    } else {
+        25.
+    }
+}
+
+fn body_advance(character: char, advance: u32) -> f32 {
+    (advance as f32 * (body_glyph_width(character) / 25.)).trunc()
 }
 
 // Each quad owns its source rectangle; a texture sampler alone clamps only the
@@ -2891,7 +2906,7 @@ mod tests {
     }
 
     #[test]
-    fn dialogue_head_clearance_only_moves_overlapping_actor_boxes() -> Result<()> {
+    fn dialogue_layout_sizes_mixed_text_and_clears_actor_heads() -> Result<()> {
         use resonance_events::{Actor, GameWorld, dialogue::ResolvedMessage};
         let mut world = GameWorld::default();
         let mut speaker = Actor::new(0, [0.; 3]);
@@ -2900,16 +2915,23 @@ mod tests {
         speaker.position = [0., 400., 400.];
         world.actors.insert(0, speaker);
         world
-            .show_notice(ResolvedMessage { tokens: vec![] }, flags::ABOVE)
+            .show_notice(
+                ResolvedMessage {
+                    tokens: vec![TextToken::Text {
+                        text: "A“".into()
+                    }],
+                },
+                flags::ABOVE,
+            )
             .unwrap();
         let mut request = world.dialogue[&0].clone();
         request.anchor = DialogueAnchor::Actor(0);
         request.speaker_actor = Some(0);
         let player = DialoguePlayer::new(&request, 0)?;
-        let font = BitmapFont {
+        let mut font = BitmapFont {
             texture: String::new(),
-            width: 1,
-            height: 1,
+            width: 24,
+            height: 24,
             line_height: 25,
             glyphs: BTreeMap::new(),
         };
@@ -2972,6 +2994,17 @@ mod tests {
                 }
                 request.flags = flags::ABOVE;
                 request.height_offset = 0;
+                let (rect, _, above) = layout_with_camera(
+                    &font,
+                    &request,
+                    &player,
+                    &camera,
+                    &BTreeMap::new(),
+                    Some(300.),
+                    resolution,
+                )?;
+                assert!(above, "a clamped pointer may reach the speaker");
+                assert_eq!(rect[1], FRAME_MARGIN);
                 let (_, _, above) = layout_with_camera(
                     &font,
                     &request,
@@ -3007,6 +3040,19 @@ mod tests {
                 request.anchor = DialogueAnchor::Actor(0);
             }
         }
+        // Fixed-size windows above need no metrics. For an automatically sized
+        // window A measures the lead byte as a space (8 pixels), and “ uses all 15.
+        for (character, advance) in [(' ', 10), ('“', 15)] {
+            font.glyphs.insert(
+                character,
+                resonance_content::font::Glyph {
+                    rect: [0, 0, 24, 24],
+                    advance,
+                },
+            );
+        }
+        assert_eq!(dialogue_dimensions(&font, &player)?, [23., 25.]);
+        assert_eq!(body_glyph_width('“'), 25.);
         Ok(())
     }
 

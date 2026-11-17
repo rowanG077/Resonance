@@ -32,7 +32,10 @@ impl Glyph {
         } else if self.followed_by_control {
             ' '
         } else {
-            next.filter(|&character| character > ' ').unwrap_or(' ')
+            // Before a two-byte font glyph the sizing pass sees its lead
+            // byte, which uses the blank metric in the dialogue repertoire.
+            next.filter(|&c| c > ' ' && resonance_content::font::is_single_byte(c))
+                .unwrap_or(' ')
         }
     }
 }
@@ -839,6 +842,7 @@ mod tests {
         assert_eq!(pages[1].glyphs[3].measured_character(Some('X')), ' ');
         assert_eq!(pages[1].glyphs[2].measured_character(Some('X')), 'X');
         assert_eq!(pages[1].glyphs[2].measured_character(Some('\n')), ' ');
+        assert_eq!(pages[1].glyphs[2].measured_character(Some('“')), ' ');
         let mut kana = pages[1].glyphs[2].clone();
         for (character, measured) in [('ｵ', 'X'), ('･', 'X'), ('オ', 'オ')] {
             kana.character = character;
