@@ -4370,6 +4370,33 @@ fn locomotion_changes_gait_and_preserves_phase_when_speed_changes() {
 }
 
 #[test]
+fn rotation_lock_retains_model_tilt_while_script_angles_change() {
+    let mut actor = Actor::new(1, [0.; 3]);
+    actor.tilt = [12, -8];
+    let mut world = GameWorld::default();
+    world.actors.insert(1, actor);
+    let code = script(&[
+        (Call::SetActorProperty, &[1, 35, 20]),
+        (Call::SetActorProperty, &[1, 7, 1]),
+        (Call::SetActorProperty, &[1, 35, 60]),
+        (Call::SetActorProperty, &[1, 36, -30]),
+        (Call::GetActorProperty, &[1, 35]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::SetActorProperty, &[1, 7, 0]),
+    ]);
+    let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 60);
+    for _ in 0..2 {
+        assert_eq!(events.world.actors[&1].tilt_degrees(), [12., -8.]);
+        events.step().unwrap();
+    }
+    assert_eq!(events.world.actors[&1].heading_lock, 0);
+    assert_eq!(events.world.actors[&1].tilt_degrees(), [12., -8.]);
+    events.step().unwrap();
+    assert_eq!(events.world.actors[&1].tilt_degrees(), [60., -30.]);
+}
+
+#[test]
 fn relative_placements_use_the_displayed_heading_until_the_next_actor_update() {
     for turn in [
         (Call::SetActorOrientation, [1, 2, 90]),
@@ -4942,6 +4969,10 @@ fn replacing_a_visible_model_has_no_gap_and_still_initializes_its_transform() {
             (Call::DespawnActor, &[7]),
             (Call::SpawnSceneryActor, &[7, 0, 0, 0, 0, replacement, 0, 0]),
             (Call::SetActorProperty, &[7, 30, 200]),
+            (Call::SetActorProperty, &[7, 7, 1]),
+            (Call::SetActorProperty, &[7, 35, 45]),
+            (Call::SetActorProperty, &[7, 7, 0]),
+            (Call::SetActorProperty, &[7, 36, -30]),
         ]);
         let resources = ResourceLibrary {
             bindings: [
@@ -4960,6 +4991,7 @@ fn replacing_a_visible_model_has_no_gap_and_still_initializes_its_transform() {
         assert_ne!(block.instance, instance);
         assert_eq!(block.visible_from <= events.world.tick, replacement == 99);
         assert_eq!(block.model_scale(), [2., 1., 1.]);
+        assert_eq!(block.tilt_degrees(), [45., -30.]);
     }
 }
 

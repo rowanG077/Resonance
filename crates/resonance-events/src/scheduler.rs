@@ -850,6 +850,9 @@ impl EventRuntime {
         for actor in self.world.actors.values_mut() {
             actor.rendered_scale = None;
             actor.rendered_heading = None;
+            if actor.heading_lock == 0 {
+                actor.rendered_tilt = None;
+            }
         }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
         self.world.particles_before_update = self.world.next_particle;

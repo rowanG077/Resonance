@@ -700,9 +700,9 @@ impl NativeHost<'_> {
                             let flags = a[2] & 15;
                             actor.heading_lock = flags as u8;
                             if flags == 0 {
-                                if self.world.tick >= actor.first_update_tick
-                                    && actor.appearance.fixed_heading.is_some()
-                                {
+                                if self.world.tick < actor.first_update_tick {
+                                    actor.rendered_tilt = None;
+                                } else if actor.appearance.fixed_heading.is_some() {
                                     actor.rendered_heading = Some(actor.model_heading());
                                 }
                                 actor.appearance.fixed_heading = None;
@@ -850,7 +850,13 @@ impl NativeHost<'_> {
                             }
                             actor.scale_percent[(a[1] - 30) as usize] = a[2];
                         }
-                        35 | 36 => actor.tilt[(a[1] - 35) as usize] = a[2],
+                        35 | 36 => {
+                            if actor.heading_lock != 0 || self.world.tick >= actor.first_update_tick
+                            {
+                                actor.rendered_tilt.get_or_insert(actor.tilt);
+                            }
+                            actor.tilt[(a[1] - 35) as usize] = a[2];
+                        }
                         42..=44 => {
                             actor.tint[(a[1] - 42) as usize] = a[2] as u8;
                         }

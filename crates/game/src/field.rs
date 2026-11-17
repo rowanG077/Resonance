@@ -450,10 +450,8 @@ impl FieldSession {
         actor.grounded = true;
         actor.interaction_disabled = true;
         actor.appearance.model_hidden = false;
-        actor.appearance.fixed_heading = None;
         actor.opacity = 255;
-        actor.heading_lock = 0;
-        actor.tilt = [0; 2];
+        actor.reset_model_rotation();
         actor.scale_percent = [100; 3];
         actor.scripted_animation = false;
         actor.animation = None;
@@ -2923,6 +2921,8 @@ mod tests {
             let mut words = vec![4, 0, 0, 0];
             if !initial {
                 native(&mut words, NativeCall::YieldCommand, &[0, 2]);
+                native(&mut words, NativeCall::SetActorProperty, &[1, 7, 1]);
+                native(&mut words, NativeCall::SetActorProperty, &[1, 35, 90]);
             }
             native(&mut words, NativeCall::AdjustOverlimit, &[0; 2]);
             native(&mut words, NativeCall::SetEventBit, &[123]);
@@ -2943,7 +2943,9 @@ mod tests {
             session.allow_incomplete_scripts = true;
             let mut world = resonance_events::GameWorld::default();
             world.controlled_actor = 1;
-            world.insert_actor(1, Actor::new(1, [2., 2., 0.]));
+            let mut player = Actor::new(1, [2., 2., 0.]);
+            player.tilt = [30, 0];
+            world.insert_actor(1, player);
             let mut prop = Actor::new(2, [0.; 3]);
             prop.model_collision = Some(resonance_content::test_support::solid_box(
                 [-100., -100., 0.],
@@ -2970,6 +2972,9 @@ mod tests {
             }
             for _ in 0..4 {
                 session.step(FieldInput::default()).unwrap();
+                if session.events.exploration_error.is_some() {
+                    assert_eq!(session.events.world.actors[&1].tilt_degrees(), [0.; 2]);
+                }
             }
             assert!(session.player_has_control());
             assert!(session.events.exploration_error.is_some());
