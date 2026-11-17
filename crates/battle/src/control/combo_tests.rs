@@ -233,6 +233,17 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
         let action = Arc::make_mut(&mut prepared.resources.actions.entries[0]);
         action.execution = crate::ActionExecution::Attack(crate::PreparedAttack {
             chain_at: Some(15),
+            recovery_pose: Some(crate::AttackPose {
+                motion: MotionBinding {
+                    model: ResourceId(0),
+                    clip: 34,
+                },
+                start: 0.,
+                end: None,
+                rate: 0.4,
+                blend: 1,
+                repeat: false,
+            }),
             recovery: 4,
             events: vec![(
                 15,
@@ -289,6 +300,18 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
         }
         assert!(battle.actors[1].available(), "another opponent must remain");
         let starts = affordable && survives;
+        assert_eq!(
+            frame.model_requests.iter().any(|request| matches!(
+                request,
+                crate::ModelRequest::Play {
+                    actor: ActorId(0),
+                    motion: MotionBinding { clip: 34, .. },
+                    ..
+                }
+            )),
+            !starts,
+            "the outgoing normal plays its recovery pose only after chaining is declined",
+        );
         assert_eq!(
             battle.technique_uses(ActorId(0), TechniqueId(1)),
             Some(if starts { 50 } else { 49 })

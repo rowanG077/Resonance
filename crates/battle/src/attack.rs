@@ -340,6 +340,8 @@ pub struct PreparedAttack {
     pub end_at: u16,
     /// None keeps the actor's current pose.
     pub opening: Option<AttackPose>,
+    /// Played when ordinary recovery starts after the final combo decision.
+    pub recovery_pose: Option<AttackPose>,
     /// Ordered by gameplay age. Hit-stop pauses the clock; animation does not.
     pub events: Vec<(u16, AttackEvent)>,
     pub recovery: u16,
@@ -354,6 +356,7 @@ impl PreparedAttack {
             chain_retry_at: None,
             end_at,
             opening: None,
+            recovery_pose: None,
             events: Vec::new(),
             recovery: 0,
         }

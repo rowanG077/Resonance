@@ -1724,7 +1724,9 @@ editable names. All definitions stay in this one file.
 
 Select `characters.lloyd.attacks.neutral`, for example, to change Lloyd's neutral
 attack. `duration`, `chain_at`, `chain_retry_at`, `recovery` and event timestamps are gameplay
-ticks. Each event is `[tick, command]`; order at the same tick is significant.
+ticks. The optional `recovery_pose` plays when the attack enters ordinary
+recovery without chaining. Each event is `[tick, command]`; order at the same
+tick is significant.
 `reach` is `[maximum, minimum]` in world units. Poses retain clip frame units and
 their explicit playback rate; a rate of zero holds the frame.
 

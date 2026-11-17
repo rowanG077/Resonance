@@ -25,6 +25,8 @@ pub struct Attack<E = Event, C = Continuation> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain_retry_at: Option<u16>,
     pub recovery: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_pose: Option<ActionPose>,
     pub reach: [u16; 2],
     pub events: Vec<(u16, E)>,
 }
