@@ -65,7 +65,7 @@
     {
       "update": 215,
       "keys": [
-        "next_page"
+        "page_down"
       ]
     },
     {
@@ -85,7 +85,7 @@
     {
       "update": 279,
       "keys": [
-        "right"
+        "next_page"
       ]
     },
     {
@@ -95,7 +95,7 @@
     {
       "update": 289,
       "keys": [
-        "right"
+        "next_page"
       ]
     },
     {
@@ -105,7 +105,7 @@
     {
       "update": 299,
       "keys": [
-        "next_page"
+        "page_down"
       ]
     },
     {
@@ -115,7 +115,7 @@
     {
       "update": 303,
       "keys": [
-        "right"
+        "next_page"
       ]
     },
     {
@@ -125,7 +125,7 @@
     {
       "update": 311,
       "keys": [
-        "left"
+        "previous_page"
       ]
     },
     {
@@ -135,7 +135,7 @@
     {
       "update": 319,
       "keys": [
-        "left"
+        "previous_page"
       ]
     },
     {

@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "status-handoffs-keyboard.json",
-    "sha256": "5e5c7ba0039e398a9af19897b3641c72028f32561f8cef8f2ad6f2a7944605e6"
+    "sha256": "d5b3387528fce786a2c50f9452d4df7e528171bb9bf50e5cb0bddf6dcac98d48"
   },
   "dolphin": {
     "state": {

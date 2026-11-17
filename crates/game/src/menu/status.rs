@@ -154,15 +154,19 @@ impl Menu {
         let length = self.checkpoint.as_ref()?.progress().party.formation.len();
         match self.page {
             Page::Status => {
-                if matches!(input, Some(NextTab | PageDown)) && !self.status.details
-                    || matches!(input, Some(PreviousTab | PageUp)) && self.status.details
+                if input == Some(PageDown) && !self.status.details
+                    || input == Some(PageUp) && self.status.details
                 {
-                    self.status.details = matches!(input, Some(NextTab | PageDown));
+                    self.status.details = input == Some(PageDown);
                     return Some(0x26);
                 }
-                if matches!(input, Some(Left | Right)) {
+                if matches!(input, Some(Left | Right | PreviousTab | NextTab)) {
                     self.character = (self.character
-                        + if input == Some(Left) { length - 1 } else { 1 })
+                        + if matches!(input, Some(Left | PreviousTab)) {
+                            length - 1
+                        } else {
+                            1
+                        })
                         % length;
                     return Some(1);
                 }

@@ -125,7 +125,7 @@
     {
       "update": 1000,
       "keys": [
-        "next_page"
+        "page_down"
       ]
     },
     {
@@ -145,7 +145,7 @@
     {
       "update": 1200,
       "keys": [
-        "previous_page"
+        "page_up"
       ]
     },
     {

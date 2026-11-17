@@ -2666,17 +2666,38 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     assert!(!session.menu.as_ref().unwrap().party_statistics);
     press(&mut session, confirm);
     assert_eq!(session.menu.as_ref().unwrap().page, Page::Status);
-    press(&mut session, Next.input());
+    for (input, character) in [(Next, 1), (Previous, 0), (Previous, 2), (Next, 0)] {
+        press(&mut session, input.input());
+        let menu = session.menu.as_ref().unwrap();
+        assert_eq!(menu.character, character);
+        assert!(!menu.status.details);
+        assert_eq!(menu.status.focus, resonance_game::menu::status::Focus::Name);
+    }
+    press(&mut session, PageDown.input());
+    assert_eq!(session.menu.as_ref().unwrap().character, 0);
     assert!(session.menu.as_ref().unwrap().status.details);
+    press(&mut session, Next.input());
+    assert_eq!(session.menu.as_ref().unwrap().character, 1);
+    assert!(session.menu.as_ref().unwrap().status.details);
+    press(&mut session, Previous.input());
     press(&mut session, confirm);
     assert_eq!(
         session.menu.as_ref().unwrap().page,
         Page::Status,
         "renaming is locked"
     );
-    press(&mut session, Previous.input());
+    press(&mut session, PageUp.input());
+    assert_eq!(session.menu.as_ref().unwrap().character, 0);
     assert!(!session.menu.as_ref().unwrap().status.details);
     press(&mut session, down);
+    for (input, character) in [(Next, 1), (Previous, 0)] {
+        press(&mut session, input.input());
+        assert_eq!(session.menu.as_ref().unwrap().character, character);
+        assert_eq!(
+            session.menu.as_ref().unwrap().status.focus,
+            resonance_game::menu::status::Focus::Title
+        );
+    }
     press(&mut session, confirm);
     assert_eq!(session.menu.as_ref().unwrap().page, Page::Titles);
     press(&mut session, down);
