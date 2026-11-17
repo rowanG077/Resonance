@@ -226,7 +226,7 @@ impl Plugin for FieldRendering {
                 )
                     .chain()
                     .before(super::field_pose::restore)
-                    .run_if(resource_exists::<Art>)
+                    .run_if(field_art_ready)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
             )
@@ -234,6 +234,7 @@ impl Plugin for FieldRendering {
                 PostUpdate,
                 sample_poses()
                     .before(super::field_animation::blend)
+                    .run_if(field_art_ready)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
             )
@@ -264,7 +265,7 @@ impl Plugin for FieldRendering {
                     // extraction sees their newly visible entities.
                     .before(bevy::asset::AssetEventSystems)
                     .before(bevy::transform::TransformSystems::Propagate)
-                    .run_if(resource_exists::<Art>)
+                    .run_if(field_art_ready)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
             )
@@ -278,6 +279,13 @@ impl Plugin for FieldRendering {
             );
     }
 }
+
+// Keep the previous pose while the replacement loads. Once CPU artwork is
+// ready, pose the new instances behind the retained output for GPU admission.
+fn field_art_ready(art: Option<Res<Art>>) -> bool {
+    art.is_some_and(|art| art.ready)
+}
+
 fn sample_poses() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
         // Battle return can remove actors after Update's scene preparation.
@@ -297,12 +305,16 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         super::field_weapons::prepare,
         prepare,
         audit::begin,
-        instances,
-        super::field_weapons::instances,
-        super::field_model_particles::spawn,
-        super::field_model_particles::sync,
-        camera,
-        panorama::render,
+        (
+            instances,
+            super::field_weapons::instances,
+            super::field_model_particles::spawn,
+            super::field_model_particles::sync,
+            camera,
+            panorama::render,
+        )
+            .chain()
+            .run_if(field_art_ready),
     )
         .chain()
 }
@@ -337,6 +349,8 @@ pub(super) struct Art {
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
     pub(super) gpu: Option<u32>,
+    pub(super) model_revision: u64,
+    pub(super) retaining_output: bool,
     pub(super) loads: super::loading::LoadTasks,
     pub(super) loading_since: Instant,
     shadows: shadows::Artwork,
@@ -483,9 +497,22 @@ pub(super) fn model_toon_ramp(
 impl Art {
     /// Script replacements belong to this live entry, not the captured package.
     pub(super) fn invalidate(&mut self) {
-        self.gpu = None;
         self.cache = Weak::new();
     }
+    pub(super) fn begin_model_load(&mut self, resident: &super::loading::Resident) {
+        // Only a running field has already published a frame for this scene.
+        self.retaining_output |= self.ready
+            && self.gpu.is_some()
+            && resident.active.load(std::sync::atomic::Ordering::Acquire);
+        self.ready = false;
+        self.gpu = None;
+        self.model_revision += 1;
+        self.loading_since = Instant::now();
+        resident
+            .active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+
     pub(super) fn surfaces<'a>(
         &'a self,
         resource: u32,
@@ -587,6 +614,8 @@ pub(super) fn reset_live(world: &mut World) {
     super::field_weapons::retire(world);
     super::field_model_particles::retire(world);
     if let Some(mut art) = world.get_resource_mut::<Art>() {
+        art.retaining_output = false;
+        art.model_revision += 1;
         let instances = std::mem::take(&mut art.instances);
         for entity in instances.into_values().flatten() {
             world.despawn(entity);
@@ -681,6 +710,7 @@ pub(super) fn retire_live(world: &mut World) {
         super::field_model_particles::retire(world);
         ui.despawn(world);
         effects.despawn(world);
+        art.retaining_output = false;
         if let Some(cache) = art.cache.upgrade() {
             *cache.lock().unwrap() = Some((art, effects));
         }
@@ -1402,12 +1432,7 @@ fn load_costumes(
                 .map(|part| Part::load(part, &server, &art.loads))
                 .collect();
             art.models.insert(actor.resource, parts);
-            art.ready = false;
-            art.gpu = None;
-            art.loading_since = Instant::now();
-            resident
-                .active
-                .store(false, std::sync::atomic::Ordering::Release);
+            art.begin_model_load(&resident);
         }
     }
 }
@@ -1451,6 +1476,8 @@ fn load_art_selected(
         instances: BTreeMap::new(),
         ready: false,
         gpu: None,
+        model_revision: 0,
+        retaining_output: false,
         loading_since: Instant::now(),
         unlit: false,
         disabled_shadows: false,
@@ -1655,9 +1682,6 @@ fn instances(
     mut missing_models: Local<BTreeSet<(u32, u32)>>,
 ) {
     profile_span!("field instances");
-    if !art.ready {
-        return;
-    }
     for (&id, actor) in &session.get().events.world.actors {
         if let Some(entities) = art.instances.get(&id) {
             if !entities.is_empty()

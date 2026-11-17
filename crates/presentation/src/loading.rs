@@ -579,13 +579,33 @@ pub(super) fn black_hold(
     mut outputs: ResMut<Assets<super::materials::TitleOutput>>,
     battle: Option<Res<super::battle::Owner>>,
     title_return: Option<Res<super::game_over::Returning>>,
+    art: Option<Res<super::field_view::Art>>,
+    mut overlays: Query<&mut Camera, With<super::FieldOverlayCamera>>,
 ) {
-    let battle_visible = battle.is_some();
-    let held = !startup.ready()
-        || title_return.is_some()
-        || pending.is_some()
-        || field.is_some()
-        || session.is_some() && !resident.active.load(Ordering::Acquire) && !battle_visible;
+    let transition =
+        !startup.ready() || title_return.is_some() || pending.is_some() || field.is_some();
+    let field_loading =
+        !resident.active.load(Ordering::Acquire) && session.is_some() && battle.is_none();
+    // The overlay camera writes the composited field into the output material’s
+    // source image. Skip only that write while the replacement draws warm up.
+    let retain = !transition
+        && field_loading
+        && art.is_some_and(|art| {
+            art.retaining_output
+                && session
+                    .as_ref()
+                    .is_some_and(|s| s.is_field() && s.map_id() == art.map)
+        });
+    for mut camera in &mut overlays {
+        if matches!(camera.output_mode, bevy::camera::CameraOutputMode::Skip) != retain {
+            camera.output_mode = if retain {
+                bevy::camera::CameraOutputMode::Skip
+            } else {
+                super::renderer::COMPOSITED_OUTPUT
+            };
+        }
+    }
+    let held = transition || field_loading && !retain;
     let portal = startup.ready()
         && title_return.is_none()
         && session

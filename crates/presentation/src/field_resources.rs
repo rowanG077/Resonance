@@ -23,6 +23,9 @@ impl Prepared {
     fn preserve_resident_files(&mut self, resident: &Resident) {
         // Equipment and script resources can finish in either order.
         if let Some(current) = resident.files.read().unwrap().as_ref() {
+            if Arc::ptr_eq(&self.files, current) {
+                return;
+            }
             let files = Arc::make_mut(&mut self.files);
             for (path, bytes) in current.iter() {
                 if !files.contains_key(path) {
@@ -152,9 +155,11 @@ pub(super) fn update(
                 art.models.insert(resource, parts);
                 art.failed_models.remove(&resource);
             }
-            art.ready = false;
-            art.invalidate();
-            art.loading_since = std::time::Instant::now();
+            // Camera tracks arrive as CPU data and can resume on this update.
+            if !prepared.changed.is_empty() {
+                art.invalidate();
+                art.begin_model_load(&resident);
+            }
             *pending = Some(Pending::Loading(request, prepared));
         }
         if matches!(pending.as_ref(), Some(Pending::Loading(_, _))) && art.ready {

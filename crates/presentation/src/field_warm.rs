@@ -18,7 +18,8 @@ struct Report {
 struct Preparation {
     map: u32,
     started: Instant,
-    early: bool,
+    // Prefetch has no live artwork yet. A final submission belongs to one model revision.
+    model_revision: Option<u64>,
     samples: u32,
 }
 #[derive(SystemParam)]
@@ -79,9 +80,10 @@ fn retire(
     preparation: Option<Res<Preparation>>,
     shared: Res<Shared>,
     field: Option<Res<super::loading::FieldPending>>,
+    art: Option<Res<Art>>,
 ) {
     if preparation.as_ref().is_some_and(|preparation| {
-        preparation.early
+        preparation.model_revision.is_none()
             && field
                 .as_ref()
                 .is_some_and(|pending| pending.map == preparation.map)
@@ -89,13 +91,14 @@ fn retire(
         return; // The source can be an overworld scene while its field destination warms.
     }
     let stale = preparation.as_ref().is_some_and(|preparation| {
-        preparation.early
-            && !field
+        if let Some(revision) = preparation.model_revision {
+            return art
                 .as_ref()
-                .is_some_and(|pending| pending.map == preparation.map)
-            && !session
-                .as_ref()
-                .is_some_and(|session| session.is_field() && session.map_id() == preparation.map)
+                .is_none_or(|art| art.map != preparation.map || art.model_revision != revision);
+        }
+        !session
+            .as_ref()
+            .is_some_and(|session| session.is_field() && session.map_id() == preparation.map)
     });
     if !stale && (session.as_ref().is_some_and(|s| s.is_field()) || pending.is_some()) {
         return;
@@ -273,7 +276,7 @@ fn begin(
         && (resident.active.load(Ordering::Acquire)
             || preparation
                 .as_ref()
-                .is_some_and(|p| p.map == art.map && !p.early))
+                .is_some_and(|p| p.map == art.map && p.model_revision.is_some()))
     {
         return;
     }
@@ -287,7 +290,7 @@ fn begin(
                     && gpu.images.contains(&graphics.toon_ramp)
                     && preparation
                         .as_ref()
-                        .is_none_or(|p| p.early && p.map == graphics.map)
+                        .is_none_or(|p| p.model_revision.is_none() && p.map == graphics.map)
                     && (pending
                         .as_ref()
                         .is_some_and(|pending| pending.map == graphics.map)
@@ -322,7 +325,7 @@ fn begin(
     };
     let staged = preparation
         .as_deref_mut()
-        .filter(|p| p.map == map && p.early);
+        .filter(|p| p.map == map && p.model_revision.is_none());
     let (mut preparation, mut report) = match staged {
         Some(staged) => (
             staged.clone(),
@@ -331,7 +334,7 @@ fn begin(
         None => (
             Preparation {
                 map,
-                early,
+                model_revision: None,
                 samples,
                 started: Instant::now(),
             },
@@ -341,7 +344,7 @@ fn begin(
             },
         ),
     };
-    preparation.early = early;
+    preparation.model_revision = art.as_ref().map(|art| art.model_revision);
     preparation.started = Instant::now();
     // Early uploads can finish independently. Final admission also needs the
     // newly instantiated scene's materials and actual draws, captured below.
@@ -443,7 +446,7 @@ fn capture_frame(world: &mut World) {
     let Some(preparation) = world.get_resource::<Preparation>() else {
         return;
     };
-    if preparation.early {
+    if preparation.model_revision.is_none() {
         return;
     }
     let shared = world.resource::<Shared>().clone();
@@ -530,7 +533,7 @@ fn complete(
         preparation.retire(&mut commands);
         return;
     }
-    if preparation.early {
+    if preparation.model_revision.is_none() {
         return;
     }
     if report.draws.completed.load(Ordering::Acquire) && refraction.get() {
@@ -544,6 +547,7 @@ fn complete(
         resident.active.store(true, Ordering::Release);
         if let Some(mut art) = art.filter(|art| art.map == preparation.map) {
             art.gpu = Some(preparation.samples);
+            art.retaining_output = false;
         }
         preparation.retire(&mut commands);
     } else if preparation.started.elapsed().as_secs() > 120 {
@@ -658,6 +662,111 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires locally cooked field assets; CPU simulation of GPU acknowledgements"]
+    fn background_only_field_holds_until_the_latest_model_submission() -> anyhow::Result<()> {
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
+            Into::into,
+        );
+        let package =
+            crate::new_game::FieldPackage::prepare(&root, 332, &mut Default::default(), || false)?;
+        let checkpoint = crate::test_support::field_checkpoint(&package.files)?;
+        let mut session =
+            crate::new_game::Session::load_prepared(Arc::new(package), Some(checkpoint), None)?;
+        session.events_mut().world.actors.clear();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_resource::<Assets<crate::materials::TitleOutput>>()
+            .init_resource::<Shared>();
+        let resident = Resident::default();
+        let art = crate::field_view::prepared_test_art(
+            session.field_assets(),
+            app.world().resource::<AssetServer>(),
+        );
+        app.insert_resource(art)
+            .insert_resource(session)
+            .insert_resource(resident.clone());
+        let world = app.world_mut();
+        let camera = world
+            .spawn((Camera::default(), crate::FieldOverlayCamera))
+            .id();
+        let output = world
+            .resource_mut::<Assets<crate::materials::TitleOutput>>()
+            .add(crate::materials::TitleOutput {
+                source: default(),
+                overlay: None,
+                brightness: Vec4::X,
+            });
+        let check_hold = |world: &mut World, retain, black| {
+            world.run_system_once(crate::loading::black_hold).unwrap();
+            assert_eq!(
+                matches!(
+                    world.get::<Camera>(camera).unwrap().output_mode,
+                    bevy::camera::CameraOutputMode::Skip
+                ),
+                retain
+            );
+            let material = world
+                .resource::<Assets<crate::materials::TitleOutput>>()
+                .get(&output)
+                .unwrap();
+            assert_eq!(material.brightness.z, f32::from(black));
+        };
+        let submit = |world: &mut World| {
+            let art = world.resource::<Art>();
+            *world.resource::<Shared>().0.lock().unwrap() = Report {
+                map: Some(art.map),
+                ..default()
+            };
+            world.insert_resource(Preparation {
+                map: art.map,
+                model_revision: Some(art.model_revision),
+                samples: 1,
+                started: Instant::now(),
+            });
+        };
+        // An initial load has no image to retain until the field is admitted.
+        world.resource_mut::<Art>().begin_model_load(&resident);
+        check_hold(world, false, true);
+        world.resource_mut::<Art>().ready = true;
+        submit(world);
+        complete_test_startup(world);
+        world.resource_mut::<Art>().begin_model_load(&resident);
+        check_hold(world, true, false);
+        world.insert_resource(crate::loading::Pending::spawn("transition cover", |_| {
+            anyhow::bail!("unused transition result")
+        })?);
+        check_hold(world, false, true);
+        world.remove_resource::<crate::loading::Pending>();
+        world.resource_mut::<Art>().ready = true;
+        submit(world);
+        let obsolete = world
+            .resource::<Shared>()
+            .0
+            .lock()
+            .unwrap()
+            .draws
+            .completed
+            .clone();
+        world.resource_mut::<Art>().begin_model_load(&resident);
+        world.run_system_once(retire).unwrap();
+        assert!(!world.contains_resource::<Preparation>());
+        world.run_system_once(complete).unwrap();
+        check_hold(world, true, false);
+        assert!(!resident.active.load(Ordering::Acquire));
+        world.resource_mut::<Art>().ready = true;
+        submit(world);
+        obsolete.store(true, Ordering::Release);
+        world.run_system_once(complete).unwrap();
+        check_hold(world, true, false);
+        complete_test_startup(world);
+        check_hold(world, false, false);
+        assert!(resident.active.load(Ordering::Acquire));
+        Ok(())
+    }
+
+    #[test]
     fn field_retirement_keeps_title_files_while_releasing_field_gpu_work() {
         let mut world = World::new();
         let files = Arc::new(resonance_content::prepared::Files::default());
@@ -669,7 +778,7 @@ mod tests {
         world.insert_resource(Preparation {
             map: 340,
             started: Instant::now(),
-            early: false,
+            model_revision: Some(0),
             samples: 1,
         });
         world.resource::<Shared>().0.lock().unwrap().map = Some(340);
