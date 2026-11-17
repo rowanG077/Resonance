@@ -1227,6 +1227,7 @@ fn retire(world: &mut World, owner: Owner, resume: bool) {
 }
 
 fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
+    super::sparse_animation::affine::reset(world);
     transition::dispose(world);
     if let Phase::Scene(scene) = &mut owner.phase {
         let memory = scene.lifecycle.take_menu_memory();
