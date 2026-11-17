@@ -46,6 +46,7 @@ pub(crate) fn prepare(id: usize, bytes: &[u8]) -> Result<Cow<'_, [u8]>> {
         },
         Some(FieldId::Meltokio0377) => place_castle_wood,
         Some(FieldId::ToizeValleyMine0413) => reset_boulder_attempt,
+        Some(FieldId::Luin0448) => separate_sheena_introduction,
         Some(FieldId::Niflheim0524) => adjust_niflheim,
         _ => return Ok(Cow::Borrowed(bytes)),
     };
@@ -63,6 +64,35 @@ fn header(bytes: &[u8]) -> Result<symphonia_script::scenario::Header> {
         "invalid gameplay correction code range"
     );
     Ok(header)
+}
+
+/// Both answers to the truce offer can join a second spoken sentence onto an
+/// already full line. Reuse the padding in each message for its missing page break.
+fn separate_sheena_introduction(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut corrected = bytes.to_vec();
+    let table = &mut corrected[header(bytes)?.auxiliary_offset()..];
+    // Both truce replies use the silent clip 480 in bank 13.
+    const SILENT_INTRO: &[u8] = &[9, 2, 0, 1, 0xe0, 0, 13, 0x30, 0, 0x20, 0xff];
+    for id in [188, 203] {
+        let start = crate::dol::u32(table, id * 4)? as usize;
+        let end = crate::dol::u32(table, (id + 1) * 4)? as usize;
+        let body = table
+            .get_mut(start..end)
+            .context("invalid Luin message range")?;
+        let voice = body
+            .windows(SILENT_INTRO.len())
+            .position(|w| w == SILENT_INTRO)
+            .with_context(|| format!("missing introduction in Luin message {id}"))?;
+        let padding = body[..voice]
+            .iter()
+            .position(|&byte| byte == 0x1f)
+            .with_context(|| format!("missing padding in Luin message {id}"))?;
+        body.copy_within(padding + 1..voice, padding);
+        body[voice - 1] = 0x0c;
+        // Message 206 voices the same introduction with clip 481.
+        body[voice + 3..voice + 5].copy_from_slice(&481u16.to_be_bytes());
+    }
+    Ok(corrected)
 }
 
 /// Release every departing villager's scripted reaction after Lloyd's banishment.
