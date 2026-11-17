@@ -1,13 +1,10 @@
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
-use nod::{
-    common::PartitionKind,
-    read::{DiscOptions, DiscReader, PartitionOptions},
-};
+use nod::read::{DiscOptions, DiscReader};
 use std::{
     fs,
     io::Read,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 #[derive(Parser)]
@@ -218,90 +215,11 @@ fn install_ghost_wolf(assets: &Path, mods: &Path) -> Result<()> {
     Ok(())
 }
 
-const SUPPLEMENT: [&str; 9] = [
-    "EV/sce_084_090.afs",
-    "EV/sce_091_100.afs",
-    "EV/sce_101_110.afs",
-    "EV/sce_111_120.afs",
-    "EV/sce_121_132.afs",
-    "MOV/as2.h4m",
-    "MOV/as3.h4m",
-    "MOV/s09.h4m",
-    "MOV/s10.h4m",
-];
-
 fn extract(disc_path: &Path, output: Option<&Path>, expected_disc: Option<u8>) -> Result<()> {
     let disc = DiscReader::new(disc_path, &DiscOptions::default())
         .with_context(|| format!("open disc image {}", disc_path.display()))?;
-    let header = disc.header();
-    ensure!(
-        header.game_id_str() == "GQSEAF" && header.disc_version == 0 && header.is_gamecube(),
-        "expected GameCube GQSEAF revision 0"
-    );
-    if let Some(number) = expected_disc {
-        ensure!(
-            header.disc_num == number,
-            "expected disc {} at {}, found disc {}",
-            number + 1,
-            disc_path.display(),
-            header.disc_num + 1
-        );
-    }
     let output = output.map(Path::to_path_buf).unwrap_or_else(|| {
-        Path::new(EXTRACTED_DISCS).join(format!("disc{}", u16::from(header.disc_num) + 1))
+        Path::new(EXTRACTED_DISCS).join(format!("disc{}", u16::from(disc.header().disc_num) + 1))
     });
-    let supplement_only = expected_disc == Some(1);
-    let mut partition =
-        disc.open_partition_kind(PartitionKind::Data, &PartitionOptions::default())?;
-    let meta = partition.meta()?;
-    if !supplement_only {
-        fs::create_dir_all(output.join("sys"))?;
-        for (name, bytes) in [
-            ("boot.bin", meta.raw_boot.as_slice()),
-            ("bi2.bin", meta.raw_bi2.as_slice()),
-            ("apploader.img", meta.raw_apploader.as_ref()),
-            ("main.dol", meta.raw_dol.as_ref()),
-            ("fst.bin", meta.raw_fst.as_ref()),
-        ] {
-            fs::write(output.join("sys").join(name), bytes)?;
-        }
-    }
-    let fst = meta.fst().map_err(anyhow::Error::msg)?;
-    let total = fst
-        .iter()
-        .filter(|(_, node, name)| {
-            node.is_file() && (!supplement_only || SUPPLEMENT.contains(&name.as_str()))
-        })
-        .count();
-    let mut count = 0;
-    for (_, node, name) in fst.iter() {
-        if !node.is_file() || supplement_only && !SUPPLEMENT.contains(&name.as_str()) {
-            continue;
-        }
-        ensure!(
-            !name.is_empty()
-                && Path::new(&name)
-                    .components()
-                    .all(|part| matches!(part, Component::Normal(_))),
-            "unsafe disc path {name}"
-        );
-        let mut bytes = Vec::new();
-        partition.open_file(node)?.read_to_end(&mut bytes)?;
-        let target = output.join("files").join(&name);
-        fs::create_dir_all(target.parent().expect("file has a parent"))?;
-        fs::write(target, bytes)?;
-        count += 1;
-        if count % 100 == 0 || count == total {
-            eprintln!(
-                "  [{count}/{total} files] Extracting {}: {name}",
-                disc_path.display()
-            );
-        }
-    }
-    ensure!(
-        !supplement_only || count == SUPPLEMENT.len(),
-        "disc 2 is missing required supplemental files"
-    );
-    eprintln!("Read {count} source files from {}", disc_path.display());
-    Ok(())
+    resonance_importer::extract_disc(disc_path, &output, expected_disc, &|_| {})
 }

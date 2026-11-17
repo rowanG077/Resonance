@@ -2,6 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 mod crash_dumps;
+mod first_run;
 mod logging;
 
 #[derive(Parser)]
@@ -114,6 +115,9 @@ fn main() -> anyhow::Result<()> {
     if let Some(result) = crash_dumps::monitor_command() {
         return result;
     }
+    if let Some(result) = first_run::process::worker_command() {
+        return result;
+    }
     if let Some(result) = crash_dumps::self_test_command() {
         return result;
     }
@@ -135,6 +139,13 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run(mut args: Args) -> anyhow::Result<()> {
+    if args.record_music.is_none()
+        && args.record_playthrough.is_none()
+        && args.capture.is_none()
+        && !first_run::process::imported(&args.assets)
+    {
+        return first_run::run(args.assets, args.mods_directory);
+    }
     if !args.no_default_mods {
         let mut mods = resonance_content::library::discover_mods(&args.mods_directory)?;
         // An explicit --mod keeps its own priority, even for an automatic mod.

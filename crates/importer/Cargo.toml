@@ -24,3 +24,4 @@ symphonia-constants.workspace = true
 symphonia-script.workspace = true
 tempfile = "3"
 sha2.workspace = true
+nod = "=2.0.0-alpha.9"

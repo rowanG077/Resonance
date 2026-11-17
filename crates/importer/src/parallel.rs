@@ -51,7 +51,12 @@ pub(crate) fn for_each<T: Sync>(
 
 /// CPU allowance for one bounded batch, respecting process affinity and quotas.
 pub(crate) fn workers() -> usize {
-    thread::available_parallelism().map_or(1, |count| count.get())
+    let available = thread::available_parallelism().map_or(1, |count| count.get());
+    std::env::var("RESONANCE_IMPORT_WORKERS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|&value| value > 0)
+        .map_or(available, |limit| limit.min(available))
 }
 
 /// Convert a bounded batch concurrently and retain input order for publication.

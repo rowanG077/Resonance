@@ -58,7 +58,21 @@ performance. The Nix development shell uses the parallel mold linker on Linux.
 
 ## Import assets and play
 
-You need both North American GameCube disc images (GQSEAF revision 0):
+Launch Resonance and choose both North American GameCube disc images (GQSEAF
+revision 0) when prompted. The first-run screen accepts RVZ, ISO, GCM, GCZ and WIA
+files through a native file picker or drag and drop. It imports in the background
+while Yggdrasil grows with the estimated progress. Import details are available
+behind a spoiler warning. When preparation finishes, choose **Play Resonance**.
+When an app update requires a newer asset format, Resonance prompts to re-import.
+It automatically uses both extracted discs in `local/extracted-discs` when present;
+otherwise, it asks for the two disc images again.
+
+```sh
+target/release/resonance
+```
+
+Existing imported libraries start the game immediately. The command-line importer
+is also available for explicit imports and recooking:
 
 ```sh
 target/release/resonance-import /path/to/Disc1.rvz /path/to/Disc2.rvz

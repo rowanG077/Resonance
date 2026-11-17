@@ -54,6 +54,8 @@ or a manual clock between `Advance` and `Render`.
 
 The plugin owns a `Renderer` resource; `Renderer::events()` lists visit IDs,
 titles, times and tree sizes without loading another copy of the artwork.
+`Renderer::progress_at(event.start)` gives the authored growth threshold for
+starting a visit from an external progress meter.
 Growth and story time are independent: an installer can
 hold growth during a visit and advance it between visits. This crate does not
 start extraction or cooking jobs. Invalid event selections report an error in

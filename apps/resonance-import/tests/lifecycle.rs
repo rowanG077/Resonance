@@ -33,6 +33,10 @@ fn default_cook_reuses_extraction_and_clears_only_the_asset_library() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("game and interface"));
     assert!(!root.join("local/all-assets/obsolete.ktx2").exists());
     assert_eq!(
+        fs::read(root.join("local/all-assets/.resonance-import-state")).unwrap(),
+        b"running\n"
+    );
+    assert_eq!(
         fs::read(root.join("local/extracted-discs/disc1/sys/main.dol")).unwrap(),
         b"extracted source fixture"
     );

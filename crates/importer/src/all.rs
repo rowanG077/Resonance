@@ -26,6 +26,15 @@ impl Drop for PassTiming {
 }
 
 pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
+    cook_all_with_progress(root, library, &|_| {})
+}
+
+/// Convert the library while reporting pass boundaries without asset names.
+pub fn cook_all_with_progress(
+    root: &Path,
+    library: &Path,
+    progress: &dyn Fn(crate::ImportProgress),
+) -> Result<()> {
     let executable = root.join("disc1/sys/main.dol");
     ensure!(
         executable.is_file(),
@@ -40,6 +49,7 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
         "asset output and extracted source must be separate directories"
     );
     crate::authoring::clear_previous(library).context("clear previous cooked output")?;
+    std::fs::write(library.join(crate::IMPORT_STATE), b"running\n")?;
     let started = std::time::Instant::now();
     eprintln!("Writing asset library to {}", library.display());
     let mut pass = 0;
@@ -47,6 +57,10 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     let mut heading = |name: &'static str| {
         drop(timing.take());
         pass += 1;
+        progress(crate::ImportProgress::Cooking {
+            stage: pass,
+            total: PASS_COUNT,
+        });
         eprintln!("\n[asset type {pass}/{PASS_COUNT}] Cooking {name}");
         timing = Some(PassTiming {
             number: pass,
@@ -286,6 +300,7 @@ pub fn cook_all(root: &Path, library: &Path) -> Result<()> {
     crate::cook_world_definition(root, library).context("world definition")?;
     heading("Granular mod owners");
     crate::authoring::publish(library).context("granular asset publication")?;
+    std::fs::write(library.join(crate::IMPORT_STATE), b"complete\n")?;
     drop(heading);
     drop(timing);
     eprintln!(

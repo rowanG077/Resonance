@@ -77,6 +77,10 @@ impl Renderer {
     pub fn events(&self) -> Vec<Event> {
         self.timeline.events()
     }
+    /// Authored tree growth at a journey time, for progress-driven visit triggers.
+    pub fn progress_at(&self, seconds: f64) -> f64 {
+        self.timeline.progress(seconds)
+    }
     /// Sample any playback mode. Tree growth can be driven independently by the host.
     pub(crate) fn render(
         &mut self,

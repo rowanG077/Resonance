@@ -87,7 +87,9 @@ rg 'took .* seconds' /tmp/resonance-cook.log
 ```
 
 Independent work within a pass uses `std::thread::available_parallelism()` to
-detect the CPU allowance and start at most that many workers. Each pass finishes
+detect the CPU allowance. `RESONANCE_IMPORT_WORKERS=N` can reduce its worker limit;
+zero or invalid values use the default, and larger values are capped by the CPU
+allowance. Each pass finishes
 before the next starts. Parallel passes include field scripts/collision, battle
 party characters (each character's costumes remain ordered), battle equipment,
 arenas, scenes, skills, enemy rules, field definitions, animation bindings,
@@ -104,6 +106,66 @@ retain the same first owner as the sequential converter. Animation bindings
 are converted in batches, each with its own cache, and merged in the original
 order; other shared-owner passes keep their required ordering.
 On failure, new work stops and active workers finish before the error returns.
+
+### First-run import and progress calibration
+
+With no completed, compatible import in `--assets`, interactive Resonance launches
+its import screen. It checks `content.json` against the current content format;
+an incompatible import prompts for **Re-import assets** before starting the game.
+If `local/extracted-discs` contains disc 1's executable and files plus all nine
+disc 2 supplements, the prompt automatically selects that source. Otherwise it
+asks for both original disc images. **Choose disc images instead** switches away
+from an existing extraction. Re-importing starts only after selecting the import
+button; **Quit** leaves the old assets untouched.
+Captures and audio/playthrough recordings retain their headless
+startup behavior. The screen embeds its own artwork and font, so it needs no game
+assets. It validates both discs, starts a copy of the same executable as an import
+worker, and captures stdout/stderr without blocking the renderer. File selection
+supports Tab/Enter as well as pointer input and drag and drop.
+
+The worker reads existing extracted discs in place, or extracts selected images
+into a temporary directory, and cooks directly into the asset library.
+Failed or cancelled cooks remain incomplete; retrying replaces that
+output. A small completion marker distinguishes finished imports from interrupted
+ones. Original disc images are read-only.
+Only temporary extracted files are removed when the worker stops; existing
+`local/extracted-discs` is retained for future imports. An already
+installed Ghost Wolf mod is left alone. Selecting **Play Resonance** relaunches the game with the same arguments,
+using a fresh native window event loop.
+
+The background worker reserves two logical CPUs on machines with four or more
+available (one on smaller machines, always leaving at least one worker). Set
+`RESONANCE_IMPORT_WORKERS` to override the budget. Each cooking stage has its own
+timing samples in `apps/resonance/assets/setup/import-profile.json`. The estimator
+interpolates in inverse CPU count and uses a nonnegative serial-plus-parallel fit
+outside measured counts. Thus serial stages do not receive an assumed linear
+speedup. Completed stages also calibrate the estimate to the current machine.
+Extraction uses file counts and a small fixed share; its cost varies with image
+compression and storage. Estimates are monotonic, smooth, and remain below 100%
+until the worker exits successfully. Character visits start at growth thresholds
+and play at their original speed, even when a stage takes longer than expected.
+
+To regenerate the measurements, using an already extracted source:
+
+```sh
+cargo build --profile release-fast -p resonance-import-cli
+python tools/profile-import.py --cores 1 2 4 8 16 --fresh
+```
+
+The profiler runs full cooks sequentially, reusing only its own output under
+`target/import-profiles`. It retains full logs there and saves the per-stage
+profile after each successful run. Omit `--fresh` to resume completed measurements
+instead of replacing them. On Linux it
+sets CPU affinity before starting the importer, preferring performance cores on
+heterogeneous machines. Counts above the host's available CPUs are capped and
+recorded with the actual count; a 12-core machine cannot measure 16-core behavior.
+Keep unrelated CPU-heavy work off the measured CPUs. Rebuild Resonance after the
+profile changes to embed the updated samples.
+
+The detailed output panel requires acknowledging that asset names can spoil story
+events. It keeps up to 2,000 recent lines; wheel/Page Up/Page Down scroll, and End
+or **Follow latest** resumes the live tail. Ordinary progress labels contain no
+asset names. Escape closes the panel.
 
 ## Conversion and publication
 

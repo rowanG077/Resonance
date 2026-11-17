@@ -14,6 +14,7 @@ fn output(program: &str, args: &[&str]) -> String {
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=assets");
     println!("cargo:rerun-if-changed=../../crates");
     println!("cargo:rerun-if-changed=../../Cargo.toml");
     println!("cargo:rerun-if-changed=../../Cargo.lock");

@@ -1,5 +1,10 @@
 //! Direct conversion from original files to editable library assets.
 mod all;
+mod discs;
+pub use discs::{extract_disc, extracted_discs_available, validate_disc};
+mod progress;
+pub use all::cook_all_with_progress;
+pub use progress::{IMPORT_STATE, ImportProgress};
 mod authoring;
 pub use authoring::{cook_incremental, publish_document};
 mod diagnostics;

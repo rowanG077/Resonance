@@ -9,9 +9,17 @@ resonance-presentation.workspace = true
 resonance-persistence.workspace = true
 clap.workspace = true
 anyhow.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_ui", "bevy_ui_render", "bevy_text", "bevy_ui_widgets", "bevy_picking", "ui_picking", "default_font", "png"] }
+resonance-yggdrasil = { path = "../../crates/yggdrasil" }
+resonance-importer.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rfd = "0.15"
 tempfile = "3"
 time.workspace = true
+
+[dev-dependencies]
+image.workspace = true
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 crash-handler = "0.8.1"
