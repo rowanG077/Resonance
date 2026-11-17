@@ -1395,6 +1395,7 @@ fn observe(
             "page":format!("{:?}",menu.page), "focus":format!("{:?}",menu.focus),
             "visually_settled":menu_settled(world, menu),
             "selected":menu.selected, "character":menu.character, "busy":menu.busy,
+            "bank":menu.bank, "slot":menu.slot, "first_slot":menu.first_slot,
             "checkpoint":menu.checkpoint,
             "inventory":{"category":menu.inventory.category,"row":menu.inventory.row,
                 "first":menu.inventory.first,"focus":format!("{:?}",menu.inventory.focus)},
@@ -1607,6 +1608,7 @@ mod tests {
         .insert_resource(Clock::default())
         .insert_resource(Persistence {
             store: Store::new(std::env::temp_dir()),
+            selection: Default::default(),
         })
         .insert_resource(pending)
         .add_systems(Update, move |world: &mut World| {
@@ -1640,6 +1642,7 @@ mod tests {
         .insert_resource(boot)
         .insert_resource(Persistence {
             store: Store::new(std::env::temp_dir()),
+            selection: Default::default(),
         })
         .add_systems(Update, || panic!("ready scene received an extra update"));
         let mut timed_out = true;

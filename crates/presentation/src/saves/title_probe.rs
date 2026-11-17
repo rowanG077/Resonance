@@ -29,6 +29,14 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
         updates: 30,
     });
     steps.push(Step::capture("title-load-held"));
+    steps.extend(Step::tap(Key::Right));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotState::List));
+    for _ in 0..8 {
+        steps.extend(Step::tap(Key::Down));
+    }
+    steps.push(Step::capture("title-load-selected"));
+    steps.extend(Step::tap(Key::Cancel));
     steps.extend(Step::tap(Key::Cancel));
     steps.push(Step::wait(Event::Title, 600));
     steps.push(Step::capture("title-cancelled"));
@@ -37,6 +45,14 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
     steps.extend(Step::tap(Key::Interact));
     steps.push(slots(SlotState::List));
     steps.push(settled());
+    steps.push(Step::capture("title-load-reopened"));
+    for _ in 0..8 {
+        steps.extend(Step::tap(Key::Up));
+    }
+    steps.extend(Step::tap(Key::Cancel));
+    steps.extend(Step::tap(Key::Left));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotState::List));
     steps.push(Step::capture("title-load-slot"));
     steps.extend(Step::tap(Key::Interact));
     steps.push(slots(SlotState::Confirm));
@@ -67,6 +83,19 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
         capture_from(&report, "title-cancelled")?["scene"]["title"]["menu"]["selected"] == 1,
         "cancel lost title selection"
     );
+    ensure!(
+        banks["scene"]["load"]["bank"] == 0
+            && banks["scene"]["load"]["slot"] == 0
+            && banks["scene"]["load"]["first_slot"] == 0,
+        "a fresh process retained an earlier save/load position"
+    );
+    for name in ["title-load-selected", "title-load-reopened"] {
+        let menu = &capture_from(&report, name)?["scene"]["load"];
+        ensure!(
+            menu["bank"] == 1 && menu["slot"] == 8 && menu["first_slot"] == 3,
+            "{name} lost the shared save/load position: {menu}"
+        );
+    }
     let loaded = capture_from(&report, "loaded-field")?;
     ensure!(
         loaded["scene"]["phase"] == "field" && loaded["scene"]["load"].is_null(),

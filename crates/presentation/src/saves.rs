@@ -42,6 +42,7 @@ pub struct SaveOptions {
 #[derive(Resource)]
 struct Persistence {
     store: Store,
+    selection: menu::Selection,
 }
 
 pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -> Result<()> {
@@ -67,6 +68,7 @@ pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -
     }
     app.insert_resource(Persistence {
         store: Store::new(directory),
+        selection: Default::default(),
     });
     title::install(app);
     Ok(())
