@@ -1325,7 +1325,11 @@ fn model_pose(
                     } else if mount == Mount::Noishe && id == scene.leader() {
                         4
                     } else {
-                        locomotion_slot(mount, session.travel.speed())
+                        locomotion_slot(
+                            mount,
+                            session.travel.speed(),
+                            session.travel.speed_fraction(),
+                        )
                     },
                 );
                 if id == 201 {
@@ -1564,10 +1568,10 @@ fn flight_position(session: &game::Session, member: usize) -> (Position, f32) {
         lift,
     )
 }
-fn locomotion_slot(mount: Mount, speed: f32) -> u16 {
+fn locomotion_slot(mount: Mount, speed: f32, speed_fraction: f32) -> u16 {
     let speed = speed.abs();
     let running = match mount {
-        Mount::Foot | Mount::Noishe => Gait::at(speed, 1.) == Gait::Run,
+        Mount::Foot | Mount::Noishe => speed_fraction > 0.5,
         _ => speed > 8.,
     };
     if speed <= 0.01 {
@@ -1966,26 +1970,32 @@ pub(crate) fn residency_roots(world: &mut World) -> std::collections::BTreeSet<E
 mod tests {
     use super::*;
     #[test]
-    fn locomotion_runs_above_the_walking_limit_for_foot_and_noishe_only() {
-        let limit = resonance_events::stride::MAXIMUM_WALK_SPEED;
-        for mount in [Mount::Foot, Mount::Noishe] {
+    fn locomotion_uses_half_maximum_speed_for_foot_and_noishe_only() {
+        for (mount, maximum) in [(Mount::Foot, 10.), (Mount::Noishe, 80. / 6.8)] {
             for (speed, expected) in [
                 (0., 0),
                 (0.01, 0),
                 (0.02, 1),
-                (limit, 1),
-                (limit + 0.001, 2),
-                (10., 2),
+                (maximum * 0.5, 1),
+                (maximum * 0.5001, 2),
+                (maximum, 2),
             ] {
-                assert_eq!(locomotion_slot(mount, speed), expected);
+                assert_eq!(locomotion_slot(mount, speed, speed / maximum), expected);
             }
         }
         for mount in [Mount::Ship, Mount::Rheairds] {
-            assert_eq!(locomotion_slot(mount, 8.), 1);
-            assert_eq!(locomotion_slot(mount, 8.001), 2);
+            assert_eq!(locomotion_slot(mount, 8., 0.75), 1);
+            assert_eq!(locomotion_slot(mount, 8.001, 0.25), 2);
         }
-        assert!((gait_rate(1, limit) - Gait::Walk.rate(limit, 1.)).abs() < 1e-6);
-        assert!((gait_rate(2, 10.) - Gait::Run.rate(10., 1.)).abs() < 1e-6);
+        for (slot, speed, expected) in [
+            (1, 1., 0.6),
+            (1, 4., 2.4),
+            (1, 5., 3.),
+            (2, 7.75, 1.),
+            (2, 10., 10. / 7.75),
+        ] {
+            assert!((gait_rate(slot, speed) - expected).abs() < 1e-6);
+        }
     }
 
     #[test]
