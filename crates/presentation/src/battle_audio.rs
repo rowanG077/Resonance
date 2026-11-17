@@ -632,6 +632,7 @@ impl std::fmt::Debug for Command {
 }
 
 struct FieldMusic {
+    sound_bindings: [Option<super::BoundSound>; 5],
     assets: Arc<super::Assets>,
     music: Option<Music>,
     levels: [u8; 3],
@@ -788,6 +789,7 @@ impl Frames {
                     music.player.pause(true);
                 }
                 let field = FieldMusic {
+                    sound_bindings: std::mem::take(&mut self.sound_bindings),
                     assets: self.assets.clone(),
                     music: self.music.take(),
                     levels: self.levels,
@@ -831,6 +833,7 @@ impl Frames {
                 if !resume && self.battle.is_none() {
                     // A cancelled pending Begin still needs to retire the field
                     // sources when its destination will not resume that field.
+                    self.sound_bindings = [None; 5];
                     self.music = None;
                     self.sounds.clear();
                     self.stop_voice()?;
@@ -850,6 +853,11 @@ impl Frames {
                 self.assets = state.field.assets;
                 self.levels = state.field.levels;
                 self.stereo = state.field.stereo;
+                self.sound_bindings = if resume {
+                    state.field.sound_bindings
+                } else {
+                    [None; 5]
+                };
                 if resume {
                     self.music = state.field.music;
                     self.studio.set_music_reverb(state.field.reverb)?;
@@ -2530,6 +2538,83 @@ mod tests {
         assert_eq!(control.rendered_frames(), 5);
         Ok(())
     }
+    #[test]
+    fn battle_return_replays_only_accepted_field_sound_bindings() -> Result<()> {
+        let mut field = mixer();
+        field.diagnostics = Diagnostics::default();
+        let one_shot = EffectDefinition::Silence(resonance_audio::effect::Silence {
+            frames: 8,
+            sample_rate: RATE,
+        })
+        .prepare_in(
+            Some(field.reverbs),
+            &mut |_, _| unreachable!(),
+            &mut Default::default(),
+        )?;
+        field.sounds.insert(201, Arc::new(one_shot));
+        for id in [152, 237] {
+            field.sounds.insert(id, test_score());
+        }
+        let (source, mut control) = Arc::new(field).session();
+        let mut frames = source.decoder();
+        let cue = |id, slot| AudioCommand::Sound {
+            id,
+            slot,
+            pan: 64,
+            volume: 127,
+        };
+        for command in [
+            cue(201, Some(1)),
+            cue(237, Some(2)),
+            cue(237, Some(4)),
+            cue(237, Some(5)),
+            cue(237, None),
+            AudioCommand::StopSound(2),
+            cue(152, Some(4)),
+            AudioCommand::SoundVolume {
+                slot: 1,
+                volume: 48,
+            },
+            AudioCommand::SoundPan { slot: 1, pan: 34 },
+            cue(999, Some(1)),
+            AudioCommand::SoundVolume {
+                slot: 1,
+                volume: 220,
+            },
+        ] {
+            control.send(command)?;
+        }
+        for _ in 0..2 * BLOCK_FRAMES {
+            frames.frame()?;
+        }
+        assert!(frames.sounds.iter().all(|sound| sound.cue != Some(201)));
+        assert_eq!(frames.assets.diagnostics.entries().len(), 2);
+        let mut playback = Playback::begin(&mut control, assets(), settings(), None)?;
+        frames.frame()?;
+        assert!(frames.sounds.is_empty());
+        assert!(playback.finish(&mut control, true)?);
+        control.send(AudioCommand::ReplayFieldSounds)?;
+        frames.frame()?;
+        let restored: Vec<_> = frames
+            .sounds
+            .iter()
+            .map(|s| (s.slot, s.cue, s.volume, s.controls.pan))
+            .collect();
+        assert_eq!(
+            restored,
+            [
+                (Some(1), Some(201), 48. / 127., Some(34)),
+                (Some(4), Some(152), 1., Some(64)),
+            ]
+        );
+        control.leave_field()?;
+        control.enter_field(mixer())?;
+        control.send(AudioCommand::ReplayFieldSounds)?;
+        frames.frame()?;
+        assert!(frames.sounds.is_empty());
+        Ok(())
+    }
+
     #[test]
     fn tolerant_audio_skips_missing_playback_requests() -> Result<()> {
         let diagnostics = Diagnostics::default();

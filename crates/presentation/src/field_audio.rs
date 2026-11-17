@@ -801,6 +801,13 @@ impl Spoken {
         self.clip.sample(position, RATE, [gain; 2])
     }
 }
+#[derive(Clone, Copy)]
+struct BoundSound {
+    id: i16,
+    pan: u8,
+    volume: u8,
+}
+
 pub(super) struct Frames {
     synth: Synthesizer,
     battle: Option<battle::State>,
@@ -813,6 +820,8 @@ pub(super) struct Frames {
     /// Room score retained while the native inn jingle (97) plays.
     background_music: Option<i16>,
     sounds: Vec<ScorePlayer>,
+    /// Keep the cue for battle return even after its playback ends.
+    sound_bindings: [Option<BoundSound>; 5],
     studio: Studio,
     studio_initialized: bool,
     stream_block: [BusFrame; BLOCK_FRAMES],
@@ -886,22 +895,6 @@ impl Frames {
     }
 
     fn command(&mut self, command: AudioCommand) -> Result<()> {
-        if let AudioCommand::RepeatSound {
-            id,
-            pan,
-            volume,
-            slot,
-        } = command
-        {
-            self.command(AudioCommand::Sound {
-                id,
-                pan,
-                volume,
-                slot: Some(slot),
-            })?;
-            self.sounds.last_mut().unwrap().repeat = Some(self.assets.sounds[&id].clone());
-            return Ok(());
-        }
         match command {
             AudioCommand::SoundReverb(preset) => self.studio.set_sound_preset(preset)?,
             AudioCommand::Music(command) => {
@@ -972,40 +965,42 @@ impl Frames {
                 volume,
                 slot,
             } => {
-                ensure!(pan < 128 && volume < 128, "invalid cue controls");
-                let mut sound = ScorePlayer::new(
-                    self.assets
-                        .sounds
-                        .get(&id)
-                        .with_context(|| format!("uncooked field sound {id}"))?
-                        .clone(),
-                    &self.synth,
-                )?;
-                sound.volume = f32::from(volume) / 127.0;
-                sound.cue = Some(id);
-                sound.controls = LiveControls {
-                    pan: Some(pan),
-                    priority: (id
-                        == resonance_content::field_audio::ServiceCue::BattleEntry as i16)
-                        .then_some(u16::from(u8::MAX - 1)),
-                    ..Default::default()
-                };
-                sound.slot = slot.map(u16::from);
-                if let Some(slot) = sound.slot {
-                    self.stop_sound(slot);
-                }
-                self.sounds.push(sound);
+                self.play_sound(BoundSound { id, pan, volume }, slot, false)?;
             }
-            AudioCommand::StopSound(slot) => self.stop_sound(slot),
-            AudioCommand::RepeatSound { .. } => unreachable!(),
+            AudioCommand::RepeatSound {
+                id,
+                pan,
+                volume,
+                slot,
+            } => {
+                self.play_sound(BoundSound { id, pan, volume }, Some(slot), true)?;
+            }
+            AudioCommand::StopSound(slot) => self.replace_sound_slot(slot, None),
+            AudioCommand::ReplayFieldSounds => {
+                for (slot, binding) in self.sound_bindings.into_iter().enumerate() {
+                    if let Some(cue) = binding
+                        && let Err(error) = self.play_sound(cue, Some(slot as u8), false)
+                    {
+                        self.assets
+                            .diagnostics
+                            .report("replay field sound", error)?;
+                    }
+                }
+            }
             AudioCommand::SoundVolume { slot, volume } => {
                 ensure!(volume < 128, "invalid sound volume");
+                if let Some(Some(binding)) = self.sound_bindings.get_mut(usize::from(slot)) {
+                    binding.volume = volume;
+                }
                 for sound in self.sounds.iter_mut().filter(|s| s.slot == Some(slot)) {
                     sound.volume = f32::from(volume) / 127.0;
                 }
             }
             AudioCommand::SoundPan { slot, pan } => {
                 ensure!(pan < 128, "invalid sound pan");
+                if let Some(Some(binding)) = self.sound_bindings.get_mut(usize::from(slot)) {
+                    binding.pan = pan;
+                }
                 for sound in self.sounds.iter_mut().filter(|s| s.slot == Some(slot)) {
                     sound.controls.pan = Some(pan);
                 }
@@ -1038,7 +1033,36 @@ impl Frames {
         }
         Ok(())
     }
-    fn stop_sound(&mut self, slot: u16) {
+    fn play_sound(&mut self, cue: BoundSound, slot: Option<u8>, repeat: bool) -> Result<()> {
+        let BoundSound { id, pan, volume } = cue;
+        ensure!(pan < 128 && volume < 128, "invalid cue controls");
+        let package = self
+            .assets
+            .sounds
+            .get(&id)
+            .with_context(|| format!("uncooked field sound {id}"))?;
+        let mut sound = ScorePlayer::new(package.clone(), &self.synth)?;
+        sound.repeat = repeat.then(|| package.clone());
+        sound.volume = f32::from(volume) / 127.0;
+        sound.cue = Some(id);
+        sound.controls = LiveControls {
+            pan: Some(pan),
+            priority: (id == resonance_content::field_audio::ServiceCue::BattleEntry as i16)
+                .then_some(u16::from(u8::MAX - 1)),
+            ..Default::default()
+        };
+        sound.slot = slot.map(u16::from);
+        if let Some(slot) = sound.slot {
+            self.replace_sound_slot(slot, (!repeat).then_some(cue));
+        }
+        self.sounds.push(sound);
+        Ok(())
+    }
+
+    fn replace_sound_slot(&mut self, slot: u16, cue: Option<BoundSound>) {
+        if let Some(binding) = self.sound_bindings.get_mut(usize::from(slot)) {
+            *binding = cue;
+        }
         self.sounds.retain(|sound| sound.slot != Some(slot));
     }
     fn frame(&mut self) -> Result<Option<[f32; 2]>> {
@@ -1051,11 +1075,13 @@ impl Frames {
                     self.battle_command(command_id, command)?
                 }
                 Ok(Message::LeaveField) => {
+                    self.sound_bindings = [None; 5];
                     self.sounds.clear();
                     self.stop_voice()?;
                 }
                 Ok(Message::EnterField(assets)) => {
                     self.initialize_studio(&assets)?;
+                    self.sound_bindings = [None; 5];
                     self.assets = assets;
                     // Music continues across fields, but scripted fades belong
                     // to the scene that requested them.
@@ -1308,6 +1334,7 @@ impl Decodable for FieldSource {
             music: None,
             background_music: None,
             sounds: Vec::new(),
+            sound_bindings: [None; 5],
             studio: Studio::new(self.assets.reverbs).expect("validated field studio effects"),
             studio_initialized: self.assets.music_reverbs.is_some(),
             stream_block: [[[0; 2]; 3]; BLOCK_FRAMES],
