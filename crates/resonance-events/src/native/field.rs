@@ -1816,7 +1816,7 @@ impl NativeHost<'_> {
                     rig.start_path();
                 } else if a[0] == -1 {
                     rig.entry = Some(crate::camera::EntryCamera::following(
-                        self.world.controlled_actor,
+                        crate::CONTROLLED_ACTOR,
                     ));
                 } else {
                     rig.selected = a[0] as usize;
@@ -1863,17 +1863,29 @@ impl NativeHost<'_> {
                     a[0],
                     [a[1] as f32, a[2] as f32, a[3] as f32],
                     &self.world.actors,
+                    self.world.controlled_actor,
                 );
             }
             NativeCall::SelectActor => {
-                if self.world.actors.contains_key(&a[0]) {
+                // Keep the player selector in the entry camera until the destination is known.
+                let editing_entry = self
+                    .world
+                    .field_camera
+                    .as_ref()
+                    .is_some_and(|rig| rig.entry.is_some());
+                let target = if a[0] == crate::CONTROLLED_ACTOR && !editing_entry {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                if target == crate::CONTROLLED_ACTOR || self.world.actors.contains_key(&target) {
                     let rig = self.world.field_camera.get_or_insert_default();
-                    if rig.command_camera().actor != a[0] || !rig.command_camera().follow {
+                    if rig.command_camera().actor != target || !rig.command_camera().follow {
                         rig.position_settled = false;
                         rig.target_settled = false;
                     }
                     let camera = rig.command_camera();
-                    camera.actor = a[0];
+                    camera.actor = target;
                     camera.follow = true;
                 }
             }

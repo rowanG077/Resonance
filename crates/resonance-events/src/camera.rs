@@ -242,6 +242,22 @@ impl CameraRig {
         }
     }
 
+    /// Build the destination view, resolving the script's player selector against its leader.
+    pub fn for_field_entry(controlled_actor: i32, entry: Option<EntryCamera>) -> Self {
+        let mut rig = Self::following(controlled_actor);
+        if let Some(mut entry) = entry {
+            if entry.camera.actor == crate::CONTROLLED_ACTOR {
+                entry.camera.actor = controlled_actor;
+            }
+            rig.angles = entry.camera.angles;
+            rig.distance = entry.camera.distance;
+            rig.position_rate = entry.position_rate;
+            rig.target_rate = entry.target_rate;
+            *rig.current_mut() = entry.camera;
+        }
+        rig
+    }
+
     /// Rebuild a follow view immediately when entering a saved field. This uses
     /// the current player position without advancing scripts or presentation.
     pub fn snap_follow_view(&mut self, actors: &BTreeMap<i32, Actor>) {
@@ -297,7 +313,13 @@ impl CameraRig {
         }
     }
     /// Set (mode 0) or translate (mode 1) the eye and rebuild a following orbit.
-    pub(crate) fn set_eye(&mut self, mode: i32, position: [f32; 3], actors: &BTreeMap<i32, Actor>) {
+    pub(crate) fn set_eye(
+        &mut self,
+        mode: i32,
+        position: [f32; 3],
+        actors: &BTreeMap<i32, Actor>,
+        controlled_actor: i32,
+    ) {
         let editing_entry = self.entry.is_some();
         let camera = self.command_camera();
         match mode {
@@ -306,7 +328,12 @@ impl CameraRig {
             _ => {}
         }
         if camera.follow {
-            if let Some(actor) = actors.get(&camera.actor) {
+            let actor = if camera.actor == crate::CONTROLLED_ACTOR {
+                controlled_actor
+            } else {
+                camera.actor
+            };
+            if let Some(actor) = actors.get(&actor) {
                 camera.target = std::array::from_fn(|i| actor.position[i] + camera.offset[i]);
             }
             camera.look_offset = std::array::from_fn(|i| camera.target[i] - camera.position[i]);
@@ -559,23 +586,41 @@ mod tests {
     }
 
     #[test]
+    fn field_entry_follows_the_destination_leader_or_the_explicit_actor() {
+        let actors = [
+            (2, Actor::new(2, [100., 200., 300.])),
+            (20, Actor::new(20, [400., 500., 600.])),
+        ]
+        .into();
+        for (selector, target) in [
+            (crate::CONTROLLED_ACTOR, [100., 200., 387.]),
+            (20, [400., 500., 687.]),
+        ] {
+            let mut rig = CameraRig::for_field_entry(2, Some(EntryCamera::following(selector)));
+            rig.snap_follow_view(&actors);
+            assert_eq!(rig.target, target);
+        }
+    }
+
+    #[test]
     fn eye_commands_rebuild_follow_orbit_and_isolate_entry_settings() {
         let actors = [(1, Actor::new(1, [100., 200., 300.]))].into();
         let mut rig = CameraRig::default();
         rig.current_mut().follow = true;
         rig.current_mut().anchor_to_actor = true;
-        rig.set_eye(0, [100., -800., 300.], &actors);
+        rig.set_eye(0, [100., -800., 300.], &actors, 1);
         assert_eq!(rig.angles, [0.; 3]);
         assert_eq!(rig.distance, 1000.);
         rig.step(&actors);
         assert_eq!(rig.position, [100., -800., 300.]);
         assert_eq!(rig.target, [100., 200., 300.]);
-        rig.set_eye(1, [0., 0., 1000.], &actors);
+        rig.set_eye(1, [0., 0., 1000.], &actors, 1);
         assert!((rig.angles[0] - 315.).abs() < 0.0001);
         let live = (rig.position, rig.angles, rig.distance);
-        rig.entry = Some(EntryCamera::following(1));
-        rig.set_eye(0, [100., -800., 387.], &actors);
+        rig.entry = Some(EntryCamera::following(crate::CONTROLLED_ACTOR));
+        rig.set_eye(0, [100., -800., 387.], &actors, 1);
         let entry = &rig.entry.as_ref().unwrap().camera;
+        assert_eq!(entry.actor, crate::CONTROLLED_ACTOR);
         assert_eq!(entry.position, [100., -800., 387.]);
         assert_eq!(entry.angles, [0.; 3]);
         assert_eq!(entry.distance, 1000.);

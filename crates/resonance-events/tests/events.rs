@@ -5987,6 +5987,7 @@ fn entry_camera_commands_leave_the_presented_camera_alone() {
         .camera
         .as_ref()
         .unwrap();
+    assert_eq!(entry.camera.actor, resonance_events::CONTROLLED_ACTOR);
     assert_eq!(entry.camera.angles, [334., 0., 6.]);
     assert_eq!(entry.camera.offset, [0., 0., 90.]);
     assert_eq!(entry.camera.position_bounds, [[-100000., 100000.]; 3]);
@@ -5994,6 +5995,39 @@ fn entry_camera_commands_leave_the_presented_camera_alone() {
     assert!(!current.settled());
     assert_eq!(entry.position_rate, 8.);
     assert_eq!(entry.target_rate, 8.);
+}
+
+#[test]
+fn entry_camera_preserves_explicit_actor_targets() {
+    for actor in [1, 20, resonance_events::CONTROLLED_ACTOR] {
+        let code = script(&[
+            (Call::SelectCamera, &[-1]),
+            (Call::SelectActor, &[20]),
+            (Call::SelectActor, &[actor]),
+            (Call::ChangeField, &[332, 0, 0, 0, 0]),
+        ]);
+        let mut world = controlled_world();
+        world.controlled_actor = 1;
+        world.actors.insert(1, Actor::new(1, [0.; 3]));
+        world.actors.insert(20, Actor::new(20, [100., 200., 300.]));
+        let events = runtime(
+            program(&code, &[0x20ff]),
+            ResourceLibrary {
+                fields: [332].into(),
+                ..Default::default()
+            },
+            world,
+        );
+        let entry = events
+            .world
+            .field_transition
+            .as_ref()
+            .unwrap()
+            .camera
+            .as_ref()
+            .unwrap();
+        assert_eq!(entry.camera.actor, actor);
+    }
 }
 
 #[test]
