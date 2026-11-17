@@ -65,6 +65,15 @@ struct PendingBattle {
     special: Option<SpecialEncounter>,
 }
 
+struct NoisheDeparture {
+    destination: Option<resonance_events::FieldTransition>,
+    ticks: u8,
+}
+
+const NOISHE_FADE_STEP: u8 = 8;
+// Keep the world black for three updates after the rider fades out.
+const NOISHE_DEPARTURE_TICKS: u8 = u8::MAX.div_ceil(NOISHE_FADE_STEP) + 3;
+
 const PORTAL_DEPARTURE_SOUND: i16 = 26;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -93,6 +102,7 @@ pub struct Session {
     battle: Option<PendingBattle>,
     portal: Option<super::Portal>,
     portal_contact: bool,
+    noishe_departure: Option<NoisheDeparture>,
 }
 impl Session {
     pub fn enter(
@@ -175,6 +185,7 @@ impl Session {
             discovery: None,
             battle: None,
             portal: None,
+            noishe_departure: None,
             portal_contact: false,
         };
         session.refresh_locations()?;
@@ -447,6 +458,12 @@ impl Session {
         session.portal = Some(super::Portal::Arrival { ticks: 0 });
         Ok(session)
     }
+    pub fn noishe_departure_fade(&self) -> Option<u8> {
+        self.noishe_departure
+            .as_ref()
+            .map(|departure| departure.ticks.saturating_mul(NOISHE_FADE_STEP))
+    }
+
     pub fn player_has_control(&self) -> bool {
         self.cinematic.is_none()
             && self.menu.is_none()
@@ -454,6 +471,7 @@ impl Session {
             && self.active_skit.is_none()
             && self.battle.is_none()
             && self.portal.is_none()
+            && self.noishe_departure.is_none()
             && self.events.world.skit_request.is_none()
             && self.events.world.field_transition.is_none()
             && self.events.world.world_transition.is_none()
@@ -569,12 +587,18 @@ impl Session {
             .context("world has no field destination")?;
         let mut persistent = self.events.persistent_state()?;
         if self.cinematic.is_none() {
+            // The rider is on foot when the blackout interrupts the dismount animation.
+            let return_state = if self.noishe_departure.is_some() {
+                self.travel.state().clone()
+            } else {
+                self.travel.checkpoint()?
+            };
             persistent
                 .party
                 .as_mut()
                 .context("world party is missing")?
                 .travel
-                .overworld = Some(self.travel.checkpoint()?);
+                .overworld = Some(return_state);
         }
         Ok(crate::field::FieldEntry {
             persistent,
@@ -615,6 +639,29 @@ impl Session {
         }
         self.play_time.advance();
         self.events.world.played_ticks = self.play_time.total();
+        if let Some(departure) = &mut self.noishe_departure {
+            self.events.world.tick = self
+                .events
+                .world
+                .tick
+                .checked_add(1)
+                .context("clock overflow")?;
+            departure.ticks += 1;
+            if departure.ticks == NOISHE_DEPARTURE_TICKS {
+                self.events.world.field_transition = departure.destination.take();
+            }
+            // Sample the entrance surface once. The rider stays on that spot
+            // until the dismount ends and ordinary ground correction resumes.
+            let cues = if departure.ticks > 1 && !self.travel.player_has_control() {
+                let mut cues = Vec::new();
+                self.travel.step_mount_transition(&mut cues);
+                cues
+            } else {
+                self.step_travel(travel::Input::default())?
+            };
+            self.update_camera()?;
+            return Ok(cues);
+        }
         if let Some(portal) = &mut self.portal {
             if portal.step() {
                 self.portal = None;
@@ -756,23 +803,7 @@ impl Session {
             if let Some(contact) = landing {
                 self.contact(contact, false)?;
             } else {
-                let party = self
-                    .events
-                    .world
-                    .party
-                    .as_ref()
-                    .context("world party is missing")?;
-                let context = travel::Context {
-                    event_flags: &self.events.world.event_flags,
-                    rheairds_owned: party.items.get(&58).copied().unwrap_or(0) > 0,
-                    landing_clear: true,
-                };
-                cues = self.travel.step(
-                    input.travel,
-                    &context,
-                    &self.assets.terrain,
-                    &self.assets.rules,
-                )?;
+                cues = self.step_travel(input.travel)?;
                 let travel_has_control = self.travel.player_has_control();
                 // A forced Noishe dismount carries one selected ground motion
                 // before taking control. It still needs landmark rejection so
@@ -859,8 +890,32 @@ impl Session {
         }
         if self.battle.is_none() {
             self.events.step()?;
+            if self.travel.state().mount == Mount::Noishe
+                && self.events.world.field_transition.is_some()
+            {
+                self.travel.dismount_noishe(&mut cues)?;
+                self.noishe_departure = Some(NoisheDeparture {
+                    destination: self.events.world.field_transition.take(),
+                    ticks: 0,
+                });
+            }
         }
         Ok(cues)
+    }
+    fn step_travel(&mut self, input: travel::Input) -> Result<Vec<travel::Cue>> {
+        let party = self
+            .events
+            .world
+            .party
+            .as_ref()
+            .context("world party is missing")?;
+        let context = travel::Context {
+            event_flags: &self.events.world.event_flags,
+            rheairds_owned: party.items.get(&58).copied().unwrap_or(0) > 0,
+            landing_clear: true,
+        };
+        self.travel
+            .step(input, &context, &self.assets.terrain, &self.assets.rules)
     }
     fn step_enemies(&mut self) -> Result<()> {
         let state = self.travel.state();

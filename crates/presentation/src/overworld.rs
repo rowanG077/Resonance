@@ -1430,6 +1430,7 @@ fn animate(
 fn camera(
     owner: State,
     warming: Option<Res<warm::Draws>>,
+    transition_failure: Option<Res<crate::new_game::TransitionFailure>>,
     display: Res<super::display::Display>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
@@ -1496,7 +1497,12 @@ fn camera(
         }));
     }
     TitleOutput::update(&mut outputs, |brightness| {
-        let (fade, white) = if let Some(portal) = scene.session.portal() {
+        // The retry notice is drawn into the scene before this fade is applied.
+        let (fade, white) = if transition_failure.is_none()
+            && let Some(fade) = scene.session.noishe_departure_fade()
+        {
+            (f32::from(fade) / 255., false)
+        } else if let Some(portal) = scene.session.portal() {
             (f32::from(portal.fade()) / 255., true)
         } else {
             scene

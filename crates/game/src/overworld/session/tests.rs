@@ -839,6 +839,94 @@ fn entry_prompt_cancel_and_preparation_keep_the_source_and_return_location() -> 
 }
 
 #[test]
+fn entering_a_field_on_noishe_dismounts_during_the_fade_and_returns_on_foot() -> Result<()> {
+    let mut session = start(definitions(), vec![])?;
+    let mut rider = session.travel.state().clone();
+    rider.mount = Mount::Noishe;
+    let region = session.assets.rules.area(rider.world, rider.position);
+    session
+        .events
+        .world
+        .event_flags
+        .insert(900 + u16::from(region));
+    session.travel = Travel::new(rider, session.assets.movement.clone())?;
+
+    session.step(Input::default())?;
+    assert!(matches!(
+        session.prompt(),
+        Some(Prompt::Enter { location: 1, .. })
+    ));
+    session.step(Input {
+        cancel: true,
+        ..Default::default()
+    })?;
+    assert_eq!(session.travel.state().mount, Mount::Noishe);
+    assert_eq!(session.noishe_departure_fade(), None);
+
+    session.step(Input::default())?;
+    let cues = session.step(Input {
+        confirm: true,
+        ..Default::default()
+    })?;
+    assert!(cues.iter().any(|cue| matches!(
+        cue,
+        travel::Cue::Animation {
+            mounting: false,
+            ..
+        }
+    )));
+    assert_eq!(session.travel.state().mount, Mount::Foot);
+    let mounted_distance = session.travel.camera_distance();
+    let initial_angle = session.camera.angle();
+    let on_foot = session.travel.state().clone();
+    for fade in (0..=248).step_by(8) {
+        assert_eq!(session.noishe_departure_fade(), Some(fade));
+        assert!(session.events.world.field_transition.is_none());
+        assert!(!session.player_has_control());
+        assert_eq!(session.travel.displayed_mount(), Mount::Noishe);
+        session.step(Input {
+            travel: travel::Input {
+                stick: [1., 0.],
+                toggle_noishe: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })?;
+        assert_eq!(session.travel.state(), &on_foot);
+        assert!(session.travel.camera_distance() < mounted_distance);
+    }
+    assert_ne!(session.camera.angle(), initial_angle);
+    assert_eq!(
+        session.travel.camera_distance(),
+        session
+            .assets
+            .movement
+            .camera_distances
+            .for_view(on_foot.alternate_perspective)[0],
+    );
+    for _ in 0..3 {
+        assert_eq!(session.noishe_departure_fade(), Some(255));
+        assert!(session.events.world.field_transition.is_none());
+        session.step(Input::default())?;
+    }
+    let request = session.events.world.field_transition.as_ref().unwrap();
+    assert_eq!(request.map, 100);
+    let returned = Session::return_from_field(
+        session.assets.clone(),
+        &resonance_events::WorldTransition {
+            location: 1,
+            direction: 0,
+            following: None,
+            operation: request.operation.clone(),
+        },
+        session.field_entry()?.persistent,
+        session.play_time,
+    )?;
+    assert_eq!(returned.travel.checkpoint()?.mount, Mount::Foot);
+    Ok(())
+}
+
+#[test]
 fn discovery_rewards_only_once_and_checkpoint_preserves_mount_and_flags() -> Result<()> {
     let mut landmarks = definitions();
     landmarks.worlds[0][62].reward_item = Some(2);
