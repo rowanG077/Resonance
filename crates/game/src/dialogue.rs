@@ -2,7 +2,7 @@
 use anyhow::{Result, ensure};
 use resonance_events::{
     AudioCommand, Operation,
-    dialogue::{Dialogue, DialogueStatus, ResolvedMessage, TextToken, flags},
+    dialogue::{Choice, Dialogue, DialogueStatus, ResolvedMessage, TextToken, flags},
 };
 use std::{
     collections::BTreeMap,
@@ -14,6 +14,7 @@ use std::{
 
 const OPENING_STEPS: u8 = 5;
 const CLOSE_DELAY: u8 = 3;
+const TIMED_WINDOW_TICKS: u16 = 300;
 const GLYPH_ALPHA_STEP: u8 = 32;
 
 #[derive(Debug, Clone)]
@@ -81,8 +82,10 @@ pub struct DialoguePlayer {
     pub persistent: bool,
     phase: WindowPhase,
     auto_pages: bool,
+    auto_close_ticks: u16,
     delay: u16,
     voice_cursor: usize,
+    played_voice: bool,
     voice_remaining: u32,
     voice_feedback: bool,
     voice_completion: Option<Arc<AtomicBool>>,
@@ -128,8 +131,14 @@ impl DialoguePlayer {
                 WindowPhase::Opening(0)
             },
             auto_pages: dialogue.flags & flags::AUTO_PAGES != 0,
+            auto_close_ticks: if dialogue.flags & flags::TIMED != 0 {
+                TIMED_WINDOW_TICKS
+            } else {
+                0
+            },
             delay: 0,
             voice_cursor: 0,
+            played_voice: false,
             voice_remaining: 0,
             voice_feedback: false,
             voice_completion: None,
@@ -211,6 +220,15 @@ impl DialoguePlayer {
 
     /// A press advances a revealed page; holding accept accelerates its text.
     pub fn step(&mut self, advance: bool, accelerate: bool) -> Result<Vec<AudioCommand>> {
+        self.step_with_choice(advance, accelerate, None)
+    }
+
+    pub(crate) fn step_with_choice(
+        &mut self,
+        advance: bool,
+        accelerate: bool,
+        choice: Option<&Choice>,
+    ) -> Result<Vec<AudioCommand>> {
         if self.closed {
             return Ok(Vec::new());
         }
@@ -243,12 +261,28 @@ impl DialoguePlayer {
         for alpha in &mut self.glyph_alpha {
             *alpha = alpha.saturating_add(GLYPH_ALPHA_STEP);
         }
-        let advance = advance && !self.persistent && self.accepts_input();
+        let timed_final_page = self.auto_close_ticks > 0 && self.page + 1 == self.pages.len();
+        let advance = if timed_final_page {
+            if !self.persistent
+                && !choice.is_some_and(|choice| choice.operation.is_pending())
+                && self.fully_revealed()
+                && self.accepts_input()
+            {
+                self.auto_close_ticks -= 1;
+            }
+            self.auto_close_ticks == 0
+        } else {
+            advance && !self.persistent && self.accepts_input()
+        };
         let next_page =
             self.auto_pages && self.page + 1 < self.pages.len() && self.voice_finished();
         if (advance || next_page) && self.fully_revealed() {
             if self.page + 1 == self.pages.len() {
                 self.close();
+                // Only windows that played a voice stop the shared channel on timeout.
+                if timed_final_page && !self.played_voice {
+                    return Ok(Vec::new());
+                }
                 return Ok(vec![AudioCommand::StopVoice]);
             }
             self.page += 1;
@@ -313,7 +347,10 @@ impl DialoguePlayer {
                 VoiceAction::Stop => AudioCommand::StopVoice,
             });
             self.voice_remaining = match action {
-                VoiceAction::Play(id) => self.voice_durations.get(&id).copied().unwrap_or(0),
+                VoiceAction::Play(id) => {
+                    self.played_voice = true;
+                    self.voice_durations.get(&id).copied().unwrap_or(0)
+                }
                 VoiceAction::Stop => 0,
             };
             self.voice_cursor += 1;
@@ -342,8 +379,10 @@ pub fn step_requests(
             .get(slot)
             .is_some_and(|d| d.operation.id() == p.operation.id())
     });
+    let mut focus = None;
     for (&slot, request) in &world.dialogue {
-        if request.operation.is_pending() && !players.contains_key(&slot) {
+        let pending = request.operation.is_pending();
+        if pending && !players.contains_key(&slot) {
             players.insert(
                 slot,
                 DialoguePlayer::new(
@@ -357,16 +396,19 @@ pub fn step_requests(
         }
         if let Some(player) = players.get_mut(&slot) {
             player.sync_flags(request);
+            let waiting_for_timeout = request.flags & flags::TIMED != 0
+                && player.page + 1 == player.pages.len()
+                && player.fully_revealed();
+            if focus.is_none() && pending && !player.persistent && !waiting_for_timeout {
+                focus = Some(slot);
+            }
         }
     }
-    let focus = players
-        .iter()
-        .find(|(_, p)| !p.closed && !p.persistent && p.operation.is_pending())
-        .map(|(&slot, _)| slot);
     for (&slot, player) in players.iter_mut() {
-        world.audio_commands.extend(player.step(
+        world.audio_commands.extend(player.step_with_choice(
             confirm && focus == Some(slot),
             accelerate && focus == Some(slot),
+            world.choices.get(&slot),
         )?);
         world.dialogue.get_mut(&slot).unwrap().status = player.status();
     }
@@ -399,7 +441,7 @@ pub(crate) fn refresh_instant_requests(
         )?
         .with_voice_durations(world.voice_durations.clone())
         .with_voice_feedback(voice_feedback);
-        audio.extend(player.step(false, false)?);
+        audio.extend(player.step_with_choice(false, false, world.choices.get(&slot))?);
         request.status = player.status();
         players.insert(slot, player);
     }
@@ -608,6 +650,60 @@ mod tests {
             height_offset: 0,
         };
         (DialoguePlayer::new(&dialogue, 1).unwrap(), events)
+    }
+    #[test]
+    fn staggered_customer_orders_close_on_separate_timers() {
+        let mut orders = [(0, flags::BELOW), (60, flags::ABOVE), (120, flags::BELOW)]
+            .map(|(start, placement)| (start, player("A", flags::TIMED | placement)));
+        for (_, (order, _scope)) in &mut orders {
+            order.pages[0].voices.clear();
+        }
+        for tick in 0..440 {
+            for (start, (order, _scope)) in &mut orders {
+                if tick < *start {
+                    continue;
+                }
+                let age = tick - *start;
+                assert!(order.step(age == 30, false).unwrap().is_empty());
+                // Five opening updates, one glyph, and seven fade updates.
+                // The last fade update is the first of 300 reading updates.
+                let expected = match age {
+                    0..=4 => DialogueStatus::Opening,
+                    5..=310 => DialogueStatus::Finished,
+                    311..=314 => DialogueStatus::Closing,
+                    _ => DialogueStatus::Closed,
+                };
+                assert_eq!(
+                    order.status(),
+                    expected,
+                    "order opened at {start}, age {age}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn timed_notice_releases_shared_focus_on_its_revealed_final_page() {
+        let mut world = resonance_events::GameWorld::default();
+        for (text, style) in [("A\u{c}B", flags::TIMED), ("C", 0)] {
+            world
+                .show_notice(
+                    ResolvedMessage {
+                        tokens: vec![TextToken::Text { text: text.into() }],
+                    },
+                    flags::INSTANT | style,
+                )
+                .unwrap();
+        }
+        let mut players = BTreeMap::new();
+        step_requests(&mut world, &mut players, false, false).unwrap();
+        step_requests(&mut world, &mut players, true, false).unwrap();
+        assert_eq!(players[&0].page, 1);
+        assert_eq!(players[&1].status(), DialogueStatus::Finished);
+
+        step_requests(&mut world, &mut players, false, false).unwrap();
+        step_requests(&mut world, &mut players, true, false).unwrap();
+        assert_eq!(players[&0].status(), DialogueStatus::Finished);
+        assert_eq!(players[&1].status(), DialogueStatus::Closing);
     }
     #[test]
     fn attached_window_expands_before_speech_and_finishes_before_vm_resume() {
