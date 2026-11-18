@@ -188,7 +188,8 @@ fn sync(
     state: super::field_view::State,
     views: Query<Entity, With<super::FieldCamera>>,
 ) {
-    if art.is_none() {
+    // Unpublished warm-up frames must not enter the next visible dissolve or trail.
+    if art.is_none_or(|art| art.retaining_output) {
         for view in &views {
             commands.entity(view).remove::<(Settings, FadingOut)>();
         }
