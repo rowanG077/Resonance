@@ -69,6 +69,8 @@ pub struct Actor {
     pub(crate) rendered_scale: Option<[i32; 3]>,
     /// Facing already presented before this update's script edits.
     pub(crate) rendered_heading: Option<f32>,
+    /// Model pitch and roll retained across script edits and rotation locks.
+    pub(crate) rendered_tilt: Option<[i32; 2]>,
     pub tilt: [i32; 2],
     pub tint: [u8; 3],
     pub opacity: u8,
@@ -207,7 +209,17 @@ impl Actor {
         }
     }
     pub fn tilt_degrees(&self) -> [f32; 2] {
-        self.tilt.map(|angle| angle as f32)
+        self.rendered_tilt
+            .unwrap_or(self.tilt)
+            .map(|angle| angle as f32)
+    }
+    /// Restore an upright model facing the actor's current heading immediately.
+    pub fn reset_model_rotation(&mut self) {
+        self.heading_lock = 0;
+        self.appearance.fixed_heading = None;
+        self.rendered_heading = None;
+        self.tilt = [0; 2];
+        self.rendered_tilt = None;
     }
     pub fn ring_contact_enabled(&self) -> bool {
         !self.ring_contact_disabled
@@ -225,14 +237,13 @@ impl Actor {
     }
 
     pub fn world_point(&self, point: [f32; 3]) -> [f32; 3] {
-        let vector = self.local_vector(point, self.heading);
+        let vector = self.local_vector(point, self.tilt.map(|angle| angle as f32), self.heading);
         std::array::from_fn(|i| vector[i] + self.position[i])
     }
 
-    fn local_vector(&self, point: [f32; 3], heading: f32) -> [f32; 3] {
+    fn local_vector(&self, point: [f32; 3], [tilt_x, tilt_y]: [f32; 2], heading: f32) -> [f32; 3] {
         let scale = self.model_scale_percent();
         let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
-        let [tilt_x, tilt_y] = self.tilt_degrees();
         let (sx, cx) = tilt_x.to_radians().sin_cos();
         let (sy, cy) = tilt_y.to_radians().sin_cos();
         let (sz, cz) = heading.to_radians().sin_cos();
@@ -339,7 +350,7 @@ impl Actor {
     pub fn collision_point(&self, point: [f32; 3]) -> [f32; 3] {
         // Physical model surfaces follow the displayed pose, even when the
         // actor's travel heading turns independently of the model.
-        let vector = self.local_vector(point, self.model_heading());
+        let vector = self.local_vector(point, self.tilt_degrees(), self.model_heading());
         let point = std::array::from_fn(|axis| vector[axis] + self.position[axis]);
         self.collision_parent.map_or(point, |parent| {
             resonance_content::animation::transform_point(parent, point)
@@ -354,7 +365,7 @@ impl Actor {
             }
             let mut axis = [0.; 3];
             axis[column] = 1.;
-            let point = self.local_vector(axis, self.model_heading());
+            let point = self.local_vector(axis, self.tilt_degrees(), self.model_heading());
             [point[0], point[1], point[2], 0.]
         })
     }
@@ -381,6 +392,7 @@ impl Actor {
             scale_percent: [100; 3],
             rendered_scale: None,
             rendered_heading: None,
+            rendered_tilt: None,
             tilt: [0; 2],
             tint: [crate::effect::NEUTRAL_TINT; 3],
             opacity: 255,
