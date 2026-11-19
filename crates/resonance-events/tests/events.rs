@@ -4996,6 +4996,40 @@ fn replacing_a_visible_model_has_no_gap_and_still_initializes_its_transform() {
 }
 
 #[test]
+fn scripted_reveals_wait_one_actor_update_on_the_field_and_draw_immediately_in_battle() {
+    let main = script(&[
+        (Call::SetActorProperty, &[7, 12, 1]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorProperty, &[7, 12, 0]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorProperty, &[7, 12, 1]),
+        (Call::SetActorProperty, &[7, 12, 0]),
+    ]);
+    for battle in [false, true] {
+        let mut world = GameWorld::default();
+        world.actors.insert(7, Actor::new(7, [0.; 3]));
+        if battle {
+            world.battle_event = Some(battle_event::State::new(45.).unwrap());
+        } else {
+            world.current_field = Some(217);
+            world.field_camera = Some(Default::default());
+        }
+        let mut resources = ResourceLibrary::default();
+        resources.models.insert(7, model([12], 30));
+        let mut events = runtime(program(&main, &[0x20ff]), resources, world);
+        assert!(events.world.actors[&7].appearance.model_hidden);
+        events.step().unwrap();
+        let actor = &events.world.actors[&7];
+        assert!(!actor.appearance.model_hidden);
+        assert_eq!(actor.visible_from <= events.tick(), battle);
+        events.step().unwrap();
+        let actor = &events.world.actors[&7];
+        assert!(!actor.appearance.model_hidden);
+        assert!(actor.visible_from <= events.tick());
+    }
+}
+
+#[test]
 fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
     let main = script(&[
         (Call::SpawnActor, &[7, 0, 0, 0, 0, 99, 0, 0]),
