@@ -528,8 +528,8 @@ impl EventRuntime {
     }
 
     pub(crate) fn queue_radar_end_callback(&mut self) -> Result<Option<crate::Operation>> {
-        // The original game tries the foreground slot once, including when a
-        // background event disabled input. An occupied foreground discards this callback.
+        // Radar expiry gets one chance to start its callback. If a foreground
+        // event owns the slot, drop the callback instead of retrying it later.
         if self.interaction.is_some()
             || self.world.mapped_input_disabled && self.world.mapped_input_foreground
         {
