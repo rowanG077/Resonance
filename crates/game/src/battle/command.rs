@@ -18,6 +18,8 @@ pub struct Input {
     pub control_mode: bool,
     /// Z cycles player one's character while the command strip is open.
     pub change_character: bool,
+    /// Either physical shoulder displays or reverses the current party formation.
+    pub formation: bool,
     /// Independent left/right events (bits1/2), including digital repeat.
     pub picker_directions: u8,
     /// The shared menu ORs all four physical input channels.
@@ -270,8 +272,16 @@ impl Page {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormationNotice {
+    pub reversed: bool,
+    pub opacity: u8,
+}
+
 #[derive(Debug, Default)]
 pub struct Owner {
+    formation: FormationNotice,
+    formation_ticks: u8,
     session: Option<Session>,
     selected: Command,
     connected: [bool; 4],
@@ -306,6 +316,10 @@ impl Owner {
         let page = std::mem::replace(&mut self.session.as_mut()?.page, Page::Strip);
         self.remember_page(&page);
         Some(view)
+    }
+
+    pub(super) fn formation_notice(&self) -> Option<FormationNotice> {
+        (self.formation.opacity != 0).then_some(self.formation)
     }
 
     pub fn equipment_character(&self) -> usize {
@@ -386,6 +400,14 @@ impl Owner {
         battle: &mut Battle,
         candidate: &mut super::results::Candidate,
     ) -> Result<Step> {
+        if self.formation_ticks != 0 {
+            self.formation.opacity = self.formation.opacity.saturating_add(16);
+            if self.session.is_none() {
+                self.formation_ticks -= 1;
+            }
+        } else {
+            self.formation.opacity = self.formation.opacity.saturating_sub(16);
+        }
         self.connected = input.connected;
         self.items_available = battle.item_cooldown() == 0 && battle.pending_item().is_none();
         self.escape_requested = battle.escape_frame().is_some_and(|frame| frame.requested);
@@ -420,6 +442,16 @@ impl Owner {
                     if input.control_mode {
                         candidate.show_or_cycle_control_mode(battle, session.admission.actor)?;
                         result.events.push(Event::Cue(1));
+                    }
+                    if input.formation {
+                        // The first press reveals the current order. A second press
+                        // while the notice is active mirrors the formation offsets.
+                        if self.formation_ticks != 0 {
+                            battle.reverse_party_formation();
+                            self.formation.reversed = !self.formation.reversed;
+                        }
+                        self.formation_ticks = 30;
+                        self.formation.opacity = 16;
                     }
                     if input.step != 0 {
                         self.selected = self.selected.next(input.step);

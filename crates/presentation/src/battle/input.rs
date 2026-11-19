@@ -129,6 +129,7 @@ impl LocalControls {
             delay_spell: action(Action::DelaySpell),
             target: action(Action::Target),
             unison: action(Action::Unison),
+            formation: self.buttons[4].pressed || self.buttons[5].pressed,
             selection: self.buttons[..4].try_into().unwrap(),
             confirm,
             cancel,
@@ -241,6 +242,7 @@ struct ControllerSample {
     delay_spell: BattleButton,
     target: BattleButton,
     unison: BattleButton,
+    formation: bool,
     selection: [BattleButton; 4],
     confirm: BattleButton,
     cancel: BattleButton,
@@ -384,6 +386,7 @@ impl Frame {
             cancel_y: sample.cancel_selector,
             control_mode: sample.start,
             change_character: sample.unison.pressed,
+            formation: sample.formation,
             picker_directions: match sample.step {
                 -1 => 1,
                 1 => 2,

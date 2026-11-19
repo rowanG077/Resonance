@@ -19,6 +19,19 @@ pub(crate) fn initialize(actors: &mut [Actor]) {
 }
 
 impl Battle {
+    /// Mirror party formation destinations around the leader without moving live actors.
+    pub fn reverse_party_formation(&mut self) {
+        for actor in self
+            .actors
+            .iter_mut()
+            .filter(|actor| actor.side == Side::Party)
+        {
+            let offset = &mut actor.movement.steering.home_offset;
+            offset[0] = -offset[0];
+            offset[2] = -offset[2];
+        }
+    }
+
     pub(crate) fn remember_idle_home(&mut self, index: usize) {
         if self.actors[index].side == Side::Party
             && self.actors[index].control_slot == crate::ControllerPort::One
@@ -121,7 +134,11 @@ mod tests {
         owner.position = [-400., 0., 0.];
         let mut enemy = actor(Side::Enemy);
         enemy.position = [500., 0., 0.];
-        prepared(vec![leader, owner, enemy], 1).finish().unwrap()
+        let mut second_enemy = enemy.clone();
+        second_enemy.position = [600., 0., 100.];
+        prepared(vec![leader, owner, enemy, second_enemy], 1)
+            .finish()
+            .unwrap()
     }
 
     #[test]
@@ -130,6 +147,13 @@ mod tests {
         battle.actors[0].position = [200., 0., 300.];
         battle.remember_idle_home(0);
         assert_eq!(battle.formation_home(ActorId(1))?, [0., 0., 100.]);
+        battle.reverse_party_formation();
+        assert_eq!(battle.formation_home(ActorId(1))?, [400., 0., 500.]);
+        assert_eq!(
+            battle.actors[3].movement.steering.home_offset,
+            [100., 0., 100.]
+        );
+        battle.reverse_party_formation();
         assert!(battle.return_position(ActorId(1))?);
         assert!(battle.actors[1].movement.direction[0] > 0.);
         battle.actors[1].position = [0., 0., 100.];

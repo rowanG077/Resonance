@@ -1,7 +1,7 @@
 //! Battle command emblems and selectors on one packed sprite atlas.
 use super::*;
 use resonance_content::battle_ui::CommandArt;
-use resonance_game::battle::command::{Command, Frame, View};
+use resonance_game::battle::command::{Command, FormationNotice, Frame, View};
 
 const FIRST_BUTTON: f32 = 152.;
 const BUTTON_PITCH: f32 = 56.;
@@ -71,9 +71,14 @@ impl Artwork {
         self.command_motion = Default::default();
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The formation notice can remain visible after the command frame closes."
+    )]
     pub fn render_commands(
         &mut self,
         state: Option<&Frame>,
+        formation: Option<FormationNotice>,
         tick: u32,
         pending: Option<resonance_battle::item::Release>,
         characters: &[Character],
@@ -97,7 +102,7 @@ impl Artwork {
                 ))
             })
             .transpose()?;
-        let batches = draw(
+        let mut batches = draw(
             state,
             tick,
             pending,
@@ -105,11 +110,57 @@ impl Artwork {
             &self.font,
             &mut self.command_motion,
         )?;
+        if let Some(notice) = formation {
+            draw_formation_notice(&mut batches, &self.art.font, notice)?;
+        }
         for (layer, batch) in self.ui.commands.iter_mut().zip(batches) {
             layer.upload(batch, commands, meshes)?;
         }
         Ok(())
     }
+}
+
+fn draw_formation_notice(
+    batches: &mut [Batch; 4],
+    font: &BitmapFont,
+    notice: FormationNotice,
+) -> Result<()> {
+    let alpha = notice.opacity;
+    let (caption, backdrop) = if notice.reversed {
+        ("FORMATION REVERSE", [32, 32, 96, alpha / 2])
+    } else {
+        ("FORMATION DEFAULT", [32, 96, 32, alpha / 2])
+    };
+    let clear = [backdrop[0], backdrop[1], backdrop[2], 0];
+    for (top, bottom, colors) in [
+        (372., 376., [clear, clear, backdrop, backdrop]),
+        (376., 388., [backdrop; 4]),
+        (388., 392., [backdrop, backdrop, clear, clear]),
+    ] {
+        party::slanted_quad(
+            &mut batches[0],
+            [0., top, 640., bottom],
+            [0.5; 4],
+            0.,
+            colors,
+        );
+    }
+    for (position, colors) in [
+        ([138., 372.], [[0, 0, 0, alpha / 2]; 2]),
+        ([136., 370.], [[64, 64, 128, alpha], [128, 128, 48, alpha]]),
+    ] {
+        text::italic(
+            &mut batches[3],
+            font,
+            caption,
+            position,
+            [14., 18.],
+            13.,
+            0.,
+            colors,
+        )?;
+    }
+    Ok(())
 }
 
 fn sine(degrees: u32) -> f32 {
@@ -549,6 +600,19 @@ mod tests {
             view: View::Strip,
             escape_requested: false,
         };
+        for reversed in [false, true] {
+            let mut batches = std::array::from_fn(|_| Batch::default());
+            draw_formation_notice(
+                &mut batches,
+                &art.font,
+                FormationNotice {
+                    reversed,
+                    opacity: 255,
+                },
+            )?;
+            assert!(!batches[0].indices.is_empty());
+            assert!(!batches[3].indices.is_empty());
+        }
         let mut motion = Motion::default();
         let visible = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         assert!(!visible[1].indices.is_empty());

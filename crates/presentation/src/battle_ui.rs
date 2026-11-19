@@ -189,7 +189,8 @@ impl Artwork {
         for enemy in enemies {
             font.validate_text(&enemy.name)?;
         }
-        art.font.validate_text("HP TP XX +0123456789. RESERVE.")?;
+        art.font
+            .validate_text("HP TP XX +0123456789. RESERVE. FORMATION DEFAULT REVERSE")?;
         let inputs = crate::input_icons::prepare(&read, server)?;
         let mut pending_images = vec![PendingImage {
             image: inputs.image.clone(),
@@ -1055,7 +1056,7 @@ fn required_fonts_decode_before_hud_activation() -> Result<()> {
         )
         .is_ok()
     );
-    for character in ['X', 'V'] {
+    for character in ['X', 'V', 'F'] {
         let missing_glyph = test_artwork_with(
             resonance_content::battle_ui::document::FONT,
             |font| {

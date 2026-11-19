@@ -679,8 +679,14 @@ impl Fixture {
         // This selector-only draw replaces any shared page.
         scene.hud.clear_menu(&mut Commands::new(&mut queue, world));
         queue.apply(world);
-        let result =
-            render_command_strip(scene, 0, &mut Commands::new(&mut queue, world), &mut meshes);
+        let command = scene.lifecycle.command_frame();
+        let result = render_command_strip(
+            scene,
+            command.as_ref(),
+            0,
+            &mut Commands::new(&mut queue, world),
+            &mut meshes,
+        );
         queue.apply(world);
         world.insert_resource(meshes);
         world.insert_resource(owner);

@@ -1647,13 +1647,15 @@ fn render_menu(
 
 fn render_command_strip(
     scene: &mut Scene,
+    command: Option<&resonance_game::battle::command::Frame>,
     tick: u32,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
 ) -> Result<()> {
     let pending = scene.core.pending_item();
     let result = scene.hud.render_commands(
-        scene.lifecycle.command_frame().as_ref(),
+        command,
+        scene.lifecycle.formation_notice(),
         tick,
         pending,
         &scene.characters,
@@ -1782,7 +1784,7 @@ fn render_hud(
     )?;
     // A closed menu supplies None; target selection hides the strip.
     if !frame.summon.as_ref().is_some_and(|summon| summon.hide_hud) {
-        render_command_strip(scene, tick, commands, meshes)?;
+        render_command_strip(scene, command.as_ref(), tick, commands, meshes)?;
     }
     // The battle clock holds the scene while a submenu draws above its HUD.
     render_menu(scene, tick, commands, meshes, images, server)

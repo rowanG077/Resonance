@@ -78,6 +78,65 @@ mod tests {
     }
 
     #[test]
+    fn shoulder_reveals_then_reverses_formation_until_the_notice_expires() -> Result<()> {
+        let mut f = native_fixture(
+            &[1, 2],
+            |_, _, _| Ok(()),
+            |mut actors, _| {
+                actors[1].position = [-200., 0., 100.];
+                actors[1].control_slot = ControllerPort::Two;
+                native_battle(actors)
+            },
+        )?;
+        let party = f.battle.actor_ids().take(2).collect();
+        let setup = command::Setup::new(party, 0xff, f.battle.actors(), false)?;
+        f.lifecycle = crate::battle::lifecycle::Lifecycle::new(Some(setup));
+        let menu = command::Input {
+            open: edge(),
+            ..Default::default()
+        };
+        let press = command::Input {
+            formation: true,
+            ..Default::default()
+        };
+        command_visit(&mut f, menu)?;
+        let before = f.battle.actors().to_vec();
+
+        command_visit(&mut f, press)?;
+        assert!(!f.lifecycle.formation_notice().unwrap().reversed);
+        assert_eq!(f.battle.actors(), before);
+        for _ in 0..60 {
+            command_visit(&mut f, Default::default())?;
+        }
+        assert_eq!(f.lifecycle.formation_notice().unwrap().opacity, 255);
+        command_visit(&mut f, press)?;
+        assert!(f.lifecycle.formation_notice().unwrap().reversed);
+        assert_ne!(
+            f.battle.actors()[1].movement.steering,
+            before[1].movement.steering
+        );
+        for (actor, previous) in f.battle.actors().iter().zip(&before) {
+            assert_eq!(actor.position, previous.position);
+        }
+
+        command_visit(&mut f, menu)?;
+        for _ in 0..48 {
+            command_visit(&mut f, Default::default())?;
+        }
+        assert!(f.lifecycle.formation_notice().is_none());
+        command_visit(&mut f, menu)?;
+        command_visit(&mut f, press)?;
+        assert!(f.lifecycle.formation_notice().unwrap().reversed);
+        command_visit(&mut f, press)?;
+        assert!(!f.lifecycle.formation_notice().unwrap().reversed);
+        assert_eq!(
+            f.battle.actors()[1].movement.steering,
+            before[1].movement.steering
+        );
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires cooked battle assets; GameCube Z rotation regression"]
     fn z_rotates_party_and_preserves_slot_modes_through_battle_completion() -> Result<()> {
         let mut f = fixture(&[1, 2, 3, 4, 5], [1, 2, 2, 2])?;
