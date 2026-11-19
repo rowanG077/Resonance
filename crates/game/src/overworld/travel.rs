@@ -236,10 +236,13 @@ impl Travel {
         self.map_opacity
     }
     pub fn displayed_mount(&self) -> Mount {
-        if self.state.mount == Mount::Foot {
-            self.transition.as_ref().map_or(Mount::Foot, |t| t.from)
-        } else {
-            self.state.mount
+        match (&self.transition, self.state.mount) {
+            // A short dismount clip can finish before the camera reaches foot distance.
+            (Some(t), Mount::Foot) if t.from == Mount::Noishe && t.animation.is_none() => {
+                Mount::Foot
+            }
+            (Some(t), Mount::Foot) => t.from,
+            _ => self.state.mount,
         }
     }
     /// Boarding grows the ship at the sea endpoint while the player waits on
@@ -310,7 +313,6 @@ impl Travel {
         terrain: &collision::Terrain,
         rules: &Rules,
     ) -> Result<Vec<Cue>> {
-        self.camera_turn_input = 0.;
         let mut cues = Vec::new();
         let query = terrain.query(self.state.position, self.parameters.collision.radius)?;
         let mode = if self.state.mount == Mount::Ship {
@@ -344,28 +346,11 @@ impl Travel {
                 self.state.position = self.state.position.translated([0., 0., floor.delta[2]])?;
             }
         }
-        // Mount visibility advances independently of camera perspective changes.
-        self.enemy_radius = approach(
-            self.enemy_radius,
-            ENEMY_RADII[usize::from(self.state.mount.long_range() && !forced_dismount)],
-            (ENEMY_RADII[1] - ENEMY_RADII[0]) / self.parameters.zoom_transition_ticks,
-        );
-        for (alpha, goal) in self
-            .map_opacity
-            .iter_mut()
-            .zip(self.state.map_display.opacity())
-        {
-            *alpha = if *alpha < goal {
-                alpha.saturating_add(16).min(goal)
-            } else {
-                alpha.saturating_sub(16).max(goal)
-            };
-        }
         if self.transition.is_some() {
-            self.speed = 0.;
-            self.advance_transition(&mut cues);
+            self.step_mount_transition(&mut cues);
             return Ok(cues);
         }
+        self.update_visibility(self.state.mount.long_range() && !forced_dismount);
 
         let p = &self.parameters;
         let distances = p
@@ -417,7 +402,7 @@ impl Travel {
         if forced_dismount {
             // Apply this update's selected Noishe motion once, then stop and
             // use the ordinary dismount animation and zoom.
-            self.begin(Mount::Foot, Phase::Noishe, &mut cues)?;
+            self.dismount_noishe(&mut cues)?;
             self.advance_transition(&mut cues);
         }
         Ok(cues)
@@ -503,6 +488,10 @@ impl Travel {
         Ok(())
     }
 
+    pub(super) fn dismount_noishe(&mut self, cues: &mut Vec<Cue>) -> Result<()> {
+        self.begin(Mount::Foot, Phase::Noishe, cues)
+    }
+
     fn begin(&mut self, target: Mount, phase: Phase, cues: &mut Vec<Cue>) -> Result<()> {
         let from = self.state.mount;
         let animation = if matches!(phase, Phase::Noishe) {
@@ -532,6 +521,33 @@ impl Travel {
             phase_done: false,
         });
         Ok(())
+    }
+
+    fn update_visibility(&mut self, long_range: bool) {
+        // Mount visibility advances independently of camera perspective changes.
+        self.enemy_radius = approach(
+            self.enemy_radius,
+            ENEMY_RADII[usize::from(long_range)],
+            (ENEMY_RADII[1] - ENEMY_RADII[0]) / self.parameters.zoom_transition_ticks,
+        );
+        for (alpha, goal) in self
+            .map_opacity
+            .iter_mut()
+            .zip(self.state.map_display.opacity())
+        {
+            *alpha = if *alpha < goal {
+                alpha.saturating_add(16).min(goal)
+            } else {
+                alpha.saturating_sub(16).max(goal)
+            };
+        }
+    }
+
+    pub(super) fn step_mount_transition(&mut self, cues: &mut Vec<Cue>) {
+        self.camera_turn_input = 0.;
+        self.speed = 0.;
+        self.update_visibility(self.state.mount.long_range());
+        self.advance_transition(cues);
     }
 
     fn advance_transition(&mut self, cues: &mut Vec<Cue>) {

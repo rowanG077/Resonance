@@ -440,6 +440,8 @@ fn noishe_waits_for_both_zoom_and_its_own_animation() -> Result<()> {
     assert_ne!(token, token2);
     assert_eq!(travel.displayed_mount(), Mount::Noishe);
     travel.finish_animation(token2);
+    assert_eq!(travel.displayed_mount(), Mount::Foot);
+    assert!(!travel.player_has_control());
     finish(&mut travel, &locked_region, &terrain, &rules);
     assert_eq!(travel.displayed_mount(), Mount::Foot);
     assert_eq!(travel.camera_distance(), 1200.);
