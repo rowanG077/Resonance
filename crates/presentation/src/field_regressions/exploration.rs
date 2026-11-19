@@ -507,7 +507,7 @@ fn thoda_rocks_stay_paused_and_entrance_ambience_is_prepared() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_TEST_ASSETS; original Thoda balance scripts and silent mixer"]
+#[ignore = "requires RESONANCE_TEST_ASSETS"]
 fn thoda_balance_keeps_scripted_movement_and_puzzle_audio() -> Result<()> {
     use resonance_events::{AudioCommand, input::Buttons, ring::SorcerersRing};
     fn cast(field: &mut Scene) -> Result<usize> {
@@ -554,11 +554,10 @@ fn thoda_balance_keeps_scripted_movement_and_puzzle_audio() -> Result<()> {
                 .any(|(_, _, command)| matches!(command,
             AudioCommand::Sound { id, .. } | AudioCommand::RepeatSound { id, .. }
                 if *id == expected)),
-            "missing original torch/puzzle sound {expected}"
+            "missing torch or puzzle sound {expected}"
         );
     }
-    // Match the source fixture's second position in front of the central
-    // balance. Ordinary Water input still owns admission and callback timing.
+    // Use the Water Ring in front of the central balance.
     field.party_mut().travel.sorcerers_ring = SorcerersRing::Water;
     let controlled = field.events.world.controlled_actor;
     let actor = field.actor_mut(controlled);
@@ -583,8 +582,7 @@ fn thoda_balance_keeps_scripted_movement_and_puzzle_audio() -> Result<()> {
         "{:?}",
         field.events.exploration_error
     );
-    // The west door opens through the room's proximity supervisor, then
-    // its original confirmed passage event owns the second sound.
+    // Approaching the west door plays one sound. Passing through it plays another.
     let first = field.audio.commands.len();
     field.actor_mut(controlled).position = [-2480., -605., -550.];
     field.ticks(80, Default::default())?;

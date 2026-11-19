@@ -2653,8 +2653,7 @@ fn model_particles_animate_and_expire_without_aliasing_actor_handles() {
 
 #[test]
 fn controlled_actor_ambient_sound_starts_and_stops_on_the_current_leader() {
-    // Thoda's lift and balance scripts attach temporary movement sounds to
-    // 999999, the native controlled-player alias, then clear the same emitter.
+    // The movement sound starts and stops on the current party leader.
     let setup = script(&[(
         Call::SetActorAmbientSound,
         &[CONTROLLED_ACTOR, 181, 200, 800],
@@ -2784,7 +2783,7 @@ fn sound_slot_controls_ignore_unknown_operations_and_continue() {
 }
 
 #[test]
-fn scripted_sound_volume_keeps_the_native_byte_and_midi_widths() {
+fn scripted_sound_volume_uses_the_low_seven_bits() {
     // These are authored volumes in Dirk's house, Izoold and Toize Mine.
     let code = script(&[
         (Call::PlaySound, &[390, 0, -80, 255]),
