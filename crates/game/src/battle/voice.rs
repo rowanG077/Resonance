@@ -1,5 +1,5 @@
 //! Resolve actor voice requests before activation, using named actor sounds.
-use super::model::ModelSource;
+use super::{lifecycle::victory_selection::ColetteState, model::ModelSource, party::Character};
 use anyhow::{Context, Result};
 use resonance_content::{battle_profile, battle_voice, diagnostics::Diagnostics, prepared::Files};
 use std::collections::BTreeMap;
@@ -43,6 +43,7 @@ pub(crate) fn entry_lines(
 pub struct Resolver<'a> {
     party: &'a battle_profile::Table,
     enemies: BTreeMap<u8, &'a battle_profile::Profile>,
+    colette: ColetteState,
     diagnostics: Diagnostics,
 }
 
@@ -54,9 +55,15 @@ impl<'a> Resolver<'a> {
     ) -> Self {
         Self {
             party,
+            colette: ColetteState::Normal,
             enemies: enemies.into_iter().collect(),
             diagnostics: files.diagnostics().clone(),
         }
+    }
+
+    pub fn with_colette_state(mut self, state: ColetteState) -> Self {
+        self.colette = state;
+        self
     }
 
     pub fn party_table(&self) -> &battle_profile::Table {
@@ -79,6 +86,17 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    pub(super) fn muted(&self, actor: ModelSource) -> bool {
+        actor == ModelSource::Party(Character::Colette) && !self.colette.can_speak()
+    }
+
+    fn actor_voices(&self, actor: ModelSource) -> Result<Option<&battle_voice::Voices>> {
+        if self.muted(actor) {
+            return Ok(None);
+        }
+        Ok(self.profile(actor)?.voices.as_ref())
+    }
+
     pub fn absolute(
         &self,
         actor: ModelSource,
@@ -95,10 +113,7 @@ impl<'a> Resolver<'a> {
         select: impl FnOnce(&battle_voice::Voices) -> Option<Sound>,
         resolve: impl FnMut(Sound) -> Result<Option<Sound>>,
     ) -> Result<Option<Sound>> {
-        self.bind(
-            || Ok(self.profile(actor)?.voices.as_ref().and_then(select)),
-            resolve,
-        )
+        self.bind(|| Ok(self.actor_voices(actor)?.and_then(select)), resolve)
     }
 
     /// Enemy actions carry their own voices; these bindings select party spells.
@@ -160,7 +175,7 @@ impl<'a> Resolver<'a> {
             ModelSource::Enemy(_) => return Ok(None),
             _ => anyhow::bail!("voice binding requires an actor profile"),
         };
-        if self.profile(actor)?.voices.is_none() {
+        if self.actor_voices(actor)?.is_none() {
             return Ok(None);
         }
         let policy = self

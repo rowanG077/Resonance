@@ -1019,6 +1019,68 @@ fn colette_saved_wing_state_selects_floating_backstep() -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires cooked party attacks and voices; CPU only"]
+fn colettes_battle_voice_follows_her_saved_story_state() -> Result<()> {
+    use resonance_battle::Sound;
+
+    let mut fixture = ColdEncounter::load()?;
+    let mut party = Party::new(&fixture.session, Default::default())?;
+    party.formation = vec![2, 1];
+    party.field_leader = 2;
+    party.settings.battle_controls[0] = 0;
+    let colette = resonance_battle::ActorId::from_index(0)?;
+    for (state, voiced) in [(301, false), (1001, true)] {
+        fixture.colette_state = state;
+        let (_, prepared) = fixture.prepare_formation(&party, 399)?;
+        let contact = prepared.feedback.contact_audio.as_ref().unwrap();
+        assert_eq!(contact.actors[0].voices.hurt[0].is_some(), voiced);
+        assert!(contact.actors[1].voices.hurt[0].is_some());
+        let angel_feathers = prepared
+            .feedback
+            .casting
+            .values()
+            .find(|cast| cast.catalogue == TechniqueId(56))
+            .context("missing Angel Feathers")?;
+        assert_eq!(angel_feathers.chant_voice.is_some(), voiced);
+        assert_eq!(angel_feathers.release_voice.is_some(), voiced);
+        assert!(angel_feathers.release_sound.is_some());
+
+        let mut battle = prepared.core;
+        enter_battle(&mut battle)?;
+        let mut attack_voices = Vec::new();
+        let mut heard_chakram = false;
+        for tick in 0..40 {
+            let mut input = ControlInput::neutral(colette);
+            input.attack.pressed = tick == 0;
+            input.attack.held = tick == 0;
+            for cue in battle.step(BattleInput::from(input))?.cues {
+                match cue {
+                    Cue::Voice { actor, sound, .. } if actor == colette => {
+                        attack_voices.push(sound)
+                    }
+                    Cue::Sound {
+                        actor,
+                        sound: Sound::Cue(60),
+                        ..
+                    } if actor == colette => {
+                        heard_chakram = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(heard_chakram, "missing chakram swing in state {state}");
+        let grunt = voiced.then_some(Sound::Cue(622));
+        assert_eq!(
+            attack_voices,
+            grunt.as_slice(),
+            "attack voice in state {state}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires prepared angel and Colette artwork; CPU only"]
 fn angels_and_colette_prepare_independent_animated_wings() -> Result<()> {
     use resonance_game::battle::encounter::AccessoryStyle;

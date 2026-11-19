@@ -4,7 +4,7 @@ use resonance_battle::{
     ActionKey, CameraPose, Pose, UnisonArte, UnisonArteId, UnisonDefinition, UnisonMember,
     UnisonPrelude, UnisonRecipe, UnisonRecipeId,
 };
-use resonance_content::{battle_profile::Profile, battle_unison};
+use resonance_content::battle_unison;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct HostMember<'a> {
@@ -12,7 +12,6 @@ pub(crate) struct HostMember<'a> {
     pub character: Character,
     pub model: &'a ModelDefinition,
     pub null_motions: &'a BTreeSet<u16>,
-    pub profile: &'a Profile,
     pub techniques: &'a BTreeMap<u16, ActionKey>,
     pub temporary_weapons: &'a BTreeMap<u16, Vec<Arc<WeaponDefinition>>>,
     pub short_weapon: bool,
@@ -110,16 +109,15 @@ pub(crate) fn prepare_host(
                 altitude: placement.altitude as f32,
             });
         }
-        let windup_voice = actor
-            .profile
-            .voices
-            .as_ref()
-            .and_then(|voices| voices.unison_start)
-            .map(&mut resources.sound)
-            .transpose()?
-            .flatten();
-        if let Some(voice) = catalogue.voices.get(index).copied().flatten()
-            && let Some(sound) = (resources.sound)(voice)?
+        let speaker = crate::battle::model::ModelSource::Party(actor.character);
+        let windup_voice =
+            resources
+                .voices
+                .select(speaker, |v| v.unison_start, &mut resources.sound)?;
+        if let Some(sound) =
+            resources
+                .voices
+                .absolute(speaker, catalogue.voices[index], &mut resources.sound)?
         {
             prelude_voices.push((actor.actor, sound));
         }
