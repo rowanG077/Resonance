@@ -1625,6 +1625,7 @@ impl NativeHost<'_> {
                     | NativeCall::SetActorAnimationProperty
                     | NativeCall::FindActorNode
                     | NativeCall::SetActorAnimation
+                    | NativeCall::SetActorAmbientSound
                     | NativeCall::SetActorFace
                     | NativeCall::SetActorMouth
                     | NativeCall::ReadActorAttachment

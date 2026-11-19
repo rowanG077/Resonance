@@ -505,3 +505,104 @@ fn thoda_rocks_stay_paused_and_entrance_ambience_is_prepared() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires RESONANCE_TEST_ASSETS"]
+fn thoda_balance_keeps_scripted_movement_and_puzzle_audio() -> Result<()> {
+    use resonance_events::{AudioCommand, input::Buttons, ring::SorcerersRing};
+    fn cast(field: &mut Scene) -> Result<usize> {
+        field.ticks(50, Default::default())?;
+        let first = field.audio.commands.len();
+        field.step(FieldInput {
+            pressed_buttons: [Button::Ring].into(),
+            held_buttons: Buttons::default().with(Button::Ring, true),
+            ..Default::default()
+        })?;
+        field.ticks(
+            4,
+            FieldInput {
+                held_buttons: Buttons::default().with(Button::Ring, true),
+                ..Default::default()
+            },
+        )?;
+        Ok(first)
+    }
+    let root = root()?;
+    let mut field = Scene::story(&root, 9, 2_100_000, |entry| {
+        entry.position = [-870., -300., 0.];
+        entry.heading = 180.;
+        entry
+            .persistent
+            .memory
+            .write(0x4c, symphonia_script::Width::S32, 201)?;
+        entry.persistent.event_flags.insert(151);
+        let party = entry.persistent.party.as_mut().unwrap();
+        party.formation = vec![1];
+        party.items.insert(55, 1);
+        party.travel.sorcerers_ring = SorcerersRing::Fire;
+        Ok(())
+    })?;
+    settle(&mut field)?;
+    let first = cast(&mut field)?;
+    field.replay(|scene| {
+        Ok(scene.player_has_control() && scene.events.world.event_flags.contains(&155))
+    })?;
+    for expected in [246, 384] {
+        ensure!(
+            field.audio.commands[first..]
+                .iter()
+                .any(|(_, _, command)| matches!(command,
+            AudioCommand::Sound { id, .. } | AudioCommand::RepeatSound { id, .. }
+                if *id == expected)),
+            "missing torch or puzzle sound {expected}"
+        );
+    }
+    // Use the Water Ring in front of the central balance.
+    field.party_mut().travel.sorcerers_ring = SorcerersRing::Water;
+    let controlled = field.events.world.controlled_actor;
+    let actor = field.actor_mut(controlled);
+    actor.position = [-1108., -600., 0.];
+    actor.face(180.);
+    let first = cast(&mut field)?;
+    field.replay(|scene| {
+        Ok(scene.player_has_control()
+            && scene.audio.commands[first..].iter().any(|(_, _, command)| {
+                matches!(
+                    command,
+                    AudioCommand::RepeatSound {
+                        id: 181,
+                        volume: 127,
+                        ..
+                    }
+                )
+            }))
+    })?;
+    ensure!(
+        field.events.exploration_error.is_none(),
+        "{:?}",
+        field.events.exploration_error
+    );
+    // Approaching the west door plays one sound. Passing through it plays another.
+    let first = field.audio.commands.len();
+    field.actor_mut(controlled).position = [-2480., -605., -550.];
+    field.ticks(80, Default::default())?;
+    ensure!(
+        field.audio.commands[first..]
+            .iter()
+            .any(|(_, _, command)| matches!(command, AudioCommand::Sound { id: 366, .. })),
+        "missing west door opening sound"
+    );
+    let first = field.audio.commands.len();
+    ensure!(
+        field.events.trigger(1004, true)?,
+        "west door passage did not start"
+    );
+    field.replay(|scene| Ok(scene.events.world.field_transition.is_some()))?;
+    ensure!(
+        field.audio.commands[first..]
+            .iter()
+            .any(|(_, _, command)| matches!(command, AudioCommand::Sound { id: 367, .. })),
+        "missing west door passage sound"
+    );
+    Ok(())
+}
