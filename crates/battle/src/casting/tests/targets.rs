@@ -190,6 +190,6 @@ fn special_guard_can_cancel_the_retargeted_partys_unfinished_cast() {
         battle.step(BattleInput::default()).unwrap();
         assert_eq!(battle.casting_remaining(ActorId(1)), None);
         assert_eq!(battle.actors[1].tp, 47);
-        assert_eq!(battle.activity(ActorId(1)), crate::Activity::Idle);
+        assert_eq!(battle.activity(ActorId(1)), crate::Activity::Recovering);
     }
 }

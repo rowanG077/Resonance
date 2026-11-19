@@ -14,6 +14,8 @@ pub(crate) enum Execution {
     Complete,
     /// The action has no remaining work.
     Finished,
+    /// Casting was cancelled; ordinary control initializes on the next visit.
+    Cancelled,
 }
 
 pub(crate) struct Sequence {
@@ -43,17 +45,20 @@ pub(crate) struct Sequence {
 }
 impl Sequence {
     pub(crate) fn events_complete(&self) -> bool {
-        matches!(self.execution, Execution::Complete | Execution::Finished)
+        matches!(
+            self.execution,
+            Execution::Complete | Execution::Finished | Execution::Cancelled
+        )
     }
 
     pub(crate) fn finished(&self) -> bool {
-        matches!(self.execution, Execution::Finished)
+        matches!(self.execution, Execution::Finished | Execution::Cancelled)
     }
 
     pub(crate) fn running(&self) -> bool {
         !matches!(
             self.execution,
-            Execution::Recovering { .. } | Execution::Finished
+            Execution::Recovering { .. } | Execution::Finished | Execution::Cancelled
         )
     }
     pub fn new(
