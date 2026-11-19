@@ -227,10 +227,19 @@ impl crate::GameWorld {
     }
 
     pub fn complete_battle(&mut self, request: &Request, outcome: Outcome) -> Result<(), String> {
-        request.complete(outcome)?;
+        self.apply_battle_outcome(request, outcome)?;
         // Battle audio retires field voices. Re-admit spatial ambience when
         // this suspended scene resumes, even if its emitters have not moved.
         self.ambient_voices = [None; 2];
+        // Explicit script slots restart on return even when their previous
+        // one-shot has already finished playing.
+        self.audio_commands
+            .push(crate::AudioCommand::ReplayFieldSounds);
+        Ok(())
+    }
+
+    fn apply_battle_outcome(&mut self, request: &Request, outcome: Outcome) -> Result<(), String> {
+        request.complete(outcome)?;
         self.enemy_encounter_cooldown = 60;
         if let Some(white) = request.transition_white {
             self.fade = Some(crate::Fade {
@@ -270,7 +279,7 @@ impl crate::GameWorld {
         let Some(request) = self.battle_request.clone() else {
             return Ok(false);
         };
-        self.complete_battle(&request, Outcome::Victory)?;
+        self.apply_battle_outcome(&request, Outcome::Victory)?;
         if let Some(party) = &mut self.party {
             let active: Vec<_> = party
                 .formation
@@ -386,7 +395,10 @@ mod tests {
             assert_eq!(before.len(), 2);
             let request = request(&mut world);
             world.complete_battle(&request, outcome).unwrap();
-            world.audio_commands.clear();
+            assert!(matches!(
+                std::mem::take(&mut world.audio_commands).as_slice(),
+                [crate::AudioCommand::ReplayFieldSounds]
+            ));
             world.step_ambient_sound();
             assert_eq!(voices(&world.audio_commands), before);
             world.audio_commands.clear();
