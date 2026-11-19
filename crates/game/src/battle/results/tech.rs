@@ -1,6 +1,5 @@
 //! Tech edits validate against live battle state before changing the party or page.
 use super::*;
-use crate::battle::command::ControlSelection;
 use crate::menu::techniques::{
     BattlePage, Context, Edit, EditResult, Page, Step, TargetKind, Tech, Visit,
 };
@@ -9,39 +8,20 @@ use resonance_battle::TechniqueId;
 use resonance_battle::{ActorId, Battle, BattlePhase, Control};
 
 impl Candidate {
-    pub(in crate::battle) fn begin_control_selection(
-        &self,
-        battle: &Battle,
+    pub(in crate::battle) fn show_or_cycle_control_mode(
+        &mut self,
+        battle: &mut Battle,
         actor: ActorId,
-    ) -> Result<ControlSelection> {
+    ) -> Result<()> {
         let slot = self
             .setup
             .actors
             .iter()
             .position(|&(id, _)| id == actor)
             .context("control selector actor is absent")?;
-        Ok(ControlSelection {
-            actor,
-            slot: u8::try_from(slot)?,
-            mode: battle.actors()[actor.index()].control,
-        })
-    }
-
-    pub(in crate::battle) fn cycle_control_mode(
-        &mut self,
-        battle: &mut Battle,
-        mut selection: ControlSelection,
-    ) -> Result<ControlSelection> {
-        let (mode, value) = match battle.actors()[selection.actor.index()].control {
-            Control::Manual => (Control::SemiAuto, 1),
-            Control::SemiAuto => (Control::Auto, 2),
-            Control::Auto => (Control::Manual, 0),
-            Control::Enemy => anyhow::bail!("cannot change enemy control"),
-        };
-        battle.set_control_mode(selection.actor, mode)?;
-        self.party.settings.battle_controls[usize::from(selection.slot)] = value;
-        selection.mode = mode;
-        Ok(selection)
+        let mode = battle.show_or_cycle_control_mode(actor)?;
+        self.party.settings.battle_controls[slot] = saved_control_mode(mode)?;
+        Ok(())
     }
 
     pub fn battle_tech_view<'a>(

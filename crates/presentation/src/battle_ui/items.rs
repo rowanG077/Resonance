@@ -435,7 +435,6 @@ mod tests {
             enabled: 0xff,
             controller: resonance_battle::ControllerPort::One,
             connected: [true, false, false, false],
-            control_selection: None,
             view: View::Enemy { target: first },
             escape_requested: false,
         };

@@ -11,8 +11,8 @@ use super::{
 };
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    ActorAvailability, ActorId, Battle, BattleOutcome, BattlePhase, BattleResult, Cue, Sound,
-    TechniqueId,
+    ActorAvailability, ActorId, Battle, BattleOutcome, BattlePhase, BattleResult, Control, Cue,
+    Sound, TechniqueId,
     conditions::{ConditionSet, POISON},
 };
 use resonance_content::{arte::Catalogue, menu_data::MenuData, session::SessionData};
@@ -209,6 +209,15 @@ pub trait Presentation {
         true
     }
     fn request(&mut self, kind: Request, results: Option<&Results>, battle: &Battle) -> Result<()>;
+}
+
+fn saved_control_mode(control: Control) -> Result<u8> {
+    match control {
+        Control::Manual => Ok(0),
+        Control::SemiAuto => Ok(1),
+        Control::Auto => Ok(2),
+        Control::Enemy => anyhow::bail!("party actor has enemy control"),
+    }
 }
 
 pub struct Candidate {
@@ -1094,12 +1103,8 @@ impl Candidate {
             .max(ledger.maximum_combo_damage);
         for (slot, &(id, character)) in self.setup.actors.iter().enumerate() {
             let index = character.index();
-            self.party.settings.battle_controls[slot] = match battle.actors()[id.index()].control {
-                resonance_battle::Control::Manual => 0,
-                resonance_battle::Control::SemiAuto => 1,
-                resonance_battle::Control::Auto => 2,
-                resonance_battle::Control::Enemy => anyhow::bail!("party actor has enemy control"),
-            };
+            self.party.settings.battle_controls[slot] =
+                saved_control_mode(battle.actors()[id.index()].control)?;
             self.party.battles.kills[index] = self.party.battles.kills[index]
                 .saturating_add(ledger.kills[id.index()])
                 .min(5_000);

@@ -30,6 +30,7 @@ impl Battle {
                 runtime.body_bypass = false;
             }
         }
+        actor.control_label_ticks = actor.control_label_ticks.saturating_sub(1);
         actor.hit_stop = actor.hit_stop.saturating_sub(1);
         actor.guard.recent_hurt_ticks = actor.guard.recent_hurt_ticks.saturating_sub(1);
         actor.reaction.hit_shake_ticks = actor.reaction.hit_shake_ticks.saturating_sub(1);

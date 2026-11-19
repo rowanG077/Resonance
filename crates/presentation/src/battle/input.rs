@@ -142,6 +142,7 @@ impl LocalControls {
             ]
             .into_iter()
             .find_map(|(button, order)| self.extra[button].pressed.then_some(order)),
+            start: self.extra[4].pressed,
             menu: menu_input(&self.buttons, &self.extra, directions),
             stick: self.stick,
             pressed_direction: [directions[0].pressed, directions[1].pressed],
@@ -246,6 +247,7 @@ struct ControllerSample {
     cancel_selector: BattleButton,
     cook: bool,
     order: Option<QuickOrder>,
+    start: bool,
     menu: SharedMenuInput,
     stick: [i8; 2],
     pressed_direction: [i8; 2],
@@ -380,7 +382,7 @@ impl Frame {
             confirm_a: sample.confirm,
             cancel_b: sample.cancel,
             cancel_y: sample.cancel_selector,
-            control_mode: sample.menu == Some(MenuAction::Details),
+            control_mode: sample.start,
             change_character: sample.unison.pressed,
             picker_directions: match sample.step {
                 -1 => 1,
@@ -1324,8 +1326,11 @@ mod tests {
         // Simultaneous actions have a deterministic priority instead of an invalid combination.
         controls.slots[2].buttons[0].pressed = true;
         controls.slots[2].buttons[1].pressed = true;
+        controls.slots[2].extra[4].pressed = true;
         let frame = controls.sample(&CustomizeSettings::default());
         assert_eq!(frame.slots[2].menu, Some(MenuAction::Cancel));
+        let strip = frame.command_input(Some(ControllerPort::Three), &[], InputKind::Command);
+        assert!(strip.control_mode && strip.cancel_b.pressed);
         controls.slots[2].buttons[0].pressed = true;
         controls.slots[2].extra[4].pressed = true;
         let frame = controls.sample(&CustomizeSettings::default());

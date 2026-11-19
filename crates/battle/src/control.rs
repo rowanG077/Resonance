@@ -525,6 +525,27 @@ impl Battle {
         })
     }
 
+    /// Start reveals the current mode. Another press before expiry also changes it.
+    pub fn show_or_cycle_control_mode(&mut self, actor: ActorId) -> Result<Control> {
+        let live = self.actor(actor)?;
+        ensure!(
+            live.side == crate::Side::Party,
+            "cannot select enemy control mode"
+        );
+        let next = match live.control {
+            Control::Manual => Control::SemiAuto,
+            Control::SemiAuto => Control::Auto,
+            Control::Auto => Control::Manual,
+            Control::Enemy => anyhow::bail!("cannot select enemy control mode"),
+        };
+        if live.control_label_ticks != 0 {
+            self.set_control_mode(actor, next)?;
+        }
+        let live = &mut self.actors[actor.index()];
+        live.control_label_ticks = 60;
+        Ok(live.control)
+    }
+
     /// Tech mode edits change only the live actor policy. The controller
     /// state, active sequence, target and RNG remain resident for the next
     /// callback visit.

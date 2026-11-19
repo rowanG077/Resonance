@@ -160,6 +160,7 @@ impl Owner {
                         Control::Manual => "manual", Control::SemiAuto => "semi_auto",
                         Control::Auto => "auto", Control::Enemy => "enemy",
                     },
+                    "control_label_ticks": actor.control_label_ticks,
                     "activity": format!("{:?}", actor.activity),
                     "cast_releasing": actor.cast_releasing,
                     "stun_remaining": actor.stun_remaining,
@@ -240,13 +241,6 @@ impl Owner {
                 "actor": command.actor.index(), "selected": command.selected.index(),
                 "enabled": command.enabled,
                 "controller": command.controller.index(),
-                "control_selection": command.control_selection.as_ref().map(|selection| json!({
-                    "actor": selection.actor.index(), "slot": selection.slot,
-                    "mode": match selection.mode {
-                        Control::Manual => "manual", Control::SemiAuto => "semi_auto",
-                        Control::Auto => "auto", Control::Enemy => "enemy",
-                    },
-                })),
                 "view": command_view(&command.view),
             })),
             "strategy_party": strategy_party,

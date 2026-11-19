@@ -14,7 +14,7 @@ pub struct Input {
     pub cancel_b: ButtonInput,
     /// Actor selectors use physical Y, independent of the mapped menu action.
     pub cancel_y: ButtonInput,
-    /// Start opens the control selector, then cycles its selected actor's mode.
+    /// Start shows the actor's control mode, or cycles it while the label is visible.
     pub control_mode: bool,
     /// Z cycles player one's character while the command strip is open.
     pub change_character: bool,
@@ -126,8 +126,6 @@ pub struct Frame {
     pub controller: ControllerPort,
     /// Connection sample from this retained menu visit, shared by input and draw.
     pub connected: [bool; 4],
-    /// Start's mode label remains visible while navigating the command visit.
-    pub control_selection: Option<ControlSelection>,
     pub view: View,
     pub escape_requested: bool,
 }
@@ -144,13 +142,6 @@ pub enum View {
     Ally(ActorSelection),
     Enemy { target: ActorId },
     TechTarget { target: Option<ActorId> },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ControlSelection {
-    pub actor: ActorId,
-    pub slot: u8,
-    pub mode: Control,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -197,14 +188,10 @@ impl Command {
             .rem_euclid(Self::ALL.len() as i16) as usize]
     }
     fn intent(self, input: Input, controller: ControllerPort, enabled: u8) -> StripIntent {
-        if input.controller != controller {
+        if input.controller != controller || input.change_character {
             return StripIntent::Stay;
         }
-        if input.control_mode {
-            StripIntent::Control
-        } else if input.change_character {
-            StripIntent::ChangeCharacter
-        } else if input.confirm_a.pressed && enabled & self.mask() != 0 {
+        if input.confirm_a.pressed && enabled & self.mask() != 0 {
             StripIntent::Choose(self)
         } else if input.cancel_b.pressed || input.open.pressed {
             StripIntent::Close
@@ -218,8 +205,6 @@ impl Command {
 enum StripIntent {
     Stay,
     Close,
-    Control,
-    ChangeCharacter,
     Choose(Command),
 }
 
@@ -248,8 +233,6 @@ pub struct Step {
 struct Session {
     admission: Admission,
     page: Page,
-    // Start's type label stays with this command visit across navigation and submenus.
-    control_selection: Option<ControlSelection>,
 }
 
 #[derive(Debug)]
@@ -391,7 +374,6 @@ impl Owner {
             enabled: self.effective_enabled(session.admission.enabled),
             selected: self.selected,
             connected: self.connected,
-            control_selection: session.control_selection.clone(),
             view: session.page.view(),
             escape_requested: self.escape_requested,
         })
@@ -415,7 +397,6 @@ impl Owner {
             self.session = Some(Session {
                 admission,
                 page: Page::Strip,
-                control_selection: None,
             });
             return Ok(Step {
                 events: vec![Event::Cue(2), Event::VoiceStreamsPaused(true)],
@@ -430,12 +411,21 @@ impl Owner {
             Page::Strip => {
                 let enabled = self.effective_enabled(session.admission.enabled);
                 if input.controller == session.admission.controller {
+                    if input.change_character
+                        && let Some(actor) = candidate.change_character(battle, input.controller)?
+                    {
+                        session.admission.actor = actor;
+                        result.events.push(Event::Cue(1));
+                    }
+                    if input.control_mode {
+                        candidate.show_or_cycle_control_mode(battle, session.admission.actor)?;
+                        result.events.push(Event::Cue(1));
+                    }
                     if input.step != 0 {
                         self.selected = self.selected.next(input.step);
                         result.events.push(Event::Cue(1));
                     }
-                    if !input.control_mode
-                        && !input.change_character
+                    if !input.change_character
                         && input.confirm_a.pressed
                         && enabled & self.selected.mask() == 0
                     {
@@ -450,29 +440,6 @@ impl Owner {
                     StripIntent::Close => {
                         result.events.push(Event::Cue(3));
                         None
-                    }
-                    StripIntent::Control => {
-                        session.control_selection = Some(match session.control_selection.take() {
-                            Some(selection) => {
-                                result.events.push(Event::Cue(1));
-                                candidate.cycle_control_mode(battle, selection)?
-                            }
-                            None => {
-                                result.events.push(Event::Cue(2));
-                                candidate
-                                    .begin_control_selection(battle, session.admission.actor)?
-                            }
-                        });
-                        Some(Page::Strip)
-                    }
-                    StripIntent::ChangeCharacter => {
-                        if let Some(actor) =
-                            candidate.change_character(battle, session.admission.controller)?
-                        {
-                            session.admission.actor = actor;
-                            result.events.push(Event::Cue(1));
-                        }
-                        Some(Page::Strip)
                     }
                     StripIntent::Choose(command) => {
                         result.events.push(Event::Cue(2));
@@ -656,9 +623,6 @@ impl Owner {
             }
         };
         if let Some(page) = next {
-            if let Some(selection) = &mut session.control_selection {
-                *selection = candidate.begin_control_selection(battle, selection.actor)?;
-            }
             session.page = page;
             self.session = Some(session);
         } else {

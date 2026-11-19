@@ -8,7 +8,6 @@ const BUTTON_PITCH: f32 = 56.;
 const BUTTON_TOP: f32 = 128.;
 const BUTTON_SIZE: f32 = 48.;
 const SELECTED_INSET: f32 = 8.;
-const ITEM_NAME_Y: f32 = 380.;
 const WHITE: [u8; 4] = [128, 128, 128, 255];
 
 #[derive(Default)]
@@ -387,44 +386,7 @@ fn draw(
         a.text_color,
     )?;
     let mut cursor = [center - 44., 172.];
-    let item_selection = match &state.view {
-        View::User(selection) | View::Ally(selection) => Some(selection),
-        _ => None,
-    };
-    if let Some(selection) = &state.control_selection {
-        let name = match selection.mode {
-            resonance_battle::Control::Manual => "MANUAL",
-            resonance_battle::Control::SemiAuto => "SEMIAUTO",
-            resonance_battle::Control::Auto => "AUTO",
-            resonance_battle::Control::Enemy => {
-                anyhow::bail!("enemy in party control selector")
-            }
-        };
-        let [left, _, _, _] = party::card_rect(usize::from(selection.slot));
-        let x = left + 28.;
-        let y = if item_selection.is_some_and(|item| item.slot == selection.slot) {
-            // Leave room for the character name at the top of its bob.
-            ITEM_NAME_Y - a.motion.selector_bob.max(0.) - 20.
-        } else {
-            party::TOP
-        };
-        for (offset, colors) in [
-            (2., [a.shadow_color; 2]),
-            (0., [[64, 128, 64, 255], [128, 128, 128, 255]]),
-        ] {
-            text::italic(
-                &mut numbers,
-                &art.font,
-                name,
-                [x + offset, y + offset],
-                [16., 16.],
-                12.,
-                4.,
-                colors,
-            )?;
-        }
-    }
-    if let Some(selection) = item_selection {
+    if let View::User(selection) | View::Ally(selection) = &state.view {
         ensure!(selection.slot < 4, "invalid item selector slot");
         sprite(
             &mut sprites,
@@ -458,7 +420,7 @@ fn draw(
             / 2;
         let position = [
             left + 52. - (14. * units as f32 + 4.) / 2.,
-            ITEM_NAME_Y - (a.motion.selector_bob * half_sine(tick.wrapping_mul(8))).trunc(),
+            380. - (a.motion.selector_bob * half_sine(tick.wrapping_mul(8))).trunc(),
         ];
         for (offset, color) in [(2., a.shadow_color), (0., a.text_color)] {
             label(
@@ -584,71 +546,16 @@ mod tests {
             enabled: u8::MAX,
             controller: resonance_battle::ControllerPort::One,
             connected: [true, false, false, false],
-            control_selection: None,
             view: View::Strip,
             escape_requested: false,
         };
         let mut motion = Motion::default();
         let visible = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         assert!(!visible[1].indices.is_empty());
-        for mode in [
-            resonance_battle::Control::Manual,
-            resonance_battle::Control::SemiAuto,
-            resonance_battle::Control::Auto,
-        ] {
-            state.control_selection = Some(resonance_game::battle::command::ControlSelection {
-                actor: state.actor,
-                slot: 0,
-                mode,
-            });
-            let controls = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
-            assert!(
-                controls[1] == visible[1],
-                "the command emblems remain visible"
-            );
-            assert!(
-                controls[3].positions.len() > visible[3].positions.len(),
-                "the current mode is drawn above the portrait"
-            );
-            state.view = View::Strategy(Default::default());
-            assert!(
-                draw(Some(&state), 0, None, &art, &font, &mut motion)? == controls,
-                "the current mode stays beneath the submenu"
-            );
-            state.view = View::Strip;
-        }
-        let mode_bottom =
-            draw(Some(&state), 11, None, &art, &font, &mut motion)?[3].positions[2][1];
-        for slot in [0, 1] {
-            let item = resonance_game::battle::command::ActorSelection {
-                actor: resonance_battle::ActorId::from_index(usize::from(slot))?,
-                slot,
-                name: "Lloyd".into(),
-                eligible: true,
-            };
-            for view in [View::User(item.clone()), View::Ally(item)] {
-                state.view = view;
-                let picker = draw(Some(&state), 11, None, &art, &font, &mut Motion::default())?;
-                // The first glyph is the mode's shadow. Mesh Y increases upwards.
-                let bottom = picker[3].positions[2][1];
-                if slot == 0 {
-                    let name_top = picker[2].positions[visible[2].positions.len()..]
-                        .iter()
-                        .map(|position| position[1])
-                        .fold(f32::NEG_INFINITY, f32::max);
-                    assert!(bottom > name_top);
-                } else {
-                    assert_eq!(bottom, mode_bottom);
-                }
-            }
-        }
-        state.control_selection = None;
-        state.view = View::Strip;
-        let strip = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         state.view = View::Strategy(Default::default());
         let submenu = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         assert!(
-            strip == submenu,
+            visible == submenu,
             "translucent submenus keep the command strip beneath their panels"
         );
         state.view = View::Strip;

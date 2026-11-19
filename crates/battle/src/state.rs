@@ -98,6 +98,8 @@ pub struct Actor {
     pub equipment: EquipmentAttributes,
     pub combat_adjustments: crate::CombatAdjustments,
     pub control: crate::Control,
+    /// Remaining actor updates that display the control mode above the portrait.
+    pub control_label_ticks: u8,
     /// Current formation/controller slot, independent of stable actor identity.
     pub control_slot: crate::ControllerPort,
     pub availability: crate::ActorAvailability,
@@ -140,6 +142,7 @@ impl Actor {
             weakness_known: false,
             resistance_known: false,
             control,
+            control_label_ticks: 0,
             hp: equipment.max_hp,
             tp: equipment.max_tp,
             equipment,
