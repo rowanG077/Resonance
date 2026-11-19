@@ -362,6 +362,14 @@ impl Lifecycle {
         self.command.frame()
     }
 
+    pub fn formation_notice(&self) -> Option<command::FormationNotice> {
+        if matches!(self.phase, Phase::Combat) {
+            self.command.formation_notice()
+        } else {
+            None
+        }
+    }
+
     pub fn recover_command_page(
         &mut self,
         battle: &mut Battle,
