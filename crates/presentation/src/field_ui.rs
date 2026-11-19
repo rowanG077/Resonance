@@ -131,7 +131,7 @@ mod layer {
     pub const POINTER: usize = 4;
     pub const CORNERS: usize = 5;
     pub const SPEAKER_FILL: usize = 6;
-    pub const SPEAKER: usize = 7;
+    pub const TOP_FRAME: usize = 7; // Speaker tab and advance icon.
     pub const FONT: usize = 8;
     // Cooked atlas indices: fill, frame, color overlay, font and cursor.
     pub const CURSOR: usize = 9;
@@ -1192,7 +1192,7 @@ impl DialogueDraw<'_> {
             // Mask fills with the frame artwork: even translucent ornaments own
             // their pixels and must not receive a second layer of background color.
             let speaker_coverage =
-                Coverage::frame(&batches[layer::SPEAKER], self.spec, opening.is_some())?;
+                Coverage::frame(&batches[layer::TOP_FRAME], self.spec, opening.is_some())?;
             let speaker_fill_coverage = speaker_coverage.with_color(
                 &batches[layer::SPEAKER_FILL],
                 self.spec,
@@ -1345,10 +1345,10 @@ impl DialogueDraw<'_> {
                         .get(&slot)
                         .is_some_and(|c| c.operation.is_pending()))
             {
-                // The continue marker’s pulse follows scene age, not window age.
+                // Add the pulsing icon after the frame masks so the tail shows through it.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
                 let phase = (presentation_tick % 90) as f32 * 4.0f32.to_radians();
-                batches[layer::FRAME].quad(
+                batches[layer::TOP_FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
                     if preferences.is_some_and(|s| s.window == 2) {
                         [112., 176., 136., 200.]
@@ -1877,7 +1877,7 @@ fn frame(
                 [48., 160., 64., 192.],
             ),
         ] {
-            batch[layer::SPEAKER].quad(rect, uv, white);
+            batch[layer::TOP_FRAME].quad(rect, uv, white);
             batch[layer::SPEAKER_FILL].quad(rect, overlay, blue);
         }
     }
@@ -1936,7 +1936,12 @@ fn frame(
     );
     // Frame styles share one atlas; background overlays occupy 32-pixel rows.
     let row = [96., 208., 152.][usize::from(preferences.window)];
-    for index in [layer::FRAME, layer::CORNERS, layer::POINTER, layer::SPEAKER] {
+    for index in [
+        layer::FRAME,
+        layer::CORNERS,
+        layer::POINTER,
+        layer::TOP_FRAME,
+    ] {
         for uv in &mut batch[index].uv {
             uv[1] += row - 208.;
         }
@@ -1963,7 +1968,7 @@ fn frame(
         let light = color(rgb.map(|v| v.saturating_add(64)));
         let dark = color(rgb.map(|v| (v / 2).saturating_sub(64)));
         let tab = color(rgb.map(|v| v.saturating_add(128)));
-        batch[layer::SPEAKER].colors.fill(tab);
+        batch[layer::TOP_FRAME].colors.fill(tab);
         batch[layer::SPEAKER_FILL] = Batch::default();
         batch[layer::POINTER] = Batch::default();
         if pointer_art.is_some() {
