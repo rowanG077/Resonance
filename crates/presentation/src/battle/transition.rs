@@ -141,14 +141,18 @@ pub(super) fn entry_color(field: Option<&resonance_events::GameWorld>) -> [u8; 3
     }
 }
 
-pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<()> {
+/// Scripted opening events reveal the battle themselves. Ordinary openings
+/// shatter the outgoing image, including any completed field fade.
+fn shatter_cover(route: [i32; 5], field: Option<&resonance_events::GameWorld>) -> Option<Vec4> {
+    (route[0] as u8 == 0).then(|| field_cover(field))
+}
+
+pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<()> {
     let session = world.resource::<crate::new_game::Session>();
-    // A scripted encounter can follow another battle without revealing the field.
-    // Keep its completed cover while loading; there is no visible scene to shatter.
-    let cover = field_cover(session.is_field().then_some(&session.events().world));
-    if cover.w == 1. {
+    let field = session.is_field().then_some(&session.events().world);
+    let Some(cover) = shatter_cover(request.setup.route, field) else {
         return Ok(());
-    }
+    };
     let source = world.resource::<crate::display::Targets>().source.clone();
     let descriptor = world
         .resource::<Assets<Image>>()
@@ -222,7 +226,7 @@ pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<(
         size,
         age: None,
         mesh_age: 0,
-        crack_color: crack_color(formations),
+        crack_color: crack_color(request.formation_count()),
         battle_ready: false,
         #[cfg(all(test, feature = "preparation-trace"))]
         skip_minimum_duration,
@@ -504,13 +508,17 @@ mod tests {
     }
 
     #[test]
-    fn scripted_battle_entry_retains_black_white_and_partial_field_covers() {
+    fn opening_route_selects_whether_to_shatter_the_field_cover() {
+        // Both Raybit encounters and Mithos use the ordinary route under full white.
+        let ordinary = [0; 5];
+        let vidarr = [2, 3, 600, 0, 3];
         // No field owner means an overworld encounter, without a field UI cover.
-        assert_eq!(field_cover(None), Vec4::ZERO);
+        assert_eq!(shatter_cover(ordinary, None), Some(Vec4::ZERO));
         assert_eq!(entry_color(None), [0; 3]);
         let mut field = resonance_events::GameWorld::default();
         // Before the first fade command, the field UI covers the scene in black.
-        assert_eq!(field_cover(Some(&field)), Vec4::W);
+        assert_eq!(shatter_cover(ordinary, Some(&field)), Some(Vec4::W));
+        assert_eq!(shatter_cover(vidarr, Some(&field)), None);
         assert_eq!(entry_color(Some(&field)), [0; 3]);
         for white in [false, true] {
             let shade = if white { 1. } else { 0. };
@@ -524,7 +532,9 @@ mod tests {
             for (tick, alpha) in [(9, 0.), (10, 25.), (14, 128.), (30, 255.)] {
                 field.tick = tick;
                 let expected = Vec3::splat(shade).extend(alpha / 255.);
-                assert!((field_cover(Some(&field)) - expected).abs().max_element() < 0.00001);
+                let cover = shatter_cover(ordinary, Some(&field)).unwrap();
+                assert!((cover - expected).abs().max_element() < 0.00001);
+                assert_eq!(shatter_cover(vidarr, Some(&field)), None);
                 assert_eq!(
                     entry_color(Some(&field)),
                     if white && alpha == 255. {
