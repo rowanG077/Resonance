@@ -35,6 +35,7 @@ pub(crate) struct NativeHost<'a> {
     pub resources: &'a ResourceLibrary,
     pub program: &'a Program,
     pub event_actor: i16,
+    pub foreground: bool,
     pub registers: &'a mut [i32; 6],
     pub events: &'a mut Vec<EventCommand>,
     pub free_slots: u32,
