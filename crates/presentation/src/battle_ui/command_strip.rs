@@ -386,33 +386,6 @@ fn draw(
         a.text_color,
     )?;
     let mut cursor = [center - 44., 172.];
-    if let View::Control(selection) = &state.view {
-        let name = match selection.mode {
-            resonance_battle::Control::Manual => "MANUAL",
-            resonance_battle::Control::SemiAuto => "SEMIAUTO",
-            resonance_battle::Control::Auto => "AUTO",
-            resonance_battle::Control::Enemy => {
-                anyhow::bail!("enemy in party control selector")
-            }
-        };
-        let [left, _, _, _] = party::card_rect(usize::from(selection.slot));
-        let x = left + 28.;
-        for (offset, colors) in [
-            (2., [a.shadow_color; 2]),
-            (0., [[64, 128, 64, 255], [128, 128, 128, 255]]),
-        ] {
-            text::italic(
-                &mut numbers,
-                &art.font,
-                name,
-                [x + offset, 388. + offset],
-                [16., 16.],
-                12.,
-                4.,
-                colors,
-            )?;
-        }
-    }
     if let View::User(selection) | View::Ally(selection) = &state.view {
         ensure!(selection.slot < 4, "invalid item selector slot");
         sprite(
@@ -579,32 +552,10 @@ mod tests {
         let mut motion = Motion::default();
         let visible = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         assert!(!visible[1].indices.is_empty());
-        for mode in [
-            resonance_battle::Control::Manual,
-            resonance_battle::Control::SemiAuto,
-            resonance_battle::Control::Auto,
-        ] {
-            state.view = View::Control(resonance_game::battle::command::ControlSelection {
-                actor: state.actor,
-                slot: 0,
-                mode,
-            });
-            let controls = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
-            assert!(
-                controls[1] == visible[1],
-                "the command emblems remain visible"
-            );
-            assert!(
-                controls[3].positions.len() > visible[3].positions.len(),
-                "the current mode is drawn above the portrait"
-            );
-        }
-        state.view = View::Strip;
-        let strip = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         state.view = View::Strategy(Default::default());
         let submenu = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
         assert!(
-            strip == submenu,
+            visible == submenu,
             "translucent submenus keep the command strip beneath their panels"
         );
         state.view = View::Strip;

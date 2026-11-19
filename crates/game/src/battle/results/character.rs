@@ -81,6 +81,14 @@ mod tests {
     #[ignore = "requires cooked battle assets; GameCube Z rotation regression"]
     fn z_rotates_party_and_preserves_slot_modes_through_battle_completion() -> Result<()> {
         let mut f = fixture(&[1, 2, 3, 4, 5], [1, 2, 2, 2])?;
+        let selected_actor = f.candidate.setup.actors[0].0;
+        command_visit(
+            &mut f,
+            command::Input {
+                control_mode: true,
+                ..Default::default()
+            },
+        )?;
         let random = f.battle.random_state();
         let ticks = f.battle.ledger().elapsed_ticks;
         for expected in [
@@ -98,7 +106,10 @@ mod tests {
             );
             let menu = f.lifecycle.command_frame().unwrap();
             assert_eq!(menu.actor, f.candidate.setup.actors[0].0);
-            assert_eq!(menu.view, command::View::Strip);
+            assert_eq!(
+                f.battle.actors()[selected_actor.index()].control_label_ticks,
+                60
+            );
             for (slot, &(id, character)) in f.candidate.setup.actors.iter().enumerate() {
                 let actor = &f.battle.actors()[id.index()];
                 assert_eq!(character as u8, expected[slot]);
@@ -117,7 +128,21 @@ mod tests {
             assert_eq!(f.battle.random_state(), random);
             assert_eq!(f.battle.ledger().elapsed_ticks, ticks);
         }
-        change(&mut f)?;
+        command_visit(
+            &mut f,
+            command::Input {
+                change_character: true,
+                control_mode: true,
+                ..Default::default()
+            },
+        )?;
+        let next = f.candidate.setup.actors[0].0;
+        assert_eq!(f.battle.actors()[next.index()].control, Control::SemiAuto);
+        assert_eq!(f.battle.actors()[next.index()].control_label_ticks, 60);
+        assert_eq!(
+            f.battle.actors()[selected_actor.index()].control_label_ticks,
+            60
+        );
         let outcome = escape(&mut f.candidate, &mut f.battle)?;
         let completed = f.candidate.finish(&f.battle, &outcome)?;
         assert_eq!(completed.party.formation, [2, 3, 4, 1, 5]);
@@ -155,14 +180,8 @@ mod tests {
                 ..Default::default()
             },
         )?;
-        assert_eq!(
-            f.lifecycle.command_frame().unwrap().view,
-            command::View::Control(command::ControlSelection {
-                actor,
-                slot: 0,
-                mode: Control::SemiAuto,
-            })
-        );
+        assert_eq!(f.battle.actors()[actor.index()].control, Control::SemiAuto);
+        assert_eq!(f.battle.actors()[actor.index()].control_label_ticks, 60);
         command_visit(
             &mut f,
             command::Input {

@@ -411,6 +411,29 @@ impl Artwork {
                 .map(|v| v as f32);
                 rhythm_prompt.quad([x, top, x + 32., top + 32.], [u, v, u + w, v + h], [1.; 4]);
             }
+            if actor.control_label_ticks != 0 {
+                let name = match actor.control {
+                    resonance_battle::Control::Manual => "MANUAL",
+                    resonance_battle::Control::SemiAuto => "SEMIAUTO",
+                    resonance_battle::Control::Auto => "AUTO",
+                    resonance_battle::Control::Enemy => anyhow::bail!("invalid party control mode"),
+                };
+                for (offset, colors) in [
+                    (2., [self.art.commands.shadow_color; 2]),
+                    (0., [[64, 128, 64, 255], [128, 128, 128, 255]]),
+                ] {
+                    text::italic(
+                        &mut reserved_commands,
+                        &self.art.font,
+                        name,
+                        [x + 28. + offset, TOP - 1. + offset],
+                        [16., 16.],
+                        12.,
+                        4.,
+                        colors,
+                    )?;
+                }
+            }
             if queued {
                 reserve_label(
                     &mut reserved_commands,
@@ -557,6 +580,8 @@ mod tests {
         frame.actors.push(frame.actors[0].clone());
         frame.actors[0].control_slot = resonance_battle::ControllerPort::Two;
         frame.actors[1].control_slot = resonance_battle::ControllerPort::One;
+        frame.actors[0].control = resonance_battle::Control::SemiAuto;
+        frame.actors[0].control_label_ticks = 1;
         frame.cues.push(resonance_battle::Cue::Recovered {
             floating: false,
             actor: resonance_battle::ActorId::from_index(0)?,
@@ -607,6 +632,14 @@ mod tests {
             .map(|p| p[0])
             .fold(f32::INFINITY, f32::min);
         assert_eq!(marker_left, left(1) - 4. - 320.);
+        // The control label and RESERVE. both follow Lloyd into slot two.
+        assert_eq!(
+            markers.positions.len(),
+            ("SEMIAUTO".len() + "RESERVE.".len()) * 8
+        );
+        assert_eq!(markers.positions[0][0], left(1) + 28. + 2. + 4. - 320.);
+        assert_eq!(markers.positions[0][1], 240. - (TOP - 1. + 2.));
+        assert!(artwork.ui.reserved_commands.definition.depth < Depth::Commands.value());
         artwork.render_numbers(&frame, &mut Commands::new(&mut queue, &world), &mut meshes)?;
         let recovered = &artwork
             .ui
