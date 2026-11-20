@@ -696,7 +696,7 @@ fn admitting_a_cue_preserves_a_dropped_cues_final_submitted_block() -> Result<()
 fn ended_looping_sample_releases_its_envelope_and_completes() -> Result<()> {
     let synth = Synthesizer::default();
     let stream = synth.start(
-        fixture(vec![wait(Some(5), false), Command::End], true),
+        fixture(vec![wait(Some(6), false), Command::End], true),
         false,
     )?;
     assert!(

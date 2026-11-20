@@ -157,10 +157,7 @@ fn load_cached(
 }
 
 fn control_deadline(milliseconds: u64) -> usize {
-    crate::volume::frames_from_millis(milliseconds)
-        .unwrap()
-        .div_ceil(32) as usize
-        * 32
+    milliseconds as usize * crate::CONTROL_FRAMES
 }
 
 #[test]
@@ -827,11 +824,8 @@ fn pan_ramp_moves_continuously_and_surround_is_inert_in_stereo() {
             &[],
             None,
         );
-        let ramp_start = crate::volume::frames_from_millis(u64::from(lead))
-            .unwrap()
-            .div_ceil(32)
-            * 32;
-        let frames = &actual.1[ramp_start as usize * 2..];
+        let ramp_start = control_deadline(u64::from(lead));
+        let frames = &actual.1[ramp_start * 2..];
         let middle = crate::volume::frames_from_millis(45).unwrap() as usize;
         assert!(frames[middle * 2] != frames[0] || frames[middle * 2 + 1] != frames[1]);
         assert!(actual.1.chunks_exact(2).any(|frame| frame[0] != frame[1]));
@@ -1647,7 +1641,9 @@ fn finite_score_keeps_pending_notes_and_ends_when_the_last_macro_finishes() {
     let mut second = loaded.score.first_events[0].clone();
     second.tick = 50;
     loaded.score.first_events.push(second);
-    let second_note = control_deadline(50);
+    let second_note = crate::volume::frames_from_millis(50)
+        .unwrap()
+        .next_multiple_of(32) as usize;
     let onset = control_deadline(10);
     let stop = onset + control_deadline(5);
     let release_frames = crate::release::RELEASE_FRAMES as usize;

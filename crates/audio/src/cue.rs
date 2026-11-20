@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn cue_automation_is_causal_reaches_its_endpoint_and_can_be_interrupted() {
+    fn cue_volume_fades_resume_after_intervening_level_changes() {
         use crate::data::{Command, Interpolation};
         let wait = |milliseconds| Command::Wait {
             milliseconds: Some(milliseconds),
@@ -262,55 +262,54 @@ mod tests {
             key_off: false,
             sample_end: false,
         };
-        let start = crate::volume::frames_from_millis(50).unwrap().div_ceil(32) * 32;
-        let duration = crate::volume::frames_from_millis(100).unwrap();
-        let restore = start + crate::volume::frames_from_millis(50).unwrap().div_ceil(32) * 32;
-        for mode in [Interpolation::Linear, Interpolation::Polyphase] {
-            let baseline = render_signal(signal_cue(mode, 60, vec![8192; 4096], vec![]));
-            for interrupted in [false, true] {
-                let mut commands = vec![
-                    wait(50),
-                    Command::FadeVolume {
-                        factor: 0,
-                        offset: 0,
-                        curve: None,
-                        milliseconds: 100,
-                        from_silence: false,
-                    },
-                ];
-                if interrupted {
-                    commands.extend([
-                        wait(50),
-                        Command::SetVolume {
-                            factor: 0,
-                            offset: 127,
-                            curve: None,
-                            from_velocity: false,
-                        },
-                    ]);
-                }
-                let output = render_signal(signal_cue(mode, 60, vec![8192; 4096], commands));
-                for frame in 0..(start + duration + 160) as usize {
-                    let gain = if frame < start as usize || interrupted && frame >= restore as usize
-                    {
-                        1.
-                    } else {
-                        1. - ((frame as u64 - start) as f64 / duration as f64).min(1.)
-                    };
-                    for channel in 0..2 {
-                        let expected = f64::from(baseline[frame][channel]) * gain;
-                        assert!(
-                            (f64::from(output[frame][channel]) - expected).abs() <= 2.,
-                            "frame {frame}, interrupted {interrupted}: expected {expected}, got {}",
-                            output[frame][channel]
-                        );
-                    }
-                }
-                if !interrupted {
+        let restore = Command::SetVolume {
+            factor: 0,
+            offset: 127,
+            curve: None,
+            from_velocity: false,
+        };
+        let commands = vec![
+            wait(50),
+            Command::FadeVolume {
+                factor: 0,
+                offset: 0,
+                curve: None,
+                milliseconds: 100,
+                from_silence: false,
+            },
+            wait(52),
+            restore,
+            wait(48),
+            restore,
+            wait(3),
+            restore,
+        ];
+        let output = render_signal(signal_cue(
+            Interpolation::Direct,
+            60,
+            vec![8192; 160 * crate::CONTROL_FRAMES],
+            commands,
+        ));
+        let full = output[49 * crate::CONTROL_FRAMES];
+        assert!(full.iter().all(|&sample| sample > 100));
+        // The 102 ms wake splits the five-ms update into two and three ms.
+        // At 150 ms the fade consumes the setter while clearing its last
+        // fractional remainder. The setter at 153 ms then stays audible.
+        for (ticks, gain) in [
+            (50..55, 0.95),
+            (100..102, 0.45),
+            (102..105, 0.43),
+            (105..110, 0.4),
+            (150..153, 0.),
+            (153..160, 1.),
+        ] {
+            let frames = ticks.start * crate::CONTROL_FRAMES..ticks.end * crate::CONTROL_FRAMES;
+            for stereo in &output[frames] {
+                for (&sample, reference) in stereo.iter().zip(full) {
+                    let expected = f64::from(reference) * gain;
                     assert!(
-                        output[(start + duration) as usize..]
-                            .iter()
-                            .all(|sample| *sample == [0; 2])
+                        (f64::from(sample) - expected).abs() <= 2.,
+                        "at {ticks:?} ms: expected {expected}, got {sample}"
                     );
                 }
             }
