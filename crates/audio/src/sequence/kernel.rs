@@ -388,7 +388,7 @@ impl<'a> Kernel<'a> {
         }
         if input.release {
             for active in self.voices.iter_mut().filter(|v| !v.retired) {
-                active.voice.key_off()?;
+                active.voice.release_effect()?;
                 active.end_tick = None;
             }
         }

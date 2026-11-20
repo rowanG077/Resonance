@@ -500,6 +500,7 @@ pub(crate) struct Voice<'a> {
     random: crate::sequence::shared::Control,
     wait: Wait,
     key_off: bool,
+    effect_released: bool,
     key_off_trap: Option<(u16, usize)>,
     message_trap: Option<(u16, usize)>,
     messages: std::collections::VecDeque<i32>,
@@ -595,6 +596,7 @@ impl<'a> Voice<'a> {
             random,
             wait: Wait::default(),
             key_off: false,
+            effect_released: false,
             key_off_trap: None,
             message_trap: None,
             messages: Default::default(),
@@ -660,6 +662,26 @@ impl<'a> Voice<'a> {
             self.wake();
         }
         Ok(())
+    }
+
+    pub(crate) fn release_effect(&mut self) -> Result<()> {
+        self.key_off()?;
+        self.effect_released = true;
+        self.finish_unreachable_wait();
+        Ok(())
+    }
+
+    fn finish_unreachable_wait(&mut self) {
+        // A custom program can park a looping sample indefinitely, even after
+        // a timed lead-in. Once released it can finish through its envelope.
+        if self.effect_released
+            && self.wait.until == u64::MAX
+            && !self.wait.sample_end
+            && self.key_off_trap.is_none()
+            && self.message_trap.is_none()
+        {
+            self.finish_program();
+        }
     }
 
     pub fn is_done(&self) -> bool {
@@ -764,6 +786,7 @@ impl<'a> Voice<'a> {
                 self.wait_reference = now;
             }
             self.commands(controls, fuel)?;
+            self.finish_unreachable_wait();
         }
         Ok(())
     }

@@ -1067,7 +1067,17 @@ impl Frames {
         if let Some(binding) = self.sound_bindings.get_mut(usize::from(slot)) {
             *binding = cue;
         }
-        self.sounds.retain(|sound| sound.slot != Some(slot));
+        self.sounds.retain_mut(|sound| {
+            if sound.slot != Some(slot) {
+                return true;
+            }
+            // Cancel queued starts. Playing effects relinquish the slot immediately
+            // and finish their own release, even if another cue takes the slot.
+            sound.slot = None;
+            sound.repeat = None;
+            sound.controls.release = true;
+            sound.stream.started()
+        });
     }
     fn frame(&mut self) -> Result<Option<[f32; 2]>> {
         if self.receive.is_none() {
@@ -1708,6 +1718,21 @@ mod tests {
             frames.frame()?;
             assert!(frames.sounds.iter().all(|sound| sound.slot != Some(15)));
             assert!(frames.sounds.iter().all(|sound| sound.repeat.is_none()));
+            // Both engine loops have a fade longer than a mixer block.
+            for _ in 0..RATE / 20 {
+                frames.frame()?;
+            }
+            ensure!(
+                !frames.sounds.is_empty(),
+                "vehicle sound {id} lost its fade"
+            );
+            for _ in 0..RATE * 2 {
+                if frames.sounds.is_empty() {
+                    break;
+                }
+                frames.frame()?;
+            }
+            ensure!(frames.sounds.is_empty(), "vehicle sound {id} kept playing");
         }
         Ok(())
     }
@@ -2199,12 +2224,26 @@ mod tests {
     }
 
     #[test]
-    fn stopped_field_slots_never_start_new_audio_and_preserve_queued_pcm() -> Result<()> {
+    fn stopped_field_slots_cancel_pending_starts_and_play_authored_releases() -> Result<()> {
+        use resonance_audio::data::{Command, ScoreOrigin};
+        let (mut resources, score, tables) = test_score_data(ScoreOrigin::SoundEffect);
+        let program = resources.programs.get_mut(&1).unwrap();
+        let wait = |milliseconds, key_off| Command::Wait {
+            milliseconds,
+            key_off,
+            from_start: false,
+            sample_end: false,
+        };
+        // Hold until released, sustain for 10 ms, then park the looping sample.
+        *program.last_mut().unwrap() = wait(None, true);
+        program.extend([wait(Some(10), false), wait(None, false)]);
+        let mut assets = synthetic_assets();
+        let sound_effect = Loaded::new(resources, score, tables, assets.reverbs)?;
+        assets.sounds.insert(1, Arc::new(sound_effect.into()));
+        let assets = Arc::new(assets);
         for elapsed in [0, 73] {
-            let mut assets = synthetic_assets();
-            assets.sounds.insert(1, test_score());
-            let (source, control) = Arc::new(assets.clone()).session();
-            let (reference, reference_control) = Arc::new(assets).session();
+            let (source, control) = assets.clone().session();
+            let (reference, reference_control) = assets.clone().session();
             let mut frames = source.decoder();
             let mut reference = reference.decoder();
             let sound = AudioCommand::Sound {
@@ -2219,7 +2258,8 @@ mod tests {
                 assert_eq!(frames.frame()?, reference.frame()?);
             }
             control.send(AudioCommand::StopSound(3))?;
-            for _ in elapsed..160 {
+            // This includes both the submitted block and the note's own release.
+            for _ in elapsed..320 {
                 let output = frames.frame()?.unwrap();
                 if elapsed == 0 {
                     assert_eq!(output, [0.; 2]);
@@ -2228,10 +2268,11 @@ mod tests {
                     assert!(output[0] > 0.);
                 }
             }
-            assert!(frames.sounds.is_empty());
-            for _ in 0..480 {
+            assert!(frames.sounds.iter().all(|s| s.slot.is_none()));
+            for _ in 0..960 {
                 frames.frame()?;
             }
+            assert!(frames.sounds.is_empty());
             assert_eq!(frames.frame()?.unwrap(), [0.; 2]);
         }
         Ok(())
