@@ -95,6 +95,7 @@ impl Battle {
         actor: ActorId,
         current_catalogue: Option<TechniqueId>,
         mode: crate::learning::LearningMode,
+        cues: &mut Vec<crate::Cue>,
     ) -> Result<Option<crate::ActionKey>> {
         if self.phase() != crate::BattlePhase::Combat {
             return Ok(None);
@@ -115,7 +116,11 @@ impl Battle {
             || u32::from(random.next_u16()),
         )?;
         selected
-            .map(|selected| self.record_technique_acquisition(actor, selected))
+            .map(|selected| {
+                self.with_command_cues(cues, |battle| {
+                    battle.record_technique_acquisition(actor, selected)
+                })
+            })
             .transpose()
     }
 
@@ -124,9 +129,10 @@ impl Battle {
         &mut self,
         actor: ActorId,
         action: crate::ActionKey,
+        cues: &mut Vec<crate::Cue>,
     ) -> Result<Option<crate::ActionKey>> {
         let current = self.record_technique_use(actor, action, false);
-        self.learn_after_use(actor, current, crate::learning::LearningMode::Martial)
+        self.learn_after_use(actor, current, crate::learning::LearningMode::Martial, cues)
     }
 
     /// Return only the acquisition selected by this completed chant.
@@ -134,9 +140,10 @@ impl Battle {
         &mut self,
         actor: ActorId,
         action: crate::ActionKey,
+        cues: &mut Vec<crate::Cue>,
     ) -> Result<Option<crate::ActionKey>> {
         let current = self.record_technique_use(actor, action, true);
-        self.learn_after_use(actor, current, crate::learning::LearningMode::Casting)
+        self.learn_after_use(actor, current, crate::learning::LearningMode::Casting, cues)
     }
 
     pub(crate) fn snapshot_technique_proficiency(

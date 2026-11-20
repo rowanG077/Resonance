@@ -774,7 +774,15 @@ impl Contact {
         let repeated = battle.actors[actor_index]
             .reaction
             .contact_feedback(result.guard);
-        cues.push(Cue::Hit {
+        // A rescued victim receives the hit before the rescue feedback it triggered.
+        let hit_index = cues.len();
+        let defeated = battle.actors[actor_index].hp == 0
+            && (!unison_defeat_pending || result.is_damage())
+            && (unison_defeat_pending
+                || (!battle.restore_event_boss_hp(actor)
+                    && !battle.try_lethal_rescue(actor, rescue_conditions, cues)?))
+            && !battle.defer_unison_defeat(actor, self.rule.finisher_grade);
+        let hit = Cue::Hit {
             source: self.source,
             owner: self.owner,
             actor,
@@ -790,16 +798,12 @@ impl Contact {
             was_casting,
             overlimit: battle.actors[actor_index].overlimit.is_active(),
             stunned: battle.activity(actor) == crate::Activity::Stunned,
+            defeated,
             repeated,
             result,
-        });
-        if battle.actors[actor_index].hp == 0
-            && (!unison_defeat_pending || result.is_damage())
-            && (unison_defeat_pending
-                || (!battle.restore_event_boss_hp(actor)
-                    && !battle.try_lethal_rescue(actor, rescue_conditions, cues)?))
-            && !battle.defer_unison_defeat(actor, self.rule.finisher_grade)
-        {
+        };
+        cues.insert(hit_index, hit);
+        if defeated {
             // Only a confirmed defeat earns kill credit and recovery.
             battle.record_technical_smash(actor, self.rule.arte, self.rule.finisher_grade, cues);
             battle.enter_death(actor, cues);
@@ -808,6 +812,13 @@ impl Contact {
             }
             if battle.actors[self.owner.index()].side == Side::Party {
                 battle.ledger.kill(self.owner);
+                let cooldown =
+                    &mut battle.runtime[self.owner.index()].enemy_defeated_voice_cooldown;
+                // The pre-contact count includes the victim. Two enemies must survive.
+                if available_counts[Side::Enemy as usize] >= 3 && *cooldown == 0 {
+                    *cooldown = 360;
+                    cues.push(Cue::EnemyDefeatedReaction { actor: self.owner });
+                }
             }
             if battle.actors[self.owner.index()].available() {
                 battle.recover_after_kill(self.owner, cues);

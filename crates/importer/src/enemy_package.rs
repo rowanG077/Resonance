@@ -14,16 +14,21 @@ pub(crate) struct EnemyPackages {
 
 impl EnemyPackages {
     pub(crate) fn open(extracted: &Path) -> Result<Self> {
+        Self::open_with_usual(extracted).map(|(packages, _)| packages)
+    }
+
+    pub(crate) fn open_with_usual(extracted: &Path) -> Result<(Self, Vec<u8>)> {
         let usual = std::fs::read(extracted.join("files/BTL/BTLusual.dat"))?;
         let count = dol::u32(&usual, 0)? as usize;
         ensure!(count > 10, "enemy directory is absent");
         let start = dol::u32(&usual, 4 + 10 * 4)? as usize;
         let end = dol::u32(&usual, 4 + 11 * 4)? as usize;
         let directory = usual.get(start..end).context("invalid enemy directory")?;
-        Ok(Self {
+        let packages = Self {
             file: File::open(extracted.join("files/BTL/BTLenemy.dat"))?,
             directory: directory.to_vec(),
-        })
+        };
+        Ok((packages, usual))
     }
 
     pub(crate) fn read(&mut self, id: u8) -> Result<Vec<u8>> {

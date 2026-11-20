@@ -6,6 +6,16 @@ use resonance_content::{
     library::Library,
 };
 
+fn render_through_update(frames: &mut Frames, control: &Control, updates: u64) -> Result<bool> {
+    let end = updates * u64::from(RATE) * UPDATE_RATE_DENOMINATOR / UPDATE_RATE_NUMERATOR;
+    let mut audible = false;
+    while frames.frame < end {
+        audible |= frames.frame()?.context("battle audio ended early")? != [0.; 2];
+    }
+    control.acknowledge_frames(frames.frame);
+    Ok(audible)
+}
+
 #[test]
 #[ignore = "requires current RESONANCE_TEST_ASSETS; prepares Mithos's and Abyssion's health conversations and original PCM"]
 fn health_conversations_bind_party_branches_and_play_original_audio() -> Result<()> {
@@ -112,7 +122,7 @@ fn health_conversations_bind_party_branches_and_play_original_audio() -> Result<
         let mut heard = Vec::new();
         let mut audible = std::collections::BTreeSet::new();
         let mut speaking = None;
-        for _ in 0..10000 {
+        for update in 1..=10000 {
             let frame = prepared.core.step(resonance_battle::BattleInput {
                 voice_busy: Some(playback.busy_voices()),
                 ..Default::default()
@@ -138,14 +148,11 @@ fn health_conversations_bind_party_branches_and_play_original_audio() -> Result<
                 }
             }
             playback.dispatch(&frame.cues, |_| None)?;
-            for _ in 0..RATE / 60 {
-                if frames.frame()?.unwrap() != [0.; 2]
-                    && let Some(id) = speaking
-                {
-                    audible.insert(id);
-                }
+            if render_through_update(&mut frames, &control, update)?
+                && let Some(id) = speaking
+            {
+                audible.insert(id);
             }
-            control.acknowledge_frames(frames.frame);
             if heard.len() == expected.len()
                 && audible.len() == expected.len()
                 && playback.busy_voices() == resonance_battle::ActorSet::default()
@@ -737,4 +744,56 @@ fn recorded_effects_follow_battle_entry_priority_and_return_to_field_ownership()
     }
     assert!(heard, "returned field must still own its recorded cue");
     Ok(())
+}
+
+impl Assets {
+    /// Render only the defeated actor's channel over the measured time to victory.
+    pub(crate) fn check_defeat_voice_pcm(
+        self: &Arc<Self>,
+        channel: &[Vec<Cue>],
+        voiced: bool,
+    ) -> Result<()> {
+        let (source, mut control) = self.mixer.clone().session();
+        let mut frames = source.decoder();
+        let mut playback = Playback::begin(
+            &mut control,
+            self.clone(),
+            Settings {
+                music: 0,
+                effects: 0,
+                battle_effects: 0,
+                voice: 127,
+                stereo: true,
+            },
+            None,
+        )?;
+        let mut audible = false;
+        for (update, cues) in (1..).zip(channel) {
+            let unfinished = playback
+                .voices
+                .first()
+                .filter(|voice| !voice.complete.load(Ordering::Acquire))
+                .map(|voice| voice.playback);
+            playback.dispatch(cues, |_| None)?;
+            let playing = playback.voices.first();
+            if let Some(id) = unfinished {
+                assert_eq!(
+                    playing.map(|voice| voice.playback),
+                    Some(id),
+                    "defeat cry interrupted"
+                );
+            }
+            if let Some(playing) = playing {
+                assert_eq!(playing.priority, VoicePriority::Announcement);
+            }
+            audible |= render_through_update(&mut frames, &control, update)?;
+        }
+        playback.dispatch(&[], |_| None)?;
+        assert_eq!(audible, voiced);
+        ensure!(
+            playback.voices.is_empty(),
+            "defeat voice unfinished at victory"
+        );
+        Ok(())
+    }
 }

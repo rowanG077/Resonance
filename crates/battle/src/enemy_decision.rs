@@ -801,7 +801,7 @@ impl Battle {
             return Ok(());
         }
         let Some(selected) = self.choose_enemy_action(owner)? else {
-            self.begin_taunt(owner);
+            self.begin_taunt(owner, cues);
             return Ok(());
         };
         let definition = self.enemy_decision(owner)?;

@@ -2,8 +2,11 @@
 //!
 //! Native variants without a direct editable rule remain explicitly gated.
 use crate::{
-    battle_enemy_media, battle_enemy_profile, battle_enemy_projectiles, battle_equipment, dol,
-    enemy_package::EnemyPackages, rel::Rel,
+    battle_enemy_media, battle_enemy_profile, battle_enemy_projectiles, battle_equipment,
+    battle_party_native::{duration, sound as native_sound},
+    dol,
+    enemy_package::EnemyPackages,
+    rel::Rel,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
@@ -18,7 +21,7 @@ use resonance_content::{
         document::{Model, enemy::Secondary},
     },
     battle_projectile::DamageKind,
-    battle_voice::Sound,
+    battle_voice::{Sound, TimedVoice},
     model_preview::ModelPreview,
 };
 use serde_json::{Value, json};
@@ -94,14 +97,6 @@ fn word_le(data: &[u8], at: usize) -> Result<u32> {
             .context("truncated GLB word")?
             .try_into()?,
     ))
-}
-
-fn native_sound(encoded: u16) -> Option<Sound> {
-    match encoded {
-        0 => None,
-        value if value & 0x8000 != 0 => Some(Sound::Stream(value & 0x7fff)),
-        value => Some(Sound::Cue(value + 501)),
-    }
 }
 
 pub(crate) fn artwork(package: &[u8], library: &Path, name: &str) -> Result<Value> {
@@ -880,7 +875,7 @@ fn contact_recovery(data: &[u8], row: &[u8]) -> Result<Option<Value>> {
                         half(source, cursor + 6)? == 2,
                         "enemy recovery voice priority needs a decoder"
                     );
-                    voice = sound(half(source, cursor + 4)?);
+                    voice = native_sound(half(source, cursor + 4)?);
                     cursor += 8;
                 }
                 _ => anyhow::bail!("enemy contact recovery command {opcode} needs a decoder"),
@@ -1003,14 +998,6 @@ fn requirements(row: &[u8], flags: u32) -> Result<EnemyRequirements> {
     })
 }
 
-fn sound(encoded: u16) -> Option<Sound> {
-    match encoded {
-        0 => None,
-        value if value & 0x8000 != 0 => Some(Sound::Stream(value & 0x7fff)),
-        value => Some(Sound::Cue(value + 501)),
-    }
-}
-
 fn choice(
     row: &[u8],
     flags: u32,
@@ -1049,7 +1036,7 @@ fn choice(
     Ok(json!({
         "weight":weight,
         "required_flag":(half(row, 58)? != 0).then_some(half(row, 58)?),
-        "voices":{"begin":sound(half(row, 60)?),"release":sound(half(row, 62)?)},
+        "voices":{"begin":native_sound(half(row, 60)?),"release":native_sound(half(row, 62)?)},
         "chain_group":byte(row, 32)?,
         "followup_chance":(byte(row, 50)? as i8).max(0) as u8,
         "approach":approach,
@@ -1683,7 +1670,7 @@ fn enemy_entrance(
     selector: u8,
     data: &[u8],
     metadata: &[u8],
-    fallback: Value,
+    fallback: TimedVoice,
     profile: &resonance_content::battle_profile::Profile,
 ) -> Result<Value> {
     let camera = |radius: f32, height: f32, yaw: f32, elevation: f32| {
@@ -1839,7 +1826,7 @@ fn enemy_entrance(
             entrance["staging"] = json!({"character":1,
                 "party_positions":if duel {vec![[-300.,0.,0.]]} else {vec![[-300.,0.,0.],[-450.,0.,200.],[-450.,0.,100.],[-600.,0.,-200.]]},
                 "enemy_position":[300.,0.,0.],"hide_party_at":if duel {Value::Null} else {json!(330)},
-                "fallback":if duel {Value::Null} else {fallback},"shots":shots
+                "fallback":(!duel).then_some(fallback),"shots":shots
             });
         }
         _ => anyhow::bail!("enemy entrance selector {selector} needs a decoder"),
@@ -1852,7 +1839,7 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
     let name = MonsterId::try_from(id)?
         .resource_name()
         .context("enemy has no name")?;
-    let mut packages = EnemyPackages::open(&root.join("disc1"))?;
+    let (mut packages, usual) = EnemyPackages::open_with_usual(&root.join("disc1"))?;
     let data = packages.read(id)?;
     ensure!(data.starts_with(b"em8\0"), "invalid enemy package");
     let strategy = section(&data, 6)?;
@@ -1875,69 +1862,21 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
     let nodes = joint_names(library, name)?;
     let profile_source = section(&data, 4)?;
     let selector = byte(section(&data, 12)?, 8)?;
-    let physical = section(&data, 10)?.chunks_exact(68).any(|row| {
-        let technique = u16::from_be_bytes([row[64], row[65]]);
-        (1..200).contains(&technique)
-    });
-    let usual = (physical
-        || word(profile_source, 0x104)? != 0
-        || matches!(
-            selector,
-            2 | 3
-                | 6
-                | 8
-                | 10
-                | 12
-                | 13
-                | 15
-                | 16
-                | 18
-                | 19
-                | 20
-                | 21
-                | 22
-                | 23
-                | 24
-                | 25
-                | 26
-                | 27
-        ))
-    .then(|| fs::read(root.join("disc1/files/BTL/BTLusual.dat")))
-    .transpose()?;
-    let common = usual
-        .as_deref()
-        .map(|usual| crate::native_archive::member(usual, 8, 14))
-        .transpose()?
-        .flatten();
+    let shared_defeat = matches!(selector, 3 | 6..=10 | 12 | 13 | 18..=27);
+    let common = crate::native_archive::member(&usual, 8, 14)?;
     let (actions, attacks, contacts, projectiles) = actions(&data, library, name, common, id)?;
-    let mut profile = battle_enemy_profile::profile(profile_source, &nodes, usual.as_deref())?;
-    let presentation = if matches!(
-        selector,
-        2 | 3 | 6 | 8 | 10 | 12 | 13 | 15 | 16 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27
-    ) {
+    let mut profile = battle_enemy_profile::profile(profile_source, &nodes, &usual)?;
+    let presentation = if shared_defeat || matches!(selector, 2 | 15 | 16) {
         if let Some(sound) = native_sound(half(profile_source, 0xf4)?) {
             profile.voices.get_or_insert_with(Default::default).defeat = Some(sound);
         }
         let sound = profile.voices.as_ref().and_then(|voices| voices.defeat);
-        let durations = crate::native_archive::member(
-            usual
-                .as_deref()
-                .context("enemy presentation needs battle voices")?,
-            12,
-            14,
-        )?
-        .context("missing battle voice durations")?;
-        let timed = |sound: Option<Sound>| -> Result<Value> {
-            let ticks = if let Some(sound) = sound {
-                let index = match sound {
-                    Sound::Stream(index) => index,
-                    Sound::Cue(cue) => cue.checked_sub(501).context("invalid battle voice cue")?,
-                };
-                half(durations, usize::from(index) * 2)?
-            } else {
-                0
-            };
-            Ok(json!({"sound":sound,"ticks":ticks}))
+        let timed = |sound: Option<Sound>| -> Result<TimedVoice> {
+            let ticks = sound
+                .map(|line| duration(&usual, line))
+                .transpose()?
+                .unwrap_or(0);
+            Ok(TimedVoice { sound, ticks })
         };
         let opening = if matches!(selector, 2 | 10 | 12 | 15 | 21 | 22 | 26) {
             enemy_entrance(
@@ -1952,7 +1891,12 @@ pub fn cook_battle_enemy_rules(root: &Path, library: &Path, id: u8) -> Result<()
         } else {
             Value::Null
         };
-        let mut presentation = json!({"opening":opening,"defeat":timed(sound)?});
+        let mut defeat = timed(sound)?;
+        // The shared final-defeat timer also reads slot six for a silent voice bank.
+        if shared_defeat && sound.is_none() {
+            defeat.ticks = half(crate::battle_party_native::member(&usual, 12)?, 6 * 2)?;
+        }
+        let mut presentation = json!({"opening":opening,"defeat":defeat});
         if selector == 23 {
             // Mithos's half-health exchange includes Colette's replies when present.
             let line = |speaker: Option<u8>, stream: u16| -> Result<Value> {

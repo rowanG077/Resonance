@@ -587,6 +587,8 @@ pub enum Cue {
         was_casting: bool,
         overlimit: bool,
         stunned: bool,
+        /// This contact confirmed the victim’s defeat after rescue and encounter rules.
+        defeated: bool,
         /// Another contact reached this actor within the impact effect interval.
         repeated: bool,
         result: crate::HitResult,
@@ -650,6 +652,9 @@ pub enum Cue {
         sound: crate::Sound,
         position: [f32; 3],
         centered: bool,
+    },
+    EnemyDefeatedReaction {
+        actor: ActorId,
     },
     VoiceVolume {
         actor: ActorId,
@@ -921,6 +926,7 @@ pub(crate) struct ActorRuntime {
     pub(crate) control: Option<crate::control::Controller>,
     pub(crate) target: ActorId,
     pub(crate) target_settle_remaining: u16,
+    pub(crate) enemy_defeated_voice_cooldown: u16,
     pub(crate) enemy_choice: Option<EnemyChoiceId>,
     pub(crate) last_executed_enemy_row: Option<EnemyChoiceId>,
     pub(crate) enemy_effective_hit: bool,
@@ -1211,6 +1217,7 @@ impl Battle {
                         ),
                         target,
                         target_settle_remaining: TARGET_SETTLE_UPDATES,
+                        enemy_defeated_voice_cooldown: 0,
                         enemy_choice: None,
                         last_executed_enemy_row: None,
                         enemy_effective_hit: false,
@@ -1387,6 +1394,18 @@ impl Battle {
     pub fn snapshot(&self) -> BattleFrame {
         self.frame(Vec::new(), None)
     }
+    /// An operation also available to the host publishes its feedback here when called during an update.
+    pub(crate) fn with_command_cues<T>(
+        &mut self,
+        cues: &mut Vec<Cue>,
+        operation: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let start = self.pending_cues.len();
+        let result = operation(self);
+        cues.extend(self.pending_cues.drain(start..));
+        result
+    }
+
     /// Publish pending feedback once, after all host mutations.
     pub fn publish(&mut self, mut cues: Vec<Cue>) -> BattleFrame {
         cues.append(&mut self.pending_cues);
@@ -1691,7 +1710,19 @@ impl Battle {
         input: BattleInput,
         items: &mut dyn crate::item::Provider,
     ) -> Result<Vec<Cue>> {
-        let mut cues = Vec::new();
+        // Host requests precede this update’s actor and contact events.
+        let mut cues = self
+            .pending_cues
+            .extract_if(.., |cue| {
+                matches!(
+                    cue,
+                    Cue::Voice { .. }
+                        | Cue::VoiceVolume { .. }
+                        | Cue::TechniqueQueued { .. }
+                        | Cue::TechniqueAcquired { .. }
+                )
+            })
+            .collect::<Vec<_>>();
         let opening = self.enemy_presentation.opening();
         if self.advance_enemy_presentation(&mut cues)? {
             self.paused_actors.clear();
@@ -1722,7 +1753,7 @@ impl Battle {
         if !self.clock.paused() && !self.unison.active() {
             self.retarget_selected_opponent()?;
         }
-        self.recognize_update();
+        self.with_command_cues(&mut cues, Self::recognize_update);
         self.ledger
             .advance(self.phase() == crate::BattlePhase::Combat);
         if !opening
@@ -3058,13 +3089,13 @@ impl Battle {
             crate::ActionExecution::Attack(_)
         ) {
             let base_learning = if action != request.action {
-                self.commit_martial_use(request.actor, request.action)?
+                self.commit_martial_use(request.actor, request.action, cues)?
             } else {
                 None
             };
             let acquired = match base_learning {
                 Some(learned) => Some(learned),
-                None => self.commit_martial_use(request.actor, action)?,
+                None => self.commit_martial_use(request.actor, action, cues)?,
             };
             if let Some(learned) = acquired {
                 action = learned;

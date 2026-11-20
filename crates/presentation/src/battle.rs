@@ -644,13 +644,20 @@ fn begin_audio(world: &mut World, scene: &Scene) -> Result<()> {
     Ok(())
 }
 
-fn retry_audio(world: &mut World) {
+pub(super) fn retry_audio(world: &mut World) {
+    use super::field_audio::{Control, recover_handoff};
     let Some(mut playback) = world.remove_resource::<super::battle_audio::Playback>() else {
         return;
     };
-    let result = world
-        .get_resource_mut::<super::field_audio::Control>()
+    let mut result = world
+        .get_resource_mut::<Control>()
         .map_or(Ok(true), |mut control| playback.retry(&mut control));
+    if matches!(result, Ok(false))
+        && playback.returning()
+        && world.resource_mut::<Control>().queue_stalled()
+    {
+        result = recover_handoff(world, anyhow::anyhow!("battle audio return stalled"));
+    }
     match result {
         Ok(true) => {}
         Ok(false) => {
@@ -1408,12 +1415,14 @@ fn advance(
                 resonance_battle::BattlePhase::Entry | resonance_battle::BattlePhase::Combat
             );
         if scene.lifecycle.event().is_none() {
-            let core_cues = frame.cues.len();
             let entry_voice_ready = transition
                 .as_ref()
                 .is_none_or(|transition| transition.entry_voice_ready());
-            scene.feedback.resolve(&mut frame, entry_voice_ready);
-            scene.core.record_voice_requests(&frame.cues[core_cues..]);
+            scene
+                .feedback
+                .resolve(&mut frame, entry_voice_ready, |cues| {
+                    scene.core.record_voice_requests(cues)
+                });
         }
         scene.core.advance_models(&mut frame, clock, settle)?;
         if let Some(event) = scene.lifecycle.event() {

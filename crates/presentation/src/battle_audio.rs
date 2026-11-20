@@ -118,6 +118,15 @@ struct VoiceRequest {
     centered: bool,
 }
 
+impl VoiceRequest {
+    fn playback_priority(self) -> VoicePriority {
+        match self.priority {
+            VoicePriority::AfterSpeech => VoicePriority::Announcement,
+            priority => priority,
+        }
+    }
+}
+
 struct PlayingVoice {
     actor: ActorId,
     playback: VoiceId,
@@ -248,7 +257,7 @@ impl Playback {
         playback.retry(control)?;
         Ok(playback)
     }
-    pub(super) fn returning(&self) -> bool {
+    pub(crate) fn returning(&self) -> bool {
         matches!(self.handoff, Handoff::Ending { .. })
     }
     /// Retry full queues; a stopped decoder cannot accept another handoff.
@@ -259,8 +268,8 @@ impl Playback {
                 (Command::Begin(self.assets.clone(), settings, music), false)
             }
             Handoff::Active => return Ok(false),
-            // End always returns mixer ownership to the field. The argument
-            // controls whether its music resumes, not where later cues route.
+            // End always returns mixer ownership to the field. When requested,
+            // it also resumes field music and replays the bound script cues.
             Handoff::Ending { resume_field } => (Command::End(resume_field), true),
         };
         if let Err(error) = control
@@ -391,13 +400,17 @@ impl Playback {
                             position,
                             centered,
                         };
-                        if !self.try_play_voice(voice, &mut screen_x)?
-                            && priority == VoicePriority::Action
-                            && action.is_some()
+                        let after_speech = priority == VoicePriority::AfterSpeech;
+                        if !after_speech && self.try_play_voice(voice, &mut screen_x)? {
+                            self.pending_voices.retain(|queued| queued.actor != actor);
+                        } else if after_speech
+                            || (priority == VoicePriority::Action && action.is_some())
                         {
                             self.assets.sound(sound)?;
-                            // Only the latest arte callout for an actor can wait.
-                            self.pending_voices.retain(|voice| voice.actor != actor);
+                            // Keep the latest kill and the latest blocked arte in request order.
+                            self.pending_voices.retain(|queued| {
+                                queued.actor != actor || queued.priority != priority
+                            });
                             self.pending_voices.push(voice);
                         }
                         return Ok(());
@@ -406,8 +419,9 @@ impl Playback {
                         actor,
                         max_priority,
                     } => {
-                        self.pending_voices
-                            .retain(|voice| voice.actor != actor || voice.priority > max_priority);
+                        self.pending_voices.retain(|voice| {
+                            voice.actor != actor || voice.playback_priority() > max_priority
+                        });
                         if let Some(index) = self.voices.iter().position(|voice| {
                             voice.actor == actor && voice.priority <= max_priority
                         }) {
@@ -433,7 +447,14 @@ impl Playback {
                 .assets
                 .diagnostics
                 .attempt("battle audio cue", result)?;
-            if played != Some(true) {
+            if played == Some(true) {
+                // Starting a queued arte cancels an older kill. A newer kill waits for the arte.
+                index -= self
+                    .pending_voices
+                    .extract_if(..index, |queued| queued.actor == voice.actor)
+                    .count();
+                self.pending_voices.remove(index);
+            } else {
                 index += 1;
             }
         }
@@ -480,11 +501,10 @@ impl Playback {
             complete: complete.clone(),
         })?;
         self.voices.retain(|voice| voice.actor != actor);
-        self.pending_voices.retain(|voice| voice.actor != actor);
         self.voices.push(PlayingVoice {
             actor,
             playback,
-            priority,
+            priority: voice.playback_priority(),
             complete,
         });
         Ok(true)
@@ -631,8 +651,8 @@ impl std::fmt::Debug for Command {
     }
 }
 
-struct FieldMusic {
-    sound_bindings: [Option<super::BoundSound>; 5],
+struct SuspendedField {
+    sound_bindings: super::SoundBindings,
     assets: Arc<super::Assets>,
     music: Option<Music>,
     levels: [u8; 3],
@@ -732,7 +752,7 @@ impl Voice {
 }
 pub(super) struct State {
     assets: Arc<Assets>,
-    field: FieldMusic,
+    field: SuspendedField,
     settings: Settings,
     effects: Vec<ScorePlayer>,
     voices: Vec<Voice>,
@@ -788,7 +808,7 @@ impl Frames {
                 if let Some(music) = &mut self.music {
                     music.player.pause(true);
                 }
-                let field = FieldMusic {
+                let field = SuspendedField {
                     sound_bindings: std::mem::take(&mut self.sound_bindings),
                     assets: self.assets.clone(),
                     music: self.music.take(),
@@ -833,7 +853,7 @@ impl Frames {
                 if !resume && self.battle.is_none() {
                     // A cancelled pending Begin still needs to retire the field
                     // sources when its destination will not resume that field.
-                    self.sound_bindings = [None; 5];
+                    self.sound_bindings.fill(None);
                     self.music = None;
                     self.sounds.clear();
                     self.stop_voice()?;
@@ -853,17 +873,23 @@ impl Frames {
                 self.assets = state.field.assets;
                 self.levels = state.field.levels;
                 self.stereo = state.field.stereo;
-                self.sound_bindings = if resume {
-                    state.field.sound_bindings
-                } else {
-                    [None; 5]
-                };
                 if resume {
                     self.music = state.field.music;
                     self.studio.set_music_reverb(state.field.reverb)?;
                     if let Some(music) = &mut self.music {
                         music.player.pause(false);
                     }
+                    self.sound_bindings = state.field.sound_bindings;
+                    for (slot, binding) in self.sound_bindings.into_iter().enumerate() {
+                        if let Some(cue) = binding {
+                            let result = self.play_sound(cue, Some(slot as u8), false);
+                            self.assets
+                                .diagnostics
+                                .attempt("replay field sound", result)?;
+                        }
+                    }
+                } else {
+                    self.sound_bindings.fill(None);
                 }
                 debug!(
                     source_frame = self.frame,
@@ -1432,6 +1458,90 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires cooked Iselia fields; no window or audio device"]
+    fn field_transition_waits_for_battle_audio_return() -> Result<()> {
+        use crate::{loading::FieldPending, new_game};
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS").context("assets required")?;
+        for stalled in [false, true] {
+            let mut session = super::super::tests::handoff_session()?;
+            session.audio = None;
+            session.events_mut().world.audio_commands = vec![AudioCommand::StopSound(1)];
+            session
+                .events_mut()
+                .world
+                .request_destination(resonance_events::SceneDestination {
+                    map: 340,
+                    position: [0.; 3],
+                    heading: 0.,
+                })
+                .map_err(anyhow::Error::msg)?;
+
+            let mut field = mixer();
+            field.diagnostics = Diagnostics::default();
+            field.sounds.insert(201, test_score());
+            let (source, mut control) = Arc::new(field).session();
+            let mut frames = source.decoder();
+            control.send(AudioCommand::Sound {
+                id: 201,
+                slot: Some(1),
+                pan: 64,
+                volume: 127,
+            })?;
+            let mut prepared = assets();
+            Arc::get_mut(&mut prepared).unwrap().diagnostics = Diagnostics::default();
+            let mut playback = Playback::begin(&mut control, prepared, settings(), None)?;
+            frames.frame()?;
+            fill_command_queue(&control);
+            assert!(!playback.finish(&mut control, true)?);
+
+            let mut world = World::new();
+            world.init_resource::<crate::loading::Resident>();
+            world.init_resource::<bevy::asset::Assets<FieldSource>>();
+            world.insert_resource(crate::test_support::run_options(Path::new(&root)));
+            world.insert_resource(session);
+            world.insert_resource(control);
+            world.insert_resource(playback);
+            new_game::transition(&mut world);
+            let pending = world.resource::<FieldPending>();
+            let start = std::time::Instant::now();
+            while pending.is_running() {
+                ensure!(start.elapsed().as_secs() < 30, "field preparation stalled");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            if stalled {
+                // A connected sink can stop consuming. Expire the ordinary queue
+                // timeout while the battle return is still waiting for room.
+                crate::battle::retry_audio(&mut world);
+                world.resource_mut::<Control>().stalled.as_mut().unwrap().1 -=
+                    super::super::QUEUE_STALL;
+            } else {
+                // The destination is ready and queue space opens before battle retries.
+                frames.frame()?;
+            }
+            new_game::transition(&mut world);
+            let session = world.resource::<new_game::Session>();
+            assert_eq!(session.map_id(), 5);
+            assert!(matches!(
+                session.events().world.audio_commands.as_slice(),
+                [AudioCommand::StopSound(1)]
+            ));
+
+            crate::battle::retry_audio(&mut world);
+            assert!(!world.contains_resource::<Playback>());
+            assert_eq!(world.contains_resource::<Control>(), !stalled);
+            new_game::transition(&mut world);
+            assert_eq!(world.resource::<new_game::Session>().map_id(), 340);
+            if !stalled {
+                frames.frame()?;
+                assert!(frames.battle.is_none());
+                assert!(frames.sounds.is_empty());
+                assert!(frames.sound_bindings.iter().all(Option::is_none));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn battle_begin_and_initial_music_need_only_one_queue_slot() -> Result<()> {
         let (source, mut control) = Arc::new(mixer()).session();
         let mut frames = source.decoder();
@@ -1453,9 +1563,17 @@ mod tests {
     }
 
     #[test]
-    fn ending_without_resuming_music_routes_the_next_entry_cue_to_the_field() -> Result<()> {
-        let (source, mut control) = Arc::new(mixer()).session();
+    fn ending_without_resuming_retires_field_audio_and_routes_the_next_entry_cue() -> Result<()> {
+        let mut field = mixer();
+        field.sounds.insert(201, test_score());
+        let (source, mut control) = Arc::new(field).session();
         let mut frames = source.decoder();
+        control.send(AudioCommand::Sound {
+            id: 201,
+            slot: Some(1),
+            volume: 127,
+            pan: 64,
+        })?;
         let mut playback = Playback::begin(&mut control, assets(), settings(), None)?;
         frames.frame()?;
         assert!(frames.battle.is_some());
@@ -1463,6 +1581,8 @@ mod tests {
         frames.frame()?;
         assert!(frames.battle.is_none());
         assert!(frames.music.is_none());
+        assert!(frames.sounds.is_empty());
+        assert!(frames.sound_bindings.iter().all(Option::is_none));
         control.battle_entry()?;
         assert!(
             matches!(frames.receive.as_ref().unwrap().try_recv()?, Message::Script(AudioCommand::Sound { id, .. })
@@ -1729,8 +1849,11 @@ mod tests {
         playback.dispatch(&[cue(VoicePriority::Announcement)], |_| None)?;
         frames.frame()?;
         let id = playback.voices[0].playback;
-        playback.dispatch(&[cue(VoicePriority::Action)], |_| None)?;
-        assert_eq!(playback.pending_voices.len(), 1);
+        playback.dispatch(
+            &[cue(VoicePriority::Action), cue(VoicePriority::AfterSpeech)],
+            |_| None,
+        )?;
+        assert_eq!(playback.pending_voices.len(), 2);
         playback.dispatch(
             &[Cue::StopVoice {
                 actor,
@@ -1739,7 +1862,13 @@ mod tests {
             |_| None,
         )?;
         frames.frame()?;
-        assert!(playback.pending_voices.is_empty());
+        assert!(matches!(
+            playback.pending_voices.as_slice(),
+            [VoiceRequest {
+                priority: VoicePriority::AfterSpeech,
+                ..
+            }]
+        ));
         assert!(playback.busy_voices().contains(actor));
         assert_eq!(frames.battle.as_ref().unwrap().voices[0].playback, id);
         playback.dispatch(
@@ -1752,6 +1881,7 @@ mod tests {
         frames.frame()?;
         assert!(!playback.busy_voices().contains(actor));
         assert!(frames.battle.as_ref().unwrap().voices.is_empty());
+        assert!(playback.pending_voices.is_empty());
         playback.dispatch(&[cue(VoicePriority::Announcement)], |_| None)?;
         frames.frame()?;
         playback.dispatch(&[cue(VoicePriority::Action)], |_| None)?;
@@ -1776,7 +1906,9 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_callouts_are_discarded_and_damage_reactions_never_wait() -> Result<()> {
+    fn a_blocked_arte_only_cancels_an_earlier_kill_voice_when_it_starts() -> Result<()> {
+        use VoicePriority::{Action, AfterSpeech, Announcement};
+
         let (mut battle, callout) = arte_callout()?;
         let Cue::Voice {
             actor,
@@ -1786,8 +1918,6 @@ mod tests {
         else {
             unreachable!()
         };
-        let (mut playback, mut frames, control) =
-            voice_playback(test_clip([12000; 480], RATE, 1), &[1])?;
         let voice = |priority| Cue::Voice {
             actor,
             action: None,
@@ -1796,15 +1926,6 @@ mod tests {
             position: [0.; 3],
             centered: true,
         };
-        playback.dispatch(&[voice(VoicePriority::Announcement)], |_| None)?;
-        frames.frame()?;
-        let announcement = playback.voices[0].playback;
-        playback.dispatch(std::slice::from_ref(&callout), |_| None)?;
-        // Critical hits, stun and interrupted-cast reactions have Action priority,
-        // but do not own an arte action and must not enter the pending queue.
-        playback.dispatch(&[voice(VoicePriority::Action)], |_| None)?;
-        assert_eq!(playback.pending_voices.len(), 1);
-        assert_eq!(playback.pending_voices[0].action, Some(action));
         let mut cancelled = battle
             .step(resonance_battle::BattleInput {
                 interrupt: vec![action],
@@ -1813,20 +1934,35 @@ mod tests {
             .cues;
         assert!(cancelled.contains(&Cue::Interrupted { action }));
         // Semantic feedback can append a callout after an interruption in the same frame.
-        cancelled.push(callout);
-        playback.dispatch(&cancelled, |_| None)?;
-        assert!(playback.pending_voices.is_empty());
-        assert_eq!(playback.voices[0].playback, announcement);
-        for _ in 0..1000 {
+        cancelled.push(callout.clone());
+        let kill = voice(AfterSpeech);
+        for (requests, interrupt, expected) in [
+            ([kill.clone(), callout.clone()], true, &[Announcement][..]),
+            ([kill.clone(), callout.clone()], false, &[Action][..]),
+            ([callout, kill], false, &[Action, Announcement][..]),
+        ] {
+            let (mut playback, mut frames, control) =
+                voice_playback(test_clip([12000; 480], RATE, 1), &[1])?;
+            playback.dispatch(&[voice(Announcement)], |_| None)?;
             frames.frame()?;
+            let announcement = playback.voices[0].playback;
+            playback.dispatch(&requests, |_| None)?;
+            // A damage reaction has no arte action and cannot wait for the announcement.
+            playback.dispatch(&[voice(Action)], |_| None)?;
+            if interrupt {
+                playback.dispatch(&cancelled, |_| None)?;
+            }
+            assert_eq!(playback.voices[0].playback, announcement);
+            for next in expected.iter().copied().map(Some).chain([None]) {
+                for _ in 0..1000 {
+                    frames.frame()?;
+                }
+                control.acknowledge_frames(frames.frame);
+                playback.dispatch(&[], |_| None)?;
+                assert_eq!(playback.voices.first().map(|voice| voice.priority), next);
+            }
+            assert!(playback.pending_voices.is_empty());
         }
-        control.acknowledge_frames(frames.frame);
-        playback.dispatch(&[], |_| None)?;
-        assert!(playback.voices.is_empty());
-        assert!(matches!(
-            frames.receive.as_ref().unwrap().try_recv(),
-            Err(mpsc::TryRecvError::Empty)
-        ));
         Ok(())
     }
 
@@ -1974,6 +2110,59 @@ mod tests {
             control.acknowledge_frames(frames.frame);
             playback.dispatch(&[], |_| None)?;
             assert!(playback.voices.is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn kill_voice_waits_for_earlier_speech_and_yields_to_later_speech() -> Result<()> {
+        use VoicePriority::{AfterSpeech, Announcement, Reaction};
+
+        let actor = ActorId::from_index(0)?;
+        let cue = |priority, id| Cue::Voice {
+            actor,
+            action: None,
+            priority,
+            sound: Sound::Stream(id),
+            position: [0.; 3],
+            centered: true,
+        };
+        let ordinary = [cue(Reaction, 1)];
+        let kill = [cue(AfterSpeech, 2)];
+        // A projectile can defeat an enemy after its owner is knocked out.
+        let knockout = [Cue::Defeated { actor }, cue(Announcement, 1)];
+        let silent = &knockout[..1];
+        for (first, second, playing, kill_waits) in [
+            (ordinary.as_slice(), kill.as_slice(), Reaction, true),
+            (&kill, &ordinary, Reaction, false),
+            (&knockout, &kill, Announcement, true),
+            (&kill, &knockout, Announcement, false),
+            (silent, &kill, Reaction, true),
+            (&kill, silent, Reaction, true),
+        ] {
+            for same_update in [false, true] {
+                let (mut playback, mut frames, control) =
+                    voice_playback(test_clip([12000; 480], RATE, 1), &[1, 2])?;
+                playback.dispatch(&ordinary, |_| None)?;
+                if same_update {
+                    playback.dispatch(&[first, second].concat(), |_| None)?;
+                } else {
+                    playback.dispatch(first, |_| None)?;
+                    playback.dispatch(second, |_| None)?;
+                }
+                assert_eq!(playback.voices[0].priority, playing);
+                for _ in 0..1000 {
+                    frames.frame()?;
+                }
+                control.acknowledge_frames(frames.frame);
+                playback.dispatch(&[], |_| None)?;
+                assert_eq!(
+                    playback.voices.first().map(|voice| voice.priority),
+                    kill_waits.then_some(Announcement),
+                    "first {first:?}, second {second:?}, same update {same_update}"
+                );
+                assert!(playback.pending_voices.is_empty());
+            }
         }
         Ok(())
     }
@@ -2538,22 +2727,20 @@ mod tests {
         assert_eq!(control.rendered_frames(), 5);
         Ok(())
     }
+
     #[test]
     fn battle_return_replays_only_accepted_field_sound_bindings() -> Result<()> {
         let mut field = mixer();
-        field.diagnostics = Diagnostics::default();
-        let one_shot = EffectDefinition::Silence(resonance_audio::effect::Silence {
-            frames: 8,
-            sample_rate: RATE,
-        })
-        .prepare_in(
-            Some(field.reverbs),
-            &mut |_, _| unreachable!(),
-            &mut Default::default(),
-        )?;
-        field.sounds.insert(201, Arc::new(one_shot));
-        for id in [152, 237] {
-            field.sounds.insert(id, test_score());
+        // Only the impact produces negative samples, including when slot 4 plays alongside it.
+        for (id, sample) in [(201, -16000), (237, 512)] {
+            let wav = super::super::named_tests::wav(&[sample; 8], RATE)?;
+            let mut read = |_: &str, _: usize| Ok(Arc::from(wav.as_slice()));
+            let cue = EffectDefinition::read("cue.wav", &mut read)?.prepare_in(
+                Some(field.reverbs),
+                &mut read,
+                &mut Default::default(),
+            )?;
+            field.sounds.insert(id, Arc::new(cue));
         }
         let (source, mut control) = Arc::new(field).session();
         let mut frames = source.decoder();
@@ -2563,55 +2750,58 @@ mod tests {
             pan: 64,
             volume: 127,
         };
+        let set_volume = |slot, volume| AudioCommand::SoundVolume { slot, volume };
         for command in [
+            // Kilia's field script binds this one-shot well before the battle.
             cue(201, Some(1)),
+            set_volume(1, 48),
+            AudioCommand::SoundPan { slot: 1, pan: 34 },
             cue(237, Some(2)),
+            AudioCommand::StopSound(2),
+            cue(201, Some(4)),
             cue(237, Some(4)),
             cue(237, Some(5)),
             cue(237, None),
-            AudioCommand::StopSound(2),
-            cue(152, Some(4)),
-            AudioCommand::SoundVolume {
-                slot: 1,
-                volume: 48,
-            },
-            AudioCommand::SoundPan { slot: 1, pan: 34 },
-            cue(999, Some(1)),
-            AudioCommand::SoundVolume {
-                slot: 1,
-                volume: 220,
-            },
         ] {
             control.send(command)?;
         }
         for _ in 0..2 * BLOCK_FRAMES {
             frames.frame()?;
         }
-        assert!(frames.sounds.iter().all(|sound| sound.cue != Some(201)));
-        assert_eq!(frames.assets.diagnostics.entries().len(), 2);
-        let mut playback = Playback::begin(&mut control, assets(), settings(), None)?;
-        frames.frame()?;
         assert!(frames.sounds.is_empty());
+        // Rejected commands leave the last accepted cue and controls intact.
+        assert!(frames.command(cue(999, Some(1))).is_err());
+        assert!(frames.command(set_volume(1, 220)).is_err());
+
+        let mut playback = Playback::begin(&mut control, assets(), settings(), None)?;
+        playback.event_audio(vec![AudioCommand::StopSound(1)])?;
+        assert_eq!(frames.frame()?.unwrap(), [0.; 2]);
+
+        // A single queue slot must admit the whole return, including cue replay.
+        fill_command_queue(&control);
+        frames.receive.as_ref().unwrap().try_recv()?;
         assert!(playback.finish(&mut control, true)?);
-        control.send(AudioCommand::ReplayFieldSounds)?;
         frames.frame()?;
         let restored: Vec<_> = frames
             .sounds
             .iter()
             .map(|s| (s.slot, s.cue, s.volume, s.controls.pan))
             .collect();
+        let mut heard_impact = false;
+        for _ in 0..BLOCK_FRAMES {
+            heard_impact |= frames.frame()?.unwrap()[0] < 0.;
+        }
+        assert!(heard_impact, "field return must replay the finished impact");
         assert_eq!(
             restored,
             [
                 (Some(1), Some(201), 48. / 127., Some(34)),
-                (Some(4), Some(152), 1., Some(64)),
+                (Some(4), Some(237), 1., Some(64)),
             ]
         );
         control.leave_field()?;
-        control.enter_field(mixer())?;
-        control.send(AudioCommand::ReplayFieldSounds)?;
         frames.frame()?;
-        assert!(frames.sounds.is_empty());
+        assert!(frames.sound_bindings.iter().all(Option::is_none));
         Ok(())
     }
 

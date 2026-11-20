@@ -850,6 +850,8 @@ fn transition_world(world: &mut World) {
             return Ok(());
         };
         if !super::field_audio::leave_field(world)? {
+            // Keep the completed preparation while the outgoing mixer drains.
+            world.resource_mut::<Session>().world_package = Some(package);
             return Ok(());
         }
         scene_fade::cover(world);
@@ -864,6 +866,10 @@ fn transition_world(world: &mut World) {
         Ok(())
     })();
     if let Err(error) = result {
+        let mut session = world.resource_mut::<Session>();
+        if session.is_field() {
+            session.world_package = None;
+        }
         transition_failed(world, error);
     }
 }

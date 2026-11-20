@@ -1022,7 +1022,7 @@ impl Battle {
                 && let Some(id) = input.assigned_arte
                 && let Some(action) = self.shortcut_action(actor, id)
             {
-                self.queue_technique(actor, action)?;
+                self.with_command_cues(cues, |battle| battle.queue_technique(actor, action))?;
             }
             return Ok(());
         }
@@ -1037,7 +1037,7 @@ impl Battle {
         } else if !normal_active {
             self.player_control(&definition, input, cues)?;
         }
-        self.consume_assist_input(actor, input)?;
+        self.consume_assist_input(actor, input, cues)?;
         if input.target.released
             && let Some(target) = self.nearest_target(actor, Some(self.runtime[index].target))
         {

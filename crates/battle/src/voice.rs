@@ -4,6 +4,9 @@ use anyhow::{Result, ensure};
 /// The audio owner arbitrates these requests independently of gameplay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VoicePriority {
+    /// Wait for this actor’s earlier speech, then play with announcement priority.
+    /// Accepting a newer ordinary line cancels the waiting request.
+    AfterSpeech,
     Reaction,
     Action,
     Announcement,
@@ -53,16 +56,18 @@ mod tests {
 
 impl crate::Battle {
     pub(crate) fn request_voice(&mut self, actor: ActorId, sound: Sound, priority: VoicePriority) {
-        self.request_action_voice(actor, sound, priority, None);
+        let cue = self.voice_cue(actor, sound, priority, None);
+        self.pending_cues.push(cue);
     }
 
-    pub(crate) fn request_action_voice(
+    /// Record the request when its gameplay event creates the cue.
+    pub(crate) fn voice_cue(
         &mut self,
         actor: ActorId,
         sound: Sound,
         priority: VoicePriority,
         action: Option<crate::ActionId>,
-    ) {
+    ) -> Cue {
         let cue = Cue::Voice {
             actor,
             action,
@@ -72,7 +77,7 @@ impl crate::Battle {
             centered: false,
         };
         self.record_voice_requests(std::slice::from_ref(&cue));
-        self.pending_cues.push(cue);
+        cue
     }
 
     /// Count newly resolved voice requests once, independently of audio playback.
@@ -95,7 +100,7 @@ impl crate::Battle {
         max_priority: VoicePriority,
         cues: &mut Vec<Cue>,
     ) {
-        self.pending_cues.retain(|cue| match cue {
+        let keep = |cue: &Cue| match cue {
             Cue::Voice {
                 actor: owner,
                 priority,
@@ -103,7 +108,9 @@ impl crate::Battle {
             } => *owner != actor || *priority > max_priority,
             Cue::TechniqueQueued { actor: owner } => *owner != actor,
             _ => true,
-        });
+        };
+        cues.retain(keep);
+        self.pending_cues.retain(keep);
         cues.push(Cue::StopVoice {
             actor,
             max_priority,

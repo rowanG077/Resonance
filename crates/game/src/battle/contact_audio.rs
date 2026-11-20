@@ -7,6 +7,8 @@ use resonance_battle::Sound;
 pub struct ContactVoices {
     pub hurt: [Option<Sound>; 2],
     pub defeat: Option<Sound>,
+    pub alternate_defeat: Option<Sound>,
+    pub enemy_defeated: Option<Sound>,
     pub critical: Option<Sound>,
     pub guard: Option<Sound>,
     pub interrupted_cast: Option<Sound>,
@@ -56,6 +58,8 @@ pub fn prepare(
         let voices = ContactVoices {
             hurt: [select(|v| v.hurt[0])?, select(|v| v.hurt[1])?],
             defeat: select(|v| v.defeat)?,
+            alternate_defeat: select(|v| v.alternate_defeat)?,
+            enemy_defeated: select(|v| v.enemy_defeated)?,
             critical: select(|v| v.critical)?,
             guard: select(|v| v.guard)?,
             interrupted_cast: select(|v| v.interrupted_cast)?,

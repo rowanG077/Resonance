@@ -120,6 +120,7 @@ fn stun_birds_end_on_interruption_death_results_and_paused_event_clear() -> Resu
         was_casting: false,
         overlimit: false,
         stunned: true,
+        defeated: false,
         repeated: false,
         result: crate::HitResult {
             amount: 1,
