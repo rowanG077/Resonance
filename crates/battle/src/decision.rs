@@ -1,5 +1,5 @@
 //! Native actor policy and idle scheduling.
-use crate::{ActorId, Battle, Cue, PreparedBattle, Side};
+use crate::{ActorId, Battle, Cue, Locomotion, PreparedBattle, Side};
 use anyhow::{Context, Result, ensure};
 use std::collections::BTreeSet;
 
@@ -199,10 +199,18 @@ impl Battle {
 
     pub(crate) fn maintain_ai_idle(&mut self, actor: ActorId) {
         let index = actor.index();
-        self.actors[index].movement.forward = 0.;
-
         let turn_ticks = self.prepared.actor_setup[index].turn_ticks().unwrap_or(8);
         let owner = &mut self.actors[index];
+        owner.movement.forward = 0.;
+        if let Some(control) = &mut self.runtime[index].control
+            && matches!(
+                owner.movement.locomotion,
+                Locomotion::Walk | Locomotion::Run
+            )
+        {
+            owner.movement.locomotion = Locomotion::Idle;
+            control.run_ticks = 0;
+        }
         if !owner.movement.turning_disabled && owner.movement.hover_ready() {
             let direction = if owner.control == crate::Control::Auto {
                 owner.movement.target_direction
