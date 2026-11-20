@@ -1118,6 +1118,11 @@ impl EventRuntime {
                     },
                 );
             }
+            // Field scripts run after actors and the camera. Reveal hidden models
+            // on their next update, when a scripted camera cut also takes effect.
+            if self.world.current_field.is_some() && actor.appearance.model_hidden {
+                actor.visible_from = self.world.tick.saturating_add(1);
+            }
             actor.animation_culled = actor.cull_outside_view
                 && !actor.appearance.model_hidden
                 && self.world.field_camera.as_ref().is_some_and(|camera| {

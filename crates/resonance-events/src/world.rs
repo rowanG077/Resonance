@@ -52,7 +52,7 @@ pub struct Actor {
     pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
     pub chain_impulses: BTreeMap<u32, crate::projectile::ChainImpulse>,
     pub visible: bool,
-    /// New models wait for their first update; identical replacements stay visible.
+    /// Earliest tick the model can draw after creation or a scripted field reveal.
     pub visible_from: u32,
     pub(crate) first_update_tick: u32,
     /// A non-rendered scene marker can still own a scenery interaction.
