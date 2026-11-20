@@ -324,6 +324,18 @@ impl Stream {
             Self::Wave(stream) => stream.frame(),
         }
     }
+    pub fn started(&self) -> bool {
+        match self {
+            Self::Synthesized(stream) => stream.started(),
+            Self::Wave(stream) => {
+                stream
+                    .state
+                    .lock()
+                    .expect("recorded effect lock poisoned")
+                    .started
+            }
+        }
+    }
     pub fn shared_control_boundary(&self) -> bool {
         match self {
             Self::Synthesized(stream) => stream.shared_control_boundary(),

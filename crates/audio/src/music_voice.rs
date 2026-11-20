@@ -420,6 +420,38 @@ struct Wait {
     sample_end: bool,
 }
 
+/// A voice fade moves in whole volume units per millisecond. A fractional
+/// remainder can keep the fade active past its requested duration.
+struct VolumeRamp {
+    current: i32,
+    target: i32,
+    step: i32,
+}
+
+impl VolumeRamp {
+    fn new(initial: u32, target: i32, milliseconds: u16) -> Self {
+        let current = initial as i32;
+        Self {
+            current,
+            target,
+            step: (target - current) / i32::from(milliseconds.max(1)),
+        }
+    }
+
+    fn advance(&mut self, milliseconds: i32) -> bool {
+        self.current += self.step * milliseconds;
+        let finished = if self.step < 0 {
+            self.current <= self.target
+        } else {
+            self.current >= self.target
+        };
+        if finished {
+            self.current = self.target;
+        }
+        finished
+    }
+}
+
 struct Sweep {
     elapsed: u64,
     duration: u64,
@@ -468,6 +500,7 @@ pub(crate) struct Voice<'a> {
     random: crate::sequence::shared::Control,
     wait: Wait,
     key_off: bool,
+    effect_released: bool,
     key_off_trap: Option<(u16, usize)>,
     message_trap: Option<(u16, usize)>,
     messages: std::collections::VecDeque<i32>,
@@ -477,9 +510,11 @@ pub(crate) struct Voice<'a> {
     cents: i8,
     velocity: u8,
     volume: u32,
+    last_volume_update: u64,
+    volume_update_pending: bool,
     volume_control: Option<u16>,
     selectors: [Option<(Operand, i32)>; ControlTarget::COUNT],
-    volume_ramp: Option<crate::volume::Ramp>,
+    volume_ramp: Option<VolumeRamp>,
     auxiliary_override: [Option<u8>; 2],
     pitch_sweeps: [Option<Sweep>; 2],
     alternate_volume: bool,
@@ -561,6 +596,7 @@ impl<'a> Voice<'a> {
             random,
             wait: Wait::default(),
             key_off: false,
+            effect_released: false,
             key_off_trap: None,
             message_trap: None,
             messages: Default::default(),
@@ -570,6 +606,8 @@ impl<'a> Voice<'a> {
             cents: 0,
             velocity: note.velocity,
             volume: u32::from(note.velocity) << 16,
+            last_volume_update: 0,
+            volume_update_pending: false,
             volume_control: None,
             selectors: [None; ControlTarget::COUNT],
             volume_ramp: None,
@@ -624,6 +662,26 @@ impl<'a> Voice<'a> {
             self.wake();
         }
         Ok(())
+    }
+
+    pub(crate) fn release_effect(&mut self) -> Result<()> {
+        self.key_off()?;
+        self.effect_released = true;
+        self.finish_unreachable_wait();
+        Ok(())
+    }
+
+    fn finish_unreachable_wait(&mut self) {
+        // A custom program can park a looping sample indefinitely, even after
+        // a timed lead-in. Once released it can finish through its envelope.
+        if self.effect_released
+            && self.wait.until == u64::MAX
+            && !self.wait.sample_end
+            && self.key_off_trap.is_none()
+            && self.message_trap.is_none()
+        {
+            self.finish_program();
+        }
     }
 
     pub fn is_done(&self) -> bool {
@@ -719,13 +777,16 @@ impl<'a> Voice<'a> {
         controls: &mut Controls,
         fuel: &mut usize,
     ) -> Result<()> {
-        if self.frame.is_multiple_of(CONTROL_FRAMES as u64) {
+        if self.frame.is_multiple_of(CONTROL_FRAMES as u64) && self.commands_ready() {
+            self.volume_update_pending = true;
             if self.macro_started_at.is_none() {
                 let now = self.now();
                 self.macro_started_at = Some(now);
+                self.last_volume_update = self.frame;
                 self.wait_reference = now;
             }
             self.commands(controls, fuel)?;
+            self.finish_unreachable_wait();
         }
         Ok(())
     }
@@ -801,11 +862,18 @@ impl<'a> Voice<'a> {
             )?;
         }
         let controls = self.effective_controls;
-        if let Some(ramp) = &mut self.volume_ramp {
-            self.volume = ramp.value() as u32;
-            if ramp.finished() {
-                self.volume_ramp = None;
+        // Resuming an instrument also refreshes its fade between mixer blocks.
+        if phase == 0 || self.volume_update_pending {
+            if let Some(ramp) = &mut self.volume_ramp {
+                let elapsed = (self.frame - self.last_volume_update) / CONTROL_FRAMES as u64;
+                let finished = ramp.advance(elapsed as i32);
+                self.volume = ramp.current as u32;
+                if finished {
+                    self.volume_ramp = None;
+                }
             }
+            self.last_volume_update = self.frame;
+            self.volume_update_pending = false;
         }
         let controller = self
             .volume_control
@@ -881,9 +949,6 @@ impl<'a> Voice<'a> {
             }
         }
         self.wake_on_sample_end();
-        if let Some(ramp) = &mut self.volume_ramp {
-            ramp.advance(1);
-        }
         for pan in &mut self.pan {
             pan.advance();
         }

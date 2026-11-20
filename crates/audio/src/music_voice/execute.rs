@@ -9,6 +9,11 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 
+// Each instrument control tick represents one millisecond and renders 32 frames.
+fn wait_frames(milliseconds: u16) -> u64 {
+    u64::from(milliseconds) * crate::CONTROL_FRAMES as u64
+}
+
 impl Voice<'_> {
     pub(super) fn commands(
         &mut self,
@@ -324,7 +329,6 @@ impl Voice<'_> {
                     if let Some(curve) = curve {
                         self.volume = curve.translate(self.volume);
                     }
-                    self.volume_ramp = None;
                 }
                 Command::FadeVolume {
                     factor,
@@ -340,11 +344,8 @@ impl Voice<'_> {
                     if from_silence {
                         self.volume = 0;
                     }
-                    self.volume_ramp = Some(crate::volume::Ramp::new(
-                        self.volume as i32,
-                        target,
-                        crate::volume::frames_from_millis(u64::from(milliseconds))?,
-                    ));
+                    self.volume_ramp =
+                        Some(super::VolumeRamp::new(self.volume, target, milliseconds));
                 }
                 Command::Auxiliary { bus, value } => {
                     ensure!(bus < 2 && value < 128, "invalid auxiliary control");
@@ -400,12 +401,8 @@ impl Voice<'_> {
                         self.wait = Wait {
                             until: milliseconds
                                 .map(|duration| {
-                                    crate::volume::frames_from_millis(u64::from(duration)).and_then(
-                                        |frames| {
-                                            base.checked_add(frames)
-                                                .context("wait deadline overflow")
-                                        },
-                                    )
+                                    base.checked_add(wait_frames(duration))
+                                        .context("wait deadline overflow")
                                 })
                                 .transpose()?
                                 .unwrap_or(u64::MAX),
@@ -452,8 +449,7 @@ impl Voice<'_> {
                     {
                         let duration = self.random.below(upper_ms);
                         self.wait = Wait {
-                            until: self.now()
-                                + crate::volume::frames_from_millis(u64::from(duration))?,
+                            until: self.now() + wait_frames(duration),
                             key_off,
                             sample_end,
                         };
@@ -524,7 +520,7 @@ impl Voice<'_> {
             self.wait.until = if milliseconds == u16::MAX {
                 u64::MAX
             } else {
-                crate::volume::frames_from_millis(u64::from(milliseconds)).unwrap()
+                wait_frames(milliseconds)
                     + if from_start {
                         self.macro_started_at.unwrap()
                     } else {
