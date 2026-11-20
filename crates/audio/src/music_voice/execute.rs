@@ -214,9 +214,10 @@ impl Voice<'_> {
                     );
                     self.delay = self.interaural_delay.then(Default::default);
                     let cursor = resample::SampleCursor::new(self.resources.sample(sample)?)?;
-                    let ratio = crate::pitch::ratio(
+                    let ratio = crate::pitch::playback_ratio(
                         (i32::from(self.key) << 16) + (i32::from(self.cents) << 16) / 100,
                         cursor.sample(),
+                        0,
                     )?;
                     let mode = match self.source_mode {
                         Interpolation::Polyphase => resample::Mode::Polyphase(

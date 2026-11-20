@@ -1837,7 +1837,7 @@ fn beat_waits_use_source_frames_sample_tempo_and_allow_key_off() {
 }
 
 #[test]
-fn pitch_sweep_slots_change_pitch_cancel_and_disable_independently() {
+fn pitch_sweeps_combine_independently_and_respect_the_playback_limit() {
     use crate::data::{Interpolation, SweepSlot};
     let mut loaded = prepared();
     let sweep = |slot, step_hz, period| Command::PitchSweep {
@@ -1909,6 +1909,23 @@ fn pitch_sweep_slots_change_pitch_cancel_and_disable_independently() {
                 wait(80)
             ]
         )
+    );
+
+    // At more than two octaves above the sample's root, an upward sweep is inaudible.
+    let high_note = Command::SetNote {
+        key: 85,
+        cents: 0,
+        wait_ms: 0,
+        from_start: false,
+    };
+    let steady = render(&mut loaded, vec![high_note.clone(), wait(100)]);
+    let swept = render(
+        &mut loaded,
+        vec![high_note, sweep(SweepSlot::First, 1000, 8), wait(100)],
+    );
+    assert!(
+        steady == swept,
+        "upward sweep changed PCM above the playback limit"
     );
 }
 
